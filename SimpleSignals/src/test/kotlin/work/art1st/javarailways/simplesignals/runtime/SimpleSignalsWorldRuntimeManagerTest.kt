@@ -2500,6 +2500,86 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
+    fun `startup and script rule issues clear when a current entry returns to normal restrictive waiting`() {
+        val f = Fixture()
+        val route = f.upperRoute()
+        val signal = protectionSignal(ProtectionSignalKind.CURRENT_ENTRY, route)
+            .copy(signalType = "automatic:block")
+        val definitions = store()
+        definitions.save(f.worldId, SimpleSignalsWorldDefinitions(f.worldId, 1, listOf(f.region),
+            listOf(ProtectionRouteTableDefinition("test:issue-table", 1, f.region.regionId, 1, listOf(route))),
+            protectionSignals = listOf(signal)))
+        val sources = CapturingSignalEpochSourceService()
+        val issues = work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService()
+        val reports = mutableListOf<Pair<String, Throwable>>()
+        val manager = runtimeManager(plugin(), MutableTopologyService(f.currentTopology).service,
+            CapturingRoutePlanningService(), definitions, sources,
+            modelFailure = { context, failure -> reports += context to failure },
+            loadDefaultSignalCatalog = false, worldIssues = issues)
+        try {
+            assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+            var runtime = manager.authoringRuntime(f.worldId)!!
+            var epoch = protectionTestEpoch(runtime, f.worldId.toString(), TrainRestrictionSnapshotStore(f.worldId.toString()))
+            epoch.replaceSources(sources.sources.getValue(f.worldId))
+            fun process(number: Long, ready: Boolean? = null) {
+                ready?.let { routeReady ->
+                    val owner = InfrastructureOwner("test:issue-owner", 1)
+                    val snapshot = RouteSnapshot("test:issue-mission", number, f.currentTopology.revision,
+                        route.traversals.mapIndexed { index, traversal ->
+                            RouteSegmentSnapshot(traversal.railId, traversal.facing,
+                                if (index == 0) 0.0 else traversal.lowerAbMeters,
+                                if (index == route.traversals.lastIndex) 10.0 else traversal.upperAbMeters)
+                        })
+                    epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, ActiveRouteAdmissionSnapshot(owner,
+                        "train", snapshot, if (routeReady) ActiveRouteAdmissionState.GRANTED else ActiveRouteAdmissionState.PREPARING,
+                        RouteBoundary(40.0), RouteBoundary(40.0).takeIf { routeReady })))
+                }
+                val position = RailPositionSnapshot(f.entry, ViewDirection.AB, 0.0)
+                val continuations = runtime.authoringPublication().routeSelection.routesById.getValue(route.routeId)
+                    .requiredContinuations.associate { it.entry to it.selectedExit }
+                epoch.process(RailwayWorldFrameSnapshot.create(number, f.currentTopology.revision,
+                    listOf(TrainFrameSnapshot.create("train", "Train", number, number, 0.0, false, false,
+                        emptyList(), position, position, emptyList(), emptyList(), emptyList(), emptyList(), emptyList())),
+                    ActiveRailContinuationsSnapshot.create(f.currentTopology.revision, number, continuations)))
+            }
+            fun ruleIssues() = issues.snapshot(f.worldId).filter {
+                it.objectId == signal.signalId && it.code == "rule-unavailable"
+            }
+            fun assertWaiting() {
+                val state = runtime.sectionSignalSnapshot()!!.states.getValue(signal.signalId)
+                assertTrue((state as SectionSignalState.Unavailable).reason.endsWith("has no ready route"))
+                assertEquals(0.0, state.effectiveSpeedLimitMetersPerSecond)
+                assertTrue(ruleIssues().isEmpty(), "normal restrictive waiting must clear a previous rule issue")
+            }
+            process(1)
+            assertEquals(1, ruleIssues().size)
+            assertTrue((runtime.sectionSignalSnapshot()!!.states.getValue(signal.signalId) as SectionSignalState.Unavailable)
+                .reason.contains("startup preparation has not completed"))
+            manager.loadSignalPacks(writeAutomaticSignalPack(script = """
+                function evaluate(input, output) { throw new Error('broken-current-entry-rule'); }
+            """.trimIndent()))
+            runtime = manager.authoringRuntime(f.worldId)!!
+            epoch = protectionTestEpoch(runtime, f.worldId.toString(), TrainRestrictionSnapshotStore(f.worldId.toString()))
+            epoch.replaceSources(sources.sources.getValue(f.worldId))
+            process(2)
+            assertWaiting()
+            assertTrue(reports.isEmpty())
+            process(3, true)
+            assertEquals(1, ruleIssues().size)
+            assertEquals(1, reports.size)
+            assertTrue(reports.single().second.stackTraceToString().contains("broken-current-entry-rule"))
+            process(4, false)
+            assertWaiting()
+            assertEquals(1, reports.size, "expected waiting does not report another script failure")
+            process(5, true)
+            assertEquals(1, ruleIssues().size)
+            assertEquals(2, reports.size, "a script failure after normal waiting must be reported again")
+        } finally {
+            manager.clearLocal().toCompletableFuture().join()
+        }
+    }
+
+    @Test
     fun `shared protection entrance combines only finite signal limits and preserves all clear as null`() {
         val f = Fixture()
         val selected = f.upperRoute()

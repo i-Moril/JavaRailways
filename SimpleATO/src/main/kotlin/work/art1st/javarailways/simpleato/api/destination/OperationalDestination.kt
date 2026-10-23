@@ -77,13 +77,20 @@ sealed interface DestinationRole {
         val positionToleranceMeters: Double = 1.0,
         val usableLengthMeters: Double? = null,
         val defaultDwellTicks: Long = 0L,
-        val releaseDistanceMetersAfter: Double = 0.0
+        val releaseDistanceMetersAfter: Double = 0.0,
+        val stoppingAreaId: String = berthId,
+        val minimumTrainLengthMeters: Double? = null,
+        val maximumTrainLengthMeters: Double? = null
     ) : DestinationRole {
         override val type: DestinationRoleType = DestinationRoleType.STATION_BERTH
 
         init {
             require(stationDisplayName.isNotBlank() && stationDisplayName == stationDisplayName.trim())
             StationBerthRef(stationId, berthId)
+            work.art1st.javarailways.simpleato.api.station.StationStoppingAreaRef(stationId, stoppingAreaId)
+            require(minimumTrainLengthMeters == null || minimumTrainLengthMeters.isFinite() && minimumTrainLengthMeters > 0.0)
+            require(maximumTrainLengthMeters == null || maximumTrainLengthMeters.isFinite() && maximumTrainLengthMeters > 0.0)
+            require(minimumTrainLengthMeters == null || maximumTrainLengthMeters == null || minimumTrainLengthMeters <= maximumTrainLengthMeters)
             require(stoppingOffsetMetersBefore.isFinite() && stoppingOffsetMetersBefore >= 0.0)
             require(positionToleranceMeters.isFinite() && positionToleranceMeters > 0.0)
             require(usableLengthMeters == null || usableLengthMeters.isFinite() && usableLengthMeters > 0.0)
@@ -203,6 +210,7 @@ class OperationalDestinationService(private val world: World) {
         }
         val stationRole = destination.role as? DestinationRole.StationBerthRole
         val depotRole = destination.role as? DestinationRole.DepotStablingPointRole
+        requireUnallocatedStoppingArea(destination)
         if (stationRole != null) registerStationBerth(destination, stationRole, railLength)
         if (depotRole != null) {
             data.depots.addStablingPoint(
@@ -231,6 +239,7 @@ class OperationalDestinationService(private val world: World) {
     @MainThread
     fun removeAllOnRail(railId: UUID): List<OperationalDestination> {
         val attached = data.destinations.all().filter { it.railId == railId }
+        attached.forEach(::requireUnallocatedStoppingArea)
         attached.forEach { destination ->
             check(remove(destination.id) == destination) {
                 "Destination changed while deleting rail $railId: ${destination.id}"
@@ -408,6 +417,7 @@ class OperationalDestinationService(private val world: World) {
                 "WayPoint ID already registered: ${destination.id}"
             }
         }
+        requireUnallocatedStoppingArea(destination)
         remove(oldId)
         try {
             register(destination)
@@ -420,6 +430,7 @@ class OperationalDestinationService(private val world: World) {
     @MainThread
     fun remove(id: String): OperationalDestination? {
         val destination = data.destinations[id] ?: return null
+        requireUnallocatedStoppingArea(destination)
         (destination.role as? DestinationRole.DepotStablingPointRole)?.let { role ->
             data.depots.removeStablingPoint(role.pointRef)
         }
@@ -431,6 +442,14 @@ class OperationalDestinationService(private val world: World) {
         }
         basicData.wayPoints.remove(id)
         return destination
+    }
+
+    private fun requireUnallocatedStoppingArea(destination: OperationalDestination) {
+        val role = destination.role as? DestinationRole.StationBerthRole ?: return
+        val area = work.art1st.javarailways.simpleato.api.station.StationStoppingAreaRef(role.stationId, role.stoppingAreaId)
+        check(!data.dispatcher.hasStationStoppingAreaAllocation(area)) {
+            "cannot edit an allocated station stopping area: $area"
+        }
     }
 
     private fun registerStationBerth(
@@ -454,6 +473,9 @@ class OperationalDestinationService(private val world: World) {
             stoppingOffsetMetersBefore = role.stoppingOffsetMetersBefore,
             positionToleranceMeters = role.positionToleranceMeters,
             usableLengthMeters = role.usableLengthMeters,
+            stoppingAreaId = role.stoppingAreaId,
+            minimumTrainLengthMeters = role.minimumTrainLengthMeters,
+            maximumTrainLengthMeters = role.maximumTrainLengthMeters,
             defaultDwellTicks = role.defaultDwellTicks,
             releaseDistanceMetersAfter = role.releaseDistanceMetersAfter,
             doorSide = role.doorSide

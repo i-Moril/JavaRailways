@@ -14,6 +14,9 @@ import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
+import work.art1st.javarailways.basic.api.route.FixedFormationChangeIntent
+import work.art1st.javarailways.basic.api.route.FormationChangeHandle
+import work.art1st.javarailways.basic.api.route.FormationChangeResult
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.util.annotation.MainThread
@@ -29,12 +32,15 @@ import work.art1st.javarailways.basic.infrastructure.RouteBoundResourceCatalogUp
  * while the platform adapter uses this owner to join the registry, physical preparation and
  * observation-driven tail release into one lifecycle.
  */
+@OptIn(work.art1st.javarailways.core.api.util.annotation.AsyncEventApi::class)
 class RouteResourceAdmissionRuntime private constructor(
     private val currentTopology: () -> TopologyState,
     private val routeBoundResources: RouteBoundResourceCatalog,
     private val engine: RouteResourceAdmissionEngine,
     initialTopology: TopologyState,
-    private val topologyRegistration: AutoCloseable
+    private val topologyRegistration: AutoCloseable,
+    private val formationRegistration: AutoCloseable,
+    private val physicsFormationRegistration: AutoCloseable
 ) : AutoCloseable {
     private var catalogTopology = initialTopology
     private var physicalResources: Set<StableInfrastructureResource> = emptySet()
@@ -63,6 +69,39 @@ class RouteResourceAdmissionRuntime private constructor(
     @MainThread
     fun progress(requester: Any, handle: RouteAdmissionHandle): RouteAdmissionResult =
         if (closed) unavailable() else engine.progress(requester, handle)
+
+    @MainThread
+    fun prepareFormationChange(requester: Any, intent: FixedFormationChangeIntent): FormationChangeResult =
+        if (closed) formationUnavailable() else engine.prepareFormationChange(requester, intent)
+
+    @MainThread
+    fun sealFormationPublication(requester: Any, handle: FormationChangeHandle): FormationChangeResult =
+        if (closed) formationUnavailable() else engine.sealFormationPublication(requester, handle)
+
+    @MainThread
+    fun formationChangeState(requester: Any, handle: FormationChangeHandle): FormationChangeResult =
+        if (closed) formationUnavailable() else engine.formationChangeState(requester, handle)
+
+    @MainThread
+    fun abortFormationChange(requester: Any, handle: FormationChangeHandle): FormationChangeResult =
+        if (closed) formationUnavailable() else engine.abortFormationChange(requester, handle)
+
+    @MainThread
+    fun bindFormationOutputs(requester: Any, handle: FormationChangeHandle, intents: List<RouteResourceIntent>): FormationChangeResult =
+        if (closed) formationUnavailable() else engine.bindFormationOutputs(requester, handle, intents)
+
+    @MainThread
+    fun requestFormationOutput(requester: Any, handle: FormationChangeHandle, intent: RouteResourceIntent): RouteAdmissionResult =
+        if (closed) unavailable() else engine.requestFormationOutput(requester, handle, intent)
+
+    @MainThread
+    fun resumeFormationOutput(requester: Any, handle: FormationChangeHandle, grant: RouteGrantId): FormationChangeResult =
+        if (closed) formationUnavailable() else engine.resumeFormationOutput(requester, handle, grant)
+
+    @MainThread
+    fun requestCouplingApproach(requester: Any, handle: FormationChangeHandle,
+                                intent: RouteResourceIntent): RouteAdmissionResult =
+        if (closed) unavailable() else engine.requestCouplingApproach(requester, handle, intent)
 
     @MainThread
     fun suspendReleaseForReversal(
@@ -145,7 +184,10 @@ class RouteResourceAdmissionRuntime private constructor(
     @MainThread
     override fun close() {
         closed = true
-        topologyRegistration.close()
+        engine.disableFormationContact()
+        try { physicsFormationRegistration.close() } finally {
+            try { formationRegistration.close() } finally { topologyRegistration.close() }
+        }
     }
 
     private fun refreshPhysicalResources() {
@@ -171,6 +213,9 @@ class RouteResourceAdmissionRuntime private constructor(
         RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "route admission runtime is closed")
     )
 
+    private fun formationUnavailable() = FormationChangeResult.Rejected(
+        RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "route admission runtime is closed"))
+
     companion object {
         /** Creates the Basic-owned runtime before the world's physics coordinator is started. */
         @JvmStatic
@@ -187,6 +232,13 @@ class RouteResourceAdmissionRuntime private constructor(
                 ResourcePreparationDescriptor
             ) -> (() -> ResourcePreparationTicket)?,
             publishAdmissionUpdate: (ActiveRouteAdmissionUpdate) -> Unit = {},
+            authorizeFormationRoute: (
+                work.art1st.javarailways.basic.api.route.FormationRouteContext,
+                RouteResourceIntent
+            ) -> work.art1st.javarailways.basic.api.route.FormationRoutePolicyResult = { _, _ ->
+                work.art1st.javarailways.basic.api.route.FormationRoutePolicyResult.Rejected(
+                    RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "formation policy is unavailable"))
+            },
             stallWorld: (String, Exception) -> Unit
         ): RouteResourceAdmissionRuntime {
             val topology = world.topologyState
@@ -205,12 +257,46 @@ class RouteResourceAdmissionRuntime private constructor(
                     resolveContributedPreparation
                 ),
                 stallWorld = stallWorld,
-                publishAdmissionUpdate = publishAdmissionUpdate
+                publishAdmissionUpdate = publishAdmissionUpdate,
+                formationWorld = world,
+                authorizeFormationRoute = authorizeFormationRoute
             )
             val registration = world.registerTopologyChangeListener { change -> engine.invalidateTopology(change) }
+            var formationRegistration: AutoCloseable? = null
+            var physicsFormationRegistration: AutoCloseable? = null
             return try {
-                RouteResourceAdmissionRuntime({ world.topologyState }, catalog, engine, topology, registration)
+                formationRegistration = work.art1st.javarailways.core.api.event.processor.MainRailEventBus.register(
+                    object : work.art1st.javarailways.core.api.event.processor.EventListener {
+                        @work.art1st.javarailways.core.api.event.processor.HandlesEvent
+                        fun link(event: work.art1st.javarailways.core.api.event.TrainLinkEvent) {
+                            if (event.world === world) engine.guardFormationLink(event)
+                        }
+                        @work.art1st.javarailways.core.api.event.processor.HandlesEvent
+                        fun split(event: work.art1st.javarailways.core.api.event.TrainSplitEvent) {
+                            if (event.world === world) engine.guardFormationSplit(event)
+                        }
+                        @work.art1st.javarailways.core.api.event.processor.HandlesEvent
+                        fun linked(event: work.art1st.javarailways.core.api.event.TrainLinkSuccessEvent) {
+                            if (event.world === world) engine.observedFormationLink(event)
+                        }
+                        @work.art1st.javarailways.core.api.event.processor.HandlesEvent
+                        fun splitComplete(event: work.art1st.javarailways.core.api.event.TrainSplitSuccessEvent) {
+                            if (event.world === world) engine.observedFormationSplit(event)
+                        }
+                    })
+                physicsFormationRegistration = work.art1st.javarailways.core.api.event.processor.PhysicsRailEventBus.register(
+                    object : work.art1st.javarailways.core.api.event.processor.EventListener {
+                        @work.art1st.javarailways.core.api.event.processor.HandlesEvent
+                        fun contact(event: work.art1st.javarailways.core.api.event.CollisionEvent) {
+                            if (event.world === world) engine.observeFormationCollision(event)
+                        }
+                    })
+                RouteResourceAdmissionRuntime({ world.topologyState }, catalog, engine, topology, registration,
+                    formationRegistration, physicsFormationRegistration)
             } catch (failure: Exception) {
+                engine.disableFormationContact()
+                physicsFormationRegistration?.close()
+                formationRegistration?.close()
                 registration.close()
                 throw failure
             }

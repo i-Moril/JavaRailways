@@ -22,6 +22,11 @@ import work.art1st.javarailways.simpleato.api.line.LineId
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.simpleato.timetable.Timetable
+import work.art1st.javarailways.simpleato.timetable.TimetableFormationCatalog
+import work.art1st.javarailways.simpleato.timetable.TimetableFormationEvent
+import work.art1st.javarailways.simpleato.timetable.TimetableFormationOutput
+import work.art1st.javarailways.simpleato.timetable.FormationOutputDisposition
+import work.art1st.javarailways.simpleato.api.depot.*
 import work.art1st.javarailways.simpleato.timetable.TimetableAction
 import work.art1st.javarailways.simpleato.timetable.TimetableLineSpeedLimit
 import work.art1st.javarailways.simpleato.timetable.TimetableService
@@ -70,6 +75,323 @@ class IsolatedTimetableSimulationFactoryTest {
         }
         work.art1st.javarailways.core.api.util.plugin.PluginRegistry.register(BasicPlugin.INSTANCE)
         work.art1st.javarailways.core.api.util.plugin.PluginRegistry.register(SimpleATOPlugin.INSTANCE)
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
+    fun `one physical service continues across stopped main and branch segments with their own speed caps`(returning: Boolean) {
+        val source = createTestWorld()
+        registerWorldData(source)
+        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(340.0, 1))
+        for ((id, arc) in listOf("a" to 20.0, "b" to 60.0, "c" to 110.0, "d" to 180.0, "e" to 280.0)) {
+            OperationalDestinationService(source).register(OperationalDestination("$id@one", id.uppercase(), rail.id, arc,
+                if (returning) ViewDirection.BA else ViewDirection.AB, DestinationRole.StationBerthRole(StationId(id), stationDisplayName = id.uppercase(),
+                    berthId = "one", doorSide = DoorSide.NONE, usableLengthMeters = 30.0)))
+        }
+        val main = LineId("main")
+        val branch = LineId("branch")
+        val lines = source.simpleAtoWorldData.lines
+        lines.put(Line(main, "Main", listOf("a", "b", "c", "d").map(::StationId),
+            listOf("d", "c", "b", "a").map(::StationId)), 0L)
+        lines.put(Line(branch, "Branch", listOf("c", "e").map(::StationId),
+            listOf("e", "c").map(::StationId)), 1L)
+        fun call(id: String, status: work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus,
+                 arrival: Long? = null, departure: Long? = null) =
+            work.art1st.javarailways.simpleato.timetable.TimetableRunCall(id, id, "$id@one", status, arrival, departure)
+        val start = if (returning) "e" else "a"
+        val end = if (returning) "a" else "e"
+        val firstLine = if (returning) branch else main
+        val secondLine = if (returning) main else branch
+        val direction = if (returning) work.art1st.javarailways.simpleato.api.line.LineDirection.DOWN else work.art1st.javarailways.simpleato.api.line.LineDirection.UP
+        fun timetable(secondSpeed: Double) = Timetable("interline", services = listOf(TimetableService("duty",
+            TrainSelector.TrainId("scheduled"), listOf(TimetableStep.Check("$start@one"),
+                TimetableStep.At(0, TimetableAction.DestinationOptions("c@one", minimumDwellTicks = 10)),
+                TimetableStep.At(0, if (returning) TimetableAction.GoTo("c@one") else TimetableAction.GoVia(listOf("b@one", "c@one"))),
+                TimetableStep.At(500, TimetableAction.DestinationOptions("$end@one", minimumDwellTicks = 0)),
+                TimetableStep.At(500, if (returning) TimetableAction.GoVia(listOf("b@one", "a@one")) else TimetableAction.GoTo("e@one"))),
+            runSegments = listOf(
+                work.art1st.javarailways.simpleato.timetable.TimetableRunSegment("first-run", firstLine, 1, 3,
+                    diagramLineId = firstLine.value, lineDirection = direction,
+                    calls = listOf(call(start, work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.ORIGIN, departure = 0)) +
+                        (if (returning) emptyList() else listOf(call("b", work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.PASS))) +
+                        call("c", work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.TERMINAL)),
+                work.art1st.javarailways.simpleato.timetable.TimetableRunSegment("second-run", secondLine, 3, 5,
+                    diagramLineId = secondLine.value, lineDirection = direction,
+                    calls = listOf(call("c", work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.ORIGIN, departure = 500)) +
+                        (if (returning) listOf(call("b", work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.PASS)) else emptyList()) +
+                        call(end, work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.TERMINAL))
+            ))), lineSpeedLimits = listOf(TimetableLineSpeedLimit(firstLine, 6.0), TimetableLineSpeedLimit(secondLine, secondSpeed)))
+        val factory = IsolatedTimetableSimulationFactory(IsolatedSimulationProfileResolver { _, _, _ -> profile() },
+            9.80665, atoSafetyDistanceMeters = 0.0, extensionPlugin = BasicPlugin.INSTANCE)
+        try {
+            fun run(definition: Timetable): Long {
+                val captured = factory.capture(source, definition,
+                    listOf(TimetableProfileSelection("duty", SimulationProfileType.TRAIN_TEMPLATE, "template")))
+                return factory.create(captured, workerThreads = 1).use { simulation ->
+                    val reached = mutableListOf<String>()
+                    val listener = simulation.world.simpleAtoWorldData.dispatcher.observeWaypointProgress(
+                        work.art1st.javarailways.simpleato.timetable.TimetableServiceRunId("interline", "duty"),
+                        listener = work.art1st.javarailways.simpleato.timetable.TimetableWaypointProgressListener {
+                            reached += it.waypointId
+                        })
+                    try {
+                        val result = simulation.simulate(IsolatedTimetableSimulationRequest(definition, delayThresholdTicks = 8000))
+                        assertTrue(result is IsolatedTimetableSimulationResult.Completed, result.toString())
+                        assertEquals(1, result.runs.size)
+                        assertEquals(1, simulation.world.allTrains.size)
+                        assertEquals(1, reached.count { it == "c@one" })
+                        assertEquals(1, reached.count { it == "$end@one" })
+                        assertEquals("second-run", result.runs.single().currentRunId)
+                        assertEquals(secondLine, result.runs.single().currentLineId)
+                        assertEquals(if (returning) 20.0 else 280.0, simulation.world.allTrains.single().publishedFrame!!.head.arcLengthInAbMeters, 0.5)
+                        result.simulatedTicks
+                    } finally { listener.close() }
+                }
+            }
+            val slow = run(timetable(1.5))
+            val fast = run(timetable(6.0))
+            assertTrue(slow > fast + 500, "branch cap must materially change real travel time: slow=$slow fast=$fast")
+            assertTrue(source.allTrains.isEmpty(), "isolated train creation must not mutate source world")
+        } finally {
+            source.physicsCoordinator.close()
+            (source.tickManager as? AutoCloseable)?.close()
+        }
+    }
+
+    @Test
+    fun `isolated dynamic station stop reverses and returns using actual selected marker`() {
+        val source = createTestWorld()
+        registerWorldData(source)
+        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(180.0, 1))
+        source.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 20.0))
+        val station = StationId("central")
+        for ((id, arc) in listOf("short" to 100.0, "long" to 120.0)) {
+            OperationalDestinationService(source).register(OperationalDestination("central@$id", id, rail.id, arc,
+                ViewDirection.AB, DestinationRole.StationBerthRole(station, berthId = id, doorSide = DoorSide.NONE,
+                    usableLengthMeters = 30.0, maximumTrainLengthMeters = if (id == "short") 5.0 else 30.0,
+                    defaultDwellTicks = 10)))
+        }
+        val selection = work.art1st.javarailways.simpleato.api.station.StationStopSelection(station,
+            listOf(work.art1st.javarailways.simpleato.api.station.StationStopCandidate("short", 0),
+                work.art1st.javarailways.simpleato.api.station.StationStopCandidate("long", 1)),
+            work.art1st.javarailways.simpleato.api.station.StationStopSelectionPolicy.AVAILABLE_PRIORITY)
+        val timetable = Timetable("platform-turnback", services = listOf(TimetableService("duty", TrainSelector.TrainId("train"),
+            listOf(TimetableStep.Check("origin"), TimetableStep.At(0, TimetableAction.SelectStop(selection)),
+                TimetableStep.At(0, TimetableAction.Reverse), TimetableStep.At(0, TimetableAction.GoTo("origin"))))))
+        val factory = IsolatedTimetableSimulationFactory(IsolatedSimulationProfileResolver { _, _, id -> profile(id) },
+            9.80665, atoSafetyDistanceMeters = 0.0, extensionPlugin = BasicPlugin.INSTANCE)
+        try {
+            val captured = factory.capture(source, timetable, listOf(TimetableProfileSelection("duty", SimulationProfileType.TRAIN_TEMPLATE, "template")))
+            factory.create(captured, workerThreads = 1).use { simulation ->
+                val result = simulation.simulate(IsolatedTimetableSimulationRequest(timetable))
+                assertTrue(result is IsolatedTimetableSimulationResult.Completed, result.toString())
+                val run = result.runs.single()
+                assertEquals("long", run.selectedBerthRef?.berthId)
+                assertTrue(run.selectedBerthCommitted)
+                assertFalse(run.berthHeld)
+                assertEquals(20.0, simulation.world.allTrains.single().publishedFrame!!.head.arcLengthInAbMeters, 0.5)
+            }
+        } finally {
+            source.physicsCoordinator.close()
+            (source.tickManager as? AutoCloseable)?.close()
+        }
+    }
+
+    @Test
+    fun `isolated simulation couples moves and splits the same two permanent units`() {
+        simulateCoupleMoveSplit(withDisplays = false)
+    }
+
+    @Test
+    fun `actual coupling and split keep the two unit display contexts separate`() {
+        simulateCoupleMoveSplit(withDisplays = true)
+    }
+
+    private fun simulateCoupleMoveSplit(withDisplays: Boolean) {
+        val source = createTestWorld()
+        registerWorldData(source)
+        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1))
+        val home = DepotId("home")
+        val depots = source.simpleAtoWorldData.depots
+        val trains = source.onOwnerForTest {
+            listOf("one" to 30.0, "two" to 41.5).map { (id, arc) ->
+                val head = work.art1st.javarailways.core.physics.rail.RailLocationWithFacing(rail.viewAB, arc)
+                val car = work.art1st.javarailways.core.physics.train.CoreCar.create("$id-car",
+                    work.art1st.javarailways.core.physics.train.CoreBogie.create(head),
+                    work.art1st.javarailways.core.physics.train.CoreBogie.create(head), length = 10.0,
+                    floorHeight = 0.0, connectorLengthAtA = 0.0, connectorLengthAtB = 0.0,
+                    bogieAOffset = 3.5, bogieBOffset = -3.5, world = source)
+                work.art1st.javarailways.core.physics.train.CoreTrain.create(id, listOf(car), source).also {
+                    it.setLocation(head); it.commitMaintenancePlacement()
+                    source.basicWorldData.wayPoints.add(WayPoint(id, id, rail.id, arc))
+                    OperationalDestinationService(source).register(OperationalDestination("home@$id", id, rail.id, arc,
+                        ViewDirection.AB, role = DestinationRole.DepotStablingPointRole(home.value, id)))
+                    depots.registerFixedUnit(FixedEmuUnit("unit-$id", home, listOf(car.id), "emu"), listOf(car.id))
+                    depots.registerRollingStock(RollingStockRecord(id, home, "emu", emptySet(), 1, 10.0, 10.0, emptySet()), StablingPointRef(home, id))
+                }
+            }
+        }
+        source.basicWorldData.wayPoints.add(WayPoint("end", "End", rail.id, 120.0))
+        val outputTarget = if (withDisplays) "d@one" else "end"
+        if (withDisplays) {
+            for ((id, station, arc) in listOf(Triple("c@one", "c", 41.5), Triple("d@one", "d", 120.0))) {
+                OperationalDestinationService(source).register(OperationalDestination(id, station.uppercase(), rail.id, arc,
+                    ViewDirection.AB, DestinationRole.StationBerthRole(StationId(station), berthId = "one", doorSide = DoorSide.NONE,
+                        usableLengthMeters = 40.0)))
+            }
+            source.simpleAtoWorldData.lines.put(Line(LineId("joined-line"), "Joined line",
+                listOf(StationId("c"), StationId("d")), listOf(StationId("d"), StationId("c"))), 0L)
+        }
+        fun at(action: TimetableAction) = TimetableStep.At(0, action)
+        val definition = Timetable("join-divide", services = listOf(
+            TimetableService("one", TrainSelector.TrainId("one"), listOf(TimetableStep.Check("one"), at(TimetableAction.Couple("join")),
+                at(TimetableAction.GoTo(outputTarget)), at(TimetableAction.Split("divide")))),
+            TimetableService("two", TrainSelector.TrainId("two"), listOf(TimetableStep.Check("two"), at(TimetableAction.Couple("join"))))),
+            formationEvents = TimetableFormationCatalog(listOf(
+                TimetableFormationEvent.Couple("join", "one", "one", "two",
+                    work.art1st.javarailways.simpleato.timetable.FormationStationaryEnd.TAIL,
+                    work.art1st.javarailways.simpleato.timetable.FormationRendezvous("one", "two"), 0.2,
+                    TimetableFormationOutput("combined", FormationOutputDisposition.Duty("one"))),
+                TimetableFormationEvent.Split("divide", "one", 1,
+                    TimetableFormationOutput("first", FormationOutputDisposition.Hold),
+                    TimetableFormationOutput("rest", FormationOutputDisposition.Hold)))))
+        val timetable = if (!withDisplays) definition else {
+            val segment = work.art1st.javarailways.simpleato.timetable.TimetableRunSegment("joined-run", LineId("joined-line"), 2, 3,
+                diagramLineId = "joined-line", lineDirection = work.art1st.javarailways.simpleato.api.line.LineDirection.UP,
+                calls = listOf(
+                    work.art1st.javarailways.simpleato.timetable.TimetableRunCall("joined-c", "c", "c@one",
+                        work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.ORIGIN, departureTick = 0),
+                    work.art1st.javarailways.simpleato.timetable.TimetableRunCall("joined-d", "d", outputTarget,
+                        work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.TERMINAL)))
+            definition.copy(services = definition.services.map { if (it.id == "one") it.copy(runSegments = listOf(segment)) else it },
+                lineSpeedLimits = listOf(TimetableLineSpeedLimit(LineId("joined-line"), 8.0)),
+                operationalTrips = listOf("trip-D" to "D", "trip-E" to "E").mapIndexed { index, (id, destination) ->
+                    work.art1st.javarailways.simpleato.timetable.TimetableOperationalTrip(id,
+                        kotlinx.serialization.json.buildJsonObject { put("destination", kotlinx.serialization.json.JsonPrimitive(destination)) },
+                        listOf(work.art1st.javarailways.simpleato.timetable.TimetableOperationalTripSegment("one", "joined-run", listOf(index + 1))))
+                })
+        }
+        val factory = IsolatedTimetableSimulationFactory(IsolatedSimulationProfileResolver { _, _, id ->
+            profile(id).copy(type = SimulationProfileType.WORLD_TRAIN)
+        }, 9.80665, atoSafetyDistanceMeters = 0.0, extensionPlugin = BasicPlugin.INSTANCE)
+        try {
+            val captured = factory.capture(source, timetable, trains.map { TimetableProfileSelection(it.id, SimulationProfileType.WORLD_TRAIN, it.id) })
+            var completedAt: Long? = null
+            repeat(2) {
+                factory.create(captured, workerThreads = 1).use { simulation ->
+                    val initialCars = simulation.world.allTrains.flatMap { it.cars }.map { it.id }.toSet()
+                    val initialUnits = simulation.world.simpleAtoWorldData.depots.allFixedUnits()
+                    val result = simulation.simulate(IsolatedTimetableSimulationRequest(timetable, delayThresholdTicks = 4000))
+                    assertTrue(result is IsolatedTimetableSimulationResult.Completed, result.toString())
+                    completedAt?.let { assertEquals(it, result.simulatedTicks) }
+                    completedAt = result.simulatedTicks
+                    assertEquals(2, simulation.world.allTrains.size)
+                    assertEquals(initialCars, simulation.world.allTrains.flatMap { it.cars }.map { it.id }.toSet())
+                    assertEquals(initialUnits, simulation.world.simpleAtoWorldData.depots.allFixedUnits())
+                    assertTrue(simulation.world.allTrains.all { it.publishedFrame!!.head.arcLengthInAbMeters > 90.0 })
+                    if (withDisplays) {
+                        val displays = result.runs.single { it.id.serviceId == "one" }.unitDisplays
+                        assertEquals(initialUnits.map { it.id }.toSet(), displays.map { it.unitId }.toSet())
+                        assertEquals(setOf("trip-D", "trip-E"), displays.map { it.operationalTripId }.toSet())
+                        assertEquals(setOf("D", "E"), displays.map {
+                            (it.values.getValue("destination") as kotlinx.serialization.json.JsonPrimitive).content
+                        }.toSet())
+                        assertTrue(displays.all { it.remainingStops.isEmpty() }, displays.toString())
+                        for (output in simulation.world.allTrains) {
+                            val actualUnit = initialUnits.single { unit -> unit.carIds == output.cars.map { it.id } }
+                            val selected = simulation.world.onOwnerForTest {
+                                simulation.world.simpleAtoWorldData.dispatcher.unitDisplaysForTrain(
+                                    simulation.world, output.id, timetable.id, 0L)
+                            }
+                            assertEquals(listOf(actualUnit.id), selected.map { it.unitId })
+                            assertEquals(displays.single { it.unitId == actualUnit.id }.values, selected.single().values)
+                        }
+                    }
+                }
+            }
+            assertEquals(listOf("one-car", "two-car"), trains.flatMap { it.cars }.map { it.id })
+        } finally {
+            source.physicsCoordinator.close()
+            (source.tickManager as? AutoCloseable)?.close()
+        }
+    }
+
+    @Test
+    fun `structural simulation creates complete source units and derives child only from actual split`() {
+        simulateSplitOutput(storeOutput = false)
+    }
+
+    @Test
+    fun `split output stores in another depot without changing unit home affiliation`() {
+        simulateSplitOutput(storeOutput = true)
+    }
+
+    private fun simulateSplitOutput(storeOutput: Boolean) {
+        val source = createTestWorld()
+        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1))
+        registerWorldData(source)
+        source.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 30.0))
+        source.basicWorldData.wayPoints.add(WayPoint("end", "End", rail.id, 180.0))
+        source.basicWorldData.wayPoints.add(WayPoint("child-end", "Child end", rail.id, 120.0))
+        val train = createTrainWithConfig("live-source", rail, source, listOf(10.0, 10.0))
+        val depot = DepotId("home")
+        val point = StablingPointRef(depot, "point")
+        val depots = source.simpleAtoWorldData.depots
+        OperationalDestinationService(source).register(OperationalDestination("home@point", "Home", rail.id, 30.0, ViewDirection.AB,
+            role = DestinationRole.DepotStablingPointRole(depot.value, "point", "Home")))
+        val destinationDepot = DepotId("other")
+        if (storeOutput) {
+            OperationalDestinationService(source).register(OperationalDestination("other@point", "Other", rail.id, 240.0, ViewDirection.AB,
+                role = DestinationRole.DepotStablingPointRole(destinationDepot.value, "point", "Other")))
+        }
+        val ids = train.cars.map { it.id }
+        ids.forEachIndexed { index, id -> depots.registerFixedUnit(FixedEmuUnit("unit-$index", depot, listOf(id), "emu"), ids) }
+        depots.registerRollingStock(RollingStockRecord(train.id, depot, "emu", emptySet(), 2, 20.0, 10.0, emptySet()), point)
+        val base = profile()
+        val profile = base.copy(type = SimulationProfileType.WORLD_TRAIN, id = train.id,
+            carControls = List(2) { base.carControls.single() }, cars = List(2) { base.cars.single() })
+        val factory = IsolatedTimetableSimulationFactory(IsolatedSimulationProfileResolver { _, _, _ -> profile },
+            9.80665, atoSafetyDistanceMeters = 0.0, extensionPlugin = BasicPlugin.INSTANCE)
+        val timetable = Timetable("formation-sim", services = listOf(
+            TimetableService("source", TrainSelector.TrainId("scheduled"), listOf(TimetableStep.Check("origin"),
+                TimetableStep.At(0, TimetableAction.Split("split")), TimetableStep.At(0, TimetableAction.GoTo("end"))) +
+                if (storeOutput) listOf(TimetableStep.At(0, TimetableAction.StoreAtDepot(destinationDepot))) else emptyList()),
+            TimetableService("child", TrainSelector.AnyTrain, listOf(TimetableStep.At(100, TimetableAction.TakeFromFormationOutput("split", "rest")),
+                TimetableStep.At(100, TimetableAction.GoTo("child-end"))))),
+            formationEvents = TimetableFormationCatalog(listOf(TimetableFormationEvent.Split("split", "source", 1,
+                TimetableFormationOutput("first", FormationOutputDisposition.Duty("source")),
+                TimetableFormationOutput("rest", FormationOutputDisposition.Duty("child"))))))
+        val selection = TimetableProfileSelection("source", SimulationProfileType.WORLD_TRAIN, train.id)
+        try {
+            assertThrows(IllegalArgumentException::class.java) { factory.capture(source, timetable,
+                listOf(selection, selection.copy(serviceId = "child"))) }
+            assertThrows(IllegalArgumentException::class.java) { factory.capture(source, timetable,
+                listOf(selection.copy(profileType = SimulationProfileType.TRAIN_TEMPLATE))) }
+            val snapshot = factory.capture(source, timetable, listOf(selection))
+            factory.create(snapshot, workerThreads = 1).use { simulation ->
+                assertEquals(1, simulation.world.allTrains.size)
+                val simDepots = simulation.world.simpleAtoWorldData.depots
+                assertEquals(2, simDepots.allFixedUnits().size)
+                assertEquals(2, simDepots.allFixedUnitAssignments().size)
+                assertTrue(simDepots.allFixedUnits().all { unit -> unit.carIds.none(ids::contains) })
+                val result = simulation.simulate(IsolatedTimetableSimulationRequest(timetable))
+                assertTrue(result is IsolatedTimetableSimulationResult.Completed, result.toString())
+                assertEquals(2, simulation.world.allTrains.size)
+                assertEquals(2, simDepots.allFixedUnits().size)
+                assertEquals(if (storeOutput) 1 else 2, simDepots.allFixedUnitAssignments().size)
+                assertTrue(simDepots.allFixedUnits().all { it.homeDepotId == depot })
+                if (storeOutput) {
+                    val stored = simDepots.allRollingStock().filter { it.state == RollingStockState.AVAILABLE }
+                    assertEquals(1, stored.size)
+                    assertEquals(StablingPointRef(destinationDepot, "point"), stored.single().stablingPointRef)
+                }
+            }
+            assertEquals(ids, train.cars.map { it.id })
+            assertEquals(RollingStockState.AVAILABLE, depots.rollingStock(train.id)?.state)
+        } finally {
+            source.physicsCoordinator.close()
+            (source.tickManager as? AutoCloseable)?.close()
+        }
     }
 
     @Test

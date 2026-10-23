@@ -5,6 +5,7 @@ import { CodeOutlined, GlobalOutlined, MoonOutlined, NodeIndexOutlined, PlayCirc
 import { api } from './api';
 import { frontendDemoEnabled } from './frontendDev';
 import { DutyEditor } from './DutyEditor';
+import { StationProgramLibrary } from './StationProgramLibrary';
 import { LinesPage } from './LinesPage';
 import { LogsPage } from './LogsPage';
 import { IssuesPage } from './IssuesPage';
@@ -16,10 +17,10 @@ import type { LineCollection,WorldMetadata,WorldSummary } from './types';
 import './styles.css';
 import './studioPages.css';
 
-export type View = 'graph' | 'map' | 'lines' | 'duties' | 'validation' | 'issues' | 'logs';
+export type View = 'graph' | 'map' | 'lines' | 'duties' | 'validation' | 'issues' | 'programs' | 'logs';
 export const DEFAULT_VIEW:View='map';
 export const navigationForAuthentication=(authenticated:boolean|null):View[]=>authenticated
-  ?['graph','map','lines','duties','validation','issues','logs']
+  ?['graph','map','lines','duties','validation','issues','programs','logs']
   :['map'];
 
 type WorldResources={world:string;metadata:WorldMetadata;lineCollection:LineCollection};
@@ -39,6 +40,7 @@ export default function App() {
   const [worlds, setWorlds] = useState<WorldSummary[]>([]);
   const [world, setWorld] = useState('');
   const [worldResources,setWorldResources]=useState<WorldResources>(emptyWorldResources);
+  const [programFocus,setProgramFocus]=useState<{world:string;programId:string;stepId?:string}>();
   const [view, setView] = useState<View>(DEFAULT_VIEW);
   const [authenticated,setAuthenticated]=useState<boolean|null>(null);
   const [authenticatedPlayer,setAuthenticatedPlayer]=useState('');
@@ -118,7 +120,7 @@ export default function App() {
   const workspaceNotice=!authenticated?t('auth.mapOnly'):
     ['graph','duties','validation'].includes(view)?t('duties.workspace'):
     view==='lines'?t('lines.description'):
-    view==='issues'?t('issues.description'):view==='logs'?t('logs.description'):t('map.public');
+    view==='issues'?t('issues.description'):view==='programs'?t('programs.description'):view==='logs'?t('logs.description'):t('map.public');
   return <ConfigProvider
     locale={antDesignLocale(locale)}
     theme={antDesignTheme(theme)}
@@ -157,7 +159,8 @@ export default function App() {
       {error && <div className="error" role="alert">{error}</div>}
     </section>
 
-    {authenticated&&<section className="persistent-graph-view" hidden={!['graph','duties','validation'].includes(view)}><DutyEditor onCommandState={setAuthoringState} page={view==='duties'?'duties':view==='validation'?'validation':'graph'} onPageChange={setView} world={world} recoveryOwner={authenticatedPlayer} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>}
+    {authenticated&&<section className="persistent-graph-view" hidden={!['graph','duties','validation'].includes(view)}><DutyEditor onOpenProgramLibrary={(programId,stepId)=>{setProgramFocus({world,programId,stepId});setView('programs');}} onCommandState={setAuthoringState} page={view==='duties'?'duties':view==='validation'?'validation':'graph'} onPageChange={setView} world={world} recoveryOwner={authenticatedPlayer} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>}
+    {authenticated&&view === 'programs'&&<StationProgramLibrary key={world} world={world} extensions={metadata.extensions?.actions} conditions={metadata.extensions?.conditions} focus={programFocus?.world===world?programFocus:undefined}/> }
     {authenticated&&view === 'logs' && <LogsPage />}
     {authenticated&&view === 'issues' && <IssuesPage key={world} world={world} />}
     {view === 'map' && <RailMap key={world} world={world} onError={setError} />}

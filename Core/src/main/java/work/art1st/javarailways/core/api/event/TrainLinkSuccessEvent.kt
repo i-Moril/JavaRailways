@@ -34,7 +34,9 @@ class TrainLinkSuccessEvent internal constructor(
     firstCarIds: Collection<String>,
     secondCarIds: Collection<String>,
     val firstReversed: Boolean,
-    val secondReversed: Boolean
+    val secondReversed: Boolean,
+    /** Present only when the decision requested an atomic output movement fence. */
+    val movementHold: work.art1st.javarailways.core.api.physics.train.FormationMovementHold? = null
 ) : MainThreadTrainEvent {
     val firstCarIds: List<String> = java.util.List.copyOf(firstCarIds)
     val secondCarIds: List<String> = java.util.List.copyOf(secondCarIds)

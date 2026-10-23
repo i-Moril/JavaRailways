@@ -509,3 +509,7 @@ Correct: each signal plugin publishes its dirty declaration IDs; SimpleATO only 
 Wrong: Basic and SimpleATO both own mutable copies of the operational graph
 Correct: Core owns TopologyState; SimpleATO owns disposable revision-bound overlay projections
 ```
+
+### Structural output physical-origin continuation
+
+A later mission of a structural output may start at the exact published head slightly before or after the nominal previous stop. `FrozenMissionRouteAssembler.append` locates that physical origin on the existing directed route occurrence near its recorded operational endpoint, retains the entire committed segment prefix, and compares the remaining overlap exactly. Its progress mapping starts at the actual origin coordinate. The ordinary named-waypoint path remains nominal. A physical origin outside the committed stopping neighborhood rejects; no topology search, widened overlap tolerance, or replacement of admitted geometry is allowed. The assembler regression covers both directions and early/late stops; actual storage continuation also requires the terminal stop offset when calculating the storage envelope.

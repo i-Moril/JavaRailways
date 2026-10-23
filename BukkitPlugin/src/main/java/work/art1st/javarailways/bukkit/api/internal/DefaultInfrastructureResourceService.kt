@@ -28,6 +28,13 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteGrantId
 import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
+import work.art1st.javarailways.basic.api.route.FixedFormationChangeIntent
+import work.art1st.javarailways.basic.api.route.FormationChangeHandle
+import work.art1st.javarailways.basic.api.route.FormationRouteContext
+import work.art1st.javarailways.basic.api.route.FormationRoutePurpose
+import work.art1st.javarailways.basic.api.route.FormationRoutePolicyResult
+import work.art1st.javarailways.basic.api.route.FormationResourceClearance
+import work.art1st.javarailways.basic.api.route.FormationChangeResult
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
@@ -238,6 +245,7 @@ internal class DefaultInfrastructureResourceService(
                 )
                 validateRouteContribution(plugin, worldId, contribution)
             },
+            authorizeFormationRoute = { context, intent -> authorizeFormationRoute(worldId, context, intent) },
             resolveContributedPreparation = { resource, descriptor ->
                 resolveContributedPreparation(worldId, resource, descriptor)
             },
@@ -364,6 +372,58 @@ internal class DefaultInfrastructureResourceService(
         return collected
     }
 
+    /** Authenticates every policy and each exact resource owner before Basic changes any claim. */
+    internal fun authorizeFormationRoute(
+        worldId: UUID, context: FormationRouteContext, intent: RouteResourceIntent
+    ): FormationRoutePolicyResult = withWorld(worldId) {
+        fun rejected(detail: String) = FormationRoutePolicyResult.Rejected(
+            contributionFailure(RouteAdmissionFailureCode.INVALID_CONTRIBUTION, detail))
+        val captured = synchronized(lock) {
+            val world = worlds[worldId]
+            if (closed || world == null) null
+            else Triple(world, routeContributors.toList(), resourceProviders.toMap())
+        } ?: return@withWorld rejected("formation world is unavailable")
+        val (world, contributors, providers) = captured
+        try {
+            if (intent.observationStamp.worldId != worldId.toString() || intent.formationContext !== context)
+                return@withWorld rejected("formation context does not match the host route intent")
+            for (registration in contributors) {
+                if (!registration.pluginOwner.isEnabled ||
+                    registration.contributor.authorizeFormationRoute(worldId, context, intent) != null)
+                    return@withWorld rejected("formation route was not authorized by every contributor")
+            }
+            val clearances = arrayListOf<FormationResourceClearance>()
+            if (context.purpose != FormationRoutePurpose.COUPLING_APPROACH) {
+                for (resource in context.retainedStableResources) {
+                    val provider = providers[resource.typeId]
+                        ?: return@withWorld rejected("formation resource provider is unavailable")
+                    if (!provider.pluginOwner.isEnabled || !provider.provider.exists(worldId, resource.resourceId))
+                        return@withWorld rejected("formation resource owner is unavailable")
+                    when (val result = provider.provider.authorizeFormationResource(
+                        worldId, resource.resourceId, context, intent)) {
+                        is FormationRoutePolicyResult.Rejected -> return@withWorld result
+                        is FormationRoutePolicyResult.Accepted -> {
+                            if (result.clearances.size != 1 || result.clearances.single().resource != resource ||
+                                result.clearances.single().releaseAfterTailPasses?.distanceFromRouteStartMeters
+                                    ?.let { it > intent.route.totalLengthMeters } == true)
+                                return@withWorld rejected("resource provider returned invalid formation clearance")
+                            clearances += result.clearances
+                        }
+                    }
+                }
+            }
+            if (synchronized(lock) { closed || worlds[worldId] !== world ||
+                    routeContributors.size != contributors.size ||
+                    routeContributors.zip(contributors).any { (current, captured) -> current !== captured } ||
+                    resourceProviders.keys != providers.keys || providers.any { (id, registration) -> resourceProviders[id] !== registration } } ||
+                contributors.any { !it.pluginOwner.isEnabled } || providers.values.any { !it.pluginOwner.isEnabled })
+                return@withWorld rejected("formation policy registration changed during authorization")
+            FormationRoutePolicyResult.Accepted(clearances)
+        } catch (failure: Exception) {
+            rejected("formation policy failed: ${failure.message ?: failure.javaClass.simpleName}")
+        }
+    }
+
     private fun unregisterResourceProvider(
         typeId: String,
         registration: ProviderRegistration
@@ -455,6 +515,30 @@ internal class DefaultInfrastructureResourceService(
 
         override fun rebaseAfterReversal(intent: RouteResourceIntent): RouteGrantReversalResult =
             withAdmission(::routeReversalUnavailable) { it.rebaseAfterReversal(requester, intent) }
+
+        override fun prepareFormationChange(intent: FixedFormationChangeIntent): FormationChangeResult =
+            withAdmission(::formationUnavailable) { it.prepareFormationChange(requester, intent) }
+
+        override fun sealFormationPublication(handle: FormationChangeHandle): FormationChangeResult =
+            withAdmission(::formationUnavailable) { it.sealFormationPublication(requester, handle) }
+
+        override fun formationChangeState(handle: FormationChangeHandle): FormationChangeResult =
+            withAdmission(::formationUnavailable) { it.formationChangeState(requester, handle) }
+
+        override fun abortFormationChange(handle: FormationChangeHandle): FormationChangeResult =
+            withAdmission(::formationUnavailable) { it.abortFormationChange(requester, handle) }
+
+        override fun requestCouplingApproach(handle: FormationChangeHandle, intent: RouteResourceIntent): RouteAdmissionResult =
+            withAdmission(::routeAdmissionUnavailable) { it.requestCouplingApproach(requester, handle, intent) }
+
+        override fun bindFormationOutputs(handle: FormationChangeHandle, outputBodyIntents: List<RouteResourceIntent>): FormationChangeResult =
+            withAdmission(::formationUnavailable) { it.bindFormationOutputs(requester, handle, outputBodyIntents) }
+
+        override fun requestFormationOutput(handle: FormationChangeHandle, intent: RouteResourceIntent): RouteAdmissionResult =
+            withAdmission(::routeAdmissionUnavailable) { it.requestFormationOutput(requester, handle, intent) }
+
+        override fun resumeFormationOutput(handle: FormationChangeHandle, outputGrantId: RouteGrantId): FormationChangeResult =
+            withAdmission(::formationUnavailable) { it.resumeFormationOutput(requester, handle, outputGrantId) }
 
         override fun endGrant(grantId: RouteGrantId): Boolean =
             withAdmission({ false }) { it.endGrant(requester, grantId) }
@@ -881,6 +965,10 @@ internal class DefaultInfrastructureResourceService(
             RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
             "route admission binding is unavailable"
         )
+    )
+
+    private fun formationUnavailable() = FormationChangeResult.Rejected(
+        RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "route admission binding is unavailable")
     )
 
     private fun routeReversalUnavailable() = RouteGrantReversalResult.Rejected(

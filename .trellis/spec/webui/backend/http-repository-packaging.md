@@ -63,3 +63,7 @@ installFrontend (npm ci)
 读取返回`source/entries/nextCursor/reset/scannedBytes/retention`；每条为`text/module/level/time/partial`。来源只接受`[a-z-]{1,64}`，query最多200字符，cursor最多512字符；路径由服务端白名单登记，禁止请求任意文件。未知来源由reader拒绝。读取在HTTP worker执行，不能走world await，也不在物理/region线程读文件。分页及轮转详细合同唯一归属[Diagnostics](../../diagnostics/backend/disk-logs.md)。
 
 WebUI IO与未预期Exception出口将原Throwable及method/path写入本地PluginErrorLog；不记录query/body/cookie/Bearer。正常输入错误和会话拒绝保留既有状态映射。server stop关闭writer并停止原有流工作线程；启动失败报告原异常并关闭已创建writer。Tests需验证实际System.Logger→JUL→磁盘→authenticated HTTP，而非仅手写JSON fixture。
+
+## 跨线与单元显示 wire
+
+EditorDocumentValidator 校验可选 operationalTrips（唯一 id、受限 defaults、service/run/unitSlots 引用）；共享程序校验 SET_DISPLAY/RESET_DISPLAY 与 UNIT_SLOTS。Bukkit bridge 的单线模拟在使用已存时刻表时接收 runId，要求它属于所选 service/line；没有段且明确 service.lineId 的服务保留原能力。模拟状态投影 currentRunId/currentLineId 与完整 unitDisplays（包括 active/unresolvedRuns），不能把未知后续单元绑定表现为完整停站表。领域定义与原子显示更新见 [SimpleATO 契约](../../javarailways/simpleato/through-running-and-unit-displays.md)。

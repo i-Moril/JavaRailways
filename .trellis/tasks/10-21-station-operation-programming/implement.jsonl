@@ -1,0 +1,21 @@
+{"file": ".trellis/tasks/10-21-station-operation-programming/prd.md", "reason": "Approved requirements and acceptance mapping; final review pending"}
+{"file": ".trellis/tasks/10-21-station-operation-programming/design.md", "reason": "Shared definitions, generation, candidate route and lifecycle contracts"}
+{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "Release baseline before saved-format changes"}
+{"file": "ai_tasks/persistence_schema_evolution_rules.md", "reason": "Current model and offline development migration policy"}
+{"file": ".trellis/spec/javarailways/simpleato/depots.md", "reason": "Physical acquisition, atomic reservations and reset owner"}
+{"file": ".trellis/spec/javarailways/simpleato/stations.md", "reason": "Stopping/door/berth contracts"}
+{"file": ".trellis/spec/javarailways/simpleato/destinations.md", "reason": "Canonical infrastructure owner and projections"}
+{"file": ".trellis/spec/javarailways/simpleato/timetable-model-and-validation.md", "reason": "Existing validation/runtime authority and retained routes"}
+{"file": ".trellis/spec/javarailways/simpleato/dispatcher-runtime.md", "reason": "Operation completion, reversal, resources and recovery"}
+{"file": ".trellis/spec/javarailways/simpleato/operational-routing-and-authority.md", "reason": "Validated route admission and static dependencies"}
+{"file": ".trellis/spec/javarailways/simpleato/persistence.md", "reason": "World restore boundaries and current ledger assumptions"}
+{"file": ".trellis/spec/javarailways/simpleato/simulation.md", "reason": "Same-runtime isolated simulation"}
+{"file": ".trellis/spec/webui/frontend/studio-authoring.md", "reason": "Document/history ownership and generated source"}
+{"file": ".trellis/spec/webui/frontend/components-state-contracts.md", "reason": "Controlled editors and async identity guards"}
+{"file": ".trellis/spec/webui/backend/http-repository-packaging.md", "reason": "Authenticated repositories, atomic saves and packaging"}
+{"file": ".trellis/spec/guides/cross-layer.md", "reason": "End-to-end transport/persistence/runtime verification"}
+{"file": ".trellis/tasks/10-21-station-operation-programming/research/consist-and-locomotive-model-2026-10-22.md", "reason": "Verified Core/Basic foundations and confirmed fixed-unit scope"}
+{"file": ".trellis/spec/javarailways/core/train-physics.md", "reason": "Structural preparation/publication and physical constituent ownership"}
+{"file": ".trellis/spec/javarailways/core/train-controller.md", "reason": "Consist-change controller lifecycle"}
+{"file": ".trellis/spec/javarailways/basic/train-longitudinal-dynamics.md", "reason": "Per-car dynamics and derived formation safety"}
+{"file": ".trellis/spec/javarailways/basic/route-resource-admission.md", "reason": "Exact resource ownership across movement and structure changes"}

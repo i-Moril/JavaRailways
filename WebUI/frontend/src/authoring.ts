@@ -1,4 +1,6 @@
-import type { DiagramLineV1, LineDirection, LineSimulationResult, LineV1, SavedTimetableV1, SimulationProfile, TimetableActionV1, WorldMetadata } from './types';
+import {validateFormationAuthoring,type AuthoringFormationEvent} from './formationAuthoring';
+import { stationProgramSchedule,resolveProgramValue,displayValuesError,validateStationProgram,validateStationProgramCall } from './stationPrograms';
+import type { OperationalTrip,BoundStationProgram,StationProgramCall,DiagramLineV1, LineDirection, LineSimulationResult, LineV1, SavedTimetableV1, SimulationProfile, TimetableActionV1, WorldMetadata } from './types';
 
 export type AuthoringDoorSide = 'NONE'|'LEFT'|'RIGHT'|'BOTH';
 export type AuthoringRunCallStatusV1 = 'ORIGIN'|'STOP'|'PASS'|'TERMINAL';
@@ -26,7 +28,8 @@ export interface AuthoringRunV1 {
 export type AuthoringDutySelectorV1 =
   | {type:'TRAIN_NAME';name:string}
   | {type:'TAKE_FROM_DEPOT';depotId:string;tick:number;tags:string[]}
-  | {type:'TAKE_FROM_WAYPOINT';wayPointIds:string[];tick:number};
+  | {type:'TAKE_FROM_WAYPOINT';wayPointIds:string[];tick:number}
+  | {type:'TAKE_FROM_FORMATION_OUTPUT';eventId:string;outputId:string;tick:number};
 export type AuthoringFunctionCallV1 =
   | {id:string;type:'PLACE_INITIAL';trainName:string;wayPointId:string}
   | {id:string;type:'REVERSE';tick:number}
@@ -34,7 +37,8 @@ export type AuthoringFunctionCallV1 =
   | {id:string;type:'STORE_AT_DEPOT';tick:number;depotId:string;stablingPointIds:string[]};
 export type AuthoringDutyElementV1 =
   | {id:string;type:'RUN';runId:string}
-  | {id:string;type:'FUNCTION';call:AuthoringFunctionCallV1};
+  | {id:string;type:'FUNCTION';call:AuthoringFunctionCallV1}
+  | {id:string;type:'PROGRAM';call:StationProgramCall};
 export interface AuthoringDutyV1 {
   id:string;
   selector:AuthoringDutySelectorV1;
@@ -51,6 +55,9 @@ export interface TimetableAuthoringDocumentV1 {
   diagramLines:DiagramLineV1[];
   lineSpeedLimits?:{lineId:string;maximumSpeedMetersPerSecond:number}[];
   arrivalOverrides:ArrivalOverrideV1[];
+  boundPrograms?:BoundStationProgram[];
+  formationEvents?:AuthoringFormationEvent[];
+  operationalTrips?:OperationalTrip[];
 }
 export interface AuthoringIssue {path:string;message:string;severity:'error'|'warning'}
 export interface GeneratedTimetableSource {
@@ -68,7 +75,51 @@ export function deleteRunFromDocument(
     runs:document.runs.filter((run)=>run.id!==runId),
     duties:document.duties.map((duty)=>({...duty,elements:duty.elements.filter((element)=>element.type!=='RUN'||element.runId!==runId)})),
     arrivalOverrides:document.arrivalOverrides.filter((override)=>override.runId!==runId),
+    operationalTrips:document.operationalTrips?.map((trip)=>({...trip,segments:trip.segments.filter((segment)=>segment.runId!==runId)})),
   };
+}
+
+/** Renames one run and its references without changing its route, calls or timing. */
+export function renameAuthoringRun(document:TimetableAuthoringDocumentV1,runId:string,nextId:string):TimetableAuthoringDocumentV1 {
+  if(!document.runs.some((run)=>run.id===runId))throw new Error('Unknown run');
+  if(!nextId.trim())throw new Error('Run ID is required');
+  if(nextId===runId)return document;
+  if(document.runs.some((run)=>run.id===nextId))throw new Error('Run ID already exists');
+  return {...document,
+    runs:document.runs.map((run)=>run.id===runId?{...run,id:nextId}:run),
+    operationalTrips:document.operationalTrips?.map((trip)=>({...trip,segments:trip.segments.map((segment)=>segment.runId===runId?{...segment,runId:nextId}:segment)})),
+    duties:document.duties.map((duty)=>duty.elements.some((element)=>element.type==='RUN'&&element.runId===runId)?{
+      ...duty,elements:duty.elements.map((element)=>element.type==='RUN'&&element.runId===runId?{...element,runId:nextId}:element),
+    }:duty),
+    arrivalOverrides:document.arrivalOverrides.map((override)=>override.runId===runId?{...override,runId:nextId}:override),
+  };
+}
+
+/** Reconciles transient selection after a rename is undone/redone using unchanged call identities. */
+export function resolveAuthoringRunSelection(runs:AuthoringRunV1[],selectedId:string,previous?:AuthoringRunV1):AuthoringRunV1|undefined {
+  const selected=runs.find((run)=>run.id===selectedId);
+  if(selected||!previous)return selected;
+  const sameScope=runs.filter((run)=>run.diagramLineId===previous.diagramLineId&&run.lineDirection===previous.lineDirection);
+  const sameCalls=sameScope.filter((run)=>run.calls===previous.calls);
+  if(sameCalls.length)return sameCalls.length===1?sameCalls[0]:undefined;
+  const candidates=sameScope.filter((run)=>previous.calls.length>0&&run.calls.length===previous.calls.length&&run.calls.every((call,index)=>call.id===previous.calls[index].id));
+  return candidates.length===1?candidates[0]:undefined;
+}
+
+/** Changes the current timetable's shared infrastructure-line cap; UI input is km/h. */
+export function setAuthoringLineSpeedLimit(document:TimetableAuthoringDocumentV1,lineId:string,maximumSpeedKmh:number|null):TimetableAuthoringDocumentV1 {
+  if(!lineId.trim())throw new Error('Infrastructure line ID is required');
+  const maximumSpeedMetersPerSecond=maximumSpeedKmh==null?null:maximumSpeedKmh/3.6;
+  if(maximumSpeedMetersPerSecond!=null&&(!Number.isFinite(maximumSpeedMetersPerSecond)||maximumSpeedMetersPerSecond<=0))throw new Error('Line maximum speed must be finite and positive');
+  const existing=(document.lineSpeedLimits??[]).filter((limit)=>limit.lineId===lineId);
+  if(maximumSpeedMetersPerSecond==null&&!existing.length||existing.length===1&&existing[0].maximumSpeedMetersPerSecond===maximumSpeedMetersPerSecond)return document;
+  return {...document,lineSpeedLimits:[...(document.lineSpeedLimits??[]).filter((limit)=>limit.lineId!==lineId),...(maximumSpeedMetersPerSecond==null?[]:[{lineId,maximumSpeedMetersPerSecond}])]};
+}
+
+/** Unsaved Reset uses exactly the same actual-line cap as generated/full timetables. */
+export function authoringResetProfile(document:TimetableAuthoringDocumentV1,run:AuthoringRunV1,profile:Pick<SimulationProfile,'profileType'|'profileId'>):SimulationProfile {
+  const cap=run.lineId?document.lineSpeedLimits?.find((limit)=>limit.lineId===run.lineId)?.maximumSpeedMetersPerSecond:undefined;
+  return {...profile,direction:run.lineDirection,...lineSimulationRoute(run),...(cap==null?{}:{maximumSpeedMetersPerSecond:cap})};
 }
 
 /** Atomically removes a run from any previous duty and appends it to the target duty. */
@@ -83,7 +134,7 @@ export function moveRunToDuty(
   if(owners.length===1&&owners[0].id===targetDutyId) return document;
   const existing=document.duties.flatMap((duty)=>duty.elements).find((element)=>element.type==='RUN'&&element.runId===runId);
   const assignment:AuthoringDutyElementV1=existing?.type==='RUN'?existing:{id:newElementId,type:'RUN',runId};
-  return {...document,duties:document.duties.map((duty)=>{
+  return {...document,operationalTrips:document.operationalTrips?.map((trip)=>({...trip,segments:trip.segments.map((segment)=>segment.runId===runId?{...segment,serviceId:targetDutyId}:segment)})),duties:document.duties.map((duty)=>{
     const without=duty.elements.filter((element)=>element.type!=='RUN'||element.runId!==runId);
     return duty.id===targetDutyId?{...duty,elements:[...without,assignment]}:{...duty,elements:without};
   })};
@@ -123,7 +174,7 @@ export function createRunFromLine(
   const calls=stations.map((station,index)=>newRunCall(
     station,index,index===0?'ORIGIN':index===stations.length-1?'TERMINAL':'STOP',metadata,idFactory,
   ));
-  return {id,type:'PASSENGER',diagramLineId:line.id,lineDirection:direction,originDepartureMode:'AUTO',calls};
+  return {id,type:'PASSENGER',lineId:line.id,diagramLineId:line.id,lineDirection:direction,originDepartureMode:'AUTO',calls};
 }
 
 export function resizeRunRoute(
@@ -141,7 +192,7 @@ export function resizeRunRoute(
     const status:AuthoringRunCallStatusV1=index===0?'ORIGIN':index===selectedStations.length-1?'TERMINAL':existing?.status==='PASS'?'PASS':'STOP';
     const call=existing?{...existing,status}:newRunCall(station,index,status,metadata,idFactory);
     if(status==='ORIGIN') return {...call,arrivalTick:null,minimumDwellTicks:null};
-    if(status==='TERMINAL') return {...call,departureTick:null,minimumDwellTicks:null};
+    if(status==='TERMINAL') return {...call,departureTick:null};
     if(status==='PASS') return {...call,departureTick:null,minimumDwellTicks:null};
     return call;
   });
@@ -175,7 +226,7 @@ export function resetRunTimings(
     if(!Number.isFinite(leg.travelSeconds)||leg.travelSeconds<=0) throw new Error('simulation returned an invalid interval');
     cursor+=secondsToTicks(leg.travelSeconds);
     if(index===simulation.legs.length-1) {
-      calls[index+1]={...to,status:'TERMINAL',arrivalTick:cursor,departureTick:null,minimumDwellTicks:null};
+      calls[index+1]={...to,status:'TERMINAL',arrivalTick:cursor,departureTick:null};
     } else if(to.status==='PASS') {
       calls[index+1]={...to,arrivalTick:cursor,departureTick:null,minimumDwellTicks:null};
     } else {
@@ -287,6 +338,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1)
     else if(runIds.has(run.id)) issues.push(issue(`${path}.id`,`Duplicate run ID: ${run.id}`));
     runIds.add(run.id);
     if(run.calls.length<2) issues.push(issue(`${path}.calls`,'A run requires an origin and a destination'));
+    if(!run.lineId?.trim())issues.push(issue(`${path}.lineId`,'A run requires an infrastructure line'));
     if(run.lineId&&!lineSpeedLimitIds.has(run.lineId)) issues.push(issue(`${path}.lineId`,`No maximum speed is configured for infrastructure line: ${run.lineId}`));
     if(!run.diagramLineId) issues.push(issue(`${path}.diagramLineId`,'A run requires a diagram line'));
     else if(!diagramLineIds.has(run.diagramLineId)) issues.push(issue(`${path}.diagramLineId`,`Unknown diagram line: ${run.diagramLineId}`));
@@ -320,6 +372,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1)
       if(callIndex<run.calls.length-1&&call.status!=='PASS'&&call.departureTick==null) issues.push(issue(`${callPath}.departureTick`,'Every stopping non-terminal call requires a departure tick'));
     });
   });
+  issues.push(...validateFormationAuthoring(document));
   const dutyIds=new Set<string>();
   const assignments=new Map<string,string>();
   document.duties.forEach((duty,dutyIndex)=>{
@@ -337,14 +390,12 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1)
       if(!duty.selector.wayPointIds.length||duty.selector.wayPointIds.some((id)=>!id.trim())) issues.push(issue(`${path}.selector.wayPointIds`,'At least one waypoint is required'));
       if(!nonNegativeInteger(duty.selector.tick)||duty.selector.tick>=periodTicks) issues.push(issue(`${path}.selector.tick`,'Acquisition tick must be inside the timetable period'));
     }
-    const dutyDiagramIds=new Set(duty.elements.flatMap((element)=>element.type==='RUN'?[document.runs.find((run)=>run.id===element.runId)?.diagramLineId].filter(Boolean) as string[]:[]));
-    if(dutyDiagramIds.size>1) issues.push(issue(`${path}.elements`,'A duty cannot contain runs from multiple diagram lines'));
-    const dutyLineIds=new Set(duty.elements.flatMap((element)=>element.type==='RUN'?[document.runs.find((run)=>run.id===element.runId)?.lineId].filter(Boolean) as string[]:[]));
-    if(dutyLineIds.size>1) issues.push(issue(`${path}.elements`,'Through-running across infrastructure lines is not supported yet'));
     let previousRun:AuthoringRunV1|undefined;
+    let programDestination:string|undefined=namedDutyInitialTarget(document,duty);
     let previousElementEndTick:number|undefined;
     const elementIds=new Set<string>();
     const functionIds=new Set<string>();
+    const programCallIds=new Set<string>();
     duty.elements.forEach((element,elementIndex)=>{
       const elementPath=`${path}.elements[${elementIndex}]`;
       if(!element.id.trim()) issues.push(issue(`${elementPath}.id`,'Element ID is required'));
@@ -356,13 +407,18 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1)
         const owner=assignments.get(element.runId);
         if(owner) issues.push(issue(`${elementPath}.runId`,`Run ${element.runId} is already assigned to duty ${owner}`));
         else assignments.set(element.runId,duty.id);
+        if(run&&programDestination&&run.calls[0]?.targetId!==programDestination)issues.push(issue(elementPath,`Program location discontinuity: ${programDestination} -> ${run.calls[0]?.targetId}`));
+        programDestination=undefined;
         if(run&&previousRun) {
           const previousTerminal=previousRun.calls.at(-1)?.targetId;
           const nextOrigin=run.calls[0]?.targetId;
+          if((previousRun.calls.at(-1)?.stoppingOffsetMetersBefore??0)!==(run.calls[0]?.stoppingOffsetMetersBefore??0))issues.push(issue(elementPath,'Run stopping offset discontinuity requires an explicit station program'));
+          if(run.calls[0]?.doorSide&&run.calls[0].doorSide!=='NONE'&&run.calls[0].doorSide!==previousRun.calls.at(-1)?.doorSide)issues.push(issue(elementPath,'Connection departure must not configure a second conflicting door operation'));
           if(previousTerminal&&nextOrigin&&previousTerminal!==nextOrigin) issues.push(issue(elementPath,`Run location discontinuity: ${previousTerminal} -> ${nextOrigin}`));
-          const previousEnd=previousRun.calls.at(-1)?.arrivalTick ?? previousRun.calls.at(-1)?.departureTick;
+          const terminal=previousRun.calls.at(-1);
+          const previousEnd=document.arrivalOverrides.find((override)=>override.runId===previousRun!.id&&override.callId===terminal?.id)?.tick??terminal?.arrivalTick??terminal?.departureTick;
           const nextStart=run.calls[0]?.departureTick;
-          if(previousEnd!=null&&nextStart!=null&&nextStart<previousEnd) issues.push(issue(elementPath,`Run overlaps previous run by ${previousEnd-nextStart} ticks`));
+          if(previousEnd!=null&&nextStart!=null&&nextStart<previousEnd+(previousRun.calls.at(-1)?.minimumDwellTicks??0)) issues.push(issue(elementPath,`Run overlaps previous run by ${previousEnd-nextStart} ticks`));
         }
         if(run) {
           const runStart=run.calls[0]?.departureTick;
@@ -371,6 +427,27 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1)
           if(previousElementEndTick!=null&&runStart!=null&&runStart<previousElementEndTick) issues.push(issue(elementPath,`Run starts before the previous duty element completes by ${previousElementEndTick-runStart} ticks`));
           if(runEnd!=null) previousElementEndTick=Math.max(previousElementEndTick??0,runEnd);
           previousRun=run;
+        }
+      } else if(element.type==='PROGRAM') {
+        if(programCallIds.has(element.call.id))issues.push(issue(elementPath,'Duplicate program call ID'));
+        programCallIds.add(element.call.id);
+        const snapshot=document.boundPrograms?.find((item)=>item.programId===element.call.programId);
+        if(!snapshot)issues.push(issue(elementPath,`Missing bound program: ${element.call.programId}`));
+        else {
+          const callIssues=validateStationProgramCall(snapshot,element.call,periodTicks);
+          for(const message of callIssues)issues.push(issue(elementPath,message));
+          if(callIssues.length)return;
+          programDestination=programDestination??previousRun?.calls.at(-1)?.targetId;
+          if(previousElementEndTick!=null&&element.call.tick<previousElementEndTick)issues.push(issue(elementPath,'Program starts before the previous duty element completes'));
+          if(duty.selector.type==='TRAIN_NAME'&&!previousRun&&!programDestination)issues.push(issue(elementPath,'Program requires a prior run or service-boundary acquisition'));
+          const lower=stationProgramSchedule(snapshot.definition.steps,element.call.arguments,element.call.tick,periodTicks).earliest;
+          for(const step of snapshot.definition.steps){
+            if(step.type==='COUPLE'||step.type==='SPLIT'||(step.type==='BRANCH'||step.type==='SELECT_STOP'))programDestination=undefined;
+            if(step.type==='MOVE')programDestination=String(resolveProgramValue(step.destinationId,element.call.arguments));
+            if(step.type==='STORE_AT_DEPOT'&&(elementIndex!==duty.elements.length-1||step!==snapshot.definition.steps.at(-1)))issues.push(issue(elementPath,'Store at depot must be the final duty action'));
+          }
+          previousElementEndTick=lower;
+          previousRun=undefined;
         }
       } else {
         const call=element.call;
@@ -395,6 +472,13 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1)
       }
     });
   });
+  issues.push(...validateOperationalTrips(document));
+  const programIds=new Set<string>();
+  for(const [index,snapshot] of (document.boundPrograms??[]).entries()){
+    if(programIds.has(snapshot.programId))issues.push(issue(`boundPrograms[${index}]`,'Duplicate bound program'));
+    programIds.add(snapshot.programId);
+    for(const message of validateStationProgram(snapshot.definition))issues.push(issue(`boundPrograms[${index}]`,message));
+  }
   const overrideKeys=new Set<string>();
   document.arrivalOverrides.forEach((override,overrideIndex)=>{
     const path=`arrivalOverrides[${overrideIndex}]`;
@@ -411,7 +495,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1)
 }
 
 const graphAction=(type:TimetableActionV1['type'],overrides:Partial<TimetableActionV1>):TimetableActionV1=>({
-  type,requiredTags:[],requiredCapabilities:[],stablingPointIds:[],wayPointIds:[],thenActions:[],elseActions:[],...overrides,
+  type,requiredTags:[],requiredCapabilities:[],stablingPointIds:[],wayPointIds:[],thenSteps:[],elseSteps:[],...overrides,
 });
 
 /** Builds a presentation-only service per run so the graph stays live without compiling the duty document. */
@@ -443,18 +527,29 @@ export function authoringGraphTimetable(document:TimetableAuthoringDocumentV1):S
 }
 
 export function authoringSelectorKey(selector:AuthoringDutySelectorV1):string {
+  if(selector.type==='TAKE_FROM_FORMATION_OUTPUT')return JSON.stringify(['TAKE_FROM_FORMATION_OUTPUT',selector.eventId,selector.outputId]);
   if(selector.type==='TRAIN_NAME')return JSON.stringify(['TRAIN_NAME',selector.name]);
   if(selector.type==='TAKE_FROM_WAYPOINT')return JSON.stringify(['TAKE_FROM_WAYPOINT',selector.wayPointIds]);
   return JSON.stringify(['TAKE_FROM_DEPOT',selector.depotId,[...selector.tags].sort()]);
 }
 
 function selectorSource(selector:AuthoringDutySelectorV1):string {
+  if(selector.type==='TAKE_FROM_FORMATION_OUTPUT') return `timetable.takeFromFormationOutput(${quote(selector.eventId)}, ${quote(selector.outputId)}, ${selector.tick})`;
   if(selector.type==='TRAIN_NAME') return quote(selector.name);
   if(selector.type==='TAKE_FROM_WAYPOINT') return `timetable.takeFromWaypoint([${selector.wayPointIds.map(quote).join(', ')}], ${selector.tick})`;
   const options=selector.tags.length?`, { tags: [${[...selector.tags].sort().map(quote).join(', ')}] }`:'';
   return options
     ? `timetable.takeFromDepot(${quote(selector.depotId)}${options}, ${selector.tick})`
     : `timetable.takeFromDepot(${quote(selector.depotId)}, ${selector.tick})`;
+}
+
+function namedDutyInitialTarget(document:TimetableAuthoringDocumentV1,duty:AuthoringDutyV1):string|undefined {
+  if(duty.selector.type!=='TRAIN_NAME')return undefined;
+  const trainName=duty.selector.name;
+  const placement=duty.elements.find((item)=>item.type==='FUNCTION'&&item.call.type==='PLACE_INITIAL'&&item.call.trainName===trainName);
+  if(placement?.type==='FUNCTION'&&placement.call.type==='PLACE_INITIAL')return placement.call.wayPointId;
+  const firstRun=duty.elements.find((item)=>item.type==='RUN');
+  return firstRun?.type==='RUN'?document.runs.find((run)=>run.id===firstRun.runId)?.calls[0]?.targetId:undefined;
 }
 
 function destinationOptions(call:AuthoringRunCallV1,override?:number):string {
@@ -470,8 +565,19 @@ function destinationOptions(call:AuthoringRunCallV1,override?:number):string {
 export function generateTimetableSource(document:TimetableAuthoringDocumentV1):GeneratedTimetableSource {
   const issues=validateAuthoringDocument(document);
   const lines:string[]=['// Generated by JavaRailways WebUI. Do not edit in structured mode.','function main(timetable) {',`    timetable.setPeriodDays(${document.periodDays})`];
+  for(const [index,snapshot] of (document.boundPrograms??[]).entries()) {
+    if(document.duties.some((duty)=>duty.elements.some((element)=>element.type==='PROGRAM'&&element.call.programId===snapshot.programId)))lines.push(`    const program${index} = JSON.parse(${quote(JSON.stringify(snapshot.definition))})`);
+  }
+  for(const event of document.formationEvents??[]) {
+    const {id,...definition}=event;
+    lines.push(`    timetable.formationEvent(${quote(id)}, JSON.parse(${quote(JSON.stringify(definition))}))`);
+  }
   for(const limit of document.lineSpeedLimits??[]) {
     lines.push(`    timetable.lineSpeedLimit(${quote(limit.lineId)}, ${limit.maximumSpeedMetersPerSecond})`);
+  }
+  for(const trip of document.operationalTrips??[]) {
+    const {id,...options}=trip;
+    lines.push(`    timetable.operationalTrip(${quote(id)}, JSON.parse(${quote(JSON.stringify(options))}))`);
   }
   for(const line of document.diagramLines) {
     lines.push('',`    timetable.diagramLine(${quote(line.id)}, {`,`        upStations: [${line.upStationIds.map(quote).join(', ')}],`,`        downStations: [${line.downStationIds.map(quote).join(', ')}]`,`    })`);
@@ -495,8 +601,9 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1):G
       if(element.type==='RUN') {
         const run=document.runs.find((candidate)=>candidate.id===element.runId);
         if(!run) continue;
-        const scoped='scoped';
-        lines.push(`        t.origin(${quote(origin(duty.id,element.id,run.id))}, ${scoped} => {`);
+        const scoped='runScope';
+        const segment={runId:run.id,lineId:run.lineId,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,calls:run.calls.map(({targetId,berthId:_,minimumDwellTicks:__,stoppingOffsetMetersBefore:___,doorSide:____,...call})=>({...call,destinationId:targetId,arrivalTick:document.arrivalOverrides.find((o)=>o.runId===run.id&&o.callId===call.id)?.tick??call.arrivalTick}))};
+        lines.push(`        t.origin(${quote(origin(duty.id,element.id,run.id))}, scoped => {`, `          scoped.runSegment(JSON.parse(${quote(JSON.stringify(segment))}), ${scoped} => {`);
         if(!emittedCheck&&duty.selector.type==='TRAIN_NAME'&&run.calls[0]?.targetId) {
           lines.push(`            ${scoped}.check(${quote(run.calls[0].targetId)})`);
           emittedCheck=true;
@@ -515,7 +622,18 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1):G
           routeAnchor=call;
           pendingPasses='';
         }
-        lines.push('        })');
+        lines.push('          })','        })');
+      } else if(element.type==='PROGRAM') {
+        const index=(document.boundPrograms??[]).findIndex((item)=>item.programId===element.call.programId);
+        const argumentsSource=`JSON.parse(${quote(JSON.stringify(element.call.arguments))})`;
+        if(index>=0){
+          lines.push(`        t.origin(${quote(`${origin(duty.id,element.id)}/call:${element.call.id}`)}, scoped => {`);
+          if(!emittedCheck&&duty.selector.type==='TRAIN_NAME'){
+            const target=namedDutyInitialTarget(document,duty);
+            if(target){lines.push(`            scoped.check(${quote(target)})`);emittedCheck=true;}
+          }
+          lines.push(`            scoped.at(${element.call.tick}).program(${quote(element.call.programId)}, program${index}, ${argumentsSource})`,'        })');
+        }
       } else {
         const call=element.call;
         if(call.type==='PLACE_INITIAL') continue;
@@ -540,4 +658,29 @@ export interface CompiledEditorDocument {
   document:TimetableAuthoringDocumentV1;
   generatedSource:string;
   timetable?:SavedTimetableV1;
+}
+
+/** A single transaction for the two stored halves of a shared physical station call. */
+export function editRunConnection(document:TimetableAuthoringDocumentV1,fromRunId:string,toRunId:string,arrivalTick:number|null,departureTick:number|null):TimetableAuthoringDocumentV1 {
+  const from=document.runs.find((r)=>r.id===fromRunId),to=document.runs.find((r)=>r.id===toRunId);
+  const linked=document.duties.some((d)=>d.elements.some((e,i)=>e.type==='RUN'&&e.runId===fromRunId&&d.elements[i+1]?.type==='RUN'&&(d.elements[i+1] as {runId:string}).runId===toRunId));
+  if(!from||!to||!linked||from.calls.at(-1)?.targetId!==to.calls[0]?.targetId)throw new Error('Connection is no longer current');
+  if([arrivalTick,departureTick].some((v)=>v!=null&&(!Number.isSafeInteger(v)||v<0||v>=document.periodDays*24000))||arrivalTick!=null&&departureTick!=null&&departureTick<arrivalTick+(from.calls.at(-1)?.minimumDwellTicks??0))throw new Error('Connection violates timetable period or minimum dwell');
+  return {...document,runs:document.runs.map((r)=>r===from?{...r,calls:r.calls.map((c,i)=>i===r.calls.length-1?{...c,arrivalTick}:c)}:r===to?{...r,calls:r.calls.map((c,i)=>i===0?{...c,departureTick}:c)}:r),arrivalOverrides:document.arrivalOverrides.filter((o)=>o.runId!==fromRunId||o.callId!==from.calls.at(-1)?.id)};
+}
+export function validateOperationalTrips(document:TimetableAuthoringDocumentV1):AuthoringIssue[] {
+  const errors:AuthoringIssue[]=[],ids=new Set<string>(),assigned=new Set<string>();
+  for(const [i,trip] of (document.operationalTrips??[]).entries()){
+    const path=`operationalTrips[${i}]`;
+    if(!trip.id.trim()||ids.has(trip.id))errors.push(issue(path,'Operational trip ID must be nonempty and unique'));ids.add(trip.id);
+    const jsonError=displayValuesError(trip.defaults);if(jsonError)errors.push(issue(`${path}.defaults`,jsonError));
+    if(!trip.segments.length)errors.push(issue(path,'Operational trip requires complete runs and unit slots'));
+    for(const [j,segment] of trip.segments.entries()){
+      const duty=document.duties.find((d)=>d.id===segment.serviceId);
+      if(!duty?.elements.some((e)=>e.type==='RUN'&&e.runId===segment.runId))errors.push(issue(`${path}.segments[${j}]`,'Operational trip run must belong to its duty'));
+      if(!segment.unitSlots.length||segment.unitSlots.length>128||segment.unitSlots.some((slot)=>!Number.isSafeInteger(slot)||slot<1||slot>2147483647)||new Set(segment.unitSlots).size!==segment.unitSlots.length)errors.push(issue(`${path}.segments[${j}].unitSlots`,'Unit slots must be distinct positive integers (at most128)'));
+      for(const slot of segment.unitSlots){const key=JSON.stringify([segment.serviceId,segment.runId,slot]);if(assigned.has(key))errors.push(issue(`${path}.segments[${j}]`,'A run unit slot cannot belong to multiple operational trips'));assigned.add(key);}
+    }
+  }
+  return errors;
 }

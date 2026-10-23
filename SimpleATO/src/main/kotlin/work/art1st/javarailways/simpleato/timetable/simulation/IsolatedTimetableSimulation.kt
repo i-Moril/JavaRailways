@@ -40,6 +40,13 @@ import java.util.concurrent.Executors
 import work.art1st.javarailways.simpleato.runtime.OperationalWorldRuntime
 import work.art1st.javarailways.basic.safety.SpeedSafetyMonitor
 import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignalMaterializer
+import work.art1st.javarailways.basic.api.route.FixedFormationChangeIntent
+import work.art1st.javarailways.basic.api.route.FormationChangeHandle
+import work.art1st.javarailways.basic.api.route.FormationChangeResult
+import work.art1st.javarailways.basic.api.route.FormationRouteContext
+import work.art1st.javarailways.basic.api.route.FormationRoutePolicyResult
+import work.art1st.javarailways.basic.api.route.FormationRoutePurpose
+import work.art1st.javarailways.basic.api.route.FormationResourceClearance
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
@@ -340,6 +347,7 @@ class SimulationRouteAdmissionHost internal constructor(
 ) : AutoCloseable {
     private val providers = linkedMapOf<String, SimulationResourceProvider>()
     private val contributors = linkedMapOf<String, (RouteResourceIntent) -> List<ContributedRouteResource>>()
+    private val formationContributors = linkedMapOf<String, (FormationRouteContext, RouteResourceIntent) -> RouteAdmissionFailure?>()
     private val requester = Any()
 
     fun registerProvider(typeId: String, provider: SimulationResourceProvider): AutoCloseable {
@@ -353,6 +361,54 @@ class SimulationRouteAdmissionHost internal constructor(
     ): AutoCloseable {
         check(contributors.putIfAbsent(id, collect) == null) { "route contributor already installed: $id" }
         return AutoCloseable { contributors.remove(id, collect) }
+    }
+
+    fun registerFormationContributor(id: String, collect: (RouteResourceIntent) -> List<ContributedRouteResource>,
+        authorize: (FormationRouteContext, RouteResourceIntent) -> RouteAdmissionFailure?): AutoCloseable {
+        val contribution = registerContributor(id, collect)
+        formationContributors[id] = authorize
+        return AutoCloseable {
+            contribution.close()
+            formationContributors.remove(id, authorize)
+        }
+    }
+
+    internal fun authorizeFormationRoute(context: FormationRouteContext, intent: RouteResourceIntent): FormationRoutePolicyResult {
+        fun rejected(detail: String) = FormationRoutePolicyResult.Rejected(
+            RouteAdmissionFailure(RouteAdmissionFailureCode.INVALID_CONTRIBUTION, detail))
+        val capturedContributors = contributors.toMap()
+        val capturedFormation = formationContributors.toMap()
+        val capturedProviders = providers.toMap()
+        try {
+            if (intent.formationContext !== context || intent.observationStamp.worldId != world.runtimeId)
+                return rejected("simulation formation context does not match intent")
+            for (id in capturedContributors.keys) {
+                val authorize = capturedFormation[id] ?: return rejected("simulation contributor has not opted into formation routes: $id")
+                authorize(context, intent)?.let { return FormationRoutePolicyResult.Rejected(it) }
+            }
+            val clearances = arrayListOf<FormationResourceClearance>()
+            if (context.purpose != FormationRoutePurpose.COUPLING_APPROACH) {
+                for (resource in context.retainedStableResources) {
+                    val provider = capturedProviders[resource.typeId] ?: return rejected("missing simulation resource provider")
+                    if (!provider.exists(resource)) return rejected("missing simulation formation resource")
+                    when (val result = provider.authorizeFormationResource(resource, context, intent)) {
+                        is FormationRoutePolicyResult.Rejected -> return result
+                        is FormationRoutePolicyResult.Accepted -> {
+                            if (result.clearances.size != 1 || result.clearances.single().resource != resource ||
+                                result.clearances.single().releaseAfterTailPasses?.distanceFromRouteStartMeters
+                                    ?.let { it > intent.route.totalLengthMeters } == true)
+                                return rejected("invalid simulation resource clearance")
+                            clearances += result.clearances
+                        }
+                    }
+                }
+            }
+            if (contributors != capturedContributors || formationContributors != capturedFormation || providers != capturedProviders)
+                return rejected("simulation policy registrations changed during authorization")
+            return FormationRoutePolicyResult.Accepted(clearances)
+        } catch (failure: Exception) {
+            return rejected("simulation formation policy failed: ${failure.message ?: failure.javaClass.simpleName}")
+        }
     }
 
     private var latestObservation: RailwayObservation? = null
@@ -374,6 +430,23 @@ class SimulationRouteAdmissionHost internal constructor(
 
         override fun endGrant(grantId: RouteGrantId): Boolean =
             checkNotNull(runtime).endGrant(requester, grantId)
+
+        override fun prepareFormationChange(intent: FixedFormationChangeIntent): FormationChangeResult =
+            checkNotNull(runtime).prepareFormationChange(requester, intent)
+        override fun sealFormationPublication(handle: FormationChangeHandle): FormationChangeResult =
+            checkNotNull(runtime).sealFormationPublication(requester, handle)
+        override fun formationChangeState(handle: FormationChangeHandle): FormationChangeResult =
+            checkNotNull(runtime).formationChangeState(requester, handle)
+        override fun abortFormationChange(handle: FormationChangeHandle): FormationChangeResult =
+            checkNotNull(runtime).abortFormationChange(requester, handle)
+        override fun requestCouplingApproach(handle: FormationChangeHandle, intent: RouteResourceIntent): RouteAdmissionResult =
+            checkNotNull(runtime).requestCouplingApproach(requester, handle, intent)
+        override fun bindFormationOutputs(handle: FormationChangeHandle, outputBodyIntents: List<RouteResourceIntent>): FormationChangeResult =
+            checkNotNull(runtime).bindFormationOutputs(requester, handle, outputBodyIntents)
+        override fun requestFormationOutput(handle: FormationChangeHandle, intent: RouteResourceIntent): RouteAdmissionResult =
+            checkNotNull(runtime).requestFormationOutput(requester, handle, intent)
+        override fun resumeFormationOutput(handle: FormationChangeHandle, outputGrantId: RouteGrantId): FormationChangeResult =
+            checkNotNull(runtime).resumeFormationOutput(requester, handle, outputGrantId)
     }
 
     val contextProvider = TimetableRouteAdmissionContextProvider {
@@ -407,6 +480,7 @@ class SimulationRouteAdmissionHost internal constructor(
                         "no simulation resource provider: ${contribution.resource.typeId}"
                     )
                 },
+                authorizeFormationRoute = ::authorizeFormationRoute,
                 resolveContributedPreparation = { resource, descriptor ->
                     providers[resource.typeId]?.prepare(resource, descriptor)
                 },
@@ -435,6 +509,7 @@ class SimulationRouteAdmissionHost internal constructor(
         ) + dependencies + resourceValidation)
         providers.clear()
         contributors.clear()
+        formationContributors.clear()
     }
 
     private fun resourceExists(resource: InfrastructureResource): Boolean = when (resource) {

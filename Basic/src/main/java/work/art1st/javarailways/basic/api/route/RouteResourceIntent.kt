@@ -134,7 +134,9 @@ data class RouteResourceIntent(
     val trainId: String,
     val observationStamp: RailwayStateStamp,
     val route: RouteSnapshot,
-    val desiredAuthority: RouteBoundary
+    val desiredAuthority: RouteBoundary,
+    /** Host-created fixed-event context, present only on the explicit formation admission path. */
+    val formationContext: FormationRouteContext? = null
 ) {
 
     init {

@@ -24,9 +24,68 @@ final class EditorDocumentValidator {
         requireObjectArray(document, "duties");
         requireObjectArray(document, "diagramLines");
         requireObjectArray(document, "arrivalOverrides");
+        java.util.Map<String, JsonNode> programs = new java.util.HashMap<>();
+        if (document.has("boundPrograms")) {
+            requireObjectArray(document, "boundPrograms");
+            for (JsonNode snapshot : document.path("boundPrograms")) {
+                StationProgramValidator.fields(snapshot, java.util.Set.of("programId", "revision", "contentIdentity", "definition"), "bound program");
+                String id = StationProgramValidator.text(snapshot.path("programId"), "bound program id");
+                if (!id.matches("[A-Za-z0-9][A-Za-z0-9_-]{0,127}")) fail("invalid bound program id");
+                if (programs.put(id, snapshot) != null) fail("duplicate bound program");
+                StationProgramValidator.revision(snapshot.path("revision"));
+                StationProgramValidator.validate(snapshot.path("definition"));
+                if (!ProgramContentIdentity.of(snapshot.path("definition")).equals(snapshot.path("contentIdentity").asText())) fail("bound program content identity mismatch");
+            }
+        }
+        for (JsonNode duty : document.path("duties")) {
+            java.util.Set<String> callIds = new java.util.HashSet<>();
+            for (JsonNode element : duty.path("elements")) if (element.path("type").asText().equals("PROGRAM")) {
+                JsonNode call = element.path("call");
+                StationProgramValidator.fields(call, java.util.Set.of("id", "programId", "tick", "arguments"), "program call");
+                String callId = StationProgramValidator.text(call.path("id"), "program call id");
+                if (!callId.matches("[A-Za-z0-9][A-Za-z0-9_-]{0,127}") || !callIds.add(callId)) fail("invalid or duplicate program call id");
+                JsonNode snapshot = programs.get(call.path("programId").asText());
+                if (snapshot == null) fail("missing bound program");
+                if (!call.path("tick").isIntegralNumber() || !call.path("tick").canConvertToLong() || call.path("tick").asLong() < 0 || call.path("tick").asLong() > 9_007_199_254_740_991L) fail("invalid program call tick");
+                StationProgramValidator.validateArguments(snapshot.path("definition"), call.path("arguments"));
+            }
+        }
+        if (document.has("formationEvents")) {
+            requireObjectArray(document, "formationEvents");
+            document.path("formationEvents").forEach(FormationAuthoringValidator::validate);
+        }
+        if (document.has("operationalTrips")) validateOperationalTrips(document);
         document.path("runs").forEach(EditorDocumentValidator::validateRun);
         document.path("duties").forEach(EditorDocumentValidator::validateDuty);
         document.path("diagramLines").forEach(EditorDocumentValidator::validateDiagramLine);
+    }
+
+    private static void validateOperationalTrips(JsonNode document) {
+        requireObjectArray(document, "operationalTrips");
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        java.util.Set<String> assignments = new java.util.HashSet<>();
+        java.util.Map<String, java.util.Set<String>> dutyRuns = new java.util.HashMap<>();
+        for (JsonNode duty : document.path("duties")) {
+            java.util.Set<String> runs = new java.util.HashSet<>();
+            for (JsonNode element : duty.path("elements")) if (element.path("type").asText().equals("RUN")) runs.add(element.path("runId").asText());
+            dutyRuns.put(duty.path("id").asText(), runs);
+        }
+        for (JsonNode trip : document.path("operationalTrips")) {
+            StationProgramValidator.fields(trip, java.util.Set.of("id", "defaults", "segments"), "operational trip");
+            String id = StationProgramValidator.text(trip.path("id"), "operational trip id");
+            if (!ids.add(id)) fail("duplicate operational trip id");
+            StationProgramValidator.displayValues(trip.path("defaults"));
+            requireObjectArray(trip, "segments");
+            if (trip.path("segments").isEmpty()) fail("operational trip segments must not be empty");
+            for (JsonNode segment : trip.path("segments")) {
+                StationProgramValidator.fields(segment, java.util.Set.of("serviceId", "runId", "unitSlots"), "operational trip segment");
+                String serviceId = StationProgramValidator.text(segment.path("serviceId"), "serviceId");
+                String runId = StationProgramValidator.text(segment.path("runId"), "runId");
+                if (!dutyRuns.getOrDefault(serviceId, java.util.Set.of()).contains(runId)) fail("operational trip references missing duty/run");
+                StationProgramValidator.unitSlots(segment.path("unitSlots"));
+                for (JsonNode slot : segment.path("unitSlots")) if (!assignments.add(serviceId + "\u0000" + runId + "\u0000" + slot.asInt())) fail("duplicate operational trip unit assignment");
+            }
+        }
     }
 
     private static void validateRun(JsonNode run) {
@@ -60,6 +119,11 @@ final class EditorDocumentValidator {
                 requireIntegral(selector, "tick", "depot selector");
                 requireStringArray(selector, "tags", "depot selector");
             }
+            case "TAKE_FROM_FORMATION_OUTPUT" -> {
+                requireIntegral(selector, "tick", "formation output selector");
+                requireText(selector, "eventId", "formation output selector");
+                requireText(selector, "outputId", "formation output selector");
+            }
             case "TAKE_FROM_WAYPOINT" -> {
                 requireIntegral(selector, "tick", "waypoint selector");
                 requireStringArray(selector, "wayPointIds", "waypoint selector");
@@ -73,6 +137,7 @@ final class EditorDocumentValidator {
         requireText(element, "type", "duty element");
         switch (element.path("type").asText()) {
             case "RUN" -> requireText(element, "runId", "run element");
+            case "PROGRAM" -> { if (!element.path("call").isObject()) fail("program call must be an object"); }
             case "FUNCTION" -> {
                 JsonNode call = element.path("call");
                 if (!call.isObject()) fail("function element call must be an object");

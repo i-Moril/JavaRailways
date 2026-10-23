@@ -71,6 +71,11 @@ import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.rail.OperatingDirectionStore
 import work.art1st.javarailways.core.api.physics.WorldExecutionMode
 import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.api.route.FormationTrainIdentity
+import work.art1st.javarailways.basic.api.route.FormationRouteContext
+import work.art1st.javarailways.basic.api.route.FormationRoutePurpose
+import work.art1st.javarailways.basic.api.route.FormationRoutePolicyResult
+import work.art1st.javarailways.basic.api.route.FormationResourceClearance
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.ResourcePreparationSnapshot
@@ -79,6 +84,59 @@ import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 
 class IsolatedTimetableSimulationTest {
+    @Test
+    fun `detached formation needs contributor opt-in and exact provider clearance`() {
+        val resource = StableInfrastructureResource("test:formation", "block")
+        fixture().runtime.use { simulation ->
+            IsolatedSimulationThreadMarker.run { simulation.world.executionOwner.run {
+                val host = simulation.routeAdmissionHost
+                val contributor = host.registerContributor("test:policy") { emptyList() }
+                val context = FormationRouteContext::class.java.constructors.single { it.parameterCount == 6 }.newInstance(
+                    "test:event", FormationRoutePurpose.OUTPUT_BODY, listOf(FormationTrainIdentity("source", listOf("car"), false)),
+                    listOf(FormationTrainIdentity("train", listOf("car"), false)), listOf(resource), null
+                ) as FormationRouteContext
+                val rail = simulation.world.allRails.single()
+                val route = RouteSnapshot("test:formation", 1L, simulation.world.topologyRevision,
+                    listOf(RouteSegmentSnapshot(rail.id, ViewDirection.AB, 0.0, 100.0)))
+                val request = RouteResourceIntent("test:formation", InfrastructureOwner("test:formation", 1L), "train",
+                    work.art1st.javarailways.basic.api.observation.RailwayStateStamp(simulation.world.runtimeId, 0L,
+                        route.topologyRevision), route, RouteBoundary(2.0), context)
+                assertTrue(host.authorizeFormationRoute(context, request) is FormationRoutePolicyResult.Rejected)
+                assertThrows(IllegalStateException::class.java) {
+                    host.registerFormationContributor("test:policy", { emptyList() }) { _, _ -> null }
+                }
+                contributor.close()
+                val optIn = host.registerFormationContributor("test:policy", { emptyList() }) { _, _ -> null }
+                var clearances = listOf(FormationResourceClearance(resource, RouteBoundary(90.0)))
+                val provider = host.registerProvider(resource.typeId,
+                    object : work.art1st.javarailways.simpleato.api.simulation.SimulationResourceProvider {
+                        override fun exists(resource: StableInfrastructureResource) = true
+                        override fun validate(contributorId: String, contribution: ContributedRouteResource): RouteAdmissionFailure? = null
+                        override fun prepare(resource: StableInfrastructureResource, descriptor: ResourcePreparationDescriptor):
+                            (() -> ResourcePreparationTicket)? = null
+                        override fun authorizeFormationResource(resource: StableInfrastructureResource, context: FormationRouteContext,
+                            intent: RouteResourceIntent) = FormationRoutePolicyResult.Accepted(clearances)
+                    })
+                assertEquals(RouteBoundary(90.0), (host.authorizeFormationRoute(context, request)
+                    as FormationRoutePolicyResult.Accepted).clearances.single().releaseAfterTailPasses)
+                clearances = listOf(FormationResourceClearance(resource.copy(resourceId = "forged"), null))
+                assertTrue(host.authorizeFormationRoute(context, request) is FormationRoutePolicyResult.Rejected)
+                clearances = emptyList()
+                assertTrue(host.authorizeFormationRoute(context, request) is FormationRoutePolicyResult.Rejected)
+                clearances = listOf(FormationResourceClearance(resource, RouteBoundary(101.0)))
+                assertTrue(host.authorizeFormationRoute(context, request) is FormationRoutePolicyResult.Rejected)
+                clearances = listOf(FormationResourceClearance(resource, null))
+                assertEquals(null, (host.authorizeFormationRoute(context, request)
+                    as FormationRoutePolicyResult.Accepted).clearances.single().releaseAfterTailPasses)
+                optIn.close()
+                val legacy = host.registerContributor("test:policy") { emptyList() }
+                assertTrue(host.authorizeFormationRoute(context, request) is FormationRoutePolicyResult.Rejected)
+                provider.close()
+                legacy.close()
+            } }
+        }
+    }
+
     @BeforeEach
     fun initializePlugin() {
         if (BasicPlugin.instanceOrNull() == null) BasicPlugin.INSTANCE = BasicPlugin(100)

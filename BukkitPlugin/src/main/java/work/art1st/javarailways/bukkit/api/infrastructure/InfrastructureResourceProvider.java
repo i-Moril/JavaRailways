@@ -2,6 +2,10 @@ package work.art1st.javarailways.bukkit.api.infrastructure;
 
 import org.bukkit.plugin.Plugin;
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor;
+import work.art1st.javarailways.basic.api.route.FormationRouteContext;
+import work.art1st.javarailways.basic.api.route.FormationRoutePolicyResult;
+import work.art1st.javarailways.basic.api.route.RouteResourceIntent;
+import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure;
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode;
 
 import java.util.UUID;
@@ -29,4 +33,16 @@ public interface InfrastructureResourceProvider {
         String resourceId,
         ResourcePreparationDescriptor preparation
     );
+    /**
+     * Certifies exactly this resource's output clearance on the complete frozen route. An accepted
+     * result must contain exactly one entry for this identity; a null boundary explicitly means
+     * not needed. Existence or another contributor's approval is never sufficient.
+     */
+    default FormationRoutePolicyResult authorizeFormationResource(
+        UUID worldId, String resourceId, FormationRouteContext context, RouteResourceIntent intent
+    ) {
+        return new FormationRoutePolicyResult.Rejected(new RouteAdmissionFailure(
+            RouteAdmissionFailureCode.INVALID_CONTRIBUTION, "provider does not authorize formation routes",
+            java.util.List.of(), null));
+    }
 }

@@ -7,6 +7,12 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.joml.Vector3d
+import work.art1st.javarailways.core.api.physics.curve.Curve
+import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
+import work.art1st.javarailways.core.physics.createRailForTest
+import work.art1st.javarailways.core.physics.rail.RailView
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
@@ -33,6 +39,53 @@ class LinePlannerTest {
         })
     }
 
+
+    @Test
+    fun `Reset candidates traverse fractional multi rail endpoints in automatic origin mode`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        fun straight(start: Double, length: Double) = PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(Vector3d(start, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0),
+                Vector3d(0.0, 1.0, 0.0), 0.0),
+            Curve.RawPoint(Vector3d(start + length, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0),
+                Vector3d(0.0, 1.0, 0.0), length)
+        ))
+        val first = world.createRailForTest(straight(0.0, 12.3))
+        val second = world.createRailForTest(straight(12.3, 45.6))
+        IsolatedSimulationThreadMarker.run { RailView.connect(first.viewAB, second.viewBA) }
+        val edge = world.topologyState.edges.values.single()
+        // Use the published normalization so random fixture rail UUIDs cannot change this traversal.
+        val origin = edge.railSlices.last()
+        val goal = edge.railSlices.first()
+        val originDirection = if (origin.endAbMeters > origin.startAbMeters) ViewDirection.BA else ViewDirection.AB
+        val goalDirection = if (goal.endAbMeters > goal.startAbMeters) ViewDirection.BA else ViewDirection.AB
+        val destinations = OperationalDestinationService(world)
+        destinations.register(OperationalDestination(
+            id = "origin@one", displayName = "Origin", railId = origin.railId,
+            arcLengthInAbMeters = origin.endAbMeters, approachDirection = originDirection,
+            role = DestinationRole.StationBerthRole(StationId("origin"), "Origin", "one", DoorSide.LEFT)
+        ))
+        destinations.register(OperationalDestination(
+            id = "goal@one", displayName = "Goal", railId = goal.railId,
+            arcLengthInAbMeters = goal.startAbMeters, approachDirection = goalDirection,
+            role = DestinationRole.StationBerthRole(StationId("goal"), "Goal", "one", DoorSide.LEFT)
+        ))
+        val line = Line(LineId("fractional"), "Fractional",
+            listOf(StationId("origin"), StationId("goal")),
+            listOf(StationId("goal"), StationId("origin")))
+
+        val candidates = LinePlanner(world).compileResetCandidates(
+            line, line.upStationIds, listOf("origin@one", "goal@one")
+        )
+
+        assertEquals(listOf(originDirection), candidates.map { it.originDepartureDirection })
+        val route = candidates.single().compilation.legs.single().route
+        assertEquals(listOf(origin.railId, goal.railId), route.segments.map { it.railViewRef.railId })
+        assertEquals(0.0, route.segments.first().startArcLength)
+        assertEquals(57.9, route.totalLength, 1e-9)
+        assertTrue(route.segments.all { it.startArcLength.isFinite() && it.startArcLength >= 0.0 &&
+            it.endArcLength.isFinite() && it.endArcLength >= it.startArcLength })
+    }
 
     @Test
     fun `chooses a directed berth route for each ordered station pair`() {

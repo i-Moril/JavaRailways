@@ -492,7 +492,8 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             "example-train",
             observationStamp,
             route,
-            new RouteBoundary(100.0)
+            new RouteBoundary(100.0),
+            null
         );
     }
 

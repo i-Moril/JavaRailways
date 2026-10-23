@@ -1,6 +1,9 @@
 package work.art1st.javarailways.simpleato.api.simulation
 
 import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.api.route.FormationRouteContext
+import work.art1st.javarailways.basic.api.route.FormationRoutePolicyResult
+import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.RailOperatingDirections
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
@@ -53,6 +56,11 @@ interface SimulationDomainTarget {
     fun installRoutePlanningSources(sources: Collection<RoutePlanningRestrictionBinding>): AutoCloseable
     /** Registers the target-local policy for one stable resource type. */
     fun registerResourceProvider(typeId: String, provider: SimulationResourceProvider): AutoCloseable
+    /** Atomically registers contribution and explicit formation opt-in under one identity. */
+    fun registerFormationRouteContributor(
+        id: String, collect: (RouteResourceIntent) -> List<ContributedRouteResource>,
+        authorize: (FormationRouteContext, RouteResourceIntent) -> RouteAdmissionFailure?
+    ): AutoCloseable
     /** Adds bounded, deterministic policy contributions to real Basic route admission. */
     fun registerRouteContributor(
         id: String,
@@ -66,6 +74,11 @@ interface SimulationResourceProvider {
     fun exists(resource: StableInfrastructureResource): Boolean
     /** Validates the proposed policy resource before any claim mutation; null accepts it. */
     fun validate(contributorId: String, contribution: ContributedRouteResource): RouteAdmissionFailure?
+    /** Exact provider-owned clearance, not a peer-occupancy or signal exception. */
+    fun authorizeFormationResource(resource: StableInfrastructureResource, context: FormationRouteContext,
+        intent: RouteResourceIntent): FormationRoutePolicyResult = FormationRoutePolicyResult.Rejected(
+            RouteAdmissionFailure(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+                "simulation provider does not authorize formation routes"))
     /** Resolves an optional target-local preparation factory using the normal Basic ticket lifecycle. */
     fun prepare(
         resource: StableInfrastructureResource,

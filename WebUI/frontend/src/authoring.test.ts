@@ -1,8 +1,9 @@
 import { describe,expect,it } from 'vitest';
 import {
   authoringGraphTimetable,authoringSelectorKey,copyRunShifted,createRunFromLine,deleteRunFromDocument,generateTimetableSource,moveRunToDuty,
-  lineSimulationRoute,moveRunFromCall,resetRunTimings,resizeRunRoute,shiftRunFromDeparture,validateAuthoringDocument,type TimetableAuthoringDocumentV1,
+  authoringResetProfile,renameAuthoringRun,resolveAuthoringRunSelection,setAuthoringLineSpeedLimit,lineSimulationRoute,moveRunFromCall,resetRunTimings,resizeRunRoute,shiftRunFromDeparture,validateAuthoringDocument,type TimetableAuthoringDocumentV1,
 } from './authoring';
+import {createDocumentHistory,redoDocumentHistory,undoDocumentHistory,updateDocumentHistory} from './documentHistory';
 import {layoutGraph} from './graph';
 import type { LineSimulationResult,LineV1,WorldMetadata } from './types';
 
@@ -16,13 +17,13 @@ const line:LineV1={id:'line-1',displayName:'Line 1',upStationIds:['a','b','c','d
 
 const valid=():TimetableAuthoringDocumentV1=>({
   formatVersion:1,id:'l1',periodDays:1,
-  diagramLines:[{id:'line-1',upStationIds:['a','b'],downStationIds:['b','a']}],arrivalOverrides:[],
+  lineSpeedLimits:[{lineId:'line-1',maximumSpeedMetersPerSecond:20}],diagramLines:[{id:'line-1',upStationIds:['a','b'],downStationIds:['b','a']}],arrivalOverrides:[],
   runs:[
-    {id:'up-01',type:'PASSENGER',diagramLineId:'line-1',lineDirection:'UP',calls:[
+    {id:'up-01',type:'PASSENGER',lineId:'line-1',diagramLineId:'line-1',lineDirection:'UP',calls:[
       {id:'up-a',stationId:'a',berthId:'1',status:'ORIGIN',targetId:'a@1',departureTick:100},
       {id:'up-b',stationId:'b',berthId:'1',status:'TERMINAL',targetId:'b@1',arrivalTick:800},
     ]},
-    {id:'down-01',type:'PASSENGER',diagramLineId:'line-1',lineDirection:'DOWN',calls:[
+    {id:'down-01',type:'PASSENGER',lineId:'line-1',diagramLineId:'line-1',lineDirection:'DOWN',calls:[
       {id:'down-b',stationId:'b',berthId:'1',status:'ORIGIN',targetId:'b@1',departureTick:1000},
       {id:'down-a',stationId:'a',berthId:'2',status:'TERMINAL',targetId:'a@2',arrivalTick:1800,doorSide:'NONE'},
     ]},
@@ -36,6 +37,68 @@ const valid=():TimetableAuthoringDocumentV1=>({
 });
 
 describe('timetable editor document',()=>{
+  it('renames a run atomically with duty references and arrival overrides while retaining call identity',()=>{
+    const document=valid();document.arrivalOverrides=[{runId:'up-01',callId:'up-b',tick:750},{runId:'down-01',callId:'down-a',tick:1790}];
+    const renamed=renameAuthoringRun(document,'up-01','express-1');
+    expect(renamed.runs[0].id).toBe('express-1');expect(renamed.runs[0].calls).toBe(document.runs[0].calls);expect(renamed.runs[1]).toBe(document.runs[1]);
+    expect(renamed.duties[0].elements.find((element)=>element.id==='up-element')).toEqual({id:'up-element',type:'RUN',runId:'express-1'});
+    expect(renamed.arrivalOverrides).toEqual([{runId:'express-1',callId:'up-b',tick:750},{runId:'down-01',callId:'down-a',tick:1790}]);
+    expect(validateAuthoringDocument(renamed)).toEqual([]);expect(generateTimetableSource(renamed).source).toContain('express-1');
+    expect(document.runs[0].id).toBe('up-01');
+  });
+
+  it('renames unassigned runs and rejects blank or duplicate IDs without mutation or history',()=>{
+    const document={...valid(),duties:[]};const before=JSON.stringify(document);
+    expect(renameAuthoringRun(document,'up-01','up-01')).toBe(document);
+    expect(renameAuthoringRun(document,'up-01','unassigned').runs[0].id).toBe('unassigned');
+    for(const id of ['','   ','down-01'])expect(()=>renameAuthoringRun(document,'up-01',id)).toThrow();
+    expect(JSON.stringify(document)).toBe(before);
+  });
+
+  it('one rename undo and redo retain selection on the same unchanged calls',()=>{
+    const document=valid(),renamed=renameAuthoringRun(document,'down-01','second-service');
+    const history=updateDocumentHistory(createDocumentHistory(document),renamed);
+    const undone=undoDocumentHistory(history),redone=redoDocumentHistory(undone);
+    const oldSelection=resolveAuthoringRunSelection(undone.present.runs,'second-service',renamed.runs[1]);
+    expect(oldSelection?.id).toBe('down-01');
+    expect(resolveAuthoringRunSelection(redone.present.runs,'down-01',oldSelection)?.id).toBe('second-service');
+    expect(undone.present).toBe(document);expect(redone.present).toBe(renamed);expect(history.past).toHaveLength(1);
+    const ambiguous=[document.runs[1],{...document.runs[1],id:'other-owner'}];
+    expect(resolveAuthoringRunSelection(ambiguous,'second-service',renamed.runs[1])).toBeUndefined();
+    const duplicateCallIds={...document.runs[1],id:'other-owner',calls:document.runs[1].calls.map((call)=>({...call}))};
+    expect(resolveAuthoringRunSelection([duplicateCallIds,document.runs[1]],'second-service',renamed.runs[1])?.id).toBe('down-01');
+    const differentPrefix={...document.runs[1],id:'other-owner',calls:document.runs[1].calls.map((call)=>({...call,id:`${call.id}-different`}))};
+    expect(resolveAuthoringRunSelection([differentPrefix,document.runs[1]],'second-service',renamed.runs[1])?.id).toBe('down-01');
+  });
+
+  it('stores kmh caps in mps once per actual line without changing authored times',()=>{
+    const document=valid();document.runs=document.runs.map((run)=>({...run,lineId:'infrastructure-a'}));
+    document.lineSpeedLimits=[{lineId:'infrastructure-other',maximumSpeedMetersPerSecond:30}];
+    const capped=setAuthoringLineSpeedLimit(document,'infrastructure-a',72);
+    expect(capped.lineSpeedLimits).toEqual([{lineId:'infrastructure-other',maximumSpeedMetersPerSecond:30},{lineId:'infrastructure-a',maximumSpeedMetersPerSecond:20}]);
+    expect(capped.runs).toBe(document.runs);expect(capped.arrivalOverrides).toBe(document.arrivalOverrides);
+    expect(setAuthoringLineSpeedLimit(capped,'infrastructure-a',72)).toBe(capped);
+    const source=generateTimetableSource(capped);expect(source.issues).toEqual([]);expect(source.source).toContain('timetable.lineSpeedLimit("infrastructure-a", 20)');
+    const profile={profileType:'TRAIN_TEMPLATE' as const,profileId:'vehicle'};
+    expect(authoringResetProfile(capped,capped.runs[0],profile).maximumSpeedMetersPerSecond).toBe(20);
+    expect(authoringResetProfile(capped,capped.runs[1],profile).maximumSpeedMetersPerSecond).toBe(20);
+    const cleared=setAuthoringLineSpeedLimit(capped,'infrastructure-a',null);
+    expect(cleared.lineSpeedLimits).toEqual(document.lineSpeedLimits);expect(cleared.runs).toBe(document.runs);
+    expect(authoringResetProfile(cleared,cleared.runs[0],profile).maximumSpeedMetersPerSecond).toBeUndefined();
+  });
+
+  it('uses actual infrastructure IDs and refuses invalid caps without diagram-line fallback',()=>{
+    const document=valid();document.runs[0].lineId=undefined;document.lineSpeedLimits=[{lineId:'line-1',maximumSpeedMetersPerSecond:20}];
+    const profile={profileType:'WORLD_TRAIN' as const,profileId:'train'};
+    expect(authoringResetProfile(document,document.runs[0],profile).maximumSpeedMetersPerSecond).toBeUndefined();
+    const before=JSON.stringify(document);
+    for(const speed of [0,-1,NaN,Infinity,Number.MIN_VALUE])expect(()=>setAuthoringLineSpeedLimit(document,'line-1',speed)).toThrow();
+    expect(()=>setAuthoringLineSpeedLimit(document,'',72)).toThrow();expect(JSON.stringify(document)).toBe(before);
+    const next=setAuthoringLineSpeedLimit(document,'actual-line',90);const selected={...document.runs[0],lineId:'actual-line'};
+    expect(authoringResetProfile(next,selected,profile).maximumSpeedMetersPerSecond).toBe(25);
+    expect(authoringResetProfile(next,selected,profile).timetableId).toBeUndefined();expect(authoringResetProfile(next,selected,profile).serviceId).toBeUndefined();
+  });
+
   it('requires every run to have one unique duty owner',()=>{
     const document=valid();
     document.duties.push({id:'duty-b',selector:{type:'TRAIN_NAME',name:'train-2'},elements:[
@@ -79,10 +142,10 @@ describe('timetable editor document',()=>{
     expect(first.issues).toEqual([]);
     expect(first.source).toBe(second.source);
     expect(first.source).toContain('timetable.setInitialPosition(timetable.named("train-1"), timetable.named("a@1"))');
-    expect(first.source).toContain('timetable.service("duty-a", "train-1", { diagramLineId: "line-1" }, t => {');
+    expect(first.source).toContain('timetable.service("duty-a", "train-1", { diagramLineId: "line-1", lineId: "line-1" }, t => {');
     expect(first.source).toContain('t.origin("duty:duty-a/element:up-element/run:up-01", scoped => {');
-    expect(first.source).toContain('scoped.at(100).destination("b@1", { arrivalTick: 800 })');
-    expect(first.source).toContain('scoped.at(1000).destination("a@2", { arrivalTick: 1800, doorSide: "NONE" })');
+    expect(first.source).toContain('runScope.at(100).destination("b@1", { arrivalTick: 800 })');
+    expect(first.source).toContain('runScope.at(1000).destination("a@2", { arrivalTick: 1800, doorSide: "NONE" })');
   });
 
   it('generates infrastructure line context and its all-train maximum speed separately',()=>{
@@ -101,7 +164,7 @@ describe('timetable editor document',()=>{
     const document=valid();
     document.arrivalOverrides=[{runId:'up-01',callId:'up-b',tick:760}];
     const result=generateTimetableSource(document);
-    expect(result.source).toContain('scoped.at(100).destination("b@1", { arrivalTick: 760 })');
+    expect(result.source).toContain('runScope.at(100).destination("b@1", { arrivalTick: 760 })');
   });
 
   it('rejects duty functions that violate element order or cross the period',()=>{
@@ -127,12 +190,12 @@ describe('timetable editor document',()=>{
     expect(messages).toContain('Duplicate arrival override for up-01/up-b');
   });
 
-  it('rejects duties spanning multiple diagram lines instead of dropping presentation data',()=>{
+  it('allows duties spanning multiple diagram lines with per-run presentation data',()=>{
     const document=valid();
     document.diagramLines.push({id:'line-2',upStationIds:['a','b'],downStationIds:['b','a']});
     document.runs[1].diagramLineId='line-2';
-    expect(validateAuthoringDocument(document).map((item)=>item.message))
-      .toContain('A duty cannot contain runs from multiple diagram lines');
+    expect(validateAuthoringDocument(document)).toEqual([]);
+    expect(generateTimetableSource(document).source.match(/scoped.runSegment/g)).toHaveLength(2);
   });
 
   it('validates function targets and stable IDs',()=>{
@@ -306,7 +369,7 @@ describe('timetable editor document',()=>{
     document.duties[0].elements.push({id:'express-element',type:'RUN',runId:'express'});
     const result=generateTimetableSource(document);
     expect(result.issues).toEqual([]);
-    expect(result.source).toContain('scoped.at(100).pass("b@1").destination("c@1", { arrivalTick: 300');
-    expect(result.source).toContain('scoped.at(400).destination("d@1", { arrivalTick: 500');
+    expect(result.source).toContain('runScope.at(100).pass("b@1").destination("c@1", { arrivalTick: 300');
+    expect(result.source).toContain('runScope.at(400).destination("d@1", { arrivalTick: 500');
   });
 });

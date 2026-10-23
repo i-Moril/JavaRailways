@@ -79,6 +79,49 @@ class WebUiApplicationTest {
         } finally { app.stop(); }
     }
 
+    @Test void forwardsAuthoringResetSpeedCapAndPreservesBridgeErrors() throws Exception {
+        HttpServer bridge = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        bridge.createContext("/auth/exchange", exchange -> {
+            byte[] body = "{\"playerId\":\"player\",\"playerName\":\"Player\",\"worldId\":\"world\"}".getBytes();
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body); exchange.close();
+        });
+        var received = new java.util.concurrent.atomic.AtomicReference<String>();
+        bridge.createContext("/worlds/world/lines/line/simulate", exchange -> {
+            assertEquals("Bearer bridge-token", exchange.getRequestHeaders().getFirst("Authorization"));
+            assertEquals("POST", exchange.getRequestMethod());
+            String request = new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            received.set(request);
+            boolean invalid = new ObjectMapper().readTree(request).get("maximumSpeedMetersPerSecond").asDouble() <= 0;
+            byte[] body = (invalid ? "{\"error\":\"maximumSpeedMetersPerSecond must be a finite positive number\"}" : "{\"legs\":[],\"totalTravelSeconds\":0}").getBytes();
+            exchange.sendResponseHeaders(invalid ? 400 : 200, body.length);
+            exchange.getResponseBody().write(body); exchange.close();
+        });
+        bridge.start();
+        Javalin app = new WebUiApplication(new WebUiConfig(
+            URI.create("http://127.0.0.1:" + bridge.getAddress().getPort() + "/"),
+            "bridge-token", drafts, "127.0.0.1", false, 0, 4096, Duration.ofSeconds(2)
+        )).createApp().start(0);
+        try {
+            HttpClient client = HttpClient.newHttpClient(); String root = "http://127.0.0.1:" + app.port();
+            URI reset = URI.create(root + "/api/v1/worlds/world/lines/line/simulate");
+            assertEquals(401, client.send(HttpRequest.newBuilder(reset).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{}")).build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+            assertEquals(null, received.get());
+            HttpResponse<String> login = client.send(HttpRequest.newBuilder(URI.create(root + "/auth/exchange"))
+                .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{\"token\":\"one-time-token\"}")).build(), HttpResponse.BodyHandlers.ofString());
+            String cookie = login.headers().firstValue("Set-Cookie").orElseThrow().split(";", 2)[0];
+            for (int speed : new int[]{5, 0}) {
+                String body = "{\"profileType\":\"TRAIN_TEMPLATE\",\"profileId\":\"train\",\"maximumSpeedMetersPerSecond\":" + speed + "}";
+                HttpResponse<String> result = client.send(HttpRequest.newBuilder(reset).header("Cookie", cookie)
+                    .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
+                assertEquals(new ObjectMapper().readTree(body), new ObjectMapper().readTree(received.get()));
+                assertEquals(speed > 0 ? 200 : 400, result.statusCode());
+                if (speed == 0) assertTrue(result.body().contains("finite positive number"));
+            }
+        } finally { app.stop(); bridge.stop(0); }
+    }
+
     @Test void authenticatedClientsCannotRequestStationOnlyRouteValidation() throws Exception {
         HttpServer bridge = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         bridge.createContext("/auth/exchange", exchange -> {

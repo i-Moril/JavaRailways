@@ -43,9 +43,9 @@ SimpleATO共用`OperationalRoutePlanner`。该seam在同一个immutable `Topolog
 | station无berth/route不可达 | `LineCompileResult.Failure`含leg index | 不返回partial success |
 | exact berth不属于station | Failure/argument failure | 不猜其他berth |
 | multiple berth routes | 选`ExpandedRoute.totalLength`最小 | 保持direction |
-| Timetable service line speed | 用`service.lineId`解析 | 不用`diagramLineId` |
+| Timetable line speed | 分段时用当前 `runSegments.lineId`，未分段用 `service.lineId` | 不用 `diagramLineId` |
 
-Through-running跨line boundary必须显式更新current infrastructure line与cap；不得把未完成实现写成已支持，其implementation issue单独跟踪。
+停车跨线已实现：当前运行段与 cap 按实际执行地址切换，段间程序保留上一限制。具体范围、初始化和错误契约见[停车跨线与单元显示](./through-running-and-unit-displays.md)。不停站跨线尚未实现。
 
 ## 项目内正确示例
 

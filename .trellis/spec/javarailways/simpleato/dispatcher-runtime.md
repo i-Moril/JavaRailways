@@ -39,7 +39,7 @@ scheduled/conditional cycles按period recurrence；`WAIT_UNTIL_TRUE`只保留该
 每个timetable使用由其ID确定性生成的稳定owner ID；revision只是在当前world runtime内单调递增的mutation序号，不是
 schema version，也不写入checkpoint。clock仍存在、checkpoint recovery run仍待管理员处理，或任一run尚未满足
 `canBeReplaced`（包括Basic grant/berth/storage/停止条件）时，dependency必须保留。停止future cycles后只在上述状态全部
-drain时删除。checkpoint restore先从当前timetable定义重新validation、编译并安装clock/run涉及的全部dependency，全部成功
+drain时删除。普通无固定编成catalog的checkpoint restore先从当前timetable定义重新validation、编译并安装clock/run涉及的全部dependency，全部成功
 后才发布恢复的clock与`recoveryRequiredRuns`；任一失败回滚本次已装声明并拒绝restore，不静默恢复成可运行状态。Bukkit
 必须在Basic world registry attach后调用SimpleATO restore；隔离仿真使用同一registry语义。直接的ad-hoc/manual
 `startService`不等同于“应用完整时刻表”，不在这条静态dependency生命周期内。
@@ -161,8 +161,87 @@ fun tick(world: World) {
 
 ### Extension action 停止时的终态检查
 
-停止 run 时先读取扩展 ticket 快照。SUCCEEDED、FAILED、CANCELLED 已是终态，直接清理该 run 的扩展动作引用及队列；只有 PENDING 调用 cancel 并要求确认 CANCELLED。快照读取失败、取消异常或未确认取消仍走既有失败路径，不能丢弃活动 ticket。回归覆盖 ticket 同步完成但 Dispatcher 尚未下一次 poll 的停止窗口。
+停止 run 时先读取扩展 ticket 快照。SUCCEEDED、FAILED、CANCELLED 已是终态，直接清理该 run 的扩展动作引用；后续程序由 continuation cursor 保存，停止 run 不继续执行后续动作；只有 PENDING 调用 cancel 并要求确认 CANCELLED。快照读取失败、取消异常或未确认取消仍走既有失败路径，不能丢弃活动 ticket。回归覆盖 ticket 同步完成但 Dispatcher 尚未下一次 poll 的停止窗口。
 
 ### 强制重置拒绝前保持状态（CURRENT）
 
 forceDiscardTimetable 在同一 world owner 内先检查全部 selected runs：只要仍有未 ended 的 admissionClient，就拒绝整批，保留所有 run/controller/clock；不能边遍历边丢弃后再因后一项拒绝。Bukkit reset 命令先调用成功的 discard，再释放手动会话、清 controller 和 reset coordinator，整个流程仍在一次帧间 owner 操作内。扫描 O(selected runs)，无新公开接口。TimetableDispatcherSharedAdmissionTest 以先启动 idle run、后启动有 grant 的 run 验证拒绝后两者 controller 身份与 statuses 全部不变。
+
+### 固定编成事件后的 checkpoint：仅诊断恢复
+
+包含固定 Split/Couple catalog 的时刻表不能在恢复时假定原始 source composition 仍存在：拆分后的实际
+container 可能只剩一个单元，完成联挂后的原 container 也可能已经退役。此类 checkpoint 不重新验证原始
+Check→事件脚本并伪造“已应用”路线证明；恢复原定义和原 run diagnostics 到独立的 recovery-only map，
+`applicationState(id)` 明确返回 `RECOVERY_REQUIRED`，`recoveryRequiredTimetableDefinitions()` 提供诊断定义。
+不创建 `AppliedTimetablePlan`、live run、controller、mission、grant 或队列。已保存的真实 Core/Depot
+recovery fences 和单元归属仍是物理保护，不重放事件，也不构造历史 `TrainFrameSnapshot`。
+
+结构性 catalog 的全部 duty 都禁用自动发车，清除 pending activation；手动 start、initial cycle schedule 和
+fresh apply 在显式 recovery handling 前也拒绝。保留 disabled diagnostic clock，使同一 current checkpoint
+边界可再次保存恢复要求；已禁用的 `stopFutureCycles` 不删除该恢复标记。管理员显式
+`forceDiscardTimetable` 可移除逻辑诊断与 clock，之后状态为 `UNAPPLIED`，必须重新验证并 apply，
+且此动作不解除 Core/Depot 物理 fence 或单元归属。不增加持久化字段或版本，也不新增旧数据兼容 reader。
+
+无固定编成 catalog 的普通时刻表保持原有 dependency-first 恢复合同。此例外只意味着结构性恢复记录没有
+可运行的 applied route proof，不允许用诊断定义或车身 fence 替代将来 fresh apply 的完整静态路线证明。
+
+真实回归：`TimetableFormationDispatcherTest` 在实际调度拆分后保存 Core/operational 文档并加载新 world，
+分别覆盖 HOLD 与延迟取车输出。原 source composition 已不存在仍可恢复诊断，全部 duty 禁用，无 live replay，
+保存的物理位置/单元归属和恢复 fence 保留；再次保存恢复及显式逻辑清理也不能偷偷解除物理保护。
+
+### 固定会合重联
+
+两条 duty 必须停在同一 cycle 的同一固定 Couple 事件；等待另一方不会消费事件或重新提交动作。
+Dispatcher 从 applied plan 的 `(event, approaching candidate, stationary candidate)` 取得独立接触可行性证明和
+输出路线证明。首先保持两方零速并取得真实 body grant，安装 approaching 方的 Physical FormationContact
+mission 与零 authority，等待实际 controller/inspection publication。之后重新向 Core 取得 fresh host proof，
+与静态几何模板核对，再于同一 owner callback 封存完整单元变更并提交 contact admission。
+
+Pending 只推进原 handle；READY 后同一个 admission client 消费接触限速/终点，控制器执行实际接近，
+Core 碰撞与 Basic 精确参与者许可共同决定物理联挂。没有测试或 Dispatcher 直接调用 link。
+完整 approaching body、桥接段和 stationary body 均保留编辑保护，HOLD 输出也不得省略接触路径。
+物理输出使用与 Split 相同的 held-output 安装/台账/恢复流程；原 ATO 转给另一 duty 时仅移除原 duty 的
+`timetable-line` cap，外部限速和安全约束保持。
+
+封存前操作员停止可取消准备，保留两方零速、source grant 和编辑保护；封存后停止进入显式 recovery，
+不能释放已经参与物理事件的资源。结构操作期间拒绝控制权转移。接触模板可来自 exact initial pair，
+或独立静态证明覆盖的全部来源停车窗口组合；不能把 onward route 存在当作能联挂的证明。
+
+### 定时分支与真实停车点选择
+
+`TimetableProgramCursor` 是 immutable continuation：根步骤索引加完整 `then/else` 子路径构成地址。
+每个子节点保留自己的绝对 Tick；条件只在父 Tick 到达时求值一次。异步 extension、movement 保存启动时
+的 successor cursor，完成时恢复该值，不通过根索引重建或展平子动作。诊断区分 active address 与 next
+address；mission 运行中 next 已指向后继，不能拿它给当前失败定位。
+
+结构性证明同时绑定来源 duty 命名空间下的精确条件历史与实际已提交停车点历史；拆分输出继承历史，
+重联输出合并两方历史，矛盾历史不能合并。Split 的输出 candidate 来自已验证的显式映射，不在运行时
+拼接 lineage 猜测。每次消费结构路线前核对其目标、途经点、车站属性绑定及物理拓扑和实际车身。
+GoVia 在一次实际输出解算后按已证明的距保留路线末端距离切成各 leg，不制造中间 TrainFrame 或在重复
+经过的轨道上用第一个投影猜测途经点。
+
+SELECT_STOP 是一次 movement 和 StationCall。候选必须已有完整 incoming/onward 证明，并以真实输出
+长度解析 eligibility。一次只预留一个候选 logical berth；该预留与 Basic 物理准入无等价关系。独立零速
+限制在真正 Granted 前保持，StationCall 此时不提交给控制器。Pending 只观察原 handle；AVAILABLE
+候选在明确、安全且已结束的冲突拒绝后释放自己的 tentative key，再尝试下一候选。不得释放原 source
+grant、已占用旧站台或仍在准备的候选。候选尚未提交时不把拒绝的 `retryAtOrBefore` 转成较短 grant，
+否则会提前锁定本该尝试替代的候选。首个真实 grant 后锁定选择，后续按普通 rolling admission 处理。
+
+操作员在尚未提交时停止：没有 pending 可立即释放 tentative berth；存在 pending 则保留其身份到安全
+settlement，再释放未到访的 logical berth，Basic grant 仍按自己的生命周期保留。unsafe settlement
+不得清理后继续。`selectedBerthRef/selectedBerthCommitted` 描述选择；`berthRef/berthHeld` 描述实际
+StationCall，二者可分别是下一个候选和仍被车尾占用的上一个站台。
+
+固定输出以条件、等待或 SELECT_STOP 开始时，先绑定实际完整车身的 body grant，安装独立零速限制，
+退役已消费的 mission（保留同一 ATO 与外部约束），再对已经发布的实际输出执行普通 cursor。不能等待
+Core structural fence 先释放才提交选中 movement：该 fence 的释放本就依赖选中路线的准入。执行 cursor
+与提交 movement 本身不解除 fence；Basic 输出 grant 与 handoff 共同控制解除。未来 acquisition Tick
+仍须等待；条件不能在发布前用原 source 的车长、car count 或位置求值。
+
+Structural source preparation waits for a coherent stationary publication, not merely a zero final
+speed. The final braking frame can still record head/tail traversal or renderable velocity. Keep the
+existing formation stop cap and retry through the source-admission waiting path until these are all
+zero; do not downgrade Basic's stationary-source requirement or submit an irreversible event early.
+The real isolated coupling→movement→split factory regression exercises this boundary.
+
+A branch selected against a published child can reverse a still-held body before choosing its first corridor. Dispatcher first suspends the exact Basic output grant, then marks that output's handoff as reversing. After the prepared Core reversal it records the actual new direction in the pending depot owner in the same serialized callback. The handoff remains paused until Basic accepts the exact reversed-body rebase; only then may ordinary cursor execution select departure and request movement. Failed ownership/rebase transitions retain holds and enter recovery. No condition is evaluated against the unsplit parent's length, and no sibling grant or owner is released by this reversal.

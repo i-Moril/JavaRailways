@@ -215,6 +215,8 @@ JAR 明确拒绝包含 `org/graalvm/` 或宿主 class。真实 Paper 下载／�
 
 `HostUnavailable`处理外层host拒绝；`ExpectedUnavailable`处理固定保护进路未ready、当前入口无ready选择以及显式已知不可用的区间观测。这些属于正常安全拒绝，不当成脚本异常；ready却缺routeId或匹配观察计划、缺少应已注册的观测、JS抛错、非法setter或未知外观仍是真实错误。不能整体排除IllegalArgumentException或按message过滤。正常JS输出0/clear、等待首baseline及环终止也不报错。两类状态都继续按原语义收紧，不因是否写日志而改变授权或许可。
 
+世界问题列表保存当前异常而非历史。设备从启动catalog不可用或真实规则错误转入`HostUnavailable`／`ExpectedUnavailable`时，状态变化回调必须以`issueChanged(deviceId, null)`清除旧的`simplesignals:rules / rule-unavailable`记录，不能等到`Available`才清除。实际信号仍保留新的Unavailable原因及0限速；准备期缺观察根等明确异常继续上报。回归须覆盖启动缺catalog→catalog就绪但当前入口无ready进路，以及真实JS故障→正常等待→再次故障，分别断言问题清除、安全收紧和错误重新报告。
+
 候选安全恢复采用ANY_FAILURE并转换限制性runtime时，实际编译异常也经原manager出口保留上下文和Throwable。SimpleSignals平台将这些报告送入自己的非阻塞日志队列，控制台/文件写入与关闭机制归[Bukkit共用错误文件](../../bukkit-plugin/backend/error-logging.md)。不能先将异常变成reason-only字符串再尝试恢复堆栈，不能把正常红灯逐tick记成错误。
 
 真实manager回归应覆盖正常0→实际Graal失败→占用变化使同样错误再次求值但不重复报告→恢复→再失败，并检查原cause和真实epoch；一般writer测试不能替代此边界。

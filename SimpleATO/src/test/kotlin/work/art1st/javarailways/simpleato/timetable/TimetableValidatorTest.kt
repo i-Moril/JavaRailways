@@ -59,6 +59,140 @@ class TimetableValidatorTest {
     }
 
     @Test
+    fun `extension validates nested JSON against registered provider and rejects missing provider`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        world.basicWorldData.wayPoints.add(WayPoint("A", "A", rail.id, 20.0))
+        world.basicWorldData.wayPoints.add(WayPoint("B", "B", rail.id, 50.0))
+        val parameters = kotlinx.serialization.json.Json.parseToJsonElement("""{"nested":{"values":[1,true,null,"ok"]}}""") as kotlinx.serialization.json.JsonObject
+        fun timetable(call: work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionCall) = Timetable("extensions",
+            services = listOf(TimetableService("s", TrainSelector.TrainId("T"), listOf(TimetableStep.Check("A"),
+                TimetableStep.At(0L, TimetableAction.GoTo("B")), TimetableStep.At(0L, TimetableAction.Extension(call))))))
+        val call = work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionCall("test:nested", parameters = parameters)
+        assertTrue(TimetableValidator(world).validate(timetable(call)).errors.any { it.contains("provider is not registered") })
+        var observed: kotlinx.serialization.json.JsonObject? = null
+        world.simpleAtoWorldData.timetableExtensions.registerAction(object : work.art1st.javarailways.simpleato.api.timetable.TimetableActionProvider {
+            override val typeId = "test:nested"
+            override val version = 1
+            override val descriptor = work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionDescriptor("Nested", "Validate nested inputs")
+            override fun validate(parameters: kotlinx.serialization.json.JsonObject): List<String> {
+                observed = parameters
+                return if (parameters == call.parameters) emptyList() else listOf("nested values rejected")
+            }
+            override fun start(parameters: kotlinx.serialization.json.JsonObject,
+                context: work.art1st.javarailways.simpleato.api.timetable.TimetableRuntimeContext):
+                work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionActionStartResult = error("validation must not execute actions")
+        })
+        assertTrue(TimetableValidator(world).validate(timetable(call)).isSuccess)
+        assertEquals(parameters, observed)
+        val interrupted = Timetable("interrupted-extension", services = listOf(TimetableService("s", steps = listOf(
+            TimetableStep.At(0L, TimetableAction.TakeFromWaypoint(listOf("A"))),
+            TimetableStep.At(0L, TimetableAction.DestinationOptions("B")),
+            TimetableStep.At(0L, TimetableAction.Extension(call)), TimetableStep.At(0L, TimetableAction.GoTo("B"))))))
+        assertTrue(TimetableValidator(world).validate(interrupted).errors.any { it.contains("step#2 destination options") })
+        val invalid = call.copy(parameters = kotlinx.serialization.json.JsonObject(emptyMap()))
+        assertTrue(TimetableValidator(world).validate(timetable(invalid)).errors.any { it.contains("nested values rejected") })
+    }
+
+    @Test
+    fun `retains every dynamic origin leg with explicit pass offset and stable association`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        listOf("A" to 20.0, "A2" to 30.0, "via" to 50.0, "B" to 80.0).forEach { (id, arc) ->
+            world.basicWorldData.wayPoints.add(WayPoint(id, id, rail.id, arc))
+        }
+        val timetable = Timetable("dynamic", services = listOf(TimetableService("s", steps = listOf(
+            TimetableStep.At(0L, TimetableAction.TakeFromWaypoint(listOf("A", "A2"))),
+            TimetableStep.At(1L, TimetableAction.GoVia(listOf("via", "B")))))))
+        val validation = TimetableValidator(world).validate(timetable)
+        assertTrue(validation.isSuccess, validation.errors.toString())
+        assertEquals(4, validation.retainedRoutes.size)
+        assertEquals(4, validation.routes.size)
+        for (origin in listOf("A", "A2")) for (leg in listOf(0, 1)) {
+            val key = ValidatedTimetableRouteKey("s", 1, origin, leg, if (leg == 0) "via" else "B", ViewDirection.AB,
+                stoppingOffsetMeters = if (leg == 0) null else 0.0)
+            val evidence = validation.retainedRoutes.getValue(key)
+            assertEquals(if (leg == 0) null else 0.0, evidence.stoppingOffsetMeters)
+            assertTrue(validation.routes.any { it === evidence.route })
+            assertTrue(evidence.topology === world.topologyState)
+        }
+        assertThrows(UnsupportedOperationException::class.java) {
+            (validation.retainedRoutes as MutableMap).clear()
+        }
+    }
+
+    @Test
+    fun `relative wait before first movement requires acquisition and cannot interrupt destination options`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        world.basicWorldData.wayPoints.add(WayPoint("A", "A", rail.id, 20.0))
+        world.basicWorldData.wayPoints.add(WayPoint("B", "B", rail.id, 50.0))
+        val take = TimetableStep.At(0L, TimetableAction.TakeFromWaypoint(listOf("A")))
+        val wait = TimetableStep.At(0L, TimetableAction.Stop(5L))
+        val move = TimetableStep.At(0L, TimetableAction.GoTo("B"))
+        fun validate(steps: List<TimetableStep>) = TimetableValidator(world).validate(
+            Timetable("relative", services = listOf(TimetableService("s", steps = steps))))
+        assertTrue(validate(listOf(take, wait, move)).isSuccess)
+        assertTrue(validate(listOf(wait, move)).errors.any { it.contains("stop 前必须完成取车") })
+        assertTrue(validate(listOf(take, TimetableStep.At(0L, TimetableAction.DestinationOptions("B")),
+            wait, move)).errors.any { it.contains("step#2 destination options") })
+    }
+
+    @Test
+    fun `waitUntil requires positioned acquisition and cannot interrupt destination options`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        world.basicWorldData.wayPoints.add(WayPoint("A", "A", rail.id, 20.0))
+        world.basicWorldData.wayPoints.add(WayPoint("B", "B", rail.id, 50.0))
+        fun validate(steps: List<TimetableStep>) = TimetableValidator(world).validate(
+            Timetable("wait", services = listOf(TimetableService("s", TrainSelector.TrainId("T"), steps))))
+        assertTrue(validate(listOf(TimetableStep.Check("A"), TimetableStep.At(5L, TimetableAction.WaitUntil), TimetableStep.At(5L, TimetableAction.GoTo("B")))).isSuccess)
+        assertTrue(validate(listOf(TimetableStep.At(5L, TimetableAction.WaitUntil))).errors.any { it.contains("waitUntil") })
+        val interrupted = validate(listOf(TimetableStep.Check("A"),
+            TimetableStep.At(0L, TimetableAction.DestinationOptions("A")), TimetableStep.At(5L, TimetableAction.WaitUntil)))
+        assertTrue(interrupted.errors.any { it.contains("step#2 destination options") })
+    }
+
+    @Test
+    fun `cross depot storage retains target routes and terminal acquisition restrictions`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        val destinations = OperationalDestinationService(world)
+        listOf("A" to 20.0, "B" to 70.0).forEach { (id, arc) ->
+            destinations.register(OperationalDestination("$id@one", id, rail.id, arc, ViewDirection.AB,
+                DestinationRole.DepotStablingPointRole(id, "one", usableLengthMeters = 20.0)))
+        }
+        world.simpleAtoWorldData.depots.registerRollingStock(
+            RollingStockRecord("T", DepotId("A"), "test/emu", emptySet(), 1, 10.0, 20.0, emptySet()),
+            StablingPointRef(DepotId("A"), "one"))
+        val take = TimetableStep.At(0L, TimetableAction.TakeFromDepot(DepotTrainSelector(DepotId("A"))))
+        val store = TimetableStep.At(1L, TimetableAction.StoreAtDepot(DepotId("B")))
+        fun validate(steps: List<TimetableStep>) = TimetableValidator(world).validate(
+            Timetable("cross", services = listOf(TimetableService("s", steps = steps))))
+        world.basicWorldData.wayPoints.add(WayPoint("via", "Via", rail.id, 40.0))
+        val move = TimetableStep.At(0L, TimetableAction.GoTo("via"))
+        val result = validate(listOf(take, move, store))
+        assertTrue(result.isSuccess, result.errors.toString())
+        val conditional = Timetable("conditional", services = listOf(TimetableService("s",
+            steps = listOf(take, move, store), activation =
+                work.art1st.javarailways.simpleato.api.timetable.TimetableServiceActivation.Conditional(
+                    work.art1st.javarailways.simpleato.api.timetable.TimetableCondition.Predicate(
+                        work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionCall("test:condition")),
+                    work.art1st.javarailways.simpleato.api.timetable.TimetableActivationFalseBehavior.WAIT_UNTIL_TRUE))))
+        assertTrue(TimetableValidator(world).validate(conditional).errors.any {
+            it.contains("storeAtDepot 不得用于运行时条件激活") })
+        assertEquals(listOf(20.0, 30.0), result.routes.map { it.totalLength })
+        assertTrue(validate(listOf(store)).errors.any { it.contains("有且仅有一次取车") })
+        assertTrue(validate(listOf(take, store, TimetableStep.At(2L, TimetableAction.WaitUntil))).errors.any { it.contains("最后一步") })
+        assertTrue(validate(listOf(take, TimetableStep.At(1L, TimetableAction.StoreAtDepot(DepotId("B"), setOf("missing"))))).errors.any { it.contains("StablingPoint") })
+    }
+
+    @Test
     fun `endpoint anchor retains existing track when actual destination stop has enough margin`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
@@ -219,7 +353,7 @@ class TimetableValidatorTest {
         assertFalse(result.isSuccess)
         assertTrue(result.errors.any { it.contains("takeFromDepot") })
         assertTrue(result.errors.any { it.contains("初始", ignoreCase = true) })
-        assertTrue(result.errors.any { it.contains("首次 destination 前不得 stop") })
+        assertTrue(result.errors.any { it.contains("stop 前必须完成取车或 destination") })
     }
 
     @Test
@@ -235,8 +369,20 @@ class TimetableValidatorTest {
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
         )
-        val metroTrain = createTrainWithConfig("metro", metroRail, world, listOf(10.0))
-        val freightTrain = createTrainWithConfig("freight", freightRail, world, listOf(10.0))
+        fun depotTrain(id: String, rail: work.art1st.javarailways.core.physics.rail.CoreRail) = world.onOwnerForTest {
+            val head = work.art1st.javarailways.core.physics.rail.RailLocationWithFacing(rail.viewAB, 20.0)
+            val car = work.art1st.javarailways.core.physics.train.CoreCar.create("$id-car",
+                work.art1st.javarailways.core.physics.train.CoreBogie.create(head),
+                work.art1st.javarailways.core.physics.train.CoreBogie.create(head),
+                length = 10.0, floorHeight = 0.0, connectorLengthAtA = 0.0, connectorLengthAtB = 0.0,
+                bogieAOffset = 5.0, bogieBOffset = -5.0, world = world)
+            work.art1st.javarailways.core.physics.train.CoreTrain.create(id, listOf(car), world).also {
+                it.setLocation(head)
+                it.commitMaintenancePlacement()
+            }
+        }
+        val metroTrain = depotTrain("metro", metroRail)
+        val freightTrain = depotTrain("freight", freightRail)
         val depotId = DepotId("north")
         val destinations = OperationalDestinationService(world)
         destinations.register(

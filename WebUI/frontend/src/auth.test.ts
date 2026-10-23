@@ -12,6 +12,6 @@ describe('WebUI guest navigation',()=>{
   });
 
   it('exposes protected pages after token authentication',()=>{
-    expect(navigationForAuthentication(true)).toEqual(['graph','map','lines','duties','validation','issues','logs']);
+    expect(navigationForAuthentication(true)).toEqual(['graph','map','lines','duties','validation','issues','programs','logs']);
   });
 });

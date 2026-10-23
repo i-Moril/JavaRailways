@@ -489,6 +489,44 @@ class TrainDynamicsTest {
     }
 
     @Test
+    fun `low speed cap anticipates progressive handles and residual acceleration without changing physics`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
+        val train = createTrainWithConfig("low-speed-actuator", rail, world, listOf(10.0))
+        val profile = TestTrainProfile(brakeApplyTime = 0.5, brakeJerk = 2.0)
+        val actuator = HandleTrainActuator(train, profile, listOf(carProfile), 9.80665)
+        val inputs = listOf(TrainDynamics.CarInput(carProfile, train.cars.single().operatingDirection.y()))
+        var state = TrainDynamics.State()
+        var distance = 0.0
+        repeat(600) {
+            val actual = actuator.step(state.speed, ControlDemand(0.2), 0.05)
+            val expected = TrainDynamics.step(state, profile, inputs, actuator.selectedHandle, 9.80665, 0.05)
+            assertEquals(expected.state, actuator.lastDynamicsResult.state)
+            assertEquals(expected.state.speed, actual.speedMetersPerSecond, 1.0e-12)
+            assertEquals(expected.distance, actual.distanceMeters, 1.0e-12)
+            assertTrue(actual.speedMetersPerSecond <= 0.200001, "tick $it exceeded cap: ${actual.speedMetersPerSecond}")
+            state = expected.state
+            distance += actual.distanceMeters
+        }
+        assertTrue(distance > 1.0, "conservative handle selection must still make physical progress")
+    }
+
+    @Test
+    fun `unproven recovery within bounded preview does not authorize traction`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
+        val train = createTrainWithConfig("unproven-recovery", rail, world, listOf(10.0))
+        val profile = TestTrainProfile(brakeJerk = 0.000001)
+        val actuator = HandleTrainActuator(train, profile, listOf(carProfile), 9.80665)
+        val actual = actuator.step(0.0, ControlDemand(profile.maxSpeed), 0.05)
+        // A first power step stays below the limit for 256 ticks, but its positive acceleration
+        // cannot settle within that budget. Absence of an observed violation is not a proof.
+        assertEquals("B1", actuator.selectedHandle)
+        assertEquals(0.0, actual.speedMetersPerSecond)
+        assertEquals(0.0, actual.distanceMeters)
+    }
+
+    @Test
     fun `world safety interlock forces the manual controller to emergency brake`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val rail = createStraightRailFromSegments(

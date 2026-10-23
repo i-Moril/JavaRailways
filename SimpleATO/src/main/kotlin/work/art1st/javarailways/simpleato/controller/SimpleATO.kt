@@ -128,6 +128,7 @@ class SimpleATO(
         data class Remove(val key: String) : Command
         data class SetMovementAuthority(val missionRevision: Long, val limitDistanceMeters: Double) : Command
         data class GrantStationDeparture(val callId: String, val missionRevision: Long) : Command
+        data class RetireFormationMission(val throughMissionRevision: Long) : Command
         data class PrepareReverse(
             val callId: String?,
             val missionRevision: Long?
@@ -217,6 +218,7 @@ class SimpleATO(
 
     @Volatile
     private var restrictionRoute: RestrictionRoute? = null
+    private var activeContactAuthority: work.art1st.javarailways.basic.api.route.CouplingContactAuthority? = null
 
     val publishedState: SimpleAtoPublishedState
         get() {
@@ -443,6 +445,25 @@ class SimpleATO(
         return routeEndDistanceMeters + safetyProfile.safetyDistanceMeters
     }
 
+    /** Retire consumed pre-formation movement without replacing the controller or its restrictions. */
+    fun retireMissionForFormation(): Long {
+        val physical = train as? work.art1st.javarailways.core.physics.train.CoreTrain
+            ?: error("formation retirement requires a Core train")
+        physical.world.physicsCoordinator.ensureBetweenFrames("SimpleATO.retireMissionForFormation")
+        check(physical.world.getTrain(train.id) === physical && physical.controller === this &&
+            physical.hasFormationMovementHold) { "formation retirement requires the current structurally held controller" }
+        val frame = physical.publishedFrame
+        check(!frame.derailed && frame.speedMetersPerSecond == 0.0 &&
+            (frame.headTraversal + frame.tailTraversal).none { it.startArcLengthInAbMeters != it.endArcLengthInAbMeters } &&
+            frame.cars.all { car -> (car.bogies + car.state).all {
+                it.velocityX == 0.0 && it.velocityY == 0.0 && it.velocityZ == 0.0
+            } }) { "formation retirement requires stopped physical publication" }
+        check(activeStationCall == null && stationCallCommands.pendingCount == 0) {
+            "formation retirement cannot discard an active or queued StationCall"
+        }
+        return commands.enqueue(Command.RetireFormationMission(missionCommands.latestAcceptedRevision)).revision
+    }
+
     fun prepareForReverse(callId: String?, missionRevision: Long?): Long {
         require((callId == null) == (missionRevision == null))
         return commands.enqueue(Command.PrepareReverse(callId, missionRevision)).revision
@@ -476,6 +497,9 @@ class SimpleATO(
 
     override fun processPendingCommands() {
         missionCommands.drain().lastOrNull()?.command?.let { mission ->
+            (mission.origin as? work.art1st.javarailways.simpleato.api.mission.AtoMissionOrigin.Physical)?.let { origin ->
+                check(train.publishedFrame?.head == origin.position) { "formation Mission origin changed before activation" }
+            }
             constraintManager.remove(MISSION_OWNER)
             missionProgressMeters = 0.0
             missionRouteLayout = MissionRouteLayout(world, mission)
@@ -555,6 +579,20 @@ class SimpleATO(
                         }
                     }
                 }
+                is Command.RetireFormationMission -> {
+                    // Mission submissions drain before generic commands. A later output mission
+                    // must survive a queued retirement of its consumed predecessor.
+                    if ((activeMission?.revision ?: -1L) <= command.throughMissionRevision) {
+                        check(activeStationCall == null) { "formation retirement cannot discard an active StationCall" }
+                        activeMission = null
+                        missionRouteLayout = null
+                        missionProjectedProgressMeters = null
+                        missionProgressMeters = 0.0
+                        movementAuthorityRevision = -1L
+                        movementAuthorityLimitMeters = 0.0
+                        constraintManager.remove(MISSION_OWNER)
+                    }
+                }
                 is Command.PrepareReverse -> {
                     val active = activeStationCall
                     if (command.callId == null) {
@@ -591,6 +629,7 @@ class SimpleATO(
     }
 
     override fun plan(deltaTimeSeconds: Double): ControlDemand {
+        activeContactAuthority = null
         perceptionEpoch++
         missionProgressMeters += lastTravelDistanceMeters
         val restriction = restrictionRoute
@@ -726,7 +765,20 @@ class SimpleATO(
                     "${snapshot.trainId} was ${result.status}"
             }
         }
-        trainRestrictionAdapter.apply(currentStamp, route.binding, routeProgress)
+        trainRestrictionAdapter.apply(currentStamp, route.binding, routeProgress) { contact ->
+            val mission = activeMission
+            val authorityEnd = route.headDistanceFromRouteStartMeters + movementAuthorityLimitMeters -
+                route.missionHeadProgressAtSelectionMeters
+            mission != null && mission.revision == route.missionRevision &&
+                movementAuthorityRevision == mission.revision &&
+                contact.proof.request.approachingTrainId == train.id &&
+                kotlin.math.abs(authorityEnd - contact.contactBoundary.distanceFromRouteStartMeters) <= 1.0e-6 &&
+                route.frozenRoute.physicalHeadProgressMeters(world.topologyState,
+                    contact.proof.contactHead, contact.contactBoundary.distanceFromRouteStartMeters)?.let {
+                    kotlin.math.abs(it - contact.contactBoundary.distanceFromRouteStartMeters) <= 1.0e-6
+                } == true && world.validatePublishedCouplingApproach(contact.proof)
+        }
+        activeContactAuthority = trainRestrictionAdapter.appliedContactAuthority
     }
 
     override fun validateBeforeMovement() {
@@ -736,6 +788,11 @@ class SimpleATO(
             }
         }
     }
+
+    override fun constrainMovementDistance(requestedDistanceMeters: Double): Double =
+        activeContactAuthority?.let { contact ->
+            world.clampCouplingApproachDistance(contact.proof, requestedDistanceMeters)
+        } ?: requestedDistanceMeters
 
     override fun constraintSnapshot(): Map<ConstraintOwner, List<AtoConstraint>> = constraintManager.snapshot()
 
@@ -790,6 +847,15 @@ class SimpleATO(
         val nearestTrain = scan.currentObservedByRef.values
             .asSequence()
             .filter { it.railObject is TrainEnd }
+            .filterNot { observed ->
+                val contact = activeContactAuthority ?: return@filterNot false
+                val end = observed.railObject as TrainEnd
+                val proof = contact.proof
+                val targetIsHead = (proof.request.stationaryEnd ==
+                    work.art1st.javarailways.core.api.physics.train.TrainEndSide.A) != proof.stationaryFrame.reversed
+                end.trainOrNull?.id == proof.request.stationaryTrainId &&
+                    end.type == if (targetIsHead) TrainEnd.Type.HEAD else TrainEnd.Type.TAIL
+            }
             .minByOrNull { it.distanceMeters }
         val following = nearestTrain?.let { observed ->
             val leaderSpeed = (activeSpeed + (observed.relativeSpeedMetersPerSecond ?: 0.0)).coerceAtLeast(0.0)
@@ -841,12 +907,11 @@ class SimpleATO(
             val authorityLimit = movementAuthorityLimitMeters.takeIf {
                 movementAuthorityRevision == mission.revision
             } ?: 0.0
-            add(
-                MovementAuthorityConstraint(
-                    ConstraintKey("mission", "authority/${mission.revision}"),
-                    (authorityLimit - controlProgress).coerceAtLeast(0.0)
-                )
-            )
+            val authorityKey = ConstraintKey("mission", "authority/${mission.revision}")
+            val authorityRemaining = (authorityLimit - controlProgress).coerceAtLeast(0.0)
+            add(if (activeContactAuthority != null)
+                StopConstraint(authorityKey, authorityRemaining, stoppingMarginMeters = 0.0)
+            else MovementAuthorityConstraint(authorityKey, authorityRemaining))
             mission.legs.forEach { leg ->
                 targetDistance += leg.plannedRoute.expandedRoute.totalLength
                 val point = leg.point

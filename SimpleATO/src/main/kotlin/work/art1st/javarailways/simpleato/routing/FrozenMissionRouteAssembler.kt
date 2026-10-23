@@ -312,7 +312,19 @@ internal object FrozenMissionRouteAssembler {
                 "train ${committed.trainId} progress $missionHeadProgressMeters is outside mission ${mission.id}@${mission.revision}"
             )
         }
-        val operationalEnd = existing.operationalEndRouteDistanceMeters
+        val physicalOrigin = mission.origin as? work.art1st.javarailways.simpleato.api.mission.AtoMissionOrigin.Physical
+        val operationalEnd = if (physicalOrigin == null) existing.operationalEndRouteDistanceMeters else {
+            // A structural output starts at its actual stopped head, including accepted stop error.
+            // Keep the committed path verbatim and compare overlap from that exact occurrence.
+            val originProgress = existing.physicalHeadProgressMeters(topology, physicalOrigin.position,
+                existing.operationalEndRouteDistanceMeters)
+            if (originProgress == null ||
+                abs(originProgress - existing.operationalEndRouteDistanceMeters) > POSITION_TOLERANCE_METERS) {
+                return rejected(FrozenMissionRouteRejection.INVALID_MISSION,
+                    "physical mission origin is outside the committed operating stop")
+            }
+            originProgress
+        }
         val committedPrefix = committed.route.segments
         val committedEnd = endAt(committedPrefix, operationalEnd)
         if (committedEnd == null || missionRoute.segments.isEmpty()) {

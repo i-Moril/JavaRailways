@@ -31,6 +31,9 @@ class TrainSplitEvent internal constructor(
     val isRejected: Boolean get() = rejectionReason != null
     val retainedReversed: Boolean get() = retainedRequest ?: originalReversed
     val separatedReversed: Boolean get() = separatedRequest ?: originalReversed
+    /** Both results remain fenced until their operational owners are ready. */
+    var holdResultMovement: Boolean = false
+        private set
 
     private var retainedRequest: Boolean? = null
     private var separatedRequest: Boolean? = null
@@ -61,6 +64,12 @@ class TrainSplitEvent internal constructor(
         } else {
             separatedRequest = reversed
         }
+    }
+
+    /** Requests distinct Core output fences for both results, without mutating the source. */
+    fun requestMovementHold() {
+        checkEditable()
+        holdResultMovement = true
     }
 
     internal fun freeze() {

@@ -30,6 +30,12 @@ import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionState
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionUpdate
+import work.art1st.javarailways.basic.api.route.FormationTrainIdentity
+import work.art1st.javarailways.basic.api.route.FormationRouteContext
+import work.art1st.javarailways.basic.api.route.FormationRoutePurpose
+import work.art1st.javarailways.basic.api.route.FormationRoutePolicyResult
+import work.art1st.javarailways.basic.api.route.FormationResourceClearance
+import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContributor
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.ResourcePreparationSnapshot
@@ -97,6 +103,57 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class DefaultInfrastructureResourceServiceTest {
+    @Test
+    fun `formation requires every contributor opt-in and exact provider clearance`() {
+        val service = DefaultInfrastructureResourceService()
+        val worldId = UUID.randomUUID()
+        registerWorld(service, worldId)
+        val owner = plugin("formation-policy")
+        val resource = StableInfrastructureResource("test:block", "home")
+        val context = FormationRouteContext::class.java.constructors.single { it.parameterCount == 6 }.newInstance("test:event",
+            FormationRoutePurpose.OUTPUT_BODY, listOf(FormationTrainIdentity("source", listOf("car"), false)),
+                    listOf(FormationTrainIdentity("train", listOf("car"), false)), listOf(resource), null) as FormationRouteContext
+        val route = RouteSnapshot("test:route", 1L, 0L,
+            listOf(RouteSegmentSnapshot(UUID.randomUUID(), ViewDirection.AB, 0.0, 20.0)))
+        val intent = RouteResourceIntent("test:request", InfrastructureOwner("test:owner", 1L), "train",
+            RailwayStateStamp(worldId.toString(), 1L, 0L), route, RouteBoundary(2.0), context)
+        var clearances = listOf(FormationResourceClearance(resource, RouteBoundary(18.0)))
+        var removeDuringValidation: (() -> Unit)? = null
+        service.registerResourceProvider(owner, resource.typeId, object : InfrastructureResourceProvider {
+            override fun exists(worldId: UUID, resourceId: String) = true
+            override fun validateRouteContribution(contributor: Plugin, worldId: UUID, resourceId: String,
+                preparation: ResourcePreparationDescriptor?): RouteAdmissionFailureCode? = null
+            override fun authorizeFormationResource(worldId: UUID, resourceId: String, context: FormationRouteContext,
+                intent: RouteResourceIntent): FormationRoutePolicyResult {
+                removeDuringValidation?.invoke()
+                return FormationRoutePolicyResult.Accepted(clearances)
+            }
+        }, emptyList())
+        val legacy = service.registerRouteResourceContributor(owner, RouteResourceContributor { _, _ -> emptyList() })
+        assertTrue(service.authorizeFormationRoute(worldId, context, intent) is FormationRoutePolicyResult.Rejected)
+        legacy.close()
+        val opted = service.registerRouteResourceContributor(owner, object : RouteResourceContributor {
+            override fun contribute(worldId: UUID, intent: RouteResourceIntent) = emptyList<ContributedRouteResource>()
+            override fun authorizeFormationRoute(worldId: UUID, context: FormationRouteContext,
+                intent: RouteResourceIntent): RouteAdmissionFailureCode? = null
+        })
+        val accepted = service.authorizeFormationRoute(worldId, context, intent) as FormationRoutePolicyResult.Accepted
+        assertEquals(RouteBoundary(18.0), accepted.clearances.single().releaseAfterTailPasses)
+        clearances = emptyList()
+        assertTrue(service.authorizeFormationRoute(worldId, context, intent) is FormationRoutePolicyResult.Rejected)
+        clearances = listOf(FormationResourceClearance(resource.copy(resourceId = "forged"), null))
+        assertTrue(service.authorizeFormationRoute(worldId, context, intent) is FormationRoutePolicyResult.Rejected)
+        clearances = listOf(FormationResourceClearance(resource, RouteBoundary(21.0)))
+        assertTrue(service.authorizeFormationRoute(worldId, context, intent) is FormationRoutePolicyResult.Rejected)
+        clearances = listOf(FormationResourceClearance(resource, null))
+        assertEquals(null, (service.authorizeFormationRoute(worldId, context, intent) as FormationRoutePolicyResult.Accepted)
+            .clearances.single().releaseAfterTailPasses)
+        removeDuringValidation = { opted.close() }
+        assertTrue(service.authorizeFormationRoute(worldId, context, intent) is FormationRoutePolicyResult.Rejected)
+        assertTrue(service.liveClaims(worldId).isEmpty())
+        service.close()
+    }
+
     @Test
     fun `planned owner removal awaits an in flight real signal epoch before checking restrictions`() {
         val guard = work.art1st.javarailways.core.api.threading.host.ThreadGuardHost.registerPlatformBridge(BukkitThreadGuardBridge)
@@ -1001,6 +1058,14 @@ class DefaultInfrastructureResourceServiceTest {
         val laterDisabledPlugin = plugin("later-disabled") { pluginEnabled }
         val disabledBinding = service.routeAdmission(laterDisabledPlugin, worldId)
         pluginEnabled = false
+        val formationIntent = work.art1st.javarailways.basic.api.route.FixedFormationChangeIntent.Split(
+            "event", grant.grantId,
+            work.art1st.javarailways.basic.api.route.FormationTrainIdentity("train", listOf("a", "b"), false), "b",
+            work.art1st.javarailways.basic.api.route.FormationTrainIdentity("train", listOf("a"), false),
+            work.art1st.javarailways.basic.api.route.FormationTrainIdentity("child", listOf("b"), false))
+        assertEquals(RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            assertInstanceOf(work.art1st.javarailways.basic.api.route.FormationChangeResult.Rejected::class.java,
+                disabledBinding.prepareFormationChange(formationIntent)).failure.code)
         assertEquals(
             RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
             assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
@@ -1013,6 +1078,9 @@ class DefaultInfrastructureResourceServiceTest {
             assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
                 admission.request(intent)).failure.code
         )
+        assertEquals(RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            assertInstanceOf(work.art1st.javarailways.basic.api.route.FormationChangeResult.Rejected::class.java,
+                admission.prepareFormationChange(formationIntent)).failure.code)
         service.registerWorld(worldId, { topology }) { false }
         service.attachInfrastructureRuntime(
             worldId, TestWorld(topology), { observation }

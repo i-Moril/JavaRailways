@@ -4,6 +4,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.simpleato.api.depot.DepotId
 import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector
@@ -80,6 +81,7 @@ class TimetableSnapshotTest {
                         TimetableStep.At(50L, TimetableAction.TakeFromWaypoint(
                             listOf("platform@one", "siding")
                         )),
+                        TimetableStep.At(75L, TimetableAction.WaitUntil),
                         TimetableStep.At(100L, TimetableAction.GoVia(listOf("via", "central@one"))),
                         TimetableStep.At(200L, TimetableAction.CallStation(
                             "central", "one", 40L, 1.5, DoorSide.LEFT
@@ -90,9 +92,9 @@ class TimetableSnapshotTest {
                                 "example:model",
                                 parameters = JsonObject(mapOf("id" to JsonPrimitive("s100")))
                             )),
-                            thenActions = listOf(TimetableAction.Extension(
+                            thenSteps = listOf(TimetableStep.At(350L, TimetableAction.Extension(
                                 TimetableExtensionCall("example:prepare")
-                            ))
+                            )))
                         )),
                         TimetableStep.At(400L, TimetableAction.StoreAtDepot(
                             DepotId("north"), setOf("road-1")
@@ -123,4 +125,38 @@ class TimetableSnapshotTest {
 
         assertEquals(timetable, restored)
     }
+
+    @Test fun `timed conditional snapshot preserves child tick and rejects a check child`() {
+        val condition = SavedTimetableConditionV1(SavedTimetableConditionTypeV1.PREDICATE,
+            call = SavedTimetableExtensionCallV1("test:choose"))
+        val saved = SavedTimetableActionV1(SavedTimetableActionTypeV1.CONDITIONAL, condition = condition,
+            thenSteps = listOf(SavedTimetableStepV1(SavedTimetableStepTypeV1.AT, tick = 23,
+                action = SavedTimetableActionV1(SavedTimetableActionTypeV1.EXTENSION,
+                    extensionCall = SavedTimetableExtensionCallV1("test:action")))))
+        val restored = saved.restore() as TimetableAction.Conditional
+        assertEquals(23L, restored.thenSteps.single().tick)
+        assertEquals(saved, SavedTimetableActionV1.capture(restored))
+        assertThrows(IllegalArgumentException::class.java) {
+            saved.copy(thenSteps = listOf(SavedTimetableStepV1(SavedTimetableStepTypeV1.CHECK, wayPointId = "hidden"))).restore()
+        }
+    }
+
+
+    @Test fun `selected stop snapshot preserves finite candidates policy and actual station options`() {
+        val action = TimetableAction.SelectStop(work.art1st.javarailways.simpleato.api.station.StationStopSelection(
+            work.art1st.javarailways.simpleato.api.station.StationId("central"), listOf(
+                work.art1st.javarailways.simpleato.api.station.StationStopCandidate("long", 0),
+                work.art1st.javarailways.simpleato.api.station.StationStopCandidate("short", 1)),
+            work.art1st.javarailways.simpleato.api.station.StationStopSelectionPolicy.AVAILABLE_PRIORITY),
+            minimumDwellTicks = 30, stoppingOffsetMetersBefore = 1.5, doorSideOverride = DoorSide.RIGHT)
+        val saved = SavedTimetableActionV1.capture(action)
+        val encoded = kotlinx.serialization.json.Json.encodeToString(SavedTimetableActionV1.serializer(), saved)
+        val decoded = kotlinx.serialization.json.Json.decodeFromString(SavedTimetableActionV1.serializer(), encoded)
+        assertEquals(action, decoded.restore())
+        assertEquals(SavedTimetableActionTypeV1.SELECT_STOP, decoded.type)
+        assertEquals(listOf("long", "short"), decoded.berthCandidates.map { it.berthId })
+        assertThrows(IllegalArgumentException::class.java) { saved.copy(berthCandidates = emptyList()).restore() }
+        assertThrows(IllegalArgumentException::class.java) { saved.copy(selectionPolicy = null).restore() }
+    }
+
 }

@@ -35,7 +35,9 @@ data class ActiveRouteAdmissionSnapshot(
     val state: ActiveRouteAdmissionState,
     val requestedAuthority: RouteBoundary,
     val committedAuthority: RouteBoundary?,
-    val releasedThroughRouteMeters: Double = 0.0
+    val releasedThroughRouteMeters: Double = 0.0,
+    /** Explicit fixed-event policy provenance; it does not override signal aspects. */
+    val formationContext: FormationRouteContext? = null
 ) {
     init {
         require(trainId.isNotBlank()) { "trainId must not be blank" }

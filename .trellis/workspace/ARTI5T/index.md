@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~746 | Active |
+| `journal-1.md` | ~775 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -30,6 +30,7 @@
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
 | 23 | 2026-10-23 | Disk error logs in WebUI and current world issues | `64129b79` | `feat/error-log-webui` |
+| 22 | 2026-10-22 | Commit and deploy station operation programming | `e38c67a5`, `3b09e17b`, `290aa909` | `codex/station-operation-programming` |
 | 21 | 2026-10-20 | Commit isolated simulation runtime and final acceptance | `207807eb`, `3e53b3d7` | `codex/simulation-world-alignment` |
 | 20 | 2026-10-19 | World runtime isolation and observation completion | `5d8cdabe`, `1423116d` | `dev/signal-system` |
 | 19 | 2026-10-19 | Commit preserved backlog and integrate World epoch events | `dfc7b0e7`, `cd2d04bb`, `abec3837`, `01d2c7fe`, `423ea7dd` | `dev/signal-system` |

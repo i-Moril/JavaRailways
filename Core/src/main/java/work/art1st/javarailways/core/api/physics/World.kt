@@ -45,6 +45,68 @@ interface World : Extendable<Any> {
     /** Find a train by its world-unique player-assigned name; implementations may also accept an internal ID. */
     fun getTrain(name: String): Train?
 
+    /**
+     * Inspects a short selected coupler approach without changing either train or authorizing
+     * movement. Immediate, nonblocking, serialized simulation-owner call between physics frames.
+     * Unsupported worlds reject explicitly. The returned proof is process-local and frame-bound.
+     */
+    fun inspectCouplingApproach(
+        request: work.art1st.javarailways.core.api.physics.train.CouplingApproachRequest
+    ): work.art1st.javarailways.core.api.physics.train.CouplingApproachInspection =
+        work.art1st.javarailways.core.api.physics.train.CouplingApproachInspection.Rejected(
+            "world does not support coupling approach inspection")
+
+    /** Rechecks an issuing-world proof on the same serialized owner; never refreshes stale proof. */
+    fun validateCouplingApproach(
+        proof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof
+    ): Boolean = false
+
+    /** Rechecks the captured contact/target domain while the approaching train advances on it. */
+    fun validateCouplingApproachGeometry(
+        proof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof
+    ): Boolean = false
+
+    /**
+     * Read-only worker-safe validation against one coherent immutable world publication. Checks
+     * issuing world, source identity/direction, unchanged stopped target and captured topology /
+     * selected continuations. It creates no movement authority and reads no writable geometry.
+     */
+    fun validatePublishedCouplingApproach(
+        proof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof
+    ): Boolean = false
+
+    /**
+     * Physics-worker-only distance clamp for the approaching controller's own tick. Computes raw
+     * leading-bogie travel to Core's pre-solved contact, without moving it. Rejects stale/off-path
+     * proof and invalid distances; returns no distance beyond contact and adds no authority.
+     */
+    fun clampCouplingApproachDistance(
+        proof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof,
+        requestedDistanceMeters: Double
+    ): Double = throw UnsupportedOperationException("world does not support contact-distance clamping")
+
+    /**
+     * Releases only the exact live formation-output fence issued by this world. Owner-thread,
+     * nonblocking; false for a foreign, retired or already released token. Configuration holds
+     * remain effective. The operational owner must finish grant/ledger reconciliation first.
+     */
+    fun releaseFormationMovementHold(
+        hold: work.art1st.javarailways.core.api.physics.train.FormationMovementHold
+    ): Boolean = false
+
+    /**
+     * Reestablishes a dedicated fence while restoring an unresolved operational formation record,
+     * before runtime ticks are enabled. Requires exact ordered current cars and a stopped published
+     * frame. Owner-thread and nonblocking; rejection changes nothing. The caller owns persistence
+     * validation of its unresolved record. This method neither restores a mission nor grants motion.
+     */
+    fun restoreFormationMovementHold(
+        trainId: String,
+        expectedCarIds: List<String>
+    ): work.art1st.javarailways.core.api.physics.train.FormationMovementHoldRestoration =
+        work.art1st.javarailways.core.api.physics.train.FormationMovementHoldRestoration.Rejected(
+            "world does not support formation recovery holds")
+
     /** Find a rail by persistent UUID. */
     fun getRail(id: UUID): Rail?
 

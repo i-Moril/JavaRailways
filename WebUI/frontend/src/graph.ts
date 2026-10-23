@@ -7,6 +7,7 @@ export const graphServiceColors=(theme:'dark'|'light')=>theme==='light'?LIGHT_SE
 export interface GraphPoint {
   serviceIndex: number;
   stepIndex: number;
+  runId?:string;
   kind: 'DEPARTURE'|'ARRIVAL';
   tick: number;
   x: number;
@@ -16,7 +17,7 @@ export interface GraphPoint {
 }
 
 export interface GraphLane { id: string; y: number }
-export interface GraphPath { serviceIndex: number; serviceId: string; points: GraphPoint[] }
+export interface GraphPath { runId?:string; serviceIndex: number; serviceId: string; points: GraphPoint[] }
 export interface GraphLayout {
   width: number;
   height: number;
@@ -30,7 +31,7 @@ export interface GraphLayout {
 }
 
 export function filterTimetableForDiagramLine(value:SavedTimetableV1,lineId:string):SavedTimetableV1 {
-  return {...value,services:value.services.filter((service)=>service.diagramLineId===lineId)};
+  return {...value,services:value.services.filter((service)=>service.runSegments?.length?service.runSegments.some((segment)=>segment.diagramLineId===lineId):service.diagramLineId===lineId).map((service)=>service.runSegments?.length?{...service,runSegments:service.runSegments.filter((segment)=>segment.diagramLineId===lineId)}:service)};
 }
 
 function destination(action?: TimetableActionV1 | null): string | undefined {
@@ -76,6 +77,27 @@ export function layoutGraph(
   const laneById = new Map(lanes.map((lane) => [lane.id, lane.y]));
 
   const paths = value.services.flatMap((service, serviceIndex) => {
+    if(service.runSegments?.length){
+      return service.runSegments.filter((segment)=>!graphLineId||segment.diagramLineId===graphLineId).flatMap((segment)=>{
+        let stepCursor=segment.startStepIndex;
+        const callSteps=segment.calls.map((call,index)=>{
+          if(index===0)return segment.startStepIndex;
+          const matched=service.steps.findIndex((step,i)=>i>=stepCursor&&i<segment.endStepIndexExclusive&&step.type==='AT'&&step.action?.type==='DESTINATION'&&step.action.wayPointIds.at(-1)===call.destinationId);
+          if(matched>=0)stepCursor=matched+1;
+          return matched;
+        });
+        return segment.calls.slice(1).flatMap((call,index)=>{
+          const previous=segment.calls[index],from=laneById.get(previous.stationId),to=laneById.get(call.stationId);
+          const departure=previous.status==='PASS'?previous.arrivalTick:previous.departureTick;
+          if(from==null||to==null||departure==null||call.arrivalTick==null)return [];
+          const sourceIndex=callSteps[index+1];
+          // PASS may be a VIA inside the same top-level timed route: use that containing route address.
+          const stepIndex=sourceIndex>=0?sourceIndex:callSteps.slice(index+1).find((i)=>i>=0)??segment.startStepIndex;
+          const point=(kind:'DEPARTURE'|'ARRIVAL',tick:number,y:number,station:string):GraphPoint=>({serviceIndex,stepIndex,runId:segment.runId,kind,tick,x:tickToX(tick),y,label:station,location:station});
+          return [{serviceIndex,serviceId:service.id,runId:segment.runId,points:[point('DEPARTURE',departure,from,previous.stationId),point('ARRIVAL',call.arrivalTick,to,call.stationId)]}];
+        });
+      });
+    }
     let current=normalizeLocation(service.steps.find((step)=>step.type==='CHECK')?.wayPointId||`${service.id}: origin`);
     let pendingArrival:{tick:number;stepIndex:number}|null=null;
     const segments:GraphPath[]=[];

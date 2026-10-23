@@ -1,0 +1,17 @@
+# Approved implementation boundary
+
+User approved the revised five-batch plan on 2026-10-22. The independent checkout is codex/station-operation-programming at a0206a9c plus explicitly preserved prior frontend and Basic/HTTP fixes recorded in the sibling hash manifest. No unrelated primary signal changes were copied.
+
+Behavior gap: fixed home-depot/whole-train ledger and linear timetable steps cannot express shared visual station programs, cross-depot fixed-unit circulation, coordinated complete-unit coupling/separation or validated runtime target branches.
+
+Owners: SimpleATO depot/station/timetable/Dispatcher and persistence own operational behavior; Core owns physical cars/structure; Basic owns physical admission/dynamics; existing Bukkit JS compiler bridges structured plans; authenticated WebUI repositories own visual definitions and generated documents. Each worker must load relevant spec/checklists and record its smallest batch changes before editing.
+
+Expected files: Depot and snapshots/tests for cross-storage/fixed units; Station/Destination/resolver for shared stopping areas; timetable model/compiler/Dispatcher/serializer for structured programs and operation events; WebUI repository/validator/routes/frontend editor for shared definitions, binding and JS generation. Follow existing single owners, not parallel controllers or runtime compatibility paths.
+
+Excluded: locomotive-hauled operation, arbitrary car-level splits, unrestricted runtime JS, conditional storage/coupling/separation, live deployment and automatic crash replay. No unrelated refactor. Behavior-changing structural work is tested by actual owner-level transitions and downstream integration.
+
+Main B1 stopping boundary: add explicit station-local stopping-area identity and marker length eligibility to canonical DestinationRole, its StationBerth projection and infrastructure snapshot. Allocator resolves canonical area before granting and retains the acquired area until exact-token release; Dispatcher supplies same-world lookup. Existing markers default to their own berth identity. Focused tests verify shared-marker exclusion, independent areas, length rejection and persistence defaults. This does not substitute logical allocation for physical envelope/admission checks.
+
+Main B1 platform integration: RailObjectDestinationEdit/Editor expose stopping-area identity and marker length bounds through the existing native dialog, locale keys and canonical service; metadata HTTP projection carries those values. `/jr depot register-unit <train> <unitId>` uses the existing command tree and between-frame world-operation helper, resolves current Core membership, requires a stopped valid uncontrolled AVAILABLE formation, and registers that complete formation with the existing depot home/model-family metadata. It does not attest scheduled coupling compatibility. Cloud tree and editor projection/reseed/error tests cover these changes. No Core structure or Basic admission code changed in this checkpoint.
+
+Integration checkpoint 2026-10-22: Kotlin compilation passed. First full gate found two new test compile omissions (doorSide argument/basicWorldData import) and an authenticated navigation expectation that omitted the new programs page; assigned back to owners. These are not passing full-regression evidence. Dedicated program compilation/editor tests are being added before rerun. Retained-route research is not implemented in this checkpoint.

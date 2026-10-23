@@ -20,7 +20,10 @@ internal data class RailObjectDestinationEdit(
     val depotId: String = "",
     val stablingPointId: String = "",
     val stablingUsableLengthMeters: Double? = null,
-    val stablingAllowedTags: Set<String> = emptySet()
+    val stablingAllowedTags: Set<String> = emptySet(),
+    val stoppingAreaId: String? = null,
+    val minimumTrainLengthMeters: Double? = null,
+    val maximumTrainLengthMeters: Double? = null
 )
 
 /**
@@ -50,7 +53,10 @@ internal fun applyRailObjectDestinationEdit(
                     ?: DestinationRole.DEFAULT_POSITION_TOLERANCE_METERS,
                 usableLengthMeters = previous?.usableLengthMeters,
                 defaultDwellTicks = previous?.defaultDwellTicks ?: 0L,
-                releaseDistanceMetersAfter = previous?.releaseDistanceMetersAfter ?: 0.0
+                releaseDistanceMetersAfter = previous?.releaseDistanceMetersAfter ?: 0.0,
+                stoppingAreaId = edit.stoppingAreaId?.trim()?.takeIf(String::isNotEmpty) ?: edit.berthId.trim(),
+                minimumTrainLengthMeters = edit.minimumTrainLengthMeters,
+                maximumTrainLengthMeters = edit.maximumTrainLengthMeters
             )
         }
         DestinationRoleType.DEPOT_STABLING_POINT -> {

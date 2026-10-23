@@ -87,6 +87,9 @@ class RailObjectDestinationEditorTest {
         session.setValue(editor.keys.stationId, " central ")
         session.setValue(editor.keys.berthId, " one ")
         session.setValue(editor.keys.doorSide, DoorSide.NONE)
+        session.setValue(editor.keys.stoppingAreaId, "platform")
+        session.setValue(editor.keys.minimumTrainLength, 20.0)
+        session.setValue(editor.keys.maximumTrainLength, 40.0)
         session.setValue(editor.keys.approachDirection, WayPointApproachOption.B_TO_A)
         val updated = editor.readEdit(playerId, anchor, original = null)
 
@@ -102,6 +105,16 @@ class RailObjectDestinationEditorTest {
         val berth = world.simpleAtoWorldData.stations.berth(station.berthRefs.single())!!
         assertEquals("one", berth.berthRef.berthId)
         assertEquals(DoorSide.NONE, berth.doorSide)
+        assertEquals("platform", berth.stoppingAreaId)
+        assertEquals(20.0, berth.minimumTrainLengthMeters)
+        assertEquals(40.0, berth.maximumTrainLengthMeters)
+        editor.seedSession(playerId, updated.toWayPoint(), updated, pending = false)
+        assertEquals(updated, editor.readEdit(playerId, updated.toWayPoint(), updated))
+        session.setValue(editor.keys.minimumTrainLength, 50.0)
+        assertThrows(IllegalArgumentException::class.java) {
+            editor.readEdit(playerId, updated.toWayPoint(), updated)
+        }
+        assertEquals(updated, world.simpleAtoWorldData.destinations[updated.id])
         assertEquals(listOf(berth), world.basicWorldData.railObjects.objectsOnRail(rail.id))
 
         editor.remove(world, updated.toWayPoint())

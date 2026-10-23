@@ -30,6 +30,12 @@ SimpleATO同时拥有`AbstractATO`、mission、constraint与world Stall coordina
 Mission、constraint和station-call的mutable集合都只存在于该controller实例，不在
 `SimpleATOWorldData`或Basic创建第二份镜像。每列车每tick的route/perception扫描仍为线性；controller只从world-local
 inspection runtime读取编译好的声明及最大提前时间；controller按最高速度转换为保守距离并并入原有horizon。
+
+结构输出仍由formation hold停车时，Core只调用`AbstractATO.prepareWhileFormationHeld`，不调用正常tick。
+该边界先清零controller speed和上一编组的lastTravelDistance，再消费命令并执行同一个planner/perception/inspection流程，
+通过正常epoch publication发布mission就绪状态。允许读取制动包络等只读规划查询，但不调用actuator.step/freeze或移动seam，
+不累计行驶距离。异常保留同一ATO stall诊断并保持停车；配置隔离、脱轨或待处理碰撞均不进入该准备流程。
+`FormationHeldAtoPreparationTest`使用真实SimpleATO mission验证合法激活、过期物理origin拒绝及全程不改变actuator历史。
 具有中立净空要求的列车才额外读取一次 Core `publishedFrame`、求和有序车身跨度并定位冻结路线进度；
 没有要求的普通列车不承担这些工作。净空跨度进入下一个入口时按预编译有序入口继续扩长一次，
 仍只执行原有的一次前方扫描，不能先扫描再补扫。具体算法、坐标和回归归[入口净空合同](entry-clearance.md)。
@@ -145,3 +151,5 @@ git diff --check
 service deceleration与reaction time，保留其他safety覆盖值。全部成功才返回Core prepared tokens；
 失败保持旧引用，不清mission、route、命令队列、距离历史、手柄或actuator积分状态。
 平台按车型完成所有实例准备后，在排除worker的边界通过Core安装整批tokens。
+
+Formation output installation retires the consumed source mission with `SimpleATO.retireMissionForFormation(): Long`, not reverse preparation. Enqueue requires the current controller under an actual Core structural hold, a stopped published frame and no active/queued StationCall. The serialized command removes only consumed mission/layout/progress/authority constraints, preserving controller identity and external restrictions. A later accepted mission revision survives retirement even when submitted before consumption. See the fixed-formation handoff contract in `../basic/route-resource-admission.md`.

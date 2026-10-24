@@ -34,7 +34,7 @@
 
 ## 选型研究
 
-已完成 [编辑器方案比较](research/editor-selection.md)。推荐 Blockly + Zelos + 铁路领域自定义积木。尚未安装依赖或修改产品代码；后续设计须明确到站动作的触发/完成边界、未完成画布草稿保护和历史事务。
+已完成 [编辑器方案比较](research/editor-selection.md)。已采用 Blockly 13.4.0 + Zelos + 铁路领域自定义积木。两处编辑与到站执行已完成，工作区草稿保护及历史事务见 design.md 和负责规范；验收证据见 research/verification.md。
 
 ## 到站执行范围
 

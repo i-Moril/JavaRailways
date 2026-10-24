@@ -227,39 +227,51 @@ sealed class TimetableAction {
     data object WaitUntil : TimetableAction()
     data object Halt : TimetableAction()
     data object Reverse : TimetableAction()
-    data class DestinationOptions(
+    class DestinationOptions(
         val destinationId: String,
         val minimumDwellTicks: Long? = null,
         val stoppingOffsetMetersBefore: Double? = null,
-        val doorSide: DoorSide? = null
+        val doorSide: DoorSide? = null,
+        arrivalSteps: List<TimetableStep.At> = emptyList()
     ) : TimetableAction() {
+        val arrivalSteps: List<TimetableStep.At> = java.util.List.copyOf(arrivalSteps)
         init {
             require(destinationId.isNotBlank() && destinationId == destinationId.trim())
             require(minimumDwellTicks == null || minimumDwellTicks >= 0L)
             require(stoppingOffsetMetersBefore == null ||
                 stoppingOffsetMetersBefore.isFinite() && stoppingOffsetMetersBefore >= 0.0)
         }
+        override fun equals(other: Any?) = other is DestinationOptions &&
+            destinationId == other.destinationId && minimumDwellTicks == other.minimumDwellTicks && stoppingOffsetMetersBefore == other.stoppingOffsetMetersBefore && doorSide == other.doorSide && arrivalSteps == other.arrivalSteps
+        override fun hashCode() = java.util.Objects.hash(destinationId, minimumDwellTicks, stoppingOffsetMetersBefore, doorSide, arrivalSteps)
     }
     /** One selected station movement; successor state is the actual chosen stopping marker. */
-    data class SelectStop(
+    class SelectStop(
         val selection: StationStopSelection,
         val minimumDwellTicks: Long? = null,
         val stoppingOffsetMetersBefore: Double? = null,
-        val doorSideOverride: DoorSide? = null
+        val doorSideOverride: DoorSide? = null,
+        arrivalSteps: List<TimetableStep.At> = emptyList()
     ) : TimetableAction() {
+        val arrivalSteps: List<TimetableStep.At> = java.util.List.copyOf(arrivalSteps)
         init {
             require(minimumDwellTicks == null || minimumDwellTicks >= 0L)
             require(stoppingOffsetMetersBefore == null || stoppingOffsetMetersBefore.isFinite() && stoppingOffsetMetersBefore >= 0.0)
         }
+        override fun equals(other: Any?) = other is SelectStop &&
+            selection == other.selection && minimumDwellTicks == other.minimumDwellTicks && stoppingOffsetMetersBefore == other.stoppingOffsetMetersBefore && doorSideOverride == other.doorSideOverride && arrivalSteps == other.arrivalSteps
+        override fun hashCode() = java.util.Objects.hash(selection, minimumDwellTicks, stoppingOffsetMetersBefore, doorSideOverride, arrivalSteps)
     }
 
-    data class CallStation(
+    class CallStation(
         val stationId: String,
         val berthId: String,
         val minimumDwellTicks: Long? = null,
         val stoppingOffsetMetersBefore: Double? = null,
-        val doorSideOverride: DoorSide? = null
+        val doorSideOverride: DoorSide? = null,
+        arrivalSteps: List<TimetableStep.At> = emptyList()
     ) : TimetableAction() {
+        val arrivalSteps: List<TimetableStep.At> = java.util.List.copyOf(arrivalSteps)
         init {
             require(stationId.isNotBlank() && berthId.isNotBlank())
             require(minimumDwellTicks == null || minimumDwellTicks >= 0L)
@@ -269,6 +281,9 @@ sealed class TimetableAction {
 
         val berthRef: StationBerthRef
             get() = StationBerthRef(StationId(stationId), berthId)
+        override fun equals(other: Any?) = other is CallStation &&
+            stationId == other.stationId && berthId == other.berthId && minimumDwellTicks == other.minimumDwellTicks && stoppingOffsetMetersBefore == other.stoppingOffsetMetersBefore && doorSideOverride == other.doorSideOverride && arrivalSteps == other.arrivalSteps
+        override fun hashCode() = java.util.Objects.hash(stationId, berthId, minimumDwellTicks, stoppingOffsetMetersBefore, doorSideOverride, arrivalSteps)
     }
 
     private fun isRuntimeProgramAction(): Boolean = when (this) {
@@ -386,6 +401,20 @@ class TimetableValidator(private val world: World) {
             errors += TimetableProgramSchedule.validate(program, periodTicks).map {
                 "[${timetable.id}/${service.id}] ${it.address} ${it.code}: ${it.detail}"
             }
+            fun validateArrivals(steps: List<TimetableStep>, parent: TimetableStepAddress? = null, arm: TimetableBranchArm? = null) {
+                steps.forEachIndexed { index, step ->
+                    val address = parent?.child(checkNotNull(arm), index) ?: TimetableStepAddress(index)
+                    val action = (step as? TimetableStep.At)?.action ?: return@forEachIndexed
+                    action.arrivalSteps().forEachIndexed { childIndex, child ->
+                        validateExtensionAction("[${timetable.id}/${service.id}]", address.child(TimetableBranchArm.ARRIVAL, childIndex), child.action, errors)
+                    }
+                    if (action is TimetableAction.Conditional) {
+                        validateArrivals(action.thenSteps, address, TimetableBranchArm.THEN)
+                        validateArrivals(action.elseSteps, address, TimetableBranchArm.ELSE)
+                    }
+                }
+            }
+            validateArrivals(service.steps)
             validateServiceLine(timetable, service, errors)
             validateService(timetable.id, periodTicks, service, errors, routes, routeStoppingOffsets, retainedRoutes, retainedSelections)
             if (!serviceIds.add(service.id)) errors.add("重复 service id: ${service.id}")

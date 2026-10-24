@@ -1,5 +1,5 @@
 import {formationEventShape} from './formationAuthoring';
-import { displayValuesError,validateStationProgram } from './stationPrograms';
+import { displayValuesError,validateArrivalProgram,validateStationProgram } from './stationPrograms';
 import type { TimetableAuthoringDocumentV1 } from './authoring';
 
 export interface AuthoringRecoveryState {
@@ -7,6 +7,7 @@ export interface AuthoringRecoveryState {
   owner:string;
   world:string;
   documentId:string;
+  blockDraftKey?:string;
   formalScriptName:string;
   persistedFormalScriptName:string;
   document:TimetableAuthoringDocumentV1;
@@ -32,12 +33,14 @@ export function parseAuthoringRecovery(serialized:string|null,owner:string,world
     if(value.document.boundPrograms!==undefined){
       if(!Array.isArray(value.document.boundPrograms)||value.document.boundPrograms.some((snapshot)=>!snapshot||typeof snapshot.programId!=='string'||!Number.isSafeInteger(snapshot.revision)||snapshot.revision<1||typeof snapshot.contentIdentity!=='string'||validateStationProgram(snapshot.definition).length>0))return undefined;
     }
+    for(const run of value.document.runs??[])for(const call of run.calls??[])if(call.arrivalProgram!==undefined&&validateArrivalProgram(call.arrivalProgram).length)return undefined;
     for(const duty of value.document.duties??[])for(const element of duty.elements??[])if(element.type==='PROGRAM'){
       if(!element.call||typeof element.call.id!=='string'||typeof element.call.programId!=='string'||typeof element.call.tick!=='number'||!element.call.arguments||typeof element.call.arguments!=='object'||Array.isArray(element.call.arguments))return undefined;
     }
     if(typeof value.documentId!=='string'||typeof value.formalScriptName!=='string'||typeof value.persistedFormalScriptName!=='string')return undefined;
     return {
       version:1,owner,world,documentId:value.documentId,formalScriptName:value.formalScriptName,persistedFormalScriptName:value.persistedFormalScriptName,
+      blockDraftKey:typeof value.blockDraftKey==='string'?value.blockDraftKey:undefined,
       document:value.document as TimetableAuthoringDocumentV1,savedDocumentJson:value.savedDocumentJson,
       selectedRun:typeof value.selectedRun==='string'?value.selectedRun:'',selectedDuty:typeof value.selectedDuty==='string'?value.selectedDuty:'',
       sidebarTab:value.sidebarTab==='duties'?'duties':'runs',graphLineId:typeof value.graphLineId==='string'?value.graphLineId:'',

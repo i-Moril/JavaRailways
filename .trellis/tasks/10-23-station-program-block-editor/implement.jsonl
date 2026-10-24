@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/webui/frontend/components-state-contracts.md", "reason": "React owner, recovery, API and model contracts"}
+{"file": ".trellis/spec/webui/frontend/studio-authoring.md", "reason": "History and stale async isolation"}
+{"file": ".trellis/spec/javarailways/simpleato/dispatcher-runtime.md", "reason": "Single dispatcher cursor and stop lifecycle"}
+{"file": ".trellis/spec/javarailways/simpleato/timetable-model-and-validation.md", "reason": "Runtime program model and validators"}
+{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "Additive defaults no schema bump"}
+{"file": ".trellis/tasks/10-23-station-program-block-editor/research/editor-selection.md", "reason": "Approved Blockly selection and model boundaries"}

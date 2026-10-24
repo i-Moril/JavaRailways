@@ -137,6 +137,7 @@ object TimetableDumper {
                 "berthId" to JsonPrimitive(it.berthId), "priority" to JsonPrimitive(it.priority))) }),
             "minimumDwellTicks" to (minimumDwellTicks?.let(::JsonPrimitive) ?: JsonNull),
             "stoppingOffsetMetersBefore" to (stoppingOffsetMetersBefore?.let(::JsonPrimitive) ?: JsonNull),
+            "arrivalSteps" to JsonArray(arrivalSteps.map { it.toJson() }),
             "doorSideOverride" to (doorSideOverride?.name?.let(::JsonPrimitive) ?: JsonNull)))
         is TimetableAction.Couple -> JsonObject(mapOf("type" to JsonPrimitive("couple"), "eventId" to JsonPrimitive(eventId)))
         is TimetableAction.Split -> JsonObject(mapOf("type" to JsonPrimitive("split"), "eventId" to JsonPrimitive(eventId)))
@@ -198,6 +199,7 @@ object TimetableDumper {
                 "minimumDwellTicks" to (minimumDwellTicks?.let(::JsonPrimitive) ?: JsonNull),
                 "stoppingOffsetMetersBefore" to
                     (stoppingOffsetMetersBefore?.let(::JsonPrimitive) ?: JsonNull),
+                "arrivalSteps" to JsonArray(arrivalSteps.map { it.toJson() }),
                 "doorSide" to (doorSide?.name?.let(::JsonPrimitive) ?: JsonNull)
             )
         )
@@ -219,6 +221,7 @@ object TimetableDumper {
                 "minimumDwellTicks" to (minimumDwellTicks?.let(::JsonPrimitive) ?: JsonNull),
                 "stoppingOffsetMetersBefore" to
                     (stoppingOffsetMetersBefore?.let(::JsonPrimitive) ?: JsonNull),
+                "arrivalSteps" to JsonArray(arrivalSteps.map { it.toJson() }),
                 "doorSideOverride" to (doorSideOverride?.name?.let(::JsonPrimitive) ?: JsonNull)
             )
         )

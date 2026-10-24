@@ -25,13 +25,21 @@ import kotlinx.serialization.json.JsonObject
     val doorSideOverride: String? = null, val extensionCall: SavedTimetableExtensionCallV1? = null,
     val condition: SavedTimetableConditionV1? = null, val thenSteps: List<SavedTimetableStepV1> = emptyList(),
     val elseSteps: List<SavedTimetableStepV1> = emptyList(),
+    val arrivalSteps: List<SavedTimetableStepV1> = emptyList(),
     val eventId: String? = null, val outputId: String? = null,
     val berthCandidates: List<SavedStationStopCandidateV1> = emptyList(),
     val selectionPolicy: SavedStationStopSelectionPolicyV1? = null,
     val unitSlots: List<Int> = emptyList(), val displayValues: JsonObject = JsonObject(emptyMap()),
     val removeDisplayKeys: List<String> = emptyList(),
     val operationalTripId: String? = null, val runId: String? = null
-)
+) {
+    init {
+        require(arrivalSteps.isEmpty() || type in setOf(SavedTimetableActionTypeV1.DESTINATION_OPTIONS,
+            SavedTimetableActionTypeV1.STATION_DESTINATION_OPTIONS, SavedTimetableActionTypeV1.SELECT_STOP)) {
+            "arrivalSteps is only valid on destination options and station stops"
+        }
+    }
+}
 @Serializable data class SavedTimetableStepV1(val type: SavedTimetableStepTypeV1, val tick: Long? = null, val wayPointId: String? = null, val action: SavedTimetableActionV1? = null)
 @Serializable data class SavedTimetableServiceV1(val id: String, val selectorType: SavedTrainSelectorTypeV1, val trainId: String? = null, val steps: List<SavedTimetableStepV1>, val activation: SavedTimetableActivationV1 = SavedTimetableActivationV1(), val diagramLineId: String? = null, val lineDirection: SavedLineDirectionV1? = null, val lineId: String? = null, val runSegments: List<SavedTimetableRunSegmentV1> = emptyList())
 @Serializable data class SavedDiagramLineV1(val id: String, val upStationIds: List<String>, val downStationIds: List<String>)
@@ -107,7 +115,7 @@ import kotlinx.serialization.json.JsonObject
     }
 }
 
-@Serializable enum class SavedTimetableBranchArmV1 { THEN, ELSE }
+@Serializable enum class SavedTimetableBranchArmV1 { THEN, ELSE, ARRIVAL }
 @Serializable data class SavedTimetableBranchPathEntryV1(val arm: SavedTimetableBranchArmV1, val index: Int) {
     init { require(index >= 0) }
 }

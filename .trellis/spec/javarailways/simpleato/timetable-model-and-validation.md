@@ -148,3 +148,7 @@ rail topology未变化不代表waypoint或berth未变化。绑定防御保存所
 后继证明集合合并按`ValidatedTimetableRouteKey`保留关联，再成对追加route/offset；不能只按几何去重，
 因为两个动态起点可共享同一后半段而仍有不同关联键。局部ProofSink的成员访问显式使用`this`，
 避免与外层validateService同名的routes/errors参数发生词法捕获，破坏候选隔离或数组对齐。
+
+## 到站子树的定义与地址
+
+停站动作的可选 `arrivalSteps` 缺省空，保存格式保持现有版本。`TimetableBranchArm.ARRIVAL` 与 THEN/ELSE 一样是步骤身份的一部分；traversal 根据父动作选择到站子节点，错误、编译来源和扩展票据都保留完整地址。到站不允许路线和结构动作，其约束与实际执行顺序见 [Dispatcher 到站程序](./dispatcher-runtime.md#停站期间的到站程序)。到站允许的扩展与条件仍须递归校验 provider 和参数，不能因不参与静态选路而跳过。编译时展开 StationProgramDefinition；浏览器不能提交原始 JS 作为到站回调。

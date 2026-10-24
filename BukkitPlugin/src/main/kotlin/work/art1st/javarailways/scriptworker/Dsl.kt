@@ -462,7 +462,12 @@ class ServiceBuilder(private val branchDepth: Int = 0, initialTick: Long = 0L, i
         require(tick >= lastEmittedTick && (pendingPasses.isEmpty() || tick == currentTick))
         currentTick = tick
         require(target.isNotBlank()) { "destination target must not be blank" }
-        options.requireOnly(setOf("arrivalTick", "minimumDwellTicks", "stoppingOffsetMetersBefore", "doorSide"), "destination options")
+        options.requireOnly(setOf("arrivalTick", "minimumDwellTicks", "stoppingOffsetMetersBefore", "doorSide", "arrivalProgram"), "destination options")
+        val arrivalProgram = options.member("arrivalProgram")?.let { value ->
+            val raw = toJson(value, 64)
+            validateArrivalProgram(raw)
+            expandStationProgram(raw, JsonObject(emptyMap()), 0L)
+        }
         val arrivalTick = options.long("arrivalTick")
         val dwell = options.long("minimumDwellTicks")
         val offset = options.double("stoppingOffsetMetersBefore")
@@ -474,18 +479,25 @@ class ServiceBuilder(private val branchDepth: Int = 0, initialTick: Long = 0L, i
         val doorSide = options.string("doorSide")?.uppercase()?.also {
             require(it in setOf("NONE", "LEFT", "RIGHT", "BOTH")) { "doorSide must be NONE, LEFT, RIGHT, or BOTH" }
         }
+        val optionsIndex = steps.size
         append(SavedTimetableStepV1(
             SavedTimetableStepTypeV1.AT,
             tick,
             action = SavedTimetableActionV1(
                 SavedTimetableActionTypeV1.DESTINATION_OPTIONS,
                 wayPointIds = listOf(target),
+                arrivalSteps = arrivalProgram?.steps ?: emptyList(),
                 arrivalTick = arrivalTick,
                 minimumDwellTicks = dwell,
                 stoppingOffsetMetersBefore = offset,
                 doorSideOverride = doorSide
             )
         ))
+        arrivalProgram?.origins?.forEach { origin ->
+            trace += BuilderStepOrigin(optionsIndex,
+                listOfNotNull(currentOrigin, "step:${origin.programStepId}").joinToString("/"),
+                listOf(SavedTimetableBranchPathEntryV1(SavedTimetableBranchArmV1.ARRIVAL, origin.stepIndex)) + origin.branchPath)
+        }
         append(SavedTimetableStepV1(
             SavedTimetableStepTypeV1.AT,
             tick,

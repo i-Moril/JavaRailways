@@ -1,8 +1,9 @@
 import { useEffect,useMemo,useState,type ReactNode } from 'react';
-import { Button,Flex,Segmented,Select,Space,Table,Tabs,Tag,Typography } from 'antd';
+import { Button,Flex,Modal,Segmented,Select,Space,Table,Tabs,Tag,Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { ArrowLeftOutlined,CheckCircleOutlined,DeleteOutlined,PlayCircleOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined,CheckCircleOutlined,DeleteOutlined } from '@ant-design/icons';
 import { resizeRunRoute,type AuthoringIssue,type AuthoringRunCallV1,type AuthoringRunV1 } from './authoring';
+import { ProgramBlockEditor,clearProgramBlockDraft } from './ProgramBlockEditor';
 import { RunTitleEditor } from './RunTitleEditor';
 import { CommittedNumberInput } from './CommittedNumberInput';
 import { useI18n } from './i18n';
@@ -16,8 +17,13 @@ interface RunRouteEditorProps {
   tools?:ReactNode;
   onRename?:(id:string)=>void;
   fieldScope?:string;
+  programDraftScope?:string;
   issues?:AuthoringIssue[];
   focusedCallId?:string;
+  focusedArrivalStep?:string;
+  onArrivalValidityChange?:(runId:string,callId:string,valid:boolean)=>void;
+  onUndo?:()=>void;
+  onRedo?:()=>void;
   run:AuthoringRunV1;
   lines:LineV1[];
   metadata:WorldMetadata;
@@ -27,11 +33,13 @@ interface RunRouteEditorProps {
   onDelete:()=>void;
 }
 
-export function RunRouteEditor({run,lines,metadata,busy,onError,onChange,onDelete,tools,issues=[],focusedCallId,fieldScope='',onRename}:RunRouteEditorProps) {
+export function RunRouteEditor({run,lines,metadata,busy,onError,onChange,onDelete,tools,issues=[],focusedCallId,fieldScope='',onRename,onArrivalValidityChange,focusedArrivalStep,onUndo,onRedo,programDraftScope=fieldScope}:RunRouteEditorProps) {
   const {locale,t}=useI18n();
   const [inspectorTab,setInspectorTab]=useState<'calls'|'options'|'issues'>('calls');
-  const [selectedCallId,setSelectedCallId]=useState('');
+  const [selectedCallId,setSelectedCallId]=useState(focusedCallId??'');
   useEffect(()=>{setSelectedCallId(focusedCallId??'');},[run.id,focusedCallId]);
+  const [arrivalOpen,setArrivalOpen]=useState(false);
+  useEffect(()=>{setArrivalOpen(Boolean(focusedArrivalStep));},[run.id,selectedCallId,focusedArrivalStep]);
   const [timeDisplay,setTimeDisplay]=useState<'tick'|'both'>('both');
   const line=lines.find((candidate)=>candidate.id===run.diagramLineId);
   const direction=run.lineDirection??'UP';
@@ -73,7 +81,11 @@ export function RunRouteEditor({run,lines,metadata,busy,onError,onChange,onDelet
     <Flex className="subpage-head" align="center" justify="space-between"><Button type="text" icon={<ArrowLeftOutlined/>} onClick={()=>setSelectedCallId('')}>{t('editor.backToCalls')}</Button><Tag>{run.id}</Tag></Flex>
     <div className="subpage-title"><Typography.Text type="secondary">{t('editor.stationDetails')}</Typography.Text><Typography.Title level={4}>{labelStation(selectedCall.stationId)}</Typography.Title></div>
     <div className="call-detail-form"><label>{t('editor.minimumDwell')}<CommittedNumberInput fieldKey={`${fieldScope}/${run.id}/${selectedCall.id}/dwell`} min={0} precision={0} disabled={selectedCall.status==='PASS'||selectedCall.status==='ORIGIN'} value={selectedCall.minimumDwellTicks} onCommit={(minimumDwellTicks)=>patchCall(selectedCall.id,{minimumDwellTicks})}/></label><label>{t('editor.doorSide')}<Select value={selectedCall.doorSide||'NONE'} disabled={selectedCall.status==='PASS'||selectedCall.status==='ORIGIN'} onChange={(doorSide)=>patchCall(selectedCall.id,{doorSide:doorSide as typeof selectedCall.doorSide})} options={['NONE','LEFT','RIGHT','BOTH'].map((value)=>({value,label:value}))}/></label></div>
-    <div className="station-actions-reserved"><PlayCircleOutlined/><Typography.Title level={5}>{t('editor.stationActions')}</Typography.Title><Typography.Text type="secondary">{t('editor.stationActionsReserved')}</Typography.Text></div>
+    <section className="station-arrival-actions"><Typography.Title level={5}>{t('editor.stationActions')} <Tag>{selectedCall.arrivalProgram?.steps.length??0}</Tag></Typography.Title>
+      <Typography.Paragraph type="secondary">{t(selectedCall.status==='STOP'||selectedCall.status==='TERMINAL'?'programs.arrivalHint':'programs.arrivalUnavailable')}</Typography.Paragraph>
+      {(selectedCall.status==='STOP'||selectedCall.status==='TERMINAL')&&<><Button disabled={busy} onClick={()=>setArrivalOpen(true)}>{t('programs.editArrival')}</Button><Modal title={t('editor.stationActions')} width={1120} open={arrivalOpen} onCancel={()=>setArrivalOpen(false)} footer={null} destroyOnHidden><ProgramBlockEditor key={`${fieldScope}/${run.id}/${selectedCall.id}/arrival`} value={selectedCall.arrivalProgram??{parameters:[],steps:[]}} context="arrival" draftScope={`${programDraftScope}/${run.id}/${selectedCall.id}/arrival`} fieldScope={`${fieldScope}/${run.id}/${selectedCall.id}/arrival`} extensions={metadata.extensions?.actions} conditions={metadata.extensions?.conditions} focusedStep={focusedArrivalStep} onUndo={onUndo} onRedo={onRedo} onValidityChange={(valid)=>onArrivalValidityChange?.(run.id,selectedCall.id,valid)} onChange={(arrivalProgram)=>patchCall(selectedCall.id,{arrivalProgram})}/></Modal></>}
+      {selectedCall.arrivalProgram&&<Button danger onClick={()=>{clearProgramBlockDraft(`${programDraftScope}/${run.id}/${selectedCall.id}/arrival`);patchCall(selectedCall.id,{arrivalProgram:undefined});onArrivalValidityChange?.(run.id,selectedCall.id,true);}}>{t('common.delete')}</Button>}
+    </section>
   </section>;
 
   const calls=<div className="calls-page"><Flex className="time-mode" align="center" justify="space-between"><Typography.Text type="secondary">{t('editor.stationCallsHint')}</Typography.Text><Segmented size="small" value={timeDisplay} onChange={(value)=>setTimeDisplay(value as 'tick'|'both')} options={[{value:'tick',label:t('editor.tick')},{value:'both',label:t('editor.bothTimes')}]}/></Flex><Table<AuthoringRunCallV1> className="calls-table" size="small" pagination={false} tableLayout="fixed" rowKey="id" columns={callColumns} dataSource={run.calls}/></div>;

@@ -988,7 +988,11 @@ class TimetableDispatcher(
         )
         return when (val result = scheduleStationCall(world, run.id, call)) {
             is TimetableStationCallScheduleResult.Scheduled -> {
-                run.stationCall?.waitForNextTimetableAction = true
+                run.stationCall?.let { stationCall ->
+                    stationCall.waitForNextTimetableAction = true
+                    stationCall.arrivalAddress = spec.address
+                    stationCall.arrivalSteps = spec.action.arrivalSteps
+                }
                 null
             }
             is TimetableStationCallScheduleResult.Failure -> result.reason
@@ -1524,6 +1528,11 @@ class TimetableDispatcher(
                 }
                 return@forEach
             }
+            if (run.state == TimetableServiceRunState.DWELLING && run.arrivalExecution != null) {
+                val arrival = checkNotNull(run.arrivalExecution)
+                if (dispatcherTick >= arrival.waitUntilDispatcherTick) advanceService(world, run)
+                return@forEach
+            }
             if (run.state == TimetableServiceRunState.DWELLING &&
                 stationCall != null && !stationCall.departed
             ) {
@@ -1550,7 +1559,7 @@ class TimetableDispatcher(
                     return@forEach
                 }
             } else if (run.state == TimetableServiceRunState.DWELLING && destinationStop != null) {
-                if (run.dwellTicksRemaining > 0L) run.dwellTicksRemaining--
+                run.dwellTicksRemaining = (destinationStop.earliestDepartureDispatcherTick - dispatcherTick).coerceAtLeast(0L)
                 if (run.dwellTicksRemaining == 0L) {
                     val nextTick = nextActionTick(run)
                     if (nextTick == null) {
@@ -2317,6 +2326,10 @@ class TimetableDispatcher(
         stationCall.stateEnteredDispatcherTick = dispatcherTick
         run.state = TimetableServiceRunState.DWELLING
         run.message = "dwelling at ${stationCall.resolved.berthRef}"
+        run.currentWayPointId = work.art1st.javarailways.simpleato.api.destination.OperationalDestinationIds.stationBerth(
+            stationCall.resolved.berthRef.stationId, stationCall.resolved.berthRef.berthId)
+        run.physicalOriginPending = false
+        stationCall.arrivalAddress?.let { beginArrivalProgram(run, it, stationCall.arrivalSteps) }
     }
 
     private fun enterReadyToDepart(run: ActiveRun, stationCall: DispatcherStationCall) {
@@ -2388,8 +2401,12 @@ class TimetableDispatcher(
 
     private fun enterDestinationDwelling(run: ActiveRun, stop: DispatcherDestinationStop) {
         run.dwellTicksRemaining = stop.options.minimumDwellTicks ?: 0L
+        stop.earliestDepartureDispatcherTick = Math.addExact(dispatcherTick, run.dwellTicksRemaining)
         run.state = TimetableServiceRunState.DWELLING
         run.message = "dwelling at ${stop.options.destinationId}"
+        run.currentWayPointId = stop.options.destinationId
+        run.physicalOriginPending = false
+        stop.arrivalAddress?.let { beginArrivalProgram(run, it, stop.options.arrivalSteps) }
     }
 
     private fun finishDestinationStop(
@@ -3848,9 +3865,35 @@ class TimetableDispatcher(
             run.ato.isStopped(snapshot.speedMetersPerSecond) && validateCommittedAuthority(world, run)
     }
 
+    private fun beginArrivalProgram(run: ActiveRun, owner: TimetableStepAddress, steps: List<TimetableStep.At>) {
+        if (steps.isEmpty()) return
+        check(run.arrivalExecution == null) { "Arrival program already active" }
+        val continuation = run.programCursor
+        run.programCursor = continuation.at(owner).enter(TimetableBranchArm.ARRIVAL)
+        run.arrivalExecution = DispatcherArrivalExecution(owner, continuation)
+    }
+
+    /** Child exhaustion resumes dwelling, never consumes the normal movement continuation. */
+    private fun finishArrivalProgramIfExited(run: ActiveRun): Boolean {
+        val arrival = run.arrivalExecution ?: return false
+        val path = run.programCursor.address
+        val prefix = arrival.owner.branchPath
+        val inside = path != null && path.topLevelIndex == arrival.owner.topLevelIndex &&
+            path.branchPath.size > prefix.size && path.branchPath.take(prefix.size) == prefix &&
+            path.branchPath[prefix.size].arm == TimetableBranchArm.ARRIVAL
+        if (inside) return false
+        run.programCursor = arrival.continuation
+        run.arrivalExecution = null
+        run.state = TimetableServiceRunState.DWELLING
+        run.message = "arrival program completed; dwelling"
+        return true
+    }
+
     private fun advanceService(world: World, run: ActiveRun) {
         if (!validateCommittedAuthority(world, run)) return
-        while (!run.programCursor.isComplete) {
+        while (true) {
+            if (finishArrivalProgramIfExited(run)) return
+            if (run.programCursor.isComplete) break
             if (!enterRunSegment(world, run)) return
             run.activeStepAddress = run.programCursor.address
             when (val step = checkNotNull(run.programCursor.currentStep())) {
@@ -4117,7 +4160,7 @@ class TimetableDispatcher(
                                 stallRun(world, run, "InfrastructureInvariantViolation", "waitUntil requires a stopped train")
                                 return
                             }
-                            run.ato.setSpeedLimit(stopKey(run), 0.0)
+                            if (run.arrivalExecution == null) run.ato.setSpeedLimit(stopKey(run), 0.0)
                             if (timetableElapsedTicks(run) < step.tick) {
                                 waitForTimetableTick(run, step.tick, pendingStep = true)
                                 return
@@ -4159,6 +4202,12 @@ class TimetableDispatcher(
                         }
                         recordScheduledAction(run, step.tick)
                         run.programCursor = run.programCursor.advance()
+                        if (run.arrivalExecution != null) {
+                            checkNotNull(run.arrivalExecution).waitUntilDispatcherTick = Math.addExact(dispatcherTick, action.ticks)
+                            run.state = TimetableServiceRunState.DWELLING
+                            run.message = "arrival wait ${action.ticks} ticks"
+                            return
+                        }
                         run.dwellTicksRemaining = action.ticks
                         run.ato.setSpeedLimit(stopKey(run), 0.0)
                         run.state = TimetableServiceRunState.DWELLING
@@ -4173,6 +4222,7 @@ class TimetableDispatcher(
                             continue
                         }
                         run.pendingDestinationOptions = action
+                        run.pendingDestinationAddress = run.programCursor.address
                         run.programCursor = run.programCursor.advance()
                     }
                     is TimetableAction.CallStation -> {
@@ -4189,7 +4239,7 @@ class TimetableDispatcher(
                         run.programCursor = run.programCursor.advance()
                     }
                     is TimetableAction.Extension -> {
-                        if (run.controlMode == TimetableControlMode.AUTOMATIC) {
+                        if (run.controlMode == TimetableControlMode.AUTOMATIC && run.arrivalExecution == null) {
                             run.ato.setSpeedLimit(stopKey(run), 0.0)
                         }
                         if (timetableElapsedTicks(run) < step.tick) {
@@ -4343,8 +4393,8 @@ class TimetableDispatcher(
             serviceId = run.id.serviceId,
             cycleIndex = run.cycleIndex,
             timetableElapsedTicks = timetableElapsedTicks(run),
-            scheduledTick = scheduledTick,
-            latenessTicks = scheduledTick?.let { (timetableElapsedTicks(run) - it).coerceAtLeast(0L) }
+            scheduledTick = scheduledTick.takeIf { run.arrivalExecution == null },
+            latenessTicks = scheduledTick.takeIf { run.arrivalExecution == null }?.let { (timetableElapsedTicks(run) - it).coerceAtLeast(0L) }
                 ?: run.lastLatenessTicks,
             currentWayPointId = run.currentWayPointId.takeUnless { run.physicalOriginPending },
             train = TimetableTrainContext(
@@ -5003,7 +5053,7 @@ class TimetableDispatcher(
                 val ref = result.resolved.berthRef
                 val target = WayPointRef(work.art1st.javarailways.simpleato.api.destination.OperationalDestinationIds.stationBerth(ref.stationId, ref.berthId))
                 val spec = StationCallSpec(TimetableAction.CallStation(ref.stationId.value, ref.berthId,
-                    action.minimumDwellTicks, action.stoppingOffsetMetersBefore, action.doorSideOverride), address)
+                    action.minimumDwellTicks, action.stoppingOffsetMetersBefore, action.doorSideOverride, action.arrivalSteps), address)
                 selection.spec = spec
                 MovementPlan(WayPointRef(run.currentWayPointId), listOf(AtoMissionPoint.Stop(target,
                     result.resolved.stoppingOffsetMetersBefore)), target, step.tick, step.tick, address,
@@ -5096,8 +5146,9 @@ class TimetableDispatcher(
         run.pendingStationCallSpec = null
         run.pendingDestinationOptions = null
         run.destinationStop = plan.destinationOptions?.let { options ->
-            DispatcherDestinationStop(options, runtime)
+            DispatcherDestinationStop(options, runtime, arrivalAddress = run.pendingDestinationAddress)
         }
+        run.pendingDestinationAddress = null
         if (run.stopSelection?.takeIf { !it.committed }?.key?.missionRevision == accepted.mission.revision) {
             run.requiredNextStartDirection = null
         } else if (waitingForFirstDeparture) {
@@ -5910,6 +5961,7 @@ class TimetableDispatcher(
     }
 
     private fun recordScheduledAction(run: ActiveRun, scheduledTick: Long) {
+        if (run.arrivalExecution != null) return // Arrival tick zero is not a planned departure.
         val elapsed = timetableElapsedTicks(run)
         run.lastScheduledActionTick = scheduledTick
         run.lastLatenessTicks = (elapsed - scheduledTick).coerceAtLeast(0L)
@@ -6235,6 +6287,8 @@ class TimetableDispatcher(
         var waitForNextTimetableAction: Boolean = false,
         var cancelledForControlTransfer: Boolean = false,
         var lastNotificationEpoch: Long = -1L,
+        var arrivalAddress: TimetableStepAddress? = null,
+        var arrivalSteps: List<TimetableStep.At> = emptyList(),
         val releaseDetector: RailIntervalReleaseDetector
     )
 
@@ -6266,9 +6320,17 @@ class TimetableDispatcher(
         val successor: TimetableProgramCursor
     )
 
+    private data class DispatcherArrivalExecution(
+        val owner: TimetableStepAddress,
+        val continuation: TimetableProgramCursor,
+        var waitUntilDispatcherTick: Long = 0L
+    )
+
     private data class DispatcherDestinationStop(
         val options: TimetableAction.DestinationOptions,
         val missionRuntime: MissionRuntime,
+        val arrivalAddress: TimetableStepAddress? = null,
+        var earliestDepartureDispatcherTick: Long = Long.MAX_VALUE,
         var started: Boolean = false,
         var operationTicket: TrainOperationTicket? = null,
         var operationTicketId: String? = null,
@@ -6302,6 +6364,8 @@ class TimetableDispatcher(
         var stationCall: DispatcherStationCall? = null,
         var destinationStop: DispatcherDestinationStop? = null,
         var pendingDestinationOptions: TimetableAction.DestinationOptions? = null,
+        var pendingDestinationAddress: TimetableStepAddress? = null,
+        var arrivalExecution: DispatcherArrivalExecution? = null,
         var pendingStationCallSpec: StationCallSpec? = null,
         var deferredStationCallSpec: StationCallSpec? = null,
         var haltOperation: DispatcherHaltOperation? = null,
@@ -6422,7 +6486,7 @@ class TimetableDispatcher(
                 nextStepBranchPath = programCursor.address?.branchPath ?: emptyList(),
                 activeStepIndex = activeStepAddress?.topLevelIndex,
                 activeStepBranchPath = activeStepAddress?.branchPath ?: emptyList(),
-                nextScheduledTick = waitingUntilTimetableTick ?: remainingSteps()
+                nextScheduledTick = waitingUntilTimetableTick ?: if (arrivalExecution != null) null else remainingSteps()
                     .filterIsInstance<TimetableStep.At>()
                     .firstOrNull()
                     ?.tick,

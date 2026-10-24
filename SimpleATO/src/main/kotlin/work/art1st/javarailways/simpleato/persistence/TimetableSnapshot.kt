@@ -149,6 +149,7 @@ data class SavedTimetableActionV1(
     val condition: SavedTimetableConditionV1? = null,
     val thenSteps: List<SavedTimetableStepV1> = emptyList(),
     val elseSteps: List<SavedTimetableStepV1> = emptyList(),
+    val arrivalSteps: List<SavedTimetableStepV1> = emptyList(),
     val eventId: String? = null,
     val outputId: String? = null,
     val berthCandidates: List<SavedStationStopCandidateV1> = emptyList(),
@@ -159,6 +160,15 @@ data class SavedTimetableActionV1(
     val displayValues: JsonObject = JsonObject(emptyMap()),
     val removeDisplayKeys: List<String> = emptyList()
 ) {
+    init {
+        require(arrivalSteps.isEmpty() || type in setOf(SavedTimetableActionTypeV1.DESTINATION_OPTIONS,
+            SavedTimetableActionTypeV1.STATION_DESTINATION_OPTIONS, SavedTimetableActionTypeV1.SELECT_STOP)) {
+            "arrivalSteps is only valid on destination options and station stops"
+        }
+    }
+
+    private fun restoreArrivalSteps() = arrivalSteps.map { requireNotNull(it.restore() as? TimetableStep.At) { "Arrival children must be AT steps" } }
+
     fun restore(): TimetableAction = when (type) {
         SavedTimetableActionTypeV1.BEGIN_OPERATIONAL_TRIP -> TimetableAction.BeginOperationalTrip(requireNotNull(operationalTripId),requireNotNull(runId),unitSlots)
         SavedTimetableActionTypeV1.SET_DISPLAY -> TimetableAction.SetDisplay(unitSlots, displayValues, removeDisplayKeys)
@@ -167,7 +177,7 @@ data class SavedTimetableActionV1(
             StationStopSelection(StationId(requireNotNull(stationId)),
                 berthCandidates.map { StationStopCandidate(it.berthId, it.priority) },
                 StationStopSelectionPolicy.valueOf(requireNotNull(selectionPolicy).name)),
-            minimumDwellTicks, stoppingOffsetMetersBefore, doorSideOverride)
+            minimumDwellTicks, stoppingOffsetMetersBefore, doorSideOverride, restoreArrivalSteps())
         SavedTimetableActionTypeV1.COUPLE -> TimetableAction.Couple(requireNotNull(eventId))
         SavedTimetableActionTypeV1.SPLIT -> TimetableAction.Split(requireNotNull(eventId))
         SavedTimetableActionTypeV1.TAKE_FROM_FORMATION_OUTPUT ->
@@ -197,7 +207,8 @@ data class SavedTimetableActionV1(
             destinationId = wayPointIds.single(),
             minimumDwellTicks = minimumDwellTicks,
             stoppingOffsetMetersBefore = stoppingOffsetMetersBefore,
-            doorSide = doorSideOverride
+            doorSide = doorSideOverride,
+            arrivalSteps = restoreArrivalSteps()
         )
         SavedTimetableActionTypeV1.STOP -> TimetableAction.Stop(requireNotNull(stopTicks))
         SavedTimetableActionTypeV1.WAIT_UNTIL -> TimetableAction.WaitUntil
@@ -208,7 +219,8 @@ data class SavedTimetableActionV1(
             berthId = requireNotNull(berthId),
             minimumDwellTicks = minimumDwellTicks,
             stoppingOffsetMetersBefore = stoppingOffsetMetersBefore,
-            doorSideOverride = doorSideOverride
+            doorSideOverride = doorSideOverride,
+            arrivalSteps = restoreArrivalSteps()
         )
         SavedTimetableActionTypeV1.EXTENSION -> TimetableAction.Extension(
             requireNotNull(extensionCall).restore()
@@ -230,7 +242,7 @@ data class SavedTimetableActionV1(
                 berthCandidates = value.selection.candidates.map { SavedStationStopCandidateV1(it.berthId, it.priority) },
                 selectionPolicy = SavedStationStopSelectionPolicyV1.valueOf(value.selection.policy.name),
                 minimumDwellTicks = value.minimumDwellTicks, stoppingOffsetMetersBefore = value.stoppingOffsetMetersBefore,
-                doorSideOverride = value.doorSideOverride)
+                doorSideOverride = value.doorSideOverride, arrivalSteps = value.arrivalSteps.map(SavedTimetableStepV1::capture))
             is TimetableAction.Couple -> SavedTimetableActionV1(SavedTimetableActionTypeV1.COUPLE, eventId = value.eventId)
             is TimetableAction.Split -> SavedTimetableActionV1(SavedTimetableActionTypeV1.SPLIT, eventId = value.eventId)
             is TimetableAction.TakeFromFormationOutput -> SavedTimetableActionV1(SavedTimetableActionTypeV1.TAKE_FROM_FORMATION_OUTPUT,
@@ -266,7 +278,8 @@ data class SavedTimetableActionV1(
                 wayPointIds = listOf(value.destinationId),
                 minimumDwellTicks = value.minimumDwellTicks,
                 stoppingOffsetMetersBefore = value.stoppingOffsetMetersBefore,
-                doorSideOverride = value.doorSide
+                doorSideOverride = value.doorSide,
+                arrivalSteps = value.arrivalSteps.map(SavedTimetableStepV1::capture)
             )
             is TimetableAction.Stop -> SavedTimetableActionV1(
                 SavedTimetableActionTypeV1.STOP,
@@ -285,7 +298,8 @@ data class SavedTimetableActionV1(
                 berthId = value.berthId,
                 minimumDwellTicks = value.minimumDwellTicks,
                 stoppingOffsetMetersBefore = value.stoppingOffsetMetersBefore,
-                doorSideOverride = value.doorSideOverride
+                doorSideOverride = value.doorSideOverride,
+                arrivalSteps = value.arrivalSteps.map(SavedTimetableStepV1::capture)
             )
             is TimetableAction.Extension -> SavedTimetableActionV1(
                 type = SavedTimetableActionTypeV1.EXTENSION,
@@ -662,7 +676,7 @@ fun captureFormationEvent(value: TimetableFormationEvent): SavedFormationEventV1
             SavedFormationSplitOutputV1(value.rest.id, SavedFormationSplitGroup.REST, captureDisposition(value.rest.disposition))))
 }
 
-@Serializable enum class SavedTimetableBranchArmV1 { THEN, ELSE }
+@Serializable enum class SavedTimetableBranchArmV1 { THEN, ELSE, ARRIVAL }
 @Serializable data class SavedTimetableBranchPathEntryV1(val arm: SavedTimetableBranchArmV1, val index: Int) {
     init { require(index >= 0) }
 }

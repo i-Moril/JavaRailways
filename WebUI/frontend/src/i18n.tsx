@@ -3,6 +3,22 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from 're
 export type Locale = 'zh-CN' | 'en-US';
 
 const zh = {
+  'programs.discardBlockDraft':'丢弃无法恢复的画布草稿',
+  'programs.blockEntry':'程序开始',
+  'programs.blocksHint':'从工具箱拖入积木并连接到程序开始。点击积木编辑参数；也可用按钮添加、重排和删除。游离积木或无效参数会阻止保存。',
+  'programs.blockRecoveryFailed':'画布草稿无法恢复，请检查保留的本地草稿。',
+  'programs.blockUndo':'撤销',
+  'programs.blockRedo':'重做',
+  'programs.blockInsertTarget':'添加到',
+  'programs.invalidDraft':'请完成连接并修正参数后保存',
+  'programs.blockCanvas':'程序积木画布',
+  'programs.blockInspector':'选中积木的参数',
+  'programs.blockMissingInput':'缺少参数积木，请从工具箱连接',
+  'programs.arrivalHint':'停车且完成开门后执行到站动作（无门则停车后执行）；动作完成前不会发车。此处仅支持显示、等待、条件和扩展动作。',
+  'programs.arrivalUnavailable':'仅中途停车站和终到站可编辑到站动作，始发站和通过站不可用。',
+  'programs.arrivalActions':'到站动作',
+  'programs.editArrival':'编辑到站动作',
+
   'common.apply':'应用',
   'programs.param.UNIT_SLOTS':'单元位置（车头起，1 开始）',
   'programs.step.SET_DISPLAY':'设置显示信息',
@@ -543,6 +559,22 @@ const zh = {
 
 type TranslationKey = keyof typeof zh;
 const en: Record<TranslationKey, string> = {
+  'programs.discardBlockDraft':'Discard unrecoverable workspace draft',
+  'programs.blockEntry':'Program start',
+  'programs.blocksHint':'Drag blocks from the toolbox and connect them to Program start. Select a block to edit values, or use the buttons to add, reorder and delete. Loose blocks and invalid values prevent saving.',
+  'programs.blockRecoveryFailed':'Workspace recovery failed. The local draft has been retained.',
+  'programs.blockUndo':'Undo',
+  'programs.blockRedo':'Redo',
+  'programs.blockInsertTarget':'Append to',
+  'programs.invalidDraft':'Connect all blocks and fix values before saving',
+  'programs.blockCanvas':'Program block workspace',
+  'programs.blockInspector':'Selected block values',
+  'programs.blockMissingInput':'Missing value block; connect one from the toolbox',
+  'programs.arrivalHint':'Arrival actions run after stopping and opening doors (or after stopping if there are no doors). Departure waits for completion. Only display, wait, condition and extension actions are available here.',
+  'programs.arrivalUnavailable':'Arrival actions are available at intermediate stops and the terminus, not at the origin or passing calls.',
+  'programs.arrivalActions':'Arrival actions',
+  'programs.editArrival':'Edit arrival actions',
+
   'common.apply':'Apply',
   'programs.param.UNIT_SLOTS':'Unit positions (1-based from operating head)',
   'programs.step.SET_DISPLAY':'Set display information',

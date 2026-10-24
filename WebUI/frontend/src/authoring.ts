@@ -1,6 +1,6 @@
 import {validateFormationAuthoring,type AuthoringFormationEvent} from './formationAuthoring';
-import { stationProgramSchedule,resolveProgramValue,displayValuesError,validateStationProgram,validateStationProgramCall } from './stationPrograms';
-import type { OperationalTrip,BoundStationProgram,StationProgramCall,DiagramLineV1, LineDirection, LineSimulationResult, LineV1, SavedTimetableV1, SimulationProfile, TimetableActionV1, WorldMetadata } from './types';
+import { copyStationProgram,validateArrivalProgram,stationProgramSchedule,resolveProgramValue,displayValuesError,validateStationProgram,validateStationProgramCall } from './stationPrograms';
+import type { StationProgramDefinition,OperationalTrip,BoundStationProgram,StationProgramCall,DiagramLineV1, LineDirection, LineSimulationResult, LineV1, SavedTimetableV1, SimulationProfile, TimetableActionV1, WorldMetadata } from './types';
 
 export type AuthoringDoorSide = 'NONE'|'LEFT'|'RIGHT'|'BOTH';
 export type AuthoringRunCallStatusV1 = 'ORIGIN'|'STOP'|'PASS'|'TERMINAL';
@@ -15,6 +15,7 @@ export interface AuthoringRunCallV1 {
   minimumDwellTicks?:number|null;
   stoppingOffsetMetersBefore?:number|null;
   doorSide?:AuthoringDoorSide|null;
+  arrivalProgram?:StationProgramDefinition;
 }
 export interface AuthoringRunV1 {
   id:string;
@@ -295,9 +296,11 @@ export function copyRunShifted(
 ):AuthoringRunV1 {
   if(!newId.trim()) throw new Error('copied run id is required');
   if(!Number.isInteger(offsetTicks)) throw new Error('copy offset must be an integer');
+  let stepIndex=0;
   return {...run,id:newId,calls:run.calls.map((call,index)=>({
     ...call,id:idFactory(call.stationId,index),arrivalTick:shiftedTick(call.arrivalTick,offsetTicks),
     departureTick:shiftedTick(call.departureTick,offsetTicks),
+    ...(call.arrivalProgram?{arrivalProgram:copyStationProgram(call.arrivalProgram,()=>`arrival-${newId.replace(/[^A-Za-z0-9_-]/g,'_').slice(0,96)}-${++stepIndex}`,offsetTicks)}:{}),
   }))};
 }
 
@@ -363,6 +366,10 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
       }
       for(const [name,value] of [['arrivalTick',call.arrivalTick],['departureTick',call.departureTick]] as const) {
         if(value!=null&&(!nonNegativeInteger(value)||value>=periodTicks)) issues.push(issue(`${callPath}.${name}`,`${name} must be inside the timetable period`));
+      }
+      if(call.arrivalProgram!==undefined){
+        if(call.status!=='STOP'&&call.status!=='TERMINAL')issues.push(issue(`${callPath}.arrivalProgram`,'Arrival programs require a stopping or terminal call'));
+        for(const message of validateArrivalProgram(call.arrivalProgram,periodTicks))issues.push(issue(`${callPath}.arrivalProgram`,message));
       }
       if(call.minimumDwellTicks!=null&&!nonNegativeInteger(call.minimumDwellTicks)) issues.push(issue(`${callPath}.minimumDwellTicks`,'Minimum dwell must be a non-negative integer'));
       if(call.stoppingOffsetMetersBefore!=null&&(!Number.isFinite(call.stoppingOffsetMetersBefore)||call.stoppingOffsetMetersBefore<0)) issues.push(issue(`${callPath}.stoppingOffsetMetersBefore`,'Stopping offset must be finite and non-negative'));
@@ -558,6 +565,7 @@ function destinationOptions(call:AuthoringRunCallV1,override?:number):string {
   if(call.minimumDwellTicks!=null) fields.push(`minimumDwellTicks: ${call.minimumDwellTicks}`);
   if(call.stoppingOffsetMetersBefore!=null) fields.push(`stoppingOffsetMetersBefore: ${call.stoppingOffsetMetersBefore}`);
   if(call.doorSide) fields.push(`doorSide: ${quote(call.doorSide)}`);
+  if(call.arrivalProgram)fields.push(`arrivalProgram: JSON.parse(${quote(JSON.stringify(call.arrivalProgram))})`);
   return fields.length?`, { ${fields.join(', ')} }`:'';
 }
 
@@ -601,7 +609,7 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1,in
         const run=document.runs.find((candidate)=>candidate.id===element.runId);
         if(!run) continue;
         const scoped='runScope';
-        const segment={runId:run.id,lineId:run.lineId,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,calls:run.calls.map(({targetId,berthId:_,minimumDwellTicks:__,stoppingOffsetMetersBefore:___,doorSide:____,...call})=>({...call,destinationId:targetId,arrivalTick:document.arrivalOverrides.find((o)=>o.runId===run.id&&o.callId===call.id)?.tick??call.arrivalTick}))};
+        const segment={runId:run.id,lineId:run.lineId,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,calls:run.calls.map(({targetId,berthId:_,minimumDwellTicks:__,stoppingOffsetMetersBefore:___,doorSide:____,arrivalProgram:_____,...call})=>({...call,destinationId:targetId,arrivalTick:document.arrivalOverrides.find((o)=>o.runId===run.id&&o.callId===call.id)?.tick??call.arrivalTick}))};
         lines.push(`        t.origin(${quote(origin(duty.id,element.id,run.id))}, scoped => {`, `          scoped.runSegment(JSON.parse(${quote(JSON.stringify(segment))}), ${scoped} => {`);
         if(!emittedCheck&&duty.selector.type==='TRAIN_NAME'&&run.calls[0]?.targetId) {
           lines.push(`            ${scoped}.check(${quote(run.calls[0].targetId)})`);
@@ -617,7 +625,10 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1,in
           }
           if(routeAnchor?.departureTick==null||!call.targetId) continue;
           const override=document.arrivalOverrides.find((item)=>item.runId===run.id&&item.callId===call.id)?.tick;
-          lines.push(`            ${scoped}.at(${routeAnchor.departureTick})${pendingPasses}.destination(${quote(call.targetId)}${destinationOptions(call,override)})`);
+          const statement=`${scoped}.at(${routeAnchor.departureTick})${pendingPasses}.destination(${quote(call.targetId)}${destinationOptions(call,override)})`;
+          lines.push(call.arrivalProgram
+            ?`            ${scoped}.origin(${quote(`${origin(duty.id,element.id,run.id)}/arrival:${call.id}`)}, ${scoped} => { ${statement} })`
+            :`            ${statement}`);
           routeAnchor=call;
           pendingPasses='';
         }

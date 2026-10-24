@@ -24,11 +24,26 @@ describe('authoring workspace views',()=>{
    expect(html).toContain('central / long');expect(html).toContain(committed?'Admitted':'Awaiting route');expect(html).toContain('2 / When false 1');
   }
  });
- it('renders nested branch arms and their actual timed steps',()=>{
+ it('opens arrival editing from stopping call details and explains unsupported origin calls',()=>{
+  const run={id:'r',type:'PASSENGER' as const,lineDirection:'UP' as const,diagramLineId:'L',calls:[{id:'origin',stationId:'a',targetId:'a',status:'ORIGIN' as const},{id:'terminal',stationId:'b',targetId:'b',status:'TERMINAL' as const}]};
+  const lines=[{id:'L',displayName:'Line',upStationIds:['a','b'],downStationIds:['b','a']}];
+  const terminal=render(<RunRouteEditor run={run} focusedCallId="terminal" lines={lines} metadata={{}} busy={false} onChange={noop} onError={noop} onDelete={noop}/>);
+  expect(terminal).toContain(translate('en-US','programs.editArrival'));expect(terminal).toContain(translate('en-US','programs.arrivalHint'));
+  expect(terminal).not.toContain('station-actions-reserved');
+  const origin=render(<RunRouteEditor run={run} focusedCallId="origin" lines={lines} metadata={{}} busy={false} onChange={noop} onError={noop} onDelete={noop}/>);
+  expect(origin).toContain(translate('en-US','programs.arrivalUnavailable'));expect(origin).not.toContain(translate('en-US','programs.editArrival'));
+ });
+ it('labels arrival cursor paths as station actions rather than a false branch',()=>{
+  const html=render(<AuthoringValidation {...props} simulation={{status:'PERIOD_ENDED',simulatedTicks:100,runs:[{timetableId:'t',serviceId:'duty-a',trainId:'train',state:'WAITING',timetableElapsedTicks:100,lastLatenessTicks:0,nextStepIndex:4,activeStepIndex:2,activeStepBranchPath:[{arm:'ARRIVAL',index:0}]}]}}/>);
+  expect(html).toContain('2 / '+translate('en-US','editor.stationActions')+' 0');
+  expect(html).not.toContain('2 / When false 0');
+ });
+ it('provides the shared real block canvas and non-drag editing controls for nested programs',()=>{
    const html=render(<ProgramDefinitionEditor fieldScope="branch" onChange={noop} value={{parameters:[],steps:[{id:'choose',type:'BRANCH',typeId:'demo:condition',version:1,parameters:{value:{}},thenSteps:[{id:'until',type:'WAIT_UNTIL',tick:{value:80}}],elseSteps:[{id:'pause',type:'WAIT_DURATION',durationTicks:{value:10}}]}]}}/>);
-   expect(html).toContain('When true');expect(html).toContain('When false');
-   expect(html).toContain('data-program-step="until"');expect(html).toContain('data-program-step="pause"');
-   expect(html).toContain('Storage, coupling and splitting cannot be conditional');
+   expect(html).toContain('program-block-canvas');
+   expect(html).toContain('aria-label="'+translate('en-US','programs.blockInsertTarget')+'"');
+   expect(html).toContain(translate('en-US','programs.blockUndo'));expect(html).toContain(translate('en-US','programs.blockRedo'));
+   expect(html).not.toContain('data-program-step="until"');
  });
  it('keeps inventory proof separate from unproven timing and capacity',()=>{
    const html=render(<AuthoringValidation {...props} compiled={{timetable:{id:'t',periodDays:1,services:[]},validation:{valid:true,errors:[],circulation:{inventory:'PROVEN',timing:'UNPROVEN',capacity:'UNPROVEN',periodicInventoryCycles:2,findings:[{code:'timing',detail:'No completion bound is available.',blocking:false}]}}}}/>);

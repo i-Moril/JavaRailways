@@ -14,6 +14,37 @@ class StationProgramScriptTest {
       {id:'store',type:'STORE_AT_DEPOT',depotId:{value:'other-depot'},stablingPointIds:{value:[]}}
     ]}"""
 
+    @Test fun `destination arrival subtree has absolute wait and addressed trace without shifting departure`() {
+        val compiled = compile("""
+          timetable.service('s','train',t=>{t.check('A');t.origin('duty:s/arrival:call',s=>s.at(100).destination('B',{
+            arrivalProgram:{parameters:[],steps:[
+              {id:'wait',type:'WAIT_DURATION',durationTicks:{value:20}},
+              {id:'until',type:'WAIT_UNTIL',tick:{value:50}},
+              {id:'choose',type:'BRANCH',typeId:'test:condition',version:1,parameters:{value:{}},
+               thenSteps:[{id:'action',type:'EXTENSION',typeId:'test:action',version:1,parameters:{value:{}}}],elseSteps:[]}
+            ]}}));t.at(120).destination('C');});
+        """)
+        val steps = compiled.services.single().steps
+        assertEquals(listOf(100L, 100L, 120L, 120L), steps.drop(1).map { it.tick })
+        val arrival = steps[1].action!!.arrivalSteps
+        assertEquals(listOf(0L, 50L, 50L), arrival.map { it.tick })
+        assertEquals(20L, arrival.first().action!!.stopTicks)
+        val trace = compiled.compilationTrace.single { it.origin.endsWith("step:action") }
+        assertEquals(1, trace.stepIndex)
+        assertEquals(listOf(SavedTimetableBranchPathEntryV1(SavedTimetableBranchArmV1.ARRIVAL,2),
+            SavedTimetableBranchPathEntryV1(SavedTimetableBranchArmV1.THEN,0)), trace.branchPath)
+    }
+
+    @Test fun `arrival definitions reject motion and declared parameters recursively`() {
+        for (program in listOf(
+            "{parameters:[{id:'p',type:'STRING'}],steps:[]}",
+            "{parameters:[],steps:[{id:'reverse',type:'REVERSE'}]}",
+            "{parameters:[],steps:[{id:'branch',type:'BRANCH',typeId:'test:condition',version:1,parameters:{value:{}},thenSteps:[{id:'reverse',type:'REVERSE'}],elseSteps:[]}]}"
+        )) assertThrows(Throwable::class.java) {
+            compile("""timetable.service('s','train',t=>{t.check('A');t.destination('B',{arrivalProgram:$program});});""")
+        }
+    }
+
     @Test fun `display program compiles parameterized slots and values into native timed actions`() {
         val result = compile("""
           timetable.service('s','train',t=>{t.check('A');t.at(20).program('display',{

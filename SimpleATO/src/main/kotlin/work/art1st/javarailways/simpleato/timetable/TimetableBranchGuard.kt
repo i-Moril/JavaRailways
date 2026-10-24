@@ -33,6 +33,7 @@ internal object TimetableBranchGuard {
             }
             val action = (step as TimetableStep.At).action
             val code = when {
+                address.branchPath.any { it.arm == TimetableBranchArm.ARRIVAL } && !action.isArrivalAction() -> "ARRIVAL_ACTION_NOT_ALLOWED"
                 nested && (action is TimetableAction.TakeFromDepot || action is TimetableAction.TakeFromWaypoint || action is TimetableAction.TakeFromFormationOutput) -> "CONDITIONAL_ACQUISITION"
                 (nested || conditionalActivation) && (action is TimetableAction.StoreAtDepot || action is TimetableAction.Couple || action is TimetableAction.Split) -> "CONDITIONAL_FIXED_EVENT"
                 nested && action is TimetableAction.BeginOperationalTrip -> "CONDITIONAL_TRIP_BOUNDARY"
@@ -41,13 +42,13 @@ internal object TimetableBranchGuard {
             }
             if (code != null) violations += TimetableBranchViolation(address, code,
                 "${action::class.simpleName} cannot be skipped by a runtime condition")
-            if (action is TimetableAction.Conditional) {
+            if (action is TimetableAction.Conditional || action.arrivalSteps().isNotEmpty()) {
                 if (address.branchPath.size >= limits.maximumBranchDepth) {
                     violations += TimetableBranchViolation(address, "PROGRAM_LIMIT", "Program exceeds branch depth ${limits.maximumBranchDepth}")
                     break
                 }
                 // Stack stores two sequence frames, never allocates one entry per declared child.
-                for (arm in listOf(TimetableBranchArm.ELSE, TimetableBranchArm.THEN)) {
+                for (arm in if (action is TimetableAction.Conditional) listOf(TimetableBranchArm.ELSE, TimetableBranchArm.THEN) else listOf(TimetableBranchArm.ARRIVAL)) {
                     val size = program.branchSize(address, arm)
                     require(size >= 0) { "Negative branch size at $address" }
                     pending.addLast(Sequence(address, arm, size))
@@ -72,6 +73,7 @@ internal object TimetableProgramSchedule {
                 val step = program.stepAt(address) as? TimetableStep.At ?: continue
                 if (step.tick < earliest || step.tick < 0 || step.tick >= periodTicks) errors +=
                     TimetableBranchViolation(address, "INVALID_STEP_TICK", "Tick ${step.tick} must be at least $earliest and below period $periodTicks")
+                if (step.action.arrivalSteps().isNotEmpty()) sequence(address, TimetableBranchArm.ARRIVAL, program.branchSize(address, TimetableBranchArm.ARRIVAL), 0L)
                 earliest = maxOf(earliest, step.tick)
                 if (step.action is TimetableAction.Conditional) {
                     earliest = maxOf(

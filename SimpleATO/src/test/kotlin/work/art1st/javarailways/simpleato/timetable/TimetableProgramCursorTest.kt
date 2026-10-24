@@ -26,6 +26,25 @@ class TimetableProgramCursorTest {
     private fun branch(tick: Long, yes: List<Node> = emptyList(), no: List<Node> = emptyList()) = Node(
         TimetableStep.At(tick, TimetableAction.Conditional(TimetableCondition.Predicate(TimetableExtensionCall("test:choose")), emptyList())), yes, no)
 
+    @Test fun `arrival children preserve nested addresses and have an independent schedule`() {
+        val hook = TimetableAction.DestinationOptions("B", arrivalSteps = listOf(
+            TimetableStep.At(0L, TimetableAction.Stop(5L)),
+            TimetableStep.At(20L, TimetableAction.Conditional(TimetableCondition.Predicate(TimetableExtensionCall("test:choose")),
+                listOf(TimetableStep.At(30L, TimetableAction.WaitUntil))))))
+        val traversal = TimetableServiceTraversal(TimetableService("s", steps = listOf(
+            TimetableStep.At(100L, hook), TimetableStep.At(100L, TimetableAction.GoTo("B")),
+            TimetableStep.At(110L, TimetableAction.GoTo("C")))))
+        val cursor = TimetableProgramCursor.start(traversal).enter(TimetableBranchArm.ARRIVAL)
+        assertEquals("step#0/arrival[0]", cursor.address.toString())
+        assertEquals("step#0/arrival[1]/then[0]", cursor.advance().enter(TimetableBranchArm.THEN).address.toString())
+        assertEquals(TimetableStepAddress(1), cursor.advance().enter(TimetableBranchArm.THEN).advance().address)
+        assertTrue(TimetableProgramSchedule.validate(traversal, 24_000).isEmpty())
+        assertTrue(TimetableBranchGuard.validate(traversal).isEmpty())
+        val illegal = TimetableServiceTraversal(TimetableService("bad",steps=listOf(TimetableStep.At(0,
+            TimetableAction.DestinationOptions("B",arrivalSteps=listOf(TimetableStep.At(0,TimetableAction.Reverse)))))))
+        assertEquals("ARRIVAL_ACTION_NOT_ALLOWED",TimetableBranchGuard.validate(illegal).single().code)
+    }
+
     @Test fun `nested arms retain exact timed leaf and resume enclosing suffix once`() {
         val tree = Tree(listOf(branch(10, listOf(branch(20, no = listOf(leaf(30), leaf(40))), leaf(50))), leaf(60)))
         val start = TimetableProgramCursor.start(tree)

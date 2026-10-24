@@ -154,3 +154,24 @@ export function displayValuesError(value:unknown):string {
   const keys=Object.keys(value as object);
   return keys.length>128||keys.some((key)=>!key.trim())||JSON.stringify(value).length>65536?'Display values require at most128 nonblank keys and64 KiB':'';
 }
+
+/** Arrival programs run inside a stop: they may not change its route or formation. */
+export function validateArrivalProgram(definition:StationProgramDefinition,periodTicks?:number):string[] {
+  const errors=validateStationProgram(definition);
+  if(errors.length)return errors;
+  if(definition.parameters.length)errors.push('Arrival programs cannot declare parameters');
+  const visit=(steps:StationProgramStep[])=>{for(const step of steps){
+    if(!['SET_DISPLAY','RESET_DISPLAY','WAIT_UNTIL','WAIT_DURATION','BRANCH','EXTENSION'].includes(step.type))errors.push(`Unsupported arrival action: ${step.id} (${step.type})`);
+    if(step.type==='BRANCH'){visit(step.thenSteps);visit(step.elseSteps);}
+  }};
+  visit(definition.steps);
+  if(!errors.length&&periodTicks!==undefined)errors.push(...stationProgramSchedule(definition.steps,{},0,periodTicks).errors);
+  return errors;
+}
+
+/** Copying creates new step identities without sharing mutable nested values. */
+export function copyStationProgram(definition:StationProgramDefinition,idFactory:()=>string,shiftTicks=0):StationProgramDefinition {
+  const copied=clone(definition);
+  const visit=(steps:StationProgramStep[])=>{for(const step of steps){step.id=idFactory();if(step.type==='WAIT_UNTIL'&&'value' in step.tick){const tick=step.tick.value+shiftTicks;if(!Number.isSafeInteger(tick)||tick<0)throw new Error('Shifted arrival wait must be a non-negative safe integer');step.tick={value:tick};}if(step.type==='BRANCH'){visit(step.thenSteps);visit(step.elseSteps);}}};
+  visit(copied.steps);return copied;
+}

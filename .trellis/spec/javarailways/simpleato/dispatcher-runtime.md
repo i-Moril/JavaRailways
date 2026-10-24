@@ -237,3 +237,15 @@ zero; do not downgrade Basic's stationary-source requirement or submit an irreve
 The real isolated coupling→movement→split factory regression exercises this boundary.
 
 A branch selected against a published child can reverse a still-held body before choosing its first corridor. Dispatcher first suspends the exact Basic output grant, then marks that output's handoff as reversing. After the prepared Core reversal it records the actual new direction in the pending depot owner in the same serialized callback. The handoff remains paused until Basic accepts the exact reversed-body rebase; only then may ordinary cursor execution select departure and request movement. Failed ownership/rebase transitions retain holds and enter recovery. No condition is evaluated against the unsplit parent's length, and no sibling grant or owner is released by this reversal.
+
+## 停站期间的到站程序
+
+到站程序是同一 service 定义中的 `ARRIVAL` 子树，不建立第二个调度器。目的地选项、明确站台和动态选站动作可携带默认空的 `arrivalSteps`。普通移动仍先完成实际停车和既有开门 ticket；进入 DWELLING 时才切换到到站子树，同时记录实际停靠位置，扩展上下文不能继续报告上一出发点。
+
+切换前保留主程序 continuation 和拥有到站子树的完整地址；分支、异步扩展、等待继续使用既有游标与 ticket。每次推进先检查地址是否已经离开该 `ARRIVAL` 子树，离开后恢复主 continuation 并回到原停站 DWELLING，必须在普通下一步骤或 COMPLETED 判定之前完成，不能漏掉终点到站动作或提前执行下一行车任务。到站程序结束不释放站台、授权或停车零速约束。
+
+持续等待从实际执行的 Dispatcher tick 开始，绝对等待使用 timetable elapsed tick；到站子树的编译初始tick为0不意味着它计划在世界周期起点执行，不能据此伪造整体迟到值。原最小停站时间从实际开门成功开始计时，与到站程序并行；到站程序完成且最小停站、正常发车时刻门禁均满足后，才允许关门和发车。等待和未完成扩展不能误入普通 dwell 完成分支。
+
+子树递归只允许 SetDisplay、ResetDisplay、Stop（持续等待）、WaitUntil、Conditional 和 Extension。改变方向、路线或编组的操作不属于停站上下文；模型校验、ScriptWorker 和编辑文档边界都要拒绝，不能仅靠 UI 工具箱隐藏。条件与扩展仍执行注册 provider 校验和真实运行结果，失败不得伪装到站程序完成并放行。
+
+定义随既有 Timetable snapshot 捕获恢复，新增列表缺省为空，不升级格式。运行 checkpoint 仍遵循既有人工恢复/禁用受影响服务的契约，不声称能在重启后恢复 live arrival cursor 或 ticket。验证覆盖停车/门动作之前不运行、实际到站后执行一次、持续和绝对等待、条件与扩展、终点、最小停站并行以及 snapshot 往返。

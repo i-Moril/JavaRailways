@@ -6,7 +6,7 @@ import { findProgramStep,validateStationProgram } from './stationPrograms';
 import { useI18n } from './i18n';
 import type { TimetableExtensionDescriptor,StationProgramDefinition,StationProgramRecord } from './types';
 
-export function StationProgramLibrary({world,extensions=[],conditions=[],focus}:{world:string;extensions?:TimetableExtensionDescriptor[];conditions?:TimetableExtensionDescriptor[];focus?:{programId:string;stepId?:string}}){
+export function StationProgramLibrary({world,recoveryOwner,extensions=[],conditions=[],focus}:{world:string;recoveryOwner:string;extensions?:TimetableExtensionDescriptor[];conditions?:TimetableExtensionDescriptor[];focus?:{programId:string;stepId?:string}}){
   const {t}=useI18n();
   const [records,setRecords]=useState<StationProgramRecord[]>([]);
   const [selected,setSelected]=useState<StationProgramRecord>();
@@ -46,7 +46,7 @@ export function StationProgramLibrary({world,extensions=[],conditions=[],focus}:
     <div className="duty-admin-grid"><aside className="entity-list panel-surface">{records.map((record)=><Button key={record.id} type="text" disabled={busy} onClick={()=>select(record)}><Space>{record.name}<Tag>r{record.revision}</Tag>{record.archived&&<Tag>{t('programs.archived')}</Tag>}</Space></Button>)}</aside>
     <section className="panel-surface duty-detail"><Flex wrap gap={12}><label>{t('programs.id')}<Input aria-label={t('programs.id')} disabled={!!selected||busy} value={id} onChange={(event)=>setId(event.target.value)}/></label><label>{t('programs.name')}<Input aria-label={t('programs.name')} disabled={busy||selected?.archived} value={name} onChange={(event)=>setName(event.target.value)}/></label></Flex>
       {focus?.programId===selected?.id&&focus?.stepId&&!findProgramStep(selected?.definition.steps??[],focus.stepId)&&<Alert type="info" title={t('programs.stepUnavailable')}/>}
-      <fieldset inert={busy||selected?.archived} disabled={busy||selected?.archived} className="program-editor-fields"><ProgramDefinitionEditor conditions={conditions} extensions={extensions} onValidityChange={setJsonValid} focusedStep={focus?.programId===selected?.id?focus?.stepId:undefined} key={`${world}/${selected?.id??'new'}/${selected?.revision??0}`} fieldScope={`${world}/${selected?.id??'new'}/${selected?.revision??0}`} value={definition} onChange={setDefinition}/></fieldset>
+      <fieldset inert={busy||selected?.archived} disabled={busy||selected?.archived} className="program-editor-fields"><ProgramDefinitionEditor conditions={conditions} extensions={extensions} onValidityChange={setJsonValid} focusedStep={focus?.programId===selected?.id?focus?.stepId:undefined} key={`${recoveryOwner}/${world}/${selected?.id??'new'}/${selected?.revision??0}`} fieldScope={`${recoveryOwner}/${world}/${selected?.id??'new'}/${selected?.revision??0}`} value={definition} onChange={setDefinition}/></fieldset>
       {!!errors.length&&<Alert type="warning" title={errors.join('; ')}/>}
       <Flex wrap gap={8}><Button type="primary" loading={busy} disabled={!world||!id.trim()||!name.trim()||!!errors.length||!jsonValid||selected?.archived} onClick={()=>void save()}>{t('common.save')}</Button>{selected&&<Button danger disabled={busy||selected.archived} onClick={()=>void save(true)}>{t('programs.archive')}</Button>}</Flex>
       <Typography.Paragraph type="secondary">{t('programs.conflictHint')}</Typography.Paragraph>

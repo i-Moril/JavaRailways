@@ -14,6 +14,26 @@ import work.art1st.javarailways.simpleato.api.timetable.*
 import work.art1st.javarailways.simpleato.timetable.*
 
 class TimetableSnapshotTest {
+    @Test fun `arrival subtrees roundtrip on all stopping actions`() {
+        val arrival = listOf(TimetableStep.At(0, TimetableAction.Stop(12)), TimetableStep.At(60, TimetableAction.WaitUntil))
+        val selection = work.art1st.javarailways.simpleato.api.station.StationStopSelection(
+            work.art1st.javarailways.simpleato.api.station.StationId("s"),
+            listOf(work.art1st.javarailways.simpleato.api.station.StationStopCandidate("b",0)),
+            work.art1st.javarailways.simpleato.api.station.StationStopSelectionPolicy.FIXED_PREFERENCE)
+        val mutableArrival = arrival.toMutableList()
+        val frozen = TimetableAction.DestinationOptions("B", arrivalSteps=mutableArrival)
+        mutableArrival.clear()
+        assertEquals(arrival,frozen.arrivalSteps)
+        assertThrows(UnsupportedOperationException::class.java) { (frozen.arrivalSteps as MutableList).clear() }
+        for (action in listOf(TimetableAction.DestinationOptions("B",arrivalSteps=arrival),
+            TimetableAction.CallStation("s","b",arrivalSteps=arrival), TimetableAction.SelectStop(selection,arrivalSteps=arrival))) {
+            val saved = SavedTimetableActionV1.capture(action)
+            val decoded = kotlinx.serialization.json.Json.decodeFromString<SavedTimetableActionV1>(
+                kotlinx.serialization.json.Json.encodeToString(saved))
+            assertEquals(action, decoded.restore())
+        }
+    }
+
     @Test
     fun `presentation metadata survives JSON but is not restored into runtime`() {
         val saved = SavedTimetableV1(

@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import kotlinx.serialization.json.JsonObject
+import work.art1st.javarailways.simpleato.api.timetable.*
 import org.junit.jupiter.api.function.Executable
 import org.junit.jupiter.api.Assertions.assertAll
 import work.art1st.javarailways.core.physics.train.TestWorldFixture
@@ -74,6 +76,174 @@ class TimetableStationCallDispatcherTest {
     }
 
     @OptIn(work.art1st.javarailways.core.api.util.plugin.ExtensionData::class)
+    @Test fun `arrival providers and forbidden motion are rejected before runtime installation`() {
+        for(action in listOf(TimetableAction.Extension(TimetableExtensionCall("missing:action")),TimetableAction.Reverse)) {
+            val fixture=fixture(destinationOptions=TimetableAction.DestinationOptions("C",arrivalSteps=listOf(TimetableStep.At(0,action))))
+            val result=fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world,"tt","service") }
+            assertTrue(result is TimetableServiceStartResult.Failure,result.toString())
+            assertNull(fixture.dispatcher.status(TimetableServiceRunId("tt","service")))
+            assertFalse(fixture.train.controller is SimpleATO)
+            assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        }
+    }
+
+    @Test fun `station arrival program runs only after doors open and waits before closing`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(includeStationAction = true, doorSide = DoorSide.LEFT,
+            operationGateway = gateway, arrivalSteps = listOf(TimetableStep.At(0, TimetableAction.Stop(30))))
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        repeat(1500) { if (gateway.requests.isEmpty()) fixture.tick() }
+        assertEquals(1,gateway.requests.size)
+        assertTrue(gateway.requests.single().operation is TrainOperation.OpenDoors)
+        repeat(10) { fixture.tick() }
+        assertEquals(TimetableServiceRunState.DOORS_OPENING,fixture.dispatcher.status(id)!!.state)
+        assertTrue(fixture.dispatcher.status(id)!!.nextStepBranchPath.isEmpty())
+        gateway.tickets.single().succeed()
+        fixture.tick()
+        val entered = fixture.dispatcher.status(id)!!
+        assertEquals(TimetableBranchArm.ARRIVAL, entered.nextStepBranchPath.single().arm)
+        assertNull(entered.nextScheduledTick)
+        val previousLateness = entered.lastLatenessTicks
+        repeat(29) {
+            fixture.tick()
+            assertEquals(1,gateway.requests.size)
+            assertFalse(fixture.dispatcher.status(id)!!.state == TimetableServiceRunState.COMPLETED)
+        }
+        assertEquals(previousLateness,fixture.dispatcher.status(id)!!.lastLatenessTicks)
+        repeat(20) { if(fixture.dispatcher.status(id)!!.state != TimetableServiceRunState.COMPLETED) fixture.tick() }
+        assertEquals(TimetableServiceRunState.COMPLETED,fixture.dispatcher.status(id)!!.state)
+        assertEquals(1,gateway.requests.size) // terminal station deliberately keeps doors open
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
+    @Test fun `nonterminal arrival finishes its wait closes doors and resumes the original next movement`() {
+        val gateway=ControllableOperationGateway()
+        val fixture=fixture(nextTargetOffsetMeters=150.0,operationGateway=gateway,
+            destinationOptions=TimetableAction.DestinationOptions("C",minimumDwellTicks=20,doorSide=DoorSide.LEFT,
+                arrivalSteps=listOf(TimetableStep.At(0,TimetableAction.Stop(30)),
+                    TimetableStep.At(0,TimetableAction.Extension(TimetableExtensionCall("test:completed"))))))
+        var starts=0
+        fixture.world.simpleAtoWorldData.timetableExtensions.registerAction(object:TimetableActionProvider {
+            override val typeId="test:completed"
+            override val version=1
+            override val descriptor=TimetableExtensionDescriptor("Completed","Arrival completion")
+            override fun start(parameters:JsonObject,context:TimetableRuntimeContext):TimetableExtensionActionStartResult {
+                starts++
+                assertEquals("C",context.currentWayPointId)
+                assertNull(context.scheduledTick)
+                return TimetableExtensionActionStartResult.Accepted(object:TimetableExtensionActionTicket {
+                    override fun snapshot()=TimetableExtensionActionSnapshot(TimetableExtensionActionState.SUCCEEDED)
+                    override fun cancel()=Unit
+                })
+            }
+        })
+        val id=TimetableServiceRunId("tt","service")
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world,"tt","service") }
+        var openedAt:Long?=null
+        var closedAt:Long?=null
+        for(tick in 0 until 2500) {
+            fixture.tick()
+            val status=fixture.dispatcher.status(id)!!
+            gateway.requests.forEachIndexed { index, request ->
+                if(request.operation is TrainOperation.OpenDoors && openedAt==null) openedAt=status.timetableElapsedTicks
+                if(request.operation is TrainOperation.CloseDoors && closedAt==null) closedAt=status.timetableElapsedTicks
+                gateway.tickets[index].succeed()
+            }
+            if(status.state==TimetableServiceRunState.COMPLETED)break
+        }
+        assertEquals(2,gateway.requests.size)
+        assertEquals(1,starts)
+        assertTrue(checkNotNull(closedAt)-checkNotNull(openedAt)>=30)
+        assertTrue(checkNotNull(closedAt)-checkNotNull(openedAt)<45) // minimum dwell overlaps hook wait
+        assertEquals(TimetableServiceRunState.COMPLETED,fixture.dispatcher.status(id)!!.state)
+        assertEquals(fixture.targetArc,fixture.train.head.location.arcLengthIn(ViewDirection.AB),0.4)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
+    @Test fun `station arrival wait until resumes the same mission after berth departure`() {
+        val fixture=fixture(includeStationAction=true,nextTargetOffsetMeters=150.0,arrivalSteps=listOf(TimetableStep.At(400,TimetableAction.WaitUntil)))
+        val id=TimetableServiceRunId("tt","service")
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world,"tt","service") }
+        for(tick in 0 until 2000) {
+            fixture.tick()
+            val status=fixture.dispatcher.status(id)!!
+            if(status.timetableElapsedTicks<400) assertFalse(status.state==TimetableServiceRunState.DEPARTING)
+            if(status.state==TimetableServiceRunState.COMPLETED)break
+        }
+        assertEquals(TimetableServiceRunState.COMPLETED,fixture.dispatcher.status(id)!!.state)
+        assertEquals(fixture.targetArc,fixture.train.head.location.arcLengthIn(ViewDirection.AB),0.4)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
+    @Test fun `destination arrival absolute wait gates terminal completion and minimum dwell overlaps`() {
+        val fixture = fixture(destinationOptions = TimetableAction.DestinationOptions("C", minimumDwellTicks=15,
+            arrivalSteps=listOf(TimetableStep.At(0,TimetableAction.Stop(30)),TimetableStep.At(2000,TimetableAction.WaitUntil))))
+        val id=TimetableServiceRunId("tt","service")
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world,"tt","service") }
+        repeat(1999) { fixture.tick(); assertFalse(fixture.dispatcher.status(id)!!.state==TimetableServiceRunState.COMPLETED) }
+        repeat(5) { fixture.tick() }
+        assertEquals(TimetableServiceRunState.COMPLETED,fixture.dispatcher.status(id)!!.state)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
+    @Test fun `arrival branch extension starts once observes actual berth and failure holds doors`() {
+        for (cancel in listOf(false,true)) {
+            val gateway=ControllableOperationGateway()
+            val fixture=fixture(includeStationAction=true,doorSide=DoorSide.LEFT,operationGateway=gateway,
+                arrivalSteps=listOf(TimetableStep.At(0,TimetableAction.Conditional(
+                    TimetableCondition.Predicate(TimetableExtensionCall("test:arrived")),listOf(
+                        TimetableStep.At(0,TimetableAction.Extension(TimetableExtensionCall("test:hold"))))))))
+            var evaluations=0
+            var starts=0
+            var cancelled=false
+            var outcome=TimetableExtensionActionState.PENDING
+            fixture.world.simpleAtoWorldData.timetableExtensions.registerCondition(object:TimetableConditionProvider {
+                override val typeId="test:arrived"
+                override val version=1
+                override val descriptor=TimetableExtensionDescriptor("Arrived","Arrival context")
+                override fun evaluate(parameters:JsonObject,context:TimetableRuntimeContext):TimetableConditionResult {
+                    evaluations++
+                    assertEquals("central@one",context.currentWayPointId)
+                    return TimetableConditionResult.True
+                }
+            })
+            fixture.world.simpleAtoWorldData.timetableExtensions.registerAction(object:TimetableActionProvider {
+                override val typeId="test:hold"
+                override val version=1
+                override val descriptor=TimetableExtensionDescriptor("Hold","Arrival hold")
+                override fun start(parameters:JsonObject,context:TimetableRuntimeContext):TimetableExtensionActionStartResult {
+                    starts++
+                    assertEquals("central@one",context.currentWayPointId)
+                    return TimetableExtensionActionStartResult.Accepted(object:TimetableExtensionActionTicket {
+                        override fun snapshot()=TimetableExtensionActionSnapshot(outcome)
+                        override fun cancel() { cancelled=true;outcome=TimetableExtensionActionState.CANCELLED }
+                    })
+                }
+            })
+            val id=TimetableServiceRunId("tt","service")
+            fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world,"tt","service") }
+            repeat(1500) { if(gateway.requests.isEmpty())fixture.tick() }
+            assertEquals(0,starts)
+            gateway.tickets.single().succeed()
+            repeat(20) { fixture.tick() }
+            assertEquals(1,starts)
+            assertEquals(1,evaluations)
+            assertEquals(TimetableServiceRunState.WAITING_EXTENSION_ACTION,fixture.dispatcher.status(id)!!.state)
+            assertEquals(1,gateway.requests.size)
+            if(cancel) {
+                fixture.world.onOwnerForTest { fixture.dispatcher.stopService(fixture.world,id) }
+                assertTrue(cancelled)
+            } else {
+                outcome=TimetableExtensionActionState.FAILED
+                fixture.tick()
+                assertEquals(TimetableServiceRunState.FAILED,fixture.dispatcher.status(id)!!.state)
+            }
+            assertEquals(1,gateway.requests.size)
+            assertEquals(1,starts)
+        }
+    }
+
     @Test
     fun `canonical marker edits and aliases cannot bypass a held stopping area`() {
         val fixture = fixture()
@@ -1232,6 +1402,7 @@ class TimetableStationCallDispatcherTest {
         firstTargetOffsetMeters: Double = 100.0,
         nextTargetOffsetMeters: Double? = null,
         includeStationAction: Boolean = false,
+        arrivalSteps: List<TimetableStep.At> = emptyList(),
         destinationOptions: TimetableAction.DestinationOptions? = null,
         haltAfterDestination: Boolean = false,
         reverseAfterDestination: Boolean = false,
@@ -1295,7 +1466,8 @@ class TimetableStationCallDispatcherTest {
                                         TimetableAction.CallStation(
                                             stationId = "central",
                                             berthId = "one",
-                                            minimumDwellTicks = 5L
+                                            minimumDwellTicks = 5L,
+                                            arrivalSteps = arrivalSteps
                                         )
                                     )
                                 )

@@ -98,6 +98,10 @@ final class EditorDocumentValidator {
             requireText(call, "stationId", "run call");
             requireText(call, "status", "run call");
             requireText(call, "targetId", "run call");
+            if (call.has("arrivalProgram")) {
+                if (!java.util.Set.of("STOP", "TERMINAL").contains(call.path("status").asText())) fail("arrival program requires a stopping run call");
+                StationProgramValidator.validateArrival(call.path("arrivalProgram"));
+            }
         });
     }
 

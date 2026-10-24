@@ -28,6 +28,24 @@ final class StationProgramValidator {
         validateSteps(definition.path("steps"), parameters, new HashSet<>(), 0);
     }
 
+    static void validateArrival(JsonNode definition) {
+        validate(definition);
+        if (!definition.path("parameters").isEmpty()) fail("arrival program cannot declare parameters");
+        validateArrivalSteps(definition.path("steps"));
+    }
+
+    private static void validateArrivalSteps(JsonNode steps) {
+        for (JsonNode step : steps) {
+            String type = step.path("type").asText();
+            if (!Set.of("SET_DISPLAY", "RESET_DISPLAY", "WAIT_UNTIL", "WAIT_DURATION", "EXTENSION", "BRANCH").contains(type))
+                fail("action is not allowed in arrival program: " + step.path("id").asText());
+            if (type.equals("BRANCH")) {
+                validateArrivalSteps(step.path("thenSteps"));
+                validateArrivalSteps(step.path("elseSteps"));
+            }
+        }
+    }
+
     private static void validateSteps(JsonNode values, Map<String, String> parameters, Set<String> steps, int depth) {
         if (depth > 16) fail("program exceeds branch depth16");
         array(values, 256, "steps");

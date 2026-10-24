@@ -24,6 +24,12 @@ data class Timetable(
 
 Step token：`Check(wayPointId)`、`At(tick,action)`。Action包括TakeFromDepot/Waypoint、StoreAtDepot、GoTo/GoVia、Stop、Extension/Conditional、Halt、Reverse、DestinationOptions、CallStation。`At.tick`为timetable-relative action/departure tick，nonnegative且period内、非降序。
 
+## 时刻表值的所有权（CURRENT，ATO-06 用户决策）
+
+`Timetable` 是内部值模型，不是可原地编辑的对象树。producer 在 validation、交给 Store/Dispatcher 或保存 capture 前冻结完整可达对象图，包括 services/steps/GoVia.wayPointIds、condition列表、editorRows及扩展 JSON 的底层嵌套map/list；之后任何保留的 mutable alias 都不得再修改。Store返回值、运行中service、capture DTO可以共享这些已冻结值。编辑必须构造新对象，通过已有显式替换/重置流程生效；data class copy 不会自动复制未改的嵌套值。
+
+Kotlin List/Set/Map 和 JsonObject 的只读接口不自动保证底层不可变；约束由生产者及provider遵守，不增加所有构造器/getter/运行步骤的防御复制。provider只读参数，不修改其底层map。保存capture不是任意可变输入的深复制边界；入队异步编码以后源值和DTO均保持不变。本次只补合同，未声称当前平台caller已经原地修改或存档已经损坏，不新增可变编辑API和兼容路径。
+
 ## Validator gate与result
 
 `TimetableValidator.validate(timetable)`返回`TimetableValidationResult`，汇总全部errors并保留`[timetable/service] step#n`上下文；`isSuccess=errors.isEmpty()`。结果保留`routes: List<ExpandedRoute>`，并携带不可变、逐项对齐的`routeStoppingOffsetsMeters: List<Double?>`：纯途经为null，停车片段为实际生效偏移，供静态应用按真实停点计算余量。可空列表不能用禁止null的`List.copyOf`复制；机制与边界归[终点分离契约](terminal-route-completion.md)。

@@ -15,6 +15,7 @@ import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.api.model.ModelDefinition
 import work.art1st.javarailways.bukkit.api.model.ModelPart
 import work.art1st.javarailways.bukkit.extension.bukkitWorldData
+import work.art1st.javarailways.bukkit.render.model.ModelConstruction
 import work.art1st.javarailways.bukkit.render.model.AbstractModel
 import work.art1st.javarailways.bukkit.render.model.CompactTransform
 import work.art1st.javarailways.bukkit.render.model.CompositeModel
@@ -125,9 +126,9 @@ class ModelTreeBuilder internal constructor(
         carDef: CarDefinition,
         rootLocation: Location,
         ownerCar: Car? = null
-    ): CompositeModel {
-        val bodyModels = buildPartList(carDef.bodyParts, carDef.namespace, rootLocation, ownerCar)
-        return buildComposite(bodyModels, rootLocation)
+    ): CompositeModel = ModelConstruction.build { construction ->
+        val bodyModels = buildPartList(carDef.bodyParts, carDef.namespace, rootLocation, ownerCar, construction)
+        buildComposite(bodyModels, rootLocation, construction)
     }
 
     /**
@@ -138,13 +139,20 @@ class ModelTreeBuilder internal constructor(
         bogieDef: BogieDefinition,
         namespace: String,
         rootLocation: Location
-    ): CompositeModel {
-        val bogieModel = buildBogieGroup(bogieDef, namespace, rootLocation, includeLongitudinalOffset = false)
-        return buildComposite(listOf(bogieModel), rootLocation)
+    ): CompositeModel = ModelConstruction.build { construction ->
+        val bogieModel = buildBogieGroup(bogieDef, namespace, rootLocation, includeLongitudinalOffset = false, construction)
+        buildComposite(listOf(bogieModel), rootLocation, construction)
     }
 
-    private fun buildComposite(models: List<AbstractModel>, rootLocation: Location): CompositeModel =
-        CompositeModel(world, models, rootVisualFactory?.invoke(rootLocation) ?: createRootVisual(rootLocation))
+    private fun buildComposite(models: List<AbstractModel>, rootLocation: Location, construction: ModelConstruction): CompositeModel {
+        val root = rootVisualFactory?.invoke(rootLocation) ?: createRootVisual(rootLocation)
+        construction.own(root, root::destroy)
+        return CompositeModel(world, models, root).also { composite ->
+            construction.own(composite, composite::destroy)
+            models.forEach(construction::transfer)
+            construction.transfer(root)
+        }
+    }
 
     /**
      * Build a bogie group node - creates a DummyModel with bogie parts as children.
@@ -155,7 +163,8 @@ class ModelTreeBuilder internal constructor(
         bogieDef: BogieDefinition,
         namespace: String,
         rootLocation: Location,
-        includeLongitudinalOffset: Boolean
+        includeLongitudinalOffset: Boolean,
+        construction: ModelConstruction
     ): DummyModel {
         val bogieOffset = bogieDef.offset
         val modelState = ModelState(
@@ -171,14 +180,17 @@ class ModelTreeBuilder internal constructor(
 
         // Combine bogie parts and wheel parts
         val allBogiePartRefs = bogieDef.parts + bogieDef.wheelParts
-        val children = buildPartList(allBogiePartRefs, namespace, rootLocation, null)
+        val children = buildPartList(allBogiePartRefs, namespace, rootLocation, null, construction)
 
         return DummyModel(
             world = world,
             state = modelState,
             attachedModels = children,
             animation = emptyMap()
-        )
+        ).also { model ->
+            construction.own(model, model::destroy)
+            children.forEach(construction::transfer)
+        }
     }
 
     /**
@@ -188,9 +200,10 @@ class ModelTreeBuilder internal constructor(
         entries: List<PartRefEntry>,
         namespace: String,
         rootLocation: Location,
-        ownerCar: Car?
+        ownerCar: Car?,
+        construction: ModelConstruction
     ): List<AbstractModel> {
-        return entries.map { entry -> buildPart(entry, namespace, rootLocation, ownerCar) }
+        return entries.map { entry -> buildPart(entry, namespace, rootLocation, ownerCar, construction) }
     }
 
     /**
@@ -200,7 +213,8 @@ class ModelTreeBuilder internal constructor(
         entry: PartRefEntry,
         namespace: String,
         rootLocation: Location,
-        ownerCar: Car?
+        ownerCar: Car?,
+        construction: ModelConstruction
     ): AbstractModel {
         val def: PartDefinition
         val entryOffset: Vec3Config
@@ -248,7 +262,7 @@ class ModelTreeBuilder internal constructor(
             CompactTransform(position = position, rotation = rotation, scale = scaleVec)
         )
 
-        val children = buildPartList(def.parts, childNamespace, rootLocation, ownerCar)
+        val children = buildPartList(def.parts, childNamespace, rootLocation, ownerCar, construction)
         val animations = def.animations.toRuntimeAnimationMap()
         // Spawn entities at the model's root location so they start near the player,
         // not at world origin. DisplayModel.updateState will teleport them to exact positions.
@@ -260,6 +274,7 @@ class ModelTreeBuilder internal constructor(
                     ?: throw IllegalArgumentException("ITEM_DISPLAY part '${def.name}' missing item config")
                 val itemStack = buildItemStack(itemConfig)
                 val visual = createItemDisplayVisual(spawnLoc, itemStack)
+                construction.own(visual, visual::destroy)
                 DisplayModel(
                     world = world,
                     state = modelState,
@@ -267,7 +282,7 @@ class ModelTreeBuilder internal constructor(
                     animation = animations,
                     visual = visual,
                     initialItemStack = itemStack
-                )
+                ).also { construction.transfer(visual) }
             }
             PartType.INTERACT -> {
                 InteractionModel(world = world, state = modelState, attachedModels = children, animation = animations, interactionConfig = def.interaction, initialLocation = spawnLoc)
@@ -290,6 +305,9 @@ class ModelTreeBuilder internal constructor(
             PartType.DUMMY -> {
                 DummyModel(world = world, state = modelState, attachedModels = children, animation = animations)
             }
+        }.also { model ->
+            construction.own(model, model::destroy)
+            children.forEach(construction::transfer)
         }
     }
 

@@ -1,6 +1,11 @@
 package work.art1st.javarailways.simplesignals.authoring
 
 import net.kyori.adventure.text.Component
+import org.bukkit.NamespacedKey
+import org.bukkit.inventory.ItemStack
+import org.bukkit.inventory.PlayerInventory
+import org.bukkit.inventory.meta.ItemMeta
+import org.bukkit.persistence.PersistentDataContainer
 import org.bukkit.Location
 import org.bukkit.World
 import org.bukkit.entity.Player
@@ -40,6 +45,28 @@ class SectionWandOverlayTest {
         assertEquals(1, f.prepares)
         assertFalse(f.handles.single().closed)
         f.signalTool = false
+        f.overlay.check(f.player); f.drainOwner()
+        assertTrue(f.handles.single().closed)
+        assertEquals(1, f.cancelled)
+    }
+
+    @Test fun `route wand marker starts section overlay and switching tools keeps its labels until leaving`() {
+        val f = Fixture()
+        f.tool = null
+        f.routeTool = true
+        f.start()
+        assertEquals(listOf("near"), f.handles.single().labels.map { it.id() })
+        assertEquals(1, f.prepares)
+        f.routeTool = false
+        f.tool = SectionWandTool.CREATE
+        f.overlay.check(f.player); f.drainOwner(); f.drainWorker(); f.drainOwner()
+        assertEquals(1, f.handles.size)
+        assertEquals(1, f.prepares)
+        f.tool = null
+        f.routeTool = true
+        f.overlay.check(f.player); f.drainOwner(); f.drainWorker(); f.drainOwner()
+        assertFalse(f.handles.single().closed)
+        f.routeTool = false
         f.overlay.check(f.player); f.drainOwner()
         assertTrue(f.handles.single().closed)
         assertEquals(1, f.cancelled)
@@ -203,6 +230,7 @@ class SectionWandOverlayTest {
         val handles = arrayListOf<Handle>()
         val viewers = arrayListOf<Player>()
         var signalTool = false
+        var routeTool = false
         var ownerValidationFailure: Exception? = null
         val records = mutableListOf<java.util.logging.LogRecord>()
         private val logger = java.util.logging.Logger.getAnonymousLogger().apply {
@@ -215,8 +243,29 @@ class SectionWandOverlayTest {
         }
         val offline = arrayListOf<Player>()
         val player = player(UUID(0, 2))
-        private val plugin = proxy(Plugin::class.java) { name, _ ->
-            if (name == "getLogger") logger else error("Unexpected plugin access $name")
+        private val plugin = proxy(Plugin::class.java) { name, _ -> when (name) {
+            "getLogger" -> logger
+            "namespace" -> "simplesignals"
+            else -> error("Unexpected plugin access $name")
+        } }
+        private val data = proxy(PersistentDataContainer::class.java) { name, args ->
+            check(ownerThread)
+            check(name == "get")
+            when ((args!![0] as NamespacedKey).key) {
+                "section_wand" -> tool?.let { SectionWandStateCodec.encode(SectionWandState(UUID(0, 3), 0, it, true)) }
+                "signal_wand" -> if (signalTool) 1.toByte() else null
+                "signal_wand_state" -> if (signalTool) SignalWandHandler.encodeState(SignalWandState(
+                    UUID(0, 4), 0, SignalWandMode.PLACEMENT, SignalWandControlKind.FIXED_BLOCK, "test:type", null)) else null
+                "route_preview_wand" -> if (routeTool) 1.toByte() else null
+                else -> error("Unexpected item key ${args[0]}")
+            }
+        }
+        private val meta = proxy(ItemMeta::class.java) { name, _ ->
+            if (name == "getPersistentDataContainer") data else error(name)
+        }
+        private val item = object : ItemStack() { override fun getItemMeta(): ItemMeta = meta }
+        private val inventory = proxy(PlayerInventory::class.java) { name, _ ->
+            if (name == "getItemInMainHand") item else error(name)
         }
         fun newWorld() = proxy(World::class.java) { name, _ ->
             check(ownerThread) { "World accessed by worker" }
@@ -232,6 +281,7 @@ class SectionWandOverlayTest {
                     "isOnline" -> online && viewer !in offline
                     "hasPermission" -> permitted
                     "getWorld" -> world
+                    "getInventory" -> inventory
                     "getLocation" -> Location(world, x, 0.0, 0.0)
                     else -> error(name)
                 }
@@ -262,7 +312,7 @@ class SectionWandOverlayTest {
             override fun closeOwner(owner: Plugin) = CompletableFuture.completedFuture<Void>(null)
         }
         val overlay = SectionWandOverlay(plugin, backend, texts,
-            toolInHand = { check(ownerThread); tool != null || signalTool }, enabled = { check(ownerThread); enabled },
+            enabled = { check(ownerThread); enabled },
             worker = { workers += it }, owner = { _, action, onRetired -> owners += action; ownerRetirements += onRetired },
             repeat = { _, action, onRetired ->
                 check(ownerThread); refreshes += action; retired += onRetired

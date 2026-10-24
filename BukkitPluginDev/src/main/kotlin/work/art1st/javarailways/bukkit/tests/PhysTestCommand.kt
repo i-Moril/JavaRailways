@@ -313,7 +313,7 @@ class PhysTestCommand(
                 check(world.topologyState === topology) { "Rail topology changed before playground cleanup" }
                 world.railTopologyTransaction {
                     liveRails.forEach { rail ->
-                        RailVisualBootstrap.unregisterRail(rail.id)
+                        RailVisualBootstrap.unregisterRail(rail.world, rail.id)
                         cleanup.await { world.removeRail(rail) }
                         RailRenderMetaStore.removeRail(sender.world, rail.id)
                     }

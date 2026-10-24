@@ -43,7 +43,7 @@ class BlockWandItem(private val plugin: JavaPlugin) {
         val encoded = item.itemMeta.persistentDataContainer.get(stateKey, PersistentDataType.STRING)
             ?: return BlockWandState.createDefault()
         return runCatching { BlockWandStateCodec.decode(encoded) }
-            .onFailure { plugin.logger.warning("Invalid BlockWand state: ${it.message}") }
+            .onFailure { plugin.logger.log(java.util.logging.Level.WARNING, "Invalid BlockWand state", it) }
             .getOrNull()
     }
 

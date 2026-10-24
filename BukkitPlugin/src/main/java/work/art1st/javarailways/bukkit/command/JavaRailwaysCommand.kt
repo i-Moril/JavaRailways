@@ -1005,13 +1005,14 @@ class JavaRailwaysCommand {
                                 timetable.initialPositions.any { it.trainSelector.matches(train.name) }
                             }
                             .forEach { selectedTrainIds += it.id }
+                        val discardedRuns = dispatcher.forceDiscardTimetable(world, timetableId)
                         selectedTrainIds.forEach { trainId ->
                             world.getTrain(trainId)?.let { train ->
                                 BukkitPlugin.INSTANCE.trainControlManager.releaseTrain(train)
                                 (train as? CoreTrain)?.setController(null)
                             }
                         }
-                        dispatcher.forceDiscardTimetable(world, timetableId).also {
+                        discardedRuns.also {
                             if (coordinator.isStalled) coordinator.reset()
                         }
                     } else if (coordinator.isStalled) {
@@ -1412,11 +1413,14 @@ class JavaRailwaysCommand {
     ) {
         val plugin = BukkitPlugin.INSTANCE
         stage.whenComplete { result, failure ->
+            if (failure != null) {
+                plugin.logger.log(java.util.logging.Level.WARNING,
+                    "Player operation failed player=${player.uniqueId}", failure)
+            }
             plugin.platformDispatcher.runForEntity(
                 player,
                 action = {
                     if (failure != null) {
-                        plugin.logger.warning("Player operation failed: ${failure.message}")
                         player.sendActionBar(Component.text("撤销或重做执行失败", NamedTextColor.RED))
                     } else {
                         player.sendActionBar(result.message())

@@ -150,6 +150,23 @@ class TrainRestrictionConstraintAdapterTest {
     }
 
     @Test
+    fun `withdrawn empty stream stays clear across routes but unavailable source still holds`() {
+        adapter.publish(snapshot("signal:first", 1L, listOf(CurrentSpeedRestriction("signal:limit", 5.0))))
+        adapter.apply(stamp, routeBinding, 0.0)
+        assertEquals(5.0, permittedSpeed())
+        adapter.publish(snapshot("signal:first", 2L, emptyList()))
+        val nextRoute = routeBinding.copy(routeRevision = routeBinding.routeRevision + 1L)
+        val cleared = adapter.apply(stamp.copy(physicsEpoch = 11L), nextRoute, 0.0)
+        assertEquals(TrainRestrictionEnforcementStatus.APPLIED, cleared.single().status)
+        assertEquals(30.0, permittedSpeed())
+        assertFalse(adapter.publish(snapshot("signal:first", 1L, listOf(CurrentSpeedRestriction("signal:limit", 1.0)))).accepted)
+        adapter.markSourceUnavailable("signal:first")
+        val unavailable = adapter.apply(stamp.copy(physicsEpoch = 12L), nextRoute, 0.0)
+        assertEquals(TrainRestrictionEnforcementStatus.FAILED_CLOSED, unavailable.single().status)
+        assertTrue(manager.snapshot().values.flatten().single() is DepartureHoldConstraint)
+    }
+
+    @Test
     fun `route mismatch and forced source loss fail closed instead of removing the source`() {
         adapter.publish(snapshot(
             "signal:first", 1L, listOf(CurrentSpeedRestriction("signal:limit", 8.0))

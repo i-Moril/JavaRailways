@@ -1427,6 +1427,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                         SimpleSignalsWorldInstallDefinitionSource.BACKUP
                 },
                 load.ignoredFailures.map { failure ->
+                    reportModelFailure("SimpleSignals invalid definitions candidate world=$worldId file=${failure.file}", failure.error)
                     "Ignored invalid definitions candidate ${failure.file}: " +
                         describe(failure.error)
                 }
@@ -1436,6 +1437,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                     worldId,
                     "all SimpleSignals definition files are invalid",
                     load.failures.map { failure ->
+                        reportModelFailure("SimpleSignals invalid definitions world=$worldId file=${failure.file}", failure.error)
                         "Failed to read ${failure.file}: ${describe(failure.error)}"
                     }
                 )
@@ -1445,6 +1447,7 @@ internal class SimpleSignalsWorldRuntimeManager(
         val initial = try {
             runtime.initializeDefinitions(topology, loaded.definitions)
         } catch (failure: Exception) {
+            if (!closed && !runtime.closed) reportModelFailure("SimpleSignals definitions could not be compiled world=$worldId", failure)
             return@installation unavailable(
                 worldId,
                 "SimpleSignals definitions could not be compiled: ${describe(failure)}"
@@ -1460,6 +1463,7 @@ internal class SimpleSignalsWorldRuntimeManager(
             prepareSectionOccupancy(runtime, runtime.authoringPublication(), SignalPackFallback.ANY_FAILURE,
                 if (deferSignalPreparation) null else signalPacks)
         } catch (failure: Exception) {
+            if (!closed && !runtime.closed) reportModelFailure("SimpleSignals signal runtime could not be prepared world=$worldId", failure)
             return@installation unavailable(
                 worldId,
                 "SimpleSignals signal runtime could not be prepared: ${describe(failure)}"
@@ -1485,6 +1489,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                 check(infrastructure.currentTopology(worldId) === topology) { "topology changed during world installation" }
             }
         } catch (failure: Exception) {
+            if (!closed && !runtime.closed) reportModelFailure("SimpleSignals section occupancy could not be registered world=$worldId", failure)
             return@installation unavailable(
                 worldId,
                 "SimpleSignals section occupancy could not be registered: ${describe(failure)}"
@@ -1498,6 +1503,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                 listOf(runtime.routePlanningBinding)
             )
         } catch (failure: Exception) {
+            if (!closed && !runtime.closed) reportModelFailure("SimpleSignals route source could not be registered world=$worldId", failure)
             return@installation unavailable(
                 worldId,
                 "SimpleSignals route source could not be registered: ${describe(failure)}"
@@ -1514,6 +1520,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                 )
             )
         } catch (failure: Exception) {
+            if (!closed && !runtime.closed) reportModelFailure("SimpleSignals inspection sources could not be registered world=$worldId", failure)
             return@installation unavailable(
                 worldId,
                 "SimpleSignals inspection sources could not be registered: ${describe(failure)}"
@@ -1633,9 +1640,17 @@ internal class SimpleSignalsWorldRuntimeManager(
 
     fun remove(worldId: UUID) {
         val removed = synchronized(lock) {
-            runtimes[worldId]?.also { it.markClosed() }
-                .also { publishRuntimeReadView() }
-        } ?: return
+            val current = runtimes[worldId]
+            if (current == null) {
+                // Failed installation can leave a current content fault after its runtime retires.
+                // Clear it on world removal while excluding a replacement install reservation.
+                clearIssues(worldId)
+                return
+            }
+            current.markClosed()
+            publishRuntimeReadView()
+            current
+        }
         var retirementFailure: Throwable? = null
         // Finish an old install and retire diagnostics before making its UUID available to a new load.
         synchronized(removed.managementLock) {

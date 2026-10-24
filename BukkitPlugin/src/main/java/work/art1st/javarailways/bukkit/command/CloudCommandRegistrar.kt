@@ -58,6 +58,9 @@ class CloudCommandRegistrar(plugin: BukkitPlugin) {
         private fun tokenizeForExecution(input: String): List<String> =
             if (input.isBlank()) emptyList() else input.split(' ')
 
+        internal fun routeAcceptsArguments(path: String): Boolean =
+            ROUTES.single { it.path.joinToString(" ") == path }.acceptsArguments
+
         private val ROUTES = buildList {
             fun parent(vararg path: String) = add(Route(path.toList()))
             fun args(vararg path: String) = add(Route(path.toList(), acceptsArguments = true))
@@ -84,7 +87,7 @@ class CloudCommandRegistrar(plugin: BukkitPlugin) {
                 parent(name, "list")
             }
             parent("ato"); args("ato", "status"); args("ato", "dump"); args("ato", "reset")
-            args("perf"); args("performance")
+            args("perf"); args("performance"); args("issues")
             parent("resources"); parent("resources", "reload")
             parent("resource"); parent("resource", "reload")
             parent("undo"); parent("redo"); parent("help")

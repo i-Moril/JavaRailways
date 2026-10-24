@@ -27,7 +27,8 @@ internal class SectionWandOverlay(
     private val texts: EditorTextService,
     private val toolInHand: (Player) -> Boolean = {
         SectionWandHandler.readTool(plugin, it.inventory.itemInMainHand) != null ||
-            SignalWandHandler.readTool(plugin, it.inventory.itemInMainHand) != null
+            SignalWandHandler.readTool(plugin, it.inventory.itemInMainHand) != null ||
+            RoutePreviewWandHandler.readTool(plugin, it.inventory.itemInMainHand)
     },
     private val showStatus: (Player) -> Unit = {},
     private val enabled: () -> Boolean = { plugin.isEnabled },

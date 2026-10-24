@@ -1,7 +1,7 @@
 package work.art1st.javarailways.simplesignals
 
 import org.bukkit.plugin.java.JavaPlugin
-import work.art1st.javarailways.bukkit.api.diagnostics.PluginErrorLog
+import work.art1st.javarailways.diagnostics.PluginErrorLog
 import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_RESOURCE_TYPE
 import work.art1st.javarailways.simplesignals.block.FixedBlockRouteResourcePolicy
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionStore
@@ -40,10 +40,20 @@ class SimpleSignalsPlugin : JavaPlugin() {
     fun modelCleanupCompletion(): CompletionStage<Void> = modelCleanup
 
     override fun onLoad() {
-        errorLog = PluginErrorLog(dataFolder.toPath().resolve("logs/errors.log"), logger, "SimpleSignals")
+        errorLog = PluginErrorLog(dataFolder.toPath().resolve("logs/errors.log"), logger, "SimpleSignals",
+            mapOf(java.util.logging.Logger.getLogger("work.art1st.javarailways.simplesignals") to "SimpleSignals"))
     }
 
     override fun onEnable() {
+        try {
+            enablePlugin()
+        } catch (failure: Throwable) {
+            errorLog?.reportFailure("SimpleSignals enable failed", failure)
+            throw failure
+        }
+    }
+
+    private fun enablePlugin() {
         val errors = checkNotNull(errorLog)
         saveDefaultConfig()
         val settings = SimpleSignalsConfig.from(config.get("protection-region-max-distance-meters"))
@@ -108,7 +118,7 @@ class SimpleSignalsPlugin : JavaPlugin() {
         val routeAuthoring = CurrentRouteRecording(runtimes, services.infrastructure(), previewBackend)
         val previews = RoutePreviewWandHandler(this, previewBackend, services.railTargets(),
             record = routeAuthoring::record, deletionChoices = routeAuthoring::deletionChoices,
-            deleteRoute = routeAuthoring::delete)
+            deleteRoute = routeAuthoring::delete, checkOverlay = overlay::check)
         routePreviewWand = previews
         server.pluginManager.registerEvents(previews, this)
         val signals = SignalWandHandler(this, RuntimeSignalWandBackend(runtimes, services.infrastructure(), targets = services.railTargets()),

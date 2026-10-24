@@ -1,9 +1,11 @@
 import { authoringDocumentForSave,type TimetableAuthoringDocumentV1 } from './authoring';
 import { demoApi, frontendDemoEnabled } from './frontendDev';
-import type { StationProgramDefinition, StationProgramRecord, CompiledTimetableSource, DraftSummary, EditorDocumentSummary, LineCollection, LineSimulationResult, LineV1, RailMapFile, RenderedTimetableScript, SavedLineResult, SavedTimetableV1, SimulationProfile, TimetableScriptSummary, TimetableSimulationProfileAssignment, TimetableSimulationResult, ValidationResult, WebSessionStatus, WorldMetadata, WorldSummary, WorldIssue } from './types';
+import type { StationProgramDefinition, StationProgramRecord, CompiledTimetableSource, DraftSummary, EditorDocumentSummary, LineCollection, LineSimulationResult, LineV1, RailMapFile, RenderedTimetableScript, SavedLineResult, SavedTimetableV1, SimulationProfile, TimetableScriptSummary, TimetableSimulationProfileAssignment, TimetableSimulationResult, ValidationResult, WebSessionStatus, WorldMetadata, WorldSummary, WorldIssue, ServerLogSources, ServerLogPage, ServerLogQuery } from './types';
 async function request<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { headers: { 'Content-Type': 'application/json', ...init?.headers }, ...init }); if (!response.ok) { if(response.status===401&&typeof window!=='undefined')window.dispatchEvent(new Event('javarailways:unauthorized')); throw new Error((await response.text()) || `${response.status} ${response.statusText}`); } return response.status === 204 ? undefined as T : response.json(); }
 const base = (worldId: string) => `/api/v1/worlds/${encodeURIComponent(worldId)}`;
 const liveApi = {
+ logSources:()=>request<ServerLogSources>('/api/v1/logs/sources'),
+ logs:({source,query,cursor}:ServerLogQuery)=>{const params=new URLSearchParams({source});if(query)params.set('query',query);if(cursor)params.set('cursor',cursor);return request<ServerLogPage>(`/api/v1/logs?${params}`);},
  session:()=>request<WebSessionStatus>('/auth/session'),
  worlds: () => request<WorldSummary[]>('/api/v1/worlds'), metadata: (worldId: string) => request<WorldMetadata>(`${base(worldId)}/metadata`),
  railMap: (worldId:string) => request<RailMapFile>(`${base(worldId)}/rail-map`),
@@ -37,4 +39,4 @@ const liveApi = {
  validate: (worldId: string, value: SavedTimetableV1) => request<ValidationResult>(`${base(worldId)}/validate`, { method:'POST', body:JSON.stringify(value) }),
  publish: (worldId: string, value: SavedTimetableV1) => request<void>(`${base(worldId)}/publish`, { method:'POST', body:JSON.stringify(value) })
 };
-export const api:typeof liveApi=frontendDemoEnabled?demoApi:liveApi;
+export const api:typeof liveApi=frontendDemoEnabled?{...demoApi,logSources:liveApi.logSources,logs:liveApi.logs}:liveApi;

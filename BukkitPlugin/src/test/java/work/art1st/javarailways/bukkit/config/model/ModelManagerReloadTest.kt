@@ -3,6 +3,7 @@ package work.art1st.javarailways.bukkit.config.model
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.io.TempDir
@@ -193,6 +194,63 @@ class ModelManagerReloadTest {
         assertEquals(10.0, retained.models.getValue(retained.composition.single()).car.length)
         assertEquals(40000.0, retained.carPackages.getValue("second/head").carControls.getValue("second/head").mass)
         assertEquals(15.0, manager.resourceVersion("second").models.getValue("second/head").car.length)
+    }
+
+    @Test
+    fun `cyclic model reload is rejected before publishing and preserves last good version`() {
+        val directory = writePackage("first")
+        val manager = ModelManager(dataFolder)
+        manager.loadAll()
+        val oldPackage = manager.trainPackages.getValue("first")
+        val oldVersion = manager.resourceVersion("first")
+        directory.resolve("parts/fleet").mkdirs()
+        directory.resolve("parts/fleet/a.yml").writeText(
+            "config-version: 1\nname: a\ntype: dummy\nparts: [{import: b}]\n")
+        directory.resolve("parts/fleet/b.yml").writeText(
+            "config-version: 1\nname: b\ntype: dummy\nparts: [{import: a}]\n")
+        directory.resolve("cars/fleet/head.yml").apply {
+            writeText(readText().replace("body-parts: []", "body-parts: [{import: a}]"))
+        }
+        val prepared = manager.prepareReload()
+        assertTrue(prepared.failures.getValue("first").message.orEmpty().contains("fleet/a -> fleet/b -> fleet/a"))
+        assertTrue("first" !in prepared.versions)
+        assertSame(oldPackage, manager.trainPackages["first"])
+        manager.publishReload(prepared)
+        assertSame(oldPackage, manager.trainPackages["first"])
+        assertSame(oldVersion, manager.resourceVersion("first"))
+        assertThrows<IllegalArgumentException> { ModelManager(dataFolder).loadAll() }
+    }
+
+    @Test
+    fun `inline name reuse cannot hide a model reference cycle during reload`() {
+        val directory = writePackage("first")
+        val manager = ModelManager(dataFolder)
+        manager.loadAll()
+        val oldVersion = manager.resourceVersion("first")
+        directory.resolve("parts/fleet").mkdirs()
+        directory.resolve("parts/fleet/b.yml").writeText(
+            "config-version: 1\nname: b\ntype: dummy\n")
+        directory.resolve("parts/fleet/a.yml").writeText("""
+            config-version: 1
+            name: a
+            type: dummy
+            parts:
+              - config-version: 1
+                name: b
+                type: dummy
+                parts: [{import: a}]
+        """.trimIndent())
+        directory.resolve("cars/fleet/head.yml").apply {
+            writeText(readText().replace("body-parts: []", "body-parts: [{import: b}, {import: a}]"))
+        }
+
+        val prepared = manager.prepareReload()
+        assertTrue(prepared.failures.getValue("first").message.orEmpty()
+            .contains("fleet/a -> fleet/b -> fleet/a"))
+        assertTrue("first" !in prepared.versions)
+        manager.publishReload(prepared)
+        assertSame(oldVersion, manager.resourceVersion("first"))
+        assertThrows<IllegalArgumentException> { ModelManager(dataFolder).loadAll() }
     }
 
     private fun writePackage(name: String, speed: Double = 20.0, directory: String = name,

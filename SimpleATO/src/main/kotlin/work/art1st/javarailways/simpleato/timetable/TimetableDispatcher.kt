@@ -1948,6 +1948,12 @@ class TimetableDispatcher(
             "cannot discard a timetable while structural output protections remain active"
         }
         val selected = runs.values.filter { it.id.timetableId == timetableId }
+        // Validate the whole selection before discarding any run or its controller.
+        selected.forEach { run ->
+            check(run.admissionClient == null || run.admissionEnded) {
+                "cannot discard ${run.id} while Basic route resources remain active"
+            }
+        }
         selected.forEach { run -> discardRun(world, run) }
         val recovered = recoveryRequiredRuns.count { it.timetableId == timetableId }
         recoveryRequiredRuns.removeIf { it.timetableId == timetableId }
@@ -2177,6 +2183,7 @@ class TimetableDispatcher(
         val result = try {
             operationGateway.execute(request)
         } catch (failure: Exception) {
+            LOGGER.log(java.util.logging.Level.WARNING, "beginStationOperation failed run=${run.instanceId} train=${run.train.id}", failure)
             enterManualIntervention(
                 run,
                 stationCall,
@@ -2201,6 +2208,7 @@ class TimetableDispatcher(
                 val initialSnapshot = try {
                     result.ticket.snapshot()
                 } catch (failure: Exception) {
+                    LOGGER.log(java.util.logging.Level.WARNING, "beginStationOperation failed run=${run.instanceId} train=${run.train.id}", failure)
                     enterManualIntervention(
                         run,
                         stationCall,
@@ -2253,6 +2261,7 @@ class TimetableDispatcher(
         val snapshot = try {
             ticket.snapshot()
         } catch (failure: Exception) {
+            LOGGER.log(java.util.logging.Level.WARNING, "processStationOperation failed run=${run.instanceId} train=${run.train.id}", failure)
             enterManualIntervention(
                 run,
                 stationCall,
@@ -2454,6 +2463,7 @@ class TimetableDispatcher(
         val result = try {
             operationGateway.execute(request)
         } catch (failure: Exception) {
+            LOGGER.log(java.util.logging.Level.WARNING, "beginDestinationOperation failed run=${run.instanceId} train=${run.train.id}", failure)
             stallRun(
                 world,
                 run,
@@ -2484,6 +2494,7 @@ class TimetableDispatcher(
                 val snapshot = try {
                     result.ticket.snapshot()
                 } catch (failure: Exception) {
+                    LOGGER.log(java.util.logging.Level.WARNING, "beginDestinationOperation failed run=${run.instanceId} train=${run.train.id}", failure)
                     result.ticket.cancel()
                     stallRun(
                         world,
@@ -2526,6 +2537,7 @@ class TimetableDispatcher(
         val snapshot = try {
             ticket.snapshot()
         } catch (failure: Exception) {
+            LOGGER.log(java.util.logging.Level.WARNING, "processDestinationOperation failed run=${run.instanceId} train=${run.train.id}", failure)
             stallRun(
                 world,
                 run,
@@ -2803,6 +2815,7 @@ class TimetableDispatcher(
         val result = try {
             operationGateway.execute(request)
         } catch (failure: Exception) {
+            LOGGER.log(java.util.logging.Level.WARNING, "beginHalt failed run=${run.instanceId} train=${run.train.id}", failure)
             stallRun(
                 world,
                 run,
@@ -2828,6 +2841,7 @@ class TimetableDispatcher(
                 val snapshot = try {
                     result.ticket.snapshot()
                 } catch (failure: Exception) {
+                    LOGGER.log(java.util.logging.Level.WARNING, "beginHalt failed run=${run.instanceId} train=${run.train.id}", failure)
                     result.ticket.cancel()
                     stallRun(
                         world,
@@ -2862,6 +2876,7 @@ class TimetableDispatcher(
         val snapshot = try {
             halt.ticket.snapshot()
         } catch (failure: Exception) {
+            LOGGER.log(java.util.logging.Level.WARNING, "processHaltOperation failed run=${run.instanceId} train=${run.train.id}", failure)
             stallRun(
                 world,
                 run,
@@ -4409,15 +4424,28 @@ class TimetableDispatcher(
 
     private fun cancelExtensionAction(run: ActiveRun): String? {
         val active = run.extensionAction ?: return null
+        val before = try {
+            active.ticket.snapshot()
+        } catch (failure: Exception) {
+            LOGGER.log(java.util.logging.Level.WARNING, "cancelExtensionAction snapshot failed run=${run.instanceId} train=${run.train.id}", failure)
+            return "extension action ${active.typeId} snapshot failed before cancellation: " +
+                (failure.message ?: failure::class.java.simpleName)
+        }
+        if (before.state != TimetableExtensionActionState.PENDING) {
+            run.extensionAction = null
+            return null
+        }
         try {
             active.ticket.cancel()
         } catch (failure: Exception) {
+            LOGGER.log(java.util.logging.Level.WARNING, "cancelExtensionAction failed run=${run.instanceId} train=${run.train.id}", failure)
             return "extension action ${active.typeId} cancellation failed: " +
                 (failure.message ?: failure::class.java.simpleName)
         }
         val snapshot = try {
             active.ticket.snapshot()
         } catch (failure: Exception) {
+            LOGGER.log(java.util.logging.Level.WARNING, "cancelExtensionAction failed run=${run.instanceId} train=${run.train.id}", failure)
             return "extension action ${active.typeId} cancellation could not be confirmed: " +
                 (failure.message ?: failure::class.java.simpleName)
         }
@@ -4438,6 +4466,7 @@ class TimetableDispatcher(
         val before = try {
             ticket.snapshot()
         } catch (failure: Exception) {
+            LOGGER.log(java.util.logging.Level.WARNING, "cancelPendingOperation failed run=${run.instanceId} train=${run.train.id}", failure)
             return "operation ticket snapshot failed before cancellation: " +
                 (failure.message ?: failure::class.java.simpleName)
         }
@@ -4475,12 +4504,14 @@ class TimetableDispatcher(
         try {
             ticket.cancel()
         } catch (failure: Exception) {
+            LOGGER.log(java.util.logging.Level.WARNING, "cancelTicketAndConfirm failed ticket=$ticketId request=$requestId", failure)
             return "operation $ticketId cancellation failed: " +
                 (failure.message ?: failure::class.java.simpleName)
         }
         val after = try {
             ticket.snapshot()
         } catch (failure: Exception) {
+            LOGGER.log(java.util.logging.Level.WARNING, "cancelTicketAndConfirm failed ticket=$ticketId request=$requestId", failure)
             return "operation $ticketId cancellation could not be confirmed: " +
                 (failure.message ?: failure::class.java.simpleName)
         }

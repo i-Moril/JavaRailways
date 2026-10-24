@@ -38,3 +38,11 @@
 ## 测试方式
 
 Vitest environment 是 `node`。优先测试 pure transformation；无浏览器 DOM 依赖的 component 使用 `renderToStaticMarkup` 验证公开文案/控件 contract。涉及 fetch/localStorage 时使用最小 mock，并断言 method/path/body/错误，而不是 snapshot 整页 HTML。
+
+## 日志与当前内容状态
+
+`LogsPage`是独立的已认证服务器级页面，使用api.logSources/api.logs读取真实磁盘查询；前端demo明确说明此能力不可用，不伪造成功日志。App先发布已验证session，再查询worlds；worlds失败不得撤销有效session或隐藏日志入口。世界下拉在日志页禁用，避免暗示日志限定于选中世界。
+
+页面展示来源、关键词查询、刷新、前后游标分页及原始记录详情。`warning`表示来源列表不完整而不是没有错误；`reset`提示刷新；`partial`提示当前片段不完整。关键词只扫描单次有界窗口，空页有nextCursor时仍可继续向前查找。来源切换/查询/刷新立即隐藏旧结果，迟到响应不得覆盖新请求。日志内容按纯文本渲染，禁止HTML插入。堆栈分组由reader负责，UI不自行拆解或恢复世界状态。
+
+`IssuesPage`继续展示当前内容的配置/可用性故障，恢复后移除；不保存计算异常历史，不承担日志搜索。此轮不改现有操作错误提示文案。

@@ -11,7 +11,11 @@ data class WorldIssueInput(val kind: WorldIssueKind, val objectId: String, val c
 data class WorldIssue(val source: String, val kind: WorldIssueKind, val objectId: String, val code: String,
     val message: String, val details: String?, val firstSeen: Instant, val lastSeen: Instant)
 
-/** Thread-safe current diagnostics only. Producers own recovery; this service never changes railway state.
+/** Thread-safe current content faults only (invalid or unavailable trains, signals, tracks, etc.).
+ * Execution exceptions belong in the disk error log, not here. An exception may also make an object
+ * unavailable; report that current object state and resolve it when the object recovers.
+ * Rejected edits/reloads that retain healthy content must not create issues.
+ * Producers own recovery and removal; this service never changes railway state.
  * World owners clear entries on unload, add-ons clear their source on disable. No history is persisted.
  */
 class WorldIssueService {

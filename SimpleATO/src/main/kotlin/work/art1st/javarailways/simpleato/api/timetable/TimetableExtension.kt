@@ -5,7 +5,12 @@ import work.art1st.javarailways.core.api.util.annotation.MainThread
 import java.util.concurrent.ConcurrentHashMap
 import work.art1st.javarailways.core.api.physics.World
 
-/** Serializable reference to a condition or action implementation registered by a plugin. */
+/**
+ * Serializable reference to a condition or action implementation registered by a plugin.
+ * Parameters and all nested JSON backing collections are immutable once used in a validated,
+ * installed or captured timetable. Providers must treat them as read-only; editing creates a new
+ * call rather than mutating maps retained by an existing call.
+ */
 data class TimetableExtensionCall(
     val typeId: String,
     val version: Int = 1,

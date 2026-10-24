@@ -188,6 +188,14 @@
 .graph-node-toolbar label { display:grid; gap:6px; color:var(--ant-color-text-secondary); }
 .graph-node-toolbar .ant-input-number { width:100%; }
 
+.server-logs-page { min-width: 0; }
+.server-logs-filters > .ant-select { min-width: 220px; }
+.server-logs-filters > .ant-input-search { flex: 1; min-width: 220px; max-width: 720px; }
+.server-log-record { padding: 12px; border: 1px solid var(--ant-color-border-secondary); border-radius: 7px; min-width: 0; }
+.server-log-record summary { cursor: pointer; padding-top: 8px; }
+.server-log-record summary code { display: block; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.server-log-record pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 65vh; overflow: auto; padding: 12px; background: var(--ant-color-fill-quaternary); }
+.server-log-record .ant-alert { margin-top: 8px; }
 .issues-module .page-heading { flex-wrap:wrap; padding-bottom:12px; }
 .issues-panel { margin-top:12px; }
 .issues-loading { padding:12px 16px; border-bottom:1px solid var(--ant-color-border-secondary); color:var(--ant-color-text-secondary); }

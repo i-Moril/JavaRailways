@@ -93,6 +93,18 @@ export interface CompiledTimetableSource { timetable:SavedTimetableV1; validatio
 export type WorldIssueKind = 'WORLD' | 'TRAIN' | 'PROTECTION_REGION' | 'BLOCK' | 'SIGNAL';
 export interface WorldIssue { source:string;kind:WorldIssueKind;objectId:string;code:string;message:string;details:string|null;firstSeen:string;lastSeen:string }
 
+export interface ServerLogSource { id:string; label:string; available:boolean }
+export interface ServerLogSources { sources:ServerLogSource[]; warning?:string }
+export interface ServerLogEntry { text:string; module:string|null; level:string|null; time:string|null; partial:boolean }
+export interface ServerLogPage {
+  source:string;
+  entries:ServerLogEntry[];
+  nextCursor:string|null;
+  reset:boolean;
+  scannedBytes:number;
+  retention:string;
+}
+export interface ServerLogQuery { source:string; query?:string; cursor?:string }
 // Shared library records are authoring inputs; runtime uses bound embedded definitions.
 export type StationProgramParameterType='TICK'|'DURATION'|'DESTINATION'|'STATION'|'DEPOT'|'FORMATION_EVENT'|'STRING'|'ID_LIST'|'JSON_OBJECT'|'UNIT_SLOTS';
 export type ProgramJsonValue=null|boolean|number|string|ProgramJsonValue[]|ProgramJsonObject;

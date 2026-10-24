@@ -162,6 +162,8 @@ channel:
 packages:
   javarailways:
     path: .
+  diagnostics:
+    path: Diagnostics
   config-lib:
     path: ConfigLib
   annotation:

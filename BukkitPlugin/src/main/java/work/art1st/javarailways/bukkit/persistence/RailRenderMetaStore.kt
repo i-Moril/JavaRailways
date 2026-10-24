@@ -78,6 +78,8 @@ data class PersistedRailRenderMeta(
 
 object RailRenderMetaStore {
     private const val CURRENT_VERSION = 2
+    private val logger get() = BukkitPlugin.instanceOrNull()?.logger
+        ?: java.util.logging.Logger.getLogger(RailRenderMetaStore::class.java.name)
 
     internal data class FileIdentity(
         val exists: Boolean,
@@ -154,18 +156,28 @@ object RailRenderMetaStore {
     private fun updateAll(
         world: World,
         transform: (List<PersistedRailRenderMeta>) -> List<PersistedRailRenderMeta>
+    ) = updateAll(world.uid, world.name, BukkitPlugin.INSTANCE.dataFolder, transform)
+
+    internal fun updateAll(
+        worldId: UUID,
+        worldName: String,
+        dataFolder: File,
+        transform: (List<PersistedRailRenderMeta>) -> List<PersistedRailRenderMeta>
     ) {
-        val writer = writers.computeIfAbsent(world.uid) { Semaphore(1) }
-        check(writer.tryAcquire()) { "Rail render metadata already has a prepared write for world ${world.uid}" }
+        val writer = writers.computeIfAbsent(worldId) { Semaphore(1) }
+        check(writer.tryAcquire()) { "Rail render metadata already has a prepared write for world $worldId" }
         var temp: File? = null
         try {
-            val target = file(world)
+            val target = file(worldId, dataFolder)
             val prepared = synchronized(this) {
-                if (!ensureWritable(world.uid, world.name, target)) null else {
-                    val current = load(world.uid, world.name, target)
+                check(ensureWritable(worldId, worldName, target)) {
+                    "Refusing to overwrite corrupted rail render metadata: ${target.path}"
+                }
+                run {
+                    val current = load(worldId, worldName, target)
                     target.identity() to transform(current).toList()
                 }
-            } ?: return
+            }
             val (expectedIdentity, nextRecords) = prepared
             val tempFile = File(target.parentFile, "${target.name}.tmp")
             temp = tempFile
@@ -175,7 +187,7 @@ object RailRenderMetaStore {
                     "Rail render metadata changed while the replacement was encoded: ${target.path}"
                 }
                 atomicReplace(tempFile, target)
-                cache[world.uid] = CacheEntry(target.lastModified(), target.length(), nextRecords)
+                cache[worldId] = CacheEntry(target.lastModified(), target.length(), nextRecords)
             }
         } finally {
             temp?.delete()
@@ -456,7 +468,7 @@ object RailRenderMetaStore {
         }
 
         if (entry?.corrupted == true) {
-            BukkitPlugin.INSTANCE.logger.severe(
+            logger.severe(
                 "Refusing to overwrite corrupted rail render metadata for world '$worldName' at ${f.path}. ${entry.errorMessage ?: ""}"
             )
             return false
@@ -474,7 +486,7 @@ object RailRenderMetaStore {
         detail: String
     ) {
         val message = "Failed to parse rail render metadata for world '$worldName' at ${file.path}. $detail"
-        BukkitPlugin.INSTANCE.logger.severe(message)
+        logger.severe(message)
         cache[worldId] = CacheEntry(
             lastModified = lastModified,
             length = length,

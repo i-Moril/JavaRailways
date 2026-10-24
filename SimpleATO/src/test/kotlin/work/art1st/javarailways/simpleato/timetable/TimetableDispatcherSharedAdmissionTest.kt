@@ -150,6 +150,33 @@ class TimetableDispatcherSharedAdmissionTest {
     }
 
     @Test
+    fun `force discard validates every run before removing an earlier idle run`() {
+        val fixture = fixture()
+        fixture.service.onRequest = fixture.service::grant
+        val world = fixture.world
+        val other = createTrainWithConfig("T2", fixture.rail, world, listOf(10.0))
+        val original = world.simpleAtoWorldData.timetables["tt"]!!
+        world.simpleAtoWorldData.timetables.add(original.copy(services = original.services +
+            original.services.single().copy(id = "idle", trainSelector = TrainSelector.TrainId(other.id))))
+        assertTrue(world.onOwnerForTest { fixture.dispatcher.startService(world, "tt", "idle") }
+            is TimetableServiceStartResult.Started)
+        fixture.start()
+        fixture.dispatch()
+        assertTrue(fixture.status().routeGrantActive)
+        val idleId = TimetableServiceRunId("tt", "idle")
+        assertFalse(fixture.dispatcher.status(idleId)!!.routeGrantActive)
+        val activeController = fixture.train.controller
+        val idleController = other.controller
+        val before = fixture.dispatcher.statuses()
+        assertThrows(IllegalStateException::class.java) {
+            world.onOwnerForTest { fixture.dispatcher.forceDiscardTimetable(world, "tt") }
+        }
+        assertEquals(before, fixture.dispatcher.statuses())
+        assertSame(activeController, fixture.train.controller)
+        assertSame(idleController, other.controller)
+    }
+
+    @Test
     fun `draining preserves plan edits through pending and terminal tail-held admission until end succeeds`() {
         // Admission outcomes are scripted; edit protection below uses the real Basic registry.
         // endResult=true represents Basic confirming tail release, not a physical-release simulation.

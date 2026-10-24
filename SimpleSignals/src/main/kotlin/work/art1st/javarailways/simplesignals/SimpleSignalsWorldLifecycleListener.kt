@@ -24,7 +24,7 @@ internal class SimpleSignalsWorldLifecycleListener(
         install(event.world)
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onWorldUnload(event: WorldUnloadEvent) {
         runtimes.remove(event.world.uid)
     }

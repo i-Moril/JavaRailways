@@ -267,3 +267,18 @@ SimpleSignals的`SignalReplacementContinuityTest`覆盖；不为同一机制重�
 10. **迁移、开放项与错误示例**：无持久化格式迁移。CR-015/017均已接入各自owner。错误做法是只用一个`finally`包最外层close、在其外删除map，或用`railWorlds.remove(key)`删除可能已经替换的binding；正确做法是逐项失败隔离、释放world context并按captured identity删除。
 
 线程相关权威证据：`WorldManager.kt`、`BukkitThreadGuardBridge.kt`、`PlatformDispatcher.kt`、`docs-site/docs/architecture/threading-model.md`。
+
+### 第二批审查：保存与取消事件（CURRENT）
+
+WorldManager 的 snapshot revision 属于 exact CoreWorld 实例，不再取 serverTickIndex。loadSplitSnapshots 返回成功配对快照及所有可解码 primary/backup 候选的最高 revision；包括未配对的中断写入。注册时 restoreSnapshotRevision 初始化，captureSnapshots 在原 owner 捕获边界用 nextSnapshotRevision 原子递增，之后仍由原串行 writer 写盘。每次捕获 O(1)，加载仍只处理既有常数个候选；不添加扫描历史或兼容 reader。卸载与安装失败删除该实例的序号，未初始化和 Long 溢出明确失败，不能回落到零。它是保存排序号，不是 schema version，也不替代 physics epoch。
+
+例如旧备份 10000、新会话首个保存必须大于 10000；中断写入留下孤立 10001 时下一捕获为 10002。WorldPersistenceRevisionTest 验证真实文件写入/重载、同 tick 捕获唯一性和溢出拒绝。禁止使用重启归零 tick 或只取配对文件的旧 revision 作新保存上限。无格式迁移。
+
+WorldUnloadEvent 的破坏性清理由 MONITOR 且 ignoreCancelled=true 的监听器执行；WorldManager、HTTP 地图缓存、RailObjectWand 与 SimpleSignals runtime 遵循这一边界，EditorText 已采用相同规则。取消事件保留仍活动的 runtime；不在 NORMAL 阶段先关再恢复。SeatModel 的离座回调、位置调整及后续清理同样只对确认接受的下车事件执行。WorldManagerUnloadTest、SeatDismountTest 通过真实 RegisteredListener 验证取消过滤；真实 Paper/Folia 生命周期仍需游戏内验收。
+
+
+### 第三批：时刻表编译与rail visual退休（CURRENT）
+
+时刻表JS与宿主共享JVM，每次单独Graal Context；生产单次预算60秒，同时最多两个执行。sandbox是执行生命周期owner，所有HTTP同步和命令异步入口共用该限制；超时/close调用Context.close(true)实际取消guest，不能只完成等待future。关闭先拒绝新入口，逐项取消已登记执行；finally释放许可，取消的deadline从scheduler队列移除。512KiB源码和8MiB生成结果限制保留，stdout/stderr合计1MiB且只计数丢弃，不积累打印内存；超限即使guest捕获写异常也不能成功。没有独立进程/heap隔离，不宣称限制guest总内存。回归用短内部期限运行真实Graal顶层/main循环，验证取消、输出预算、名额恢复与关闭异步命令。
+
+RailVisualBootstrap索引键为(exact CoreWorld.runtimeId, rail UUID)，不能只按rail UUID定位；复制世界或同持久化world UUID重载仍各有runtime。unregisterRail要求world，RailWorldFactory返回前的构造失败由其资源栈调用retireWorld；WorldManager后续安装失败和卸载均调用retireWorld，按准确条目退休显示owner。清理返回聚合CompletionStage，已有未完成删除仍参与结果；不在world owner等待entity区域操作，失败需观察/报告。移除全局索引仅证明引用退休，不等于后端实体已经删除，Paper/Folia删除需另验。物理轨道及磁盘UUID不改变。

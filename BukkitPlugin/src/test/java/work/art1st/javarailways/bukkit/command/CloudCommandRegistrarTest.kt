@@ -31,6 +31,12 @@ class CloudCommandRegistrarTest {
     }
 
     @Test
+    fun `issues route accepts optional world and issue selection arguments`() {
+        assertTrue("issues" in CloudCommandRegistrar.registeredRoutePaths())
+        assertTrue(CloudCommandRegistrar.routeAcceptsArguments("issues"))
+    }
+
+    @Test
     fun `turnout command completion includes trailing empty and partial tokens`() {
         val sender = sender(CommandSender::class.java)
         val command = JavaRailwaysCommand()

@@ -141,7 +141,8 @@ class TrainRestrictionConstraintAdapter(
             currentStamp.worldId != snapshot.observationStamp.worldId -> "restriction belongs to another world"
             currentStamp.physicsEpoch < snapshot.observationStamp.physicsEpoch ->
                 "restriction observation is newer than the current physics epoch"
-            currentRoute != snapshot.route -> "restriction frozen route is no longer active"
+            snapshot.restrictions.isNotEmpty() && currentRoute != snapshot.route ->
+                "restriction frozen route is no longer active"
             routeProgressMeters > currentRoute.totalLengthMeters ->
                 "current route progress exceeds the frozen route"
             contacts.size > 1 -> "multiple coupling contact authorities in one source"

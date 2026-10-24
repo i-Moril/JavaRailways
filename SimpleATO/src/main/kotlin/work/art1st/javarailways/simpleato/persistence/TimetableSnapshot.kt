@@ -546,6 +546,11 @@ data class SavedTimetableLineSpeedLimitV1(
     }
 }
 
+/**
+ * Persistence projection of a frozen [Timetable]. Capture may share immutable nested values with
+ * the source; it is not an isolation boundary for caller-owned mutable collections. Both the source
+ * graph and this DTO must remain unchanged while retained or queued for asynchronous encoding.
+ */
 @Serializable
 data class SavedTimetableV1(
     val id: String,

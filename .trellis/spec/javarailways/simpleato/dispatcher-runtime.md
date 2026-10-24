@@ -159,6 +159,14 @@ fun tick(world: World) {
 ./gradlew :SimpleATO:test --tests '*TimetableExtensionRegistryTest'
 ```
 
+### Extension action 停止时的终态检查
+
+停止 run 时先读取扩展 ticket 快照。SUCCEEDED、FAILED、CANCELLED 已是终态，直接清理该 run 的扩展动作引用；后续程序由 continuation cursor 保存，停止 run 不继续执行后续动作；只有 PENDING 调用 cancel 并要求确认 CANCELLED。快照读取失败、取消异常或未确认取消仍走既有失败路径，不能丢弃活动 ticket。回归覆盖 ticket 同步完成但 Dispatcher 尚未下一次 poll 的停止窗口。
+
+### 强制重置拒绝前保持状态（CURRENT）
+
+forceDiscardTimetable 在同一 world owner 内先检查全部 selected runs：只要仍有未 ended 的 admissionClient，就拒绝整批，保留所有 run/controller/clock；不能边遍历边丢弃后再因后一项拒绝。Bukkit reset 命令先调用成功的 discard，再释放手动会话、清 controller 和 reset coordinator，整个流程仍在一次帧间 owner 操作内。扫描 O(selected runs)，无新公开接口。TimetableDispatcherSharedAdmissionTest 以先启动 idle run、后启动有 grant 的 run 验证拒绝后两者 controller 身份与 statuses 全部不变。
+
 ### 固定编成事件后的 checkpoint：仅诊断恢复
 
 包含固定 Split/Couple catalog 的时刻表不能在恢复时假定原始 source composition 仍存在：拆分后的实际

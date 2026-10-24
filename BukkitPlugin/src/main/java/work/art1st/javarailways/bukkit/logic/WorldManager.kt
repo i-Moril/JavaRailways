@@ -4,6 +4,7 @@ import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 import org.bukkit.Location
 import org.bukkit.World as BukkitWorld
 import org.bukkit.event.EventHandler
+import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.world.WorldLoadEvent
 import org.bukkit.event.world.WorldUnloadEvent
@@ -96,6 +97,7 @@ class WorldManager internal constructor(
         Thread(task, "JavaRailways-world-snapshot-writer").apply { isDaemon = true }
     }
     private val pendingPeriodicSnapshots = ConcurrentHashMap<BukkitWorld, WorldSnapshotCapture>()
+    private val snapshotRevisions = ConcurrentHashMap<CoreWorld, Long>()
     private val snapshotWrites = ConcurrentHashMap<BukkitWorld, Future<*>>()
     private val worldTickRunners = WorldTickRunnerRegistry<World>()
     private val worldTickMetrics = ConcurrentHashMap<BukkitWorld, JavaRailwaysServerTickMetrics>()
@@ -159,7 +161,8 @@ class WorldManager internal constructor(
             if (railWorlds.containsKey(bukkitWorld)) return@run
             unloadingWorlds.remove(bukkitWorld)
 
-            val split = when (val result = WorldPersistence.loadSplitSnapshots(bukkitWorld)) {
+            val loadResult = WorldPersistence.loadSplitSnapshots(bukkitWorld)
+            val split = when (val result = loadResult) {
                 WorldPersistence.SplitSnapshotLoadResult.Missing -> null
                 is WorldPersistence.SplitSnapshotLoadResult.Loaded -> result.snapshots
                 is WorldPersistence.SplitSnapshotLoadResult.Corrupted -> {
@@ -183,6 +186,10 @@ class WorldManager internal constructor(
             )
             try {
                 if (railWorld is CoreWorld) {
+                    restoreSnapshotRevision(
+                        railWorld,
+                        (loadResult as? WorldPersistence.SplitSnapshotLoadResult.Loaded)?.highestRevision ?: 0L
+                    )
                     infrastructureResourceService?.registerWorld(
                         bukkitWorld.uid,
                         { railWorld.topologyState },
@@ -251,6 +258,7 @@ class WorldManager internal constructor(
                 attemptCleanup { loadedWorlds.remove(bukkitWorld, railWorld) }
                 worldTickRunners.retire(railWorld)
                 val coreWorld = railWorld as? CoreWorld
+                if (coreWorld != null) snapshotRevisions.remove(coreWorld)
                 val cleanup: () -> Unit = {
                     if (coreWorld != null) {
                         attemptCleanup { coreWorld.physicsCoordinator.closeAndAwaitTermination() }
@@ -264,6 +272,14 @@ class WorldManager internal constructor(
                         attemptCleanup { coreWorld.simpleAtoWorldDataOrNull?.operationalRuntime?.close() }
                         attemptCleanup { coreWorld.physicsCoordinator.close() }
                         attemptCleanup { coreWorld.infrastructureCoordination.close() }
+                    }
+                    if (coreWorld != null) {
+                        attemptCleanup {
+                            RailVisualBootstrap.retireWorld(coreWorld).whenComplete { _, cleanupFailure ->
+                                if (cleanupFailure != null) BukkitPlugin.instanceOrNull()?.logger?.log(java.util.logging.Level.SEVERE,
+                                    "Rail visual cleanup failed for world ${bukkitWorld.uid}", cleanupFailure)
+                            }
+                        }
                     }
                     attemptCleanup { railWorld.renderChunkManager.close() }
                     attemptCleanup { (railWorld.tickManager as? AutoCloseable)?.close() }
@@ -341,7 +357,7 @@ class WorldManager internal constructor(
                     train.setMovementHeld(true)
                     plugin.worldIssues.report(worldId, "javarailways:train-configuration", WorldIssueInput(
                         WorldIssueKind.TRAIN, train.id, "CONFIGURATION_UNAVAILABLE",
-                        "列车配置不可用，已暂停移动：${failure.message}", failure.stackTraceToString()))
+                        "列车配置不可用，已暂停移动：${failure.message}"))
                     plugin.logger.log(java.util.logging.Level.SEVERE,
                         "Train '${train.id}' configuration is unavailable; holding movement", failure)
                 }
@@ -441,6 +457,14 @@ class WorldManager internal constructor(
                         attempt { car.carRendererOrNull?.closeBehavior() }
                     }
                     attempt { coreWorld?.physicsCoordinator?.close() }
+                    if (coreWorld != null) {
+                        attempt {
+                            RailVisualBootstrap.retireWorld(coreWorld).whenComplete { _, cleanupFailure ->
+                                if (cleanupFailure != null) BukkitPlugin.instanceOrNull()?.logger?.log(java.util.logging.Level.SEVERE,
+                                    "Rail visual cleanup failed for world ${bukkitWorld.uid}", cleanupFailure)
+                            }
+                        }
+                    }
                     attempt { closeRender(ownedWorld) }
                     attempt { closeTick(ownedWorld) }
                     attempt { coreWorld?.infrastructureCoordination?.close() }
@@ -450,6 +474,7 @@ class WorldManager internal constructor(
                 attempt {
                     if (ownedWorld != null) {
                         railWorlds.remove(bukkitWorld, ownedWorld)
+                        if (ownedWorld is CoreWorld) snapshotRevisions.remove(ownedWorld)
                     }
                 }
                 firstFailure?.let { throw it }
@@ -467,7 +492,7 @@ class WorldManager internal constructor(
         withSimulationContext { registerRailWorld(event.world) }
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onWorldUnload(event: WorldUnloadEvent) {
         withSimulationContext { unregisterRailWorld(event.world) }
     }
@@ -714,8 +739,18 @@ class WorldManager internal constructor(
         }
     }
 
+    internal fun restoreSnapshotRevision(coreWorld: CoreWorld, highestRevision: Long) {
+        require(highestRevision >= 0L)
+        check(snapshotRevisions.putIfAbsent(coreWorld, highestRevision) == null)
+    }
+
+    internal fun nextSnapshotRevision(coreWorld: CoreWorld): Long =
+        snapshotRevisions.compute(coreWorld) { _, previous ->
+            Math.addExact(checkNotNull(previous) { "World snapshot revision was not initialized" }, 1L)
+        }!!
+
     private fun captureSnapshots(coreWorld: CoreWorld, physicsEpoch: Long): WorldSnapshotCapture {
-        val revision = serverTickIndex.coerceAtLeast(0L)
+        val revision = nextSnapshotRevision(coreWorld)
         val coreInfrastructure = coreWorld.saveInfrastructure(revision)
         val basicInfrastructure = BasicInfrastructureSnapshotV2.capture(
             coreWorld,

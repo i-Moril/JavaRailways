@@ -1,11 +1,14 @@
-package work.art1st.javarailways.bukkit.api.diagnostics
+package work.art1st.javarailways.diagnostics
 
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.time.Instant
-import java.util.concurrent.Executors
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.TimeUnit
 import java.util.logging.Handler
 import java.util.logging.Level
@@ -17,11 +20,12 @@ import java.util.logging.SimpleFormatter
  * One independent plugin's error file. Existing JUL/console handling is left intact.
  *
  * Publishing only captures a record and queues it; stack formatting, rotation and disk access are serial
- * worker operations. Close after the plugin's producers stop, on a shutdown worker/global thread,
+ * worker operations. The queue retains at most 1024 pending records; overflow is counted and
+ * reported to console and disk by the worker once it progresses. Close after the plugin's producers stop, on a shutdown worker/global thread,
  * never on a physics or owning region callback: it drains accepted records for up to five seconds.
  * Only reported WARNING/SEVERE records are captured, not arbitrary caught exceptions or stderr.
  */
-class PluginErrorLog(
+class PluginErrorLog @JvmOverloads constructor(
     private val path: Path,
     private val pluginLogger: Logger,
     private val defaultModule: String,
@@ -35,18 +39,20 @@ class PluginErrorLog(
         val logger: String?,
         val source: String?,
         val message: String,
+        val thread: String,
         val failure: Throwable?
     )
 
     private val lock = Any()
     private var closed = false
     @Volatile private var writerThread: Thread? = null
-    private val worker = Executors.newSingleThreadExecutor { task ->
+    private val droppedRecords = AtomicLong()
+    private val worker = ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, ArrayBlockingQueue<Runnable>(1024), { task ->
         Thread(task, "JavaRailways-$defaultModule-error-log").apply {
             isDaemon = true
             writerThread = this
         }
-    }
+    }, ThreadPoolExecutor.AbortPolicy())
     private val sources = moduleLoggers + (pluginLogger to defaultModule)
     private val messageFormatter = SimpleFormatter()
     private val handler = object : Handler() {
@@ -63,10 +69,8 @@ class PluginErrorLog(
                 ?.takeUnless { record.loggerName == pluginLogger.name }
                 ?: sourceModule(source) ?: defaultModule
             val entry = Entry(record.instant, record.level.name, module, record.loggerName, source,
-                messageFormatter.formatMessage(record), record.thrown)
-            synchronized(lock) {
-                if (!closed) worker.execute { append(entry) }
-            }
+                messageFormatter.formatMessage(record), Thread.currentThread().name, record.thrown)
+            enqueue(entry, console = false)
         }
 
         override fun flush() = Unit
@@ -80,17 +84,39 @@ class PluginErrorLog(
 
     /** Nonblocking failure reporting for simulation callbacks; both console and file use our worker. */
     fun reportFailure(message: String, failure: Throwable) {
-        val entry = Entry(Instant.now(), Level.SEVERE.name, defaultModule, pluginLogger.name, null, message, failure)
+        val entry = Entry(Instant.now(), Level.SEVERE.name, defaultModule, pluginLogger.name, null, message, Thread.currentThread().name, failure)
+        enqueue(entry, console = true)
+    }
+
+    private fun enqueue(entry: Entry, console: Boolean) {
         synchronized(lock) {
-            if (!closed) worker.execute {
-                // Use the original plugin logger for its normal console prefix/parent handling.
-                // The handler's writer-thread check prevents a second append, even before close.
-                try {
-                    pluginLogger.log(Level.SEVERE, message, failure)
-                } finally {
-                    append(entry)
+            if (closed) return
+            try {
+                worker.execute {
+                    try {
+                        if (console) {
+                            try { pluginLogger.log(Level.SEVERE, entry.message, entry.failure) }
+                            finally { append(entry) }
+                        } else append(entry)
+                    } finally {
+                        reportDroppedRecords()
+                    }
                 }
+            } catch (_: RejectedExecutionException) {
+                // Never run disk/console work on the producer when the bounded queue is full.
+                droppedRecords.incrementAndGet()
             }
+        }
+    }
+
+    private fun reportDroppedRecords() {
+        val count = droppedRecords.getAndSet(0)
+        if (count == 0L) return
+        val message = "Plugin error log queue overflow: $count records were not retained: $path"
+        try { pluginLogger.log(Level.SEVERE, message) }
+        finally {
+            append(Entry(Instant.now(), Level.SEVERE.name, defaultModule, pluginLogger.name,
+                null, message, Thread.currentThread().name, null))
         }
     }
 
@@ -115,6 +141,7 @@ class PluginErrorLog(
                 append('[').append(entry.time).append("] ").append(entry.level)
                 append(" module=").append(entry.module).append(" logger=").append(entry.logger ?: "unknown")
                 entry.source?.let { append(" source=").append(it) }
+                append(" thread=").append(entry.thread.replace("\n", " ").replace("\r", " "))
                 append('\n').append(entry.message).append('\n')
                 entry.failure?.let { append(it.stackTraceToString()) }
                 append('\n')
@@ -140,12 +167,12 @@ class PluginErrorLog(
         try {
             if (!worker.awaitTermination(5, TimeUnit.SECONDS)) {
                 val pending = worker.shutdownNow().size
-                reportWriteFailure("Plugin error log shutdown timed out; $pending queued records were not written: $path")
+                reportWriteFailure("Plugin error log shutdown timed out; $pending queued records were not written; ${droppedRecords.getAndSet(0)} overflowed records were not reported: $path")
             }
         } catch (failure: InterruptedException) {
             val pending = worker.shutdownNow().size
             Thread.currentThread().interrupt()
-            reportWriteFailure("Plugin error log shutdown interrupted; $pending queued records were not written: $path", failure)
+            reportWriteFailure("Plugin error log shutdown interrupted; $pending queued records were not written; ${droppedRecords.getAndSet(0)} overflowed records were not reported: $path", failure)
         }
     }
 }

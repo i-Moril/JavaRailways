@@ -48,8 +48,8 @@ internal class RailWandDecorateMode(private val wand: RailWand) {
             val renderMetasBefore = renderMetas.filter { it.railId in railIds }
             runCatching {
                 rail.world.collectRailCleanup {
-                    logicalRails.forEach { RailVisualBootstrap.unregisterRail(it.id) }
                     RailRenderMetaStore.saveAll(player.world, renderMetas.filterNot { it.railId in railIds })
+                    logicalRails.forEach { RailVisualBootstrap.unregisterRail(it.world, it.id) }
                     state.pendingDecorationDeleteRail = null
                     wand.persistPlayerState(player, state)
                     wand.recordDecorationUndo(player, railIds, renderMetasBefore, emptyList())
@@ -82,8 +82,10 @@ internal class RailWandDecorateMode(private val wand: RailWand) {
                     val logicalRails = wand.logicalRails(player, rail)
                     val railIds = logicalRails.mapTo(linkedSetOf()) { it.id }
                     val renderMetasBefore = RailRenderMetaStore.load(player.world).filter { it.railId in railIds }
-                    val metas = logicalRails.map { RailVisualBootstrap.registerRail(it, modelName) }
+                    val template = RailVisualBootstrap.captureTemplateSnapshot(modelName)
+                    val metas = logicalRails.map { RailVisualBootstrap.capturePersistedMeta(it, template) }
                     RailRenderMetaStore.upsertRails(player.world, metas)
+                    metas.forEach { RailVisualBootstrap.fromPersisted(rail.world, it) }
                     Triple(railIds, renderMetasBefore, metas)
                 }
             }.onSuccess { (applied, cleanup) ->

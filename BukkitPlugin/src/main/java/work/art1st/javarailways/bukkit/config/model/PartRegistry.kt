@@ -258,7 +258,9 @@ class PartRegistry(
                     entryMap.containsKey("type") -> {
                         entryMap.requireOnlyKeys(PART_KEYS, "parts[$index]")
                         val def = parsePartDefinition(entryMap, namespace)
-                        PartRefEntry(name = def.name, offset = offset, rotation = rotation, inline = def)
+                        // Inline transforms already belong to the definition. Only imports
+                        // carry an additional reference-local transform.
+                        PartRefEntry(name = def.name, inline = def)
                     }
                     else -> throw IllegalArgumentException(
                         "parts[$index] must declare either 'import' or an inline 'type'"

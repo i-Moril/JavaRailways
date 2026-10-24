@@ -48,8 +48,8 @@ internal class SimpleSignalsSimulationFeature(
             val bindings = (copied.fixedBlockSignals.map { SignalTypeBinding(it.signalId, it.signalType) } +
                 copied.protectionSignals.map { SignalTypeBinding(it.signalId, it.signalType) }).sortedBy { it.deviceId }
             val epoch = SignalPackEpochRuntime.compile(publication, rules, runtime.signalLogic(rules), bindings,
-                reportFailure = { context, error -> System.getLogger("SimpleSignals.simulation")
-                    .log(System.Logger.Level.ERROR, "simulation ${target.worldId}: $context", error) }) { topology, rails ->
+                reportFailure = { context, error -> java.util.logging.Logger.getLogger("work.art1st.javarailways.simplesignals.simulation")
+                    .log(java.util.logging.Level.SEVERE, "simulation ${target.worldId}: $context", error) }) { topology, rails ->
                 check(topology === target.topology) { "simulation static speed belongs to another topology" }
                 target.railSpeedLimits(rails)
             }

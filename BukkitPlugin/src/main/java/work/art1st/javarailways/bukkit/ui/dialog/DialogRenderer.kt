@@ -106,11 +106,12 @@ class DialogRenderer(
         context: Map<String, Any> = emptyMap(),
         textResolver: (String) -> String = DEFAULT_TEXT_RESOLVER,
         additionalBody: List<Component> = emptyList(),
+        isCurrent: (Player) -> Boolean = { true },
         onConfirmed: ((Player) -> Unit)? = null
     ) {
         val session = configUI.getPlayerSession(player.uniqueId)
         val builtGroup = configUI.buildGroupForPlayer(groupId, player.uniqueId, context)
-        showNativeDialog(player, builtGroup, session, textResolver, additionalBody, onConfirmed)
+        showNativeDialog(player, builtGroup, session, textResolver, additionalBody, isCurrent, onConfirmed)
     }
 
     /**
@@ -122,6 +123,7 @@ class DialogRenderer(
         session: PlayerConfigSession,
         textResolver: (String) -> String,
         additionalBody: List<Component>,
+        isCurrent: (Player) -> Boolean = { true },
         onConfirmed: ((Player) -> Unit)? = null
     ) {
         val group = builtGroup.group
@@ -149,7 +151,7 @@ class DialogRenderer(
         val confirmAction = DialogAction.customClick(
             { view, audience ->
                 if (audience is Player) {
-                    onConfirm(view, builtGroup, session, audience, textResolver, additionalBody, onConfirmed)
+                    onConfirm(view, builtGroup, session, audience, textResolver, additionalBody, isCurrent, onConfirmed)
                 }
             },
             ClickCallback.Options.builder()
@@ -168,6 +170,7 @@ class DialogRenderer(
             session,
             textResolver,
             additionalBody,
+            isCurrent,
             onConfirmed
         ) + confirmButton
 
@@ -192,6 +195,7 @@ class DialogRenderer(
         session: PlayerConfigSession,
         textResolver: (String) -> String,
         additionalBody: List<Component>,
+        isCurrent: (Player) -> Boolean,
         onConfirmed: ((Player) -> Unit)?
     ): List<ActionButton> {
         return builtGroup.effectiveItems.flatMap { item ->
@@ -214,7 +218,7 @@ class DialogRenderer(
                 }
                 val action = DialogAction.customClick(
                     { view, audience ->
-                        if (audience is Player) {
+                        if (audience is Player && isCurrent(audience)) {
                             captureInputs(view, builtGroup, session, textResolver, setOf(key.id))
                             @Suppress("UNCHECKED_CAST")
                             session.setValue(key as ConfigKey<Any?>, option)
@@ -230,6 +234,7 @@ class DialogRenderer(
                                 configUI.getPlayerSession(audience.uniqueId),
                                 textResolver,
                                 additionalBody,
+                                isCurrent,
                                 onConfirmed
                             )
                         }
@@ -274,18 +279,20 @@ class DialogRenderer(
         player: Player,
         textResolver: (String) -> String,
         additionalBody: List<Component>,
+        isCurrent: (Player) -> Boolean = { true },
         onConfirmed: ((Player) -> Unit)? = null
     ) {
+        if (!isCurrent(player)) return
         val needsRebuild = try {
             captureInputs(view, builtGroup, session, textResolver)
         } catch (failure: IllegalArgumentException) {
             player.sendMessage(Component.text(failure.message ?: "数值输入无效", NamedTextColor.RED))
-            showNativeDialog(player, builtGroup, session, textResolver, additionalBody, onConfirmed)
+            showNativeDialog(player, builtGroup, session, textResolver, additionalBody, isCurrent, onConfirmed)
             return
         }
         if (!reportCommitFailures(player, session.commit(), textResolver)) {
             val rebuilt = configUI.buildGroupForPlayer(builtGroup.group.id, player.uniqueId, emptyMap())
-            showNativeDialog(player, rebuilt, session, textResolver, additionalBody, onConfirmed)
+            showNativeDialog(player, rebuilt, session, textResolver, additionalBody, isCurrent, onConfirmed)
             return
         }
         if (needsRebuild) {
@@ -298,6 +305,7 @@ class DialogRenderer(
                 configUI.getPlayerSession(player.uniqueId),
                 textResolver,
                 additionalBody,
+                isCurrent,
                 onConfirmed
             )
             return

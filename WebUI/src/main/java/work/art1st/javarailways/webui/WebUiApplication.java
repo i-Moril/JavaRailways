@@ -1,5 +1,8 @@
 package work.art1st.javarailways.webui;
 
+import work.art1st.javarailways.diagnostics.DiskLogReader;
+import work.art1st.javarailways.diagnostics.PluginErrorLog;
+import java.util.logging.Logger;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -31,6 +34,8 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class WebUiApplication {
     private static final System.Logger LOGGER = System.getLogger(WebUiApplication.class.getName());
     private final java.util.Set<String> failedTrainPolls = ConcurrentHashMap.newKeySet();
+    private final DiskLogReader logReader;
+    private PluginErrorLog errorLog;
     private final WebUiConfig config;
     private final ObjectMapper mapper;
     private final DraftRepository drafts;
@@ -77,6 +82,8 @@ public final class WebUiApplication {
 
     WebUiApplication(WebUiConfig config, ObjectMapper mapper) {
         this.config = config;
+        this.logReader = new DiskLogReader(Map.of("webui-errors", new DiskLogReader.Location(
+            "WebUI errors", config.draftDirectory().toAbsolutePath().getParent().resolve("logs/errors.log"))));
         this.mapper = mapper;
         this.drafts = new DraftRepository(config.draftDirectory(), mapper);
         this.editorDocuments = new DraftRepository(config.draftDirectory().resolve("editor-documents"), mapper);
@@ -89,10 +96,20 @@ public final class WebUiApplication {
     }
 
     public void start() {
-        createApp().start(config.bindAddress(), config.port());
+        try {
+            createApp().start(config.bindAddress(), config.port());
+        } catch (RuntimeException | Error failure) {
+            if (errorLog != null) {
+                errorLog.reportFailure("WebUI startup failed", failure);
+                errorLog.close();
+            }
+            throw failure;
+        }
     }
 
     Javalin createApp() {
+        errorLog = new PluginErrorLog(config.draftDirectory().toAbsolutePath().getParent().resolve("logs/errors.log"),
+            Logger.getLogger("work.art1st.javarailways.webui"), "WebUI");
         Javalin app = Javalin.create(settings -> {
             settings.http.maxRequestSize = config.maxRequestBytes();
             settings.staticFiles.add("/public", Location.CLASSPATH);
@@ -108,6 +125,33 @@ public final class WebUiApplication {
             }
         });
 
+        app.get("/api/v1/logs/sources", context -> {
+            var sources = mapper.createArrayNode();
+            logReader.sources().forEach(source -> sources.add(mapper.valueToTree(source)));
+            String warning = null;
+            try {
+                BridgeClient.Response response = bridge.get("logs/sources");
+                if (response.status() == 200 && response.body().path("sources").isArray()) response.body().path("sources").forEach(sources::add);
+                else warning = "Host log sources unavailable";
+            } catch (IOException | IllegalStateException unavailable) {
+                warning = "Host log sources unavailable";
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                warning = "Host log sources request interrupted";
+            }
+            ObjectNode result = mapper.createObjectNode();
+            result.set("sources", sources);
+            if (warning != null) result.put("warning", warning);
+            context.json(result);
+        });
+        app.get("/api/v1/logs", context -> {
+            String source = context.queryParam("source");
+            if (source == null || !source.matches("[a-z-]{1,64}")) throw new IllegalArgumentException("Invalid log source");
+            String query = context.queryParam("query"), cursor = context.queryParam("cursor");
+            if (query != null && query.length() > 200 || cursor != null && cursor.length() > 512) throw new IllegalArgumentException("Invalid log query");
+            if (source.equals("webui-errors")) context.json(logReader.read(source, query, cursor));
+            else proxyGet(context, "logs?source=" + source + "&query=" + encodeQuery(query) + "&cursor=" + encodeQuery(cursor));
+        });
         app.get("/api/v1/worlds", context -> proxyGet(context, "worlds"));
         app.get("/api/v1/worlds/{world}/metadata", this::metadata);
         app.get("/api/v1/worlds/{world}/issues", context -> proxyGet(context, worldPath(context) + "/issues"));
@@ -144,11 +188,14 @@ public final class WebUiApplication {
         app.post("/api/v1/worlds/{world}/validate", this::validate);
         app.post("/api/v1/worlds/{world}/publish", this::publish);
 
-        app.events(events -> events.serverStopping(() -> {
-            trainStreamExecutor.shutdownNow();
-            trainStreamWorkers.shutdownNow();
-            trainDeliveryWorkers.shutdownNow();
-        }));
+        app.events(events -> {
+            events.serverStopping(() -> {
+                trainStreamExecutor.shutdownNow();
+                trainStreamWorkers.shutdownNow();
+                trainDeliveryWorkers.shutdownNow();
+            });
+            events.serverStopped(() -> errorLog.close());
+        });
         app.exception(UnauthorizedResponse.class,
             (exception, context) -> error(context, 401, "login required or session expired"));
         app.exception(VisualProgramRepository.Conflict.class,
@@ -156,9 +203,19 @@ public final class WebUiApplication {
         app.exception(IllegalArgumentException.class,
             (exception, context) -> error(context, 400, exception.getMessage()));
         app.exception(IllegalStateException.class,
-            (exception, context) -> error(context, 503, exception.getMessage()));
+            (exception, context) -> {
+                errorLog.reportFailure("WebUI request failed method=" + context.method() + " path=" + context.path(), exception);
+                error(context, 503, exception.getMessage());
+            });
         app.exception(IOException.class,
-            (exception, context) -> error(context, 502, "bridge or draft storage unavailable"));
+            (exception, context) -> {
+                errorLog.reportFailure("WebUI request failed method=" + context.method() + " path=" + context.path(), exception);
+                error(context, 502, "bridge or draft storage unavailable");
+            });
+        app.exception(Exception.class, (exception, context) -> {
+            errorLog.reportFailure("WebUI request failed method=" + context.method() + " path=" + context.path(), exception);
+            error(context, 500, "internal error");
+        });
         app.exception(InterruptedException.class, (exception, context) -> {
             Thread.currentThread().interrupt();
             error(context, 504, "bridge request interrupted");
@@ -178,6 +235,8 @@ public final class WebUiApplication {
         });
         return app;
     }
+
+    private static String encodeQuery(String value) { return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8); }
 
     private void exchangeLoginToken(Context context) throws IOException, InterruptedException {
         JsonNode loginRequest = requestJson(context);
@@ -643,7 +702,14 @@ public final class WebUiApplication {
         if (bytes.length > config.maxRequestBytes()) {
             throw new IllegalArgumentException("request body exceeds limit");
         }
-        JsonNode json = mapper.readTree(bytes);
+        JsonNode json;
+        try {
+            json = mapper.readTree(bytes);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException invalidInput) {
+            // Input syntax is a client rejection, not a runtime failure. Do not retain the
+            // parser exception: its message can contain user-supplied authentication data.
+            throw new IllegalArgumentException("request body must be JSON");
+        }
         if (json == null) throw new IllegalArgumentException("request body must be JSON");
         return json;
     }

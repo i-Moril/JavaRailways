@@ -28,6 +28,31 @@ class RailMapPreviewServiceTest {
 
     @OptIn(ExtensionData::class)
     @Test
+    fun `moving a marker to another rail invalidates the cached map`() {
+        work.art1st.javarailways.core.physics.train.TestWorldFixture.create().use { fixture ->
+            val world = fixture.world
+            val plugin = BasicPlugin.instanceOrNull() ?: BasicPlugin(0).also { BasicPlugin.INSTANCE = it }
+            val data = BasicWorldData()
+            world.registerExtensionData(plugin, data)
+            val first = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+            val second = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+            val marker = work.art1st.javarailways.basic.WayPoint("stop", "Stop", first.id, 20.0)
+            data.wayPoints.add(marker)
+            RailMapPreviewService(directory).use { service ->
+                val before = service.render(service.capture("world", world))
+                data.wayPoints.remove(marker.id)
+                data.wayPoints.add(marker.copy(railId = second.id))
+                val after = service.render(service.capture("world", world))
+                org.junit.jupiter.api.Assertions.assertNotEquals(before, after)
+                val moved = Json.parseToJsonElement(after).jsonObject["markers"]!!.jsonArray.single().jsonObject
+                assertEquals(second.id.toString(), moved["railId"]!!.jsonPrimitive.content)
+                assertEquals(after, File(directory, "world.json").readText())
+            }
+        }
+    }
+
+    @OptIn(ExtensionData::class)
+    @Test
     fun `streams train names and immutable carriage geometry`() {
         val world=createTestWorld()
         val plugin=BasicPlugin.instanceOrNull()?:BasicPlugin(0).also{BasicPlugin.INSTANCE=it}

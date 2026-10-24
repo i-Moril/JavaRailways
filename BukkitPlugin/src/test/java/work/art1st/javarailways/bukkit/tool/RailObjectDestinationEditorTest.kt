@@ -2,6 +2,8 @@ package work.art1st.javarailways.bukkit.tool
 
 import java.util.UUID
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
@@ -121,6 +123,47 @@ class RailObjectDestinationEditorTest {
         assertNull(world.basicWorldData.wayPoints[updated.id])
         assertNull(world.simpleAtoWorldData.stations[StationId("central")])
         assertEquals(emptyList<Any>(), world.basicWorldData.railObjects.objectsOnRail(rail.id))
+    }
+
+    @Test
+    fun `destination callback rejects changed world session target and obsolete dialog identity`() {
+        attachWorldData()
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        val anchor = WayPoint("same-id", "Original", rail.id, 20.0)
+        world.basicWorldData.wayPoints.add(anchor)
+        val destination = stationDestination(anchor)
+        val playerId = UUID.randomUUID()
+        val session = editor.configUI.getPlayerSession(playerId)
+        val worldId = UUID.randomUUID()
+        fun bukkitWorld() = java.lang.reflect.Proxy.newProxyInstance(org.bukkit.World::class.java.classLoader,
+            arrayOf(org.bukkit.World::class.java)) { _, method, _ ->
+            check(method.name == "getUID")
+            worldId
+        } as org.bukkit.World
+        val platformWorld = bukkitWorld()
+        val edit = RailObjectWand.DestinationEdit(platformWorld, world, anchor, destination, false, session)
+        assertTrue(edit.isCurrent(edit, platformWorld, world, session, anchor, destination))
+        assertFalse(edit.isCurrent(edit, bukkitWorld(), world, session, anchor, destination),
+            "a reloaded world with the same UUID is still a different lifetime")
+        val otherCoreWorld = createTestWorld()
+        try {
+            assertFalse(edit.isCurrent(edit, platformWorld, otherCoreWorld, session, anchor, destination))
+        } finally {
+            otherCoreWorld.physicsCoordinator.close()
+            (otherCoreWorld.tickManager as AutoCloseable).close()
+        }
+        val newerDialog = RailObjectWand.DestinationEdit(platformWorld, world, anchor, destination, false, session)
+        assertFalse(edit.isCurrent(newerDialog, platformWorld, world, session, anchor, destination))
+        assertFalse(edit.isCurrent(null, platformWorld, world, session, anchor, destination))
+        editor.configUI.removePlayerSession(playerId)
+        val newSession = editor.configUI.getPlayerSession(playerId)
+        assertFalse(edit.isCurrent(edit, platformWorld, world, newSession, anchor, destination))
+        assertFalse(edit.isCurrent(edit, platformWorld, world, session, anchor.copy(), destination),
+            "same-ID replacement must not inherit a stale form")
+        assertFalse(edit.isCurrent(edit, platformWorld, world, session, null, destination))
+        assertFalse(edit.isCurrent(edit, platformWorld, world, session, anchor, destination.copy()))
+        assertFalse(edit.isCurrent(edit, platformWorld, world, session, anchor, null))
+        assertSame(anchor, world.basicWorldData.wayPoints[anchor.id])
     }
 
     private fun stationDestination(anchor: WayPoint) = OperationalDestination(

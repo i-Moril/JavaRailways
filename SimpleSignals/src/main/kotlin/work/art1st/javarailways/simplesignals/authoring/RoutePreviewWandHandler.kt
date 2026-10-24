@@ -47,7 +47,8 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
     },
     private val findTarget: (Player) -> CompletionStage<Optional<RailTarget>> = { targets.findLookedAtRail(it, 64.0, 0.75) },
     private val render: (Player, RoutePreviewDrawing, Int) -> Unit = { player, drawing, offset -> drawing.draw(player, offset) },
-    private val showAuthoringDialog: (Player, String, List<Pair<String, () -> Unit>>) -> Unit = WandDialogs::show
+    private val showAuthoringDialog: (Player, String, List<Pair<String, () -> Unit>>) -> Unit = WandDialogs::show,
+    private val checkOverlay: (Player) -> Unit = {}
 ) : Listener, CommandExecutor, AutoCloseable {
     // Capture the scheduler once: observation callbacks enqueue values without reading Bukkit state.
     private val worker = worker ?: run {
@@ -80,6 +81,7 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
         invalidate(sender.uniqueId)
         try {
             giveTool(sender)
+            checkOverlay(sender)
             sender.sendMessage(Component.text(WandI18n.format(sender, "route.created")))
         } catch (failure: Exception) { sender.sendMessage(Component.text(failure.message ?: WandI18n.format(sender, "route.create.failed"))) }
         return true
@@ -282,7 +284,7 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
 
     companion object {
         private fun key(plugin: Plugin) = NamespacedKey(plugin, "route_preview_wand")
-        private fun readTool(plugin: Plugin, stack: ItemStack): Boolean =
+        internal fun readTool(plugin: Plugin, stack: ItemStack): Boolean =
             stack.itemMeta?.persistentDataContainer?.get(key(plugin), PersistentDataType.BYTE) == 1.toByte()
         private fun createItem(plugin: Plugin, locale: java.util.Locale): ItemStack = ItemStack(Material.BLAZE_ROD).apply { editMeta { meta ->
             meta.displayName(Component.text(WandI18n.format(locale, "route.name")))

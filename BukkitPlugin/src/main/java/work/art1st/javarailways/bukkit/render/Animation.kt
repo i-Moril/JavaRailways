@@ -262,7 +262,9 @@ class Animation(
             } else {
                 previous.transform.lerp(next.transform, (t - previous.timeSeconds) / span)
             }
-            displayState = frames.take(nextIndex + 1).lastOrNull { it.displayState != null }?.displayState
+            displayState = frames.lastOrNull {
+                it.timeSeconds <= t + EPSILON && it.displayState != null
+            }?.displayState
         }
 
         private val destruction = Destruction()

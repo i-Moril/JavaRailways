@@ -972,7 +972,9 @@ class DepotStore {
 
     @MainThread
     fun cancelStorage(reservation: DepotStorageReservation): Boolean = synchronized(lock) {
-        if (storageReservations[reservation.assignmentId] != reservation) return@synchronized false
+        if (storageReservations[reservation.assignmentId] != reservation) {
+            return@synchronized false
+        }
         storageReservations.remove(reservation.assignmentId)
         points[reservation.stablingPointRef]?.let { point ->
             if (point.reservedByAssignmentId == reservation.assignmentId &&
@@ -1025,7 +1027,9 @@ class DepotStore {
     fun cancelReservation(allocation: DepotTrainAllocation): Boolean = synchronized(lock) {
         if (assignments[allocation.assignmentId] != allocation) return@synchronized false
         val runtime = rollingStock[allocation.trainId] ?: return@synchronized false
-        if (runtime.state != RollingStockState.RESERVED || runtime.assignmentId != allocation.assignmentId) return@synchronized false
+        if (runtime.state != RollingStockState.RESERVED ||
+            runtime.assignmentId != allocation.assignmentId
+        ) return@synchronized false
         assignments.remove(allocation.assignmentId)
         fixedUnitAssignments.entries.removeIf { it.value.trainId == allocation.trainId && it.value.assignmentId == allocation.assignmentId }
         runtime.state = RollingStockState.AVAILABLE

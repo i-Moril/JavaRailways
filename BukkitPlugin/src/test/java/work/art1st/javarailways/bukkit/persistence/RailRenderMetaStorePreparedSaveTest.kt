@@ -133,6 +133,45 @@ class RailRenderMetaStorePreparedSaveTest {
         assertNoPreparedFiles()
     }
 
+    @Test
+    fun `synchronous decoration writer rejects corruption and releases writer without overwriting bytes`() {
+        val worldId = UUID.randomUUID()
+        seed(worldId, listOf(record()))
+        val target = target(worldId)
+        val corrupt = "{broken decoration metadata".toByteArray()
+        target.writeBytes(corrupt)
+        var transformed = false
+
+        repeat(2) {
+            val failure = assertThrows(IllegalStateException::class.java) {
+                RailRenderMetaStore.updateAll(worldId, "test", dataFolder) {
+                    transformed = true
+                    emptyList()
+                }
+            }
+            assertTrue(failure.message!!.contains("corrupted"))
+            assertArrayEquals(corrupt, target.readBytes())
+        }
+        assertFalse(transformed)
+        assertFalse(File(target.parentFile, "${target.name}.tmp").exists())
+    }
+
+    @Test
+    fun `synchronous decoration writer rejects prepared writer and preserves published records`() {
+        val worldId = UUID.randomUUID()
+        seed(worldId, listOf(record()))
+        val before = target(worldId).readBytes()
+        val current = RailRenderMetaStore.prepareSave(worldId, "test", emptyList(), emptyList(), dataFolder)
+        current.use {
+            assertThrows(IllegalStateException::class.java) {
+                RailRenderMetaStore.updateAll(worldId, "test", dataFolder) { emptyList() }
+            }
+            assertArrayEquals(before, target(worldId).readBytes())
+        }
+        RailRenderMetaStore.updateAll(worldId, "test", dataFolder) { emptyList() }
+        assertFalse(before.contentEquals(target(worldId).readBytes()))
+    }
+
     private fun seed(worldId: UUID, records: List<PersistedRailRenderMeta>) {
         RailRenderMetaStore.prepareSave(worldId, "test", emptyList(), records, dataFolder).use { it.commitPrimary() }
     }

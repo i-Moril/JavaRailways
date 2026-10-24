@@ -107,6 +107,10 @@ public interface InfrastructureResourceService {
      * detached value; a retired plugin/world binding returns {@code WORLD_UNAVAILABLE}. Coordinator
      * shutdown or failed physics completes the future exceptionally. Do not wait for the future on
      * the simulation owner that drains the queue; completion does not confer Bukkit entity ownership.</p>
+     *
+     * <p>The returned future observes the operation without controlling its execution. Completing,
+     * cancelling or timing out this future only changes the caller's result; it does not complete,
+     * cancel or skip the queued operation.</p>
      */
     CompletableFuture<ManualTurnoutSelectionResult> selectTurnout(
         Plugin pluginOwner,

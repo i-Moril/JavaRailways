@@ -52,7 +52,7 @@ class RailMapPreviewService(private val mapDirectory: File) : AutoCloseable {
         val markers=destinations+wayPoints
         if(markers.size>MAX_MARKERS) throw HttpFailure(413,"rail map exceeds $MAX_MARKERS markers")
         val railHash=rails.fold(1){hash,rail->31*hash+java.util.Objects.hash(rail.id,System.identityHashCode(rail.curve),rail.curve.totalArcLength)}
-        val markerHash=markers.fold(1){hash,marker->31*hash+java.util.Objects.hash(marker.id,marker.kind,marker.label,marker.arc)}
+        val markerHash=markers.fold(1){hash,marker->31*hash+java.util.Objects.hash(marker.id,marker.kind,marker.label,marker.railId,marker.arc)}
         val signature="${world.runtimeId}:$railHash:$markerHash"
         return SourceSnapshot(worldName,world.runtimeId,signature,rails,markers)
     }

@@ -77,11 +77,13 @@ class RoutePreviewWandHandlerTest {
         f.handler.onCommand(f.player, command, "simplesignals", arrayOf("wand", "route"))
         assertEquals(0, f.targets)
         assertEquals(0, f.given)
+        assertEquals(0, f.overlayChecks)
         f.permitted = true
         f.beginExit()
         assertEquals(0, f.targets)
         f.handler.onCommand(f.player, command, "simplesignals", arrayOf("wand", "route"))
         assertEquals(1, f.given)
+        assertEquals(1, f.overlayChecks)
     }
 
     @Test fun `entry exit gestures use worker and player display refresh does no geometry computation`() {
@@ -297,6 +299,7 @@ class RoutePreviewWandHandlerTest {
         var closeDuringAttach = false
         var targets = 0
         var given = 0
+        var overlayChecks = 0
         var selections = 0
         var computes = 0
         var recordings = 0
@@ -400,6 +403,7 @@ class RoutePreviewWandHandlerTest {
                 var closed = false
                 AutoCloseable { if (!closed) { closed = true; closedRefresh++ } }
             }, inHand = { check(owner); inHand }, giveTool = { check(owner); given++ },
+            checkOverlay = { check(owner); overlayChecks++ },
             findTarget = { check(owner); targets++; target }, render = { _, drawing, offset ->
                 check(owner); assertTrue(drawing.batch(offset).size <= 512); draws++
             })

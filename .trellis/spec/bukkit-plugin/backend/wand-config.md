@@ -37,9 +37,9 @@ RailWand 和 RailObjectWand 的目的地编辑器由 BukkitPlugin 使用同一�
 
 `ConfigKey`的默认值必须匹配展示用`valueType`并满足约束。实际值类型独立于控件类型，由受支持的非空默认值确定；枚举使用其声明类，不能把不同枚举都视为同一种`Enum`。NUMBER与NUMBER_TEXT均保存`Double`，可以使用不同控件展示相同值类型。同一ID的实际类型冲突在注册、读取、写入及会话本地值访问时明确抛错，不返回null或默认值掩盖编程错误。未注册key的读取仍返回null。
 
-值写入由`WandConfigItemImpl`拥有；构造时也必须校验initialValue的类型和约束。注册中心拒绝其他`WandConfigItem`实现。单项、批量、完整分组树和子组扩展必须在修改正式索引/分组结构前完成支持实现与类型校验；结算pending贡献时也先检查完整待接纳集合，失败不得留下半注册状态。
+值写入由`WandConfigItemImpl`拥有；构造时也必须校验initialValue的类型和约束。注册中心拒绝其他`WandConfigItem`实现。单项、批量、完整分组树和子组扩展必须在修改正式索引/分组结构前完成支持实现与类型校验；结算pending贡献时也先检查完整待接纳集合，失败不得留下半注册状态。批量项注册一次性校验整批，之后内部安装已验证项；单项入口先校验再复用同一安装路径。该流程依赖调用方串行安排注册与结构变更，不在逐项安装时重复整表校验。
 
-`registerToGroup`对已存在但`allowExtensions=false`的目标立即抛错；目标尚不存在时贡献只进入pending，目标注册后统一结算。目标最终不允许扩展时丢弃并记录警告的既有策略不在本轮修改范围。`pendingExtensionGroupIds()`供诊断长期未解析的贡献。
+`registerToGroup`对已存在但`allowExtensions=false`的目标立即抛错；目标尚不存在时贡献只进入pending，目标注册后统一结算。目标最终不允许扩展时丢弃并记录警告的既有策略不在本轮修改范围。
 
 ## 构建事件与保存归属
 

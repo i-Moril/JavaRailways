@@ -92,6 +92,7 @@ repositories {
 }
 
 dependencies {
+    implementation(project(':Diagnostics'))
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     paperweight.paperDevBundle("1.21.11-R0.1-SNAPSHOT")
     // Packet entity backend bootstrap: keep PacketEvents and EntityLib on the same shaded runtime classpath.

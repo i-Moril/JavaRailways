@@ -2472,6 +2472,114 @@ class TimetableDispatcherTest {
     }
 
     @Test
+    fun `stop accepts terminal extension tickets before the next dispatcher poll`() {
+        for (state in listOf(
+            TimetableExtensionActionState.SUCCEEDED,
+            TimetableExtensionActionState.FAILED,
+            TimetableExtensionActionState.CANCELLED
+        )) {
+            assertExtensionStop(state, confirmCancellation = false, expectedSuccess = true)
+        }
+    }
+
+    @Test
+    fun `stop requires cancellation confirmation for pending extension tickets`() {
+        assertExtensionStop(
+            TimetableExtensionActionState.PENDING,
+            confirmCancellation = true,
+            expectedSuccess = true
+        )
+        assertExtensionStop(
+            TimetableExtensionActionState.PENDING,
+            confirmCancellation = false,
+            expectedSuccess = false
+        )
+    }
+
+    private fun assertExtensionStop(
+        initialState: TimetableExtensionActionState,
+        confirmCancellation: Boolean,
+        expectedSuccess: Boolean
+    ) {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        val dispatcher = dispatcher()
+        val data = BasicWorldData()
+        TestSimpleATOWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
+        var ticketState = initialState
+        var cancellationCalls = 0
+        var actionStarts = 0
+        world.simpleAtoWorldData.timetableExtensions.registerAction(object : TimetableActionProvider {
+            override val typeId = "test:stop"
+            override val version = 1
+            override val descriptor = TimetableExtensionDescriptor("Stop", "Stop regression")
+            override fun start(
+                parameters: JsonObject,
+                context: TimetableRuntimeContext
+            ): TimetableExtensionActionStartResult {
+                actionStarts++
+                assertEquals("B", context.currentWayPointId)
+                return TimetableExtensionActionStartResult.Accepted(object : TimetableExtensionActionTicket {
+                    override fun snapshot() = TimetableExtensionActionSnapshot(ticketState)
+                    override fun cancel() {
+                        cancellationCalls++
+                        check(ticketState == TimetableExtensionActionState.PENDING) {
+                            "terminal actions must not be cancelled"
+                        }
+                        if (confirmCancellation) ticketState = TimetableExtensionActionState.CANCELLED
+                    }
+                })
+            }
+        })
+        world.simpleAtoWorldData.timetables.add(Timetable(
+            "tt-extension-stop",
+            services = listOf(TimetableService(
+                id = "service",
+                trainSelector = TrainSelector.TrainId(train.id),
+                steps = listOf(
+                    TimetableStep.Check("A"),
+                    TimetableStep.At(0L, TimetableAction.GoTo("B")),
+                    TimetableStep.At(0L, TimetableAction.Extension(TimetableExtensionCall("test:stop")))
+                )
+            ))
+        ))
+        val runId = TimetableServiceRunId("tt-extension-stop", "service")
+        assertTrue(world.onOwnerForTest {
+            dispatcher.startService(world, runId.timetableId, runId.serviceId)
+        } is TimetableServiceStartResult.Started)
+        val ato = train.controller as SimpleATO
+        tickAndPublish(ato)
+        world.onOwnerForTest { dispatcher.tick(world) }
+        repeat(600) { tickAndPublish(ato) }
+        world.onOwnerForTest { dispatcher.tick(world) }
+        assertEquals(TimetableServiceRunState.WAITING_EXTENSION_ACTION, dispatcher.status(runId)?.state)
+        assertEquals(1, actionStarts)
+        assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
+
+        // Stop in the real post-destination window, before the next dispatcher tick polls the ticket.
+        assertEquals(expectedSuccess, world.onOwnerForTest { dispatcher.stopService(world, runId) })
+
+        assertEquals(!expectedSuccess, world.simpleAtoWorldData.atoCoordinator.isStalled)
+        if (initialState != TimetableExtensionActionState.PENDING) {
+            assertEquals(0, cancellationCalls)
+        } else {
+            assertTrue(cancellationCalls >= 1)
+        }
+        if (expectedSuccess) {
+            assertEquals(TimetableServiceRunState.STOPPING, dispatcher.status(runId)?.state)
+        } else {
+            assertTrue(dispatcher.status(runId)?.message.orEmpty().contains("remained PENDING"))
+        }
+    }
+
+    @Test
     fun `nested branch children keep their own ticks and chosen address`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val dispatcher = dispatcher()

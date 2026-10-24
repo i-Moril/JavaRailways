@@ -741,3 +741,26 @@ Committed station programs and fixed EMU operations, preserved deployed signal i
 ### Next Steps
 
 - Observe real game/client behavior before further fixes; no automatic replay or additional feature changes.
+
+
+## Session 24: Shared Blockly editor and arrival programs
+<!-- trellis-session: v=2 fp=ab4a539caee8d762 -->
+
+**Date**: 2026-10-24
+**Task**: Shared Blockly editor and arrival programs
+**Package**: javarailways
+**Branch**: `feat/station-program-blocks`
+
+### Summary
+
+Implemented Blockly 13.4.0/Zelos shared program library and arrival editor; integrated actual stopped/doors-open arrival execution, snapshot validation, source navigation and protected workspace drafts. Passed 192 frontend and 692 backend tests, production build and real WebUI disk save/reopen browser checks. User approved commit and task archive. No push, deployment or live Paper/Folia client acceptance.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ec00c91c` | feat(webui): add shared Blockly editor and arrival programs |
+
+### Status
+
+[OK] **Completed**

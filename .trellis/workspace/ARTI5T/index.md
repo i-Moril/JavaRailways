@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 22
-- **Last Active**: 2026-10-22
+- **Total Sessions**: 24
+- **Last Active**: 2026-10-24
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~743 | Active |
+| `journal-1.md` | ~766 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 24 | 2026-10-24 | Shared Blockly editor and arrival programs | `ec00c91c` | `feat/station-program-blocks` |
 | 22 | 2026-10-22 | Commit and deploy station operation programming | `e38c67a5`, `3b09e17b`, `290aa909` | `codex/station-operation-programming` |
 | 21 | 2026-10-20 | Commit isolated simulation runtime and final acceptance | `207807eb`, `3e53b3d7` | `codex/simulation-world-alignment` |
 | 20 | 2026-10-19 | World runtime isolation and observation completion | `5d8cdabe`, `1423116d` | `dev/signal-system` |

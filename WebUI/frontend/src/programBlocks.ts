@@ -68,7 +68,7 @@ export function blocksToDefinition(state:ProgramWorkspaceState,parameters:Statio
 }
 export function blockStepId(blockId:string){return newStepId(blockId);}
 export function defaultProgramStep(type:StationProgramStep['type'],provider?:{typeId:string;version:number}):StationProgramStep{
- const step:Record<string,unknown>={id:`step-${crypto.randomUUID()}`,type};
+ const step:Record<string,unknown>={id:`step-${Array.from(crypto.getRandomValues(new Uint8Array(16)),(byte)=>byte.toString(16).padStart(2,'0')).join('')}`,type};
  for(const [name,valueType] of Object.entries(expressionFields[type]??{}))step[name]={value:valueType==='UNIT_SLOTS'?[1]:valueType==='ID_LIST'?[]:valueType==='JSON_OBJECT'?{}:valueType==='DURATION'?1:valueType==='TICK'?0:''};
  if(type==='BRANCH'||type==='EXTENSION'){step.typeId=provider?.typeId??'';step.version=provider?.version??1;}
  if(type==='BRANCH'){step.thenSteps=[];step.elseSteps=[];}

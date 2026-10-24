@@ -20,6 +20,15 @@ const definition:StationProgramDefinition={parameters:[{id:'duration',type:'DURA
 {id:'branch',type:'BRANCH',typeId:'demo:condition',version:3,parameters:{value:{}},thenSteps:[{id:'inside',type:'WAIT_DURATION',durationTicks:{value:10}}],elseSteps:[{id:'nested',type:'BRANCH',typeId:'demo:condition',version:1,parameters:{value:{}},thenSteps:[],elseSteps:[{id:'reverse-inside',type:'REVERSE'}]}]},
 ]};
 describe('rail program Blockly mapping',()=>{
+ it('builds toolbox steps on HTTP without crypto.randomUUID',()=>{
+  vi.stubGlobal('crypto',{getRandomValues:crypto.getRandomValues.bind(crypto)});
+  try{
+   expect(crypto.randomUUID).toBeUndefined();
+   const steps=programStepTypes.map((type)=>defaultProgramStep(type));
+   expect(new Set(steps.map((step)=>step.id)).size).toBe(programStepTypes.length);
+   for(const step of steps){expect(step.id).toMatch(/^step-[0-9a-f]{32}$/);expect(blocksToDefinition(definitionToBlocks({parameters:[],steps:[step]}),[]).steps).toEqual([step]);}
+  }finally{vi.unstubAllGlobals();}
+ });
  it('round trips all 12 step types, nested branches, expressions and omitted optional fields exactly',()=>{expect(blocksToDefinition(definitionToBlocks(definition),definition.parameters)).toEqual(definition);});
  it('round trips every parameter reference type without resolving its value',()=>{
   const refDefinition=clone(definition);const all=refDefinition.steps as unknown as Record<string,unknown>[];let n=0;

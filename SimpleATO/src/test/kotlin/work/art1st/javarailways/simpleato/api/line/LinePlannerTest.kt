@@ -4,6 +4,7 @@ import org.junit.jupiter.api.function.Executable
 import org.junit.jupiter.api.Assertions.assertAll
 import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -16,6 +17,7 @@ import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
@@ -39,6 +41,31 @@ class LinePlannerTest {
         })
     }
 
+
+    @Test
+    fun `strict Reset follows ordered incoming via points without adding station calls`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        val destinations = OperationalDestinationService(world)
+        for ((id, position) in listOf("a" to 10.0, "b" to 90.0)) destinations.register(OperationalDestination(
+            id = "$id@one", displayName = id, railId = rail.id, arcLengthInAbMeters = position,
+            approachDirection = ViewDirection.AB,
+            role = DestinationRole.StationBerthRole(StationId(id), id, "one", DoorSide.LEFT)))
+        world.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("via1", "Via", rail.id, 40.0))
+        world.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("via2", "Via", rail.id, 60.0))
+        val line = Line(LineId("L"), "Line", listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a")))
+        val planner = LinePlanner(world)
+        fun compile(via: List<String>) = planner.compileResetCandidates(line, line.upStationIds, listOf("a@one", "b@one"),
+            listOf(ViewDirection.AB), listOf(emptyList(), via), requireUniquePath = true, pruneNonTargetWaypoints = true)
+        assertThrows(IllegalArgumentException::class.java) { compile(emptyList()) }
+        assertThrows(IllegalArgumentException::class.java) { compile(listOf("via2", "via1")) }
+        val result = compile(listOf("via1", "via2")).single().compilation
+        assertEquals(1, result.legs.size)
+        assertEquals(80.0, result.totalLengthMeters, 1e-6)
+        assertEquals("a@one", result.legs.single().fromDestinationId)
+        assertEquals("b@one", result.legs.single().toDestinationId)
+    }
 
     @Test
     fun `Reset candidates traverse fractional multi rail endpoints in automatic origin mode`() {

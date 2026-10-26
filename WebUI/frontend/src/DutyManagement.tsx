@@ -1,9 +1,12 @@
+import {getDutyBlockDraftValidity} from './dutyBlocks';
+import {ProgramBlockEditor,getProgramBlockDraftValidity} from './ProgramBlockEditor';
+import {DutyBlockEditor} from './DutyBlockEditor';
 import {RunConnectionEditor} from './RunConnectionEditor';
 import {DutyGraphEditor} from './DutyGraphEditor';
 import {findProgramStep} from './stationPrograms';
 import {FormationEventsEditor} from './FormationEventsEditor';
 import {formationOutputs,type AuthoringFormationEvent} from './formationAuthoring';
-import { useEffect,useState } from 'react';
+import { useCallback,useEffect,useRef,useState } from 'react';
 import { Button,Flex,Input,Select,Space,Tag,Typography } from 'antd';
 import { ArrowDownOutlined,ArrowUpOutlined,DeleteOutlined,PlusOutlined } from '@ant-design/icons';
 import type { AuthoringDutyV1,AuthoringFunctionCallV1,AuthoringRunV1,TimetableAuthoringDocumentV1 } from './authoring';
@@ -15,6 +18,7 @@ import { useI18n } from './i18n';
 
 export interface DutyManagementProps {
   onValidityChange?:(valid:boolean)=>void;
+  draftScope?:string;onUndo?:()=>void;onRedo?:()=>void;
   document?:TimetableAuthoringDocumentV1;onDocumentChange?:(document:TimetableAuthoringDocumentV1)=>void;
   formationEvents?:AuthoringFormationEvent[];onFormationEventsChange?:(events:AuthoringFormationEvent[])=>void;
   fieldScope?:string;focusedProgram?:ProgramSourceTarget;onOpenProgramLibrary?:(programId:string,stepId?:string)=>void;
@@ -29,7 +33,23 @@ export interface DutyManagementProps {
 }
 export function DutyManagement(p:DutyManagementProps) {
   const {t}=useI18n();
+  const [selectedElement,setSelectedElement]=useState('');
+  const latest=useRef(p);latest.current=p;
+  const invalidSources=useRef(new Set<string>()),[,setValidityRevision]=useState(0);
+  const sourceValid=useCallback((key:string,valid:boolean)=>{
+    if(invalidSources.current.has(key)===!valid)return;
+    if(valid)invalidSources.current.delete(key);else invalidSources.current.add(key);
+    setValidityRevision((n)=>n+1);latest.current.onValidityChange?.(invalidSources.current.size===0);
+  },[]);
+  const stableDraftScope=p.draftScope??p.fieldScope??'';
+  const cachedInvalid=p.duties.some((item)=>!getDutyBlockDraftValidity(`${stableDraftScope}/duty/${item.id}`,item.elements)||item.elements.some((element)=>element.type==='INLINE'&&!getProgramBlockDraftValidity(`${stableDraftScope}/duty/${item.id}/inline/${element.id}`,element.definition,'duty')));
+  useEffect(()=>{sourceValid('cached',!cachedInvalid);},[cachedInvalid,sourceValid]);
+  useEffect(()=>{for(const key of [...invalidSources.current])if(key.startsWith('canvas/')&&!p.duties.some((item)=>key===`canvas/${item.id}`)||key.startsWith('inline/')&&!p.duties.some((item)=>item.elements.some((element)=>element.type==='INLINE'&&key===`inline/${item.id}/${element.id}`)))sourceValid(key,true);},[p.duties,sourceValid]);
+
   const duty=p.duties.find((item)=>item.id===p.selectedId);
+  const canvasInvalid=duty?invalidSources.current.has(`canvas/${duty.id}`):false;
+  useEffect(()=>{setSelectedElement('');},[duty?.id]);
+  useEffect(()=>{const target=p.focusedProgram;if(target&&target.dutyId===duty?.id)setSelectedElement(target.elementId);},[p.focusedProgram,duty?.id]);
   const options=(values:string[])=>values.map((value)=>({value,label:value}));
   const selector=duty?.selector;
   const [name,setName]=useState(duty?.id??'');
@@ -43,6 +63,7 @@ export function DutyManagement(p:DutyManagementProps) {
     <section className="panel-surface duty-detail">{!duty||!selector?<p className="empty">{t('ui.selectDuty')}</p>:<>
       <div className="detail-heading"><Typography.Title level={4}>{duty.id}</Typography.Title><Button danger icon={<DeleteOutlined/>} onClick={p.onDelete}>{t('common.delete')}</Button></div>
       <div className="duty-properties">
+        <label>{t('duties.reference')}<Select aria-label={t('duties.reference')} value={duty.referenceVehicle?`${duty.referenceVehicle.type}:${duty.referenceVehicle.id}`:undefined} options={(p.metadata.simulationProfiles??[]).map((profile)=>({value:`${profile.type}:${profile.id}`,label:profile.displayName}))} onChange={(value)=>{const split=value.indexOf(':');p.onPatch({referenceVehicle:{type:value.slice(0,split) as 'WORLD_TRAIN'|'TRAIN_TEMPLATE',id:value.slice(split+1)}});}}/></label>
         <label>{t('ui.rename')}<Input value={name} onChange={(event)=>setName(event.target.value)} onBlur={commitName} onPressEnter={commitName}/></label>
         <label>{t('ui.selector')}<Select value={selector.type} onChange={(type)=>p.onPatch({selector:type==='TRAIN_NAME'?{type,name:''}:type==='TAKE_FROM_DEPOT'?{type,depotId:'',tick:0,tags:[]}:type==='TAKE_FROM_FORMATION_OUTPUT'?{type,eventId:'',outputId:'',tick:0}:{type:'TAKE_FROM_WAYPOINT',wayPointIds:[],tick:0}})} options={selectorOptions}/></label>
         {selector.type==='TRAIN_NAME'?<label>{t('ui.trainName')}<Input value={selector.name} onChange={(event)=>p.onPatch({selector:{...selector,name:event.target.value}})}/></label>:<>
@@ -51,7 +72,7 @@ export function DutyManagement(p:DutyManagementProps) {
         </>}
       </div>
       <Flex className="duty-toolbar" wrap gap={8}><Select aria-label={t('duties.assign')} placeholder={t('duties.assign')} value={null} style={{minWidth:220}} onChange={p.onAssign} options={p.runs.map((run)=>({value:run.id,label:`${run.id} · ${run.lineId??run.diagramLineId??'—'} · ${run.lineDirection} · ${run.calls[0]?.stationId??'—'} → ${run.calls.at(-1)?.stationId??'—'} · ${p.duties.find((item)=>item.elements.some((element)=>element.type==='RUN'&&element.runId===run.id))?.id??t('duties.unassigned')}`}))}/><Select aria-label={t('ui.function')} placeholder={t('ui.function')} value={null} style={{minWidth:180}} onChange={p.onAddFunction} options={(['PLACE_INITIAL','REVERSE','WAIT','STORE_AT_DEPOT'] as const).map((value)=>({value,label:functionLabel(value)}))}/></Flex>
-      <Flex wrap gap={8}><Select aria-label={t('programs.bind')} placeholder={t('programs.bind')} value={null} loading={p.programLoading} disabled={!p.onAddProgram||p.programLoading} options={(p.programLibrary??[]).filter((record)=>!record.archived&&record.definition.steps.length>0).map((record)=>({value:record.id,label:`${record.name} · r${p.boundPrograms?.find((item)=>item.programId===record.id)?.revision??record.revision}`}))} onChange={p.onAddProgram}/><Button disabled={p.programLoading} onClick={p.onRefreshPrograms}>{t('programs.refresh')}</Button></Flex>
+      <Flex wrap gap={8}><Button onClick={()=>{const id=`inline-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,9)}`;p.onPatch({elements:[...duty.elements,{id,type:'INLINE',definition:{parameters:[],steps:[{id:`${id}-wait`,type:'WAIT_DURATION',durationTicks:{value:1}}]}}]});setSelectedElement(id);}}>{t('duties.addInlineProgram')}</Button><Select aria-label={t('programs.bind')} placeholder={t('programs.bind')} value={null} loading={p.programLoading} disabled={!p.onAddProgram||p.programLoading} options={(p.programLibrary??[]).filter((record)=>!record.archived&&record.definition.steps.length>0).map((record)=>({value:record.id,label:`${record.name} · r${p.boundPrograms?.find((item)=>item.programId===record.id)?.revision??record.revision}`}))} onChange={p.onAddProgram}/><Button disabled={p.programLoading} onClick={p.onRefreshPrograms}>{t('programs.refresh')}</Button></Flex>
       {p.programError&&<Typography.Paragraph type="danger" role="alert">{p.programError}</Typography.Paragraph>}
       {!!p.boundPrograms?.length&&<section><Typography.Title level={5}>{t('programs.bound')}</Typography.Title><Typography.Paragraph type="secondary">{t('programs.snapshotHint')}</Typography.Paragraph>{p.boundPrograms.map((snapshot)=>{const latest=p.programLibrary?.find((record)=>record.id===snapshot.programId);return <Flex wrap gap={8} key={snapshot.programId}><Typography.Text>{snapshot.programId} · r{snapshot.revision}</Typography.Text>{latest?.archived?<Tag>{t('programs.archived')}</Tag>:latest&&latest.revision!==snapshot.revision?<Button onClick={()=>p.onAdoptProgram?.(snapshot.programId)}>{t('programs.adopt')} r{latest.revision}</Button>:null}</Flex>;})}</section>}
       {p.document&&p.onDocumentChange&&duty.elements.flatMap((element,i)=>{
@@ -59,7 +80,9 @@ export function DutyManagement(p:DutyManagementProps) {
         const from=p.runs.find((r)=>r.id===element.runId),to=p.runs.find((r)=>r.id===next.runId);
         return from&&to&&from.calls.at(-1)?.targetId===to.calls[0]?.targetId?[<RunConnectionEditor key={`${element.id}/${next.id}`} document={p.document!} from={from} to={to} onChange={p.onDocumentChange!} fieldScope={p.fieldScope??''}/>]:[];
       })}
-      <div className="duty-chain">{duty.elements.map((element,index)=><section key={element.id} className={`duty-element ${p.focusedProgram?.dutyId===duty.id&&p.focusedProgram.elementId===element.id?'program-step-focused':''}`}><Flex justify="space-between" align="center" gap={8}><Space><Tag>{index+1}</Tag>{element.type==='RUN'?<Button type="link" onClick={()=>p.onViewRun(element.runId)}>{element.runId}</Button>:<Typography.Text strong>{element.type==='PROGRAM'?`${t('programs.call')} · ${element.call.programId}`:functionLabel(element.call.type)}</Typography.Text>}</Space><Space><Button aria-label={t('common.moveUp')} icon={<ArrowUpOutlined/>} disabled={index===0} onClick={()=>p.onMove(element.id,-1)}/><Button aria-label={t('common.moveDown')} icon={<ArrowDownOutlined/>} disabled={index===duty.elements.length-1} onClick={()=>p.onMove(element.id,1)}/><Button danger aria-label={t('common.delete')} icon={<DeleteOutlined/>} onClick={()=>p.onRemove(element.id)}/></Space></Flex>
+      <DutyBlockEditor key={duty.id} scope={`${p.fieldScope}/${duty.id}`} draftScope={`${stableDraftScope}/duty/${duty.id}`} onValidityChange={(valid)=>sourceValid(`canvas/${duty.id}`,valid)} onUndo={p.onUndo} onRedo={p.onRedo} elements={duty.elements} onSelect={setSelectedElement} onChange={(elements)=>p.onPatch({elements})}/>
+      <div className="duty-chain">{duty.elements.filter((element)=>element.id===(duty.elements.some((item)=>item.id===selectedElement)?selectedElement:duty.elements[0]?.id)).map((element)=>{const index=duty.elements.indexOf(element);return <section key={element.id} className={`duty-element ${p.focusedProgram?.dutyId===duty.id&&p.focusedProgram.elementId===element.id?'program-step-focused':''}`}><Flex justify="space-between" align="center" gap={8}><Space><Tag>{index+1}</Tag>{element.type==='RUN'?<Button type="link" onClick={()=>p.onViewRun(element.runId)}>{element.runId}</Button>:<Typography.Text strong>{element.type==='INLINE'?t('duties.inlineProgram'):element.type==='PROGRAM'?`${t('programs.call')} · ${element.call.programId}`:functionLabel(element.call.type)}</Typography.Text>}</Space><Space><Button aria-label={t('common.moveUp')} icon={<ArrowUpOutlined/>} disabled={canvasInvalid||index===0} onClick={()=>p.onMove(element.id,-1)}/><Button aria-label={t('common.moveDown')} icon={<ArrowDownOutlined/>} disabled={canvasInvalid||index===duty.elements.length-1} onClick={()=>p.onMove(element.id,1)}/><Button danger aria-label={t('common.delete')} icon={<DeleteOutlined/>} onClick={()=>p.onRemove(element.id)}/></Space></Flex>
+        {element.type==='INLINE'&&<section><label>{t('duties.optionalTick')}<CommittedNumberInput fieldKey={`${p.fieldScope}/${duty.id}/${element.id}/tick`} allowEmpty min={0} precision={0} value={element.tick} onCommit={(tick)=>p.onPatch({elements:duty.elements.map((item)=>item.id===element.id?{...element,tick:tick??undefined}:item)})}/></label><ProgramBlockEditor events={p.document?.events} value={element.definition} context="duty" fieldScope={`${p.fieldScope}/${duty.id}/${element.id}/inline`} draftScope={`${stableDraftScope}/duty/${duty.id}/inline/${element.id}`} extensions={p.metadata.extensions?.actions} conditions={p.metadata.extensions?.conditions} onUndo={p.onUndo} onRedo={p.onRedo} onValidityChange={(valid)=>sourceValid(`inline/${duty.id}/${element.id}`,valid)} onChange={(definition)=>p.onPatch({elements:duty.elements.map((item)=>item.id===element.id?{...element,definition}:item)})}/></section>}
         {element.type==='PROGRAM'&&p.focusedProgram?.dutyId===duty.id&&p.focusedProgram.elementId===element.id&&<section className="program-bound-step"><Typography.Text strong>{t('programs.boundStep')} · {p.focusedProgram.stepId??element.call.id} · r{p.focusedProgram.revision}</Typography.Text><Typography.Paragraph type="secondary">{t('programs.boundStepHint')}</Typography.Paragraph><pre>{JSON.stringify(findProgramStep(p.boundPrograms?.find((snapshot)=>snapshot.programId===element.call.programId)?.definition.steps??[],p.focusedProgram?.stepId??'')??p.boundPrograms?.find((snapshot)=>snapshot.programId===element.call.programId)?.definition,null,2)}</pre><Button onClick={()=>p.onOpenProgramLibrary?.(element.call.programId,p.focusedProgram?.stepId)}>{t('programs.library')}</Button></section>}
         {element.type==='PROGRAM'&&<div className="function-fields"><label>{t('programs.callTick')}<CommittedNumberInput fieldKey={`${p.fieldScope}/${duty.id}/${element.id}/tick`} value={element.call.tick} allowEmpty={false} min={0} precision={0} onCommit={(tick)=>p.onPatchProgram?.(element.id,{tick:tick??0})}/></label>{p.boundPrograms?.find((snapshot)=>snapshot.programId===element.call.programId)?.definition.parameters.map((parameter)=><label key={parameter.id}>{parameter.id}<ProgramLiteralInput type={parameter.type} value={element.call.arguments[parameter.id]} fieldKey={`${p.fieldScope}/${duty.id}/${element.id}/${p.boundPrograms?.find((snapshot)=>snapshot.programId===element.call.programId)?.revision}/${parameter.id}`} onChange={(next)=>p.onPatchProgram?.(element.id,{arguments:{...element.call.arguments,[parameter.id]:next}})}/></label>)}</div>}
         {element.type==='FUNCTION'&&<div className="function-fields">
@@ -68,9 +91,9 @@ export function DutyManagement(p:DutyManagementProps) {
           {element.call.type==='WAIT'&&<label>{t('duties.waitDuration')}<CommittedNumberInput fieldKey={`${p.fieldScope}/${duty.id}/${element.id}/duration`} allowEmpty={false} min={0} precision={0} value={element.call.durationTicks} onCommit={(durationTicks)=>p.onPatchFunction(element.id,{durationTicks:durationTicks??0})}/></label>}
           {element.call.type==='STORE_AT_DEPOT'&&<><label>{t('duties.depot')}<Select value={element.call.depotId||undefined} options={options(p.metadata.depots??[])} onChange={(depotId)=>p.onPatchFunction(element.id,{depotId})}/></label><label>{t('ui.stabling')}<Select mode="tags" value={element.call.stablingPointIds} options={options((p.metadata.depotDetails??[]).find((depot)=>element.call.type==='STORE_AT_DEPOT'&&depot.id===element.call.depotId)?.stablingPoints.map((point)=>point.id)??[])} onChange={(stablingPointIds)=>p.onPatchFunction(element.id,{stablingPointIds})}/></label></>}
         </div>}
-      </section>)}</div>
+      </section>;})}</div>
     </>}</section></div>
-    {p.document&&p.onDocumentChange&&<DutyGraphEditor onValidityChange={p.onValidityChange} document={p.document} onChange={p.onDocumentChange} onViewRun={p.onViewRun} onSelectDuty={p.onSelect} fieldScope={p.fieldScope??''}/>}
+    {p.document&&p.onDocumentChange&&<DutyGraphEditor onValidityChange={(valid)=>sourceValid('graph',valid)} document={p.document} onChange={p.onDocumentChange} onViewRun={p.onViewRun} onSelectDuty={p.onSelect} fieldScope={p.fieldScope??''}/>}
     {p.onFormationEventsChange&&<FormationEventsEditor events={p.formationEvents??[]} dutyIds={p.duties.map((d)=>d.id)} destinations={p.metadata.wayPoints??[]} onChange={p.onFormationEventsChange} fieldScope={`${p.fieldScope}/formationEvents`}/>}
   </div>;
 }

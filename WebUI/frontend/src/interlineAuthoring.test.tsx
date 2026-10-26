@@ -20,13 +20,13 @@ describe('one-document through running and unit trips',()=>{
  it('generates one executor with exact segment scopes, one origin check and one shared C destination',()=>{
   const d=document(),generated=generateTimetableSource(d);expect(generated.issues).toEqual([]);
   const segments:{options:Record<string,unknown>;start:number;end:number}[]=[],actions:string[]=[],trips:string[]=[];
-  const timed={pass:(_:string)=>timed,destination:(id:string,options:unknown)=>{actions.push(`destination:${id}:${JSON.stringify(options)}`);return timed;}};
-  const scope={origin:(_:string,cb:(scope:unknown)=>void)=>cb(scope),check:(id:string)=>actions.push(`check:${id}`),at:(tick:number)=>{actions.push(`at:${tick}`);return timed;},runSegment:(options:Record<string,unknown>,cb:(scope:unknown)=>void)=>{const start=actions.length;cb(scope);segments.push({options,start,end:actions.length});}};
+  const timed={beginStationStop:()=>timed,pass:(_:string)=>timed,destination:(id:string,options:unknown)=>{actions.push(`destination:${id}:${JSON.stringify(options)}`);return timed;}};
+  const scope={beginStationStop:()=>scope,origin:(_:string,cb:(scope:unknown)=>void)=>cb(scope),check:(id:string)=>actions.push(`check:${id}`),at:(tick:number)=>{actions.push(`at:${tick}`);return timed;},runSegment:(options:Record<string,unknown>,cb:(scope:unknown)=>void)=>{const start=actions.length;cb(scope);segments.push({options,start,end:actions.length});}};
   let executors=0;const host={setPeriodDays:()=>{},diagramLine:()=>{},lineSpeedLimit:()=>{},operationalTrip:(id:string)=>trips.push(id),service:(_:string,__:string,options:unknown,cb?:(scope:unknown)=>void)=>{executors++;(cb??options as (scope:unknown)=>void)(scope);}};
   new Function('timetable',generated.source+'\nmain(timetable)')(host);
   expect(executors).toBe(1);expect(segments.map((s)=>s.options.runId)).toEqual(['M01','B01']);expect(segments[0].end).toBe(segments[1].start);
   expect(actions.filter((a)=>a.startsWith('check:'))).toEqual(['check:A@1']);expect(actions.filter((a)=>a.startsWith('destination:C@1:'))).toHaveLength(1);
-  expect(actions).toContain('destination:C@1:{"arrivalTick":300,"minimumDwellTicks":20,"doorSide":"LEFT"}');expect(actions).toContain('at:350');
+  const destination=JSON.parse(actions.find((action)=>action.startsWith('destination:C@1:'))!.slice('destination:C@1:'.length));expect(destination).toMatchObject({arrivalTick:300,minimumDwellTicks:20,doorSide:'LEFT',callRole:'TERMINAL',stationId:'C'});expect(actions).toContain('at:350');
   expect((segments[1].options.calls as {destinationId:string}[])[0].destinationId).toBe('C@1');expect(trips).toEqual(['to-E','to-D']);
  });
  it('rejects unsafe direct C offset, time, missing line and overlapping unit claims',()=>{

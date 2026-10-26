@@ -35,9 +35,11 @@ class EditorDocumentRestartTest {
         String document = """
             {"formatVersion":1,"id":"weekday","formalScriptName":"weekday.js","periodDays":2,
              "runs":[{"id":"run","type":"PASSENGER","lineDirection":"UP","calls":[
-                {"id":"call","stationId":"central","status":"TERMINAL","targetId":"central@one",
-                 "arrivalProgram":{"parameters":[],"steps":[{"id":"wait","type":"WAIT_DURATION","durationTicks":{"value":20}}]}}
-             ]}],"duties":[],"diagramLines":[],"arrivalOverrides":[]}
+                {"id":"call","stationId":"central","status":"TERMINAL","targetId":"central@one"}
+             ] }],"duties":[],"diagramLines":[],"arrivalOverrides":[],
+             "stationPrograms":[{"stationId":"central","preparationLeadTicks":0,
+               "arrival":{"parameters":[],"steps":[{"id":"wait","type":"WAIT_DURATION","durationTicks":{"value":20}},{"id":"end","type":"END"}]},
+               "departurePreparation":{"parameters":[],"steps":[{"id":"end","type":"END"}]}}]}
             """;
         Javalin app = null;
         try {

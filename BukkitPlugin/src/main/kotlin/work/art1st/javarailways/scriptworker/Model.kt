@@ -8,7 +8,7 @@ import kotlinx.serialization.json.JsonObject
 @Serializable enum class SavedTimetableStepTypeV1 { CHECK, AT }
 @Serializable enum class SavedTimetableConditionTypeV1 { PREDICATE, ALL, ANY, NOT }
 @Serializable enum class SavedTimetableActivationTypeV1 { SCHEDULED, MANUAL, CONDITIONAL }
-@Serializable enum class SavedTimetableActionTypeV1 { TAKE_FROM_DEPOT, TAKE_FROM_WAYPOINT, TAKE_FROM_FORMATION_OUTPUT, COUPLE, SPLIT, STORE_AT_DEPOT, DESTINATION, DESTINATION_OPTIONS, STOP, HALT, REVERSE, WAIT_UNTIL, STATION_DESTINATION_OPTIONS, SELECT_STOP, EXTENSION, CONDITIONAL, SET_DISPLAY, RESET_DISPLAY, BEGIN_OPERATIONAL_TRIP }
+@Serializable enum class SavedTimetableActionTypeV1 { TAKE_FROM_DEPOT, TAKE_FROM_WAYPOINT, TAKE_FROM_FORMATION_OUTPUT, COUPLE, SPLIT, STORE_AT_DEPOT, DESTINATION, DESTINATION_OPTIONS, STOP, HALT, REVERSE, WAIT_UNTIL, STATION_DESTINATION_OPTIONS, SELECT_STOP, EXTENSION, CONDITIONAL, SET_DISPLAY, RESET_DISPLAY, BEGIN_OPERATIONAL_TRIP, BEGIN_STATION_STOP }
 
 @Serializable data class SavedTimetableExtensionCallV1(val typeId: String, val version: Int = 1, val parameters: JsonObject = JsonObject(emptyMap()))
 @Serializable data class SavedTimetableConditionV1(val type: SavedTimetableConditionTypeV1, val call: SavedTimetableExtensionCallV1? = null, val conditions: List<SavedTimetableConditionV1> = emptyList())
@@ -31,9 +31,14 @@ import kotlinx.serialization.json.JsonObject
     val selectionPolicy: SavedStationStopSelectionPolicyV1? = null,
     val unitSlots: List<Int> = emptyList(), val displayValues: JsonObject = JsonObject(emptyMap()),
     val removeDisplayKeys: List<String> = emptyList(),
-    val operationalTripId: String? = null, val runId: String? = null
+    val operationalTripId: String? = null, val runId: String? = null,
+    val stopPrograms: SavedStationStopPrograms? = null
 ) {
     init {
+        require(stopPrograms == null || type in setOf(SavedTimetableActionTypeV1.BEGIN_STATION_STOP,
+            SavedTimetableActionTypeV1.DESTINATION_OPTIONS, SavedTimetableActionTypeV1.STATION_DESTINATION_OPTIONS,
+            SavedTimetableActionTypeV1.SELECT_STOP)) { "stopPrograms is only valid on station stop boundaries" }
+        require(stopPrograms == null || arrivalSteps.isEmpty()) { "legacy and shared station program inputs cannot coexist" }
         require(arrivalSteps.isEmpty() || type in setOf(SavedTimetableActionTypeV1.DESTINATION_OPTIONS,
             SavedTimetableActionTypeV1.STATION_DESTINATION_OPTIONS, SavedTimetableActionTypeV1.SELECT_STOP)) {
             "arrivalSteps is only valid on destination options and station stops"
@@ -127,7 +132,7 @@ import kotlinx.serialization.json.JsonObject
 
 @Serializable enum class SavedRunCallStatusV1 { ORIGIN, STOP, PASS, TERMINAL }
 @Serializable data class SavedTimetableRunCallV1(val id: String, val stationId: String, val destinationId: String,
-    val status: SavedRunCallStatusV1, val arrivalTick: Long? = null, val departureTick: Long? = null)
+    val status: SavedRunCallStatusV1, val arrivalTick: Long? = null, val departureTick: Long? = null, val viaIds: List<String> = emptyList())
 @Serializable data class SavedTimetableRunSegmentV1(val runId: String, val lineId: String,
     val startStepIndex: Int, val endStepIndexExclusive: Int, val diagramLineId: String? = null,
     val lineDirection: SavedLineDirectionV1? = null, val calls: List<SavedTimetableRunCallV1> = emptyList())

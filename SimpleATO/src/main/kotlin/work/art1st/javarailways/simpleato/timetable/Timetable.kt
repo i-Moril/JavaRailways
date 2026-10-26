@@ -156,6 +156,7 @@ sealed class TimetableStep {
 }
 
 sealed class TimetableAction {
+    data class BeginStationStop(val stopPrograms: StationStopPrograms) : TimetableAction() { init { require(stopPrograms.role == StationStopRole.ORIGIN) { "origin stop requires ORIGIN role" } } }
     class BeginOperationalTrip(val tripId: String, val runId: String, unitSlots: List<Int>) : TimetableAction() {
         val unitSlots = immutableUnitSlots(unitSlots)
         init { require(tripId.isNotBlank() && runId.isNotBlank()) }
@@ -243,18 +244,21 @@ sealed class TimetableAction {
         val minimumDwellTicks: Long? = null,
         val stoppingOffsetMetersBefore: Double? = null,
         val doorSide: DoorSide? = null,
-        arrivalSteps: List<TimetableStep.At> = emptyList()
+        arrivalSteps: List<TimetableStep.At> = emptyList(),
+        val stopPrograms: StationStopPrograms? = null
     ) : TimetableAction() {
         val arrivalSteps: List<TimetableStep.At> = java.util.List.copyOf(arrivalSteps)
         init {
+            require(stopPrograms == null || arrivalSteps.isEmpty()) { "legacy inline arrivals and shared stop programs cannot coexist" }
+            require(stopPrograms?.role != StationStopRole.ORIGIN) { "incoming stop cannot have ORIGIN role" }
             require(destinationId.isNotBlank() && destinationId == destinationId.trim())
             require(minimumDwellTicks == null || minimumDwellTicks >= 0L)
             require(stoppingOffsetMetersBefore == null ||
                 stoppingOffsetMetersBefore.isFinite() && stoppingOffsetMetersBefore >= 0.0)
         }
         override fun equals(other: Any?) = other is DestinationOptions &&
-            destinationId == other.destinationId && minimumDwellTicks == other.minimumDwellTicks && stoppingOffsetMetersBefore == other.stoppingOffsetMetersBefore && doorSide == other.doorSide && arrivalSteps == other.arrivalSteps
-        override fun hashCode() = java.util.Objects.hash(destinationId, minimumDwellTicks, stoppingOffsetMetersBefore, doorSide, arrivalSteps)
+            destinationId == other.destinationId && minimumDwellTicks == other.minimumDwellTicks && stoppingOffsetMetersBefore == other.stoppingOffsetMetersBefore && doorSide == other.doorSide && arrivalSteps == other.arrivalSteps && stopPrograms == other.stopPrograms
+        override fun hashCode() = java.util.Objects.hash(destinationId, minimumDwellTicks, stoppingOffsetMetersBefore, doorSide, arrivalSteps, stopPrograms)
     }
     /** One selected station movement; successor state is the actual chosen stopping marker. */
     class SelectStop(
@@ -262,16 +266,19 @@ sealed class TimetableAction {
         val minimumDwellTicks: Long? = null,
         val stoppingOffsetMetersBefore: Double? = null,
         val doorSideOverride: DoorSide? = null,
-        arrivalSteps: List<TimetableStep.At> = emptyList()
+        arrivalSteps: List<TimetableStep.At> = emptyList(),
+        val stopPrograms: StationStopPrograms? = null
     ) : TimetableAction() {
         val arrivalSteps: List<TimetableStep.At> = java.util.List.copyOf(arrivalSteps)
         init {
+            require(stopPrograms == null || arrivalSteps.isEmpty()) { "legacy inline arrivals and shared stop programs cannot coexist" }
+            require(stopPrograms?.role != StationStopRole.ORIGIN) { "incoming stop cannot have ORIGIN role" }
             require(minimumDwellTicks == null || minimumDwellTicks >= 0L)
             require(stoppingOffsetMetersBefore == null || stoppingOffsetMetersBefore.isFinite() && stoppingOffsetMetersBefore >= 0.0)
         }
         override fun equals(other: Any?) = other is SelectStop &&
-            selection == other.selection && minimumDwellTicks == other.minimumDwellTicks && stoppingOffsetMetersBefore == other.stoppingOffsetMetersBefore && doorSideOverride == other.doorSideOverride && arrivalSteps == other.arrivalSteps
-        override fun hashCode() = java.util.Objects.hash(selection, minimumDwellTicks, stoppingOffsetMetersBefore, doorSideOverride, arrivalSteps)
+            selection == other.selection && minimumDwellTicks == other.minimumDwellTicks && stoppingOffsetMetersBefore == other.stoppingOffsetMetersBefore && doorSideOverride == other.doorSideOverride && arrivalSteps == other.arrivalSteps && stopPrograms == other.stopPrograms
+        override fun hashCode() = java.util.Objects.hash(selection, minimumDwellTicks, stoppingOffsetMetersBefore, doorSideOverride, arrivalSteps, stopPrograms)
     }
 
     class CallStation(
@@ -280,10 +287,13 @@ sealed class TimetableAction {
         val minimumDwellTicks: Long? = null,
         val stoppingOffsetMetersBefore: Double? = null,
         val doorSideOverride: DoorSide? = null,
-        arrivalSteps: List<TimetableStep.At> = emptyList()
+        arrivalSteps: List<TimetableStep.At> = emptyList(),
+        val stopPrograms: StationStopPrograms? = null
     ) : TimetableAction() {
         val arrivalSteps: List<TimetableStep.At> = java.util.List.copyOf(arrivalSteps)
         init {
+            require(stopPrograms == null || arrivalSteps.isEmpty()) { "legacy inline arrivals and shared stop programs cannot coexist" }
+            require(stopPrograms?.role != StationStopRole.ORIGIN) { "incoming stop cannot have ORIGIN role" }
             require(stationId.isNotBlank() && berthId.isNotBlank())
             require(minimumDwellTicks == null || minimumDwellTicks >= 0L)
             require(stoppingOffsetMetersBefore == null ||
@@ -293,8 +303,8 @@ sealed class TimetableAction {
         val berthRef: StationBerthRef
             get() = StationBerthRef(StationId(stationId), berthId)
         override fun equals(other: Any?) = other is CallStation &&
-            stationId == other.stationId && berthId == other.berthId && minimumDwellTicks == other.minimumDwellTicks && stoppingOffsetMetersBefore == other.stoppingOffsetMetersBefore && doorSideOverride == other.doorSideOverride && arrivalSteps == other.arrivalSteps
-        override fun hashCode() = java.util.Objects.hash(stationId, berthId, minimumDwellTicks, stoppingOffsetMetersBefore, doorSideOverride, arrivalSteps)
+            stationId == other.stationId && berthId == other.berthId && minimumDwellTicks == other.minimumDwellTicks && stoppingOffsetMetersBefore == other.stoppingOffsetMetersBefore && doorSideOverride == other.doorSideOverride && arrivalSteps == other.arrivalSteps && stopPrograms == other.stopPrograms
+        override fun hashCode() = java.util.Objects.hash(stationId, berthId, minimumDwellTicks, stoppingOffsetMetersBefore, doorSideOverride, arrivalSteps, stopPrograms)
     }
 
     private fun isRuntimeProgramAction(): Boolean = when (this) {
@@ -404,6 +414,8 @@ class TimetableValidator(private val world: World) {
         }
         val serviceIds = mutableSetOf<String>()
         for (service in timetable.services) {
+            if (!serviceIds.add(service.id)) errors.add("重复 service id: ${service.id}")
+            if (service.activation is TimetableServiceActivation.Conditional) errors += "[${timetable.id}/${service.id}] runtime service activation conditions are not editable-plan deterministic"
             val program = TimetableServiceTraversal(service)
             val branchErrors = TimetableBranchGuard.validate(program,
                 conditionalActivation = service.activation is TimetableServiceActivation.Conditional)
@@ -412,23 +424,46 @@ class TimetableValidator(private val world: World) {
             errors += TimetableProgramSchedule.validate(program, periodTicks).map {
                 "[${timetable.id}/${service.id}] ${it.address} ${it.code}: ${it.detail}"
             }
+            var unsupportedRuntimeCondition = service.activation is TimetableServiceActivation.Conditional
             fun validateArrivals(steps: List<TimetableStep>, parent: TimetableStepAddress? = null, arm: TimetableBranchArm? = null) {
                 steps.forEachIndexed { index, step ->
                     val address = parent?.child(checkNotNull(arm), index) ?: TimetableStepAddress(index)
                     val action = (step as? TimetableStep.At)?.action ?: return@forEachIndexed
+                    val stopPrograms = when (action) {
+                        is TimetableAction.BeginStationStop -> action.stopPrograms
+                        is TimetableAction.DestinationOptions -> action.stopPrograms
+                        is TimetableAction.CallStation -> action.stopPrograms
+                        is TimetableAction.SelectStop -> action.stopPrograms
+                        else -> null
+                    }
+                    if (stopPrograms != null) {
+                        if (stopPrograms.plannedDepartureTick?.let { it >= periodTicks } == true) errors += "[$timetable/${service.id}] $address station departure outside timetable period"
+                        fun validateStationActions(actions: List<StationProgramAction>) {
+                            for (instruction in actions) when (instruction) {
+                                is StationProgramAction.WaitUntil -> if (instruction.tick >= periodTicks) errors += "[${timetable.id}/${service.id}] $address station wait outside timetable period"
+                                is StationProgramAction.Async -> validateStationActions(instruction.steps)
+                                is StationProgramAction.Extension -> validateExtensionAction("[${timetable.id}/${service.id}]", address, TimetableAction.Extension(instruction.call), errors)
+                                else -> Unit
+                            }
+                        }
+                        validateStationActions(stopPrograms.arrival)
+                        validateStationActions(stopPrograms.departurePreparation)
+                    }
                     action.arrivalSteps().forEachIndexed { childIndex, child ->
                         validateExtensionAction("[${timetable.id}/${service.id}]", address.child(TimetableBranchArm.ARRIVAL, childIndex), child.action, errors)
                     }
                     if (action is TimetableAction.Conditional) {
+                        unsupportedRuntimeCondition = true
+                        errors += "[${timetable.id}/${service.id}] $address runtime conditions are not editable-plan deterministic; compile planned branches first"
                         validateArrivals(action.thenSteps, address, TimetableBranchArm.THEN)
                         validateArrivals(action.elseSteps, address, TimetableBranchArm.ELSE)
                     }
                 }
             }
             validateArrivals(service.steps)
+            if (unsupportedRuntimeCondition) continue
             validateServiceLine(timetable, service, errors)
             validateService(timetable.id, periodTicks, service, errors, routes, routeStoppingOffsets, retainedRoutes, retainedSelections)
-            if (!serviceIds.add(service.id)) errors.add("重复 service id: ${service.id}")
         }
         val structural = if (timetable.formationEvents.isEmpty() || formationErrors.isNotEmpty()) StructuralTimetableValidation()
         else try {
@@ -577,7 +612,7 @@ class TimetableValidator(private val world: World) {
                     }
                     previousAtTick = step.tick
                     when (step.action) {
-                        is TimetableAction.BeginOperationalTrip, is TimetableAction.SetDisplay, is TimetableAction.ResetDisplay -> {
+                        is TimetableAction.BeginStationStop, is TimetableAction.BeginOperationalTrip, is TimetableAction.SetDisplay, is TimetableAction.ResetDisplay -> {
                             if (currentWayPointId == null && takeActionCount == 0 && !hasFormationOrigin && !(service.trainSelector is TrainSelector.TrainId && service.steps.any { it is TimetableStep.Check })) errors += "$prefix display action requires an acquired or checked train"
                             if (pendingStationCall != null || pendingDestinationOptions != null) errors += "$prefix display action cannot interrupt destination options"
                         }
@@ -772,6 +807,7 @@ class TimetableValidator(private val world: World) {
                         if (!accepted) errors += rejected.distinct()
                     }
                     currentWayPointId = successor
+                    val stationProgram = if (movement) pendingDestinationOptions?.second?.stopPrograms ?: pendingStationCall?.second?.stopPrograms else (step.action as? TimetableAction.BeginStationStop)?.stopPrograms
                     if (movement) { pendingStationCall = null; pendingDestinationOptions = null }
                     requiredStartDirections = when (step.action) {
                         TimetableAction.Reverse -> requiredStartDirections.map { direction ->
@@ -785,6 +821,9 @@ class TimetableValidator(private val world: World) {
                         is TimetableAction.Split,
                         is TimetableAction.TakeFromWaypoint -> setOf(null)
                         else -> requiredStartDirections
+                    }
+                    if (stationProgram != null && stationProgram.reverseParity() != 0) {
+                        requiredStartDirections = requiredStartDirections.map { direction -> (direction ?: currentWayPointId?.let(::destinationDirection))?.opposite() }.toSet()
                     }
                     when (val action = step.action) {
                         is TimetableAction.TakeFromDepot -> {
@@ -1117,6 +1156,11 @@ class TimetableValidator(private val world: World) {
                     cursor
                 }
             }
+            is TimetableAction.BeginStationStop -> {
+                if (action.stopPrograms.role != StationStopRole.ORIGIN) errors += "$prefix origin stop requires ORIGIN role"
+                if (action.stopPrograms.destinationId != null && currentWayPointId != null && action.stopPrograms.destinationId != currentWayPointId) errors += "$prefix origin stop does not match acquired/checked waypoint"
+                currentWayPointId
+            }
             is TimetableAction.DestinationOptions -> currentWayPointId
             is TimetableAction.CallStation -> {
                 val stationId = runCatching { StationId(action.stationId) }.getOrNull()
@@ -1192,7 +1236,9 @@ class TimetableValidator(private val world: World) {
             toWayPointId,
             requiredGoalDirection = destinationDirection(toWayPointId),
             requiredStartDirection = requiredStartDirection
-                ?: destinationDirection(fromWayPointId)
+                ?: destinationDirection(fromWayPointId),
+            requireUniquePath = true,
+            pruneNonTargetWaypoints = true
         )) {
             is RouteBuildResult.Success -> {
                 routes.add(result.route)

@@ -28,8 +28,9 @@ describe('shared station program bindings',()=>{
     const before=JSON.stringify(doc);expect(generateTimetableSource(doc).source).toContain('AVAILABLE_PRIORITY');expect(JSON.stringify(doc)).toBe(before);
   });
   it('validates both timed branch arms and rejects conditional fixed obligations',()=>{
-    const branch:StationProgramDefinition={parameters:[],steps:[{id:'choose',type:'BRANCH',typeId:'demo:condition',version:1,parameters:{value:{}},thenSteps:[{id:'late',type:'WAIT_UNTIL',tick:{value:100}},{id:'dwell',type:'WAIT_DURATION',durationTicks:{value:20}}],elseSteps:[{id:'early',type:'WAIT_UNTIL',tick:{value:50}}]}]};
+    const branch:StationProgramDefinition={parameters:[],steps:[{id:'choose',type:'BRANCH',typeId:'javarailways:plan_run_type',version:1,parameters:{value:{values:['PASSENGER']}},thenSteps:[{id:'late',type:'WAIT_UNTIL',tick:{value:100}},{id:'dwell',type:'WAIT_DURATION',durationTicks:{value:20}}],elseSteps:[{id:'early',type:'WAIT_UNTIL',tick:{value:50}}]}]};
     expect(validateStationProgram(branch)).toEqual([]);
+    const dynamic=structuredClone(branch);if(dynamic.steps[0].type==='BRANCH')dynamic.steps[0].typeId='javarailways:train_model';expect(validateStationProgram(dynamic)).toContain('Conditions must use planned timetable context');
     expect(stationProgramSchedule(branch.steps,{},10,24000).earliest).toBe(120);
     expect(findProgramStep(branch.steps,'dwell')?.type).toBe('WAIT_DURATION');
     expect(validateStationProgramCall({...snapshot,definition:branch},{...call,tick:10,arguments:{}},110).join(' ')).toContain('crosses');

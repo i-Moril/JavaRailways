@@ -3,18 +3,22 @@ import { Button,Flex,Modal,Segmented,Select,Space,Table,Tabs,Tag,Typography } fr
 import type { TableColumnsType } from 'antd';
 import { ArrowLeftOutlined,CheckCircleOutlined,DeleteOutlined } from '@ant-design/icons';
 import { resizeRunRoute,type AuthoringIssue,type AuthoringRunCallV1,type AuthoringRunV1 } from './authoring';
-import { ProgramBlockEditor,clearProgramBlockDraft } from './ProgramBlockEditor';
+import {StationStopProgramEditor} from './StationStopProgramEditor';
+import {defaultStationStopProgram} from './stationPlans';
 import { RunTitleEditor } from './RunTitleEditor';
 import { CommittedNumberInput } from './CommittedNumberInput';
 import { useI18n } from './i18n';
 import { formatTimetableTick } from './timetableTime';
-import type { LineDirection,LineV1,WorldMetadata } from './types';
+import type { StationStopProgram,TimetableEventPoint,LineDirection,LineV1,WorldMetadata } from './types';
 
 const uid=(prefix:string)=>`${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`;
 const stationIds=(line:LineV1,direction:LineDirection)=>direction==='UP'?line.upStationIds:line.downStationIds;
 
 interface RunRouteEditorProps {
   tools?:ReactNode;
+  stationPrograms?:StationStopProgram[];
+  events?:TimetableEventPoint[];
+  onStationProgramChange?:(program:StationStopProgram)=>void;
   onRename?:(id:string)=>void;
   fieldScope?:string;
   programDraftScope?:string;
@@ -33,7 +37,7 @@ interface RunRouteEditorProps {
   onDelete:()=>void;
 }
 
-export function RunRouteEditor({run,lines,metadata,busy,onError,onChange,onDelete,tools,issues=[],focusedCallId,fieldScope='',onRename,onArrivalValidityChange,focusedArrivalStep,onUndo,onRedo,programDraftScope=fieldScope}:RunRouteEditorProps) {
+export function RunRouteEditor({events=[],stationPrograms=[],onStationProgramChange,run,lines,metadata,busy,onError,onChange,onDelete,tools,issues=[],focusedCallId,fieldScope='',onRename,onArrivalValidityChange,focusedArrivalStep,onUndo,onRedo,programDraftScope=fieldScope}:RunRouteEditorProps) {
   const {locale,t}=useI18n();
   const [inspectorTab,setInspectorTab]=useState<'calls'|'options'|'issues'>('calls');
   const [selectedCallId,setSelectedCallId]=useState(focusedCallId??'');
@@ -73,7 +77,7 @@ export function RunRouteEditor({run,lines,metadata,busy,onError,onChange,onDelet
     {title:t('editor.callType'),key:'status',width:92,render:(_,call)=>call.status==='ORIGIN'||call.status==='TERMINAL'?<Typography.Text>{t(call.status==='ORIGIN'?'status.origin':'status.terminal')}</Typography.Text>:<Select variant="borderless" value={call.status} onChange={(status)=>changeStatus(call,status as 'STOP'|'PASS')} options={[{value:'STOP',label:t('status.stop')},{value:'PASS',label:t('status.pass')}]}/>},
     {title:t('editor.berth'),key:'berth',width:88,render:(_,call)=><Select variant="borderless" value={call.berthId||undefined} placeholder="—" onChange={(berthId)=>changeBerth(call,berthId)} options={berthsFor(call.stationId).map((berth)=>({value:berth.berthId,label:berth.berthId}))}/>},
     {title:t('editor.arrivalTime'),key:'arrival',width:96,render:(_,call)=>call.status==='ORIGIN'?<Typography.Text type="secondary">—</Typography.Text>:<span className="editable-tick"><CommittedNumberInput aria-label={`${labelStation(call.stationId)} · ${t('editor.arrivalTime')}`} fieldKey={`${fieldScope}/${run.id}/${call.id}/arrival`} variant="borderless" controls={false} min={0} precision={0} value={call.arrivalTick} onCommit={(arrivalTick)=>patchCall(call.id,{arrivalTick})}/>{timeDisplay==='both'&&<small>{call.arrivalTick==null?'—':formatTimetableTick(call.arrivalTick,locale)}</small>}</span>},
-    {title:t('editor.departureTime'),key:'departure',width:96,render:(_,call)=>call.status==='PASS'||call.status==='TERMINAL'?<Typography.Text type="secondary">—</Typography.Text>:<span className="editable-tick"><CommittedNumberInput aria-label={`${labelStation(call.stationId)} · ${t('editor.departureTime')}`} fieldKey={`${fieldScope}/${run.id}/${call.id}/departure`} variant="borderless" controls={false} min={0} precision={0} value={call.departureTick} onCommit={(departureTick)=>patchCall(call.id,{departureTick})}/>{timeDisplay==='both'&&<small>{call.departureTick==null?'—':formatTimetableTick(call.departureTick,locale)}</small>}</span>},
+    {title:t('editor.departureTime'),key:'departure',width:96,render:(_,call)=>call.status==='PASS'?<Typography.Text type="secondary">—</Typography.Text>:<span className="editable-tick"><CommittedNumberInput aria-label={`${labelStation(call.stationId)} · ${t('editor.departureTime')}`} fieldKey={`${fieldScope}/${run.id}/${call.id}/departure`} variant="borderless" controls={false} min={0} precision={0} value={call.departureTick} onCommit={(departureTick)=>patchCall(call.id,{departureTick})}/>{timeDisplay==='both'&&<small>{call.departureTick==null?'—':formatTimetableTick(call.departureTick,locale)}</small>}</span>},
   ];
 
   if(!line)return <p className="empty">{t('editor.selectLineForSchedule')}</p>;
@@ -81,11 +85,9 @@ export function RunRouteEditor({run,lines,metadata,busy,onError,onChange,onDelet
     <Flex className="subpage-head" align="center" justify="space-between"><Button type="text" icon={<ArrowLeftOutlined/>} onClick={()=>setSelectedCallId('')}>{t('editor.backToCalls')}</Button><Tag>{run.id}</Tag></Flex>
     <div className="subpage-title"><Typography.Text type="secondary">{t('editor.stationDetails')}</Typography.Text><Typography.Title level={4}>{labelStation(selectedCall.stationId)}</Typography.Title></div>
     <div className="call-detail-form"><label>{t('editor.minimumDwell')}<CommittedNumberInput fieldKey={`${fieldScope}/${run.id}/${selectedCall.id}/dwell`} min={0} precision={0} disabled={selectedCall.status==='PASS'||selectedCall.status==='ORIGIN'} value={selectedCall.minimumDwellTicks} onCommit={(minimumDwellTicks)=>patchCall(selectedCall.id,{minimumDwellTicks})}/></label><label>{t('editor.doorSide')}<Select value={selectedCall.doorSide||'NONE'} disabled={selectedCall.status==='PASS'||selectedCall.status==='ORIGIN'} onChange={(doorSide)=>patchCall(selectedCall.id,{doorSide:doorSide as typeof selectedCall.doorSide})} options={['NONE','LEFT','RIGHT','BOTH'].map((value)=>({value,label:value}))}/></label></div>
-    <section className="station-arrival-actions"><Typography.Title level={5}>{t('editor.stationActions')} <Tag>{selectedCall.arrivalProgram?.steps.length??0}</Tag></Typography.Title>
-      <Typography.Paragraph type="secondary">{t(selectedCall.status==='STOP'||selectedCall.status==='TERMINAL'?'programs.arrivalHint':'programs.arrivalUnavailable')}</Typography.Paragraph>
-      {(selectedCall.status==='STOP'||selectedCall.status==='TERMINAL')&&<><Button disabled={busy} onClick={()=>setArrivalOpen(true)}>{t('programs.editArrival')}</Button><Modal title={t('editor.stationActions')} width={1120} open={arrivalOpen} onCancel={()=>setArrivalOpen(false)} footer={null} destroyOnHidden><ProgramBlockEditor key={`${fieldScope}/${run.id}/${selectedCall.id}/arrival`} value={selectedCall.arrivalProgram??{parameters:[],steps:[]}} context="arrival" draftScope={`${programDraftScope}/${run.id}/${selectedCall.id}/arrival`} fieldScope={`${fieldScope}/${run.id}/${selectedCall.id}/arrival`} extensions={metadata.extensions?.actions} conditions={metadata.extensions?.conditions} focusedStep={focusedArrivalStep} onUndo={onUndo} onRedo={onRedo} onValidityChange={(valid)=>onArrivalValidityChange?.(run.id,selectedCall.id,valid)} onChange={(arrivalProgram)=>patchCall(selectedCall.id,{arrivalProgram})}/></Modal></>}
-      {selectedCall.arrivalProgram&&<Button danger onClick={()=>{clearProgramBlockDraft(`${programDraftScope}/${run.id}/${selectedCall.id}/arrival`);patchCall(selectedCall.id,{arrivalProgram:undefined});onArrivalValidityChange?.(run.id,selectedCall.id,true);}}>{t('common.delete')}</Button>}
-    </section>
+    <label>{t('editor.via')}<Select aria-label={t('editor.via')} mode="multiple" disabled={selectedCall.status==='ORIGIN'} value={selectedCall.viaIds??[]} options={(metadata.wayPoints??[]).map((id)=>({value:id,label:id}))} onChange={(viaIds)=>patchCall(selectedCall.id,{viaIds})}/></label>
+    {selectedCall.status!=='PASS'&&<section className="station-arrival-actions"><Typography.Title level={5}>{t('stationPrograms.title')}</Typography.Title><Typography.Paragraph type="secondary">{t('stationPrograms.hint')}</Typography.Paragraph><Button disabled={busy||!onStationProgramChange} onClick={()=>setArrivalOpen(true)}>{t('programs.editArrival')}</Button><Modal title={`${t('stationPrograms.title')} · ${labelStation(selectedCall.stationId)}`} width={1120} open={arrivalOpen} onCancel={()=>setArrivalOpen(false)} footer={null} destroyOnHidden><StationStopProgramEditor events={events} value={stationPrograms.find((program)=>program.stationId===selectedCall.stationId)??defaultStationStopProgram(selectedCall.stationId)} scope={`${programDraftScope}/station/${selectedCall.stationId}`} onValidityChange={(valid)=>onArrivalValidityChange?.(selectedCall.stationId,selectedCall.id,valid)} extensions={metadata.extensions?.actions} onChange={(program)=>onStationProgramChange?.(program)}/></Modal></section>}
+
   </section>;
 
   const calls=<div className="calls-page"><Flex className="time-mode" align="center" justify="space-between"><Typography.Text type="secondary">{t('editor.stationCallsHint')}</Typography.Text><Segmented size="small" value={timeDisplay} onChange={(value)=>setTimeDisplay(value as 'tick'|'both')} options={[{value:'tick',label:t('editor.tick')},{value:'both',label:t('editor.bothTimes')}]}/></Flex><Table<AuthoringRunCallV1> className="calls-table" size="small" pagination={false} tableLayout="fixed" rowKey="id" columns={callColumns} dataSource={run.calls}/></div>;

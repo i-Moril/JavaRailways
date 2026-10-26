@@ -47,19 +47,19 @@ export function resolveArrivalSourceTarget(document:TimetableAuthoringDocumentV1
     }
   }
   const indexed=/^runs\[(\d+)\]\.calls\[(\d+)\]\.arrivalProgram(?:\.|$)/.exec(path);
-  if(indexed){const run=document.runs[Number(indexed[1])],call=run?.calls[Number(indexed[2])];return call?.arrivalProgram?{runId:run.id,callId:call.id}:undefined;}
+  if(indexed){const run=document.runs[Number(indexed[1])],call=run?.calls[Number(indexed[2])];return call&&document.stationPrograms?.some((program)=>program.stationId===call.stationId)?{runId:run.id,callId:call.id}:undefined;}
   const targets:ArrivalSourceTarget[]=[];
   for(const duty of document.duties)for(const element of duty.elements){
     if(element.type!=='RUN')continue;
     const run=document.runs.find((item)=>item.id===element.runId);if(!run)continue;
     for(const call of run.calls){
-      if(!call.arrivalProgram)continue;
+      const station=document.stationPrograms?.find((program)=>program.stationId===call.stationId);if(!station)continue;
       const stem=`duty:${duty.id}/element:${element.id}/run:${run.id}/arrival:${call.id}`;
       const offset=path.indexOf(stem);if(offset<0)continue;
       const rest=path.slice(offset+stem.length);
       if(rest&&!rest.startsWith('/step:')&&!/^[\s"':]/.test(rest))continue;
       const stepId=rest.startsWith('/step:')?/^\/step:([A-Za-z0-9_-]+)/.exec(rest)?.[1]:undefined;
-      if(rest.startsWith('/step:')&&(!stepId||!findProgramStep(call.arrivalProgram.steps,stepId)))continue;
+      if(rest.startsWith('/step:')&&(!stepId||!(findProgramStep(station.arrival.steps,stepId)||findProgramStep(station.departurePreparation.steps,stepId))))continue;
       targets.push({runId:run.id,callId:call.id,stepId});
     }
   }

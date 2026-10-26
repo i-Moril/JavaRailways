@@ -28,10 +28,10 @@ describe('authoring workspace views',()=>{
   const run={id:'r',type:'PASSENGER' as const,lineDirection:'UP' as const,diagramLineId:'L',calls:[{id:'origin',stationId:'a',targetId:'a',status:'ORIGIN' as const},{id:'terminal',stationId:'b',targetId:'b',status:'TERMINAL' as const}]};
   const lines=[{id:'L',displayName:'Line',upStationIds:['a','b'],downStationIds:['b','a']}];
   const terminal=render(<RunRouteEditor run={run} focusedCallId="terminal" lines={lines} metadata={{}} busy={false} onChange={noop} onError={noop} onDelete={noop}/>);
-  expect(terminal).toContain(translate('en-US','programs.editArrival'));expect(terminal).toContain(translate('en-US','programs.arrivalHint'));
+  expect(terminal).toContain(translate('en-US','programs.editArrival'));expect(terminal).toContain(translate('en-US','stationPrograms.hint'));
   expect(terminal).not.toContain('station-actions-reserved');
   const origin=render(<RunRouteEditor run={run} focusedCallId="origin" lines={lines} metadata={{}} busy={false} onChange={noop} onError={noop} onDelete={noop}/>);
-  expect(origin).toContain(translate('en-US','programs.arrivalUnavailable'));expect(origin).not.toContain(translate('en-US','programs.editArrival'));
+  expect(origin).toContain(translate('en-US','stationPrograms.hint'));expect(origin).toContain(translate('en-US','programs.editArrival'));
  });
  it('labels arrival cursor paths as station actions rather than a false branch',()=>{
   const html=render(<AuthoringValidation {...props} simulation={{status:'PERIOD_ENDED',simulatedTicks:100,runs:[{timetableId:'t',serviceId:'duty-a',trainId:'train',state:'WAITING',timetableElapsedTicks:100,lastLatenessTicks:0,nextStepIndex:4,activeStepIndex:2,activeStepBranchPath:[{arm:'ARRIVAL',index:0}]}]}}/>);
@@ -76,7 +76,7 @@ describe('authoring workspace views',()=>{
     {id:'d',stationId:'Terminal',targetId:'d',status:'TERMINAL',arrivalTick:500},
   ]}} lines={[{id:'line',displayName:'Line',upStationIds:['Origin','Stop','Pass','Terminal'],downStationIds:['Terminal','Pass','Stop','Origin']}]} metadata={{}} busy={false} onError={noop} onChange={noop} onDelete={noop}/>);
   expect(html).toContain('Origin · Departure');expect(html).toContain('Stop · Arrival');expect(html).toContain('Stop · Departure');expect(html).toContain('Pass · Arrival');expect(html).toContain('Terminal · Arrival');
-  expect(html).not.toContain('aria-label="Origin · Arrival"');expect(html).not.toContain('aria-label="Pass · Departure"');expect(html).not.toContain('aria-label="Terminal · Departure"');
+  expect(html).not.toContain('aria-label="Origin · Arrival"');expect(html).not.toContain('aria-label="Pass · Departure"');expect(html).toContain('aria-label="Terminal · Departure"');
   expect(html).not.toContain('ant-input-number-disabled');expect(html).toContain('Commit times with Enter or blur');
  });
 

@@ -20,8 +20,7 @@ class StationProgramScriptTest {
             arrivalProgram:{parameters:[],steps:[
               {id:'wait',type:'WAIT_DURATION',durationTicks:{value:20}},
               {id:'until',type:'WAIT_UNTIL',tick:{value:50}},
-              {id:'choose',type:'BRANCH',typeId:'test:condition',version:1,parameters:{value:{}},
-               thenSteps:[{id:'action',type:'EXTENSION',typeId:'test:action',version:1,parameters:{value:{}}}],elseSteps:[]}
+              {id:'action',type:'EXTENSION',typeId:'test:action',version:1,parameters:{value:{}}}
             ]}}));t.at(120).destination('C');});
         """)
         val steps = compiled.services.single().steps
@@ -31,8 +30,7 @@ class StationProgramScriptTest {
         assertEquals(20L, arrival.first().action!!.stopTicks)
         val trace = compiled.compilationTrace.single { it.origin.endsWith("step:action") }
         assertEquals(1, trace.stepIndex)
-        assertEquals(listOf(SavedTimetableBranchPathEntryV1(SavedTimetableBranchArmV1.ARRIVAL,2),
-            SavedTimetableBranchPathEntryV1(SavedTimetableBranchArmV1.THEN,0)), trace.branchPath)
+        assertEquals(listOf(SavedTimetableBranchPathEntryV1(SavedTimetableBranchArmV1.ARRIVAL,2)), trace.branchPath)
     }
 
     @Test fun `arrival definitions reject motion and declared parameters recursively`() {
@@ -61,22 +59,20 @@ class StationProgramScriptTest {
         }
     }
 
-    @Test fun `program branches keep independent times and full nested source addresses`() {
+    @Test fun `planned program branches fold and retain selected source addresses`() {
         val result = compile("""
           timetable.service('s','train',t=>{t.check('start');t.at(10).program('branch',{
-            parameters:[],steps:[{id:'choose',type:'BRANCH',typeId:'demo:condition',version:1,parameters:{value:{}},
+            parameters:[],steps:[{id:'choose',type:'BRANCH',typeId:'javarailways:plan_duty_id',version:1,parameters:{value:{values:['s']}},
               thenSteps:[{id:'later',type:'WAIT_UNTIL',tick:{value:80}},{id:'yes',type:'EXTENSION',typeId:'demo:action',version:1,parameters:{value:{}}}],
               elseSteps:[{id:'earlier',type:'WAIT_UNTIL',tick:{value:40}}]},
-              {id:'after',type:'EXTENSION',typeId:'demo:action',version:1,parameters:{value:{}}}]},{});});
+              {id:'after',type:'EXTENSION',typeId:'demo:action',version:1,parameters:{value:{}}}]},{},{dutyId:'s'});});
         """)
         val steps = result.services.single().steps
-        assertEquals(10L, steps[1].tick)
-        assertEquals(listOf(80L, 80L), steps[1].action!!.thenSteps.map { it.tick })
-        assertEquals(40L, steps[1].action!!.elseSteps.single().tick)
-        assertEquals(80L, steps[2].tick)
+        assertEquals(listOf(80L,80L,80L), steps.drop(1).map { it.tick })
+        assertTrue(steps.none { it.action?.type == SavedTimetableActionTypeV1.CONDITIONAL })
         val child = result.compilationTrace.single { it.origin.endsWith("step:yes") }
-        assertEquals(1, child.stepIndex)
-        assertEquals(listOf(SavedTimetableBranchPathEntryV1(SavedTimetableBranchArmV1.THEN, 1)), child.branchPath)
+        assertEquals(2, child.stepIndex)
+        assertTrue(child.branchPath.isEmpty())
         for (fixed in listOf("{id:'fixed',type:'SPLIT',eventId:{value:'event'}}",
             "{id:'fixed',type:'COUPLE',eventId:{value:'event'}}",
             "{id:'fixed',type:'STORE_AT_DEPOT',depotId:{value:'depot'},stablingPointIds:{value:[]}}")) {
@@ -201,9 +197,9 @@ class StationProgramScriptTest {
         val failure = assertThrows(Throwable::class.java) { compile("""
           timetable.service('s','train',t=>{t.check('start');
             t.origin('duty:s/element:e/call:c',s=>s.program('p',{parameters:[],steps:[
-              {id:'parent',type:'BRANCH',typeId:'demo:condition',version:1,parameters:{value:{}},
+              {id:'parent',type:'BRANCH',typeId:'javarailways:plan_duty_id',version:1,parameters:{value:{values:['s']}},
                 thenSteps:[{id:'child',type:'WAIT_DURATION',durationTicks:{value:0}}],elseSteps:[]}
-            ]},{}));});
+            ]},{},{dutyId:'s'}));});
         """) }
         assertTrue(failure.message.orEmpty().contains("duty:s/element:e/call:c/program:p/step:child"), failure.message)
         assertFalse(failure.message.orEmpty().contains("program:p/step:parent"), failure.message)
@@ -226,6 +222,7 @@ class StationProgramScriptTest {
           });
         """)
         assertFalse(caught.services.single().steps.any { it.action?.type == SavedTimetableActionTypeV1.REVERSE })
-        assertThrows(Throwable::class.java) { compile("timetable.service('s','train', t => {t.check('start');t.at(100).program('p',{parameters:[],steps:[{id:'x',type:'WAIT_UNTIL',tick:{value:90}}]},{});});") }
+        val elapsed = compile("timetable.service('s','train', t => {t.check('start');t.at(100).program('p',{parameters:[],steps:[{id:'x',type:'WAIT_UNTIL',tick:{value:50}},{id:'r',type:'REVERSE'}]},{});});")
+        assertEquals(listOf(100L,100L), elapsed.services.single().steps.drop(1).map { it.tick })
     }
 }

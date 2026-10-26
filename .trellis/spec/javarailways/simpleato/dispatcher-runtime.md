@@ -34,7 +34,7 @@ runtime owner revision恢复旧声明。收集或最终安装失败也复用这�
 `scheduleInitialCycle`只能紧随begin，manual activation不自动启动。
 静态收集不调用列车inspection bind/update，不检查当前灯色或占用，不产生claim；其接口、复杂度和失败合同见
 [静态资源依赖](./operational-routing-and-authority.md#35-已选时刻表路线的静态资源依赖)。
-scheduled/conditional cycles按period recurrence；`WAIT_UNTIL_TRUE`只保留该cycle，不阻塞其他service/clock；`SKIP_CYCLE`跳过。
+scheduled cycles按period recurrence；当前时刻表校验拒绝依赖运行时条件的 activation，计划条件必须在编译时折叠。
 
 每个timetable使用由其ID确定性生成的稳定owner ID；revision只是在当前world runtime内单调递增的mutation序号，不是
 schema version，也不写入checkpoint。clock仍存在、checkpoint recovery run仍待管理员处理，或任一run尚未满足
@@ -246,14 +246,20 @@ The real isolated coupling→movement→split factory regression exercises this 
 
 A branch selected against a published child can reverse a still-held body before choosing its first corridor. Dispatcher first suspends the exact Basic output grant, then marks that output's handoff as reversing. After the prepared Core reversal it records the actual new direction in the pending depot owner in the same serialized callback. The handoff remains paused until Basic accepts the exact reversed-body rebase; only then may ordinary cursor execution select departure and request movement. Failed ownership/rebase transitions retain holds and enter recovery. No condition is evaluated against the unsplit parent's length, and no sibling grant or owner is released by this reversal.
 
-## 停站期间的到站程序
+## 共享停站程序与两个执行入口（CURRENT）
 
-到站程序是同一 service 定义中的 `ARRIVAL` 子树，不建立第二个调度器。目的地选项、明确站台和动态选站动作可携带默认空的 `arrivalSteps`。普通移动仍先完成实际停车和既有开门 ticket；进入 DWELLING 时才切换到到站子树，同时记录实际停靠位置，扩展上下文不能继续报告上一出发点。
+同一时刻表每站一份作者定义，经 ScriptWorker 用当前运行线的静态计划上下文展开为 `StationStopPrograms`。ORIGIN 以 `BeginStationStop` 建立边界；STOP/TERMINAL 随目标动作携带 stopPrograms。实际寻路、接近及停车继续由运行线负责，车站程序不执行到达运动。旧低层 arrivalSteps 游标不是编辑文档的 per-call override 通道；编辑边界拒绝旧 arrivalProgram，迁移见前端规范。
 
-切换前保留主程序 continuation 和拥有到站子树的完整地址；分支、异步扩展、等待继续使用既有游标与 ticket。每次推进先检查地址是否已经离开该 `ARRIVAL` 子树，离开后恢复主 continuation 并回到原停站 DWELLING，必须在普通下一步骤或 COMPLETED 判定之前完成，不能漏掉终点到站动作或提前执行下一行车任务。到站程序结束不释放站台、授权或停车零速约束。
+`StationStopPrograms` 包含 stationId、callId、role、arrival、departurePreparation、preparationLeadTicks、plannedDepartureTick、destinationId、doorSide、minimumDwellTicks。时间为 timetable tick，1 day=24000 tick。正常停车确认后启动 arrival；ORIGIN 不执行 arrival，PASS 不建立停站程序。STOP 与 ORIGIN 的准备入口在计划发车时刻减 lead 到达后，且 arrival **主序列**完成时开始，不等待 arrival 的非阻塞子任务，也不额外等最小停站。TERMINAL 永不启动准备入口，缺省保持开门。
 
-持续等待从实际执行的 Dispatcher tick 开始，绝对等待使用 timetable elapsed tick；到站子树的编译初始tick为0不意味着它计划在世界周期起点执行，不能据此伪造整体迟到值。原最小停站时间从实际开门成功开始计时，与到站程序并行；到站程序完成且最小停站、正常发车时刻门禁均满足后，才允许关门和发车。等待和未完成扩展不能误入普通 dwell 完成分支。
+`StationStopProgramRuntime` 对每个任务持有独立程序计数器、计时 gate、operation/extension ticket。普通动作等待真实完成；ASYNC 当 Tick 创建并推进子任务，父继续执行；AWAIT 等待指定任务及其全部后代。主序列必须 END；子任务不能逃逸到下一站。开放/关闭门与换向竞争同一物理操作所有权，不允许多个任务同时启动互斥物理操作。相对等待从任务实际执行 Tick 开始，绝对等待过期则立即通过；等待不中断停车保持。
 
-子树递归只允许 SetDisplay、ResetDisplay、Stop（持续等待）、WaitUntil、Conditional 和 Extension。改变方向、路线或编组的操作不属于停站上下文；模型校验、ScriptWorker 和编辑文档边界都要拒绝，不能仅靠 UI 工具箱隐藏。条件与扩展仍执行注册 provider 校验和真实运行结果，失败不得伪装到站程序完成并放行。
+真正提交下一行车任务（含存车、接近联挂）前，公共 gate 要求两个适用入口及全部后代完成，时间和最小停站满足，门已确认关闭，后续物理授权已确认。主序列 END 不能直接开车或绕过这些 gate。到达主序列完成仅准许启动准备，不代表发车准备或子任务完成。终点有 departureTick 时它只门禁后续交路动作，无时刻则在到达及所有后代完成后立即交接；它不隐式关门。开门终到不能直接 MOVE、STORE 或接近联挂；交路须先明确关门。
 
-定义随既有 Timetable snapshot 捕获恢复，新增列表缺省为空，不升级格式。运行 checkpoint 仍遵循既有人工恢复/禁用受影响服务的契约，不声称能在重启后恢复 live arrival cursor 或 ticket。验证覆盖停车/门动作之前不运行、实际到站后执行一次、持续和绝对等待、条件与扩展、终点、最小停站并行以及 snapshot 往返。
+换向使用原有 ATO 准备、Core 真实反向 publication、同 grant body rebase 及下一 Tick 确认，门关闭证据在准备过程保留；反向失败不能抹掉停车保持。停止/世界关闭枚举所有任务 ticket，只有 pending 调 cancel 并检查确认；终态 ticket 直接清理。关闭在 `world.executionOwner` 串行阶段进行，不能依赖 Bukkit 主线程 guard，不能丢弃未确认操作或授权。checkpoint 仍只恢复诊断与人工处理要求，不恢复活跃任务、ticket 或 grant。
+
+任务树有界，创建与完整 join 按任务/步骤规模线性；每 Tick 仅推进活跃任务及其就绪动作，等待不阻塞宿主线程。计划分支在编译时折叠，运行时不重新扫描车长或车型。模型、worker、Java 编辑边界一致拒绝 station scope 的移动/编组/出入库及无效任务引用，失败保留停车并走既有错误路径。
+
+例：到达【开门】【非阻塞：等待40tick后更新显示】【结束】；准备【关门】【结束】。开门主任务结束后，准备可在 due 时开始；实际发车仍等显示子任务及安全 gate。终到相同到达程序保持门开，后续交路若要移动须显式关门；不能因主任务已 END 就自动起车。
+
+验证：`StationStopProgramRuntimeTest` 覆盖阻塞/立即派生、后代 join、任务本地等待和取消；`TimetableStationCallDispatcherTest` 覆盖起终点、准备与主线程顺序、最小停站、开门终到禁止后缀存车、换向及停止。`BrowserGeneratedStationProgramTest` 用实际 HTTP 浏览器生成的脚本通过真实 Graal 和 snapshot/domain 链路验证。纯测试和隔离浏览器不等同于游戏客户端验收。持久化使用当前未发布边界的约定版本1，不为本次开发重构递增；编辑数据仅离线迁移，不新增任意旧开发 reader。

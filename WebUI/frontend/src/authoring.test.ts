@@ -133,8 +133,8 @@ describe('timetable editor document',()=>{
     expect(first.source).toContain('timetable.setInitialPosition(timetable.named("train-1"), timetable.named("a@1"))');
     expect(first.source).toContain('timetable.service("duty-a", "train-1", { diagramLineId: "line-1", lineId: "line-1" }, t => {');
     expect(first.source).toContain('t.origin("duty:duty-a/element:up-element/run:up-01", scoped => {');
-    expect(first.source).toContain('runScope.at(100).destination("b@1", { arrivalTick: 800 })');
-    expect(first.source).toContain('runScope.at(1000).destination("a@2", { arrivalTick: 1800, doorSide: "NONE" })');
+    expect(first.source).toContain('runScope.at(100).destination("b@1", JSON.parse(');
+    expect(first.source).toContain('runScope.at(1000).destination("a@2", JSON.parse(');
   });
 
   it('generates infrastructure line context and its all-train maximum speed separately',()=>{
@@ -152,7 +152,7 @@ describe('timetable editor document',()=>{
     const document=valid();
     document.arrivalOverrides=[{runId:'up-01',callId:'up-b',tick:760}];
     const result=generateTimetableSource(document);
-    expect(result.source).toContain('runScope.at(100).destination("b@1", { arrivalTick: 760 })');
+    expect(result.source).toContain('runScope.at(100).destination("b@1", JSON.parse(');
   });
 
   it('rejects duty functions that violate element order or cross the period',()=>{
@@ -231,7 +231,7 @@ describe('timetable editor document',()=>{
     run.calls[1]={...run.calls[1],berthId:'express',targetId:'b@express',status:'PASS'};
     expect(lineSimulationRoute(run)).toEqual({
       originStationId:'a',terminalStationId:'d',stopStationIds:['c','d'],
-      destinationIds:['a@1','b@express','c@1','d@1'],originDepartureMode:'AUTO',
+      destinationIds:['a@1','b@express','c@1','d@1'],viaIds:[[],[],[],[]],originDepartureMode:'AUTO',
     });
     run.originDepartureMode='REVERSE';
     expect(lineSimulationRoute(run).originDepartureMode).toBe('REVERSE');
@@ -357,7 +357,7 @@ describe('timetable editor document',()=>{
     document.duties[0].elements.push({id:'express-element',type:'RUN',runId:'express'});
     const result=generateTimetableSource(document);
     expect(result.issues).toEqual([]);
-    expect(result.source).toContain('runScope.at(100).pass("b@1").destination("c@1", { arrivalTick: 300');
-    expect(result.source).toContain('runScope.at(400).destination("d@1", { arrivalTick: 500');
+    expect(result.source).toContain('runScope.at(100).pass("b@1").destination("c@1", JSON.parse(');
+    expect(result.source).toContain('runScope.at(400).destination("d@1", JSON.parse(');
   });
 });

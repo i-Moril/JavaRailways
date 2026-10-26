@@ -14,6 +14,19 @@ final class StationProgramValidator {
     private StationProgramValidator() {}
 
     static void validate(JsonNode definition) {
+        validateDefinition(definition);
+        validateLibrarySteps(definition.path("steps"));
+    }
+
+    private static void validateLibrarySteps(JsonNode steps) {
+        for (JsonNode step : steps) {
+            String type = step.path("type").asText();
+            if (Set.of("OPEN_DOORS", "CLOSE_DOORS", "END", "ASYNC", "AWAIT", "SELECT_STOP").contains(type)) fail("action is unavailable in duty/library program: " + type);
+            if (type.equals("BRANCH")) { validateLibrarySteps(step.path("thenSteps")); validateLibrarySteps(step.path("elseSteps")); }
+        }
+    }
+
+    private static void validateDefinition(JsonNode definition) {
         fields(definition, Set.of("parameters", "steps"), "program definition");
         array(definition.path("parameters"), 64, "parameters");
         array(definition.path("steps"), 256, "steps");
@@ -32,6 +45,30 @@ final class StationProgramValidator {
         validate(definition);
         if (!definition.path("parameters").isEmpty()) fail("arrival program cannot declare parameters");
         validateArrivalSteps(definition.path("steps"));
+    }
+
+    static void validateStation(JsonNode definition) {
+        validateDefinition(definition);
+        if (!definition.path("parameters").isEmpty()) fail("shared station programs cannot declare parameters");
+        validateStationSteps(definition.path("steps"), false);
+    }
+
+    private static void validateStationSteps(JsonNode steps, boolean asynchronous) {
+        boolean ends = false;
+        for (JsonNode step : steps) {
+            String type = step.path("type").asText();
+            if (ends) fail("unreachable station instruction after END");
+            if (!Set.of("SET_DISPLAY", "RESET_DISPLAY", "WAIT_UNTIL", "WAIT_EVENT", "WAIT_DURATION", "EXTENSION", "BRANCH", "REVERSE", "OPEN_DOORS", "CLOSE_DOORS", "END", "ASYNC", "AWAIT").contains(type)) fail("action is not allowed in station program: " + type);
+            if (type.equals("END")) { if (asynchronous) fail("END cannot occur in ASYNC"); ends = true; }
+            if (type.equals("ASYNC")) validateStationSteps(step.path("steps"), true);
+            if (type.equals("BRANCH")) {
+                String provider = step.path("typeId").asText();
+                if (!Set.of("javarailways:plan_run_type", "javarailways:plan_line_direction", "javarailways:plan_station_id", "javarailways:plan_run_id", "javarailways:plan_line_id", "javarailways:plan_call_status", "javarailways:plan_duty_id").contains(provider)) fail("station condition must be editable-plan deterministic");
+                // Branch END reachability is checked after planned branches are folded per occurrence.
+                validateStationSteps(step.path("thenSteps"), asynchronous);
+                validateStationSteps(step.path("elseSteps"), asynchronous);
+            }
+        }
     }
 
     private static void validateArrivalSteps(JsonNode steps) {
@@ -82,6 +119,7 @@ final class StationProgramValidator {
                     fields(step, Set.of("id", "type", "typeId", "version", "parameters", "thenSteps", "elseSteps"), "BRANCH step");
                     String typeId = text(step.path("typeId"), "condition typeId");
                     if (!typeId.matches("[a-z0-9_.-]+:[a-z0-9_./-]+")) fail("condition typeId must be namespaced");
+                    if (!Set.of("javarailways:plan_run_type", "javarailways:plan_line_direction", "javarailways:plan_station_id", "javarailways:plan_run_id", "javarailways:plan_line_id", "javarailways:plan_call_status", "javarailways:plan_duty_id").contains(typeId)) fail("condition must be editable-plan deterministic");
                     if (!step.path("version").isIntegralNumber() || !step.path("version").canConvertToInt() || step.path("version").asInt() < 1) fail("condition version must be a positive integer");
                     value(step.path("parameters"), "JSON_OBJECT", parameters, false);
                     validateSteps(step.path("thenSteps"), parameters, steps, depth + 1);
@@ -98,7 +136,22 @@ final class StationProgramValidator {
                     fields(step, Set.of("id", "type", "eventId"), type + " step");
                     value(step.path("eventId"), "FORMATION_EVENT", parameters, false);
                 }
-                case "REVERSE" -> fields(step, Set.of("id", "type"), "REVERSE step");
+                case "REVERSE", "OPEN_DOORS", "CLOSE_DOORS", "END" -> fields(step, Set.of("id", "type"), type + " step");
+                case "WAIT_EVENT" -> {
+                    fields(step, Set.of("id", "type", "eventId", "offsetTicks"), "WAIT_EVENT step");
+                    id(step.path("eventId"), "time event id");
+                    JsonNode offset = step.path("offsetTicks");
+                    if (!offset.isIntegralNumber() || !offset.canConvertToLong() || Math.abs((double) offset.asLong()) > MAX_SAFE_INTEGER) fail("event offset must be a signed safe integer");
+                }
+                case "ASYNC" -> {
+                    fields(step, Set.of("id", "type", "taskId", "steps"), "ASYNC step");
+                    id(step.path("taskId"), "task id");
+                    validateSteps(step.path("steps"), parameters, steps, depth + 1);
+                }
+                case "AWAIT" -> {
+                    fields(step, Set.of("id", "type", "taskId"), "AWAIT step");
+                    id(step.path("taskId"), "task id");
+                }
                 case "MOVE" -> {
                     fields(step, Set.of("id", "type", "destinationId", "viaIds"), "MOVE step");
                     value(step.path("destinationId"), "DESTINATION", parameters, false);
@@ -140,6 +193,7 @@ final class StationProgramValidator {
                 validateStepArguments(step.path("thenSteps"), arguments);
                 validateStepArguments(step.path("elseSteps"), arguments);
             }
+            if (step.path("type").asText().equals("ASYNC")) validateStepArguments(step.path("steps"), arguments);
             if (step.path("type").asText().equals("SET_DISPLAY") && step.path("removeKeys").has("parameterId")) {
                 displayRemovalKeys(arguments.path(step.path("removeKeys").path("parameterId").asText()));
             }

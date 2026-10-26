@@ -10,6 +10,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.route.planning.DirectedRailSpan
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions
@@ -43,6 +44,27 @@ class OperationalRoutePlannerTest {
     }
 
 
+
+    @Test
+    fun `waypoint pruning is opt in and ordered mission via points restore the route`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        val points = listOf(WayPoint("from", "From", rail.id, 10.0), WayPoint("via", "Via", rail.id, 50.0), WayPoint("to", "To", rail.id, 90.0))
+        points.forEach(world.basicWorldData.wayPoints::add)
+        val planner = OperationalRoutePlanner(world)
+        assertTrue(planner.buildRoute("from", "to") is RouteBuildResult.Success)
+        assertTrue(planner.buildRoute("from", "to", requireUniquePath = true, pruneNonTargetWaypoints = true) is RouteBuildResult.Failure)
+        val request = work.art1st.javarailways.simpleato.api.mission.AtoMissionRequest("via-mission", 1L,
+            work.art1st.javarailways.simpleato.api.mission.WayPointRef("from"), listOf(
+                work.art1st.javarailways.simpleato.api.mission.AtoMissionPoint.Via(work.art1st.javarailways.simpleato.api.mission.WayPointRef("via")),
+                work.art1st.javarailways.simpleato.api.mission.AtoMissionPoint.Stop(work.art1st.javarailways.simpleato.api.mission.WayPointRef("to"))
+            ), requiredStartDirection = ViewDirection.AB, requireUniquePath = true, pruneNonTargetWaypoints = true)
+        val resolved = work.art1st.javarailways.simpleato.api.mission.AtoMissionResolver(world).resolve(request)
+            as work.art1st.javarailways.simpleato.api.mission.AtoMissionResolutionResult.Success
+        assertEquals(listOf("via", "to"), resolved.mission.legs.map { it.point.target.id })
+        assertEquals(80.0, resolved.mission.legs.sumOf { it.plannedRoute.expandedRoute.totalLength }, 1e-6)
+    }
 
     @Test
     fun `adapts topology markers to positive expanded segments and preserves endpoint directions`() {

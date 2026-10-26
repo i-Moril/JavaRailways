@@ -67,6 +67,7 @@ class OperationalWorldRuntime private constructor(
                 if (failure == null) failure = error else if (failure !== error) failure.addSuppressed(error)
             }
         }
+        if (this::data.isInitialized) attempt { data.dispatcher.cancelPendingActionsForShutdown(world) }
         attempt { topologySubscription?.close() }
         attempt { speedMonitor?.let(world.physicsCoordinator::unregisterPublishedFrameProcessor) }
 

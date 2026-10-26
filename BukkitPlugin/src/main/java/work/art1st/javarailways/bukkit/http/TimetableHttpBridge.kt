@@ -747,6 +747,20 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     if (selectedDestinationIds != null && selectedDestinationIds.size != selectedStations.size) {
                         throw HttpFailure(400, "destinationIds must match the selected route station count")
                     }
+                    val viaIds = request["viaIds"]?.let { value ->
+                        val rows = value as? JsonArray ?: throw HttpFailure(400, "viaIds must be an array of waypoint arrays")
+                        rows.map { row ->
+                            val ids = row as? JsonArray ?: throw HttpFailure(400, "viaIds must be an array of waypoint arrays")
+                            ids.map { id -> (id as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() }?.content
+                                ?: throw HttpFailure(400, "viaIds must contain nonblank waypoint IDs") }
+                        }
+                    } ?: List(selectedStations.size) { emptyList() }
+                    if (viaIds.size != selectedStations.size || viaIds.firstOrNull().orEmpty().isNotEmpty()) {
+                        throw HttpFailure(400, "viaIds must match station count and the origin must have no incoming via points")
+                    }
+                    if (selectedDestinationIds == null && viaIds.any { it.isNotEmpty() }) {
+                        throw HttpFailure(400, "viaIds requires exact destinationIds")
+                    }
                     val compilation = if (selectedDestinationIds == null) {
                         when (val compiled = LinePlanner(world).compileStations(line, selectedStations)) {
                             is LineCompileResult.Success -> compiled
@@ -772,7 +786,10 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                                 line,
                                 selectedStations,
                                 selectedDestinationIds,
-                                originDirections
+                                originDirections,
+                                viaIds = viaIds,
+                                requireUniquePath = true,
+                                pruneNonTargetWaypoints = true
                             )
                         }.getOrElse { throw HttpFailure(422, it.message ?: "could not compile selected berth route") }
                         if (candidates.isEmpty()) {

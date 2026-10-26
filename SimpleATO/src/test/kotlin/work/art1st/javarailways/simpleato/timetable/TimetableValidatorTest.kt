@@ -100,7 +100,7 @@ class TimetableValidatorTest {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
-        listOf("A" to 20.0, "A2" to 30.0, "via" to 50.0, "B" to 80.0).forEach { (id, arc) ->
+        listOf("A" to 20.0, "A2" to 20.0, "via" to 50.0, "B" to 80.0).forEach { (id, arc) ->
             world.basicWorldData.wayPoints.add(WayPoint(id, id, rail.id, arc))
         }
         val timetable = Timetable("dynamic", services = listOf(TimetableService("s", steps = listOf(
@@ -185,7 +185,7 @@ class TimetableValidatorTest {
                         work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionCall("test:condition")),
                     work.art1st.javarailways.simpleato.api.timetable.TimetableActivationFalseBehavior.WAIT_UNTIL_TRUE))))
         assertTrue(TimetableValidator(world).validate(conditional).errors.any {
-            it.contains("storeAtDepot 不得用于运行时条件激活") })
+            it.contains("runtime service activation conditions are not editable-plan deterministic") })
         assertEquals(listOf(20.0, 30.0), result.routes.map { it.totalLength })
         assertTrue(validate(listOf(store)).errors.any { it.contains("有且仅有一次取车") })
         assertTrue(validate(listOf(take, store, TimetableStep.At(2L, TimetableAction.WaitUntil))).errors.any { it.contains("最后一步") })
@@ -241,11 +241,11 @@ class TimetableValidatorTest {
         val interior = Timetable("interior-call", services = listOf(TimetableService("s", TrainSelector.TrainId("train"), listOf(
             TimetableStep.Check("origin"),
             TimetableStep.At(0L, TimetableAction.CallStation("interior", "one")),
-            TimetableStep.At(0L, TimetableAction.GoTo("beyond"))
+            TimetableStep.At(0L, TimetableAction.GoVia(listOf("via", "interior@one", "beyond")))
         ))))
         val interiorResult = TimetableValidator(world).validate(interior)
         assertTrue(interiorResult.isSuccess, interiorResult.errors.toString())
-        assertEquals(listOf(0.0), interiorResult.routeStoppingOffsetsMeters,
+        assertEquals(listOf(null, null, 0.0), interiorResult.routeStoppingOffsetsMeters,
             "an interior station does not replace the final GoTo stopping target")
     }
 

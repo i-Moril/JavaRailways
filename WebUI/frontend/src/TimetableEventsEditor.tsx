@@ -1,0 +1,8 @@
+import {Button,Flex,Input,Select,Typography} from 'antd';
+import {CommittedNumberInput} from './CommittedNumberInput';
+import {useI18n} from './i18n';
+import type {TimetableEventPoint} from './types';
+export function TimetableEventsEditor({events,onChange,stationIds,scope}:{events:TimetableEventPoint[];onChange:(events:TimetableEventPoint[])=>void;stationIds:string[];scope:string}){
+ const {t}=useI18n();const patch=(id:string,values:Partial<TimetableEventPoint>)=>onChange(events.map((event)=>event.id===id?{...event,...values}:event));
+ return <section className="panel-surface"><Typography.Title level={5}>{t('events.title')}</Typography.Title>{events.map((event)=><Flex key={event.id} wrap gap={8} align="center"><Typography.Text code>{event.id}</Typography.Text><Select aria-label={t('editor.station')} value={event.stationId||undefined} options={stationIds.map((id)=>({value:id,label:id}))} onChange={(stationId)=>patch(event.id,{stationId})}/><CommittedNumberInput aria-label={t('duties.executeTick')} fieldKey={`${scope}/${event.id}/tick`} min={0} precision={0} allowEmpty={false} value={event.tick} onCommit={(tick)=>patch(event.id,{tick:tick??0})}/><Input aria-label={t('events.label')} value={event.label??''} onChange={(change)=>patch(event.id,{label:change.target.value})}/><Button danger onClick={()=>onChange(events.filter((item)=>item.id!==event.id))}>{t('common.delete')}</Button></Flex>)}<Button onClick={()=>onChange([...events,{id:`event-${Array.from(crypto.getRandomValues(new Uint8Array(8)),(v)=>v.toString(16).padStart(2,'0')).join('')}`,stationId:stationIds[0]??'',tick:0}])}>{t('events.add')}</Button></section>;
+}

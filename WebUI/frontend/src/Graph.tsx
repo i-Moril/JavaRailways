@@ -14,8 +14,9 @@ const pointKey=(point:GraphPoint)=>`${point.serviceIndex}:${point.stepIndex}:${p
 const clamp=(value:number)=>Math.min(3.2,Math.max(.55,value));
 
 export function Graph({
-  value,onSelect,metadata,line,graphLineId,highlightedServiceIds,previewServiceIds,onSelectPoint,onDismissPoint,
+  events=[],value,onSelect,metadata,line,graphLineId,highlightedServiceIds,previewServiceIds,onSelectPoint,onDismissPoint,
 }:{
+  events?:import('./types').TimetableEventPoint[];
   value:SavedTimetableV1;
   metadata?:WorldMetadata;
   line?:LineV1;
@@ -89,6 +90,7 @@ export function Graph({
         <rect x={layout.left} width={Math.max(0,sheetWidth-layout.left)} height={sheetHeight} fill="url(#timetable-minor-grid)"/>
         {ticks.map(({tick,x})=><g key={tick}><line className="time-grid-line" x1={x} y1={42} x2={x} y2={sheetHeight}/><text className="time-axis tick-label" x={x+5} y={16}>{tick}</text><text className="time-axis translated-time" x={x+5} y={31}>{formatTimetableTick(tick,locale)}</text></g>)}
         {layout.lanes.map((lane)=><g key={lane.id}><line className="station-grid-line" x1={layout.left} y1={lane.y} x2={sheetWidth} y2={lane.y}/><text className="station-label" x={layout.left-12} y={lane.y+4} textAnchor="end">{stationNames.get(lane.id)||lane.id}</text></g>)}
+        {events.map((event)=>{const lane=layout.lanes.find((lane)=>lane.id===event.stationId);if(!lane)return null;return <g key={`event-${event.id}`} data-event-id={event.id} transform={`translate(${layout.tickToX(event.tick)} ${lane.y})`}><title>{event.label||event.id} · {formatTimetableTick(event.tick,locale)}</title><path d="M 0 -6 L 6 0 L 0 6 L -6 0 Z" fill="var(--ant-color-primary)"/><text x={9} y={-8} fill="currentColor">{event.label||event.id}</text></g>;})}
         {services.map((service)=>{
           const color=graphColor(service.serviceIndex);
           const hasSelection=(highlightedServiceIds?.size??0)>0;

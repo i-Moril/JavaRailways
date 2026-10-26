@@ -52,15 +52,20 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
       }
       case 'RESET_DISPLAY':check(step.unitSlots,'UNIT_SLOTS');break;
       case 'WAIT_UNTIL':check(step.tick,'TICK');break;
+      case 'WAIT_EVENT':if(!validId(step.eventId)||!Number.isSafeInteger(step.offsetTicks))errors.push('Invalid event wait');break;
       case 'WAIT_DURATION':check(step.durationTicks,'DURATION',true);break;
-      case 'BRANCH':visit(step.thenSteps,depth+1);visit(step.elseSteps,depth+1);
+      case 'BRANCH':
+        if(!['run_type','line_direction','station_id','run_id','line_id','call_status','duty_id'].some((field)=>step.typeId===`javarailways:plan_${field}`)||step.version!==1)errors.push('Conditions must use planned timetable context');
+        visit(step.thenSteps,depth+1);visit(step.elseSteps,depth+1);
       // Condition and action calls share the same typed provider-call shape.
       case 'EXTENSION':
         if(typeof step.typeId!=='string'||step.typeId.length>256||! /^[a-z0-9_.-]+:[a-z0-9_./-]+$/.test(step.typeId))errors.push('Extension typeId must be namespaced');
         if(!Number.isInteger(step.version)||step.version<1||step.version>2147483647)errors.push('Extension version must be a positive integer');
         check(step.parameters,'JSON_OBJECT');break;
       case 'COUPLE':case 'SPLIT':check(step.eventId,'FORMATION_EVENT');break;
-      case 'REVERSE':break;
+      case 'REVERSE':case 'OPEN_DOORS':case 'CLOSE_DOORS':case 'END':break;
+      case 'ASYNC':if(!validId(step.taskId))errors.push('Invalid task ID');visit(step.steps,depth+1);break;
+      case 'AWAIT':if(!validId(step.taskId))errors.push('Invalid task ID');break;
       case 'MOVE':check(step.destinationId,'DESTINATION');check(step.viaIds,'ID_LIST');break;
       case 'SELECT_STOP':
         check(step.stationId,'STATION');check(step.berthIds,'ID_LIST');
@@ -95,10 +100,11 @@ export function stationProgramSchedule(steps:StationProgramStep[],args:Record<st
     for(const step of steps){
       if(step.type==='WAIT_UNTIL'){
         const next=resolveProgramValue(step.tick,args);
-        if(next<tick||next>=periodTicks)errors.push(`Invalid schedule at step: ${step.id}`);
-        tick=next;earliest=Math.max(earliest,next);
+        if(!Number.isSafeInteger(next)||next<0||next>=periodTicks)errors.push(`Invalid schedule at step: ${step.id}`);
+        tick=Math.max(tick,next);earliest=Math.max(earliest,next);
       }
       if(step.type==='WAIT_DURATION')earliest+=resolveProgramValue(step.durationTicks,args);
+      if(step.type==='ASYNC'){const child=visit(step.steps,tick,earliest);earliest=Math.max(earliest,child[1]);}
       if(step.type==='BRANCH'){
         const yes=visit(step.thenSteps,tick,earliest),no=visit(step.elseSteps,tick,earliest);
         tick=Math.max(yes[0],no[0]);earliest=Math.max(yes[1],no[1]);
@@ -142,6 +148,7 @@ export function programJsonObjectError(value:unknown):string {
 export function findProgramStep(steps:StationProgramStep[],id:string):StationProgramStep|undefined {
   for(const step of steps){
     if(step.id===id)return step;
+    if(step.type==='ASYNC'){const found=findProgramStep(step.steps,id);if(found)return found;}
     if(step.type==='BRANCH'){
       const found=findProgramStep(step.thenSteps,id)??findProgramStep(step.elseSteps,id);
       if(found)return found;
@@ -161,7 +168,8 @@ export function validateArrivalProgram(definition:StationProgramDefinition,perio
   if(errors.length)return errors;
   if(definition.parameters.length)errors.push('Arrival programs cannot declare parameters');
   const visit=(steps:StationProgramStep[])=>{for(const step of steps){
-    if(!['SET_DISPLAY','RESET_DISPLAY','WAIT_UNTIL','WAIT_DURATION','BRANCH','EXTENSION'].includes(step.type))errors.push(`Unsupported arrival action: ${step.id} (${step.type})`);
+    if(!['SET_DISPLAY','RESET_DISPLAY','WAIT_UNTIL','WAIT_EVENT','WAIT_DURATION','REVERSE','OPEN_DOORS','CLOSE_DOORS','END','ASYNC','AWAIT','BRANCH','EXTENSION'].includes(step.type))errors.push(`Unsupported arrival action: ${step.id} (${step.type})`);
+    if(step.type==='ASYNC')visit(step.steps);
     if(step.type==='BRANCH'){visit(step.thenSteps);visit(step.elseSteps);}
   }};
   visit(definition.steps);
@@ -172,6 +180,7 @@ export function validateArrivalProgram(definition:StationProgramDefinition,perio
 /** Copying creates new step identities without sharing mutable nested values. */
 export function copyStationProgram(definition:StationProgramDefinition,idFactory:()=>string,shiftTicks=0):StationProgramDefinition {
   const copied=clone(definition);
-  const visit=(steps:StationProgramStep[])=>{for(const step of steps){step.id=idFactory();if(step.type==='WAIT_UNTIL'&&'value' in step.tick){const tick=step.tick.value+shiftTicks;if(!Number.isSafeInteger(tick)||tick<0)throw new Error('Shifted arrival wait must be a non-negative safe integer');step.tick={value:tick};}if(step.type==='BRANCH'){visit(step.thenSteps);visit(step.elseSteps);}}};
+  const visit=(steps:StationProgramStep[])=>{for(const step of steps){step.id=idFactory();if(step.type==='WAIT_UNTIL'&&'value' in step.tick){const tick=step.tick.value+shiftTicks;if(!Number.isSafeInteger(tick)||tick<0)throw new Error('Shifted arrival wait must be a non-negative safe integer');step.tick={value:tick};}if(step.type==='ASYNC')visit(step.steps);
+    if(step.type==='BRANCH'){visit(step.thenSteps);visit(step.elseSteps);}}};
   visit(copied.steps);return copied;
 }

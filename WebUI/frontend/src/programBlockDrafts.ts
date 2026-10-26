@@ -19,7 +19,7 @@ export function readProgramBlockDraft(scope:string,current:string):ProgramBlockD
 }
 export function storeProgramBlockDraft(scope:string,baseline:string,accepted:string,snapshot:ProgramBlockSnapshot){try{localStorage.setItem(storageKey(scope),JSON.stringify({baseline,accepted,snapshot}));}catch{/* Storage failure cannot break editing. */}}
 export function clearProgramBlockDraft(scope:string){try{localStorage.removeItem(storageKey(scope));}catch{/* Best effort. */}}
-export function getProgramBlockDraftValidity(scope:string,value:StationProgramDefinition,context:'library'|'arrival'='arrival'):boolean {
+export function getProgramBlockDraftValidity(scope:string,value:StationProgramDefinition,context:'library'|'arrival'|'duty'='arrival'):boolean {
  const draft=readProgramBlockDraft(scope,JSON.stringify(value));if(!draft)return true;
  const {snapshot}=draft;
  try{return !validateStationProgram(blocksToDefinition(snapshot.workspace,snapshot.parameters,context)).length;}catch{return false;}

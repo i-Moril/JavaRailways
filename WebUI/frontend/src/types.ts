@@ -1,9 +1,20 @@
 export type TrainSelectorType = 'ANY' | 'TRAIN_ID';
 export type StepType = 'CHECK' | 'AT';
-export type ActionType = 'BEGIN_OPERATIONAL_TRIP' | 'SET_DISPLAY' | 'RESET_DISPLAY' | 'TAKE_FROM_FORMATION_OUTPUT' | 'COUPLE' | 'SPLIT' | 'TAKE_FROM_DEPOT' | 'TAKE_FROM_WAYPOINT' | 'STORE_AT_DEPOT' | 'DESTINATION' | 'DESTINATION_OPTIONS' | 'STOP' | 'HALT' | 'REVERSE' | 'WAIT_UNTIL' | 'STATION_DESTINATION_OPTIONS' | 'SELECT_STOP' | 'EXTENSION' | 'CONDITIONAL';
+export type ActionType = 'BEGIN_OPERATIONAL_TRIP' | 'BEGIN_STATION_STOP' | 'SET_DISPLAY' | 'RESET_DISPLAY' | 'TAKE_FROM_FORMATION_OUTPUT' | 'COUPLE' | 'SPLIT' | 'TAKE_FROM_DEPOT' | 'TAKE_FROM_WAYPOINT' | 'STORE_AT_DEPOT' | 'DESTINATION' | 'DESTINATION_OPTIONS' | 'STOP' | 'HALT' | 'REVERSE' | 'WAIT_UNTIL' | 'STATION_DESTINATION_OPTIONS' | 'SELECT_STOP' | 'EXTENSION' | 'CONDITIONAL';
 export interface ExtensionCallV1 { typeId: string; version: number; parameters: Record<string, unknown> }
 export interface TimetableConditionV1 { type: 'PREDICATE'|'ALL'|'ANY'|'NOT'; call?: ExtensionCallV1|null; conditions: TimetableConditionV1[] }
-export interface TimetableActionV1 { type: ActionType; operationalTripId?:string|null; runId?:string|null; unitSlots?:number[]; displayValues?:ProgramJsonObject; removeDisplayKeys?:string[]; eventId?:string|null; outputId?:string|null; depotId?: string|null; arrivalTick?:number|null; requiredTags: string[]; minimumCars?: number|null; maximumCars?: number|null; minimumSpeedMetersPerSecond?: number|null; requiredCapabilities: string[]; stablingPointIds: string[]; wayPointIds: string[]; stopTicks?: number|null; stationId?: string|null; berthId?: string|null; berthCandidates?:{berthId:string;priority:number}[]; selectionPolicy?:'FIXED_PREFERENCE'|'AVAILABLE_PRIORITY'|null; minimumDwellTicks?: number|null; stoppingOffsetMetersBefore?: number|null; doorSideOverride?: 'NONE'|'LEFT'|'RIGHT'|'BOTH'|null; extensionCall?: ExtensionCallV1|null; condition?: TimetableConditionV1|null; arrivalSteps?:TimetableStepV1[]; thenSteps: TimetableStepV1[]; elseSteps: TimetableStepV1[] }
+export interface StationProgramActionSnapshot {
+  type:'OPEN_DOORS'|'CLOSE_DOORS'|'END'|'REVERSE'|'WAIT_UNTIL'|'WAIT_DURATION'|'ASYNC'|'AWAIT'|'SET_DISPLAY'|'RESET_DISPLAY'|'EXTENSION';
+  tick?:number|null; durationTicks?:number|null; taskId?:string|null; steps:StationProgramActionSnapshot[];
+  unitSlots:number[]; values:ProgramJsonObject; removeKeys:string[]; extensionCall?:ExtensionCallV1|null;
+}
+export interface StationStopProgramsSnapshot {
+  stationId:string; callId:string; role:'ORIGIN'|'STOP'|'TERMINAL';
+  arrival:StationProgramActionSnapshot[]; departurePreparation:StationProgramActionSnapshot[];
+  preparationLeadTicks:number; plannedDepartureTick?:number|null; destinationId?:string|null;
+  doorSide?:'NONE'|'LEFT'|'RIGHT'|'BOTH'|null; minimumDwellTicks?:number|null;
+}
+export interface TimetableActionV1 { type: ActionType; operationalTripId?:string|null; runId?:string|null; unitSlots?:number[]; displayValues?:ProgramJsonObject; removeDisplayKeys?:string[]; eventId?:string|null; outputId?:string|null; depotId?: string|null; arrivalTick?:number|null; requiredTags: string[]; minimumCars?: number|null; maximumCars?: number|null; minimumSpeedMetersPerSecond?: number|null; requiredCapabilities: string[]; stablingPointIds: string[]; wayPointIds: string[]; stopTicks?: number|null; stationId?: string|null; berthId?: string|null; berthCandidates?:{berthId:string;priority:number}[]; selectionPolicy?:'FIXED_PREFERENCE'|'AVAILABLE_PRIORITY'|null; minimumDwellTicks?: number|null; stoppingOffsetMetersBefore?: number|null; doorSideOverride?: 'NONE'|'LEFT'|'RIGHT'|'BOTH'|null; extensionCall?: ExtensionCallV1|null; condition?: TimetableConditionV1|null; arrivalSteps?:TimetableStepV1[]; stopPrograms?:StationStopProgramsSnapshot|null; thenSteps: TimetableStepV1[]; elseSteps: TimetableStepV1[] }
 export interface TimetableStepV1 { type: StepType; tick?: number|null; wayPointId?: string|null; action?: TimetableActionV1|null }
 export type LineDirection = 'UP'|'DOWN';
 export type ServiceRowType = 'STATION'|'SPECIAL_DESTINATION'|'DEPOT_OPERATION'|'ACTION_ONLY';
@@ -13,7 +24,7 @@ export interface ServiceEditorRowV1 {
   destinationId?:string|null; tick?:number|null; arrivalTick?:number|null; departureTick?:number|null;
   depotOperation?:'TAKE_FROM_DEPOT'|'STORE_AT_DEPOT'|null; depotId?:string|null; actions:TimetableActionV1[];
 }
-export interface TimetableRunCallV1 {id:string;stationId:string;destinationId:string;status:'ORIGIN'|'STOP'|'PASS'|'TERMINAL';arrivalTick?:number|null;departureTick?:number|null}
+export interface TimetableRunCallV1 {id:string;stationId:string;destinationId:string;status:'ORIGIN'|'STOP'|'PASS'|'TERMINAL';viaIds?:string[];arrivalTick?:number|null;departureTick?:number|null}
 export interface TimetableRunSegmentV1 {runId:string;lineId:string;diagramLineId?:string|null;lineDirection?:LineDirection|null;startStepIndex:number;endStepIndexExclusive:number;calls:TimetableRunCallV1[]}
 export interface OperationalTripSegment {serviceId:string;runId:string;unitSlots:number[]}
 export interface OperationalTrip {id:string;defaults:ProgramJsonObject;segments:OperationalTripSegment[]}
@@ -59,7 +70,7 @@ export interface SavedLineResult { revision:number; line:LineV1 }
 export interface SimulationProfile {
  profileType:'WORLD_TRAIN'|'TRAIN_TEMPLATE'; profileId:string; direction:LineDirection;
  timetableId?:string; serviceId?:string; runId?:string;
- originStationId?:string; terminalStationId?:string; stopStationIds?:string[]; destinationIds?:string[];
+ originStationId?:string; terminalStationId?:string; stopStationIds?:string[]; destinationIds?:string[]; viaIds?:string[][];
  originDepartureMode?:'AUTO'|'CONTINUE'|'REVERSE';
  maximumSpeedMetersPerSecond?:number|null;
 }
@@ -115,14 +126,19 @@ export type StationProgramStep=
  | {id:string;type:'SET_DISPLAY';unitSlots:StationProgramValue<number[]>;values:StationProgramValue<ProgramJsonObject>;removeKeys?:StationProgramValue<string[]>}
  | {id:string;type:'RESET_DISPLAY';unitSlots:StationProgramValue<number[]>}
  | {id:string;type:'WAIT_UNTIL';tick:StationProgramValue<number>}
+ | {id:string;type:'WAIT_EVENT';eventId:string;offsetTicks:number}
  | {id:string;type:'WAIT_DURATION';durationTicks:StationProgramValue<number>}
  | {id:string;type:'SELECT_STOP';stationId:StationProgramValue<string>;berthIds:StationProgramValue<string[]>;selectionPolicy:'FIXED_PREFERENCE'|'AVAILABLE_PRIORITY'}
  | {id:string;type:'BRANCH';typeId:string;version:number;parameters:StationProgramValue<ProgramJsonObject>;thenSteps:StationProgramStep[];elseSteps:StationProgramStep[]}
  | {id:string;type:'EXTENSION';typeId:string;version:number;parameters:StationProgramValue<ProgramJsonObject>}
  | {id:string;type:'COUPLE'|'SPLIT';eventId:StationProgramValue<string>}
- | {id:string;type:'REVERSE'}
+ | {id:string;type:'REVERSE'|'OPEN_DOORS'|'CLOSE_DOORS'|'END'}
+ | {id:string;type:'ASYNC';taskId:string;steps:StationProgramStep[]}
+ | {id:string;type:'AWAIT';taskId:string}
  | {id:string;type:'MOVE';destinationId:StationProgramValue<string>;viaIds:StationProgramValue<string[]>}
  | {id:string;type:'STORE_AT_DEPOT';depotId:StationProgramValue<string>;stablingPointIds:StationProgramValue<string[]>};
+export interface StationStopProgram {stationId:string;arrival:StationProgramDefinition;departurePreparation:StationProgramDefinition;preparationLeadTicks:number}
+export interface TimetableEventPoint {id:string;stationId:string;tick:number;label?:string}
 export interface StationProgramDefinition {
  parameters:{id:string;type:StationProgramParameterType}[];
  steps:StationProgramStep[];

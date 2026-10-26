@@ -65,9 +65,9 @@ describe('rail program Blockly mapping',()=>{
   expect(()=>blocksToDefinition(definitionToBlocks({parameters:[],steps}),[])).toThrow('depth');
  });
  it('limits arrival actions recursively and rejects arrival parameter declarations',()=>{
-  for(const type of programStepTypes){const step=defaultProgramStep(type);const convert=()=>blocksToDefinition(definitionToBlocks({parameters:[],steps:[step]}),[],'arrival');if(['MOVE','REVERSE','SELECT_STOP','STORE_AT_DEPOT','COUPLE','SPLIT'].includes(type))expect(convert).toThrow('unavailable');else expect(convert).not.toThrow();}
+  for(const type of programStepTypes){const step=defaultProgramStep(type);const convert=()=>blocksToDefinition(definitionToBlocks({parameters:[],steps:[step]}),[],'arrival');if(['MOVE','SELECT_STOP','STORE_AT_DEPOT','COUPLE','SPLIT'].includes(type))expect(convert).toThrow('unavailable');else expect(convert).not.toThrow();}
   expect(()=>blocksToDefinition(definitionToBlocks({parameters:[],steps:[]}),[{id:'p',type:'STRING'}],'arrival')).toThrow('declare');
-  const state=definitionToBlocks({parameters:[],steps:[{id:'b',type:'BRANCH',typeId:'demo:c',version:1,parameters:{value:{}},thenSteps:[{id:'r',type:'REVERSE'}],elseSteps:[]}]});expect(()=>blocksToDefinition(state,[],'arrival')).toThrow('unavailable');
+  const state=definitionToBlocks({parameters:[],steps:[{id:'b',type:'BRANCH',typeId:'demo:c',version:1,parameters:{value:{}},thenSteps:[{id:'r',type:'MOVE',destinationId:{value:'x'},viaIds:{value:[]}}],elseSteps:[]}]});expect(()=>blocksToDefinition(state,[],'arrival')).toThrow('unavailable');
  });
 });
 describe('incomplete workspace draft safety',()=>{

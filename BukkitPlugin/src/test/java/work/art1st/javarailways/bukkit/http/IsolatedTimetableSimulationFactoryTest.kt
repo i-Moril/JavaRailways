@@ -96,8 +96,8 @@ class IsolatedTimetableSimulationFactoryTest {
         lines.put(Line(branch, "Branch", listOf("c", "e").map(::StationId),
             listOf("e", "c").map(::StationId)), 1L)
         fun call(id: String, status: work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus,
-                 arrival: Long? = null, departure: Long? = null) =
-            work.art1st.javarailways.simpleato.timetable.TimetableRunCall(id, id, "$id@one", status, arrival, departure)
+                 arrival: Long? = null, departure: Long? = null, via: List<String> = emptyList()) =
+            work.art1st.javarailways.simpleato.timetable.TimetableRunCall(id, id, "$id@one", status, arrival, departure, via)
         val start = if (returning) "e" else "a"
         val end = if (returning) "a" else "e"
         val firstLine = if (returning) branch else main
@@ -106,20 +106,20 @@ class IsolatedTimetableSimulationFactoryTest {
         fun timetable(secondSpeed: Double) = Timetable("interline", services = listOf(TimetableService("duty",
             TrainSelector.TrainId("scheduled"), listOf(TimetableStep.Check("$start@one"),
                 TimetableStep.At(0, TimetableAction.DestinationOptions("c@one", minimumDwellTicks = 10)),
-                TimetableStep.At(0, if (returning) TimetableAction.GoTo("c@one") else TimetableAction.GoVia(listOf("b@one", "c@one"))),
+                TimetableStep.At(0, if (returning) TimetableAction.GoVia(listOf("d@one", "c@one")) else TimetableAction.GoVia(listOf("b@one", "c@one"))),
                 TimetableStep.At(500, TimetableAction.DestinationOptions("$end@one", minimumDwellTicks = 0)),
-                TimetableStep.At(500, if (returning) TimetableAction.GoVia(listOf("b@one", "a@one")) else TimetableAction.GoTo("e@one"))),
+                TimetableStep.At(500, if (returning) TimetableAction.GoVia(listOf("b@one", "a@one")) else TimetableAction.GoVia(listOf("d@one", "e@one")))),
             runSegments = listOf(
                 work.art1st.javarailways.simpleato.timetable.TimetableRunSegment("first-run", firstLine, 1, 3,
                     diagramLineId = firstLine.value, lineDirection = direction,
                     calls = listOf(call(start, work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.ORIGIN, departure = 0)) +
                         (if (returning) emptyList() else listOf(call("b", work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.PASS))) +
-                        call("c", work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.TERMINAL)),
+                        call("c", work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.TERMINAL, via = if (returning) listOf("d@one") else emptyList())),
                 work.art1st.javarailways.simpleato.timetable.TimetableRunSegment("second-run", secondLine, 3, 5,
                     diagramLineId = secondLine.value, lineDirection = direction,
                     calls = listOf(call("c", work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.ORIGIN, departure = 500)) +
                         (if (returning) listOf(call("b", work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.PASS)) else emptyList()) +
-                        call(end, work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.TERMINAL))
+                        call(end, work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.TERMINAL, via = if (returning) emptyList() else listOf("d@one")))
             ))), lineSpeedLimits = listOf(TimetableLineSpeedLimit(firstLine, 6.0), TimetableLineSpeedLimit(secondLine, secondSpeed)))
         val factory = IsolatedTimetableSimulationFactory(IsolatedSimulationProfileResolver { _, _, _ -> profile() },
             9.80665, atoSafetyDistanceMeters = 0.0, extensionPlugin = BasicPlugin.INSTANCE)
@@ -165,7 +165,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(180.0, 1))
         source.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 20.0))
         val station = StationId("central")
-        for ((id, arc) in listOf("short" to 100.0, "long" to 120.0)) {
+        for ((id, arc) in listOf("short" to 120.0, "long" to 120.0)) {
             OperationalDestinationService(source).register(OperationalDestination("central@$id", id, rail.id, arc,
                 ViewDirection.AB, DestinationRole.StationBerthRole(station, berthId = id, doorSide = DoorSide.NONE,
                     usableLengthMeters = 30.0, maximumTrainLengthMeters = if (id == "short") 5.0 else 30.0,
@@ -354,7 +354,7 @@ class IsolatedTimetableSimulationFactoryTest {
             9.80665, atoSafetyDistanceMeters = 0.0, extensionPlugin = BasicPlugin.INSTANCE)
         val timetable = Timetable("formation-sim", services = listOf(
             TimetableService("source", TrainSelector.TrainId("scheduled"), listOf(TimetableStep.Check("origin"),
-                TimetableStep.At(0, TimetableAction.Split("split")), TimetableStep.At(0, TimetableAction.GoTo("end"))) +
+                TimetableStep.At(0, TimetableAction.Split("split")), TimetableStep.At(0, TimetableAction.GoVia(listOf("child-end", "end")))) +
                 if (storeOutput) listOf(TimetableStep.At(0, TimetableAction.StoreAtDepot(destinationDepot))) else emptyList()),
             TimetableService("child", TrainSelector.AnyTrain, listOf(TimetableStep.At(100, TimetableAction.TakeFromFormationOutput("split", "rest")),
                 TimetableStep.At(100, TimetableAction.GoTo("child-end"))))),
@@ -743,7 +743,7 @@ class IsolatedTimetableSimulationFactoryTest {
                     separated.headLocation.arcLengthIn(ViewDirection.AB)))
                 val detachedTimetable = Timetable("split-operation", services = listOf(TimetableService("split-duty",
                     TrainSelector.TrainId(separated.id), listOf(TimetableStep.Check(newOrigin),
-                        TimetableStep.At(0, TimetableAction.GoTo("terminal"))))))
+                        TimetableStep.At(0, TimetableAction.GoVia(listOf("origin", "terminal")))))))
                 world.simpleAtoWorldData.timetables.add(detachedTimetable)
                 val started = world.simpleAtoWorldData.dispatcher.startService(world, detachedTimetable.id, "split-duty")
                 assertTrue(started is work.art1st.javarailways.simpleato.timetable.TimetableServiceStartResult.Started, started.toString())

@@ -32,7 +32,7 @@ private class ProgramStepFailure(stepId: String, cause: RuntimeException) :
 internal data class ExpandedProgramStepOrigin(val stepIndex: Int, val branchPath: List<SavedTimetableBranchPathEntryV1>, val programStepId: String)
 internal data class ExpandedStationProgram(val steps: List<SavedTimetableStepV1>, val origins: List<ExpandedProgramStepOrigin>)
 
-internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: JsonElement, initialTick: Long): ExpandedStationProgram {
+internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: JsonElement, initialTick: Long, plannedContext: Map<String, JsonElement> = emptyMap()): ExpandedStationProgram {
     require(initialTick in 0L..9_007_199_254_740_991L) { "program start tick must be a nonnegative safe integer" }
     fun expressionShape(value: JsonElement) {
         val fields = value as? JsonObject ?: error("program value must be an object")
@@ -114,8 +114,7 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
                 unitSlots = value(step.unitSlots, "UNIT_SLOTS").jsonArray.map { it.jsonPrimitive.int }))
             is StationProgramStep.WaitUntil -> {
                 val next = value(step.tick, "TICK").jsonPrimitive.long
-                require(next >= tick) { "WAIT_UNTIL target precedes the current program schedule" }
-                tick = next
+                tick = maxOf(tick, next)
                 append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.WAIT_UNTIL))
             }
             is StationProgramStep.WaitDuration -> {
@@ -130,22 +129,12 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
                     extensionCall = SavedTimetableExtensionCallV1(step.typeId, step.version, value(step.parameters, "JSON_OBJECT").jsonObject)))
             }
             is StationProgramStep.Branch -> {
-                require(step.typeId.matches(Regex("[a-z0-9_.-]+:[a-z0-9_./-]+")) && step.typeId.length <= 256) { "condition typeId must be namespaced" }
-                require(step.version > 0) { "condition version must be positive" }
-                val (yes, yesTick) = expand(step.thenSteps, tick)
-                val (no, noTick) = expand(step.elseSteps, tick)
-                val parent = result.size
-                append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.CONDITIONAL,
-                    condition = SavedTimetableConditionV1(SavedTimetableConditionTypeV1.PREDICATE,
-                        SavedTimetableExtensionCallV1(step.typeId, step.version, value(step.parameters, "JSON_OBJECT").jsonObject)),
-                    thenSteps = yes.steps, elseSteps = no.steps))
-                fun addOrigins(expanded: ExpandedStationProgram, arm: SavedTimetableBranchArmV1) {
-                    expanded.origins.forEach { origin -> origins += ExpandedProgramStepOrigin(parent,
-                        listOf(SavedTimetableBranchPathEntryV1(arm, origin.stepIndex)) + origin.branchPath, origin.programStepId) }
-                }
-                addOrigins(yes, SavedTimetableBranchArmV1.THEN)
-                addOrigins(no, SavedTimetableBranchArmV1.ELSE)
-                tick = maxOf(yesTick, noTick)
+                val chosen = evaluatePlannedCondition(step.typeId, step.version, value(step.parameters, "JSON_OBJECT").jsonObject, plannedContext)
+                val (expanded, nextTick) = expand(if (chosen) step.thenSteps else step.elseSteps, tick)
+                val offset = result.size
+                result += expanded.steps
+                origins += expanded.origins.map { it.copy(stepIndex = it.stepIndex + offset) }
+                tick = nextTick
             }
             is StationProgramStep.Couple -> append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.COUPLE,
                 eventId = value(step.eventId, "FORMATION_EVENT").jsonPrimitive.content))

@@ -24,6 +24,32 @@ final class EditorDocumentValidator {
         requireObjectArray(document, "duties");
         requireObjectArray(document, "diagramLines");
         requireObjectArray(document, "arrivalOverrides");
+        if (document.has("stationPrograms")) {
+            requireObjectArray(document, "stationPrograms");
+            java.util.Set<String> stations = new java.util.HashSet<>();
+            for (JsonNode record : document.path("stationPrograms")) {
+                StationProgramValidator.fields(record, java.util.Set.of("stationId", "arrival", "departurePreparation", "preparationLeadTicks"), "shared station program");
+                String station = StationProgramValidator.text(record.path("stationId"), "station id");
+                if (!stations.add(station)) fail("duplicate shared station program");
+                StationProgramValidator.validateStation(record.path("arrival"));
+                StationProgramValidator.validateStation(record.path("departurePreparation"));
+                if (!record.path("preparationLeadTicks").isIntegralNumber() || !record.path("preparationLeadTicks").canConvertToLong() || record.path("preparationLeadTicks").asLong() < 0 || record.path("preparationLeadTicks").asLong() > 9_007_199_254_740_991L) fail("invalid preparation lead ticks");
+            }
+        }
+        if (document.has("events")) {
+            requireObjectArray(document, "events");
+            java.util.Set<String> ids = new java.util.HashSet<>();
+            for (JsonNode event : document.path("events")) {
+                java.util.Set<String> fields = new java.util.HashSet<>(java.util.Set.of("id", "stationId", "tick"));
+                if (event.has("label")) fields.add("label");
+                StationProgramValidator.fields(event, fields, "time event");
+                if (!ids.add(StationProgramValidator.text(event.path("id"), "time event id"))) fail("duplicate time event id");
+                StationProgramValidator.text(event.path("stationId"), "time event station");
+                requireIntegral(event, "tick", "time event");
+                if (event.path("tick").asLong() < 0 || event.path("tick").asLong() >= Math.multiplyExact(document.path("periodDays").asLong(), 24_000L)) fail("time event tick outside timetable period");
+                if (event.has("label") && !event.path("label").isTextual()) fail("time event label must be text");
+            }
+        }
         java.util.Map<String, JsonNode> programs = new java.util.HashMap<>();
         if (document.has("boundPrograms")) {
             requireObjectArray(document, "boundPrograms");
@@ -98,10 +124,8 @@ final class EditorDocumentValidator {
             requireText(call, "stationId", "run call");
             requireText(call, "status", "run call");
             requireText(call, "targetId", "run call");
-            if (call.has("arrivalProgram")) {
-                if (!java.util.Set.of("STOP", "TERMINAL").contains(call.path("status").asText())) fail("arrival program requires a stopping run call");
-                StationProgramValidator.validateArrival(call.path("arrivalProgram"));
-            }
+            if (call.has("viaIds")) requireStringArray(call, "viaIds", "run call");
+            if (call.has("arrivalProgram")) fail("migrate obsolete inline arrivalProgram to shared stationPrograms offline with scripts/migrate_station_programs.py");
         });
     }
 
@@ -110,6 +134,12 @@ final class EditorDocumentValidator {
         JsonNode selector = duty.path("selector");
         if (!selector.isObject()) fail("duty selector must be an object");
         validateSelector(selector);
+        if (duty.has("referenceVehicle")) {
+            JsonNode profile = duty.path("referenceVehicle");
+            StationProgramValidator.fields(profile, java.util.Set.of("type", "id"), "reference vehicle");
+            if (!java.util.Set.of("WORLD_TRAIN", "TRAIN_TEMPLATE").contains(profile.path("type").asText())) fail("invalid reference vehicle type");
+            StationProgramValidator.text(profile.path("id"), "reference vehicle id");
+        }
         requireObjectArray(duty, "elements");
         duty.path("elements").forEach(EditorDocumentValidator::validateElement);
     }
@@ -141,6 +171,17 @@ final class EditorDocumentValidator {
         requireText(element, "type", "duty element");
         switch (element.path("type").asText()) {
             case "RUN" -> requireText(element, "runId", "run element");
+            case "INLINE" -> {
+                java.util.Set<String> fields = new java.util.HashSet<>(java.util.Set.of("id", "type", "definition"));
+                if (element.has("tick")) fields.add("tick");
+                StationProgramValidator.fields(element, fields, "inline duty program");
+                if (element.has("tick")) {
+                    requireIntegral(element, "tick", "inline duty program");
+                    if (element.path("tick").asLong() < 0 || element.path("tick").asLong() > 9_007_199_254_740_991L) fail("invalid inline duty program tick");
+                }
+                StationProgramValidator.validate(element.path("definition"));
+                if (!element.path("definition").path("parameters").isEmpty()) fail("inline duty program cannot declare parameters");
+            }
             case "PROGRAM" -> { if (!element.path("call").isObject()) fail("program call must be an object"); }
             case "FUNCTION" -> {
                 JsonNode call = element.path("call");

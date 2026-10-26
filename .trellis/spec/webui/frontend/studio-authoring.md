@@ -2,7 +2,7 @@
 
 ## 已实现范围与负责模块
 
-CURRENT。`App.tsx` 管认证、世界、页面导航和世界引用数据；`DutyEditor` 是时刻表、交路、校验三个页面共用的唯一文档、history 和 recovery owner。`DutyManagement`、`AuthoringValidation`、`TimetableWorkspace` 是受控视图。此契约覆盖交路编排、运行线工具、真实校验/模拟结果及图上时间编辑，不新增后端接口、存储格式或运行时模型。
+CURRENT。`App.tsx` 管认证、世界、页面导航和世界引用数据；`DutyEditor` 是时刻表、交路、校验三个页面共用的唯一文档、history 和 recovery owner。`DutyManagement`、`AuthoringValidation`、`TimetableWorkspace` 是受控视图。此契约覆盖交路编排、运行线工具、真实校验/模拟结果及图上时间编辑，共享停站程序、无方向事件点及积木交路使用下述当前模型。
 
 ## 一次正常编辑如何完成
 
@@ -37,7 +37,7 @@ shiftAuthoringGraphSuffix(document, runId, point, mode: 'OFFSET'|'ABSOLUTE', val
 
 ## 生命周期与必须保持的规则
 
-单点菜单提交到达时写 `arrivalOverrides`，发车时写对应 run call 的 `departureTick`；PASS 的离开投影也编辑通过到达时刻。有效 arrival override 参与到发和最小停站校验。节点后续平移和复制整批各形成一次文档/history 更新；本地输入草稿、预览、busy、报错和 profile 设置不进入 history。
+单点菜单提交到达时写 `arrivalOverrides`，发车时写对应 run call 的 `departureTick`；PASS 的离开投影也编辑通过到达时刻。有效 arrival override 参与到发和最小停站校验。节点后续平移和复制整批各形成一次文档/history 更新；本地输入草稿、预览、busy、报错不进入 history；交路 referenceVehicle 为文档字段，变更进入 history。
 
 Reset 仅重生选中运行线的时刻，始发 Tick 来自该运行线原有首站 departureTick，没有另一个始发输入；缺少始发时刻则提示先填写。独立 Copy run ribbon 打开间隔/数量弹窗，复制使用 effective run，按 D、2D、…、ND 平移并生成全新 run/call ID，不分配交路。运行选项不再混入复制设置。线路和方向共同限制选中运行线，删除后不得选中其他线路 inspector。
 
@@ -69,7 +69,7 @@ Reset 仅重生选中运行线的时刻，始发 Tick 来自该运行线原有�
 
 ## 迁移、非目标与反例
 
-无存储迁移或版本变化。顶部 JS timetables/Simulation 两个独立页面已删除；正式 JS 保存/编译及校验页完整模拟仍保留。模板、积木式动作、地图拓扑编辑、完整轨迹叠加和持久模拟缓存仍需独立任务。
+当前未发布格式保持版本1；旧 per-call 到站定义须经离线审计迁移。顶部 JS timetables/Simulation 两个独立页面已删除；正式 JS 保存/编译及校验页完整模拟仍保留。地图拓扑编辑、完整轨迹叠加和持久模拟缓存仍需独立任务。
 
 错误做法：每个页面创建自己的 document/recovery；把任何无错误列表渲染为“全部世界检查通过”；迟到响应无条件 `setValue(capturedDocument)`；删除成功却保留已删除的 documentId。
 正确做法：受控视图共享一个 owner；结果区分未执行、当前结果与阻塞原因；响应先核对 owner 和输入，保留期间的新编辑并正确更新持久身份。
@@ -125,3 +125,15 @@ CURRENT：`authoringResume.ts` 保存 owner/world 隔离的最后文档 ID；内
 未保存恢复写入读取最新的完整状态快照；只在真实卸载/beforeunload/认证失效时运行生命周期保存，并保留250ms编辑防抖。不得在每次依赖变化的 effect cleanup 中把旧文档与新的 saved baseline 混合，否则保存或加载成功后可能复活旧草稿。成功加载和保存时同步更新最新快照，避免 state 尚未提交就卸载的间隙。
 
 最后文档指针是独立、可丢弃的导航记录（version 1）；浏览器存储损坏或不可写不能中断服务器保存。没有修改既有编辑文档或草稿 schema 版本。测试应覆盖 owner/world、损坏和拒绝存储，dirty 优先、缺失/网络失败、列表与 GET 两阶段迟到响应；后端需重建服务实例并在同一磁盘目录读取此前保存的内容。浏览器另验真实页面保存、服务重启重新登录和未保存草稿恢复。
+
+## 共享停站、事件点与交路内联（CURRENT）
+
+文档 `stationPrograms` 按 stationId 保存一次到达/准备定义，调用保存有序 `viaIds`，终点 `departureTick` 可空。终点发车时刻只表示后续交路动作最早开始时刻，不触发准备；跨 RUN 冲突检查用有效到达加最小停站与终点 departure 的最大值。缺省程序与运行 gate 见 dispatcher-runtime，积木上下文、草稿门禁见 program-blocks。
+
+`events?: {id,stationId,tick,label?}[]` 为不分上下行的单站时间点，在运行图站点线上画菱形及标签，由同一 history owner 编辑。程序的 WAIT_EVENT 在生成前解析 event tick + offsetTicks 成绝对等待；缺失引用或越周期产生 authoring issue、返回空 source，不抛出渲染异常。时刻表生成仍不执行通用 Blockly JavaScript。
+
+交路 `referenceVehicle?: {type:'WORLD_TRAIN'|'TRAIN_TEMPLATE',id}` 持久保存于 duty，模拟从此引用取参数；它不限制实际运营列车，也不能作为运行时条件的车型来源。INLINE element `{id,type:'INLINE',tick?,definition}` 为零参数内联，tick 省略表示顺序执行，填写则等待绝对时刻；Java 接口与前端恢复均接受省略，不接受 null/负数。RUN/FUNCTION/PROGRAM/INLINE 全部保持稳定元素身份，运行线唯一 owner 和固定编组事件规则不变。
+
+生成器为起点发出无显式时刻的 beginStationStop，避免把“准备提前量”插入已前进的计划游标；准备开始由执行器调度。目的地携带具体 role、stationProgram、plannedContext 和 departureTick；条件在 worker 按可静态确定的上下文选分支。缺省与自定义共享程序都必须通过所有步骤验证后生成，过时的每 call arrivalProgram 明确拒绝，不能静默改成默认。
+
+`arrivalAuthoring.test`、`dutyBlocks.test`、`programBlocks.test` 覆盖共享/经停/终点时间、事件与草稿映射；Java SharedStationProgramValidatorTest 和 EditorDocumentRestartTest 检查真实持久边界。浏览器须另验普通 HTTP 上两个 canvas 初始化、关开弹窗、可选 INLINE tick 保存、重新载入及无效游离草稿门禁。迁移工具默认 dry-run，源文件作为恢复点保留，冲突需人工选择共享逻辑。

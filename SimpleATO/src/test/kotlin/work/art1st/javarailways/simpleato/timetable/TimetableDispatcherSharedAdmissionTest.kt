@@ -870,6 +870,7 @@ class TimetableDispatcherSharedAdmissionTest {
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
         val origin = train.head.location.arcLength
         val depotId = DepotId("north")
+        val arrivalDepotId = DepotId("south")
         val destinations = OperationalDestinationService(world)
         destinations.register(OperationalDestination(
             "north@out",
@@ -880,12 +881,12 @@ class TimetableDispatcherSharedAdmissionTest {
             DestinationRole.DepotStablingPointRole("north", "out", usableLengthMeters = 20.0)
         ))
         destinations.register(OperationalDestination(
-            "north@in",
-            "North in",
+            "south@in",
+            "South in",
             rail.id,
             origin + 100.0,
             ViewDirection.AB,
-            DestinationRole.DepotStablingPointRole("north", "in", usableLengthMeters = 20.0)
+            DestinationRole.DepotStablingPointRole("south", "in", usableLengthMeters = 20.0)
         ))
         data.wayPoints.add(WayPoint("B", "B", rail.id, origin + 50.0))
         data.wayPoints.add(WayPoint("C", "C", rail.id, origin + 160.0))
@@ -909,7 +910,7 @@ class TimetableDispatcherSharedAdmissionTest {
                 steps = listOf(
                     TimetableStep.At(0L, TimetableAction.TakeFromDepot(DepotTrainSelector(depotId))),
                     TimetableStep.At(0L, TimetableAction.GoTo("B")),
-                    TimetableStep.At(0L, TimetableAction.StoreAtDepot(depotId, setOf("in")))
+                    TimetableStep.At(0L, TimetableAction.StoreAtDepot(arrivalDepotId, setOf("in")))
                 )
             ))
         ))
@@ -918,7 +919,7 @@ class TimetableDispatcherSharedAdmissionTest {
             services = listOf(TimetableService(
                 "second",
                 steps = listOf(
-                    TimetableStep.At(0L, TimetableAction.TakeFromDepot(DepotTrainSelector(depotId))),
+                    TimetableStep.At(0L, TimetableAction.TakeFromDepot(DepotTrainSelector(arrivalDepotId))),
                     TimetableStep.At(0L, TimetableAction.GoTo("C"))
                 )
             ))

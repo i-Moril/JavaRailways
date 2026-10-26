@@ -27,22 +27,21 @@ class TimetableBranchValidationTest {
     private fun plan(vararg steps: TimetableStep) = Timetable("branches", services = listOf(
         TimetableService("duty", TrainSelector.TrainId("train"), listOf(TimetableStep.Check("A")) + steps)))
 
-    @Test fun `different branch endpoints retain both actual onward origins and typed addresses`() = fixture { world ->
+    @Test fun `runtime branch endpoints are rejected before route continuation proof`() = fixture { world ->
         val result = TimetableValidator(world).validate(plan(branch(listOf(at(TimetableAction.GoTo("B"))),
             listOf(at(TimetableAction.GoTo("C")))), at(TimetableAction.GoTo("D"))))
-        assertTrue(result.isSuccess, result.errors.toString())
-        assertEquals(setOf("B", "C"), result.retainedRoutes.keys.filter { it.stepIndex == 2 }.map { it.originId }.toSet())
-        assertEquals(setOf(TimetableBranchArm.THEN, TimetableBranchArm.ELSE), result.retainedRoutes.keys
-            .filter { it.stepIndex == 1 }.map { it.address.branchPath.single().arm }.toSet())
+        assertFalse(result.isSuccess)
+        assertTrue(result.errors.any { "editable-plan deterministic" in it })
+        assertTrue(result.retainedRoutes.isEmpty())
     }
 
     @Test fun `pending stopping options remain distinct across a shared movement`() = fixture { world ->
         val result = TimetableValidator(world).validate(plan(branch(
             listOf(at(TimetableAction.DestinationOptions("B", stoppingOffsetMetersBefore = 1.0))),
             listOf(at(TimetableAction.DestinationOptions("B", stoppingOffsetMetersBefore = 3.0)))), at(TimetableAction.GoTo("B"))))
-        assertTrue(result.isSuccess, result.errors.toString())
-        assertEquals(setOf(1.0, 3.0), result.retainedRoutes.keys.map { it.stoppingOffsetMeters }.toSet())
-        assertEquals(setOf(1.0, 3.0), result.retainedRoutes.values.map { it.stoppingOffsetMeters }.toSet())
+        assertFalse(result.isSuccess)
+        assertTrue(result.errors.any { "editable-plan deterministic" in it })
+        assertTrue(result.retainedRoutes.isEmpty())
     }
 
     @Test fun `one invalid reversed successor rejects the whole branch program`() = fixture { world ->
@@ -56,12 +55,11 @@ class TimetableBranchValidationTest {
         StationId("central"), berths.mapIndexed { index, berth -> StationStopCandidate(berth, index) },
         StationStopSelectionPolicy.AVAILABLE_PRIORITY))
 
-    @Test fun `selected stop excludes incoming-valid candidate whose onward movement is impossible`() = fixture { world ->
+    @Test fun `selected stop cannot implicitly cross unlisted waypoints`() = fixture { world ->
         val result = TimetableValidator(world).validate(plan(at(selection("late", "early")), at(TimetableAction.GoTo("D"))))
-        assertTrue(result.isSuccess, result.errors.toString())
-        val early = OperationalDestinationIds.stationBerth(StationId("central"), "early")
-        assertEquals(setOf(early), result.retainedRoutes.keys.filter { it.stepIndex == 1 }.map { it.targetId }.toSet())
-        assertEquals(setOf(early), result.retainedRoutes.keys.filter { it.stepIndex == 2 }.map { it.originId }.toSet())
+        assertFalse(result.isSuccess)
+        assertTrue(result.errors.any { "no eligible incoming and onward candidate" in it })
+        assertTrue(result.retainedRoutes.isEmpty())
     }
 
     @Test fun `selected stop rejects all candidates when no complete onward continuation exists`() = fixture { world ->
@@ -79,12 +77,13 @@ class TimetableBranchValidationTest {
         assertTrue(result.retainedRoutes.isEmpty(), "one valid future arm cannot authorize selection")
     }
 
-    @Test fun `equivalent empty branch continuations reuse suffix evidence without exponential route copies`() = fixture { world ->
+    @Test fun `many unsupported runtime branches reject before costly route expansion`() = fixture { world ->
         val steps = List(20) { branch(emptyList(), emptyList()) } + at(TimetableAction.GoTo("D"))
         val result = TimetableValidator(world).validate(plan(*steps.toTypedArray()))
-        assertTrue(result.isSuccess, result.errors.toString())
-        assertEquals(1, result.retainedRoutes.size)
-        assertEquals(1, result.routes.size)
+        assertFalse(result.isSuccess)
+        assertEquals(20, result.errors.count { "editable-plan deterministic" in it })
+        assertTrue(result.retainedRoutes.isEmpty())
+        assertTrue(result.routes.isEmpty())
     }
 
     @Test fun `proof budget charges each via leg before expensive route expansion`() = fixture { world ->

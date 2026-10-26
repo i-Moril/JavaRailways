@@ -257,9 +257,11 @@ private fun prepareDisplayBoundaries(
     val structural = setOf(SavedTimetableActionTypeV1.TAKE_FROM_DEPOT, SavedTimetableActionTypeV1.TAKE_FROM_WAYPOINT,
         SavedTimetableActionTypeV1.TAKE_FROM_FORMATION_OUTPUT, SavedTimetableActionTypeV1.COUPLE,
         SavedTimetableActionTypeV1.SPLIT, SavedTimetableActionTypeV1.REVERSE)
+    fun stationaryDisplay(actions: List<SavedStationProgramAction>): Boolean = actions.any { it.type in setOf(SavedStationProgramActionType.SET_DISPLAY, SavedStationProgramActionType.RESET_DISPLAY) || stationaryDisplay(it.steps) }
     fun changesDisplay(step: SavedTimetableStepV1): Boolean = step.action?.let { action ->
         action.type in setOf(SavedTimetableActionTypeV1.SET_DISPLAY, SavedTimetableActionTypeV1.RESET_DISPLAY) ||
-            action.thenSteps.any(::changesDisplay) || action.elseSteps.any(::changesDisplay)
+            action.thenSteps.any(::changesDisplay) || action.elseSteps.any(::changesDisplay) ||
+            action.stopPrograms?.let { stationaryDisplay(it.arrival) || stationaryDisplay(it.departurePreparation) } == true
     } == true
     for (segment in service.runSegments.sortedByDescending { it.startStepIndex }) {
         val gapStart = service.runSegments.filter { it.endStepIndexExclusive <= segment.startStepIndex }
@@ -383,20 +385,21 @@ class ServiceBuilder(private val branchDepth: Int = 0, initialTick: Long = 0L, i
     }
 
     @HostAccess.Export fun program(programId: String, definition: Value, arguments: Value): ServiceBuilder = programAt(currentTick, programId, definition, arguments)
+    @HostAccess.Export fun program(programId: String, definition: Value, arguments: Value, plannedContext: Value): ServiceBuilder = programAt(currentTick, programId, definition, arguments, plannedContext)
 
-    internal fun programAt(tick: Long, programId: String, definition: Value, arguments: Value): ServiceBuilder = try {
-        appendProgram(tick, programId, definition, arguments)
+    internal fun programAt(tick: Long, programId: String, definition: Value, arguments: Value, plannedContext: Value = Value.asValue(null)): ServiceBuilder = try {
+        appendProgram(tick, programId, definition, arguments, plannedContext)
     } catch (failure: RuntimeException) {
         throw IllegalArgumentException(listOfNotNull(currentOrigin, "program:$programId").joinToString("/") + (if (failure.message?.startsWith("step:") == true) "/" else ": ") + failure.message, failure)
     }
 
-    private fun appendProgram(tick: Long, programId: String, definition: Value, arguments: Value): ServiceBuilder {
+    private fun appendProgram(tick: Long, programId: String, definition: Value, arguments: Value, plannedContext: Value): ServiceBuilder {
         requireNoPendingRoute()
         require(programId.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,127}"))) { "invalid program id" }
         require(branchDepth > 0 || steps.any { it.type == SavedTimetableStepTypeV1.CHECK || it.action?.type in setOf(SavedTimetableActionTypeV1.TAKE_FROM_DEPOT, SavedTimetableActionTypeV1.TAKE_FROM_WAYPOINT, SavedTimetableActionTypeV1.TAKE_FROM_FORMATION_OUTPUT) }) {
             "station programs require a prior check or service-boundary acquisition"
         }
-        val expanded = expandStationProgram(toJson(definition, 64), toJson(arguments, 24), tick)
+        val expanded = expandStationProgram(toJson(definition, 64), toJson(arguments, 24), tick, (toJson(plannedContext, 8) as? JsonObject).orEmpty())
         val previous = currentOrigin
         val offset = steps.size
         try {
@@ -421,6 +424,14 @@ class ServiceBuilder(private val branchDepth: Int = 0, initialTick: Long = 0L, i
     @HostAccess.Export fun pass(target: Value): ServiceBuilder = passAt(currentTick, target)
     @HostAccess.Export fun destination(target: String): ServiceBuilder = destinationAt(currentTick, target, Value.asValue(null))
     @HostAccess.Export fun destination(target: String, options: Value): ServiceBuilder = destinationAt(currentTick, target, options)
+    @HostAccess.Export fun beginStationStop(target: String, options: Value): ServiceBuilder = beginStationStopAt(currentTick, target, options)
+    internal fun beginStationStopAt(tick: Long, target: String, options: Value): ServiceBuilder {
+        options.requireOnly(setOf("stationId", "callId", "callRole", "departureTick", "stationProgram", "plannedContext", "doorSide", "minimumDwellTicks"), "origin station options")
+        val programs = requireNotNull(compileStationStopPrograms(target, toJson(options, 64).jsonObject)) { "beginStationStop requires stationProgram" }
+        require(programs.role == "ORIGIN") { "beginStationStop requires ORIGIN role" }
+        return add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.BEGIN_STATION_STOP, stopPrograms = programs))
+    }
+
     @HostAccess.Export fun wait(ticks: Value): ServiceBuilder = addWait(currentTick, ticks)
     @HostAccess.Export fun reverse(): ServiceBuilder = add(currentTick, SavedTimetableActionV1(SavedTimetableActionTypeV1.REVERSE))
     @HostAccess.Export fun halt(): ServiceBuilder = add(currentTick, SavedTimetableActionV1(SavedTimetableActionTypeV1.HALT))
@@ -462,7 +473,7 @@ class ServiceBuilder(private val branchDepth: Int = 0, initialTick: Long = 0L, i
         require(tick >= lastEmittedTick && (pendingPasses.isEmpty() || tick == currentTick))
         currentTick = tick
         require(target.isNotBlank()) { "destination target must not be blank" }
-        options.requireOnly(setOf("arrivalTick", "minimumDwellTicks", "stoppingOffsetMetersBefore", "doorSide", "arrivalProgram"), "destination options")
+        options.requireOnly(setOf("arrivalTick", "minimumDwellTicks", "stoppingOffsetMetersBefore", "doorSide", "arrivalProgram", "stationId", "callId", "callRole", "departureTick", "stationProgram", "plannedContext"), "destination options")
         val arrivalProgram = options.member("arrivalProgram")?.let { value ->
             val raw = toJson(value, 64)
             validateArrivalProgram(raw)
@@ -479,6 +490,7 @@ class ServiceBuilder(private val branchDepth: Int = 0, initialTick: Long = 0L, i
         val doorSide = options.string("doorSide")?.uppercase()?.also {
             require(it in setOf("NONE", "LEFT", "RIGHT", "BOTH")) { "doorSide must be NONE, LEFT, RIGHT, or BOTH" }
         }
+        val stopPrograms = compileStationStopPrograms(target, toJson(options, 64) as? JsonObject ?: JsonObject(emptyMap()))
         val optionsIndex = steps.size
         append(SavedTimetableStepV1(
             SavedTimetableStepTypeV1.AT,
@@ -487,6 +499,7 @@ class ServiceBuilder(private val branchDepth: Int = 0, initialTick: Long = 0L, i
                 SavedTimetableActionTypeV1.DESTINATION_OPTIONS,
                 wayPointIds = listOf(target),
                 arrivalSteps = arrivalProgram?.steps ?: emptyList(),
+                stopPrograms = stopPrograms,
                 arrivalTick = arrivalTick,
                 minimumDwellTicks = dwell,
                 stoppingOffsetMetersBefore = offset,
@@ -574,6 +587,7 @@ class ServiceBuilder(private val branchDepth: Int = 0, initialTick: Long = 0L, i
 }
 
 class TimedActionBuilder(private val service: ServiceBuilder, private val tick: Long) {
+    @HostAccess.Export fun beginStationStop(target: String, options: Value): ServiceBuilder = service.beginStationStopAt(tick, target, options)
     @HostAccess.Export fun beginOperationalTrip(tripId: String, runId: String, unitSlots: Value): ServiceBuilder =
         service.beginOperationalTripAt(tick, tripId, runId, unitSlots)
     @HostAccess.Export fun setDisplay(unitSlots: Value, values: Value): ServiceBuilder = service.displayAt(tick, unitSlots, values, Value.asValue(null))
@@ -585,6 +599,7 @@ class TimedActionBuilder(private val service: ServiceBuilder, private val tick: 
         service.selectStopAt(tick, stationId, berthIds, policy, options)
 
     @HostAccess.Export fun program(programId: String, definition: Value, arguments: Value): ServiceBuilder = service.programAt(tick, programId, definition, arguments)
+    @HostAccess.Export fun program(programId: String, definition: Value, arguments: Value, plannedContext: Value): ServiceBuilder = service.programAt(tick, programId, definition, arguments, plannedContext)
     @HostAccess.Export fun pass(target: Value): ServiceBuilder = service.passAt(tick, target)
     @HostAccess.Export fun destination(target: String): ServiceBuilder = service.destinationAt(tick, target, Value.asValue(null))
     @HostAccess.Export fun destination(target: String, options: Value): ServiceBuilder = service.destinationAt(tick, target, options)

@@ -139,3 +139,16 @@ val runsFirstToSecond = if (facing == ViewDirection.AB) railRunsFirstToSecond el
 ## 拓扑来源与局部重新验证
 
 来源topology revision用于标识快照，不是请求失效条件。路线规划把stable rail spans和permitted paths重新投影到当前图，验证区间及连接；方向overlay同样按实际rail重新解析。来自旧帧的列车位置在用于新拓扑时验证该列车的head/tail、body与occupied intervals，而非因世界远处编辑拒绝。单个已发布observation内部的epoch/topology配对仍必须一致。资源目录和应用时刻表使用实际依赖rail incarnation、连接及crossing验证，不用整图root身份代替有效性。
+
+## 显式唯一路径证明与禁止经过的位置（CURRENT）
+
+纯规划输入增加 requireUniquePath=false、blockedLocations=[]、uniqueSearchLimit=100000，非严格默认仍为原最短路。SimpleATO 提供运营 waypoint 策略，Basic 只消费物理位置。blockedLocations 解析到同一 topology 的切点；查询起终点同位 alias 被排除，中间位置对普通弧和保护替换弧的真实 rail slices 都生效。端点落在原子保护路径内部不能任意切开该路径，保持不可达拒绝。查询失败不改变拓扑、资源或授权。
+
+`requireUniquePath=true` 使用有工作预算的迭代深度搜索，检查全部合法物理简单路径，找到第二条不同路径即 AMBIGUOUS；两条路径长度不同也拒绝，不能只证明最短路径唯一。状态记录有方向切点、当前路径 rail intervals 和 node visits，回溯删除当前分支状态，拒绝重复占用物理区间及不同距离重复访问节点的绕圈捷径。每条保护区域替换弧展开真实 rail footprint 做同样检查，归一相邻同向片段后比较物理路径，重复的相同替换描述不伪装为不同路线。
+
+默认 `uniqueSearchLimit=100000` 工作单位，包含展开、footprint 与冲突检查；预算耗尽返回 `SEARCH_LIMIT_EXCEEDED`，没有找到完整证明不能继续用第一条路。路径数可能指数增长，因此不声称严格模式保持 Dijkstra 的多项式成本；显式经停点缩小搜索段。候选邻接及 footprint 缓存只属于本次查询，不能跨 topology revision。严格模式不使用当前道岔位置、列车占用或灯色来消除配置歧义。
+
+
+两条长度不同的路径也应 AMBIGUOUS；不能把“唯一最短路径”当成唯一物理路径。重复相同替换定义归一后只算一条；访问过的物理节点不同距离再次出现则是绕圈，不作为另一条简单路径。合法从同轨目标后方向绕环回到目标可保留，但不能重复经过源节点绕出又折回。无完整路径为 UNREACHABLE，发现第二条为 AMBIGUOUS，预算耗尽为 SEARCH_LIMIT_EXCEEDED；不能把后两者降为最短路成功。
+
+TopologyRouteUniquenessTest 覆盖不同长度分支、保护内部、相同物理路径去重、物理节点重访、waypoint 中断、同位端点 alias 与预算上限。选项为查询局部值，不持久化，不新增 schema；复用 planner 的调用方须显式选择严格策略，不能改变所有公共测距/诊断查询默认行为。

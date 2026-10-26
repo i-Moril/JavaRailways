@@ -1,6 +1,7 @@
+import {defaultStationStopProgram,resolveEventWaits,validateStopProgram} from './stationPlans';
 import {validateFormationAuthoring,type AuthoringFormationEvent} from './formationAuthoring';
 import { copyStationProgram,validateArrivalProgram,stationProgramSchedule,resolveProgramValue,displayValuesError,validateStationProgram,validateStationProgramCall } from './stationPrograms';
-import type { StationProgramDefinition,OperationalTrip,BoundStationProgram,StationProgramCall,DiagramLineV1, LineDirection, LineSimulationResult, LineV1, SavedTimetableV1, SimulationProfile, TimetableActionV1, WorldMetadata } from './types';
+import type { StationProgramDefinition,StationStopProgram,TimetableEventPoint,OperationalTrip,BoundStationProgram,StationProgramCall,DiagramLineV1, LineDirection, LineSimulationResult, LineV1, SavedTimetableV1, SimulationProfile, TimetableActionV1, WorldMetadata } from './types';
 
 export type AuthoringDoorSide = 'NONE'|'LEFT'|'RIGHT'|'BOTH';
 export type AuthoringRunCallStatusV1 = 'ORIGIN'|'STOP'|'PASS'|'TERMINAL';
@@ -15,7 +16,7 @@ export interface AuthoringRunCallV1 {
   minimumDwellTicks?:number|null;
   stoppingOffsetMetersBefore?:number|null;
   doorSide?:AuthoringDoorSide|null;
-  arrivalProgram?:StationProgramDefinition;
+  viaIds?:string[];
 }
 export interface AuthoringRunV1 {
   id:string;
@@ -39,11 +40,13 @@ export type AuthoringFunctionCallV1 =
 export type AuthoringDutyElementV1 =
   | {id:string;type:'RUN';runId:string}
   | {id:string;type:'FUNCTION';call:AuthoringFunctionCallV1}
-  | {id:string;type:'PROGRAM';call:StationProgramCall};
+  | {id:string;type:'PROGRAM';call:StationProgramCall}
+  | {id:string;type:'INLINE';tick?:number;definition:StationProgramDefinition};
 export interface AuthoringDutyV1 {
   id:string;
   selector:AuthoringDutySelectorV1;
   elements:AuthoringDutyElementV1[];
+  referenceVehicle?:{type:'WORLD_TRAIN'|'TRAIN_TEMPLATE';id:string};
 }
 export interface ArrivalOverrideV1 {runId:string;callId:string;tick:number}
 export interface TimetableAuthoringDocumentV1 {
@@ -55,14 +58,16 @@ export interface TimetableAuthoringDocumentV1 {
   duties:AuthoringDutyV1[];
   diagramLines:DiagramLineV1[];
   arrivalOverrides:ArrivalOverrideV1[];
+  stationPrograms?:StationStopProgram[];
+  events?:TimetableEventPoint[];
   boundPrograms?:BoundStationProgram[];
   formationEvents?:AuthoringFormationEvent[];
   operationalTrips?:OperationalTrip[];
 }
 /** Serialize only the current editor contract, never derived runtime line caps. */
 export function authoringDocumentForSave(document:TimetableAuthoringDocumentV1):TimetableAuthoringDocumentV1 {
-  const {formatVersion,id,formalScriptName,periodDays,runs,duties,diagramLines,arrivalOverrides,boundPrograms,formationEvents,operationalTrips}=document;
-  return {formatVersion,id,formalScriptName,periodDays,runs,duties,diagramLines,arrivalOverrides,boundPrograms,formationEvents,operationalTrips};
+  const {formatVersion,id,formalScriptName,periodDays,runs,duties,diagramLines,arrivalOverrides,boundPrograms,formationEvents,operationalTrips,stationPrograms,events}=document;
+  return {formatVersion,id,formalScriptName,periodDays,runs,duties,diagramLines,arrivalOverrides,boundPrograms,formationEvents,operationalTrips,stationPrograms,events};
 }
 export interface AuthoringIssue {path:string;message:string;severity:'error'|'warning'}
 export interface GeneratedTimetableSource {
@@ -192,19 +197,20 @@ export function resizeRunRoute(
     const status:AuthoringRunCallStatusV1=index===0?'ORIGIN':index===selectedStations.length-1?'TERMINAL':existing?.status==='PASS'?'PASS':'STOP';
     const call=existing?{...existing,status}:newRunCall(station,index,status,metadata,idFactory);
     if(status==='ORIGIN') return {...call,arrivalTick:null,minimumDwellTicks:null};
-    if(status==='TERMINAL') return {...call,departureTick:null};
+    if(status==='TERMINAL') return call;
     if(status==='PASS') return {...call,departureTick:null,minimumDwellTicks:null};
     return call;
   });
   return {...run,diagramLineId:line.id,lineDirection:direction,calls};
 }
 
-export function lineSimulationRoute(run:AuthoringRunV1):Pick<SimulationProfile,'originStationId'|'terminalStationId'|'stopStationIds'|'destinationIds'|'originDepartureMode'> {
+export function lineSimulationRoute(run:AuthoringRunV1):Pick<SimulationProfile,'originStationId'|'terminalStationId'|'stopStationIds'|'destinationIds'|'originDepartureMode'|'viaIds'> {
   return {
     originStationId:run.calls[0]?.stationId,
     terminalStationId:run.calls.at(-1)?.stationId,
     stopStationIds:run.calls.filter((call)=>call.status==='STOP'||call.status==='TERMINAL').map((call)=>call.stationId),
     destinationIds:run.calls.map((call)=>call.targetId),
+    viaIds:run.calls.map((call)=>call.viaIds??[]),
     originDepartureMode:run.originDepartureMode??'AUTO',
   };
 }
@@ -226,7 +232,7 @@ export function resetRunTimings(
     if(!Number.isFinite(leg.travelSeconds)||leg.travelSeconds<=0) throw new Error('simulation returned an invalid interval');
     cursor+=secondsToTicks(leg.travelSeconds);
     if(index===simulation.legs.length-1) {
-      calls[index+1]={...to,status:'TERMINAL',arrivalTick:cursor,departureTick:null};
+      calls[index+1]={...to,status:'TERMINAL',arrivalTick:cursor};
     } else if(to.status==='PASS') {
       calls[index+1]={...to,arrivalTick:cursor,departureTick:null,minimumDwellTicks:null};
     } else {
@@ -300,7 +306,7 @@ export function copyRunShifted(
   return {...run,id:newId,calls:run.calls.map((call,index)=>({
     ...call,id:idFactory(call.stationId,index),arrivalTick:shiftedTick(call.arrivalTick,offsetTicks),
     departureTick:shiftedTick(call.departureTick,offsetTicks),
-    ...(call.arrivalProgram?{arrivalProgram:copyStationProgram(call.arrivalProgram,()=>`arrival-${newId.replace(/[^A-Za-z0-9_-]/g,'_').slice(0,96)}-${++stepIndex}`,offsetTicks)}:{}),
+
   }))};
 }
 
@@ -367,10 +373,8 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
       for(const [name,value] of [['arrivalTick',call.arrivalTick],['departureTick',call.departureTick]] as const) {
         if(value!=null&&(!nonNegativeInteger(value)||value>=periodTicks)) issues.push(issue(`${callPath}.${name}`,`${name} must be inside the timetable period`));
       }
-      if(call.arrivalProgram!==undefined){
-        if(call.status!=='STOP'&&call.status!=='TERMINAL')issues.push(issue(`${callPath}.arrivalProgram`,'Arrival programs require a stopping or terminal call'));
-        for(const message of validateArrivalProgram(call.arrivalProgram,periodTicks))issues.push(issue(`${callPath}.arrivalProgram`,message));
-      }
+      if('arrivalProgram' in call)issues.push(issue(`${callPath}.arrivalProgram`,'Obsolete per-call arrival program: run the offline station program migration before editing or compiling'));
+      if(call.viaIds&&(!Array.isArray(call.viaIds)||call.viaIds.some((id)=>typeof id!=='string'||!id.trim())||new Set(call.viaIds).size!==call.viaIds.length))issues.push(issue(`${callPath}.viaIds`,'Invalid ordered via waypoints'));
       if(call.minimumDwellTicks!=null&&!nonNegativeInteger(call.minimumDwellTicks)) issues.push(issue(`${callPath}.minimumDwellTicks`,'Minimum dwell must be a non-negative integer'));
       if(call.stoppingOffsetMetersBefore!=null&&(!Number.isFinite(call.stoppingOffsetMetersBefore)||call.stoppingOffsetMetersBefore<0)) issues.push(issue(`${callPath}.stoppingOffsetMetersBefore`,'Stopping offset must be finite and non-negative'));
       if(call.arrivalTick!=null&&call.departureTick!=null&&call.departureTick<call.arrivalTick) issues.push(issue(callPath,'Departure must not be earlier than arrival'));
@@ -422,14 +426,16 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
           if(run.calls[0]?.doorSide&&run.calls[0].doorSide!=='NONE'&&run.calls[0].doorSide!==previousRun.calls.at(-1)?.doorSide)issues.push(issue(elementPath,'Connection departure must not configure a second conflicting door operation'));
           if(previousTerminal&&nextOrigin&&previousTerminal!==nextOrigin) issues.push(issue(elementPath,`Run location discontinuity: ${previousTerminal} -> ${nextOrigin}`));
           const terminal=previousRun.calls.at(-1);
-          const previousEnd=document.arrivalOverrides.find((override)=>override.runId===previousRun!.id&&override.callId===terminal?.id)?.tick??terminal?.arrivalTick??terminal?.departureTick;
+          const previousArrival=document.arrivalOverrides.find((override)=>override.runId===previousRun!.id&&override.callId===terminal?.id)?.tick??terminal?.arrivalTick;
+          const previousEnd=Math.max(previousArrival==null?0:previousArrival+(terminal?.minimumDwellTicks??0),terminal?.departureTick??0);
           const nextStart=run.calls[0]?.departureTick;
-          if(previousEnd!=null&&nextStart!=null&&nextStart<previousEnd+(previousRun.calls.at(-1)?.minimumDwellTicks??0)) issues.push(issue(elementPath,`Run overlaps previous run by ${previousEnd-nextStart} ticks`));
+          if(previousEnd!=null&&nextStart!=null&&nextStart<previousEnd) issues.push(issue(elementPath,`Run overlaps previous run by ${previousEnd-nextStart} ticks`));
         }
         if(run) {
           const runStart=run.calls[0]?.departureTick;
           const terminal=run.calls.at(-1);
-          const runEnd=terminal?.arrivalTick??terminal?.departureTick;
+          const arrival=document.arrivalOverrides.find((override)=>override.runId===run.id&&override.callId===terminal?.id)?.tick??terminal?.arrivalTick;
+          const runEnd=Math.max(arrival==null?0:arrival+(terminal?.minimumDwellTicks??0),terminal?.departureTick??0);
           if(previousElementEndTick!=null&&runStart!=null&&runStart<previousElementEndTick) issues.push(issue(elementPath,`Run starts before the previous duty element completes by ${previousElementEndTick-runStart} ticks`));
           if(runEnd!=null) previousElementEndTick=Math.max(previousElementEndTick??0,runEnd);
           previousRun=run;
@@ -455,6 +461,12 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
           previousElementEndTick=lower;
           previousRun=undefined;
         }
+      } else if(element.type==='INLINE') {
+        if(element.tick!=null&&(!nonNegativeInteger(element.tick)||element.tick>=periodTicks))issues.push(issue(elementPath,'Inline start tick outside timetable period'));
+        if(element.definition.parameters.length)issues.push(issue(elementPath,'Inline duty programs cannot declare parameters'));
+        for(const message of validateStationProgram(element.definition))issues.push(issue(elementPath,message));
+        try{const definition=resolveEventWaits(element.definition,document.events??[],periodTicks);const schedule=stationProgramSchedule(definition.steps,{},Math.max(element.tick??0,previousElementEndTick??0),periodTicks);for(const message of schedule.errors)issues.push(issue(elementPath,message));previousElementEndTick=Math.max(previousElementEndTick??0,schedule.earliest);}catch(error){issues.push(issue(elementPath,String(error)));}
+        previousRun=undefined;
       } else {
         const call=element.call;
         if(!call.id.trim()) issues.push(issue(`${elementPath}.call.id`,'Function ID is required'));
@@ -480,10 +492,22 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
   });
   issues.push(...validateOperationalTrips(document));
   const programIds=new Set<string>();
+  const stationIds=new Set<string>();
+  for(const [index,program] of (document.stationPrograms??[]).entries()){
+    if(stationIds.has(program.stationId))issues.push(issue(`stationPrograms[${index}]`,'Duplicate station program'));
+    stationIds.add(program.stationId);
+    for(const message of validateStopProgram(program,document.events??[],periodTicks))issues.push(issue(`stationPrograms[${index}]`,message));
+  }
+  const eventIds=new Set<string>();
+  for(const [index,event] of (document.events??[]).entries()){
+    if(!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(event.id)||eventIds.has(event.id)||!event.stationId.trim()||!Number.isSafeInteger(event.tick)||event.tick<0||event.tick>=periodTicks)issues.push(issue(`events[${index}]`,'Invalid or duplicate timed event'));
+    eventIds.add(event.id);
+  }
   for(const [index,snapshot] of (document.boundPrograms??[]).entries()){
     if(programIds.has(snapshot.programId))issues.push(issue(`boundPrograms[${index}]`,'Duplicate bound program'));
     programIds.add(snapshot.programId);
     for(const message of validateStationProgram(snapshot.definition))issues.push(issue(`boundPrograms[${index}]`,message));
+    try{resolveEventWaits(snapshot.definition,document.events??[],periodTicks);}catch(error){issues.push(issue(`boundPrograms[${index}]`,String(error)));}
   }
   const overrideKeys=new Set<string>();
   document.arrivalOverrides.forEach((override,overrideIndex)=>{
@@ -558,22 +582,23 @@ function namedDutyInitialTarget(document:TimetableAuthoringDocumentV1,duty:Autho
   return firstRun?.type==='RUN'?document.runs.find((run)=>run.id===firstRun.runId)?.calls[0]?.targetId:undefined;
 }
 
-function destinationOptions(call:AuthoringRunCallV1,override?:number):string {
-  const fields:string[]=[];
-  const arrival=override??call.arrivalTick;
-  if(arrival!=null) fields.push(`arrivalTick: ${arrival}`);
-  if(call.minimumDwellTicks!=null) fields.push(`minimumDwellTicks: ${call.minimumDwellTicks}`);
-  if(call.stoppingOffsetMetersBefore!=null) fields.push(`stoppingOffsetMetersBefore: ${call.stoppingOffsetMetersBefore}`);
-  if(call.doorSide) fields.push(`doorSide: ${quote(call.doorSide)}`);
-  if(call.arrivalProgram)fields.push(`arrivalProgram: JSON.parse(${quote(JSON.stringify(call.arrivalProgram))})`);
-  return fields.length?`, { ${fields.join(', ')} }`:'';
+function stopOptions(document:TimetableAuthoringDocumentV1,duty:AuthoringDutyV1,run:AuthoringRunV1,call:AuthoringRunCallV1):Record<string,unknown>{
+ const shared=document.stationPrograms?.find((program)=>program.stationId===call.stationId)??defaultStationStopProgram(call.stationId);
+ const periodTicks=document.periodDays*24000;
+ return {stationId:call.stationId,callId:call.id,callRole:call.status,departureTick:call.departureTick??undefined,stationProgram:{arrival:resolveEventWaits(shared.arrival,document.events??[],periodTicks),departurePreparation:resolveEventWaits(shared.departurePreparation,document.events??[],periodTicks),preparationLeadTicks:shared.preparationLeadTicks},plannedContext:{runId:run.id,runType:run.type,lineId:run.lineId??'',lineDirection:run.lineDirection,stationId:call.stationId,callStatus:call.status,dutyId:duty.id}};
+}
+function destinationOptions(document:TimetableAuthoringDocumentV1,duty:AuthoringDutyV1,run:AuthoringRunV1,call:AuthoringRunCallV1,override?:number):string {
+ return `, JSON.parse(${quote(JSON.stringify({...stopOptions(document,duty,run,call),arrivalTick:override??call.arrivalTick??undefined,minimumDwellTicks:call.minimumDwellTicks??undefined,stoppingOffsetMetersBefore:call.stoppingOffsetMetersBefore??undefined,doorSide:call.doorSide??undefined}))})`;
 }
 
 export function generateTimetableSource(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[]):GeneratedTimetableSource {
   const issues=validateAuthoringDocument(document,infrastructureLines);
+  const {formalScriptName:ignoredName,...semanticInput}=authoringDocumentForSave(document);
+  const documentHashInput=JSON.stringify({document:semanticInput,lineSpeedLimits:authoringLineSpeedLimits(infrastructureLines,document)});
+  if(issues.some((issue)=>issue.severity==='error'))return {source:'',issues,documentHashInput};
   const lines:string[]=['// Generated by JavaRailways WebUI. Do not edit in structured mode.','function main(timetable) {',`    timetable.setPeriodDays(${document.periodDays})`];
   for(const [index,snapshot] of (document.boundPrograms??[]).entries()) {
-    if(document.duties.some((duty)=>duty.elements.some((element)=>element.type==='PROGRAM'&&element.call.programId===snapshot.programId)))lines.push(`    const program${index} = JSON.parse(${quote(JSON.stringify(snapshot.definition))})`);
+    if(document.duties.some((duty)=>duty.elements.some((element)=>element.type==='PROGRAM'&&element.call.programId===snapshot.programId)))lines.push(`    const program${index} = JSON.parse(${quote(JSON.stringify(resolveEventWaits(snapshot.definition,document.events??[],document.periodDays*24000)))})`);
   }
   for(const event of document.formationEvents??[]) {
     const {id,...definition}=event;
@@ -609,26 +634,31 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1,in
         const run=document.runs.find((candidate)=>candidate.id===element.runId);
         if(!run) continue;
         const scoped='runScope';
-        const segment={runId:run.id,lineId:run.lineId,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,calls:run.calls.map(({targetId,berthId:_,minimumDwellTicks:__,stoppingOffsetMetersBefore:___,doorSide:____,arrivalProgram:_____,...call})=>({...call,destinationId:targetId,arrivalTick:document.arrivalOverrides.find((o)=>o.runId===run.id&&o.callId===call.id)?.tick??call.arrivalTick}))};
+        const segment={runId:run.id,lineId:run.lineId,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,calls:run.calls.map(({targetId,berthId:_,minimumDwellTicks:__,stoppingOffsetMetersBefore:___,doorSide:____,...call})=>({...call,destinationId:targetId,arrivalTick:document.arrivalOverrides.find((o)=>o.runId===run.id&&o.callId===call.id)?.tick??call.arrivalTick}))};
         lines.push(`        t.origin(${quote(origin(duty.id,element.id,run.id))}, scoped => {`, `          scoped.runSegment(JSON.parse(${quote(JSON.stringify(segment))}), ${scoped} => {`);
         if(!emittedCheck&&duty.selector.type==='TRAIN_NAME'&&run.calls[0]?.targetId) {
           lines.push(`            ${scoped}.check(${quote(run.calls[0].targetId)})`);
           emittedCheck=true;
+        }
+        const first=run.calls[0];
+        if(first?.departureTick!=null){
+          const options={...stopOptions(document,duty,run,first),doorSide:first.doorSide??undefined,minimumDwellTicks:first.minimumDwellTicks??undefined};
+          lines.push(`            ${scoped}.beginStationStop(${quote(first.targetId)}, JSON.parse(${quote(JSON.stringify(options))}))`);
         }
         let routeAnchor=run.calls[0];
         let pendingPasses='';
         for(let index=1;index<run.calls.length;index++) {
           const call=run.calls[index];
           if(call.status==='PASS') {
+            for(const via of call.viaIds??[])pendingPasses+=`.pass(${quote(via)})`;
             if(call.targetId) pendingPasses+=`.pass(${quote(call.targetId)})`;
             continue;
           }
           if(routeAnchor?.departureTick==null||!call.targetId) continue;
           const override=document.arrivalOverrides.find((item)=>item.runId===run.id&&item.callId===call.id)?.tick;
-          const statement=`${scoped}.at(${routeAnchor.departureTick})${pendingPasses}.destination(${quote(call.targetId)}${destinationOptions(call,override)})`;
-          lines.push(call.arrivalProgram
-            ?`            ${scoped}.origin(${quote(`${origin(duty.id,element.id,run.id)}/arrival:${call.id}`)}, ${scoped} => { ${statement} })`
-            :`            ${statement}`);
+          const viaPasses=(call.viaIds??[]).map((id)=>`.pass(${quote(id)})`).join('');
+          const statement=`${scoped}.at(${routeAnchor.departureTick})${pendingPasses}${viaPasses}.destination(${quote(call.targetId)}${destinationOptions(document,duty,run,call,override)})`;
+          lines.push(`            ${statement}`);
           routeAnchor=call;
           pendingPasses='';
         }
@@ -642,8 +672,12 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1,in
             const target=namedDutyInitialTarget(document,duty);
             if(target){lines.push(`            scoped.check(${quote(target)})`);emittedCheck=true;}
           }
-          lines.push(`            scoped.at(${element.call.tick}).program(${quote(element.call.programId)}, program${index}, ${argumentsSource})`,'        })');
+          lines.push(`            scoped.at(${element.call.tick}).program(${quote(element.call.programId)}, program${index}, ${argumentsSource}, JSON.parse(${quote(JSON.stringify({dutyId:duty.id}))}))`,'        })');
         }
+      } else if(element.type==='INLINE') {
+        const definition=resolveEventWaits(element.definition,document.events??[],document.periodDays*24000);
+        if(!emittedCheck&&duty.selector.type==='TRAIN_NAME'){const target=namedDutyInitialTarget(document,duty);if(target){lines.push(`        t.check(${quote(target)})`);emittedCheck=true;}}
+        lines.push(`        t.origin(${quote(origin(duty.id,element.id))}, scoped => {`,`            scoped${element.tick==null?'':`.at(${element.tick})`}.program(${quote(element.id)}, JSON.parse(${quote(JSON.stringify(definition))}), {}, JSON.parse(${quote(JSON.stringify({dutyId:duty.id}))}))`,'        })');
       } else {
         const call=element.call;
         if(call.type==='PLACE_INITIAL') continue;

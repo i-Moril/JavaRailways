@@ -102,7 +102,8 @@ internal class StructuralTimetableValidator(private val world: World,
         val carIds: List<String>, val window: StructuralEventWindow?, val pointId: String?,
         val output: Pair<String, String>? = null, val classification: FormationOutputMetadata? = null,
         val exactInitialEligible: Boolean = true, val branchTrace: StructuralBranchTrace = StructuralBranchTrace.EMPTY,
-        val pendingOffset: Double = 0.0, val pendingStation: TimetableAction.CallStation? = null)
+        val pendingOffset: Double = 0.0, val pendingStation: TimetableAction.CallStation? = null,
+        val pendingStopReverse: Boolean = false)
     private data class Cursor(val service: TimetableService, var index: Int = 0, var candidates: List<Candidate>? = null,
         var failed: Boolean = false)
 
@@ -139,11 +140,14 @@ internal class StructuralTimetableValidator(private val world: World,
                                 is TimetableAction.TakeFromDepot, is TimetableAction.TakeFromWaypoint -> Unit // initial boundary only; normal validator checks placement
                                 is TimetableAction.TakeFromFormationOutput -> error("formation acquisition is not the first step")
                                 is TimetableAction.DestinationOptions -> cursor.candidates = cursor.candidates!!.map {
-                                    it.copy(pendingOffset = action.stoppingOffsetMetersBefore ?: 0.0) }
+                                    it.copy(pendingOffset = action.stoppingOffsetMetersBefore ?: 0.0, pendingStopReverse = action.stopPrograms?.reverseParity() == 1) }
                                 is TimetableAction.CallStation -> {
                                     val berth = world.simpleAtoWorldData.stations.berth(action.berthRef)
                                         ?: error("structural station berth is missing")
-                                    cursor.candidates = cursor.candidates!!.map { it.copy(pendingStation = action) }
+                                    cursor.candidates = cursor.candidates!!.map { it.copy(pendingStation = action, pendingStopReverse = action.stopPrograms?.reverseParity() == 1) }
+                                }
+                                is TimetableAction.BeginStationStop -> if (action.stopPrograms.reverseParity() == 1) {
+                                    cursor.candidates = cursor.candidates!!.map { it.copy(envelope = it.envelope.reoriented(true), window = null, exactInitialEligible = false) }
                                 }
                                 TimetableAction.Reverse -> cursor.candidates = cursor.candidates!!.map {
                                     it.copy(envelope = it.envelope.reoriented(true), window = null, exactInitialEligible = false) }
@@ -304,8 +308,8 @@ internal class StructuralTimetableValidator(private val world: World,
                     is TimetableAction.GoVia -> candidates.map { move(cursor, address.topLevelIndex, it, child.wayPointIds, childAddress) }
                     TimetableAction.Reverse -> candidates.map { it.copy(envelope = it.envelope.reoriented(true),
                         window = null, exactInitialEligible = false) }
-                    is TimetableAction.DestinationOptions -> candidates.map { it.copy(pendingOffset = child.stoppingOffsetMetersBefore ?: 0.0) }
-                    is TimetableAction.CallStation -> candidates.map { it.copy(pendingStation = child) }
+                    is TimetableAction.DestinationOptions -> candidates.map { it.copy(pendingOffset = child.stoppingOffsetMetersBefore ?: 0.0, pendingStopReverse = child.stopPrograms?.reverseParity() == 1) }
+                    is TimetableAction.CallStation -> candidates.map { it.copy(pendingStation = child, pendingStopReverse = child.stopPrograms?.reverseParity() == 1) }
                     is TimetableAction.SelectStop -> selectStop(cursor, candidates, childAddress, child)
                     is TimetableAction.Extension -> candidates.map { it.copy(exactInitialEligible = false) }
                     is TimetableAction.SetDisplay, is TimetableAction.ResetDisplay, is TimetableAction.Stop, TimetableAction.WaitUntil -> candidates
@@ -411,6 +415,9 @@ internal class StructuralTimetableValidator(private val world: World,
         val finalBerth = stationBerth?.takeIf {
             it.location.rail.id == finalTarget.railId && abs(it.location.arcLengthIn(ViewDirection.AB) - finalTarget.arcLength) <= 1e-7 }
         if (finalBerth != null) effectiveOffset = stationAction.stoppingOffsetMetersBefore ?: finalBerth.stoppingOffsetMetersBefore
+        require(!candidate.pendingStopReverse || stationAction == null || finalBerth != null) {
+            "station reversal must terminate its incoming movement before an onward mission"
+        }
         val intermediatePositions = arrayListOf<Pair<String, Double>>()
         val selected = if (candidate.output == null) {
             val origin = requireNotNull(candidate.pointId) { "source movement lost its checked incoming origin" }
@@ -442,7 +449,10 @@ internal class StructuralTimetableValidator(private val world: World,
                 val planned = TopologyRoutePlanner.plan(TopologyRoutePlanningInput(topology, restrictions,
                     OperationalRouteLocation(last.railId, last.arcLengthInAbMeters), OperationalRouteLocation(point.railId, point.arcLength),
                     "structural-onward:${cursor.service.id}:$index:$target", 0, last.facing,
-                    world.simpleAtoWorldData.destinations[target]?.approachDirection))
+                    world.simpleAtoWorldData.destinations[target]?.approachDirection,
+                    requireUniquePath = true, blockedLocations = world.basicWorldData.wayPoints.all().map {
+                        OperationalRouteLocation(it.railId, it.arcLength)
+                    }))
                 require(planned is TopologyRoutePlanningResult.Planned) {
                     (planned as? TopologyRoutePlanningResult.Rejected)?.detail ?: "onward route was not planned" }
                 result = route(planned.route.routeId, result.segments + planned.route.segments)
@@ -498,7 +508,10 @@ internal class StructuralTimetableValidator(private val world: World,
                 candidate.envelope.reversed, StructuralRouteBindings.capture(world,
                     listOfNotNull(candidate.pointId) + targets, stationAction?.berthRef), markers)) == null) { "duplicate structural route proof" }
         }
-        return candidate.copy(envelope = proof.outputEnvelope(candidate.carIds).narrowedAt(eligible), window = eligible, pointId = targets.last(), exactInitialEligible = false, pendingOffset = 0.0, pendingStation = null)
+        val arrived = proof.outputEnvelope(candidate.carIds).narrowedAt(eligible)
+        return candidate.copy(envelope = if (candidate.pendingStopReverse) arrived.reoriented(true) else arrived,
+            window = if (candidate.pendingStopReverse) null else eligible, pointId = targets.last(),
+            exactInitialEligible = false, pendingOffset = 0.0, pendingStation = null, pendingStopReverse = false)
     }
 
     private fun store(cursor: Cursor, index: Int, candidate: Candidate, action: TimetableAction.StoreAtDepot) {

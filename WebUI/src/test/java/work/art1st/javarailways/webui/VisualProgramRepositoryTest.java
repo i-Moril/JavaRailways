@@ -22,12 +22,12 @@ class VisualProgramRepositoryTest {
     }
     private JsonNode definition() throws Exception { return mapper.readTree("{\"parameters\":[],\"steps\":[]}"); }
 
-    @Test void dynamicStopValidatesStationTypePolicyAndBoundCandidateUniqueness() throws Exception {
+    @Test void dynamicStopIsNotAnAuthoredTimetableProgramAction() throws Exception {
         JsonNode selection = mapper.readTree("""
             {"parameters":[{"id":"station","type":"STATION"},{"id":"berths","type":"ID_LIST"}],"steps":[
               {"id":"choose","type":"SELECT_STOP","stationId":{"parameterId":"station"},"berthIds":{"parameterId":"berths"},"selectionPolicy":"AVAILABLE_PRIORITY"}]}
             """);
-        assertDoesNotThrow(() -> StationProgramValidator.validateArguments(selection, mapper.readTree("{\"station\":\"central\",\"berths\":[\"long\",\"short\"]}")));
+        assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateArguments(selection, mapper.readTree("{\"station\":\"central\",\"berths\":[\"long\",\"short\"]}")));
         for (String ids : java.util.List.of("[]", "[\"same\",\"same\"]")) {
             assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateArguments(selection,
                 mapper.readTree("{\"station\":\"central\",\"berths\":" + ids + "}")));
@@ -39,7 +39,7 @@ class VisualProgramRepositoryTest {
     @Test void nestedBranchesValidateParametersAndRejectFixedOperations() throws Exception {
         JsonNode branch = mapper.readTree("""
             {"parameters":[{"id":"duration","type":"DURATION"}],"steps":[
-              {"id":"choose","type":"BRANCH","typeId":"demo:condition","version":1,"parameters":{"value":{}},
+              {"id":"choose","type":"BRANCH","typeId":"javarailways:plan_duty_id","version":1,"parameters":{"value":{"values":["d"]}},
                 "thenSteps":[{"id":"wait","type":"WAIT_DURATION","durationTicks":{"parameterId":"duration"}}],"elseSteps":[]}]}
             """);
         assertDoesNotThrow(() -> StationProgramValidator.validateArguments(branch, mapper.readTree("{\"duration\":1}")));

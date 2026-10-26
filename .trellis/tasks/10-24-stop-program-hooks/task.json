@@ -15,12 +15,12 @@
   "branch": "codex/timetable-station-programs",
   "base_branch": "deploy/station-blocks-20261024",
   "worktree_path": null,
-  "commit": "aa5cb68d4c730dbbfef05a4be011b540f6a93685",
+  "commit": "ea72a9ff9007f6749f65615e80b30b8ea6446949",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Committed aa5cb68d; deployed to JavaRailwaysTest on 2026-10-26. Server RUNNING, bridge/sidecar/public assets verified; six existing documents accepted, no migration needed. Recovery merged-review-20261023-tlenk1ii. User explicitly deferred archival pending in-game testing; keep in_progress.",
+  "notes": "Round 1 feedback fixes committed ea72a9ff and deployed 2026-10-26 16:42 UTC; bridge/sidecar/public resources verified. Recovery merged-review-20261023-hkz6r8g9. Frontend 229 tests passed; browser drag/delete/save verified. Remaining feedback tracked in research/feedback-backlog.md. Keep in_progress and unarchived pending user testing and further rounds.",
   "meta": {}
 }

@@ -12,3 +12,7 @@
 ## Completed implementation and validation
 
 All eight batches are implemented and reviewed. Final backend2269/frontend210/migration3 gates passed, latest HTTP browser first-Duties initialization and invalid-draft recovery verified, shadow packaging verified. `research/validation.md` records precise evidence and the existing Java25 reobfuscation limitation. The user approved `research/commit-plan.md` and its exact file manifest on 2026-10-26. Record the local work commit and keep the task in_progress pending user in-game testing; archival is explicitly deferred. No push or deployment is authorized by this commit request.
+
+## Feedback round1
+
+User authorized incremental fixes and deployment on 2026-10-26. First-round behavior/ownership/acceptance is in research/feedback-round-1.md; preserve the remaining feedback for later rounds. Current source baseline aa5cb68d is already deployed; initial dirty files are task deployment evidence and task notes only.

@@ -3,6 +3,8 @@ import { Button,Tooltip } from 'antd';
 import { graphServiceColors,layoutGraph,type GraphPoint } from './graph';
 import { useI18n } from './i18n';
 import { formatTimetableTick } from './timetableTime';
+import {graphEventAtPointer,type GraphEventContext} from './timetableEvents';
+export type {GraphEventContext} from './timetableEvents';
 import { useTheme } from './theme';
 import type { LineV1,SavedTimetableV1,WorldMetadata } from './types';
 
@@ -14,7 +16,7 @@ const pointKey=(point:GraphPoint)=>`${point.serviceIndex}:${point.stepIndex}:${p
 const clamp=(value:number)=>Math.min(3.2,Math.max(.55,value));
 
 export function Graph({
-  events=[],value,onSelect,metadata,line,graphLineId,highlightedServiceIds,previewServiceIds,onSelectPoint,onDismissPoint,
+  events=[],value,onSelect,metadata,line,graphLineId,highlightedServiceIds,previewServiceIds,onSelectPoint,onDismissPoint,onEventContext,
 }:{
   events?:import('./types').TimetableEventPoint[];
   value:SavedTimetableV1;
@@ -26,6 +28,7 @@ export function Graph({
   onSelect?:(service:number,step:number)=>void;
   onSelectPoint?:(point:GraphPoint,anchor:{x:number;y:number})=>void;
   onDismissPoint?:()=>void;
+  onEventContext?:(context:GraphEventContext)=>void;
 }) {
   const {locale,t}=useI18n();
   const {theme}=useTheme();
@@ -67,7 +70,7 @@ export function Graph({
   return <div className={`graph-wrap ${panning?'is-panning':''}`}
     onWheel={(event)=>{event.preventDefault();onDismissPoint?.();setPan((current)=>({x:current.x-event.deltaX,y:current.y-event.deltaY}));}}
     onPointerDown={(event)=>{
-      if((event.target as HTMLElement).closest('.canvas-controls,[data-graph-point]'))return;
+      if(event.button!==0||(event.target as HTMLElement).closest('.canvas-controls,[data-graph-point],[data-event-id]'))return;
       onDismissPoint?.();event.currentTarget.setPointerCapture(event.pointerId);
       drag.current={pointerId:event.pointerId,x:event.clientX,y:event.clientY,originX:pan.x,originY:pan.y};setPanning(true);
     }}
@@ -84,13 +87,19 @@ export function Graph({
         <Tooltip title={t('editor.graphReset')}><Button onClick={reset}>1:1</Button></Tooltip>
       </Button.Group>
     </div>
+    {onEventContext&&<div className="graph-event-hint">{t('events.graphHint')}</div>}
     <div className="canvas-sheet" style={{width:sheetWidth,height:sheetHeight,transform:`translate(${pan.x}px,${pan.y}px)`}}>
-      <svg className="diagram-svg" width={sheetWidth} height={sheetHeight} viewBox={`0 0 ${sheetWidth} ${sheetHeight}`} role={onSelectPoint||onSelect?'group':'img'} aria-label={t('editor.graph')}>
+      <svg className="diagram-svg" width={sheetWidth} height={sheetHeight} viewBox={`0 0 ${sheetWidth} ${sheetHeight}`} role={onSelectPoint||onSelect||onEventContext?'group':'img'} aria-label={t('editor.graph')}
+        onContextMenu={(event)=>{
+          if(!onEventContext)return;
+          event.preventDefault();
+          const selected=graphEventAtPointer(layout,event.currentTarget.getBoundingClientRect(),{x:event.clientX,y:event.clientY},new Set(layout.lanes.filter((lane)=>lane.id!=='No locations').map((lane)=>lane.id)),period);
+          if(selected){onDismissPoint?.();onEventContext({...selected,anchor:{x:event.clientX,y:event.clientY}});}
+        }}>
         <defs><pattern id="timetable-minor-grid" width="40" height="22" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 22" className="minor-grid-line"/></pattern></defs>
         <rect x={layout.left} width={Math.max(0,sheetWidth-layout.left)} height={sheetHeight} fill="url(#timetable-minor-grid)"/>
         {ticks.map(({tick,x})=><g key={tick}><line className="time-grid-line" x1={x} y1={42} x2={x} y2={sheetHeight}/><text className="time-axis tick-label" x={x+5} y={16}>{tick}</text><text className="time-axis translated-time" x={x+5} y={31}>{formatTimetableTick(tick,locale)}</text></g>)}
         {layout.lanes.map((lane)=><g key={lane.id}><line className="station-grid-line" x1={layout.left} y1={lane.y} x2={sheetWidth} y2={lane.y}/><text className="station-label" x={layout.left-12} y={lane.y+4} textAnchor="end">{stationNames.get(lane.id)||lane.id}</text></g>)}
-        {events.map((event)=>{const lane=layout.lanes.find((lane)=>lane.id===event.stationId);if(!lane)return null;return <g key={`event-${event.id}`} data-event-id={event.id} transform={`translate(${layout.tickToX(event.tick)} ${lane.y})`}><title>{event.label||event.id} · {formatTimetableTick(event.tick,locale)}</title><path d="M 0 -6 L 6 0 L 0 6 L -6 0 Z" fill="var(--ant-color-primary)"/><text x={9} y={-8} fill="currentColor">{event.label||event.id}</text></g>;})}
         {services.map((service)=>{
           const color=graphColor(service.serviceIndex);
           const hasSelection=(highlightedServiceIds?.size??0)>0;
@@ -116,6 +125,24 @@ export function Graph({
                 onKeyDown={(event)=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(event.currentTarget);}}}
                 onMouseEnter={()=>setHoveredPoint(pointKey(point))} onMouseLeave={()=>setHoveredPoint(null)}><title>{label}</title></circle>;
             })}
+          </g>;
+        })}
+        {events.map((event)=>{
+          const lane=layout.lanes.find((lane)=>lane.id===event.stationId);if(!lane)return null;
+          const label=`${event.label||event.id} · ${stationNames.get(event.stationId)||event.stationId} · ${formatTimetableTick(event.tick,locale)}`;
+          const select=(element:SVGGElement,anchor?:{x:number;y:number})=>{
+            if(!onEventContext)return;
+            const bounds=element.getBoundingClientRect();
+            onDismissPoint?.();onEventContext({eventId:event.id,stationId:event.stationId,tick:event.tick,anchor:anchor??{x:bounds.left+bounds.width/2,y:bounds.top+bounds.height/2}});
+          };
+          return <g key={`event-${event.id}`} data-event-id={event.id} transform={`translate(${layout.tickToX(event.tick)} ${lane.y})`}
+            role={onEventContext?'button':undefined} tabIndex={onEventContext?0:undefined} aria-label={label}
+            style={{cursor:onEventContext?'pointer':undefined}}
+            onPointerDown={(mouse)=>mouse.stopPropagation()}
+            onClick={(mouse)=>{mouse.stopPropagation();select(mouse.currentTarget);}}
+            onContextMenu={(mouse)=>{if(!onEventContext)return;mouse.preventDefault();mouse.stopPropagation();select(mouse.currentTarget,{x:mouse.clientX,y:mouse.clientY});}}
+            onKeyDown={(key)=>{if(key.key==='Enter'||key.key===' '||key.key==='ContextMenu'||(key.key==='F10'&&key.shiftKey)){key.preventDefault();select(key.currentTarget);}}}>
+            <title>{label}</title><path d="M 0 -7 L 7 0 L 0 7 L -7 0 Z" fill="var(--ant-color-primary)"/><text x={10} y={-9} fill="currentColor">{event.label||event.id}</text>
           </g>;
         })}
         {hoveredPoint&&layout.points.filter((point)=>pointKey(point)===hoveredPoint).map((point)=><g className="graph-point-tooltip" key={`tooltip-${pointKey(point)}`} transform={`translate(${point.x+10} ${point.y-30})`}><rect width="158" height="24" rx="5"/><text x="8" y="16">{stationNames.get(point.location)||point.location} · {point.tick}</text></g>)}

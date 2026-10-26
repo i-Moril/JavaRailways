@@ -38,10 +38,11 @@ describe('authoring workspace views',()=>{
   expect(html).toContain('2 / '+translate('en-US','editor.stationActions')+' 0');
   expect(html).not.toContain('2 / When false 0');
  });
- it('provides the shared real block canvas and non-drag editing controls for nested programs',()=>{
+ it('provides the shared block canvas with a compact accessible history toolbar',()=>{
    const html=render(<ProgramDefinitionEditor fieldScope="branch" onChange={noop} value={{parameters:[],steps:[{id:'choose',type:'BRANCH',typeId:'demo:condition',version:1,parameters:{value:{}},thenSteps:[{id:'until',type:'WAIT_UNTIL',tick:{value:80}}],elseSteps:[{id:'pause',type:'WAIT_DURATION',durationTicks:{value:10}}]}]}}/>);
    expect(html).toContain('program-block-canvas');
-   expect(html).toContain('aria-label="'+translate('en-US','programs.blockInsertTarget')+'"');
+   expect(html).not.toContain('aria-label="'+translate('en-US','programs.blockInsertTarget')+'"');
+   expect(html).not.toContain('aria-label="'+translate('en-US','programs.addStep')+'"');
    expect(html).toContain(translate('en-US','programs.blockUndo'));expect(html).toContain(translate('en-US','programs.blockRedo'));
    expect(html).not.toContain('data-program-step="until"');
  });
@@ -97,9 +98,9 @@ describe('authoring workspace views',()=>{
   const html=render(<AuthoringValidation {...props} simulation={{status:'DELAY_EXCEEDED',simulatedTicks:800,observedDelayTicks:201,delayedServiceId:'duty-a',delayedStepIndex:3,runs:[{timetableId:'t',serviceId:'duty-a',trainId:'train',state:'WAITING',timetableElapsedTicks:800,lastLatenessTicks:201,nextStepIndex:3,message:'Waiting for route'}]}} delayedOrigin="duty:duty-a/element:e/run:run-a"/>);
   expect(html).toContain('Delay threshold exceeded');expect(html).toContain('Waiting for route');expect(html).toContain('duty:duty-a/element:e/run:run-a');expect(html).toContain('201');
  });
- it('exposes real duty selectors, assignment, function configuration and reorder controls',()=>{
+ it('exposes duty selectors, function configuration and compact canvas history',()=>{
   const html=render(<DutyManagement duties={[{id:'duty-a',selector:{type:'TAKE_FROM_DEPOT',depotId:'depot-a',tick:50,tags:['commuter']},elements:[{id:'e',type:'FUNCTION',call:{id:'f',type:'WAIT',tick:60,durationTicks:20}}]}]} runs={[]} selectedId="duty-a" metadata={{depots:['depot-a']}} onSelect={noop} onAdd={noop} onDelete={noop} onPatch={noop} onAssign={noop} onAddFunction={noop} onPatchFunction={noop} onMove={noop} onRemove={noop} onViewRun={noop}/>);
-  expect(html).toContain('Take from depot');expect(html).toContain('Wait duration (ticks)');expect(html).toContain('Move up');expect(html).toContain('Assign to');expect(html).not.toContain('PLACE_INITIAL');
+  expect(html).toContain('Take from depot');expect(html).toContain('Wait duration (ticks)');expect(html).toContain('aria-label="Undo"');expect(html).toContain('aria-label="Redo"');expect(html).not.toContain('Move up');expect(html).not.toContain('Assign to');expect(html).not.toContain('PLACE_INITIAL');
  });
  it('run inspector renders actual local errors instead of unconditional success',()=>{
   const html=render(<RunRouteEditor run={{id:'r',type:'PASSENGER',lineDirection:'UP',diagramLineId:'line',calls:[]}} lines={[{id:'line',displayName:'Line',upStationIds:['a','b'],downStationIds:['b','a']}]} metadata={{}} busy={false} issues={[{path:'runs[0]',message:'Missing departure',severity:'error'}]} onError={noop} onChange={noop} onDelete={noop}/>);

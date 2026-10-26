@@ -230,3 +230,15 @@
 .duty-network-edge .active { border-color: var(--ant-color-primary); color: var(--ant-color-primary); }
 .trip-boundary, .trip-editor { margin-top: 16px; padding: 16px; background: var(--ant-color-fill-quaternary); border-radius: 8px; }
 .trip-leg { padding: 10px 0; }
+
+.graph-event-hint { margin: 0; padding: 10px 16px; color: var(--ant-color-text-secondary); border-bottom: 1px solid var(--ant-color-border-secondary); }
+.timetable-events-editor { margin-top: 16px; padding: 16px; }
+.timetable-event-row { margin: 12px 0; }
+.timetable-event-row .ant-select { min-width: 160px; }
+.timetable-event-row > .ant-input { flex: 1; min-width: 160px; max-width: 360px; }
+.graph-event-dialog { display: grid; gap: 16px; padding: 8px 0 16px; }
+.graph-event-dialog label { display: grid; gap: 8px; }
+.graph-event-dialog .ant-select { width: 100%; }
+.duties-module .duty-detail > .ant-flex { margin: 12px 18px; }
+.duties-module .duty-detail > .duty-block-editor { margin: 16px 18px; }
+.duties-module .duty-detail > section[data-duty-workspace-revision] { margin: 16px 18px; }

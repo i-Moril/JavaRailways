@@ -6,3 +6,11 @@
 .program-parameters > .ant-flex { margin: 8px 0; }
 .program-block-editor .blocklyToolbox { font-family: inherit; }
 @media(max-width: 600px) { .program-block-canvas { height: 430px; min-width: 0; } }
+.station-stop-program-editor { padding: 4px 0; }
+.station-stop-program-editor .ant-tabs-content-holder { padding-top: 4px; }
+.program-block-toolbar .ant-btn { width: 36px; font-size: 22px; line-height: 1; }
+.program-block-editor > .ant-alert { margin-bottom: 12px; }
+.program-parameters { margin: 8px 0 12px; }
+.program-block-inspector > .ant-typography { margin: 0; }
+.program-block-inspector > div { display: flex; flex-direction: column; gap: 8px; }
+.program-block-inspector details { margin-bottom: 8px; }

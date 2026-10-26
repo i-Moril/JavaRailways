@@ -2,7 +2,14 @@ import {blocksToDefinition,type ProgramWorkspaceState} from './programBlocks';
 import {validateStationProgram} from './stationPrograms';
 import type {StationProgramDefinition} from './types';
 
-export interface ProgramBlockSnapshot {workspace:ProgramWorkspaceState;parameters:StationProgramDefinition['parameters']}
+export interface ProgramBlockSnapshot {workspace:ProgramWorkspaceState;parameters:StationProgramDefinition['parameters'];acceptedPreparationLeadTicks?:number}
+/** Reconcile a recovered canvas with the accepted document lead without discarding loose blocks. */
+export function reconcileProgramEntryLead(snapshot:ProgramBlockSnapshot,current:number|undefined):ProgramBlockSnapshot {
+ if(current===undefined||snapshot.acceptedPreparationLeadTicks===current)return snapshot;
+ const blocks=snapshot.workspace.blocks;
+ if(!blocks)return snapshot;
+ return {...snapshot,acceptedPreparationLeadTicks:current,workspace:{...snapshot.workspace,blocks:{...blocks,blocks:blocks.blocks.map((block)=>block.type==='rail_entry'?{...block,fields:{...block.fields,PREPARATION_LEAD:current}}:block)}}};
+}
 interface ProgramBlockDraft {baseline:string;accepted:string;snapshot:ProgramBlockSnapshot}
 const storageKey=(scope:string)=>`javarailways.program-blocks/${encodeURIComponent(scope)}`;
 /** Retain the original server baseline when restoring against a later accepted edit. */

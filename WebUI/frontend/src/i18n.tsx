@@ -3,6 +3,11 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from 're
 export type Locale = 'zh-CN' | 'en-US';
 
 const zh = {
+ 'programs.displayHint':'此动作更新运营车次中指定单元的显示数据，不会自动改变列车模型或显示屏。',
+ 'events.graphHint':'右键单击运行图可创建独立时间点；单击时间点可编辑。',
+ 'events.edit':'编辑时间点',
+ 'events.changed':'该时间点已发生变化，请重新打开后编辑。',
+
  'duties.optionalTick':'执行时刻（留空则按顺序）',
  'duties.inlineProgram':'自定义程序',
  'duties.addInlineProgram':'添加自定义程序',
@@ -605,6 +610,11 @@ const zh = {
 
 type TranslationKey = keyof typeof zh;
 const en: Record<TranslationKey, string> = {
+ 'programs.displayHint':'Updates display data for selected units in an operational trip; it does not automatically change the train model or display screens.',
+ 'events.graphHint':'Right-click the graph to add a time point; click a point to edit.',
+ 'events.edit':'Edit time point',
+ 'events.changed':'This time point changed. Reopen it before editing.',
+
  'duties.optionalTick':'Start tick (empty follows the sequence)',
  'duties.inlineProgram':'Custom program',
  'duties.addInlineProgram':'Add custom program',

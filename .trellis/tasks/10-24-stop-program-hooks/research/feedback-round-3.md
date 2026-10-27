@@ -32,3 +32,15 @@ Newrun/duty IDs numeric, copybatch unique and short, existingnames stable, overf
 - 最终包本地服务重启并重新登录后，时间轴调用仍恢复 units=[1,2]；中文浅色/英文暗色及输入框高度复查通过，浏览器错误列表为空。本地 QA 服务和浏览器已关闭。
 - 2026-10-27 部署上传被自动审批拒绝：要求对具体插件产物/脚本发送至 user@192.168.1.230 明确授权。已向用户询问，尚未上传、停止或替换远程实例。线上仍为 a277f64c。收到授权后按既有停服保存、备份、窄替换、启动与资源核验流程继续。
 - 第16/17项及游戏内操作验收留后续批次，任务继续 in_progress，不归档。
+
+## 部署完成（2026-10-27 11:20 UTC）
+
+用户明确回复“部署”，确认上述具体目标及载荷。上传成功后，实例正常停服，日志确认所有世界、全局数据及玩家数据保存完毕，管理状态为0/pid0。备份校验通过后替换 JavaRailways.jar；136个插件数据文件及其他插件JAR的校验保持不变。
+
+- 恢复点：/opt/mcsmanager/backups/javarailways/merged-review-20261023-6kmrt8zt
+- 备份归档 SHA256：cc9b678379c29c8b47d4b8bfd0e9c534a125dce08569f560c60aa38961c8499a
+- 运行主JAR与嵌入/托管WebUI的SHA256均与本节前记录一致。
+- 11:19:52启动完成；11:20:11实际命令返回 ATO world: RUNNING。
+- 桥接 /health 正常；本机与公网 http://mc.art1st.work:29002/ 的17个静态资源逐字节匹配候选包。
+- 仍有已知HTTP暴露提示、Terra Unsafe日志和启动阶段单次Physics overload；本批没有修改这些模块。
+- 部署健康与网页资源核对已通过；游戏内玩家验收仍待进行，任务保持in_progress、不归档。

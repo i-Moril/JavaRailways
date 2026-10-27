@@ -888,3 +888,26 @@ Implemented feedback8/15; browser and tests pass. Deployment upload blocked by a
 ### Next Steps
 
 - After explicit approval deploy cae124d9 with backup; retain task for game acceptance
+
+
+## Session 28: Deploy feedback round3
+<!-- trellis-session: v=2 fp=602eec30c30c2b18 -->
+
+**Date**: 2026-10-27
+**Task**: Deploy feedback round3
+**Package**: webui
+**Branch**: `codex/timetable-station-programs`
+
+### Summary
+
+User explicitly authorized upload/deploy. Deployed numeric authoring IDs and formation-unit picker with recovery6kmrt8zt. Data and other plugins unchanged; bridge healthy,17 public/local assets match,ATO RUNNING. Keep task unarchived for game acceptance.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cae124d9` | fix(webui): simplify authoring IDs and formation unit selection |
+
+### Status
+
+[OK] **Completed**

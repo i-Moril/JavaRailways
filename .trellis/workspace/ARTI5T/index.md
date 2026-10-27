@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 27
+- **Total Sessions**: 28
 - **Last Active**: 2026-10-27
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~890 | Active |
+| `journal-1.md` | ~913 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 28 | 2026-10-27 | Deploy feedback round3 | `cae124d9` | `codex/timetable-station-programs` |
 | 27 | 2026-10-27 | Feedback round3: numeric IDs and formation-unit picker | `cae124d9` | `codex/timetable-station-programs` |
 | 26 | 2026-10-27 | Fix waypoint pruning station and direction semantics | `a277f64c` | `codex/timetable-station-programs` |
 | 25 | 2026-10-27 | Rewrite duty editor as a timed task timeline and deploy | `8ae62d56`, `38f8bb54`, `39ea6890` | `codex/timetable-station-programs` |

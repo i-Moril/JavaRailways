@@ -21,6 +21,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Feedback round3 cae124d9: numeric RUN/DUTY IDs and shared formation-unit picker implemented. Frontend234 + WebUI36 tests pass; actual browser add/remove/history/raw recovery/server restart checked. Upload blocked by auto-review pending explicit target/payload authorization; live remains a277f64c. Keep in_progress/unarchived for player acceptance.",
+  "notes": "Feedback round3 cae124d9 deployed 2026-10-27 11:19UTC after explicit upload/deploy authorization. Frontend234 + WebUI36 pass; browser history/raw repair/restart verified. Normal save/stop, recovery6kmrt8zt,136 data files and other plugin jars unchanged. Bridge healthy; local/public17 assets match; ATO RUNNING11:20:11. Keep in_progress/unarchived pending player acceptance.",
   "meta": {}
 }

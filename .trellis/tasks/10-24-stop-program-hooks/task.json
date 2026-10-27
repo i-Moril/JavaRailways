@@ -15,12 +15,12 @@
   "branch": "codex/timetable-station-programs",
   "base_branch": "deploy/station-blocks-20261024",
   "worktree_path": null,
-  "commit": "8ae62d563dee6254574b652a288dce6cae8d6182",
+  "commit": "a277f64cab7cd265ada536e3d3d2283335e4566f",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Duty timeline deployed2026-10-27 09:28UTC, source8ae62d56; migrationfixes38f8bb54/39ea6890. Front217/backend1309/migration14 pass; browserdrag/resize/undo/contextremove/source/save/restart checked. Six docs+one library validated,one initializer migrated with fullrecovery y2c52jpo;17loopback/publicassets match. Keep in_progress/unarchived for player acceptance.",
+  "notes": "Waypoint pruning fixa277f64c deployed2026-10-27 10:24UTC. Same-station and opposite-local-direction exceptions; unlistedCstation stillprunes. Backend2401tests pass; exactoldartifactbaseline confirms4preexistingfixturefailures nowcorrected. OriginalUP2U/4U+DOWN Reset200,17assetsmatch,7doc/libraryfiles unchanged. Recovery vlfrsu6n. Keep in_progress/unarchived forplayeracceptance.",
   "meta": {}
 }

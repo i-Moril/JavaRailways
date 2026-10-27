@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 25
+- **Total Sessions**: 26
 - **Last Active**: 2026-10-27
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~822 | Active |
+| `journal-1.md` | ~859 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 26 | 2026-10-27 | Fix waypoint pruning station and direction semantics | `a277f64c` | `codex/timetable-station-programs` |
 | 25 | 2026-10-27 | Rewrite duty editor as a timed task timeline and deploy | `8ae62d56`, `38f8bb54`, `39ea6890` | `codex/timetable-station-programs` |
 | 24 | 2026-10-24 | Shared Blockly editor and arrival programs | `ec00c91c` | `feat/station-program-blocks` |
 | 23 | 2026-10-23 | Disk error logs in WebUI and current world issues | `64129b79` | `feat/error-log-webui` |

@@ -822,3 +822,38 @@ Implemented RUN intervals and program point/manual/simulated durations; true dis
 ### Next Steps
 
 - Player verification of timeline UI and live program scheduling; keep existing task in_progress.
+
+
+## Session 26: Fix waypoint pruning station and direction semantics
+<!-- trellis-session: v=2 fp=dec7f8e23fd19ece -->
+
+**Date**: 2026-10-27
+**Task**: Fix waypoint pruning station and direction semantics
+**Package**: webui
+**Branch**: `codex/timetable-station-programs`
+
+### Summary
+
+Corrected same-station and direction-aware waypoint pruning; baseline-verified fixture corrections; deployed and reproduced original UP2U/4U Reset success.
+
+### Main Changes
+
+- SimpleATO owns canonical station exceptions; Basic evaluates optional blocker facing on actual local rail traversal; structural queries share semantics.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a277f64c` | fix(routing): respect station and traversal direction when pruning waypoints |
+
+### Testing
+
+- [OK] 2401 backend tests pass. Original UP2U/4U and DOWN Reset HTTP200. All7editor/libraryfiles unchanged,17servedassets match.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Player game verification; keep current task in_progress and unarchived.

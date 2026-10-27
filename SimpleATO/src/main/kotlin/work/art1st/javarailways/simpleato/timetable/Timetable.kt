@@ -212,6 +212,8 @@ sealed class TimetableAction {
     }
 
     /** Hold at the acquired/checked position until the enclosing At.tick, then continue. */
+    data class TaskStart(val taskId: String) : TimetableAction() { init { require(taskId.isNotBlank() && taskId.length <= 128) } }
+    data class TaskEnd(val taskId: String) : TimetableAction() { init { require(taskId.isNotBlank() && taskId.length <= 128) } }
     data object WaitUntil : TimetableAction()
     data object Halt : TimetableAction()
     data object Reverse : TimetableAction()
@@ -619,7 +621,7 @@ class TimetableValidator(private val world: World) {
                                     "$prefix step#$index storeAtDepot 前必须有且仅有一次取车"
                                 )
                             }
-                            if (index != service.steps.lastIndex) {
+                            if (service.steps.drop(index + 1).any { (it as? TimetableStep.At)?.action !is TimetableAction.TaskEnd }) {
                                 errors.add("$prefix step#$index storeAtDepot 必须是 service 的最后一步")
                             }
                             if (pendingStationCall != null || pendingDestinationOptions != null) {
@@ -664,13 +666,14 @@ class TimetableValidator(private val world: World) {
                         }
                         TimetableAction.Halt -> {
                             if (!hasMovement) errors.add("$prefix step#$index halt 前必须至少有一个 destination")
-                            if (index != service.steps.lastIndex) {
+                            if (service.steps.drop(index + 1).any { (it as? TimetableStep.At)?.action !is TimetableAction.TaskEnd }) {
                                 errors.add("$prefix step#$index halt 必须是 service 的最后一步")
                             }
                             if (pendingStationCall != null || pendingDestinationOptions != null) {
                                 errors.add("$prefix step#$index destination options 后必须先完成导航")
                             }
                         }
+                        is TimetableAction.TaskStart, is TimetableAction.TaskEnd -> Unit
                         TimetableAction.WaitUntil -> {
                             if (currentWayPointId == null && takeActionCount == 0 && !hasFormationOrigin) {
                                 errors.add("$prefix step#$index waitUntil 前必须先通过 check/take 确定列车位置")
@@ -1061,6 +1064,8 @@ class TimetableValidator(private val world: World) {
                         ?.takeIf(::wayPointExists) ?: currentWayPointId
                 }
             }
+            is TimetableAction.TaskStart,
+            is TimetableAction.TaskEnd,
             TimetableAction.WaitUntil,
             TimetableAction.Halt,
             TimetableAction.Reverse,

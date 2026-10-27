@@ -27,6 +27,20 @@ class TimetableBranchValidationTest {
     private fun plan(vararg steps: TimetableStep) = Timetable("branches", services = listOf(
         TimetableService("duty", TrainSelector.TrainId("train"), listOf(TimetableStep.Check("A")) + steps)))
 
+    @Test fun `task scopes are balanced unique and cannot be conditional`() {
+        fun violations(vararg actions: TimetableAction) = TimetableBranchGuard.validate(TimetableServiceTraversal(
+            TimetableService("s", steps = actions.map(::at))))
+        assertTrue(violations(TimetableAction.TaskStart("one"), TimetableAction.TaskEnd("one")).isEmpty())
+        assertTrue(violations(TimetableAction.TaskStart("one")).any { it.code == "INVALID_TASK_BOUNDARY" })
+        assertTrue(violations(TimetableAction.TaskEnd("one")).any { it.code == "INVALID_TASK_BOUNDARY" })
+        assertTrue(violations(TimetableAction.TaskStart("one"), TimetableAction.TaskStart("two"),
+            TimetableAction.TaskEnd("two"), TimetableAction.TaskEnd("one")).any { it.code == "INVALID_TASK_BOUNDARY" })
+        assertTrue(violations(TimetableAction.TaskStart("one"), TimetableAction.TaskEnd("one"),
+            TimetableAction.TaskStart("one"), TimetableAction.TaskEnd("one")).any { it.code == "INVALID_TASK_BOUNDARY" })
+        // The constructor also excludes metadata actions from conditional program bodies.
+        assertThrows(IllegalArgumentException::class.java) { branch(listOf(at(TimetableAction.TaskStart("one"))), emptyList()) }
+    }
+
     @Test fun `runtime branch endpoints are rejected before route continuation proof`() = fixture { world ->
         val result = TimetableValidator(world).validate(plan(branch(listOf(at(TimetableAction.GoTo("B"))),
             listOf(at(TimetableAction.GoTo("C")))), at(TimetableAction.GoTo("D"))))

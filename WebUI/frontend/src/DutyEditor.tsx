@@ -1,5 +1,5 @@
 import {defaultStationStopProgram} from './stationPlans';
-import {defaultDutyProgramArguments,getDutyBlockDraftValidity} from './dutyBlocks';
+import {defaultDutyProgramArguments,orderDutyTimeline,projectDutyTimeline,sortDutyTasks} from './dutyTimeline';
 import {TimetableEventsEditor} from './TimetableEventsEditor';
 import {deleteTimetableEvent,nextTimetableEventId,type GraphEventContext} from './timetableEvents';
 import {renameFormationDuty} from './formationAuthoring';
@@ -12,7 +12,7 @@ import { api } from './api';
 import { frontendDemoEnabled } from './frontendDev';
 import {
   authoringGraphTimetable,authoringSelectorKey,createRunFromLine,deleteRunFromDocument,emptyAuthoringDocument,generateTimetableSource,moveRunToDuty,copyRunShifted,lineSimulationRoute,resetRunTimings,renameAuthoringRun,resolveAuthoringRunSelection,authoringResetProfile,
-  type AuthoringDutyElementV1,type AuthoringDutyV1,type AuthoringFunctionCallV1,type AuthoringRunV1,type RunMoveMode,
+  type AuthoringDutyV1,type AuthoringRunV1,type RunMoveMode,
   type TimetableAuthoringDocumentV1,
 } from './authoring';
 import {loadLastAuthoringDocument,rememberAuthoringDocument,resumeAuthoringWorkspace} from './authoringResume';
@@ -57,7 +57,8 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   const [formalScriptName,setFormalScriptName]=useState(initialRecovery?.formalScriptName??'new-timetable.js');
   const [persistedFormalScriptName,setPersistedFormalScriptName]=useState(initialRecovery?.persistedFormalScriptName??'');
   const documentHistory=useDocumentHistory<TimetableAuthoringDocumentV1>(()=>initialDocument);
-  const {value,setValue}=documentHistory;
+  const {value}=documentHistory;
+  const setValue=(next:TimetableAuthoringDocumentV1|((current:TimetableAuthoringDocumentV1)=>TimetableAuthoringDocumentV1))=>documentHistory.setValue((current)=>orderDutyTimeline(typeof next==='function'?next(current):next));
   const previousSelectedRun=useRef<AuthoringRunV1|undefined>(undefined);
   const [selectedRun,setSelectedRun]=useState(initialRecovery?.selectedRun??'');
   const [previewRun,setPreviewRun]=useState<AuthoringRunV1>();
@@ -88,8 +89,8 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   const [graphLineId,setGraphLineId]=useState(initialRecovery?.graphLineId??'');
   const invalidDrafts=useRef(new Set<string>());
   const [focusedArrivalStep,setFocusedArrivalStep]=useState('');
-  const [reportedTripDraftInvalid,setTripDraftInvalid]=useState(false);
-  const tripDraftValidity=useRef({valid:true,revision:0});
+  const [reportedEditorDraftInvalid,setEditorDraftInvalid]=useState(false);
+  const editorDraftValidity=useRef({valid:true,revision:0});
   const [compiledState,setCompiledState]=useState<{result:CompiledTimetableSource;documentHashInput:string}>();
   const [compileFailure,setCompileFailure]=useState<{message:string;key:string}>();
   const [resetProfile,setResetProfile]=useState('');
@@ -102,23 +103,24 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   const [delayThresholdTicks,setDelayThresholdTicks]=useState(initialRecovery?.delayThresholdTicks??1_200);
   const [simulationState,setSimulationState]=useState<{result:TimetableSimulationResult;inputKey:string}>();
   const programDraftScope=JSON.stringify([recoveryOwner,world,documentId||blockDraftKey.current]);
-  const tripDraftInvalid=reportedTripDraftInvalid||value.duties.some((duty)=>!getDutyBlockDraftValidity(`${programDraftScope}/duty/${duty.id}`,duty.elements)||duty.elements.some((element)=>element.type==='INLINE'&&!getProgramBlockDraftValidity(`${programDraftScope}/duty/${duty.id}/inline/${element.id}`,element.definition,'duty')));
+  const editorDraftInvalid=reportedEditorDraftInvalid;
   const sharedStations=[...new Set(value.runs.flatMap((run)=>run.calls.filter((call)=>call.status!=='PASS').map((call)=>call.stationId)))].map((stationId)=>value.stationPrograms?.find((program)=>program.stationId===stationId)??defaultStationStopProgram(stationId));
   const arrivalDraftsInvalid=sharedStations.some((program)=>(['arrival','departurePreparation'] as const).some((phase)=>!getProgramBlockDraftValidity(`${programDraftScope}/station/${program.stationId}/${phase}`,program[phase],'arrival')));
   const generated=useMemo(()=>generateTimetableSource(value,lines),[value,lines]);
-  const compiled=!tripDraftInvalid&&!arrivalDraftsInvalid&&compiledState?.documentHashInput===generated.documentHashInput?compiledState.result:undefined;
+  const hasAuthoringErrors=generated.issues.some((issue)=>issue.severity==='error');
+  const compiled=!hasAuthoringErrors&&!editorDraftInvalid&&!arrivalDraftsInvalid&&compiledState?.documentHashInput===generated.documentHashInput?compiledState.result:undefined;
   const simulationInputKey=JSON.stringify([world,generated.documentHashInput,delayThresholdTicks,Object.entries(profileAssignments).sort(([a],[b])=>a.localeCompare(b))]);
-  const simulation=!tripDraftInvalid&&!arrivalDraftsInvalid&&simulationState?.inputKey===simulationInputKey?simulationState.result:undefined;
+  const simulation=!hasAuthoringErrors&&!editorDraftInvalid&&!arrivalDraftsInvalid&&simulationState?.inputKey===simulationInputKey?simulationState.result:undefined;
   const onDraftValidityChange=useCallback((key:string,valid:boolean)=>{
     const previous=invalidDrafts.current.has(key);
     if(previous===!valid)return;
     if(valid)invalidDrafts.current.delete(key);else invalidDrafts.current.add(key);
     const allValid=invalidDrafts.current.size===0;
-    tripDraftValidity.current={valid:allValid,revision:tripDraftValidity.current.revision+1};
-    setTripDraftInvalid(!allValid);
+    editorDraftValidity.current={valid:allValid,revision:editorDraftValidity.current.revision+1};
+    setEditorDraftInvalid(!allValid);
     if(!allValid){setCompiledState(undefined);setSimulationState(undefined);setCompileFailure(undefined);}
   },[]);
-  const onTripDraftValidityChange=useCallback((valid:boolean)=>onDraftValidityChange('trips',valid),[onDraftValidityChange]);
+  const onAdvancedValidityChange=useCallback((valid:boolean)=>onDraftValidityChange('advanced',valid),[onDraftValidityChange]);
   const onArrivalValidityChange=useCallback((stationId:string,_callId:string,valid:boolean)=>onDraftValidityChange(`station/${stationId}`,valid),[onDraftValidityChange]);
   useEffect(()=>{for(const key of [...invalidDrafts.current])if(key.startsWith('station/')&&!value.runs.some((run)=>run.calls.some((call)=>call.status!=='PASS'&&key===`station/${call.stationId}`)))onDraftValidityChange(key,true);},[value.runs,onDraftValidityChange]);
   const simulationProfiles=metadata.simulationProfiles||[];
@@ -183,7 +185,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     saveAuthoringRecovery(state);
   };
   const acceptLoadedDocument=(id:string,loaded:TimetableAuthoringDocumentV1)=>{
-    blockDraftKey.current=id||loaded.id;invalidDrafts.current.clear();tripDraftValidity.current={valid:true,revision:tripDraftValidity.current.revision+1};setTripDraftInvalid(false);
+    blockDraftKey.current=id||loaded.id;invalidDrafts.current.clear();editorDraftValidity.current={valid:true,revision:editorDraftValidity.current.revision+1};setEditorDraftInvalid(false);
     previousSelectedRun.current=undefined;setDocumentId(id);setCompiledState(undefined);setSimulationState(undefined);setCompileFailure(undefined);
     const loadedScriptName=loaded.formalScriptName||defaultScriptName(loaded.id);
     savedDocumentJson.current=JSON.stringify(loaded);clearAuthoringRecovery(recoveryOwner,world);documentHistory.reset(loaded);setFormalScriptName(loadedScriptName);setPersistedFormalScriptName(loaded.formalScriptName||'');setSelectedRun(loaded.runs[0]?.id||'');setSelectedDuty(loaded.duties[0]?.id||'');
@@ -225,7 +227,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     acceptLoadedDocument(id,loaded);
   });
   const save=async()=>execute(async()=>{
-    if(!tripDraftValidity.current.valid||arrivalDraftsInvalid)throw new Error(t('programs.invalidDraft'));
+    if(!editorDraftValidity.current.valid||arrivalDraftsInvalid)throw new Error(t('programs.invalidDraft'));
     const epoch=ownerEpoch.current,snapshot=JSON.stringify(value);
     const created=documentId?undefined:await api.createEditorDocument(world,value);
     if(documentId)await api.saveEditorDocument(world,documentId,value);
@@ -239,7 +241,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     const documents=await api.editorDocuments(world);if(ownerEpoch.current===epoch)setDocuments(documents);
   });
   const saveFormalScript=async()=>execute(async()=>{
-    if(!tripDraftValidity.current.valid||arrivalDraftsInvalid)throw new Error(t('programs.invalidDraft'));
+    if(!editorDraftValidity.current.valid||arrivalDraftsInvalid)throw new Error(t('programs.invalidDraft'));
     if(persistedFormalScriptName&&formalScriptName!==persistedFormalScriptName)throw new Error(t('duties.renameFirst'));
     const epoch=ownerEpoch.current,snapshot=JSON.stringify(value),document={...value,formalScriptName};
     let targetDocumentId=documentId;
@@ -259,7 +261,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     const documents=await api.editorDocuments(world);if(ownerEpoch.current===epoch)setDocuments(documents);
   });
   const renameFormalScript=async()=>execute(async()=>{
-    if(!tripDraftValidity.current.valid||arrivalDraftsInvalid)throw new Error(t('programs.invalidDraft'));
+    if(!editorDraftValidity.current.valid||arrivalDraftsInvalid)throw new Error(t('programs.invalidDraft'));
     if(!documentId||!persistedFormalScriptName||formalScriptName===persistedFormalScriptName)return;
     const epoch=ownerEpoch.current,snapshot=JSON.stringify(value),document={...value,formalScriptName};
     await api.renameFormalScript(world,documentId,persistedFormalScriptName,formalScriptName,document);
@@ -294,27 +296,35 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     const documents=await api.editorDocuments(world);if(ownerEpoch.current===nextEpoch)setDocuments(documents);
   });};
   const compile=async()=>execute(async()=>{
-    if(!tripDraftValidity.current.valid||arrivalDraftsInvalid||generated.issues.some((item)=>item.severity==='error'))return;
-    const documentHashInput=generated.documentHashInput,input=liveInputs.current,epoch=ownerEpoch.current,draftRevision=tripDraftValidity.current.revision;
+    if(!editorDraftValidity.current.valid||arrivalDraftsInvalid||generated.issues.some((item)=>item.severity==='error'))return;
+    const documentHashInput=generated.documentHashInput,input=liveInputs.current,epoch=ownerEpoch.current,draftRevision=editorDraftValidity.current.revision;
     setCompileFailure(undefined);setCompiledState(undefined);setSimulationState(undefined);
     try {
       const result=await api.compileSource(world,value.id,generated.source,hash(documentHashInput));
-      if(tripDraftValidity.current.valid&&tripDraftValidity.current.revision===draftRevision&&ownerEpoch.current===epoch&&liveInputs.current.world===input.world&&liveInputs.current.documentJson===input.documentJson)setCompiledState({result,documentHashInput});
+      if(editorDraftValidity.current.valid&&editorDraftValidity.current.revision===draftRevision&&ownerEpoch.current===epoch&&liveInputs.current.world===input.world&&liveInputs.current.documentJson===input.documentJson)setCompiledState({result,documentHashInput});
     } catch(error) {
-      if(tripDraftValidity.current.valid&&tripDraftValidity.current.revision===draftRevision&&ownerEpoch.current===epoch&&liveInputs.current.world===input.world&&liveInputs.current.documentJson===input.documentJson)setCompileFailure({message:error instanceof Error?error.message:String(error),key:documentHashInput});
+      if(editorDraftValidity.current.valid&&editorDraftValidity.current.revision===draftRevision&&ownerEpoch.current===epoch&&liveInputs.current.world===input.world&&liveInputs.current.documentJson===input.documentJson)setCompileFailure({message:error instanceof Error?error.message:String(error),key:documentHashInput});
       throw error;
     }
   });
-  const publish=async()=>{if(!tripDraftValidity.current.valid||arrivalDraftsInvalid||!compiled?.validation.valid)return;await execute(async()=>{await api.publish(world,compiled.timetable);});};
-  const simulate=async()=>{if(!tripDraftValidity.current.valid||arrivalDraftsInvalid||!compiled?.validation.valid||!hasAllProfiles)return;await execute(async()=>{
+  const publish=async()=>{if(!editorDraftValidity.current.valid||arrivalDraftsInvalid||!compiled?.validation.valid)return;await execute(async()=>{await api.publish(world,compiled.timetable);});};
+  const simulate=async()=>{if(!editorDraftValidity.current.valid||arrivalDraftsInvalid||!hasAllProfiles||hasConflictingProfiles||generated.issues.some((issue)=>issue.severity==='error'))return;await execute(async()=>{
     const assignments=profileDuties.map((duty)=>{
       const selected=profileAssignments[duty.id],separator=selected.indexOf(':');
-      const profileType=selected.slice(0,separator) as 'WORLD_TRAIN'|'TRAIN_TEMPLATE',profileId=selected.slice(separator+1);
-      return {serviceId:duty.id,profileType,profileId};
+      return {serviceId:duty.id,profileType:selected.slice(0,separator) as 'WORLD_TRAIN'|'TRAIN_TEMPLATE',profileId:selected.slice(separator+1)};
     });
-    const epoch=ownerEpoch.current,draftRevision=tripDraftValidity.current.revision;setSimulationState(undefined);
-    const result=await api.simulateTimetable(world,compiled.timetable,assignments,delayThresholdTicks);
-    if(tripDraftValidity.current.valid&&tripDraftValidity.current.revision===draftRevision&&ownerEpoch.current===epoch&&liveInputs.current.world===world&&liveInputs.current.simulationInputKey===simulationInputKey)setSimulationState({result,inputKey:simulationInputKey});
+    const epoch=ownerEpoch.current,draftRevision=editorDraftValidity.current.revision;
+    const current=()=>editorDraftValidity.current.valid&&editorDraftValidity.current.revision===draftRevision&&ownerEpoch.current===epoch&&liveInputs.current.world===world&&liveInputs.current.simulationInputKey===simulationInputKey;
+    setSimulationState(undefined);setCompileFailure(undefined);
+    let candidate=compiled;
+    if(!candidate){
+      candidate=await api.compileSource(world,value.id,generated.source,hash(generated.documentHashInput));
+      if(!current())return;
+      setCompiledState({result:candidate,documentHashInput:generated.documentHashInput});
+    }
+    if(!candidate.validation.valid)throw new Error(candidate.validation.errors.join('; '));
+    const result=await api.simulateTimetable(world,candidate.timetable,assignments,delayThresholdTicks);
+    if(current())setSimulationState({result,inputKey:simulationInputKey});
   });};
   const replaceRun=(next:AuthoringRunV1,clearArrivalOverrides=false)=>{setPreviewRun(undefined);setValue((current)=>{
     const sourceLine=lines.find((line)=>line.id===next.diagramLineId);
@@ -322,22 +332,11 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     return {...current,diagramLines,runs:current.runs.map((run)=>run.id===next.id?next:run),arrivalOverrides:clearArrivalOverrides?current.arrivalOverrides.filter((override)=>override.runId!==next.id):current.arrivalOverrides};
   });};
   const renameRun=(nextId:string)=>{
-    try{if(tripDraftInvalid||arrivalDraftsInvalid)throw new Error(t('programs.invalidDraft'));const next=renameAuthoringRun(value,selectedRun,nextId);if(next===value)return;ownerEpoch.current++;setValue(next);setSelectedRun(nextId);setSelectedPoint(undefined);setMoveOpen(false);setCopyOpen(false);}
+    try{if(editorDraftInvalid||arrivalDraftsInvalid)throw new Error(t('programs.invalidDraft'));const next=renameAuthoringRun(value,selectedRun,nextId);if(next===value)return;ownerEpoch.current++;setValue(next);setSelectedRun(nextId);setSelectedPoint(undefined);setMoveOpen(false);setCopyOpen(false);}
     catch(error){const message=error instanceof Error?error.message:String(error);const translated=message==='Run ID is required'?t('ui.runIdRequired'):message==='Run ID already exists'?t('ui.runIdDuplicate'):message;onError(translated);throw new Error(translated);}
   };
   const addCopiedRuns=(copies:AuthoringRunV1[])=>{if(!copies.length)return;setValue((current)=>({...current,runs:[...current.runs,...copies]}));setSelectedRun(copies.at(-1)!.id);};
   const patchDuty=(id:string,patch:Partial<AuthoringDutyV1>)=>setValue((current)=>({...current,operationalTrips:current.operationalTrips?.map((trip)=>({...trip,segments:trip.segments.filter((s)=>!patch.elements||s.serviceId!==id||patch.elements.some((e)=>e.type==='RUN'&&e.runId===s.runId)).map((s)=>patch.id&&s.serviceId===id?{...s,serviceId:patch.id}:s)})),formationEvents:patch.id&&patch.id!==id?renameFormationDuty(current.formationEvents,id,patch.id):current.formationEvents,duties:current.duties.map((duty)=>duty.id===id?{...duty,...patch}:duty)}));
-  const patchFunction=(elementId:string,patch:Partial<AuthoringFunctionCallV1>)=>{
-    if(!selectedDutyValue)return;
-    patchDuty(selectedDutyValue.id,{elements:selectedDutyValue.elements.map((element)=>
-      element.id===elementId&&element.type==='FUNCTION'?{...element,call:{...element.call,...patch} as AuthoringFunctionCallV1}:element)});
-  };
-  const moveElement=(elementId:string,delta:number)=>{
-    if(!selectedDutyValue)return;
-    const elements=[...selectedDutyValue.elements],from=elements.findIndex((item)=>item.id===elementId),to=Math.max(0,Math.min(elements.length-1,from+delta));
-    if(from<0||from===to)return;
-    const [element]=elements.splice(from,1);elements.splice(to,0,element);patchDuty(selectedDutyValue.id,{elements});
-  };
   const addRun=()=>{const id=uid('run');const selectedLine=lines.find((line)=>line.id===graphLineId);if(!selectedLine){onError(t('ui.noLine'));return;}const run:AuthoringRunV1=selectedLine?createRunFromLine(id,selectedLine,runDirection,metadata,()=>uid('call')):{id,type:'PASSENGER',diagramLineId:null,lineDirection:runDirection,calls:[]};setValue((current)=>({...current,runs:[...current.runs,run],diagramLines:selectedLine?[...current.diagramLines.filter((line)=>line.id!==selectedLine.id),{id:selectedLine.id,upStationIds:selectedLine.upStationIds,downStationIds:selectedLine.downStationIds}]:current.diagramLines}));setSelectedRun(id);};
   const openMove=()=>{
     if(!selectedPoint||pointTick==null){onError(t('move.noTimedCall'));return;}
@@ -347,23 +346,22 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   const applyMove=()=>{if(!moveCalculation.preview||moveInvalid)return;setValue(moveCalculation.preview.document);closeMove();};
   const deleteSelectedRun=()=>{if(!selectedRun||!window.confirm(t('duties.confirmDeleteRun')))return;const next=value.runs.find((run)=>run.id!==selectedRun&&run.diagramLineId===graphLineId&&run.lineDirection===runDirection)?.id||'';setValue((current)=>deleteRunFromDocument(current,selectedRun));setSelectedRun(next);};
   const addDuty=()=>{const id=uid('duty');setValue({...value,duties:[...value.duties,{id,selector:{type:'TRAIN_NAME',name:''},elements:[]}]});setSelectedDuty(id);};
-  const assignRun=(runId:string)=>{if(!selectedDutyValue)return;setValue((current)=>moveRunToDuty(current,runId,selectedDutyValue.id,uid('element')));};
+  const assignRun=(runId:string)=>{if(!selectedDutyValue)return;setValue((current)=>{const next=moveRunToDuty(current,runId,selectedDutyValue.id,uid('element'));return {...next,duties:next.duties.map((duty)=>duty.id===selectedDutyValue.id?{...duty,elements:sortDutyTasks(next,duty)}:duty)};});};
   const removeElement=(elementId:string)=>{if(selectedDutyValue)patchDuty(selectedDutyValue.id,{elements:selectedDutyValue.elements.filter((item)=>item.id!==elementId)});};
   const addProgram=(programId:string)=>{
     if(!selectedDutyValue)return;
     const record=programLibrary.find((item)=>item.id===programId);
-    if(!record)return;
     try{
-      const next=value.boundPrograms?.some((item)=>item.programId===programId)?value:adoptStationProgram(value,record);
-      const snapshot=next.boundPrograms!.find((item)=>item.programId===programId)!;
-      const args=defaultDutyProgramArguments(snapshot.definition.parameters);
-      const call:StationProgramCall={id:uid('program-call'),programId,tick:0,arguments:args};
-      setValue({...next,duties:next.duties.map((duty)=>duty.id===selectedDutyValue.id?{...duty,elements:[...duty.elements,{id:uid('element'),type:'PROGRAM',call}]}:duty)});
+      const next=value.boundPrograms?.some((item)=>item.programId===programId)?value:record?adoptStationProgram(value,record):undefined;
+      const snapshot=next?.boundPrograms?.find((item)=>item.programId===programId);if(!next||!snapshot)return;
+      const tick=Math.min(value.periodDays*24000-1,Math.max(0,...projectDutyTimeline(value,selectedDutyValue,simulation).map((task)=>task.endTick??task.startTick)));
+      const call:StationProgramCall={id:uid('program-call'),programId,tick,arguments:defaultDutyProgramArguments(snapshot.definition.parameters)};
+      setValue({...next,duties:next.duties.map((duty)=>{if(duty.id!==selectedDutyValue.id)return duty;const updated:AuthoringDutyV1={...duty,elements:[...duty.elements,{id:uid('element'),type:'PROGRAM',call}]};return {...updated,elements:sortDutyTasks(next,updated)};})});
     }catch(failure){onError(String(failure));}
   };
   const adoptProgram=(programId:string)=>{const record=programLibrary.find((item)=>item.id===programId);if(!record)return;try{setValue(adoptStationProgram(value,record));}catch(failure){onError(String(failure));}};
-  const patchProgram=(elementId:string,patch:Partial<StationProgramCall>)=>{if(!selectedDutyValue)return;patchDuty(selectedDutyValue.id,{elements:selectedDutyValue.elements.map((element)=>element.id===elementId&&element.type==='PROGRAM'?{...element,call:{...element.call,...patch}}:element)});};
-  const addFunction=(call:AuthoringFunctionCallV1)=>{if(!selectedDutyValue)return;const element:AuthoringDutyElementV1={id:uid('element'),type:'FUNCTION',call};const elements=call.type==='PLACE_INITIAL'?[element,...selectedDutyValue.elements]:[...selectedDutyValue.elements,element];patchDuty(selectedDutyValue.id,{elements});};
+  const patchProgram=(elementId:string,patch:Partial<StationProgramCall>)=>{if(!selectedDutyValue)return;const updated:AuthoringDutyV1={...selectedDutyValue,elements:selectedDutyValue.elements.map((element)=>element.id===elementId&&element.type==='PROGRAM'?{...element,call:{...element.call,...patch}}:element)};patchDuty(selectedDutyValue.id,{elements:sortDutyTasks(value,updated)});};
+  const patchTimelineDuty=(patch:Partial<AuthoringDutyV1>)=>{if(!selectedDutyValue)return;renameDuty({...patch,...(patch.elements?{elements:sortDutyTasks(value,{...selectedDutyValue,...patch})}:{})});};
   const selectGraphRun=(serviceIndex:number)=>{const runId=graphValue.services[serviceIndex]?.id,run=value.runs.find((candidate)=>candidate.id===runId);if(runId){setSelectedRun(runId);setFocusedCall('');}if(run)setRunDirection(run.lineDirection);if(run?.diagramLineId)setGraphLineId(run.diagramLineId);};
   const addRunToSelectedDuty=(runId:string)=>{
     if(!selectedDutyValue)return;
@@ -378,17 +376,17 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     if(!selectedDutyValue||selectedDutyValue.selector.type!=='TAKE_FROM_WAYPOINT')return;
     patchDuty(selectedDutyValue.id,{selector:{...selectedDutyValue.selector,...patch}});
   };
-  const compileReason=(tripDraftInvalid||arrivalDraftsInvalid)?t('programs.invalidDraft'):busy?t('ui.busy'):!world?t('ui.noLine'):generated.issues.some((issue)=>issue.severity==='error')?t('ui.fixIssues'):'';
-  const simulationReason=(tripDraftInvalid||arrivalDraftsInvalid)?t('programs.invalidDraft'):busy?t('ui.busy'):!compiled?.validation.valid?t('ui.compileFirst'):hasConflictingProfiles?t('ui.profilesConflict'):!hasAllProfiles?t('ui.profilesMissing'):'';
+  const compileReason=(editorDraftInvalid||arrivalDraftsInvalid)?t('programs.invalidDraft'):busy?t('ui.busy'):!world?t('ui.noLine'):generated.issues.some((issue)=>issue.severity==='error')?t('ui.fixIssues'):'';
+  const simulationReason=(editorDraftInvalid||arrivalDraftsInvalid)?t('programs.invalidDraft'):busy?t('ui.busy'):generated.issues.some((issue)=>issue.severity==='error')||compiled&&!compiled.validation.valid?t('ui.fixIssues'):hasConflictingProfiles?t('ui.profilesConflict'):!hasAllProfiles?t('ui.profilesMissing'):'';
   const commands:AuthoringCommandState={
     'new-run':busy?t('ui.busy'):!graphLineId?t('ui.noLine'):'',
-    'copy-run':(tripDraftInvalid||arrivalDraftsInvalid)?t('programs.invalidDraft'):busy?t('ui.busy'):!selectedRunValue?t('duties.selectRun'):'',
+    'copy-run':(editorDraftInvalid||arrivalDraftsInvalid)?t('programs.invalidDraft'):busy?t('ui.busy'):!selectedRunValue?t('duties.selectRun'):'',
     undo:busy?t('ui.busy'):!documentHistory.canUndo?t('ui.noUndo'):'',
     redo:busy?t('ui.busy'):!documentHistory.canRedo?t('ui.noRedo'):'',
-    save:(tripDraftInvalid||arrivalDraftsInvalid)?t('programs.invalidDraft'):busy?t('ui.busy'):'',
+    save:(editorDraftInvalid||arrivalDraftsInvalid)?t('programs.invalidDraft'):busy?t('ui.busy'):'',
     'save-formal':compileReason,
     compile:compileReason,simulate:simulationReason,
-    publish:(tripDraftInvalid||arrivalDraftsInvalid)?t('programs.invalidDraft'):busy?t('ui.busy'):!compiled?.validation.valid?t('ui.compileFirst'):'',
+    publish:(editorDraftInvalid||arrivalDraftsInvalid)?t('programs.invalidDraft'):busy?t('ui.busy'):!compiled?.validation.valid?t('ui.compileFirst'):'',
   };
   const commandKey=JSON.stringify(commands);
   useEffect(()=>{onCommandState?.(commands);},[commandKey,onCommandState]);
@@ -412,7 +410,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     else if(runId)viewRun(runId);
     else if(dutyIndex||dutyId){setSelectedDuty(dutyId??value.duties[Number(dutyIndex![1])]?.id??'');onPageChange?.('duties');}
   };
-  const renameDuty=(patch:Partial<AuthoringDutyV1>)=>{if(!selectedDutyValue)return;if(patch.id!==undefined&&patch.id!==selectedDutyValue.id&&(tripDraftInvalid||arrivalDraftsInvalid)){onError(t('programs.invalidDraft'));return;}const oldId=selectedDutyValue.id;if(patch.id!==undefined&&(!patch.id.trim()||value.duties.some((duty)=>duty.id!==oldId&&duty.id===patch.id))){onError(t('ui.invalidDutyId'));return;}patchDuty(oldId,patch);if(patch.id!==undefined){setSelectedDuty(patch.id);}};
+  const renameDuty=(patch:Partial<AuthoringDutyV1>)=>{if(!selectedDutyValue)return;if(patch.id!==undefined&&patch.id!==selectedDutyValue.id&&(editorDraftInvalid||arrivalDraftsInvalid)){onError(t('programs.invalidDraft'));return;}const oldId=selectedDutyValue.id;if(patch.id!==undefined&&(!patch.id.trim()||value.duties.some((duty)=>duty.id!==oldId&&duty.id===patch.id))){onError(t('ui.invalidDutyId'));return;}patchDuty(oldId,patch);if(patch.id!==undefined){setSelectedDuty(patch.id);}};
   const selectPoint=(point:GraphPoint,anchor:{x:number;y:number})=>{
     if(busy||previewRun)return;
     const runId=graphValue.services[point.serviceIndex]?.id,run=effectiveRuns.find((candidate)=>candidate.id===runId);if(!run)return;
@@ -440,7 +438,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     replaceRun(next,true);
   });
   const copyRuns=()=>{
-    if(!selectedRunValue||copyInvalid||tripDraftInvalid||arrivalDraftsInvalid)return;
+    if(!selectedRunValue||copyInvalid||editorDraftInvalid||arrivalDraftsInvalid)return;
     try{if(!Number.isSafeInteger(copyCount)||copyCount<1||copyCount>100||!Number.isSafeInteger(copyOffset))throw new Error(t('ui.invalidNumber'));const copies=Array.from({length:copyCount},(_,index)=>copyRunShifted(selectedRunValue,uid('run'),copyOffset*(index+1),()=>uid('call')));
       if(copies.some((run)=>run.calls.some((call)=>[call.arrivalTick,call.departureTick].some((tick)=>tick!=null&&(tick<0||tick>=value.periodDays*24000)))))throw new Error(t('duties.outsidePeriod'));
       addCopiedRuns(copies);setCopyOpen(false);
@@ -484,10 +482,9 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     <Flex gap={6} wrap><Button icon={<EditOutlined/>} onClick={()=>void renameFormalScript()} disabled={busy||!persistedFormalScriptName||formalScriptName===persistedFormalScriptName}>{t('duties.renameScript')}</Button><Button danger icon={<DeleteOutlined/>} onClick={()=>void deleteFormalScript()} disabled={busy||!persistedFormalScriptName}>{t('duties.deleteScript')}</Button><Button danger onClick={()=>void remove()} disabled={!documentId||busy||!!persistedFormalScriptName}>{t('common.deleteDocument')}</Button></Flex>
   </div>;
   return <section className="duty-page studio-timetable-page">
-    {page==='duties'?<DutyManagement draftScope={programDraftScope} onUndo={documentHistory.undo} onRedo={documentHistory.redo} onValidityChange={onTripDraftValidityChange} document={value} onDocumentChange={setValue} formationEvents={value.formationEvents} onFormationEventsChange={(formationEvents)=>setValue((current)=>({...current,formationEvents}))} focusedProgram={visibleFocusedProgram} onOpenProgramLibrary={onOpenProgramLibrary} programLibrary={programLibrary} boundPrograms={value.boundPrograms} programError={programError} programLoading={programLoading} onRefreshPrograms={()=>void loadPrograms()} onAddProgram={addProgram} onAdoptProgram={adoptProgram} onPatchProgram={patchProgram} fieldScope={fieldScope} duties={value.duties} runs={value.runs} selectedId={selectedDuty} metadata={metadata} onSelect={setSelectedDuty} onAdd={addDuty}
+    {page==='duties'?<DutyManagement onValidityChange={onAdvancedValidityChange} simulation={simulation} onSimulate={()=>void simulate()} simulationReason={simulationReason} busy={busy} document={value} onDocumentChange={setValue} formationEvents={value.formationEvents} onFormationEventsChange={(formationEvents)=>setValue((current)=>({...current,formationEvents}))} focusedProgram={visibleFocusedProgram} onOpenProgramLibrary={onOpenProgramLibrary} programLibrary={programLibrary} boundPrograms={value.boundPrograms} programError={programError} programLoading={programLoading} onRefreshPrograms={()=>void loadPrograms()} onAddProgram={addProgram} onAdoptProgram={adoptProgram} onPatchProgram={patchProgram} fieldScope={fieldScope} duties={value.duties} runs={value.runs} selectedId={selectedDuty} metadata={metadata} onSelect={setSelectedDuty} onAdd={addDuty}
       onDelete={()=>{if(!selectedDutyValue||!window.confirm(t('ui.confirmDuty')))return;setValue((current)=>({...current,operationalTrips:current.operationalTrips?.map((trip)=>({...trip,segments:trip.segments.filter((s)=>s.serviceId!==selectedDutyValue.id)})),duties:current.duties.filter((duty)=>duty.id!==selectedDutyValue.id)}));setSelectedDuty('');}}
-      onPatch={renameDuty} onAssign={assignRun} onAddFunction={(type)=>{const id=uid('function');addFunction(type==='PLACE_INITIAL'?{id,type,trainName:selectedDutyValue?.selector.type==='TRAIN_NAME'?selectedDutyValue.selector.name:'',wayPointId:''}:type==='WAIT'?{id,type,tick:0,durationTicks:200}:type==='STORE_AT_DEPOT'?{id,type,tick:0,depotId:'',stablingPointIds:[]}:{id,type:'REVERSE',tick:0});}}
-      onPatchFunction={patchFunction} onMove={moveElement} onRemove={removeElement} onViewRun={viewRun}/>:page==='validation'?<AuthoringValidation fieldScope={fieldScope} duties={value.duties} issues={generated.issues} compiled={compiled} compileError={compileFailure?.key===generated.documentHashInput?compileFailure.message:''}
+      onPatch={patchTimelineDuty} onAssign={assignRun} onRemove={removeElement} onViewRun={viewRun}/>:page==='validation'?<AuthoringValidation fieldScope={fieldScope} duties={value.duties} issues={generated.issues} compiled={compiled} compileError={compileFailure?.key===generated.documentHashInput?compileFailure.message:''}
       simulation={simulation} profiles={simulationProfiles} assignments={profileAssignments} threshold={delayThresholdTicks} conflicting={hasConflictingProfiles} busy={busy} compileReason={compileReason} simulationReason={simulationReason} delayedOrigin={delayedOrigin} source={generated.source}
       onCompile={()=>void compile()} onSimulate={()=>void simulate()} onAssignment={(id,profile)=>{const separator=profile.indexOf(':');if(separator>0)setValue((current)=>({...current,duties:current.duties.map((duty)=>duty.id===id?{...duty,referenceVehicle:{type:profile.slice(0,separator) as 'WORLD_TRAIN'|'TRAIN_TEMPLATE',id:profile.slice(separator+1)}}:duty)}));}} onThreshold={setDelayThresholdTicks} onNavigate={navigateIssue} canNavigate={(path)=>!!programTarget(path)||!!resolveArrivalSourceTarget(value,path,generated.documentHashInput,compiled?{input:compiledState!.documentHashInput,timetable:compiled.timetable}:undefined)}/>:<>
 

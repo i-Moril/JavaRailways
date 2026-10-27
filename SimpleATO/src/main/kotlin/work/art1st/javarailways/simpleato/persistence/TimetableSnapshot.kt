@@ -105,6 +105,7 @@ data class SavedTimetableActivationV1(
 
 @Serializable
 enum class SavedTimetableActionTypeV1 {
+    TASK_START, TASK_END,
     TAKE_FROM_DEPOT,
     TAKE_FROM_WAYPOINT,
     TAKE_FROM_FORMATION_OUTPUT,
@@ -130,6 +131,7 @@ enum class SavedTimetableActionTypeV1 {
 @Serializable
 data class SavedTimetableActionV1(
     val type: SavedTimetableActionTypeV1,
+    val taskId: String? = null,
     val depotId: String? = null,
     val requiredTags: Set<String> = emptySet(),
     val minimumCars: Int? = null,
@@ -162,12 +164,16 @@ data class SavedTimetableActionV1(
     val stopPrograms: SavedStationStopPrograms? = null
 ) {
     init {
+        require((type in setOf(SavedTimetableActionTypeV1.TASK_START, SavedTimetableActionTypeV1.TASK_END)) == (taskId != null)) { "taskId belongs to task boundaries" }
+        require(taskId == null || (taskId.isNotBlank() && taskId.length <= 128)) { "invalid taskId" }
         require(stopPrograms == null || type in setOf(SavedTimetableActionTypeV1.BEGIN_STATION_STOP,
             SavedTimetableActionTypeV1.DESTINATION_OPTIONS, SavedTimetableActionTypeV1.STATION_DESTINATION_OPTIONS,
             SavedTimetableActionTypeV1.SELECT_STOP)) { "stopPrograms is only valid on station stop boundaries" }
     }
 
     fun restore(): TimetableAction = when (type) {
+        SavedTimetableActionTypeV1.TASK_START -> TimetableAction.TaskStart(requireNotNull(taskId))
+        SavedTimetableActionTypeV1.TASK_END -> TimetableAction.TaskEnd(requireNotNull(taskId))
         SavedTimetableActionTypeV1.BEGIN_STATION_STOP -> TimetableAction.BeginStationStop(requireNotNull(stopPrograms).restore())
         SavedTimetableActionTypeV1.BEGIN_OPERATIONAL_TRIP -> TimetableAction.BeginOperationalTrip(requireNotNull(operationalTripId),requireNotNull(runId),unitSlots)
         SavedTimetableActionTypeV1.SET_DISPLAY -> TimetableAction.SetDisplay(unitSlots, displayValues, removeDisplayKeys)
@@ -233,6 +239,8 @@ data class SavedTimetableActionV1(
 
     companion object {
         fun capture(value: TimetableAction): SavedTimetableActionV1 = when (value) {
+            is TimetableAction.TaskStart -> SavedTimetableActionV1(SavedTimetableActionTypeV1.TASK_START, taskId = value.taskId)
+            is TimetableAction.TaskEnd -> SavedTimetableActionV1(SavedTimetableActionTypeV1.TASK_END, taskId = value.taskId)
             is TimetableAction.BeginStationStop -> SavedTimetableActionV1(SavedTimetableActionTypeV1.BEGIN_STATION_STOP, stopPrograms = SavedStationStopPrograms.capture(value.stopPrograms))
             is TimetableAction.BeginOperationalTrip -> SavedTimetableActionV1(SavedTimetableActionTypeV1.BEGIN_OPERATIONAL_TRIP,operationalTripId=value.tripId,runId=value.runId,unitSlots=value.unitSlots)
             is TimetableAction.SetDisplay -> SavedTimetableActionV1(SavedTimetableActionTypeV1.SET_DISPLAY, unitSlots = value.unitSlots, displayValues = value.values, removeDisplayKeys = value.removeKeys)

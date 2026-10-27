@@ -8,13 +8,14 @@ import kotlinx.serialization.json.JsonObject
 @Serializable enum class SavedTimetableStepTypeV1 { CHECK, AT }
 @Serializable enum class SavedTimetableConditionTypeV1 { PREDICATE, ALL, ANY, NOT }
 @Serializable enum class SavedTimetableActivationTypeV1 { SCHEDULED, MANUAL, CONDITIONAL }
-@Serializable enum class SavedTimetableActionTypeV1 { TAKE_FROM_DEPOT, TAKE_FROM_WAYPOINT, TAKE_FROM_FORMATION_OUTPUT, COUPLE, SPLIT, STORE_AT_DEPOT, DESTINATION, DESTINATION_OPTIONS, STOP, HALT, REVERSE, WAIT_UNTIL, STATION_DESTINATION_OPTIONS, SELECT_STOP, EXTENSION, CONDITIONAL, SET_DISPLAY, RESET_DISPLAY, BEGIN_OPERATIONAL_TRIP, BEGIN_STATION_STOP }
+@Serializable enum class SavedTimetableActionTypeV1 { TAKE_FROM_DEPOT, TAKE_FROM_WAYPOINT, TAKE_FROM_FORMATION_OUTPUT, COUPLE, SPLIT, STORE_AT_DEPOT, DESTINATION, DESTINATION_OPTIONS, STOP, HALT, REVERSE, WAIT_UNTIL, STATION_DESTINATION_OPTIONS, SELECT_STOP, EXTENSION, CONDITIONAL, SET_DISPLAY, RESET_DISPLAY, BEGIN_OPERATIONAL_TRIP, BEGIN_STATION_STOP, TASK_START, TASK_END }
 
 @Serializable data class SavedTimetableExtensionCallV1(val typeId: String, val version: Int = 1, val parameters: JsonObject = JsonObject(emptyMap()))
 @Serializable data class SavedTimetableConditionV1(val type: SavedTimetableConditionTypeV1, val call: SavedTimetableExtensionCallV1? = null, val conditions: List<SavedTimetableConditionV1> = emptyList())
 @Serializable data class SavedTimetableActivationV1(val type: SavedTimetableActivationTypeV1 = SavedTimetableActivationTypeV1.SCHEDULED, val condition: SavedTimetableConditionV1? = null, val falseBehavior: String? = null)
 @Serializable data class SavedTimetableActionV1(
     val type: SavedTimetableActionTypeV1,
+    val taskId: String? = null,
     val depotId: String? = null,
     val requiredTags: Set<String> = emptySet(), val minimumCars: Int? = null, val maximumCars: Int? = null,
     val minimumSpeedMetersPerSecond: Double? = null, val requiredCapabilities: Set<String> = emptySet(),
@@ -34,6 +35,8 @@ import kotlinx.serialization.json.JsonObject
     val stopPrograms: SavedStationStopPrograms? = null
 ) {
     init {
+        require((type in setOf(SavedTimetableActionTypeV1.TASK_START, SavedTimetableActionTypeV1.TASK_END)) == (taskId != null)) { "taskId belongs to task boundaries" }
+        require(taskId == null || (taskId.isNotBlank() && taskId.length <= 128)) { "invalid taskId" }
         require(stopPrograms == null || type in setOf(SavedTimetableActionTypeV1.BEGIN_STATION_STOP,
             SavedTimetableActionTypeV1.DESTINATION_OPTIONS, SavedTimetableActionTypeV1.STATION_DESTINATION_OPTIONS,
             SavedTimetableActionTypeV1.SELECT_STOP)) { "stopPrograms is only valid on station stop boundaries" }

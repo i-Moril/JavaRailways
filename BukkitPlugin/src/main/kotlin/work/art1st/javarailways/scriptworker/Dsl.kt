@@ -307,10 +307,23 @@ class ServiceBuilder(private val branchDepth: Int = 0, initialTick: Long = 0L, i
     private val trace = mutableListOf<BuilderStepOrigin>()
     private val runSegments = mutableListOf<SavedTimetableRunSegmentV1>()
     private var insideRunSegment = false
+    private var insideTask = false
+    private val taskIds = mutableSetOf<String>()
     private val pendingPasses = mutableListOf<String>()
     private var currentTick = initialTick
     private var lastEmittedTick = initialTick
     private var currentOrigin: String? = initialOrigin
+
+    @HostAccess.Export fun task(taskId: String, tick: Long, callback: Value): ServiceBuilder {
+        require(branchDepth == 0 && !insideRunSegment && !insideTask) { "tasks cannot be nested or conditional" }
+        require(taskId.isNotBlank() && taskId.length <= 128 && taskIds.add(taskId)) { "invalid or duplicate task id" }
+        require(callback.canExecute()) { "task builder must be a function" }
+        add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.TASK_START, taskId = taskId))
+        insideTask = true
+        try { callback.executeVoid(this); requireNoPendingRoute() } finally { insideTask = false }
+        add(currentTick, SavedTimetableActionV1(SavedTimetableActionTypeV1.TASK_END, taskId = taskId))
+        return this
+    }
 
     @HostAccess.Export fun runSegment(options: Value, callback: Value): ServiceBuilder {
         require(branchDepth == 0 && !insideRunSegment) { "run segments cannot be nested or conditional" }

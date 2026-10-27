@@ -1,8 +1,8 @@
 {
   "id": "stop-program-hooks",
   "name": "stop-program-hooks",
-  "title": "时刻表站点程序、交路积木与确定性寻路",
-  "description": "共享可自定义站点程序，默认阻塞和非阻塞容器，交路定时积木与参考车辆，单点事件及 waypoint 路径唯一性。",
+  "title": "时刻表站点程序、交路时间轴与确定性寻路",
+  "description": "共享停站程序、交路时间轴及程序耗时、参考车辆、单点事件和 waypoint 路径唯一性。",
   "status": "in_progress",
   "dev_type": null,
   "scope": null,
@@ -21,6 +21,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Dedicated old-format recognition/messages/tests removed; sourcefeb17c02 deployed2026-10-27 07:52UTC. Only generic current-model validation remains. Front221/WebUI36/focusedSimpleATO5/Bukkit37 gates pass,6live docs accepted,17liveassets matched. No migration/datachange. Recovery merged-review-20261023-q30jogk1. Keep in_progress/unarchived.",
+  "notes": "Timeline rewrite implemented; frontend217/backend1309/migration12 gates pass; browser drag/resize/undo/contextremove/source/save/restart checked. Pending deployment and player acceptance; keep in_progress/unarchived.",
   "meta": {}
 }

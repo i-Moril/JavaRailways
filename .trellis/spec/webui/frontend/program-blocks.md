@@ -1,4 +1,4 @@
-# 程序库、共享停站程序与交路的积木编辑
+# 程序库与共享停站程序的积木编辑
 
 ## 范围与数据权威
 
@@ -24,7 +24,7 @@
 
 条件工具箱仅提供可由编辑文档确定的计划值：run_type、line_direction、station_id、run_id、line_id、call_status、duty_id，使用 `javarailways:plan_*` 的 version1 literal values；ScriptWorker 在编译时选择分支。不能按实际车长、车型或运行迟到求条件。
 
-交路积木是单入口的 RUN、FUNCTION、PROGRAM、INLINE 有序序列，保持元素 ID 与完整参数。`DutyBlockEditor` 由 `dutyBlocks` 无损映射；选中 INLINE 用同一程序组件编辑。未连接积木阻止保存与编译，重开保留原始画布，显式丢弃草稿才重置；不能仅导出入口而静默删掉游离元素。INLINE tick 可空，空表示接续前一动作，填写则为绝对计划时刻。
+交路由 DutyTimeline 时间轴编辑 RUN/PROGRAM 引用；不再提供交路积木或内联程序画布。程序体仍使用本规范的程序库编辑器，交路时间与耗时规则见 studio-authoring.md。
 
 `WAIT_EVENT` 选择无方向事件点并填写有符号 offsetTicks，生成时规范化为 WAIT_UNTIL；删除仍被引用的事件必须显示 issue，不能让生成期间抛错导致页面空白。事件定义、工作区和合法领域定义分别由文档/history、草稿恢复、程序 owner 管理。
 

@@ -1102,10 +1102,12 @@ class TimetableDispatcherTest {
                                 TimetableAction.TakeFromDepot(DepotTrainSelector(depotId))
                             ),
                             TimetableStep.At(0L, TimetableAction.GoTo("B")),
+                            TimetableStep.At(0L, TimetableAction.TaskStart("store")),
                             TimetableStep.At(
                                 0L,
                                 TimetableAction.StoreAtDepot(depotId, setOf("in"))
-                            )
+                            ),
+                            TimetableStep.At(0L, TimetableAction.TaskEnd("store"))
                         )
                     )
                 )
@@ -1122,6 +1124,9 @@ class TimetableDispatcherTest {
 
         val status = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
         assertEquals(TimetableServiceRunState.COMPLETED, status.state)
+        val measured = status.taskTimings.single()
+        assertEquals("store", measured.taskId)
+        assertTrue(measured.endTick!! > measured.startTick, "storage ends after physical arrival and availability handoff")
         assertTrue(status.routeGrantActive)
         assertEquals(inboundRail.id, train.head.location.rail.id)
         assertEquals(originArc, train.head.location.arcLength, 0.6)

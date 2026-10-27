@@ -31,10 +31,8 @@ const valid=():TimetableAuthoringDocumentV1=>({
       {id:'down-a',stationId:'a',berthId:'2',status:'TERMINAL',targetId:'a@2',arrivalTick:1800,doorSide:'NONE'},
     ]},
   ],
-  duties:[{id:'duty-a',selector:{type:'TRAIN_NAME',name:'train-1'},elements:[
-    {id:'initial',type:'FUNCTION',call:{id:'initial-call',type:'PLACE_INITIAL',trainName:'train-1',wayPointId:'a@1'}},
+  duties:[{id:'duty-a',selector:{type:'TRAIN_NAME',name:'train-1'},initialPosition:'a@1',elements:[
     {id:'up-element',type:'RUN',runId:'up-01'},
-    {id:'reverse',type:'FUNCTION',call:{id:'reverse-call',type:'REVERSE',tick:900}},
     {id:'down-element',type:'RUN',runId:'down-01'},
   ]}],
 });
@@ -118,11 +116,9 @@ describe('timetable editor document',()=>{
     expect(validateAuthoringDocument(moved).some((item)=>item.message.includes('already assigned'))).toBe(false);
   });
 
-  it('requires initial placement at the matching named duty start',()=>{
-    const document=valid();
-    const initial=document.duties[0].elements.shift()!;
-    document.duties[0].elements.push(initial);
-    expect(validateAuthoringDocument(document).map((item)=>item.message)).toContain('Initial placement must be the first duty element');
+  it('requires named train selection for initial placement',()=>{
+    const document=valid();document.duties[0].selector={type:'TAKE_FROM_WAYPOINT',wayPointIds:['a@1'],tick:0};
+    expect(validateAuthoringDocument(document).map((item)=>item.message)).toContain('Initial placement requires a named-train selector');
   });
 
   it('deterministically generates one service per duty with origin trace scopes',()=>{
@@ -155,16 +151,6 @@ describe('timetable editor document',()=>{
     expect(result.source).toContain('runScope.at(100).destination("b@1", JSON.parse(');
   });
 
-  it('rejects duty functions that violate element order or cross the period',()=>{
-    const document=valid();
-    document.duties[0].elements.splice(2,0,{id:'store-early',type:'FUNCTION',call:{id:'store-call',type:'STORE_AT_DEPOT',tick:850,depotId:'north',stablingPointIds:[]}});
-    document.duties[0].elements.push({id:'wait-late',type:'FUNCTION',call:{id:'wait-call',type:'WAIT',tick:23_990,durationTicks:20}});
-    const messages=validateAuthoringDocument(document).map((item)=>item.message);
-
-    expect(messages).toContain('Store at depot must be the last duty element');
-    expect(messages).toContain('Wait crosses the timetable period');
-  });
-
   it('rejects stale duplicate and out-of-period arrival overrides',()=>{
     const document=valid();
     document.arrivalOverrides=[
@@ -188,9 +174,7 @@ describe('timetable editor document',()=>{
 
   it('validates function targets and stable IDs',()=>{
     const document=valid();
-    const initial=document.duties[0].elements[0];
-    if(initial.type!=='FUNCTION'||initial.call.type!=='PLACE_INITIAL') throw new Error('invalid fixture');
-    initial.call.wayPointId='';
+    document.duties[0].initialPosition='';
     document.runs[0].calls[1].id=document.runs[0].calls[0].id;
     const messages=validateAuthoringDocument(document).map((item)=>item.message);
     expect(messages).toContain('Initial placement waypoint is required');
@@ -205,7 +189,7 @@ describe('timetable editor document',()=>{
   it('generates sorted tag selectors for depot acquisition',()=>{
     const document=valid();
     document.duties[0].selector={type:'TAKE_FROM_DEPOT',depotId:'north',tick:20,tags:['z','metro']};
-    document.duties[0].elements.shift();
+    delete document.duties[0].initialPosition;
     const result=generateTimetableSource(document);
     expect(result.issues).toEqual([]);
     expect(result.source).toContain('timetable.takeFromDepot("north", { tags: ["metro", "z"] }, 20)');
@@ -353,7 +337,7 @@ describe('timetable editor document',()=>{
     run.calls[2].departureTick=400;
     run.calls[3].arrivalTick=500;
     document.runs=[run];
-    document.duties[0].elements=document.duties[0].elements.filter((element)=>element.type==='FUNCTION'&&element.call.type==='PLACE_INITIAL');
+    document.duties[0].elements=[];
     document.duties[0].elements.push({id:'express-element',type:'RUN',runId:'express'});
     const result=generateTimetableSource(document);
     expect(result.issues).toEqual([]);

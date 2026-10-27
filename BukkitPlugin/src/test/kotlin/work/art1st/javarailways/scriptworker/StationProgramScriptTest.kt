@@ -14,6 +14,26 @@ class StationProgramScriptTest {
       {id:'store',type:'STORE_AT_DEPOT',depotId:{value:'other-depot'},stablingPointIds:{value:[]}}
     ]}"""
 
+    @Test fun `task boundaries retain empty calls and selected program source provenance`() {
+        val result = compile("""
+          timetable.service('s','train',t=>{t.check('A');t.origin('duty:s/element:1', scoped=>{
+            scoped.task('1',20, task=>task.program('p',{parameters:[],steps:[
+              {id:'w',type:'WAIT_UNTIL',tick:{value:40}},
+              {id:'d',type:'WAIT_DURATION',durationTicks:{value:7}}]},{}));
+          });t.task('2',50,empty=>{});});
+        """)
+        val steps = result.services.single().steps.drop(1)
+        assertEquals(listOf(SavedTimetableActionTypeV1.TASK_START, SavedTimetableActionTypeV1.WAIT_UNTIL,
+            SavedTimetableActionTypeV1.STOP, SavedTimetableActionTypeV1.TASK_END,
+            SavedTimetableActionTypeV1.TASK_START, SavedTimetableActionTypeV1.TASK_END), steps.map { it.action!!.type })
+        assertEquals(listOf(20L,40L,40L,40L,50L,50L), steps.map { it.tick })
+        assertEquals("1", steps.first().action!!.taskId)
+        assertTrue(result.compilationTrace.any { it.origin == "duty:s/element:1/program:p/step:d" })
+        assertThrows(Throwable::class.java) { compile("timetable.service('s','train',t=>{t.task('x',10,c=>{});t.task('x',20,c=>{});});") }
+        assertThrows(Throwable::class.java) { compile("timetable.service('s','train',t=>t.task('x',10,c=>c.task('y',10,d=>{})));") }
+        assertThrows(Throwable::class.java) { compile("timetable.service('s','train',t=>{t.task('x',30,c=>c.waitUntil(50));t.task('y',40,c=>{});});") }
+    }
+
     @Test fun `display program compiles parameterized slots and values into native timed actions`() {
         val result = compile("""
           timetable.service('s','train',t=>{t.check('A');t.at(20).program('display',{

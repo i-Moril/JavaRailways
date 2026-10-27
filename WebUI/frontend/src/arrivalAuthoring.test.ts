@@ -40,10 +40,9 @@ describe('shared station programs',()=>{
   state.document.stationPrograms![0].arrival.steps.push({id:'move',type:'MOVE',destinationId:{value:'c'},viaIds:{value:[]}});expect(parseAuthoringRecovery(JSON.stringify(state),'Alice','world')).toBeUndefined();
  });
  it('keeps the editor alive when event references are deleted or shifted outside the period',()=>{
-  for(const use of ['station','inline','library'] as const){
+  for(const use of ['station','library'] as const){
    const value=document(),definition:StationProgramDefinition={parameters:[],steps:[{id:'wait-event',type:'WAIT_EVENT',eventId:'missing',offsetTicks:0}]};
    if(use==='station')value.stationPrograms![0].arrival.steps.unshift(definition.steps[0]);
-   if(use==='inline')value.duties[0].elements.unshift({id:'inline',type:'INLINE',tick:0,definition});
    if(use==='library'){value.boundPrograms=[{programId:'library',revision:1,contentIdentity:`sha256:${'a'.repeat(64)}`,definition}];value.duties[0].elements.unshift({id:'library',type:'PROGRAM',call:{id:'call',programId:'library',tick:0,arguments:{}}});}
    let generated:ReturnType<typeof generateTimetableSource>|undefined;
    expect(()=>{generated=generateTimetableSource(value,lines);}).not.toThrow();expect(generated!.source).toBe('');expect(generated!.issues.some((issue)=>issue.message.includes('Unknown event'))).toBe(true);

@@ -130,7 +130,7 @@ object FormationEventValidator {
                             if ((declaration is TimetableFormationEvent.Couple) != (action is TimetableAction.Couple))
                                 errors += "[${duty.id}] step#$index formation action kind does not match $id"
                             val continues = declaration.outputs.any { it.disposition == FormationOutputDisposition.Duty(duty.id) }
-                            if (!continues && index != duty.steps.lastIndex)
+                            if (!continues && duty.steps.drop(index + 1).any { (it as? TimetableStep.At)?.action !is TimetableAction.TaskEnd })
                                 errors += "[${duty.id}] consumed formation participant must end at event $id"
                         }
                     }

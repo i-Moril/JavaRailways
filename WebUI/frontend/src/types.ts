@@ -82,6 +82,7 @@ export interface TimetableSimulationResult {
   status:'COMPLETED'|'DELAY_EXCEEDED'|'FAILED'|'PERIOD_ENDED'; simulatedTicks:number;
   thresholdTicks?:number; observedDelayTicks?:number; delayedServiceId?:string; delayedStepIndex?:number; delayedStepBranchPath?:TimetableBranchEntry[];
   reason?:string; runs:TimetableSimulationRunResult[];
+  tasks?:{serviceId:string;taskId:string;startTick:number;endTick?:number}[];
 }
 export interface TimetableScriptSummary { name:string; sizeBytes:number; modifiedAtEpochMillis:number }
 export type CirculationStatus = 'PROVEN' | 'IMPOSSIBLE' | 'UNPROVEN';

@@ -34,20 +34,23 @@ class SharedStationProgramValidatorTest {
         }) assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateStation(mapper.readTree("{\"parameters\":[],\"steps\":[" + step + "]}")));
     }
 
-    @Test void inlineDutyStartTickIsOptionalAndWhenPresentMustBeValid() throws Exception {
-        var document = mapper.readTree("""
+    @Test void programDurationAndInitialPositionUseCurrentModel() throws Exception {
+        var definition = mapper.readTree("{\"parameters\":[],\"steps\":[]}");
+        var document = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree("""
             {"formatVersion":1,"id":"weekday","periodDays":1,"runs":[],"diagramLines":[],"arrivalOverrides":[],
-             "duties":[{"id":"d","selector":{"type":"TRAIN_NAME","name":"train"},"elements":[
-               {"id":"inline","type":"INLINE","definition":{"parameters":[],"steps":[
-                 {"id":"wait","type":"WAIT_DURATION","durationTicks":{"value":1}}]}}]}]}
+             "duties":[{"id":"d","selector":{"type":"TRAIN_NAME","name":"train"},"initialPosition":"A","elements":[
+               {"id":"1","type":"PROGRAM","call":{"id":"1","programId":"1","tick":100,"arguments":{}},"duration":{"type":"MANUAL","ticks":20}}]}]}
             """);
+        var snapshot = mapper.createObjectNode().put("programId", "1").put("revision", 1).put("contentIdentity", ProgramContentIdentity.of(definition));
+        snapshot.set("definition", definition);
+        document.putArray("boundPrograms").add(snapshot);
         assertDoesNotThrow(() -> EditorDocumentValidator.validate(document));
-        var element = (com.fasterxml.jackson.databind.node.ObjectNode) document.path("duties").get(0).path("elements").get(0);
-        element.put("tick", 100);
-        assertDoesNotThrow(() -> EditorDocumentValidator.validate(document));
-        element.put("tick", -1);
+        var duration = (com.fasterxml.jackson.databind.node.ObjectNode) document.path("duties").get(0).path("elements").get(0).path("duration");
+        duration.put("ticks", -1);
         assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(document));
-        element.putNull("tick");
+        duration.remove("ticks");duration.put("type", "SIMULATED");
+        assertDoesNotThrow(() -> EditorDocumentValidator.validate(document));
+        duration.put("ticks", 20);
         assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(document));
     }
 

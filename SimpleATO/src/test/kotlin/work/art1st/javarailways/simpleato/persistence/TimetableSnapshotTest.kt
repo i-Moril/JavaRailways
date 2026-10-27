@@ -74,7 +74,9 @@ class TimetableSnapshotTest {
                         TimetableStep.At(50L, TimetableAction.TakeFromWaypoint(
                             listOf("platform@one", "siding")
                         )),
+                        TimetableStep.At(70L, TimetableAction.TaskStart("wait")),
                         TimetableStep.At(75L, TimetableAction.WaitUntil),
+                        TimetableStep.At(80L, TimetableAction.TaskEnd("wait")),
                         TimetableStep.At(100L, TimetableAction.GoVia(listOf("via", "central@one"))),
                         TimetableStep.At(200L, TimetableAction.CallStation(
                             "central", "one", 40L, 1.5, DoorSide.LEFT

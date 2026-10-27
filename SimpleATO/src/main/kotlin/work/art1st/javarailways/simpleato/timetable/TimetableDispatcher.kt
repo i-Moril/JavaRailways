@@ -188,6 +188,8 @@ fun interface TimetableWaypointProgressListener {
     fun onReached(progress: TimetableWaypointProgress)
 }
 
+data class TimetableTaskTiming(val taskId: String, val startTick: Long, val endTick: Long? = null)
+
 data class TimetableServiceRunSnapshot(
     val id: TimetableServiceRunId,
     val trainId: String,
@@ -221,6 +223,7 @@ data class TimetableServiceRunSnapshot(
     val message: String? = null,
     val currentRunId: String? = null,
     val currentLineId: work.art1st.javarailways.simpleato.api.line.LineId? = null,
+    val taskTimings: List<TimetableTaskTiming> = emptyList(),
     val unitDisplays: List<TimetableUnitDisplaySnapshot> = emptyList()
 )
 
@@ -2387,9 +2390,19 @@ class TimetableDispatcher(
         run.message = "ready to depart ${stationCall.resolved.berthRef}"
     }
 
+    /** Terminal operations finish physically before their metadata-only END can be consumed. */
+    private fun completeTerminalTask(run: ActiveRun) {
+        val end = (run.programCursor.currentStep() as? TimetableStep.At)?.action as? TimetableAction.TaskEnd ?: return
+        val timing = run.taskTimings.lastOrNull() ?: return
+        check(timing.taskId == end.taskId && timing.endTick == null) { "unmatched terminal task end" }
+        run.taskTimings[run.taskTimings.lastIndex] = timing.copy(endTick = timetableElapsedTicks(run))
+        run.programCursor = run.programCursor.advance()
+    }
+
     private fun nextActionTick(run: ActiveRun): Long? =
         run.remainingSteps()
             .filterIsInstance<TimetableStep.At>()
+            .filter { it.action !is TimetableAction.TaskEnd }
             .firstOrNull()
             ?.tick
 
@@ -2399,6 +2412,7 @@ class TimetableDispatcher(
     ) {
         run.currentWayPointId = stationCall.missionRuntime.targetWayPointId
         run.physicalOriginPending = false
+        completeTerminalTask(run)
         run.state = TimetableServiceRunState.COMPLETED
         run.message = "service completed with doors open at ${stationCall.resolved.berthRef}"
     }
@@ -2410,6 +2424,7 @@ class TimetableDispatcher(
         run.currentWayPointId = stop.options.destinationId
         run.physicalOriginPending = false
         run.destinationStop = null
+        completeTerminalTask(run)
         run.state = TimetableServiceRunState.COMPLETED
         run.message = "service completed with doors open at ${stop.options.destinationId}"
     }
@@ -2962,6 +2977,7 @@ class TimetableDispatcher(
             }
             TrainOperationTicketState.SUCCEEDED -> {
                 run.haltOperation = null
+                completeTerminalTask(run)
                 run.state = TimetableServiceRunState.COMPLETED
                 run.message = "halted after train model action $POWER_OFF_ACTION"
             }
@@ -4127,6 +4143,32 @@ class TimetableDispatcher(
                     run.programCursor = run.programCursor.advance()
                 }
                 is TimetableStep.At -> when (val action = step.action) {
+                    is TimetableAction.TaskStart -> {
+                        if (timetableElapsedTicks(run) < step.tick) {
+                            waitForTimetableTick(run, step.tick, pendingStep = true)
+                            return
+                        }
+                        if (run.taskTimings.any { it.taskId == action.taskId || it.endTick == null }) {
+                            stallRun(world, run, "TaskBoundaryViolation", "duplicate or overlapping task start")
+                            return
+                        }
+                        run.taskTimings += TimetableTaskTiming(action.taskId, timetableElapsedTicks(run))
+                        run.programCursor = run.programCursor.advance()
+                    }
+                    is TimetableAction.TaskEnd -> {
+                        val timing = run.taskTimings.lastOrNull()
+                        // Restored checkpoints intentionally have no transient measurement history.
+                        if (timing == null) {
+                            run.programCursor = run.programCursor.advance()
+                            continue
+                        }
+                        if (timing.taskId != action.taskId || timing.endTick != null) {
+                            stallRun(world, run, "TaskBoundaryViolation", "task end does not match active task")
+                            return
+                        }
+                        run.taskTimings[run.taskTimings.lastIndex] = timing.copy(endTick = timetableElapsedTicks(run))
+                        run.programCursor = run.programCursor.advance()
+                    }
                     is TimetableAction.BeginStationStop -> {
                         if (timetableElapsedTicks(run) < step.tick) {
                             waitForTimetableTick(run, step.tick, pendingStep = true)
@@ -5485,6 +5527,8 @@ class TimetableDispatcher(
             is TimetableAction.Split,
             is TimetableAction.StoreAtDepot,
             is TimetableAction.DestinationOptions,
+            is TimetableAction.TaskStart,
+            is TimetableAction.TaskEnd,
             TimetableAction.WaitUntil,
             TimetableAction.Halt,
             TimetableAction.Reverse,
@@ -5974,6 +6018,10 @@ class TimetableDispatcher(
                     outputRun.nextStepIndex = 0
                     outputRun.pendingFormationActivation = continuation
                 }
+                // Same-duty structural handoff continues its transient invocation history.
+                event.sourceRuns.singleOrNull { it.id.serviceId == continuation.service.id }?.let {
+                    outputRun.taskTimings.addAll(it.taskTimings)
+                }
                 outputRun.stationDoorsSecured = when {
                     event.sourceRuns.any { it.stationDoorsSecured == false } -> false
                     event.sourceRuns.all { it.stationDoorsSecured == true } -> true
@@ -6056,6 +6104,12 @@ class TimetableDispatcher(
         // The old source has become a structural record, not a second owner of either output.
         event.sourceRuns.filter { previous -> runs.values.any { it === previous } }.forEach { previous ->
             previous.unitDisplays=displayRuntime.snapshots(checkNotNull(world.simpleAtoWorldData.timetables[previous.id.timetableId]),previous.cycleIndex,previous.currentUnitIds)
+            val action = (previous.programCursor.currentStep() as? TimetableStep.At)?.action
+            if ((action is TimetableAction.Split || action is TimetableAction.Couple) &&
+                (previous.programCursor.advance().currentStep() as? TimetableStep.At)?.action is TimetableAction.TaskEnd) {
+                previous.programCursor = previous.programCursor.advance()
+            }
+            completeTerminalTask(previous)
             previous.state = TimetableServiceRunState.COMPLETED
             previous.message = "source duty handed its formation to declared held outputs"
         }
@@ -6680,6 +6734,7 @@ class TimetableDispatcher(
         }
         var currentSegment: TimetableRunSegment? = null
         var currentUnitIds: List<String> = emptyList()
+        val taskTimings = mutableListOf<TimetableTaskTiming>()
         var unitDisplays: List<TimetableUnitDisplaySnapshot> = emptyList()
         val completedCallIds = hashSetOf<String>()
         var currentRuntimeOrNull: MissionRuntime? = currentRuntime
@@ -6791,6 +6846,7 @@ class TimetableDispatcher(
                 message = message,
                 currentRunId = currentSegment?.runId,
                 currentLineId = currentSegment?.lineId ?: service.lineId,
+                taskTimings = taskTimings.toList(),
                 unitDisplays = unitDisplays
             )
         }

@@ -185,6 +185,8 @@ object TimetableDumper {
         is TimetableAction.Stop -> JsonObject(
             mapOf("type" to JsonPrimitive("stop"), "ticks" to JsonPrimitive(ticks))
         )
+        is TimetableAction.TaskStart -> JsonObject(mapOf("type" to JsonPrimitive("taskStart"), "taskId" to JsonPrimitive(taskId)))
+        is TimetableAction.TaskEnd -> JsonObject(mapOf("type" to JsonPrimitive("taskEnd"), "taskId" to JsonPrimitive(taskId)))
         TimetableAction.WaitUntil -> JsonObject(mapOf("type" to JsonPrimitive("waitUntil")))
         TimetableAction.Halt -> JsonObject(
             mapOf("type" to JsonPrimitive("halt"))

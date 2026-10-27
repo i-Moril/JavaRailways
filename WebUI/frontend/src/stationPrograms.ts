@@ -86,7 +86,6 @@ export const resolveProgramValue=<T extends StationProgramLiteral>(value:Station
 export function validateStationProgramCall(snapshot:BoundStationProgram,call:StationProgramCall,periodTicks:number):string[] {
   if(!call||typeof call.arguments!=='object'||!call.arguments||Array.isArray(call.arguments))return ['Invalid program call arguments'];
   const errors=validateStationProgram(snapshot.definition,call.arguments);
-  if(!snapshot.definition.steps?.length)errors.push('Program requires at least one step');
   if(!validId(call.id))errors.push('Invalid program call ID');
   if(!Number.isSafeInteger(call.tick)||call.tick<0||call.tick>=periodTicks)errors.push('Program call tick must be inside the timetable period');
   if(errors.length)return errors;

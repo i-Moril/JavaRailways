@@ -853,6 +853,9 @@ class TimetableStationCallDispatcherTest {
         assertTrue(gateway.requests[1].operation is TrainOperation.CloseDoors)
         val powerOff = gateway.requests[2].operation as TrainOperation.ExecuteModelAction
         assertEquals("power-off", powerOff.actionName)
+        val measured = fixture.dispatcher.status(id)!!.taskTimings.single()
+        assertEquals("power-off", measured.taskId)
+        assertTrue(measured.endTick!! > measured.startTick, "halt must await physical model ticket completion")
         assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)?.state)
         assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
@@ -1568,8 +1571,11 @@ class TimetableStationCallDispatcherTest {
                             when {
                                 nextTargetOffsetMeters != null ->
                                     add(TimetableStep.At(nextMovementTick, TimetableAction.GoTo("D")))
-                                haltAfterDestination ->
+                                haltAfterDestination -> {
+                                    add(TimetableStep.At(stationMovementTick, TimetableAction.TaskStart("power-off")))
                                     add(TimetableStep.At(stationMovementTick, TimetableAction.Halt))
+                                    add(TimetableStep.At(stationMovementTick, TimetableAction.TaskEnd("power-off")))
+                                }
                                 storeAfterDestination -> add(TimetableStep.At(stationMovementTick,
                                     TimetableAction.StoreAtDepot(work.art1st.javarailways.simpleato.api.depot.DepotId("storage"))))
                             }

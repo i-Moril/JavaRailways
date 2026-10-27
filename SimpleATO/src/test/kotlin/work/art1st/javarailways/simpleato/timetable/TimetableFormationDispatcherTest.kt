@@ -35,7 +35,7 @@ import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 class TimetableFormationDispatcherTest {
     @Test
     fun `scheduled split continues FIRST and keeps REST physically held`() {
-        Fixture(false).use { f ->
+        Fixture(false, measureTasks = true).use { f ->
             f.begin()
             val before = f.train.publishedFrame
             f.physics.start()
@@ -48,6 +48,9 @@ class TimetableFormationDispatcherTest {
             assertEquals(0.0, held.publishedFrame.speedMetersPerSecond)
             assertEquals(before.tail.arcLengthInAbMeters, held.publishedFrame.tail.arcLengthInAbMeters, 1e-6)
             assertEquals(1, f.preparations, "scheduled split must prepare and publish once")
+            val measured = f.dispatcher.statuses().single { it.id.serviceId == "source" }.taskTimings.single()
+            assertEquals("divide-task", measured.taskId)
+            assertTrue(measured.endTick!! >= measured.startTick, "source task timing survives physical output handoff")
             assertEquals(listOf(before.cars.first().carId), continuing.cars.map { it.id })
             assertEquals(setOf("unit-0", "unit-1"), f.world.simpleAtoWorldData.depots.allFixedUnitAssignments().map { it.unitId }.toSet())
             assertInstanceOf(AtoMissionOrigin.FormationOutput::class.java, (continuing.controller as SimpleATO).currentMission!!.origin)
@@ -262,13 +265,16 @@ class TimetableFormationDispatcherTest {
     @ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
     fun `scheduled coupling joins actual units then holds or continues`(continueOutput: Boolean) {
-        Fixture(false, coupling = true, coupledContinuation = continueOutput).use { f ->
+        Fixture(false, coupling = true, coupledContinuation = continueOutput, measureTasks = true).use { f ->
             f.begin()
             f.physics.start()
             repeat(1600) { f.tick() }
             assertEquals(1, f.world.allTrains.size, f.dispatcher.statuses().toString())
             assertEquals(3, f.train.cars.size)
             assertEquals(1, f.preparations)
+            assertTrue(f.dispatcher.statuses().all { run ->
+                run.taskTimings.single().let { it.taskId == "join-task" && it.endTick != null && it.endTick >= it.startTick }
+            }, "both actual coupling participants complete their invocation at handoff")
             assertEquals(3, f.world.simpleAtoWorldData.depots.allFixedUnits().size)
             if (continueOutput) {
                 assertTrue(f.train.publishedFrame.head.arcLengthInAbMeters > 80.0, f.dispatcher.statuses().toString())
@@ -426,7 +432,7 @@ class TimetableFormationDispatcherTest {
         }
     }
 
-    private class Fixture(private val newDuty: Boolean, sourceReversed: Boolean = false, outputReversed: Boolean = false, orientationCase: Boolean = false, separateDutyCaps: Boolean = false, private val coupling: Boolean = false, coupledContinuation: Boolean = false, viaOutput: Boolean = false, deferredOutput: Boolean = false, chooseOutputBranch: Boolean = true, reverseOutputBranch: Boolean = false) : AutoCloseable {
+    private class Fixture(private val newDuty: Boolean, sourceReversed: Boolean = false, outputReversed: Boolean = false, orientationCase: Boolean = false, separateDutyCaps: Boolean = false, private val coupling: Boolean = false, coupledContinuation: Boolean = false, viaOutput: Boolean = false, deferredOutput: Boolean = false, chooseOutputBranch: Boolean = true, reverseOutputBranch: Boolean = false, measureTasks: Boolean = false) : AutoCloseable {
         val physics = PhysicsCoordinator(1, automaticFallback = false)
         private val fixture = TestWorldFixture.create(physics)
         val world = fixture.world
@@ -502,8 +508,10 @@ class TimetableFormationDispatcherTest {
             world.basicWorldData.wayPoints.add(WayPoint("branch-end", "branch-end", rail.id, if (orientationCase) { if (sourceReversed xor outputReversed) 2.0 else 248.0 } else 120.0))
             val first = TimetableFormationOutput("first", if (reverseOutputBranch) FormationOutputDisposition.Hold else FormationOutputDisposition.Duty("source"))
             val rest = TimetableFormationOutput("rest", if (reverseOutputBranch) FormationOutputDisposition.Duty("source") else if (newDuty || outputReversed) FormationOutputDisposition.Duty("branch") else FormationOutputDisposition.Hold)
-            val sourceSteps = arrayListOf<TimetableStep>(TimetableStep.Check("origin"),
-                TimetableStep.At(0, TimetableAction.Split("divide")))
+            val sourceSteps = arrayListOf<TimetableStep>(TimetableStep.Check("origin"))
+            if (measureTasks) sourceSteps += TimetableStep.At(0, TimetableAction.TaskStart("divide-task"))
+            sourceSteps += TimetableStep.At(0, TimetableAction.Split("divide"))
+            if (measureTasks) sourceSteps += TimetableStep.At(0, TimetableAction.TaskEnd("divide-task"))
             if (outputReversed) sourceSteps += TimetableStep.At(0, TimetableAction.Reverse)
             if (viaOutput) world.basicWorldData.wayPoints.add(WayPoint("mid", "mid", rail.id, 70.0))
             if (deferredOutput) {
@@ -573,11 +581,14 @@ class TimetableFormationDispatcherTest {
                 val peerAllocation = checkNotNull(depots.reservePhysicallySelected(peer.id, peerPoint, DepotTrainSelector(peerHome), "peer-assignment", ids))
                 check(depots.confirmInService(peerAllocation)); check(depots.releaseDeparture(peerAllocation))
                 world.basicWorldData.wayPoints.add(WayPoint("peer-origin", "peer-origin", rail.id, peer.publishedFrame.head.arcLengthInAbMeters))
-                val joinSteps = listOf(TimetableStep.Check("origin"), TimetableStep.At(0, TimetableAction.Couple("join"))) +
+                val joinAction = if (measureTasks) listOf(TimetableStep.At(0, TimetableAction.TaskStart("join-task")),
+                    TimetableStep.At(0, TimetableAction.Couple("join")), TimetableStep.At(0, TimetableAction.TaskEnd("join-task")))
+                    else listOf(TimetableStep.At(0, TimetableAction.Couple("join")))
+                val joinSteps = listOf(TimetableStep.Check("origin")) + joinAction +
                     if (coupledContinuation) listOf(TimetableStep.At(0, TimetableAction.GoTo("end"))) else emptyList()
                 world.simpleAtoWorldData.timetables.add(Timetable("split", services = listOf(
                     TimetableService("source", TrainSelector.TrainId(train.id), joinSteps),
-                    TimetableService("peer", TrainSelector.TrainId(peer.id), listOf(TimetableStep.Check("peer-origin"), TimetableStep.At(0, TimetableAction.Couple("join"))))),
+                    TimetableService("peer", TrainSelector.TrainId(peer.id), (listOf(TimetableStep.Check("peer-origin")) + joinAction))),
                     formationEvents = TimetableFormationCatalog(listOf(TimetableFormationEvent.Couple("join", "source", "source", "peer",
                         FormationStationaryEnd.TAIL, FormationRendezvous("origin", "peer-origin"), 0.2,
                         TimetableFormationOutput("combined", if (coupledContinuation) FormationOutputDisposition.Duty("source") else FormationOutputDisposition.Hold))))))

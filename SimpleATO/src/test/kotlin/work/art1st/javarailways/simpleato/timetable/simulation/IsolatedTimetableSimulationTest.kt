@@ -1,5 +1,13 @@
 package work.art1st.javarailways.simpleato.timetable.simulation
 
+import work.art1st.javarailways.simpleato.api.timetable.TimetableActionProvider
+import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionCall
+import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionDescriptor
+import work.art1st.javarailways.simpleato.api.timetable.TimetableRuntimeContext
+import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionActionStartResult
+import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionActionTicket
+import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionActionSnapshot
+import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionActionState
 import work.art1st.javarailways.simpleato.api.simulation.PreparedSimulationFeature
 import work.art1st.javarailways.simpleato.api.simulation.SimulationDomainTarget
 import work.art1st.javarailways.simpleato.api.simulation.SimulationResourceProvider
@@ -84,6 +92,106 @@ import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 
 class IsolatedTimetableSimulationTest {
+    @Test
+    fun `final extension duration ends at ticket success and rejection leaves task unfinished`() {
+        for (reject in listOf(false, true)) {
+            val f = fixture(trainSelector = TrainSelector.AnyTrain, steps = listOf(
+                TimetableStep.At(0, TimetableAction.TakeFromWaypoint(listOf("origin"))),
+                TimetableStep.At(10, TimetableAction.TaskStart("extension")),
+                TimetableStep.At(10, TimetableAction.Extension(TimetableExtensionCall("test:timed"))),
+                TimetableStep.At(10, TimetableAction.TaskEnd("extension")),
+                TimetableStep.At(100, TimetableAction.GoTo("destination"))
+            ))
+            f.runtime.use { runtime ->
+                var polls = 0
+                runtime.world.simpleAtoWorldData.timetableExtensions.registerAction(object : TimetableActionProvider {
+                    override val typeId = "test:timed"
+                    override val version = 1
+                    override val descriptor = TimetableExtensionDescriptor("Timed", "Final action duration")
+                    override fun start(parameters: kotlinx.serialization.json.JsonObject, context: TimetableRuntimeContext): TimetableExtensionActionStartResult =
+                        if (reject) TimetableExtensionActionStartResult.Rejected("test rejection") else
+                            TimetableExtensionActionStartResult.Accepted(object : TimetableExtensionActionTicket {
+                                override fun snapshot() = TimetableExtensionActionSnapshot(
+                                    if (++polls < 4) TimetableExtensionActionState.PENDING else TimetableExtensionActionState.SUCCEEDED)
+                                override fun cancel() = Unit
+                            })
+                })
+                val result = runtime.simulate(IsolatedTimetableSimulationRequest(f.timetable))
+                assertTrue(result.runs.isNotEmpty()) { result.toString() }
+                val timing = result.runs.single().taskTimings.single()
+                assertEquals(10L, timing.startTick)
+                if (reject) {
+                    assertTrue(result is IsolatedTimetableSimulationResult.Failed) { result.toString() }
+                    assertEquals(null, timing.endTick)
+                } else {
+                    assertTrue(result is IsolatedTimetableSimulationResult.Completed) { result.toString() }
+                    assertEquals(14L, timing.endTick)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `task measurement counts final dwell and wait-until but excludes scheduled idle`() {
+        val f = fixture(trainSelector = TrainSelector.AnyTrain, steps = listOf(
+            TimetableStep.At(0, TimetableAction.TakeFromWaypoint(listOf("origin"))),
+            TimetableStep.At(10, TimetableAction.TaskStart("wait")),
+            TimetableStep.At(20, TimetableAction.WaitUntil),
+            TimetableStep.At(20, TimetableAction.Stop(7)),
+            TimetableStep.At(20, TimetableAction.TaskEnd("wait")),
+            TimetableStep.At(80, TimetableAction.TaskStart("empty")),
+            TimetableStep.At(80, TimetableAction.TaskEnd("empty")),
+            TimetableStep.At(100, TimetableAction.GoTo("destination"))
+        ))
+        f.runtime.use { runtime ->
+            val result = runtime.simulate(IsolatedTimetableSimulationRequest(f.timetable))
+            assertTrue(result is IsolatedTimetableSimulationResult.Completed) { result.toString() }
+            val timings = result.runs.single().taskTimings
+            assertEquals(listOf("wait", "empty"), timings.map { it.taskId })
+            assertEquals(10L, timings[0].startTick)
+            assertEquals(27L, timings[0].endTick)
+            assertEquals(80L, timings[1].startTick)
+            assertEquals(80L, timings[1].endTick)
+        }
+    }
+
+    @Test
+    fun `last movement completion is measured and a subsequent late task starts after completion`() {
+        val f = fixture(steps = listOf(
+            TimetableStep.Check("origin"),
+            TimetableStep.At(0, TimetableAction.TaskStart("move")),
+            TimetableStep.At(0, TimetableAction.GoTo("destination")),
+            TimetableStep.At(0, TimetableAction.TaskEnd("move")),
+            TimetableStep.At(1, TimetableAction.TaskStart("late")),
+            TimetableStep.At(1, TimetableAction.Stop(5)),
+            TimetableStep.At(1, TimetableAction.TaskEnd("late"))
+        ))
+        f.runtime.use { runtime ->
+            val result = runtime.simulate(IsolatedTimetableSimulationRequest(f.timetable))
+            assertTrue(result is IsolatedTimetableSimulationResult.Completed) { result.toString() }
+            val timings = result.runs.single().taskTimings
+            assertTrue(timings[0].endTick!! > timings[0].startTick)
+            assertEquals(timings[0].endTick, timings[1].startTick)
+            assertEquals(5L, timings[1].endTick!! - timings[1].startTick)
+        }
+    }
+
+    @Test
+    fun `unfinished task has no fabricated completion time`() {
+        val f = fixture(trainSelector = TrainSelector.AnyTrain, steps = listOf(
+            TimetableStep.At(0, TimetableAction.TakeFromWaypoint(listOf("origin"))),
+            TimetableStep.At(0, TimetableAction.TaskStart("unfinished")),
+            TimetableStep.At(0, TimetableAction.Stop(100)),
+            TimetableStep.At(0, TimetableAction.TaskEnd("unfinished")),
+            TimetableStep.At(100, TimetableAction.GoTo("destination"))
+        ))
+        f.runtime.use { runtime ->
+            val result = runtime.simulate(IsolatedTimetableSimulationRequest(f.timetable, maximumSimulationTicks = 10))
+            assertTrue(result is IsolatedTimetableSimulationResult.PeriodEnded) { result.toString() }
+            assertEquals(null, result.runs.single().taskTimings.single().endTick)
+        }
+    }
+
     @Test
     fun `detached formation needs contributor opt-in and exact provider clearance`() {
         val resource = StableInfrastructureResource("test:formation", "block")
@@ -645,6 +753,7 @@ class IsolatedTimetableSimulationTest {
             TimetableStep.At(0, TimetableAction.GoTo("destination")),
             TimetableStep.At(1_000, TimetableAction.Stop(1))
         ),
+        trainSelector: TrainSelector = TrainSelector.TrainId("simulation-train"),
         speedSafety: SpeedSafetyMonitor.Config = SpeedSafetyMonitor.Config(false, 0.0, 1),
         configureSource: (CoreWorld) -> Unit = {},
         features: List<PreparedSimulationFeature> = emptyList(),
@@ -672,7 +781,7 @@ class IsolatedTimetableSimulationTest {
             "simulation",
             services = listOf(TimetableService(
                 "service",
-                TrainSelector.TrainId("simulation-train"),
+                trainSelector,
                 steps
             ))
         )

@@ -16,6 +16,8 @@ internal object TimetableBranchGuard {
         pending.addLast(Sequence(null, null, program.rootSize))
         val violations = arrayListOf<TimetableBranchViolation>()
         var visited = 0
+        var activeTask: String? = null
+        val taskIds = mutableSetOf<String>()
         while (pending.isNotEmpty()) {
             val sequence = pending.last()
             if (sequence.index >= sequence.size) { pending.removeLast(); continue }
@@ -32,6 +34,20 @@ internal object TimetableBranchGuard {
                 continue
             }
             val action = (step as TimetableStep.At).action
+            if (action is TimetableAction.TaskStart || action is TimetableAction.TaskEnd) {
+                if (nested) violations += TimetableBranchViolation(address, "CONDITIONAL_TASK_BOUNDARY", "Task boundaries must be top-level")
+                else when (action) {
+                    is TimetableAction.TaskStart -> {
+                        if (activeTask != null || !taskIds.add(action.taskId)) violations += TimetableBranchViolation(address, "INVALID_TASK_BOUNDARY", "Task starts must be unique and cannot overlap")
+                        activeTask = action.taskId
+                    }
+                    is TimetableAction.TaskEnd -> {
+                        if (activeTask != action.taskId) violations += TimetableBranchViolation(address, "INVALID_TASK_BOUNDARY", "Task end must match the active task")
+                        activeTask = null
+                    }
+                    else -> Unit
+                }
+            }
             val code = when {
                 nested && (action is TimetableAction.TakeFromDepot || action is TimetableAction.TakeFromWaypoint || action is TimetableAction.TakeFromFormationOutput) -> "CONDITIONAL_ACQUISITION"
                 (nested || conditionalActivation) && (action is TimetableAction.StoreAtDepot || action is TimetableAction.Couple || action is TimetableAction.Split) -> "CONDITIONAL_FIXED_EVENT"
@@ -54,6 +70,7 @@ internal object TimetableBranchGuard {
                 }
             }
         }
+        if (activeTask != null) violations += TimetableBranchViolation(TimetableStepAddress((program.rootSize - 1).coerceAtLeast(0)), "INVALID_TASK_BOUNDARY", "Task has no end boundary")
         return java.util.List.copyOf(violations)
     }
 }

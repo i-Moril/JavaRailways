@@ -14,7 +14,7 @@ interface DraftProps {
 const captured=vi.hoisted(()=>({draft:undefined as DraftProps|undefined}));
 vi.mock('antd',()=>{
   const container=({children}:{children?:ReactNode})=><div>{children}</div>;
-  return {Button:container,Flex:container,Select:container,Space:container,Tag:container,
+  return {Button:container,Flex:container,Select:container,Space:container,Tag:container,Collapse:({items}:{items:{key:string;children:ReactNode}[]})=><div>{items.map((item)=><div key={item.key}>{item.children}</div>)}</div>,
     Input:Object.assign(container,{TextArea:(props:DraftProps)=>{captured.draft=props;return <textarea readOnly value={props.value}/>;}}),
     Typography:{Title:container,Text:container,Paragraph:container}};
 });
@@ -26,7 +26,7 @@ describe('operational trip defaults draft ownership',()=>{
     renderToStaticMarkup(<I18nProvider><DutyManagement document={document} onDocumentChange={change}
       onValidityChange={validity} duties={[]} runs={[]} selectedId="" metadata={{}} fieldScope="world/document"
       onSelect={noop} onAdd={noop} onDelete={noop} onPatch={noop} onAssign={noop}
-      onAddFunction={noop} onPatchFunction={noop} onMove={noop} onRemove={noop} onViewRun={noop}/></I18nProvider>);
+      onRemove={noop} onViewRun={noop}/></I18nProvider>);
     const draft=captured.draft!;expect(draft).toBeDefined();
     draft.onChange({target:{value:'{"destination":'}} as ChangeEvent<HTMLTextAreaElement>);
     draft.onBlur();

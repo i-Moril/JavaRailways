@@ -108,3 +108,9 @@ create失败逆序释放已经安装的feature注册、operation owner、自有�
 Bukkit HTTP factory不再注入SimpleATO的duration-only SimulationTrainOperationGateway；该类、resolver及无其他consumer的modelActionDurationTicks已删除。SimpleATO仍只消费Basic TrainOperationGateway，factory在目标operationResourceFactory中创建同模块真实逐车JS adapter并交dispatcherFactory注入，不引入Basic→Bukkit或SimpleATO→Bukkit依赖。实际逐源capture、混装方向、动作选择/拒绝、onReverse、exact car结构延续与平台排除归[Bukkit模拟行为](../../bukkit-plugin/backend/simulation-car-behavior.md)。
 
 目标operation资源由IsolatedTimetableSimulationWorld.create的`operationResourceFactory(CoreWorld): AutoCloseable?`在创建domain前构造；成功create保留其独立关闭身份，failed create/seed同样清理。正常关闭/取消先确认physics/generic真退出，再关闭operation owner（pending、事件、Context）与其他领域资源；不能在simulate返回或ticket取消时抢先释放仍有回调使用的对象。用真实generic worker barrier验证关闭不早发生，partial installation failure关闭已创建operation owner。该参数只连接具体已存在的资源，不扩为任意DI或Environment框架。
+
+## 交路程序任务耗时
+
+当前 TaskStart/TaskEnd 为顶层、成对、唯一 taskId 的元数据动作，受既有节点上限约束。TaskStart 等待计划时刻及前序完成，Dispatcher 在实际推进时记录 tick；TaskEnd 不等待自己的计划 tick。HALT、STORE 和被消耗的编组交接须在真实操作成功后关闭末尾边界。失败、未完成或超出模拟周期不产生结束值。
+
+运行快照提供 transient taskTimings；HTTP 模拟响应扁平 tasks 为 serviceId/taskId/startTick/endTick?。不能用下一任务开始或最终运行快照推断耗时。计时不写 checkpoint；恢复后没有观测到 START 的 END 只推进游标，不伪造测量。相同交路的编组交接保留本次观测历史，新的运行实例独立。手动规划耗时不参与运行执行。

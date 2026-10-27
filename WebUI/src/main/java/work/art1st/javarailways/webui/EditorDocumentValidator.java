@@ -144,6 +144,10 @@ final class EditorDocumentValidator {
             if (!java.util.Set.of("WORLD_TRAIN", "TRAIN_TEMPLATE").contains(profile.path("type").asText())) fail("invalid reference vehicle type");
             StationProgramValidator.text(profile.path("id"), "reference vehicle id");
         }
+        if (duty.has("initialPosition")) {
+            StationProgramValidator.text(duty.path("initialPosition"), "initial position");
+            if (!selector.path("type").asText().equals("TRAIN_NAME")) fail("initial position requires named train selector");
+        }
         requireObjectArray(duty, "elements");
         duty.path("elements").forEach(EditorDocumentValidator::validateElement);
     }
@@ -175,46 +179,25 @@ final class EditorDocumentValidator {
         requireText(element, "type", "duty element");
         switch (element.path("type").asText()) {
             case "RUN" -> requireText(element, "runId", "run element");
-            case "INLINE" -> {
-                java.util.Set<String> fields = new java.util.HashSet<>(java.util.Set.of("id", "type", "definition"));
-                if (element.has("tick")) fields.add("tick");
-                StationProgramValidator.fields(element, fields, "inline duty program");
-                if (element.has("tick")) {
-                    requireIntegral(element, "tick", "inline duty program");
-                    if (element.path("tick").asLong() < 0 || element.path("tick").asLong() > 9_007_199_254_740_991L) fail("invalid inline duty program tick");
+            case "PROGRAM" -> {
+                var fields = new java.util.HashSet<>(java.util.Set.of("id", "type", "call"));
+                if (element.has("duration")) {
+                    fields.add("duration");
+                    JsonNode duration = element.path("duration");
+                    switch (duration.path("type").asText()) {
+                        case "MANUAL" -> {
+                            StationProgramValidator.fields(duration, java.util.Set.of("type", "ticks"), "program duration");
+                            requireIntegral(duration, "ticks", "program duration");
+                            if (!duration.path("ticks").canConvertToLong() || duration.path("ticks").asLong() < 0 || duration.path("ticks").asLong() > 9_007_199_254_740_991L) fail("invalid program duration");
+                        }
+                        case "SIMULATED" -> StationProgramValidator.fields(duration, java.util.Set.of("type"), "program duration");
+                        default -> fail("unknown program duration type");
+                    }
                 }
-                StationProgramValidator.validate(element.path("definition"));
-                if (!element.path("definition").path("parameters").isEmpty()) fail("inline duty program cannot declare parameters");
-            }
-            case "PROGRAM" -> { if (!element.path("call").isObject()) fail("program call must be an object"); }
-            case "FUNCTION" -> {
-                JsonNode call = element.path("call");
-                if (!call.isObject()) fail("function element call must be an object");
-                validateFunction(call);
+                StationProgramValidator.fields(element, fields, "program element");
+                if (!element.path("call").isObject()) fail("program call must be an object");
             }
             default -> fail("unknown duty element type");
-        }
-    }
-
-    private static void validateFunction(JsonNode call) {
-        requireText(call, "id", "function call");
-        requireText(call, "type", "function call");
-        switch (call.path("type").asText()) {
-            case "PLACE_INITIAL" -> {
-                requireText(call, "trainName", "initial placement");
-                requireText(call, "wayPointId", "initial placement");
-            }
-            case "REVERSE" -> requireIntegral(call, "tick", "reverse call");
-            case "WAIT" -> {
-                requireIntegral(call, "tick", "wait call");
-                requireIntegral(call, "durationTicks", "wait call");
-            }
-            case "STORE_AT_DEPOT" -> {
-                requireIntegral(call, "tick", "store call");
-                requireText(call, "depotId", "store call");
-                requireStringArray(call, "stablingPointIds", "store call");
-            }
-            default -> fail("unknown function call type");
         }
     }
 

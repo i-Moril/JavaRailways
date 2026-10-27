@@ -1,7 +1,7 @@
 import {defaultStationStopProgram,resolveEventWaits,validateStopProgram} from './stationPlans';
 import {validateFormationAuthoring,type AuthoringFormationEvent} from './formationAuthoring';
 import { copyStationProgram,validateArrivalProgram,stationProgramSchedule,resolveProgramValue,displayValuesError,validateStationProgram,validateStationProgramCall } from './stationPrograms';
-import type { StationProgramDefinition,StationStopProgram,TimetableEventPoint,OperationalTrip,BoundStationProgram,StationProgramCall,DiagramLineV1, LineDirection, LineSimulationResult, LineV1, SavedTimetableV1, SimulationProfile, TimetableActionV1, WorldMetadata } from './types';
+import type { StationStopProgram,TimetableEventPoint,OperationalTrip,BoundStationProgram,StationProgramCall,DiagramLineV1, LineDirection, LineSimulationResult, LineV1, SavedTimetableV1, SimulationProfile, TimetableActionV1, WorldMetadata } from './types';
 
 export type AuthoringDoorSide = 'NONE'|'LEFT'|'RIGHT'|'BOTH';
 export type AuthoringRunCallStatusV1 = 'ORIGIN'|'STOP'|'PASS'|'TERMINAL';
@@ -32,19 +32,14 @@ export type AuthoringDutySelectorV1 =
   | {type:'TAKE_FROM_DEPOT';depotId:string;tick:number;tags:string[]}
   | {type:'TAKE_FROM_WAYPOINT';wayPointIds:string[];tick:number}
   | {type:'TAKE_FROM_FORMATION_OUTPUT';eventId:string;outputId:string;tick:number};
-export type AuthoringFunctionCallV1 =
-  | {id:string;type:'PLACE_INITIAL';trainName:string;wayPointId:string}
-  | {id:string;type:'REVERSE';tick:number}
-  | {id:string;type:'WAIT';tick:number;durationTicks:number}
-  | {id:string;type:'STORE_AT_DEPOT';tick:number;depotId:string;stablingPointIds:string[]};
+export type DutyProgramDuration = {type:'MANUAL';ticks:number}|{type:'SIMULATED'};
 export type AuthoringDutyElementV1 =
   | {id:string;type:'RUN';runId:string}
-  | {id:string;type:'FUNCTION';call:AuthoringFunctionCallV1}
-  | {id:string;type:'PROGRAM';call:StationProgramCall}
-  | {id:string;type:'INLINE';tick?:number;definition:StationProgramDefinition};
+  | {id:string;type:'PROGRAM';call:StationProgramCall;duration?:DutyProgramDuration};
 export interface AuthoringDutyV1 {
   id:string;
   selector:AuthoringDutySelectorV1;
+  initialPosition?:string;
   elements:AuthoringDutyElementV1[];
   referenceVehicle?:{type:'WORLD_TRAIN'|'TRAIN_TEMPLATE';id:string};
 }
@@ -403,7 +398,10 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
     let programDestination:string|undefined=namedDutyInitialTarget(document,duty);
     let previousElementEndTick:number|undefined;
     const elementIds=new Set<string>();
-    const functionIds=new Set<string>();
+    if(duty.initialPosition!==undefined){
+      if(!duty.initialPosition.trim())issues.push(issue(`${path}.initialPosition`,'Initial placement waypoint is required'));
+      if(duty.selector.type!=='TRAIN_NAME')issues.push(issue(`${path}.initialPosition`,'Initial placement requires a named-train selector'));
+    }
     const programCallIds=new Set<string>();
     duty.elements.forEach((element,elementIndex)=>{
       const elementPath=`${path}.elements[${elementIndex}]`;
@@ -440,6 +438,12 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
           previousRun=run;
         }
       } else if(element.type==='PROGRAM') {
+        if(element.duration){
+          if(element.duration.type==='MANUAL'){
+            if(!nonNegativeInteger(element.duration.ticks))issues.push(issue(elementPath,'Program duration must be a non-negative integer'));
+            else if(element.call.tick+element.duration.ticks>=periodTicks)issues.push(issue(elementPath,'Program duration crosses the timetable period'));
+          }else if(element.duration.type!=='SIMULATED')issues.push(issue(elementPath,'Unknown program duration type'));
+        }
         if(programCallIds.has(element.call.id))issues.push(issue(elementPath,'Duplicate program call ID'));
         programCallIds.add(element.call.id);
         const snapshot=document.boundPrograms?.find((item)=>item.programId===element.call.programId);
@@ -459,32 +463,6 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
           }
           previousElementEndTick=lower;
           previousRun=undefined;
-        }
-      } else if(element.type==='INLINE') {
-        if(element.tick!=null&&(!nonNegativeInteger(element.tick)||element.tick>=periodTicks))issues.push(issue(elementPath,'Inline start tick outside timetable period'));
-        if(element.definition.parameters.length)issues.push(issue(elementPath,'Inline duty programs cannot declare parameters'));
-        for(const message of validateStationProgram(element.definition))issues.push(issue(elementPath,message));
-        try{const definition=resolveEventWaits(element.definition,document.events??[],periodTicks);const schedule=stationProgramSchedule(definition.steps,{},Math.max(element.tick??0,previousElementEndTick??0),periodTicks);for(const message of schedule.errors)issues.push(issue(elementPath,message));previousElementEndTick=Math.max(previousElementEndTick??0,schedule.earliest);}catch(error){issues.push(issue(elementPath,String(error)));}
-        previousRun=undefined;
-      } else {
-        const call=element.call;
-        if(!call.id.trim()) issues.push(issue(`${elementPath}.call.id`,'Function ID is required'));
-        else if(functionIds.has(call.id)) issues.push(issue(`${elementPath}.call.id`,`Duplicate function ID: ${call.id}`));
-        functionIds.add(call.id);
-        if(call.type==='PLACE_INITIAL'&&!call.wayPointId.trim()) issues.push(issue(`${elementPath}.call.wayPointId`,'Initial placement waypoint is required'));
-        if(call.type==='PLACE_INITIAL'&&elementIndex!==0) issues.push(issue(elementPath,'Initial placement must be the first duty element'));
-        if(call.type==='PLACE_INITIAL'&&duty.selector.type!=='TRAIN_NAME') issues.push(issue(elementPath,'Initial placement requires a named-train selector'));
-        if(call.type==='PLACE_INITIAL'&&call.trainName!==((duty.selector.type==='TRAIN_NAME'&&duty.selector.name)||'')) issues.push(issue(elementPath,'Initial placement train must match the duty selector'));
-        if('tick' in call&&(!nonNegativeInteger(call.tick)||call.tick>=periodTicks)) issues.push(issue(`${elementPath}.call.tick`,'Function tick must be inside the timetable period'));
-        if('tick' in call&&previousElementEndTick!=null&&call.tick<previousElementEndTick) issues.push(issue(`${elementPath}.call.tick`,`Function starts before the previous duty element completes by ${previousElementEndTick-call.tick} ticks`));
-        if(call.type==='WAIT'&&(!Number.isSafeInteger(call.durationTicks)||call.durationTicks<=0)) issues.push(issue(`${elementPath}.call.durationTicks`,'Wait duration must be a positive integer'));
-        if(call.type==='WAIT'&&nonNegativeInteger(call.tick)&&Number.isSafeInteger(call.durationTicks)&&call.tick+call.durationTicks>=periodTicks) issues.push(issue(elementPath,'Wait crosses the timetable period'));
-        if(call.type==='STORE_AT_DEPOT'&&elementIndex!==duty.elements.length-1) issues.push(issue(elementPath,'Store at depot must be the last duty element'));
-        if(call.type==='STORE_AT_DEPOT'&&!call.depotId.trim()) issues.push(issue(`${elementPath}.call.depotId`,'Store depot ID is required'));
-        if(call.type==='STORE_AT_DEPOT'&&(call.stablingPointIds.some((id)=>!id.trim())||new Set(call.stablingPointIds).size!==call.stablingPointIds.length)) issues.push(issue(`${elementPath}.call.stablingPointIds`,'Stabling point IDs must be non-blank and unique'));
-        if('tick' in call) {
-          const end=call.type==='WAIT'?call.tick+call.durationTicks:call.tick;
-          if(Number.isSafeInteger(end)) previousElementEndTick=Math.max(previousElementEndTick??0,end);
         }
       }
     });
@@ -574,9 +552,7 @@ function selectorSource(selector:AuthoringDutySelectorV1):string {
 
 function namedDutyInitialTarget(document:TimetableAuthoringDocumentV1,duty:AuthoringDutyV1):string|undefined {
   if(duty.selector.type!=='TRAIN_NAME')return undefined;
-  const trainName=duty.selector.name;
-  const placement=duty.elements.find((item)=>item.type==='FUNCTION'&&item.call.type==='PLACE_INITIAL'&&item.call.trainName===trainName);
-  if(placement?.type==='FUNCTION'&&placement.call.type==='PLACE_INITIAL')return placement.call.wayPointId;
+  if(duty.initialPosition)return duty.initialPosition;
   const firstRun=duty.elements.find((item)=>item.type==='RUN');
   return firstRun?.type==='RUN'?document.runs.find((run)=>run.id===firstRun.runId)?.calls[0]?.targetId:undefined;
 }
@@ -592,7 +568,8 @@ function destinationOptions(document:TimetableAuthoringDocumentV1,duty:Authoring
 
 export function generateTimetableSource(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[]):GeneratedTimetableSource {
   const issues=validateAuthoringDocument(document,infrastructureLines);
-  const {formalScriptName:ignoredName,...semanticInput}=authoringDocumentForSave(document);
+  const {formalScriptName:ignoredName,...savedInput}=authoringDocumentForSave(document);
+  const semanticInput={...savedInput,duties:savedInput.duties.map((duty)=>({...duty,elements:duty.elements.map((element)=>element.type==='PROGRAM'?{id:element.id,type:element.type,call:element.call}:element)}))};
   const documentHashInput=JSON.stringify({document:semanticInput,lineSpeedLimits:authoringLineSpeedLimits(infrastructureLines,document)});
   if(issues.some((issue)=>issue.severity==='error'))return {source:'',issues,documentHashInput};
   const lines:string[]=['// Generated by JavaRailways WebUI. Do not edit in structured mode.','function main(timetable) {',`    timetable.setPeriodDays(${document.periodDays})`];
@@ -614,8 +591,8 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1,in
     lines.push('',`    timetable.diagramLine(${quote(line.id)}, {`,`        upStations: [${line.upStationIds.map(quote).join(', ')}],`,`        downStations: [${line.downStationIds.map(quote).join(', ')}]`,`    })`);
   }
   for(const duty of document.duties) {
-    for(const element of duty.elements) if(element.type==='FUNCTION'&&element.call.type==='PLACE_INITIAL') {
-      lines.push('',`    timetable.setInitialPosition(timetable.named(${quote(element.call.trainName)}), timetable.named(${quote(element.call.wayPointId)}))`);
+    if(duty.initialPosition&&duty.selector.type==='TRAIN_NAME') {
+      lines.push('',`    timetable.setInitialPosition(timetable.named(${quote(duty.selector.name)}), timetable.named(${quote(duty.initialPosition)}))`);
     }
   }
   for(const duty of document.duties) {
@@ -671,30 +648,14 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1,in
             const target=namedDutyInitialTarget(document,duty);
             if(target){lines.push(`            scoped.check(${quote(target)})`);emittedCheck=true;}
           }
-          lines.push(`            scoped.at(${element.call.tick}).program(${quote(element.call.programId)}, program${index}, ${argumentsSource}, JSON.parse(${quote(JSON.stringify({dutyId:duty.id}))}))`,'        })');
+          lines.push(`            scoped.task(${quote(element.id)}, ${element.call.tick}, taskScope => taskScope.program(${quote(element.call.programId)}, program${index}, ${argumentsSource}, JSON.parse(${quote(JSON.stringify({dutyId:duty.id}))})))`,'        })');
         }
-      } else if(element.type==='INLINE') {
-        const definition=resolveEventWaits(element.definition,document.events??[],document.periodDays*24000);
-        if(!emittedCheck&&duty.selector.type==='TRAIN_NAME'){const target=namedDutyInitialTarget(document,duty);if(target){lines.push(`        t.check(${quote(target)})`);emittedCheck=true;}}
-        lines.push(`        t.origin(${quote(origin(duty.id,element.id))}, scoped => {`,`            scoped${element.tick==null?'':`.at(${element.tick})`}.program(${quote(element.id)}, JSON.parse(${quote(JSON.stringify(definition))}), {}, JSON.parse(${quote(JSON.stringify({dutyId:duty.id}))}))`,'        })');
-      } else {
-        const call=element.call;
-        if(call.type==='PLACE_INITIAL') continue;
-        lines.push(`        t.origin(${quote(origin(duty.id,element.id,undefined,call.id))}, scoped => {`);
-        if(call.type==='REVERSE') lines.push(`            scoped.at(${call.tick}).reverse()`);
-        if(call.type==='WAIT') lines.push(`            scoped.at(${call.tick}).wait(${call.durationTicks})`);
-        if(call.type==='STORE_AT_DEPOT') {
-          const options=call.stablingPointIds.length?`, { stablingPoints: [${call.stablingPointIds.map(quote).join(', ')}] }`:'';
-          lines.push(`            scoped.at(${call.tick}).storeAtDepot(${quote(call.depotId)}${options})`);
-        }
-        lines.push('        })');
       }
     }
     lines.push('    })');
   }
   lines.push('}','');
-  const {formalScriptName:_,...semanticDocument}=authoringDocumentForSave(document);
-  return {source:lines.join('\n'),issues,documentHashInput:JSON.stringify({document:semanticDocument,lineSpeedLimits:authoringLineSpeedLimits(infrastructureLines,document)})};
+  return {source:lines.join('\n'),issues,documentHashInput};
 }
 
 export interface CompiledEditorDocument {

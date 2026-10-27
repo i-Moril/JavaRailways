@@ -73,7 +73,6 @@ class StationProgramHttpTest {
             assertEquals(snapshot,second.path("boundPrograms").get(0));
             assertFalse(loaded.toString().contains("secret"));
             assertEquals(204,send(client,root,documents+"/weekday","PUT",document.toString(),cookie).statusCode());
-            assertEquals(404,send(client,root,base+"/turnback/archive","POST","{\"expectedRevision\":2}",cookie).statusCode());
             create.put("id","bad").put("extra",true);
             assertEquals(400,send(client,root,base,"POST",create.toString(),cookie).statusCode());
             snapshot.put("contentIdentity","sha256:wrong");document.withArray("boundPrograms").removeAll().add(snapshot);

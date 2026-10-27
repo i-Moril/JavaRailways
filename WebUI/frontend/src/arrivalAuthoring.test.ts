@@ -11,7 +11,6 @@ describe('shared station programs',()=>{
   const value=document(),result=generateTimetableSource(value,lines);
   expect(result.issues).toEqual([]);expect(result.source).toContain('beginStationStop');expect(result.source).toContain('stationProgram');expect(result.source).toContain('TERMINAL');
   expect(authoringDocumentForSave(value).stationPrograms).toEqual(value.stationPrograms);
-  expect(authoringDocumentForSave(value).runs[0].calls[1]).not.toHaveProperty('arrivalProgram');
  });
  it('allows reversal but forbids movement and requires END on each main path',()=>{
   const shared=defaultStationStopProgram('b');shared.arrival.steps.unshift({id:'reverse',type:'REVERSE'});expect(validateStopProgram(shared,[],24000)).toEqual([]);
@@ -49,9 +48,6 @@ describe('shared station programs',()=>{
    let generated:ReturnType<typeof generateTimetableSource>|undefined;
    expect(()=>{generated=generateTimetableSource(value,lines);}).not.toThrow();expect(generated!.source).toBe('');expect(generated!.issues.some((issue)=>issue.message.includes('Unknown event'))).toBe(true);
   }
- });
- it('refuses obsolete inline input instead of silently replacing its behavior with defaults',()=>{
-  const value=document();Object.assign(value.runs[0].calls[1],{arrivalProgram:{parameters:[],steps:[]}});const generated=generateTimetableSource(value,lines);expect(generated.source).toBe('');expect(generated.issues.some((issue)=>issue.message.includes('offline station program migration'))).toBe(true);
  });
  it('rejects dynamic train conditions from station authoring',()=>{
   const value=defaultStationStopProgram('b');value.arrival.steps.unshift({id:'dynamic',type:'BRANCH',typeId:'javarailways:train_model',version:1,parameters:{value:{}},thenSteps:[],elseSteps:[]});expect(validateStopProgram(value,[],24000)).toContain('Conditions must use planned timetable context');

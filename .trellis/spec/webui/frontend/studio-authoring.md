@@ -76,7 +76,7 @@ Reset 仅重生选中运行线的时刻，始发 Tick 来自该运行线原有�
 
 ## 共享站内程序（顺序子集）
 
-世界共享库使用已认证的 `station-programs` API，库编辑状态和时刻表文档分离。新记录以稳定 ID、revision、definition 和内容哈希保存；更新/删除必须提供 expectedRevision，冲突409不能覆盖本地草稿或伪装成功。程序库使用左侧文件列表进行新建、重命名和真实删除；内部 ID 隐藏且稳定，不能复用已删除程序的身份。默认显示名为数字。重命名只更新名称，不隐式保存尚未提交的程序定义，也不能因 revision 改变丢失未完成画布。删除移除库文件，不改写任何文档中的绑定快照；删除确认应说明这一边界。当前记录不包含 archived 字段或归档状态；旧开发库数据仅通过 ai_tasks/migrations/remove_program_library_archived.py 停服离线转换，运行时严格拒绝旧字段。世界切换/卸载使迟到响应失效。
+世界共享库使用已认证的 `station-programs` API，库编辑状态和时刻表文档分离。新记录以稳定 ID、revision、definition 和内容哈希保存；更新/删除必须提供 expectedRevision，冲突409不能覆盖本地草稿或伪装成功。程序库使用左侧文件列表进行新建、重命名和真实删除；内部 ID 隐藏且稳定，不能复用已删除程序的身份。默认显示名为数字。重命名只更新名称，不隐式保存尚未提交的程序定义，也不能因 revision 改变丢失未完成画布。删除移除库文件，不改写任何文档中的绑定快照；删除确认应说明这一边界。当前记录不包含 archived 字段或归档状态；旧开发库数据仅通过 ai_tasks/migrations/remove_program_library_archived.py 停服离线转换，运行时仅按当前模型做通用字段校验，不识别旧字段或输出专项迁移提示。世界切换/卸载使迟到响应失效。
 
 时刻表通过可选 `boundPrograms`（缺省空）保存 `{programId,revision,contentIdentity,definition}`，一个程序一个不可变快照。首次选择复制定义；后续调用沿用绑定版本，库刷新不写文档。采用更新是显式按钮且只产生一次现有 document/history 事务，参数变化需重新校验，旧编译/模拟结果因输入变化失效。既有绑定即使库删除仍可生成。无新 editor/recovery schema version 或任意 JS 反向解析。
 
@@ -134,6 +134,6 @@ CURRENT：`authoringResume.ts` 保存 owner/world 隔离的最后文档 ID；内
 
 交路 `referenceVehicle?: {type:'WORLD_TRAIN'|'TRAIN_TEMPLATE',id}` 持久保存于 duty，模拟从此引用取参数；它不限制实际运营列车，也不能作为运行时条件的车型来源。INLINE element `{id,type:'INLINE',tick?,definition}` 为零参数内联，tick 省略表示顺序执行，填写则等待绝对时刻；Java 接口与前端恢复均接受省略，不接受 null/负数。RUN/FUNCTION/PROGRAM/INLINE 全部保持稳定元素身份，运行线唯一 owner 和固定编组事件规则不变。
 
-生成器为起点发出无显式时刻的 beginStationStop，避免把“准备提前量”插入已前进的计划游标；准备开始由执行器调度。目的地携带具体 role、stationProgram、plannedContext 和 departureTick；条件在 worker 按可静态确定的上下文选分支。缺省与自定义共享程序都必须通过所有步骤验证后生成，过时的每 call arrivalProgram 明确拒绝，不能静默改成默认。
+生成器为起点发出无显式时刻的 beginStationStop，避免把“准备提前量”插入已前进的计划游标；准备开始由执行器调度。目的地携带具体 role、stationProgram、plannedContext 和 departureTick；条件在 worker 按可静态确定的上下文选分支。缺省与自定义共享程序都必须通过所有当前步骤验证后生成；不保留旧格式专项判断、生成门禁或迁移提示。
 
 `arrivalAuthoring.test`、`dutyBlocks.test`、`programBlocks.test` 覆盖共享/经停/终点时间、事件与草稿映射；Java SharedStationProgramValidatorTest 和 EditorDocumentRestartTest 检查真实持久边界。浏览器须另验普通 HTTP 上两个 canvas 初始化、关开弹窗、可选 INLINE tick 保存、重新载入及无效游离草稿门禁。迁移工具默认 dry-run，源文件作为恢复点保留，冲突需人工选择共享逻辑。

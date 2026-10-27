@@ -14,15 +14,6 @@ class StationProgramScriptTest {
       {id:'store',type:'STORE_AT_DEPOT',depotId:{value:'other-depot'},stablingPointIds:{value:[]}}
     ]}"""
 
-    @Test fun `obsolete inline arrival option is rejected even when empty`() {
-        for (program in listOf("{parameters:[],steps:[]}", "{parameters:[],steps:[{id:'wait',type:'WAIT_DURATION',durationTicks:{value:20}}]}")) {
-            val failure = assertThrows(Throwable::class.java) {
-                compile("timetable.service('s','train',t=>{t.check('A');t.destination('B',{arrivalProgram:$program});});")
-            }
-            assertTrue(failure.message.orEmpty().contains("arrivalProgram"), failure.message)
-        }
-    }
-
     @Test fun `display program compiles parameterized slots and values into native timed actions`() {
         val result = compile("""
           timetable.service('s','train',t=>{t.check('A');t.at(20).program('display',{

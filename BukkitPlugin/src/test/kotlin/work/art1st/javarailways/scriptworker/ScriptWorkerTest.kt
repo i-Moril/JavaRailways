@@ -227,18 +227,6 @@ class ScriptWorkerTest {
         }
     }
 
-    @Test fun `legacy goto call and stop APIs are not exposed`() {
-        assertThrows(Throwable::class.java) {
-            run("timetable.setPeriodDays(1); timetable.service('s','train', t => t.at(1).goto('a'));")
-        }
-        assertThrows(Throwable::class.java) {
-            run("timetable.setPeriodDays(1); timetable.service('s','train', t => t.at(1).call('station','one'));")
-        }
-        assertThrows(Throwable::class.java) {
-            run("timetable.setPeriodDays(1); timetable.service('s','train', t => t.at(1).stop(20));")
-        }
-    }
-
     @Test fun `host classes are inaccessible`() {
         val error = assertThrows(Throwable::class.java) { run("timetable.setPeriodDays(1); Java.type('java.lang.System');") }
         assertTrue(error.toString().contains("Java") || error.toString().contains("host", ignoreCase = true))

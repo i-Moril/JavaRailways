@@ -86,26 +86,7 @@ class VisualProgramRepositoryTest {
         assertTrue(repository().list("world").isEmpty());
         assertFalse(Files.exists(directory.resolve("world/turnback.json")));
         assertFalse(repository.delete("world", "turnback", 2));
-        assertFalse(bound.has("archived"));
         assertEquals(1, bound.path("revision").asInt());
-    }
-
-    @Test void obsoleteArchivedFieldIsRejectedWithoutChangingStoredRecords() throws Exception {
-        VisualProgramRepository repository = repository();
-        var current = (com.fasterxml.jackson.databind.node.ObjectNode) repository.create("world", "old", "Old", definition());
-        assertFalse(current.has("archived"));
-        for (boolean archived : java.util.List.of(false, true)) {
-            var record = current.deepCopy();
-            record.put("archived", archived);
-            Path path = directory.resolve("world/old.json");
-            byte[] bytes = mapper.writeValueAsBytes(record);
-            Files.write(path, bytes);
-            assertThrows(IllegalArgumentException.class, () -> repository.find("world", "old"));
-            assertThrows(IllegalArgumentException.class, () -> repository.list("world"));
-            assertThrows(IllegalArgumentException.class, () -> repository.update("world", "old", 1, "Changed", definition()));
-            assertThrows(IllegalArgumentException.class, () -> repository.delete("world", "old", 1));
-            assertArrayEquals(bytes, Files.readAllBytes(path));
-        }
     }
 
     @Test void contentIdentityIgnoresObjectOrderButPreservesStepOrderAndValues() throws Exception {

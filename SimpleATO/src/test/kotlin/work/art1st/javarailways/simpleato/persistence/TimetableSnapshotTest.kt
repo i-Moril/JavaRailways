@@ -14,27 +14,6 @@ import work.art1st.javarailways.simpleato.api.timetable.*
 import work.art1st.javarailways.simpleato.timetable.*
 
 class TimetableSnapshotTest {
-    @Test fun `obsolete inline arrivals and branch addresses are rejected at strict decode boundary`() {
-        for (children in listOf("[]", "[{\"type\":\"AT\",\"tick\":0,\"action\":{\"type\":\"STOP\",\"stopTicks\":10}}]")) {
-            assertThrows(kotlinx.serialization.SerializationException::class.java) {
-                kotlinx.serialization.json.Json.decodeFromString<SavedTimetableActionV1>(
-                    """{"type":"DESTINATION_OPTIONS","wayPointIds":["B"],"arrivalSteps":$children}""")
-            }
-        }
-        assertThrows(kotlinx.serialization.SerializationException::class.java) {
-            kotlinx.serialization.json.Json.decodeFromString<SavedTimetableBranchPathEntryV1>("""{"arm":"ARRIVAL","index":0}""")
-        }
-    }
-
-    @Test fun `obsolete editor rows and disabled run calls are rejected`() {
-        assertThrows(kotlinx.serialization.SerializationException::class.java) {
-            TimetableSnapshotCodec.decode("""{"id":"t","periodDays":1,"services":[{"id":"s","selectorType":"TRAIN_ID","trainId":"train","steps":[],"rows":[]}]}""")
-        }
-        assertThrows(kotlinx.serialization.SerializationException::class.java) {
-            kotlinx.serialization.json.Json.decodeFromString<SavedTimetableRunCallV1>("""{"id":"c","stationId":"s","destinationId":"B","status":"DISABLED"}""")
-        }
-    }
-
     @Test
     fun `presentation metadata survives JSON but is not restored into runtime`() {
         val saved = SavedTimetableV1(

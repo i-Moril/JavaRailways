@@ -33,7 +33,6 @@ export function parseAuthoringRecovery(serialized:string|null,owner:string,world
     if(value.document.boundPrograms!==undefined){
       if(!Array.isArray(value.document.boundPrograms)||value.document.boundPrograms.some((snapshot)=>!snapshot||typeof snapshot.programId!=='string'||!Number.isSafeInteger(snapshot.revision)||snapshot.revision<1||typeof snapshot.contentIdentity!=='string'||validateStationProgram(snapshot.definition).length>0))return undefined;
     }
-    if(value.document.runs?.some((run)=>run.calls?.some((call)=>'arrivalProgram' in call)))return undefined;
     for(const program of value.document.stationPrograms??[])if(validateArrivalProgram(program.arrival).length||validateArrivalProgram(program.departurePreparation).length)return undefined;
     for(const duty of value.document.duties??[])for(const element of duty.elements??[])if(element.type==='PROGRAM'){
       if(!element.call||typeof element.call.id!=='string'||typeof element.call.programId!=='string'||typeof element.call.tick!=='number'||!element.call.arguments||typeof element.call.arguments!=='object'||Array.isArray(element.call.arguments))return undefined;

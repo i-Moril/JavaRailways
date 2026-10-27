@@ -120,12 +120,16 @@ final class EditorDocumentValidator {
         requireText(run, "lineDirection", "run");
         requireObjectArray(run, "calls");
         run.path("calls").forEach(call -> {
+            java.util.Set<String> fields = new java.util.HashSet<>(java.util.Set.of("id", "stationId", "status", "targetId"));
+            for (String optional : java.util.Set.of("berthId", "arrivalTick", "departureTick", "minimumDwellTicks", "stoppingOffsetMetersBefore", "doorSide", "viaIds")) {
+                if (call.has(optional)) fields.add(optional);
+            }
+            StationProgramValidator.fields(call, fields, "run call");
             requireText(call, "id", "run call");
             requireText(call, "stationId", "run call");
             requireText(call, "status", "run call");
             requireText(call, "targetId", "run call");
             if (call.has("viaIds")) requireStringArray(call, "viaIds", "run call");
-            if (call.has("arrivalProgram")) fail("migrate obsolete inline arrivalProgram to shared stationPrograms offline with scripts/migrate_station_programs.py");
         });
     }
 

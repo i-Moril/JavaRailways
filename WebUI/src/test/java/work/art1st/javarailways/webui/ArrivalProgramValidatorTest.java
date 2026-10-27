@@ -17,16 +17,21 @@ class ArrivalProgramValidatorTest {
             "{\"parameters\":[],\"steps\":[{\"id\":\"reverse\",\"type\":\"REVERSE\"}]}"
         }) assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateArrival(mapper.readTree(definition)));
     }
-    @Test void persistedDocumentRejectsObsoleteInlineArrivalProgramWithMigrationMessage() throws Exception {
-        String document="""
+    @Test void persistedRunCallsUseCurrentFieldSet() throws Exception {
+        String document = """
           {"formatVersion":1,"id":"doc","periodDays":1,"duties":[],"diagramLines":[],"arrivalOverrides":[],
            "runs":[{"id":"run","type":"PASSENGER","lineDirection":"UP","calls":[
-             {"id":"call","stationId":"station","status":"TERMINAL","targetId":"destination",
-              "arrivalProgram":{"parameters":[],"steps":[]}}]}]}
+             {"id":"call","stationId":"station","berthId":"platform","status":"TERMINAL","targetId":"destination",
+              "arrivalTick":100,"departureTick":120,"minimumDwellTicks":20,"stoppingOffsetMetersBefore":2,
+              "doorSide":"LEFT","viaIds":["junction"]}]}]}
           """;
-        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(mapper.readTree(document)));
-        assertTrue(failure.getMessage().contains("migrate"));
-        assertTrue(failure.getMessage().contains("stationPrograms"));
-        assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(mapper.readTree(document.replace("TERMINAL","PASS"))));
+        var current = mapper.readTree(document);
+        assertDoesNotThrow(() -> EditorDocumentValidator.validate(current));
+        var call = (com.fasterxml.jackson.databind.node.ObjectNode) current.path("runs").get(0).path("calls").get(0);
+        call.remove(java.util.List.of("berthId", "arrivalTick", "departureTick", "minimumDwellTicks", "stoppingOffsetMetersBefore", "doorSide", "viaIds"));
+        assertDoesNotThrow(() -> EditorDocumentValidator.validate(current));
+        call.put("unexpectedField", true);
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(current));
+        assertTrue(failure.getMessage().contains("unexpectedField"));
     }
 }

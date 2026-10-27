@@ -226,7 +226,6 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   });
   const save=async()=>execute(async()=>{
     if(!tripDraftValidity.current.valid||arrivalDraftsInvalid)throw new Error(t('programs.invalidDraft'));
-    if(generated.issues.some((issue)=>issue.path.includes('.arrivalProgram')))throw new Error(t('programs.invalidDraft'));
     const epoch=ownerEpoch.current,snapshot=JSON.stringify(value);
     const created=documentId?undefined:await api.createEditorDocument(world,value);
     if(documentId)await api.saveEditorDocument(world,documentId,value);

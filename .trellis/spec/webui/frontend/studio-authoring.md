@@ -76,9 +76,9 @@ Reset 仅重生选中运行线的时刻，始发 Tick 来自该运行线原有�
 
 ## 共享站内程序（顺序子集）
 
-世界共享库使用已认证的 `station-programs` API，库编辑状态和时刻表文档分离。新记录以稳定 ID、revision、archived、definition 和内容哈希保存；更新/归档必须提供 expectedRevision，冲突409不能覆盖本地草稿或伪装成功。归档保留内容，不再允许新增选择或库修改。世界切换/卸载使迟到响应失效。
+世界共享库使用已认证的 `station-programs` API，库编辑状态和时刻表文档分离。新记录以稳定 ID、revision、archived、definition 和内容哈希保存；更新/删除必须提供 expectedRevision，冲突409不能覆盖本地草稿或伪装成功。程序库使用左侧文件列表进行新建、重命名和真实删除；内部 ID 隐藏且稳定，不能复用已删除程序的身份。默认显示名为数字。重命名只更新名称，不隐式保存尚未提交的程序定义，也不能因 revision 改变丢失未完成画布。删除移除库文件，不改写任何文档中的绑定快照；删除确认应说明这一边界。既存 archived 元数据保持当前磁盘形状，不新增归档入口。世界切换/卸载使迟到响应失效。
 
-时刻表通过可选 `boundPrograms`（缺省空）保存 `{programId,revision,contentIdentity,definition}`，一个程序一个不可变快照。首次选择复制定义；后续调用沿用绑定版本，库刷新不写文档。采用更新是显式按钮且只产生一次现有 document/history 事务，参数变化需重新校验，旧编译/模拟结果因输入变化失效。既有绑定即使库归档仍可生成。无新 editor/recovery schema version 或任意 JS 反向解析。
+时刻表通过可选 `boundPrograms`（缺省空）保存 `{programId,revision,contentIdentity,definition}`，一个程序一个不可变快照。首次选择复制定义；后续调用沿用绑定版本，库刷新不写文档。采用更新是显式按钮且只产生一次现有 document/history 事务，参数变化需重新校验，旧编译/模拟结果因输入变化失效。既有绑定即使库删除或已归档仍可生成。无新 editor/recovery schema version 或任意 JS 反向解析。
 
 `PROGRAM` duty element 的 call 为 `{id,programId,tick,arguments}`。参数类型为 TICK/DURATION/DESTINATION/DEPOT/STRING/ID_LIST；引用的声明类型必须精确匹配字段，不能用 STRING 参数替代目的地/车库。有限顺序步骤为 WAIT_UNTIL、WAIT_DURATION、REVERSE、MOVE、STORE_AT_DEPOT；表达式只接受 `{value}` 或 `{parameterId}`。数值为安全整数，时长严格正数。生成只读 JS 时每个已用绑定定义声明一次，现有 origin scope 加上 call/program/step 身份。完整展开先校验，再一次性追加到 ScriptWorker builder，拒绝错误后不能留下部分动作。
 

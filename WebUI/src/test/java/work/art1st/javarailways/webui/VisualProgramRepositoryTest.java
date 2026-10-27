@@ -66,7 +66,7 @@ class VisualProgramRepositoryTest {
             """)));
     }
 
-    @Test void revisionsArchiveAndWorldIsolationSurviveReloadWithoutMutatingBoundValues() throws Exception {
+    @Test void revisionCheckedDeletionSurvivesReloadWithoutMutatingBoundValues() throws Exception {
         VisualProgramRepository repository = repository();
         JsonNode bound = repository.create("world", "turnback", "Turnback", definition());
         JsonNode updated = repository.update("world", "turnback", 1, "New name", definition()).orElseThrow();
@@ -76,13 +76,27 @@ class VisualProgramRepositoryTest {
         assertTrue(repository.list("other").isEmpty());
         assertThrows(VisualProgramRepository.Conflict.class, () -> repository.update("world", "turnback", 1, "Stale", definition()));
         assertThrows(VisualProgramRepository.Conflict.class, () -> repository.create("world", "turnback", "Duplicate", definition()));
-        JsonNode archived = repository.archive("world", "turnback", 2).orElseThrow();
-        assertEquals(3, archived.path("revision").asInt());
-        assertTrue(repository().find("world", "turnback").orElseThrow().path("archived").asBoolean());
+        byte[] beforeStaleDelete = Files.readAllBytes(directory.resolve("world/turnback.json"));
+        assertThrows(VisualProgramRepository.Conflict.class, () -> repository.delete("world", "turnback", 1));
+        assertArrayEquals(beforeStaleDelete, Files.readAllBytes(directory.resolve("world/turnback.json")));
+        assertEquals(2, repository().find("world", "turnback").orElseThrow().path("revision").asInt());
+        assertFalse(repository.delete("other", "turnback", 2));
+        assertTrue(repository.delete("world", "turnback", 2));
+        assertTrue(repository().find("world", "turnback").isEmpty());
+        assertTrue(repository().list("world").isEmpty());
+        assertFalse(Files.exists(directory.resolve("world/turnback.json")));
+        assertFalse(repository.delete("world", "turnback", 2));
         assertFalse(bound.path("archived").asBoolean());
-        assertThrows(VisualProgramRepository.Conflict.class, () -> repository.update("world", "turnback", 3, "No", definition()));
-        assertThrows(VisualProgramRepository.Conflict.class, () -> repository.archive("world", "turnback", 2));
-        assertEquals(3, repository.archive("world", "turnback", 3).orElseThrow().path("revision").asInt());
+        assertEquals(1, bound.path("revision").asInt());
+    }
+
+    @Test void existingArchivedRecordsCanBeDeletedWithoutChangingTheirStorageFormat() throws Exception {
+        VisualProgramRepository repository = repository();
+        var record = (com.fasterxml.jackson.databind.node.ObjectNode) repository.create("world", "old", "Old", definition());
+        record.put("archived", true);
+        Files.write(directory.resolve("world/old.json"), mapper.writeValueAsBytes(record));
+        assertTrue(repository.delete("world", "old", 1));
+        assertTrue(repository().find("world", "old").isEmpty());
     }
 
     @Test void contentIdentityIgnoresObjectOrderButPreservesStepOrderAndValues() throws Exception {
@@ -112,6 +126,8 @@ class VisualProgramRepositoryTest {
         repository.create("world", "turnback", "Initial", definition());
         assertThrows(IllegalArgumentException.class, () -> repository.create("../outside", "x", "Name", definition()));
         assertThrows(IllegalArgumentException.class, () -> repository.create("world", "../outside", "Name", definition()));
+        assertThrows(IllegalArgumentException.class, () -> repository.delete("../outside", "turnback", 1));
+        assertThrows(IllegalArgumentException.class, () -> repository.delete("world", "../outside", 1));
         assertThrows(IllegalArgumentException.class, () -> repository.update("world", "turnback", 1, "", definition()));
         assertThrows(IllegalArgumentException.class, () -> repository.update("world", "turnback", 1, "Invalid", mapper.createArrayNode()));
         assertTrue(repository.update("world", "missing", 1, "Missing", definition()).isEmpty());

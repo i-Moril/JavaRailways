@@ -113,7 +113,7 @@ describe('shared station program bindings',()=>{
     await api.createStationProgram('world/a','turnback','Turnback',definition);
     expect(fetch.mock.calls[0][0]).toBe('/api/v1/worlds/world%2Fa/station-programs');expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({id:'turnback',name:'Turnback',definition});
     await api.saveStationProgram('world/a','program/a','Changed',definition,3);expect(fetch.mock.calls[1][0]).toContain('program%2Fa');expect(JSON.parse(fetch.mock.calls[1][1].body).expectedRevision).toBe(3);
-    await api.archiveStationProgram('world/a','program/a',4);expect(fetch.mock.calls[2][0]).toContain('/archive');expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({expectedRevision:4});
+    await api.deleteStationProgram('world/a','program/a',4);expect(fetch.mock.calls[2][0]).toBe('/api/v1/worlds/world%2Fa/station-programs/program%2Fa');expect(fetch.mock.calls[2][1].method).toBe('DELETE');expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({expectedRevision:4});
     fetch.mockImplementationOnce(async()=>new Response('{"error":"program revision conflict"}',{status:409}));await expect(api.saveStationProgram('world','turnback','Stale',definition,1)).rejects.toThrow('revision conflict');
   });
 });

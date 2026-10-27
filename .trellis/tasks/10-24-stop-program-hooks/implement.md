@@ -16,3 +16,7 @@ All eight batches are implemented and reviewed. Final backend2269/frontend210/mi
 ## Feedback round1
 
 User authorized incremental fixes and deployment on 2026-10-26. First-round behavior/ownership/acceptance is in research/feedback-round-1.md; preserve the remaining feedback for later rounds. Current source baseline aa5cb68d is already deployed; initial dirty files are task deployment evidence and task notes only.
+
+## Feedback round2
+
+User approved program library management round on 2026-10-27. Boundary, ownership and acceptance: research/feedback-round-2.md. Existing snapshots survive real library deletion; task remains unarchived.

@@ -62,15 +62,11 @@ public final class VisualProgramRepository {
         return Optional.of(record.deepCopy());
     }
 
-    public synchronized Optional<JsonNode> archive(String world, String id, long expectedRevision) throws IOException {
+    public synchronized boolean delete(String world, String id, long expectedRevision) throws IOException {
         Optional<JsonNode> previous = find(world, id);
-        if (previous.isEmpty()) return Optional.empty();
+        if (previous.isEmpty()) return false;
         checkRevision(previous.get(), expectedRevision);
-        if (previous.get().path("archived").asBoolean()) return previous;
-        ObjectNode record = previous.get().deepCopy();
-        record.put("archived", true).put("revision", nextRevision(expectedRevision));
-        storage.save(world, id, record);
-        return Optional.of(record.deepCopy());
+        return storage.delete(world, id);
     }
 
     private void validateRecord(JsonNode record, String id) {

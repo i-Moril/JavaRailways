@@ -2,7 +2,7 @@
 
 ## 范围与数据权威
 
-程序库与到站动作使用同一个 Blockly/Zelos 编辑组件。页面仍使用既有 Ant Design、i18n 和 theme；Blockly 只负责积木交互，不拥有服务器执行引擎。铁路语义定义仍为 `StationProgramDefinition`，库版本/归档/绑定快照与内容身份规则不变。
+程序库与到站动作使用同一个 Blockly/Zelos 编辑组件。页面仍使用既有 Ant Design、i18n 和 theme；Blockly 只负责积木交互，不拥有服务器执行引擎。铁路语义定义仍为 `StationProgramDefinition`，库 revision、绑定快照与内容身份规则保持独立；库条目可以真实删除，已绑定快照不随之移除。
 
 正常编辑流程是从定义建立唯一入口和有序连接积木，玩家从工具箱添加动作、连接顺序并在分支内部编辑两臂；参数插槽区分 literal 与声明引用。只在得到完整、合法的语义定义时向所属文档提交变更，经既有 validation、JS生成和服务器编译后执行。绝不使用通用 JavaScript generator 绕过铁路模型。
 

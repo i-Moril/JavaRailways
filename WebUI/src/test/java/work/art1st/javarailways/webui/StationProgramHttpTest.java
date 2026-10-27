@@ -51,13 +51,29 @@ class StationProgramHttpTest {
             ObjectNode update=mapper.createObjectNode().put("expectedRevision",1).put("name","Updated");update.set("definition",mapper.readTree("{\"parameters\":[],\"steps\":[]}"));
             assertEquals(200,send(client,root,base+"/turnback","PUT",update.toString(),cookie).statusCode());
             assertEquals(409,send(client,root,base+"/turnback","PUT",update.toString(),cookie).statusCode());
-            assertEquals(200,send(client,root,base+"/turnback/archive","POST","{\"expectedRevision\":2}",cookie).statusCode());
+            assertEquals(401,send(client,root,base+"/turnback","DELETE","{\"expectedRevision\":2}",null).statusCode());
+            assertEquals(409,send(client,root,base+"/turnback","DELETE","{\"expectedRevision\":1}",cookie).statusCode());
+            assertEquals(400,send(client,root,base+"/turnback","DELETE","{\"expectedRevision\":\"2\"}",cookie).statusCode());
+            assertEquals(400,send(client,root,base+"/turnback","DELETE","{\"expectedRevision\":2,\"extra\":true}",cookie).statusCode());
+            for (String invalid : java.util.List.of("{}", "[]", "{\"expectedRevision\":0}", "{\"expectedRevision\":1.5}")) {
+                assertEquals(400,send(client,root,base+"/turnback","DELETE",invalid,cookie).statusCode());
+            }
+            assertEquals(404,send(client,root,"/api/v1/worlds/other/station-programs/turnback","DELETE","{\"expectedRevision\":2}",cookie).statusCode());
+            assertEquals(200,send(client,root,base+"/turnback","GET",null,cookie).statusCode());
+            var deleted=send(client,root,base+"/turnback","DELETE","{\"expectedRevision\":2}",cookie);
+            assertEquals(200,deleted.statusCode());
+            assertEquals(mapper.readTree("{\"removed\":true}"),mapper.readTree(deleted.body()));
+            assertEquals(404,send(client,root,base+"/turnback","GET",null,cookie).statusCode());
+            assertEquals(404,send(client,root,base+"/turnback","DELETE","{\"expectedRevision\":2}",cookie).statusCode());
+            assertEquals("[]",send(client,root,base,"GET",null,cookie).body());
+            assertFalse(java.nio.file.Files.exists(directory.resolve("station-programs/world/turnback.json")));
             JsonNode loaded=mapper.readTree(send(client,root,documents+"/weekday","GET",null,cookie).body());
             assertEquals(snapshot,loaded.path("boundPrograms").get(0));
             JsonNode second=mapper.readTree(send(client,root,documents+"/weekend","GET",null,cookie).body());
             assertEquals(snapshot,second.path("boundPrograms").get(0));
             assertFalse(loaded.toString().contains("secret"));
-            assertEquals(400,send(client,root,base+"/turnback/archive","POST","{\"expectedRevision\":\"3\"}",cookie).statusCode());
+            assertEquals(204,send(client,root,documents+"/weekday","PUT",document.toString(),cookie).statusCode());
+            assertEquals(404,send(client,root,base+"/turnback/archive","POST","{\"expectedRevision\":2}",cookie).statusCode());
             create.put("id","bad").put("extra",true);
             assertEquals(400,send(client,root,base,"POST",create.toString(),cookie).statusCode());
             snapshot.put("contentIdentity","sha256:wrong");document.withArray("boundPrograms").removeAll().add(snapshot);

@@ -15,12 +15,12 @@
   "branch": "codex/timetable-station-programs",
   "base_branch": "deploy/station-blocks-20261024",
   "worktree_path": null,
-  "commit": "94a3a54d19aa437748c954f504662775dd6da681",
+  "commit": "feb17c02b53e1045fc59c91a4f03fdb70172babf",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Obsolete development compatibility removed and deployed2026-10-27 07:23UTC, source94a3a54d. Backend2265/frontend222/migration8 gates pass. Archived fields, parallel oldarrival execution,deadrows editor and unusedCorealiases removed. Strict currentformat;1live library record converted offline with exacthashaudit/currentJava validation. Recovery merged-review-20261023-1r0ct1_i. Keep in_progress/unarchived pending user testing and remaining UI backlog.",
+  "notes": "Dedicated old-format recognition/messages/tests removed; sourcefeb17c02 deployed2026-10-27 07:52UTC. Only generic current-model validation remains. Front221/WebUI36/focusedSimpleATO5/Bukkit37 gates pass,6live docs accepted,17liveassets matched. No migration/datachange. Recovery merged-review-20261023-q30jogk1. Keep in_progress/unarchived.",
   "meta": {}
 }

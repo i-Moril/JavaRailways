@@ -857,3 +857,34 @@ Corrected same-station and direction-aware waypoint pruning; baseline-verified f
 ### Next Steps
 
 - Player game verification; keep current task in_progress and unarchived.
+
+
+## Session 27: Feedback round3: numeric IDs and formation-unit picker
+<!-- trellis-session: v=2 fp=a80e50d43a0fa0e7 -->
+
+**Date**: 2026-10-27
+**Task**: Feedback round3: numeric IDs and formation-unit picker
+**Package**: webui
+**Branch**: `codex/timetable-station-programs`
+
+### Summary
+
+Implemented feedback8/15; browser and tests pass. Deployment upload blocked by auto-review, awaiting explicit payload/target authorization; live unchanged. Task remains unarchived.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cae124d9` | fix(webui): simplify authoring IDs and formation unit selection |
+
+### Testing
+
+- [OK] Frontend234; WebUI36; production build; browser history, invalid raw repair and restart persistence
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- After explicit approval deploy cae124d9 with backup; retain task for game acceptance

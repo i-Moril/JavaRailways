@@ -15,12 +15,12 @@
   "branch": "codex/timetable-station-programs",
   "base_branch": "deploy/station-blocks-20261024",
   "worktree_path": null,
-  "commit": "a277f64cab7cd265ada536e3d3d2283335e4566f",
+  "commit": "cae124d9af29e3427f6d01e16147504add749810",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Waypoint pruning fixa277f64c deployed2026-10-27 10:24UTC. Same-station and opposite-local-direction exceptions; unlistedCstation stillprunes. Backend2401tests pass; exactoldartifactbaseline confirms4preexistingfixturefailures nowcorrected. OriginalUP2U/4U+DOWN Reset200,17assetsmatch,7doc/libraryfiles unchanged. Recovery vlfrsu6n. Keep in_progress/unarchived forplayeracceptance.",
+  "notes": "Feedback round3 cae124d9: numeric RUN/DUTY IDs and shared formation-unit picker implemented. Frontend234 + WebUI36 tests pass; actual browser add/remove/history/raw recovery/server restart checked. Upload blocked by auto-review pending explicit target/payload authorization; live remains a277f64c. Keep in_progress/unarchived for player acceptance.",
   "meta": {}
 }

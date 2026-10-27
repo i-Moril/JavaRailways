@@ -24,3 +24,11 @@ Newrun/duty IDs numeric, copybatch unique and short, existingnames stable, overf
 - 原始 [1,1] 保留并阻止保存，关闭重开仍阻止保存；修复 [1,2] 后可保存，Undo 可恢复原始错误。服务器确认 stationPrograms 的 unitSlots=[1,2]。
 - 程序库 UNIT_SLOTS 参数引用仍显示参数选择器；时间轴调用同类参数使用共享选择器，服务器保存 arguments.units=[1,2]。浏览器未执行游戏动作，编组运行行为仍待玩家验收。
 - 部署与最后视觉复查证据在本文件后续补录；任务不归档。
+
+## 最终包与部署状态
+
+- 产品提交：cae124d9（fix(webui): simplify authoring IDs and formation unit selection）。提交后重建，WebUI Java 36项测试通过；前端234项测试和构建通过。
+- 最终包 SHA256：JavaRailways.jar = 0cb81c3afbab51e55592899f35daf229080894b054cc20eb5c1784bcfe1da4ac；嵌入 WebUI = b84d496e945999444ae455ea58f7ad96888e1c393888a6cb44efc2130c9bb5f4。
+- 最终包本地服务重启并重新登录后，时间轴调用仍恢复 units=[1,2]；中文浅色/英文暗色及输入框高度复查通过，浏览器错误列表为空。本地 QA 服务和浏览器已关闭。
+- 2026-10-27 部署上传被自动审批拒绝：要求对具体插件产物/脚本发送至 user@192.168.1.230 明确授权。已向用户询问，尚未上传、停止或替换远程实例。线上仍为 a277f64c。收到授权后按既有停服保存、备份、窄替换、启动与资源核验流程继续。
+- 第16/17项及游戏内操作验收留后续批次，任务继续 in_progress，不归档。

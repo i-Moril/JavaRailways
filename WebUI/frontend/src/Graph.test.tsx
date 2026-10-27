@@ -31,12 +31,11 @@ describe('running graph component',()=>{
   });
 
   it('exposes event points as keyboard actions only when event editing is available',()=>{
-    const render=(editable:boolean)=>renderToStaticMarkup(<I18nProvider><ThemeProvider><Graph value={value} graphLineId="airport" events={[{id:'1',stationId:'airport',tick:1500,label:'Turnback'}]} onEventContext={editable?()=>{}:undefined}/></ThemeProvider></I18nProvider>);
+    const render=(editable:boolean)=>renderToStaticMarkup(<I18nProvider><ThemeProvider><Graph value={value} graphLineId="airport" events={[{id:'1',stationId:'airport',tick:1500,label:'Turnback'}]} onEditEvent={editable?()=>{}:undefined} onEventContext={editable?()=>{}:undefined}/></ThemeProvider></I18nProvider>);
     expect(render(true)).toMatch(/data-event-id="1"[^>]*role="button"[^>]*tabindex="0"/);
-    expect(render(true)).toContain('graph-event-hint');
     expect(render(true)).toContain('Turnback');
+    expect(render(true)).toContain('aria-haspopup="menu"');
     expect(render(false)).not.toContain('tabindex="0"');
-    expect(render(false)).not.toContain('graph-event-hint');
     expect(render(false)).toContain('role="img"');
   });
 

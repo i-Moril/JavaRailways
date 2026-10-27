@@ -31,8 +31,10 @@ const zh = {
   "timeline.initialHint":"初始化或重置时放置命名列车的位置，不是时间轴任务。",
 
  'programs.displayHint':'此动作更新运营车次中指定单元的显示数据，不会自动改变列车模型或显示屏。',
- 'events.graphHint':'右键单击运行图可创建独立时间点；单击时间点可编辑。',
  'events.edit':'编辑时间点',
+ 'events.editAction':'编辑',
+ 'events.menu':'时间点操作',
+ 'events.empty':'暂无独立时间点，使用运行图上方的添加按钮创建。',
  'events.changed':'该时间点已发生变化，请重新打开后编辑。',
 
  'duties.optionalTick':'执行时刻（留空则按顺序）',
@@ -676,8 +678,10 @@ const en: Record<TranslationKey, string> = {
   "timeline.initialHint":"Place the named train here during initialization or reset. This is not a scheduled task.",
 
  'programs.displayHint':'Updates display data for selected units in an operational trip; it does not automatically change the train model or display screens.',
- 'events.graphHint':'Right-click the graph to add a time point; click a point to edit.',
  'events.edit':'Edit time point',
+ 'events.editAction':'Edit',
+ 'events.menu':'Time point actions',
+ 'events.empty':'No time points yet. Use the add button above the graph to create one.',
  'events.changed':'This time point changed. Reopen it before editing.',
 
  'duties.optionalTick':'Start tick (empty follows the sequence)',

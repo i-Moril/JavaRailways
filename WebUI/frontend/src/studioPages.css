@@ -68,7 +68,7 @@
 .run-time { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 12px; }
 
 .graph-panel { display: flex; flex-direction: column; }
-.graph-header { height: 66px; flex: 0 0 auto; padding: 9px 14px; border-bottom: 1px solid var(--ant-color-border-secondary); }
+.graph-header { min-height: 66px; flex-wrap: wrap; gap: 12px; flex: 0 0 auto; padding: 9px 14px; border-bottom: 1px solid var(--ant-color-border-secondary); }
 .studio-graph-canvas { flex: 1; min-height: 0; position: relative; overflow: hidden; background-color: var(--ant-color-bg-layout); background-image: radial-gradient(var(--ant-color-border-secondary) 1px,transparent 1px); background-size: 18px 18px; }
 .graph-wrap { width: 100%; height: 100%; min-height: 0; position: relative; overflow: hidden; cursor: grab; touch-action: none; background-color: var(--ant-color-bg-layout); background-image: radial-gradient(var(--ant-color-border-secondary) 1px,transparent 1px); background-size: 18px 18px; }
 .graph-wrap.is-panning { cursor: grabbing; }
@@ -231,11 +231,12 @@
 .trip-boundary, .trip-editor { margin-top: 16px; padding: 16px; background: var(--ant-color-fill-quaternary); border-radius: 8px; }
 .trip-leg { padding: 10px 0; }
 
-.graph-event-hint { margin: 0; padding: 10px 16px; color: var(--ant-color-text-secondary); border-bottom: 1px solid var(--ant-color-border-secondary); }
 .timetable-events-editor { margin-top: 16px; padding: 16px; }
 .timetable-event-row { margin: 12px 0; }
-.timetable-event-row .ant-select { min-width: 160px; }
-.timetable-event-row > .ant-input { flex: 1; min-width: 160px; max-width: 360px; }
+.timetable-event-row .event-station { min-width: 140px; }
+.timetable-event-row .event-label { flex: 1; min-width: 120px; overflow-wrap: anywhere; }
+.graph-header > .ant-space { flex-wrap: wrap; row-gap: 8px; }
+.graph-event-menu-anchor { position: fixed; width: 1px; height: 1px; pointer-events: none; }
 .graph-event-dialog { display: grid; gap: 16px; padding: 8px 0 16px; }
 .graph-event-dialog label { display: grid; gap: 8px; }
 .graph-event-dialog .ant-select { width: 100%; }

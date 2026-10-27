@@ -1,11 +1,11 @@
 import {defaultStationStopProgram} from './stationPlans';
 import {defaultDutyProgramArguments,orderDutyTimeline,projectDutyTimeline,sortDutyTasks} from './dutyTimeline';
 import {TimetableEventsEditor} from './TimetableEventsEditor';
-import {deleteTimetableEvent,nextTimetableEventId,type GraphEventContext} from './timetableEvents';
+import {deleteTimetableEvent,saveTimetableEvent,timetableEventUnchanged,referencedTimetableEventIds,type GraphEventContext} from './timetableEvents';
 import {renameFormationDuty} from './formationAuthoring';
 import {allocateAuthoringIds} from './authoringIds';
 import { useCallback,useEffect,useMemo,useRef,useState,type CSSProperties } from 'react';
-import { Button,Flex,Input,InputNumber,Modal,Popover,Segmented,Select,Space,Tag,Tooltip,Typography } from 'antd';
+import { Button,Dropdown,Flex,Input,InputNumber,Modal,Popover,Segmented,Select,Space,Tag,Tooltip,Typography } from 'antd';
 import { DeleteOutlined,EditOutlined,LeftOutlined,PlusOutlined,RightOutlined,SettingOutlined } from '@ant-design/icons';
 import {resolveArrivalSourceTarget,resolveProgramSourceTarget,type ProgramSourceTarget} from './programNavigation';
 import { adoptStationProgram } from './stationPrograms';
@@ -65,7 +65,8 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   const [previewRun,setPreviewRun]=useState<AuthoringRunV1>();
   const [moveOpen,setMoveOpen]=useState(false);
   const [selectedPoint,setSelectedPoint]=useState<{runId:string;callId:string;kind:'ARRIVAL'|'DEPARTURE';stepIndex:number;routeSignature:string;anchor:{x:number;y:number}}>();
-  const [eventDraft,setEventDraft]=useState<{scope:string;context:GraphEventContext;original?:TimetableEventPoint;stationId:string;tick:number;label:string;valid:boolean}>();
+  const [eventDraft,setEventDraft]=useState<{scope:string;original?:TimetableEventPoint;stationId:string;tick:number;label:string;valid:boolean}>();
+  const [eventMenu,setEventMenu]=useState<GraphEventContext&{scope:string}>();
   const [moveSource,setMoveSource]=useState('');
   const [copyOpen,setCopyOpen]=useState(false);
   const [moveInvalid,setMoveInvalid]=useState(false);
@@ -446,24 +447,32 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     }catch(error){onError(error instanceof Error?error.message:String(error));}
   };
   const fieldScope=`${ownerIdentity.current}/${ownerEpoch.current}/${documentId}/${value.id}`;
-  useEffect(()=>setEventDraft(undefined),[fieldScope,graphLineId,page]);
-  const openGraphEvent=(context:GraphEventContext)=>{
-    const original=context.eventId?(value.events??[]).find((event)=>event.id===context.eventId):undefined;
-    if(context.eventId&&!original)return;
-    setSelectedPoint(undefined);
-    setEventDraft({scope:fieldScope,context,original,stationId:original?.stationId??context.stationId,tick:original?.tick??context.tick,label:original?.label??'',valid:true});
+  const eventScope=JSON.stringify([fieldScope,graphLineId,page]);
+  const eventStationIds=[...new Set(lines.flatMap((line)=>[...line.upStationIds,...line.downStationIds]))];
+  const currentGraphLine=lines.find((line)=>line.id===graphLineId);
+  const newEventStationId=currentGraphLine?.upStationIds[0]??currentGraphLine?.downStationIds[0];
+  useEffect(()=>{setEventDraft(undefined);setEventMenu(undefined);},[eventScope]);
+  const openGraphEvent=(original?:TimetableEventPoint)=>{
+    if(original&&!timetableEventUnchanged(value.events??[],original)){onError(t('events.changed'));return;}
+    if(!original&&!newEventStationId)return;
+    setSelectedPoint(undefined);setEventMenu(undefined);
+    setEventDraft({scope:eventScope,original:original?{...original}:undefined,stationId:original?.stationId??newEventStationId!,tick:original?.tick??0,label:original?.label??'',valid:true});
+  };
+  const deleteEvent=(original:TimetableEventPoint)=>{
+    try{const events=deleteTimetableEvent(value.events??[],original);setValue((current)=>({...current,events}));setEventDraft(undefined);setEventMenu(undefined);}
+    catch{onError(t('events.changed'));}
   };
   const applyGraphEvent=()=>{
-    if(eventDraft?.scope!==fieldScope||!eventDraft?.valid||!eventDraft.stationId||!Number.isSafeInteger(eventDraft.tick)||eventDraft.tick<0||eventDraft.tick>=value.periodDays*24000)return;
+    if(eventDraft?.scope!==eventScope||!eventDraft?.valid)return;
     const draft=eventDraft;
-    if(draft.original&&JSON.stringify((value.events??[]).find((event)=>event.id===draft.original!.id))!==JSON.stringify(draft.original)){onError(t('events.changed'));return;}
-    setValue((current)=>{
-      const events=current.events??[];
-      const event:TimetableEventPoint={id:draft.original?.id??nextTimetableEventId(events),stationId:draft.stationId,tick:draft.tick,...(draft.label.trim()?{label:draft.label.trim()}:{})};
-      return {...current,events:draft.original?events.map((item)=>item.id===event.id?event:item):[...events,event]};
-    });
-    setEventDraft(undefined);
+    try{
+      const event:TimetableEventPoint={id:draft.original?.id??'',stationId:draft.stationId,tick:draft.tick,...(draft.label.trim()?{label:draft.label.trim()}:{})};
+      const events=saveTimetableEvent(value.events??[],event,value.periodDays*24000,eventStationIds,draft.original,referencedTimetableEventIds(value));
+      setValue((current)=>({...current,events}));setEventDraft(undefined);
+    }catch{onError(t(draft.original&&!timetableEventUnchanged(value.events??[],draft.original)?'events.changed':'ui.invalidNumber'));}
   };
+  const visibleEventMenu=eventMenu?.scope===eventScope&&timetableEventUnchanged(value.events??[],eventMenu.event)?eventMenu:undefined;
+  const eventDraftValid=!!eventDraft&&eventDraft.scope===eventScope&&eventDraft.valid&&eventStationIds.includes(eventDraft.stationId)&&Number.isSafeInteger(eventDraft.tick)&&eventDraft.tick>=0&&eventDraft.tick<value.periodDays*24000&&(!eventDraft.original||timetableEventUnchanged(value.events??[],eventDraft.original));
 
   const runTools=<section className="option-section"><Typography.Title level={5}>{t('ui.resetSetup')}</Typography.Title><div className="function-fields">
     <label>{t('duties.originDepartureMode')}<Select value={selectedRunValue?.originDepartureMode??'AUTO'} options={(['AUTO','CONTINUE','REVERSE'] as const).map((mode)=>({value:mode,label:t(`duties.originDeparture.${mode}`)}))} onChange={(originDepartureMode)=>selectedRunValue&&replaceRun({...selectedRunValue,originDepartureMode})}/><Typography.Text type="secondary">{t('duties.originDepartureHelp')}</Typography.Text></label>
@@ -494,15 +503,21 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
       onLineChange={(lineId)=>{setGraphLineId(lineId);const first=value.runs.find((run)=>run.diagramLineId===lineId&&run.lineDirection===runDirection);setSelectedRun(first?.id??'');}}
       onDirectionChange={(direction)=>{setRunDirection(direction);const first=value.runs.find((run)=>run.diagramLineId===graphLineId&&run.lineDirection===direction);setSelectedRun(first?.id??'');}}
       onSearchChange={setRunSearch} onSelectRun={(id)=>{setSelectedRun(id);setFocusedCall('');}} onAddRun={addRun} assignmentFor={(runId)=>assigned.get(runId)}
-      graph={<Graph onEventContext={openGraphEvent} events={value.events} value={graphValue} metadata={metadata} line={lines.find((line)=>line.id===graphLineId)} graphLineId={graphLineId||undefined}
-        highlightedServiceIds={highlightedRunIds} previewServiceIds={previewRunIds} onSelectPoint={selectPoint} onDismissPoint={()=>{if(!moveOpen)setSelectedPoint(undefined);}}/>}
+      graph={<Graph onEditEvent={openGraphEvent} onEventContext={(context)=>{setEventDraft(undefined);setSelectedPoint(undefined);setEventMenu({...context,scope:eventScope});}} events={value.events} value={graphValue} metadata={metadata} line={lines.find((line)=>line.id===graphLineId)} graphLineId={graphLineId||undefined}
+        highlightedServiceIds={highlightedRunIds} previewServiceIds={previewRunIds} onSelectPoint={selectPoint} onDismissPoint={()=>{if(!moveOpen)setSelectedPoint(undefined);setEventMenu(undefined);}}/>}
       inspector={!selectedRunValue?<p className="empty inspector-empty">{t('duties.selectRun')}</p>:<RunRouteEditor events={value.events} stationPrograms={value.stationPrograms} onStationProgramChange={(program)=>setValue((current)=>({...current,stationPrograms:[...(current.stationPrograms??[]).filter((item)=>item.stationId!==program.stationId),program]}))} programDraftScope={programDraftScope} onArrivalValidityChange={onArrivalValidityChange} focusedArrivalStep={focusedArrivalStep} onUndo={documentHistory.undo} onRedo={documentHistory.redo} onRename={renameRun} fieldScope={fieldScope} focusedCallId={focusedCall} tools={runTools} issues={generated.issues.filter((issue)=>issue.path.startsWith(`runs[${value.runs.findIndex((run)=>run.id===selectedRunValue.id)}]`))} run={selectedRunValue} lines={lines} metadata={metadata} busy={busy} onError={onError} onChange={replaceRun} onDelete={deleteSelectedRun}/>}
-      graphActions={<Popover trigger="click" placement="bottomRight" title={t('common.documentSettings')} content={documentSettings}><Button type="text" icon={<SettingOutlined/>}/></Popover>}
-      graphPreviewActive={Boolean(previewRun)} saved={JSON.stringify(value)===savedDocumentJson.current}/><TimetableEventsEditor events={value.events??[]} onChange={(events)=>setValue((current)=>({...current,events}))} stationIds={[...new Set(lines.flatMap((line)=>[...line.upStationIds,...line.downStationIds]))]} scope={`${fieldScope}/events`}/></>}
+      graphActions={<><Button icon={<PlusOutlined/>} disabled={!newEventStationId} onClick={()=>openGraphEvent()}>{t('events.add')}</Button><Popover trigger="click" placement="bottomRight" title={t('common.documentSettings')} content={documentSettings}><Button type="text" icon={<SettingOutlined/>}/></Popover></>}
+      graphPreviewActive={Boolean(previewRun)} saved={JSON.stringify(value)===savedDocumentJson.current}/><TimetableEventsEditor events={value.events??[]} onEdit={openGraphEvent} stationNames={stationNames}/></>}
 
-    <Modal title={t(eventDraft?.original?'events.edit':'events.add')} open={Boolean(eventDraft)} onCancel={()=>setEventDraft(undefined)} onOk={applyGraphEvent} okText={t('common.save')} okButtonProps={{disabled:!eventDraft?.valid||!eventDraft.stationId}} destroyOnHidden footer={(_, {OkBtn,CancelBtn})=><Flex justify="space-between"><span>{eventDraft?.original&&<Button danger icon={<DeleteOutlined/>} onClick={()=>{if(eventDraft.scope!==fieldScope)return;try{const events=deleteTimetableEvent(value.events??[],eventDraft.original!);setValue((current)=>({...current,events}));setEventDraft(undefined);}catch{onError(t('events.changed'));}}}>{t('common.delete')}</Button>}</span><Space><CancelBtn/><OkBtn/></Space></Flex>}>
+    {visibleEventMenu&&<Dropdown open autoFocus trigger={['click']} placement="bottomLeft" onOpenChange={(open)=>{if(!open)setEventMenu(undefined);}} menu={{'aria-label':t('events.menu'),items:[{key:'edit',label:t('events.edit'),icon:<EditOutlined/>},{key:'delete',label:t('common.delete'),icon:<DeleteOutlined/>,danger:true}],onClick:({key})=>{
+      if(eventMenu?.scope!==eventScope)return;
+      if(!timetableEventUnchanged(value.events??[],eventMenu.event)){onError(t('events.changed'));setEventMenu(undefined);return;}
+      if(key==='edit')openGraphEvent(eventMenu.event);else if(key==='delete')deleteEvent(eventMenu.event);
+    }}}><span className="graph-event-menu-anchor" style={{left:visibleEventMenu.anchor.x,top:visibleEventMenu.anchor.y}}/></Dropdown>}
+
+    <Modal title={t(eventDraft?.original?'events.edit':'events.add')} open={Boolean(eventDraft&&eventDraft.scope===eventScope)} onCancel={()=>setEventDraft(undefined)} onOk={applyGraphEvent} okText={t('common.save')} okButtonProps={{disabled:!eventDraftValid}} destroyOnHidden footer={(_, {OkBtn,CancelBtn})=><Flex justify="space-between"><span>{eventDraft?.original&&<Button danger icon={<DeleteOutlined/>} disabled={eventDraft.scope!==eventScope||!timetableEventUnchanged(value.events??[],eventDraft.original)} onClick={()=>{if(eventDraft.scope===eventScope&&eventDraft.original)deleteEvent(eventDraft.original);}}>{t('common.delete')}</Button>}</span><Space><CancelBtn/><OkBtn/></Space></Flex>}>
       {eventDraft&&<div className="graph-event-dialog">
-        <label>{t('editor.station')}<Select aria-label={t('editor.station')} value={eventDraft.stationId} options={[...new Set(lines.flatMap((line)=>[...line.upStationIds,...line.downStationIds]))].map((id)=>({value:id,label:stationNames.get(id)||id}))} onChange={(stationId)=>setEventDraft((current)=>current?{...current,stationId}:current)}/></label>
+        <label>{t('editor.station')}<Select aria-label={t('editor.station')} value={eventDraft.stationId} options={eventStationIds.map((id)=>({value:id,label:stationNames.get(id)||id}))} onChange={(stationId)=>setEventDraft((current)=>current?{...current,stationId}:current)}/></label>
         <label>{t('duties.executeTick')}<CommittedNumberInput aria-label={t('duties.executeTick')} fieldKey={`${fieldScope}/graph-event/${eventDraft.original?.id??'new'}`} min={0} max={value.periodDays*24000-1} precision={0} allowEmpty={false} value={eventDraft.tick} onValidityChange={(valid)=>setEventDraft((current)=>current?{...current,valid}:current)} onCommit={(tick)=>setEventDraft((current)=>current&&tick!=null?{...current,tick}:current)}/></label>
         <label>{t('events.label')}<Input aria-label={t('events.label')} value={eventDraft.label} onChange={(event)=>setEventDraft((current)=>current?{...current,label:event.target.value}:current)}/></label>
       </div>}

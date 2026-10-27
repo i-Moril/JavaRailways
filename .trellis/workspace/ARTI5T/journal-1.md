@@ -934,3 +934,26 @@ Fixed feedback12/13 with explicit time-point creation, shared dialog and real ob
 ### Status
 
 [OK] **Completed**
+
+
+## Session 30: Unify graph and duty timed operations
+<!-- trellis-session: v=2 fp=45ec2d5b2bcc00d2 -->
+
+**Date**: 2026-10-27
+**Task**: Unify graph and duty timed operations
+**Package**: webui
+**Branch**: `codex/timetable-station-programs`
+
+### Summary
+
+Unified model/shared fields, graph reference and duty projection ownership, generation/hash/navigation/persistence. Frontend250/WebUI40/migration9 tests pass; actual browser checks and restart recovery pass. Deployment upload blocked by automatic review; requested explicit payload/target authorization; live unchanged.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a824bc2e` | feat(webui): unify graph and duty timed operations |
+
+### Status
+
+[OK] **Completed**

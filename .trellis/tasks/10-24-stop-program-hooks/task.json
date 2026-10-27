@@ -15,12 +15,12 @@
   "branch": "codex/timetable-station-programs",
   "base_branch": "deploy/station-blocks-20261024",
   "worktree_path": null,
-  "commit": "ceea884e",
+  "commit": "a824bc2e",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Round4 event creation/object actions deployed2026-10-27 13:22UTC. Frontend236/WebUI36 tests; realbrowser create/cancel/range/Undo/menu/keyboard/delete-reference/restart checked. Recoveryekuh0eth;136datafiles and otherplugins unchanged. Public/local17assets match,bridge healthy,ATO RUNNING13:22:25. Keep in_progress/unarchived pending player acceptance. Feedback16/17 remain.",
+  "notes": "Unified timed operations implemented a824bc2e: sharedfields/model, graphowned references/dutyowned readonly projections, runtime task identities/hash/navigation/persistence and offline migration. Frontend250/WebUI40/migration9 pass; actual browser ownership/history/invalid/cancel/stationless/unknown/restart checked. Upload blocked by auto-review pending explicit payload/target approval; live remainsceea884e. Keep in_progress/unarchived.",
   "meta": {}
 }

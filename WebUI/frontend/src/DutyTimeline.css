@@ -20,7 +20,7 @@
 .duty-timeline-resize { position:absolute; top:14px; width:8px; height:44px; background:var(--ant-color-primary); border:0; border-radius:3px; cursor:ew-resize; touch-action:none; z-index:3; }
 .duty-timeline-inspector { padding:16px; border:1px solid var(--ant-color-border); border-radius:8px; margin-top:16px; }
 .duty-timeline-inspector h5 { margin:0; }
-.duty-timeline-inspector .function-fields { margin-top:16px; }
+.duty-timeline-inspector .function-fields { margin-top:16px; align-items:start; }
 .duty-timeline-source { margin-top:16px; }
 .duty-initial-position { display:flex; flex-direction:column; gap:8px; max-width:480px; margin-top:16px; }
 .duty-advanced { margin-top:20px; }
@@ -29,3 +29,6 @@
 .duty-detail > .duty-timeline { margin:24px 18px 18px; }
 .duty-detail > .duty-initial-position { margin:16px 18px 0; }
 .duty-detail > .duty-advanced { margin:20px 18px 18px; }
+
+.duty-program-argument { display:grid; gap:6px; min-width:0; }
+.duty-program-argument > span { color:var(--ant-color-text-secondary); font-size:12px; }

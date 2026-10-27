@@ -142,3 +142,7 @@ CURRENT：`authoringResume.ts` 保存 owner/world 隔离的最后文档 ID；内
 生成器为起点发出无显式时刻的 beginStationStop，避免把“准备提前量”插入已前进的计划游标；准备开始由执行器调度。目的地携带具体 role、stationProgram、plannedContext 和 departureTick；条件在 worker 按可静态确定的上下文选分支。缺省与自定义共享程序都必须通过所有当前步骤验证后生成；不保留旧格式专项判断、生成门禁或迁移提示。
 
 `arrivalAuthoring.test`、`dutyTimeline.test`、`DutyTimeline.test` 与 `programBlocks.test` 覆盖共享停站、终点时间、任务区间、模拟未知及草稿映射；Java SharedStationProgramValidatorTest 和 EditorDocumentRestartTest 检查持久边界。浏览器另验时间轴拖动/调整长度、右键移除、程序库导航、保存重开；真实执行计时另由 isolated simulation/dispatcher 测试证明。
+
+## 可见运行线与交路编号
+
+新运行线、复制运行线和新交路在既有ID字段使用递增数字字符串。各自命名空间独立；按当前文档同类数字ID最大值加1分配，批量复制先分配整批且一次写入history，不舍入大整数。已保存的自定义ID保持原值，内部call/element/program身份不改；不引入持久计数器或迁移。分配需保留当前模型中的已引用ID，包括悬空的交路RUN、到达覆盖、运营车次分段和编组参与/输出引用，避免新建意外改变引用含义。

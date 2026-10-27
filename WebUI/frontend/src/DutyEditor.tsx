@@ -3,6 +3,7 @@ import {defaultDutyProgramArguments,orderDutyTimeline,projectDutyTimeline,sortDu
 import {TimetableEventsEditor} from './TimetableEventsEditor';
 import {deleteTimetableEvent,nextTimetableEventId,type GraphEventContext} from './timetableEvents';
 import {renameFormationDuty} from './formationAuthoring';
+import {allocateAuthoringIds} from './authoringIds';
 import { useCallback,useEffect,useMemo,useRef,useState,type CSSProperties } from 'react';
 import { Button,Flex,Input,InputNumber,Modal,Popover,Segmented,Select,Space,Tag,Tooltip,Typography } from 'antd';
 import { DeleteOutlined,EditOutlined,LeftOutlined,PlusOutlined,RightOutlined,SettingOutlined } from '@ant-design/icons';
@@ -337,7 +338,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   };
   const addCopiedRuns=(copies:AuthoringRunV1[])=>{if(!copies.length)return;setValue((current)=>({...current,runs:[...current.runs,...copies]}));setSelectedRun(copies.at(-1)!.id);};
   const patchDuty=(id:string,patch:Partial<AuthoringDutyV1>)=>setValue((current)=>({...current,operationalTrips:current.operationalTrips?.map((trip)=>({...trip,segments:trip.segments.filter((s)=>!patch.elements||s.serviceId!==id||patch.elements.some((e)=>e.type==='RUN'&&e.runId===s.runId)).map((s)=>patch.id&&s.serviceId===id?{...s,serviceId:patch.id}:s)})),formationEvents:patch.id&&patch.id!==id?renameFormationDuty(current.formationEvents,id,patch.id):current.formationEvents,duties:current.duties.map((duty)=>duty.id===id?{...duty,...patch}:duty)}));
-  const addRun=()=>{const id=uid('run');const selectedLine=lines.find((line)=>line.id===graphLineId);if(!selectedLine){onError(t('ui.noLine'));return;}const run:AuthoringRunV1=selectedLine?createRunFromLine(id,selectedLine,runDirection,metadata,()=>uid('call')):{id,type:'PASSENGER',diagramLineId:null,lineDirection:runDirection,calls:[]};setValue((current)=>({...current,runs:[...current.runs,run],diagramLines:selectedLine?[...current.diagramLines.filter((line)=>line.id!==selectedLine.id),{id:selectedLine.id,upStationIds:selectedLine.upStationIds,downStationIds:selectedLine.downStationIds}]:current.diagramLines}));setSelectedRun(id);};
+  const addRun=()=>{const [id]=allocateAuthoringIds(value,'RUN');const selectedLine=lines.find((line)=>line.id===graphLineId);if(!selectedLine){onError(t('ui.noLine'));return;}const run:AuthoringRunV1=selectedLine?createRunFromLine(id,selectedLine,runDirection,metadata,()=>uid('call')):{id,type:'PASSENGER',diagramLineId:null,lineDirection:runDirection,calls:[]};setValue((current)=>({...current,runs:[...current.runs,run],diagramLines:selectedLine?[...current.diagramLines.filter((line)=>line.id!==selectedLine.id),{id:selectedLine.id,upStationIds:selectedLine.upStationIds,downStationIds:selectedLine.downStationIds}]:current.diagramLines}));setSelectedRun(id);};
   const openMove=()=>{
     if(!selectedPoint||pointTick==null){onError(t('move.noTimedCall'));return;}
     setMoveSource(generated.documentHashInput);setMoveMode('OFFSET');setMoveValue(0);setMoveInvalid(false);setMoveOpen(true);
@@ -345,7 +346,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   const closeMove=()=>{setMoveOpen(false);setPreviewRun(undefined);};
   const applyMove=()=>{if(!moveCalculation.preview||moveInvalid)return;setValue(moveCalculation.preview.document);closeMove();};
   const deleteSelectedRun=()=>{if(!selectedRun||!window.confirm(t('duties.confirmDeleteRun')))return;const next=value.runs.find((run)=>run.id!==selectedRun&&run.diagramLineId===graphLineId&&run.lineDirection===runDirection)?.id||'';setValue((current)=>deleteRunFromDocument(current,selectedRun));setSelectedRun(next);};
-  const addDuty=()=>{const id=uid('duty');setValue({...value,duties:[...value.duties,{id,selector:{type:'TRAIN_NAME',name:''},elements:[]}]});setSelectedDuty(id);};
+  const addDuty=()=>{const [id]=allocateAuthoringIds(value,'DUTY');setValue({...value,duties:[...value.duties,{id,selector:{type:'TRAIN_NAME',name:''},elements:[]}]});setSelectedDuty(id);};
   const assignRun=(runId:string)=>{if(!selectedDutyValue)return;setValue((current)=>{const next=moveRunToDuty(current,runId,selectedDutyValue.id,uid('element'));return {...next,duties:next.duties.map((duty)=>duty.id===selectedDutyValue.id?{...duty,elements:sortDutyTasks(next,duty)}:duty)};});};
   const removeElement=(elementId:string)=>{if(selectedDutyValue)patchDuty(selectedDutyValue.id,{elements:selectedDutyValue.elements.filter((item)=>item.id!==elementId)});};
   const addProgram=(programId:string)=>{
@@ -439,7 +440,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   });
   const copyRuns=()=>{
     if(!selectedRunValue||copyInvalid||editorDraftInvalid||arrivalDraftsInvalid)return;
-    try{if(!Number.isSafeInteger(copyCount)||copyCount<1||copyCount>100||!Number.isSafeInteger(copyOffset))throw new Error(t('ui.invalidNumber'));const copies=Array.from({length:copyCount},(_,index)=>copyRunShifted(selectedRunValue,uid('run'),copyOffset*(index+1),()=>uid('call')));
+    try{if(!Number.isSafeInteger(copyCount)||copyCount<1||copyCount>100||!Number.isSafeInteger(copyOffset))throw new Error(t('ui.invalidNumber'));const copies=allocateAuthoringIds(value,'RUN',copyCount).map((id,index)=>copyRunShifted(selectedRunValue,id,copyOffset*(index+1),()=>uid('call')));
       if(copies.some((run)=>run.calls.some((call)=>[call.arrivalTick,call.departureTick].some((tick)=>tick!=null&&(tick<0||tick>=value.periodDays*24000)))))throw new Error(t('duties.outsidePeriod'));
       addCopiedRuns(copies);setCopyOpen(false);
     }catch(error){onError(error instanceof Error?error.message:String(error));}

@@ -39,3 +39,9 @@
 The deployed WebUI is accessible over HTTP. Step IDs use `crypto.getRandomValues`, which works in this environment; do not require secure-context-only `crypto.randomUUID` during toolbox initialization. Test without `randomUUID` and verify both library and arrival editor initialization on an HTTP origin. A localhost-only browser check does not cover this deployment condition.
 
 Each canvas must set Blockly's full locale before `inject`, including the duty canvas. The duty page can be the first Blockly page after reload; initializing messages only in ProgramBlockEditor makes the sibling duty inject fail in accessibility-label construction (`undefined.replace`) and blanks the app. Browser acceptance must open Duties directly after a fresh document load, without first visiting any station/library editor, and restore a disconnected duty draft.
+
+## 编组单元输入
+
+UNIT_SLOTS 常量在积木侧栏和调用参数中复用 UnitSlotsInput，协议仍为 number[]／Blockly VALUE JSON。以当前实际运行车头起从1编号的完整编组单元选择，单元可能包含多节车厢，换向后重新按运行车头编号；不得暗示编号是车厢号或伪造实际编组清单。接受1至Int32上限的互异整数，非空且最多128项。候选编号仅在添加或回车后提交一次既有历史，切换字段/积木/世界丢弃候选；重复和非法候选禁用添加。无效积木原始JSON必须保留、可修复且继续阻止保存，参数引用不转换成常量。
+
+Blockly焦点转到侧栏控件产生的空选择，不应卸载正在编辑的侧栏；新积木选择和权威外部加载仍更新选择。多控件参数行使用div与显式文字，不用单个label包裹多个输入。输入框回车/Esc不冒泡至弹窗。

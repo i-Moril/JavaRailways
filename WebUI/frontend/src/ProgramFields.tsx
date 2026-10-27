@@ -1,3 +1,4 @@
+import {UnitSlotsInput} from './UnitSlotsInput';
 import {ProgramJsonInput} from './ProgramJsonInput';
 import { Input,Select } from 'antd';
 import { CommittedNumberInput } from './CommittedNumberInput';
@@ -7,7 +8,7 @@ export const programParameterTypes:StationProgramParameterType[]=['TICK','DURATI
 export function ProgramLiteralInput({type,value,onChange,fieldKey,onValidityChange}:{type:StationProgramParameterType;value:StationProgramLiteral|undefined;onChange:(value:StationProgramLiteral)=>void;fieldKey:string;onValidityChange?:(valid:boolean)=>void}){
   if(type==='JSON_OBJECT')return <ProgramJsonInput key={fieldKey} fieldKey={fieldKey} value={value&&typeof value==='object'&&!Array.isArray(value)?value:undefined} onChange={onChange} onValidityChange={onValidityChange}/>;
   if(type==='TICK'||type==='DURATION')return <CommittedNumberInput aria-label={type} fieldKey={fieldKey} value={typeof value==='number'?value:null} allowEmpty={false} min={0} precision={0} onCommit={(next)=>onChange(next??0)}/>;
-  if(type==='UNIT_SLOTS')return <Select aria-label={type} mode="tags" value={Array.isArray(value)?value.map(String):[]} onChange={(values)=>onChange(values.map(Number))} style={{minWidth:170}}/>;
+  if(type==='UNIT_SLOTS')return <UnitSlotsInput fieldKey={fieldKey} value={value} onChange={onChange} onValidityChange={onValidityChange}/>;
   if(type==='ID_LIST')return <Select aria-label={type} mode="tags" value={Array.isArray(value)?value:[]} onChange={onChange} style={{minWidth:170}}/>;
   return <Input aria-label={type} value={typeof value==='string'?value:''} onChange={(event)=>onChange(event.target.value)}/>;
 }

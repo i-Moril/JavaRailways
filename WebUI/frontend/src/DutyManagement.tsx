@@ -7,7 +7,7 @@ import {findProgramStep} from './stationPrograms';
 import {FormationEventsEditor} from './FormationEventsEditor';
 import {formationOutputs,type AuthoringFormationEvent} from './formationAuthoring';
 import { useCallback,useEffect,useRef,useState } from 'react';
-import { Button,Flex,Input,Select,Space,Tag,Typography } from 'antd';
+import { Button,Flex,Input,Select,Space,Typography } from 'antd';
 import { DeleteOutlined,PlusOutlined } from '@ant-design/icons';
 import type { AuthoringDutyV1,AuthoringFunctionCallV1,AuthoringRunV1,TimetableAuthoringDocumentV1 } from './authoring';
 import type {ProgramSourceTarget} from './programNavigation';
@@ -57,11 +57,11 @@ export function DutyManagement(p:DutyManagementProps) {
   const selectorOptions=[{value:'TRAIN_NAME',label:t('ui.namedTrain')},{value:'TAKE_FROM_DEPOT',label:t('actions.TAKE_FROM_DEPOT')},{value:'TAKE_FROM_WAYPOINT',label:t('actions.TAKE_FROM_WAYPOINT')},{value:'TAKE_FROM_FORMATION_OUTPUT',label:t('formation.take')}];
   const functionLabel=(type:AuthoringFunctionCallV1['type'])=>type==='PLACE_INITIAL'?t('ui.placeInitial'):t(`actions.${type}`);
   const programSnapshots:BoundStationProgram[]=[...(p.boundPrograms??[])];
-  for(const record of p.programLibrary??[])if(!record.archived&&!programSnapshots.some((item)=>item.programId===record.id))programSnapshots.push({programId:record.id,revision:record.revision,contentIdentity:record.contentIdentity,definition:record.definition});
+  for(const record of p.programLibrary??[])if(!programSnapshots.some((item)=>item.programId===record.id))programSnapshots.push({programId:record.id,revision:record.revision,contentIdentity:record.contentIdentity,definition:record.definition});
   const templates:DutyBlockTemplate[]=[
     ...p.runs.filter((run)=>!p.duties.some((item)=>item.elements.some((element)=>element.type==='RUN'&&element.runId===run.id))).map((run)=>({label:run.id,element:{id:'',type:'RUN' as const,runId:run.id}})),
     {label:t('duties.inlineProgram'),element:{id:'',type:'INLINE',definition:{parameters:[],steps:[]}}},
-    ...programSnapshots.filter((snapshot)=>!p.programLibrary?.find((record)=>record.id===snapshot.programId)?.archived&&snapshot.definition.steps.length>0).map((snapshot)=>({label:p.programLibrary?.find((record)=>record.id===snapshot.programId)?.name??snapshot.programId,programSnapshot:snapshot,element:{id:'',type:'PROGRAM' as const,call:{id:'',programId:snapshot.programId,tick:0,arguments:defaultDutyProgramArguments(snapshot.definition.parameters)}}})),
+    ...programSnapshots.filter((snapshot)=>snapshot.definition.steps.length>0).map((snapshot)=>({label:p.programLibrary?.find((record)=>record.id===snapshot.programId)?.name??snapshot.programId,programSnapshot:snapshot,element:{id:'',type:'PROGRAM' as const,call:{id:'',programId:snapshot.programId,tick:0,arguments:defaultDutyProgramArguments(snapshot.definition.parameters)}}})),
     ...(['PLACE_INITIAL','REVERSE','WAIT','STORE_AT_DEPOT'] as const).map((type)=>({label:functionLabel(type),element:{id:'',type:'FUNCTION' as const,call:type==='PLACE_INITIAL'?{id:'',type,trainName:selector?.type==='TRAIN_NAME'?selector.name:'',wayPointId:''}:type==='WAIT'?{id:'',type,tick:0,durationTicks:200}:type==='STORE_AT_DEPOT'?{id:'',type,tick:0,depotId:'',stablingPointIds:[]}:{id:'',type,tick:0}}})),
   ];
   const changeCanvas=(elements:NonNullable<typeof duty>['elements'],snapshots:BoundStationProgram[])=>{
@@ -85,7 +85,7 @@ export function DutyManagement(p:DutyManagementProps) {
       </div>
       <Space style={{margin:'12px 0'}}><Button disabled={p.programLoading} loading={p.programLoading} onClick={p.onRefreshPrograms}>{t('programs.refresh')}</Button></Space>
       {p.programError&&<Typography.Paragraph type="danger" role="alert">{p.programError}</Typography.Paragraph>}
-      {!!p.boundPrograms?.length&&<section><Typography.Title level={5}>{t('programs.bound')}</Typography.Title><Typography.Paragraph type="secondary">{t('programs.snapshotHint')}</Typography.Paragraph>{p.boundPrograms.map((snapshot)=>{const latest=p.programLibrary?.find((record)=>record.id===snapshot.programId);return <Flex wrap gap={8} key={snapshot.programId}><Typography.Text>{snapshot.programId} · r{snapshot.revision}</Typography.Text>{latest?.archived?<Tag>{t('programs.archived')}</Tag>:latest&&latest.revision!==snapshot.revision?<Button onClick={()=>p.onAdoptProgram?.(snapshot.programId)}>{t('programs.adopt')} r{latest.revision}</Button>:null}</Flex>;})}</section>}
+      {!!p.boundPrograms?.length&&<section><Typography.Title level={5}>{t('programs.bound')}</Typography.Title><Typography.Paragraph type="secondary">{t('programs.snapshotHint')}</Typography.Paragraph>{p.boundPrograms.map((snapshot)=>{const latest=p.programLibrary?.find((record)=>record.id===snapshot.programId);return <Flex wrap gap={8} key={snapshot.programId}><Typography.Text>{snapshot.programId} · r{snapshot.revision}</Typography.Text>{latest&&latest.revision!==snapshot.revision?<Button onClick={()=>p.onAdoptProgram?.(snapshot.programId)}>{t('programs.adopt')} r{latest.revision}</Button>:null}</Flex>;})}</section>}
       {p.document&&p.onDocumentChange&&duty.elements.flatMap((element,i)=>{
         const next=duty.elements[i+1];if(element.type!=='RUN'||next?.type!=='RUN')return [];
         const from=p.runs.find((r)=>r.id===element.runId),to=p.runs.find((r)=>r.id===next.runId);

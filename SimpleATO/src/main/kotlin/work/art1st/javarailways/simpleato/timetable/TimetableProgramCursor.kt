@@ -1,7 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
 /** A branch choice is part of a step identity, never flattened into the top-level index. */
-enum class TimetableBranchArm { THEN, ELSE, ARRIVAL }
+enum class TimetableBranchArm { THEN, ELSE }
 
 data class TimetableBranchEntry(val arm: TimetableBranchArm, val index: Int) {
     init { require(index >= 0) }
@@ -25,7 +25,7 @@ class TimetableStepAddress(val topLevelIndex: Int, branchPath: Collection<Timeta
 internal interface TimetableProgramTraversal {
     val rootSize: Int
     fun stepAt(address: TimetableStepAddress): TimetableStep
-    /** Conditional arms and stationary arrival hooks share addressed children. */
+    /** Conditional arms share addressed children. */
     fun branchSize(address: TimetableStepAddress, arm: TimetableBranchArm): Int
 }
 
@@ -40,15 +40,13 @@ internal class TimetableProgramCursor private constructor(
     /** Caller first observes the enclosing At tick and evaluates its condition exactly once. */
     fun enter(arm: TimetableBranchArm): TimetableProgramCursor {
         val current = checkNotNull(address) { "Cannot enter a completed program" }
-        check(arm == TimetableBranchArm.ARRIVAL || (program.stepAt(current) as? TimetableStep.At)?.action is TimetableAction.Conditional) {
+        check((program.stepAt(current) as? TimetableStep.At)?.action is TimetableAction.Conditional) {
             "Only a conditional step has THEN/ELSE children: $current"
         }
         val count = program.branchSize(current, arm)
         require(count >= 0) { "Negative branch size at $current" }
         return if (count == 0) advance() else TimetableProgramCursor(program, current.child(arm, 0))
     }
-
-    fun at(target: TimetableStepAddress) = TimetableProgramCursor(program, target)
 
     /** Capture this successor when starting an asynchronous leaf; never advance a changed cursor. */
     fun advance(): TimetableProgramCursor {
@@ -90,7 +88,6 @@ internal class TimetableServiceTraversal(service: TimetableService) : TimetableP
         children((stepAt(address) as? TimetableStep.At)?.action ?: error("Step has no children: $address"), arm).size
 
     private fun children(action: TimetableAction, arm: TimetableBranchArm): List<TimetableStep.At> = when (arm) {
-        TimetableBranchArm.ARRIVAL -> action.arrivalSteps()
         TimetableBranchArm.THEN -> (action as TimetableAction.Conditional).thenSteps
         TimetableBranchArm.ELSE -> (action as TimetableAction.Conditional).elseSteps
     }

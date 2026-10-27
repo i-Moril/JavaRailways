@@ -8,9 +8,9 @@ export function resolveProgramSourceTarget(document:TimetableAuthoringDocumentV1
     for(const duty of document.duties){
       const prefix=`[${document.id}/${duty.id}] step#`,index=path.indexOf(prefix);
       if(index<0)continue;
-      const address=/^(\d+)((?:\/(?:then|else|arrival)\[\d+\])*)(?![\d/])/.exec(path.slice(index+prefix.length));
+      const address=/^(\d+)((?:\/(?:then|else)\[\d+\])*)(?![\d/])/.exec(path.slice(index+prefix.length));
       const stepIndex=address?.[1];
-      const branchPath=[...(address?.[2]??'').matchAll(/\/(then|else|arrival)\[(\d+)\]/g)].map((match)=>({arm:match[1].toUpperCase(),index:Number(match[2])}));
+      const branchPath=[...(address?.[2]??'').matchAll(/\/(then|else)\[(\d+)\]/g)].map((match)=>({arm:match[1].toUpperCase(),index:Number(match[2])}));
       const trace=stepIndex===undefined?undefined:compiled.timetable.compilationTrace?.find((item)=>item.serviceId===duty.id&&item.stepIndex===Number(stepIndex)&&JSON.stringify(item.branchPath??[])===JSON.stringify(branchPath));
       if(trace)return resolveProgramSourceTarget(document,trace.origin,currentInput);
     }
@@ -39,15 +39,13 @@ export function resolveArrivalSourceTarget(document:TimetableAuthoringDocumentV1
     for(const duty of document.duties){
       const prefix=`[${document.id}/${duty.id}] step#`,index=path.indexOf(prefix);
       if(index<0)continue;
-      const address=/^(\d+)((?:\/(?:then|else|arrival)\[\d+\])*)(?![\d/])/.exec(path.slice(index+prefix.length));
+      const address=/^(\d+)((?:\/(?:then|else)\[\d+\])*)(?![\d/])/.exec(path.slice(index+prefix.length));
       if(!address)continue;
-      const branches=[...address[2].matchAll(/\/(then|else|arrival)\[(\d+)\]/g)].map((match)=>({arm:match[1].toUpperCase(),index:Number(match[2])}));
+      const branches=[...address[2].matchAll(/\/(then|else)\[(\d+)\]/g)].map((match)=>({arm:match[1].toUpperCase(),index:Number(match[2])}));
       const trace=compiled.timetable.compilationTrace?.find((item)=>item.serviceId===duty.id&&item.stepIndex===Number(address[1])&&JSON.stringify(item.branchPath??[])===JSON.stringify(branches));
       if(trace)return resolveArrivalSourceTarget(document,trace.origin,currentInput);
     }
   }
-  const indexed=/^runs\[(\d+)\]\.calls\[(\d+)\]\.arrivalProgram(?:\.|$)/.exec(path);
-  if(indexed){const run=document.runs[Number(indexed[1])],call=run?.calls[Number(indexed[2])];return call&&document.stationPrograms?.some((program)=>program.stationId===call.stationId)?{runId:run.id,callId:call.id}:undefined;}
   const targets:ArrivalSourceTarget[]=[];
   for(const duty of document.duties)for(const element of duty.elements){
     if(element.type!=='RUN')continue;

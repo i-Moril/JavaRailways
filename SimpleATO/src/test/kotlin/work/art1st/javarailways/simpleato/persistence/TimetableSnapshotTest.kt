@@ -14,30 +14,31 @@ import work.art1st.javarailways.simpleato.api.timetable.*
 import work.art1st.javarailways.simpleato.timetable.*
 
 class TimetableSnapshotTest {
-    @Test fun `arrival subtrees roundtrip on all stopping actions`() {
-        val arrival = listOf(TimetableStep.At(0, TimetableAction.Stop(12)), TimetableStep.At(60, TimetableAction.WaitUntil))
-        val selection = work.art1st.javarailways.simpleato.api.station.StationStopSelection(
-            work.art1st.javarailways.simpleato.api.station.StationId("s"),
-            listOf(work.art1st.javarailways.simpleato.api.station.StationStopCandidate("b",0)),
-            work.art1st.javarailways.simpleato.api.station.StationStopSelectionPolicy.FIXED_PREFERENCE)
-        val mutableArrival = arrival.toMutableList()
-        val frozen = TimetableAction.DestinationOptions("B", arrivalSteps=mutableArrival)
-        mutableArrival.clear()
-        assertEquals(arrival,frozen.arrivalSteps)
-        assertThrows(UnsupportedOperationException::class.java) { (frozen.arrivalSteps as MutableList).clear() }
-        for (action in listOf(TimetableAction.DestinationOptions("B",arrivalSteps=arrival),
-            TimetableAction.CallStation("s","b",arrivalSteps=arrival), TimetableAction.SelectStop(selection,arrivalSteps=arrival))) {
-            val saved = SavedTimetableActionV1.capture(action)
-            val decoded = kotlinx.serialization.json.Json.decodeFromString<SavedTimetableActionV1>(
-                kotlinx.serialization.json.Json.encodeToString(saved))
-            assertEquals(action, decoded.restore())
+    @Test fun `obsolete inline arrivals and branch addresses are rejected at strict decode boundary`() {
+        for (children in listOf("[]", "[{\"type\":\"AT\",\"tick\":0,\"action\":{\"type\":\"STOP\",\"stopTicks\":10}}]")) {
+            assertThrows(kotlinx.serialization.SerializationException::class.java) {
+                kotlinx.serialization.json.Json.decodeFromString<SavedTimetableActionV1>(
+                    """{"type":"DESTINATION_OPTIONS","wayPointIds":["B"],"arrivalSteps":$children}""")
+            }
+        }
+        assertThrows(kotlinx.serialization.SerializationException::class.java) {
+            kotlinx.serialization.json.Json.decodeFromString<SavedTimetableBranchPathEntryV1>("""{"arm":"ARRIVAL","index":0}""")
+        }
+    }
+
+    @Test fun `obsolete editor rows and disabled run calls are rejected`() {
+        assertThrows(kotlinx.serialization.SerializationException::class.java) {
+            TimetableSnapshotCodec.decode("""{"id":"t","periodDays":1,"services":[{"id":"s","selectorType":"TRAIN_ID","trainId":"train","steps":[],"rows":[]}]}""")
+        }
+        assertThrows(kotlinx.serialization.SerializationException::class.java) {
+            kotlinx.serialization.json.Json.decodeFromString<SavedTimetableRunCallV1>("""{"id":"c","stationId":"s","destinationId":"B","status":"DISABLED"}""")
         }
     }
 
     @Test
     fun `presentation metadata survives JSON but is not restored into runtime`() {
         val saved = SavedTimetableV1(
-            "rows", 1, listOf(SavedTimetableServiceV1(
+            "presentation", 1, listOf(SavedTimetableServiceV1(
                 id = "S1", selectorType = SavedTrainSelectorTypeV1.TRAIN_ID, trainId = "T1",
                 steps = listOf(SavedTimetableStepV1(
                     SavedTimetableStepTypeV1.AT, tick = 20,
@@ -46,12 +47,7 @@ class TimetableSnapshotTest {
                         stationId = "central", berthId = "two", arrivalTick = 100
                     )
                 )),
-                diagramLineId = "metro", lineDirection = SavedDiagramDirectionV1.DOWN,
-                rows = listOf(SavedServiceEditorRowV1(
-                    id = "station-1", type = SavedServiceRowTypeV1.STATION,
-                    status = SavedServiceStopStatusV1.STOP, stationId = "central", berthId = "two",
-                    arrivalTick = 100, departureTick = 140
-                ))
+                diagramLineId = "metro", lineDirection = SavedDiagramDirectionV1.DOWN
             )),
             diagramLines = listOf(SavedDiagramLineV1("metro", listOf("central"), listOf("central"))),
             compilationTrace = listOf(SavedCompilationTraceV1("S1", 0, "duty:S1/run:up-01"))
@@ -65,8 +61,6 @@ class TimetableSnapshotTest {
         assertNull(recaptured.services.single().steps.single().action?.arrivalTick)
         assertEquals(emptyList<SavedDiagramLineV1>(), recaptured.diagramLines)
         assertEquals(emptyList<SavedCompilationTraceV1>(), recaptured.compilationTrace)
-        assertNull(recaptured.services.single().rows?.single()?.arrivalTick)
-        assertEquals(140, recaptured.services.single().rows?.single()?.departureTick)
     }
 
     @Test

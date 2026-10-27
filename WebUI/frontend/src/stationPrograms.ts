@@ -117,7 +117,6 @@ export function stationProgramSchedule(steps:StationProgramStep[],args:Record<st
   return {errors,earliest};
 }
 export function adoptStationProgram(document:TimetableAuthoringDocumentV1,record:StationProgramRecord):TimetableAuthoringDocumentV1 {
-  if(record.archived)throw new Error('Archived programs cannot be newly bound');
   if(!validId(record.id)||!Number.isSafeInteger(record.revision)||record.revision<1||!/^sha256:[a-f0-9]{64}$/.test(record.contentIdentity))throw new Error('Invalid program library record');
   const errors=validateStationProgram(record.definition);
   if(errors.length)throw new Error(errors.join('; '));

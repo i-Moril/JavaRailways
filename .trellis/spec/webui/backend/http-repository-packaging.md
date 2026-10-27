@@ -39,7 +39,7 @@ Draft/editor document 是独立持久化边界；shape breaking 时升级其最�
 
 ## 程序库删除
 
-`DELETE /api/v1/worlds/{world}/station-programs/{program}` 使用有效 session 和严格 JSON `{expectedRevision}`；成功真实删除库文件并返回 `{removed:true}`。缺失404、revision冲突409、无效输入400，不能用归档标记替代删除。检查 revision 与文件删除由同步 repository 方法统一拥有。删除不扫描或改写 editor documents／已发布 runtime 的嵌入快照。现有库记录持久化形状和 formatVersion 不因新增 DELETE 改变；已存 archived 记录也可删除。
+`DELETE /api/v1/worlds/{world}/station-programs/{program}` 使用有效 session 和严格 JSON `{expectedRevision}`；成功真实删除库文件并返回 `{removed:true}`。缺失404、revision冲突409、无效输入400，不能用归档标记替代删除。检查 revision 与文件删除由同步 repository 方法统一拥有。删除不扫描或改写 editor documents／已发布 runtime 的嵌入快照。当前库记录字段为 formatVersion、id、name、revision、definition、contentIdentity；不写入或接受 archived。开发期保持 formatVersion1，旧记录必须在停服后用 ai_tasks/migrations/remove_program_library_archived.py 做有 hash 计划和恢复备份的一次性转换，运行时不提供兼容读取。
 
 ## SSE 与 backpressure
 

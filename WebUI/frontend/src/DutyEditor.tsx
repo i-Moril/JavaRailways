@@ -353,7 +353,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   const addProgram=(programId:string)=>{
     if(!selectedDutyValue)return;
     const record=programLibrary.find((item)=>item.id===programId);
-    if(!record||record.archived)return;
+    if(!record)return;
     try{
       const next=value.boundPrograms?.some((item)=>item.programId===programId)?value:adoptStationProgram(value,record);
       const snapshot=next.boundPrograms!.find((item)=>item.programId===programId)!;

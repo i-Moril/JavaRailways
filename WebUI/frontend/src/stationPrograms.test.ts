@@ -10,7 +10,7 @@ const infrastructureLines=[{"id": "line", "displayName": "line", "upStationIds":
 const generateTimetableSource=(document:TimetableAuthoringDocumentV1)=>generateWithLines(document,infrastructureLines);
 const validateAuthoringDocument=(document:TimetableAuthoringDocumentV1)=>validateWithLines(document,infrastructureLines);
 const definition:StationProgramDefinition={parameters:[{id:'target',type:'DESTINATION'}],steps:[{id:'reverse',type:'REVERSE'},{id:'move',type:'MOVE',destinationId:{parameterId:'target'},viaIds:{value:[]}}]};
-const record=(revision=1):StationProgramRecord=>({formatVersion:1,id:'turnback',name:'Turnback',revision,archived:false,contentIdentity:`sha256:${String(revision).repeat(64)}`,definition:JSON.parse(JSON.stringify(definition))});
+const record=(revision=1):StationProgramRecord=>({formatVersion:1,id:'turnback',name:'Turnback',revision,contentIdentity:`sha256:${String(revision).repeat(64)}`,definition:JSON.parse(JSON.stringify(definition))});
 const snapshot:BoundStationProgram={programId:'turnback',revision:1,contentIdentity:`sha256:${'1'.repeat(64)}`,definition};
 const call={id:'call-1',programId:'turnback',tick:900,arguments:{target:'b@1'}};
 const document=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),boundPrograms:[snapshot],diagramLines:[{id:'line',upStationIds:['a','b'],downStationIds:['b','a']}],runs:[
@@ -55,7 +55,6 @@ describe('shared station program bindings',()=>{
     const adopted=adoptStationProgram(first,library);const history=updateDocumentHistory(createDocumentHistory(first),adopted);
     expect(history.past).toHaveLength(1);expect(undoDocumentHistory(history).present).toBe(first);expect(redoDocumentHistory(undoDocumentHistory(history)).present).toBe(adopted);
     expect(second.boundPrograms![0].revision).toBe(1);expect(adoptStationProgram(adopted,library)).toBe(adopted);
-    library.archived=true;expect(()=>adoptStationProgram(second,library)).toThrow('Archived');expect(first.boundPrograms![0].definition.steps).toHaveLength(2);
   });
   it('emits one embedded definition for repeated calls with quoted arguments and stable call attribution',()=>{
     const value=document();value.duties[0].elements.splice(2,0,{id:'again',type:'PROGRAM',call:{...call,id:'call-2'}});

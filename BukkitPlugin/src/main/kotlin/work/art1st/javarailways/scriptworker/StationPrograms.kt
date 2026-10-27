@@ -218,23 +218,3 @@ internal fun validateDisplayValues(value: JsonObject) {
         "display values require at most128 nonblank keys and64 KiB"
     }
 }
-
-/** Arrival definitions have no call arguments and cannot alter the active movement/formation. */
-internal fun validateArrivalProgram(raw: JsonElement) {
-    val definition = raw.jsonObject
-    require(definition.getValue("parameters").jsonArray.isEmpty()) { "arrival program cannot declare parameters" }
-    fun checkSteps(steps: JsonArray, depth: Int) {
-        require(depth <= 16) { "arrival program exceeds branch depth16" }
-        steps.forEach { value ->
-            val step = value.jsonObject
-            require(step.getValue("type").jsonPrimitive.content in setOf("SET_DISPLAY", "RESET_DISPLAY", "WAIT_DURATION", "WAIT_UNTIL", "EXTENSION", "BRANCH")) {
-                "step:${step["id"]?.jsonPrimitive?.content}: action is not allowed in arrival program"
-            }
-            if (step["type"]?.jsonPrimitive?.content == "BRANCH") {
-                checkSteps(step.getValue("thenSteps").jsonArray, depth + 1)
-                checkSteps(step.getValue("elseSteps").jsonArray, depth + 1)
-            }
-        }
-    }
-    checkSteps(definition.getValue("steps").jsonArray, 0)
-}

@@ -35,7 +35,6 @@ data class TimetableRunCall(val id: String, val stationId: String, val destinati
     val viaIds: List<String> = emptyList()) {
     init {
         require(id.isNotBlank() && stationId.isNotBlank() && destinationId.isNotBlank())
-        require(status != TimetableServiceStopStatus.DISABLED)
         require(viaIds.size <= 256 && viaIds.all { it.isNotBlank() && it == it.trim() }) { "viaIds must be ordered nonblank waypoint IDs (at most256)" }
         require(status != TimetableServiceStopStatus.ORIGIN || viaIds.isEmpty()) { "origin cannot have incoming via waypoints" }
         require(arrivalTick == null || arrivalTick >= 0)

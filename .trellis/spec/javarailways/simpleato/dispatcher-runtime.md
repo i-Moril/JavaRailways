@@ -248,7 +248,7 @@ A branch selected against a published child can reverse a still-held body before
 
 ## 共享停站程序与两个执行入口（CURRENT）
 
-同一时刻表每站一份作者定义，经 ScriptWorker 用当前运行线的静态计划上下文展开为 `StationStopPrograms`。ORIGIN 以 `BeginStationStop` 建立边界；STOP/TERMINAL 随目标动作携带 stopPrograms。实际寻路、接近及停车继续由运行线负责，车站程序不执行到达运动。旧低层 arrivalSteps 游标不是编辑文档的 per-call override 通道；编辑边界拒绝旧 arrivalProgram，迁移见前端规范。
+同一时刻表每站一份作者定义，经 ScriptWorker 用当前运行线的静态计划上下文展开为 `StationStopPrograms`。ORIGIN 以 `BeginStationStop` 建立边界；STOP/TERMINAL 随目标动作携带 stopPrograms。实际寻路、接近及停车继续由运行线负责，车站程序不执行到达运动。旧 arrivalSteps/arrivalProgram 执行链与 ARRIVAL 分支游标已删除；编辑／DSL／snapshot 边界拒绝旧输入，不提供回退执行。
 
 `StationStopPrograms` 包含 stationId、callId、role、arrival、departurePreparation、preparationLeadTicks、plannedDepartureTick、destinationId、doorSide、minimumDwellTicks。时间为 timetable tick，1 day=24000 tick。正常停车确认后启动 arrival；ORIGIN 不执行 arrival，PASS 不建立停站程序。STOP 与 ORIGIN 的准备入口在计划发车时刻减 lead 到达后，且 arrival **主序列**完成时开始，不等待 arrival 的非阻塞子任务，也不额外等最小停站。TERMINAL 永不启动准备入口，缺省保持开门。
 

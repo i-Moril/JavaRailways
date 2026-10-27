@@ -15,7 +15,12 @@ class StationStopProgramSnapshotTest {
         assertEquals(3, programs.arrival.size)
         assertThrows(UnsupportedOperationException::class.java) { (programs.arrival as MutableList).clear() }
         val origin = StationStopPrograms("central", "call-a", StationStopRole.ORIGIN, listOf(StationProgramAction.End), listOf(StationProgramAction.CloseDoors, StationProgramAction.End), 10, 100, "A")
-        for (action in listOf(TimetableAction.BeginStationStop(origin), TimetableAction.DestinationOptions("B", stopPrograms = programs))) {
+        val selection = work.art1st.javarailways.simpleato.api.station.StationStopSelection(
+            work.art1st.javarailways.simpleato.api.station.StationId("central"),
+            listOf(work.art1st.javarailways.simpleato.api.station.StationStopCandidate("one", 0)),
+            work.art1st.javarailways.simpleato.api.station.StationStopSelectionPolicy.FIXED_PREFERENCE)
+        for (action in listOf(TimetableAction.BeginStationStop(origin), TimetableAction.DestinationOptions("B", stopPrograms = programs),
+            TimetableAction.CallStation("central", "one", stopPrograms = programs), TimetableAction.SelectStop(selection, stopPrograms = programs))) {
             val saved = SavedTimetableActionV1.capture(action)
             val decoded = Json.decodeFromString(SavedTimetableActionV1.serializer(), Json.encodeToString(SavedTimetableActionV1.serializer(), saved))
             assertEquals(action, decoded.restore())

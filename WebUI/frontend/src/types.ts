@@ -14,26 +14,19 @@ export interface StationStopProgramsSnapshot {
   preparationLeadTicks:number; plannedDepartureTick?:number|null; destinationId?:string|null;
   doorSide?:'NONE'|'LEFT'|'RIGHT'|'BOTH'|null; minimumDwellTicks?:number|null;
 }
-export interface TimetableActionV1 { type: ActionType; operationalTripId?:string|null; runId?:string|null; unitSlots?:number[]; displayValues?:ProgramJsonObject; removeDisplayKeys?:string[]; eventId?:string|null; outputId?:string|null; depotId?: string|null; arrivalTick?:number|null; requiredTags: string[]; minimumCars?: number|null; maximumCars?: number|null; minimumSpeedMetersPerSecond?: number|null; requiredCapabilities: string[]; stablingPointIds: string[]; wayPointIds: string[]; stopTicks?: number|null; stationId?: string|null; berthId?: string|null; berthCandidates?:{berthId:string;priority:number}[]; selectionPolicy?:'FIXED_PREFERENCE'|'AVAILABLE_PRIORITY'|null; minimumDwellTicks?: number|null; stoppingOffsetMetersBefore?: number|null; doorSideOverride?: 'NONE'|'LEFT'|'RIGHT'|'BOTH'|null; extensionCall?: ExtensionCallV1|null; condition?: TimetableConditionV1|null; arrivalSteps?:TimetableStepV1[]; stopPrograms?:StationStopProgramsSnapshot|null; thenSteps: TimetableStepV1[]; elseSteps: TimetableStepV1[] }
+export interface TimetableActionV1 { type: ActionType; operationalTripId?:string|null; runId?:string|null; unitSlots?:number[]; displayValues?:ProgramJsonObject; removeDisplayKeys?:string[]; eventId?:string|null; outputId?:string|null; depotId?: string|null; arrivalTick?:number|null; requiredTags: string[]; minimumCars?: number|null; maximumCars?: number|null; minimumSpeedMetersPerSecond?: number|null; requiredCapabilities: string[]; stablingPointIds: string[]; wayPointIds: string[]; stopTicks?: number|null; stationId?: string|null; berthId?: string|null; berthCandidates?:{berthId:string;priority:number}[]; selectionPolicy?:'FIXED_PREFERENCE'|'AVAILABLE_PRIORITY'|null; minimumDwellTicks?: number|null; stoppingOffsetMetersBefore?: number|null; doorSideOverride?: 'NONE'|'LEFT'|'RIGHT'|'BOTH'|null; extensionCall?: ExtensionCallV1|null; condition?: TimetableConditionV1|null; stopPrograms?:StationStopProgramsSnapshot|null; thenSteps: TimetableStepV1[]; elseSteps: TimetableStepV1[] }
 export interface TimetableStepV1 { type: StepType; tick?: number|null; wayPointId?: string|null; action?: TimetableActionV1|null }
 export type LineDirection = 'UP'|'DOWN';
-export type ServiceRowType = 'STATION'|'SPECIAL_DESTINATION'|'DEPOT_OPERATION'|'ACTION_ONLY';
-export type ServiceStopStatus = 'ORIGIN'|'STOP'|'PASS'|'TERMINAL'|'DISABLED';
-export interface ServiceEditorRowV1 {
-  id:string; type:ServiceRowType; status?:ServiceStopStatus|null; stationId?:string|null; berthId?:string|null;
-  destinationId?:string|null; tick?:number|null; arrivalTick?:number|null; departureTick?:number|null;
-  depotOperation?:'TAKE_FROM_DEPOT'|'STORE_AT_DEPOT'|null; depotId?:string|null; actions:TimetableActionV1[];
-}
 export interface TimetableRunCallV1 {id:string;stationId:string;destinationId:string;status:'ORIGIN'|'STOP'|'PASS'|'TERMINAL';viaIds?:string[];arrivalTick?:number|null;departureTick?:number|null}
 export interface TimetableRunSegmentV1 {runId:string;lineId:string;diagramLineId?:string|null;lineDirection?:LineDirection|null;startStepIndex:number;endStepIndexExclusive:number;calls:TimetableRunCallV1[]}
 export interface OperationalTripSegment {serviceId:string;runId:string;unitSlots:number[]}
 export interface OperationalTrip {id:string;defaults:ProgramJsonObject;segments:OperationalTripSegment[]}
-export interface TimetableServiceV1 { runSegments?:TimetableRunSegmentV1[]; id: string; lineId?:string|null; diagramLineId?:string|null; lineDirection?:LineDirection|null; rows?:ServiceEditorRowV1[]|null; selectorType: TrainSelectorType; trainId?: string|null; steps: TimetableStepV1[]; activation: { type: 'SCHEDULED'|'MANUAL'|'CONDITIONAL'; condition?: TimetableConditionV1|null; falseBehavior?: string|null } }
+export interface TimetableServiceV1 { runSegments?:TimetableRunSegmentV1[]; id: string; lineId?:string|null; diagramLineId?:string|null; lineDirection?:LineDirection|null; selectorType: TrainSelectorType; trainId?: string|null; steps: TimetableStepV1[]; activation: { type: 'SCHEDULED'|'MANUAL'|'CONDITIONAL'; condition?: TimetableConditionV1|null; falseBehavior?: string|null } }
 export interface DiagramLineV1 { id:string; upStationIds:string[]; downStationIds:string[] }
 export type ObjectSelectorType = 'REGEX'|'AND'|'OR'|'NOT'|'TAGS';
 export interface ObjectSelectorV1 { type:ObjectSelectorType; pattern?:string|null; selectors:ObjectSelectorV1[]; tags:string[] }
 export interface InitialPositionV1 { trainSelector:ObjectSelectorV1; wayPointSelector:ObjectSelectorV1 }
-export interface TimetableBranchEntry {arm:'THEN'|'ELSE'|'ARRIVAL';index:number}
+export interface TimetableBranchEntry {arm:'THEN'|'ELSE';index:number}
 export interface CompilationTraceV1 { serviceId:string; stepIndex:number; branchPath?:TimetableBranchEntry[]; origin:string }
 export interface TimetableLineSpeedLimitV1 { lineId:string; maximumSpeedMetersPerSecond:number }
 export interface SavedFormationOutputV1 {id:string;disposition:{type:'HOLD'|'DUTY';dutyId?:string|null}}
@@ -144,7 +137,7 @@ export interface StationProgramDefinition {
  steps:StationProgramStep[];
 }
 export interface StationProgramRecord {
- formatVersion:1;id:string;name:string;revision:number;archived:boolean;contentIdentity:string;definition:StationProgramDefinition;
+ formatVersion:1;id:string;name:string;revision:number;contentIdentity:string;definition:StationProgramDefinition;
 }
 export interface BoundStationProgram {
  programId:string;revision:number;contentIdentity:string;definition:StationProgramDefinition;

@@ -7,10 +7,6 @@ import work.art1st.javarailways.core.api.util.plugin.ExtensionDataMapSerializer
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 
-typealias SavedTrain = SavedTrainV1
-typealias SavedCar = SavedCarV1
-typealias SavedBogie = SavedBogieV1
-
 @Serializable
 data class SavedTrainV1(
     val id: String,

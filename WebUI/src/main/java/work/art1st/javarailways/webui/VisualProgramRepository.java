@@ -41,7 +41,7 @@ public final class VisualProgramRepository {
         validateInput(name, definition);
         if (find(world, id).isPresent()) throw new Conflict("program ID already exists");
         ObjectNode record = mapper.createObjectNode();
-        record.put("formatVersion", 1).put("id", id).put("name", name).put("revision", 1).put("archived", false);
+        record.put("formatVersion", 1).put("id", id).put("name", name).put("revision", 1);
         record.set("definition", definition.deepCopy());
         record.put("contentIdentity", ProgramContentIdentity.of(definition));
         storage.save(world, id, record);
@@ -53,7 +53,6 @@ public final class VisualProgramRepository {
         Optional<JsonNode> previous = find(world, id);
         if (previous.isEmpty()) return Optional.empty();
         checkRevision(previous.get(), expectedRevision);
-        if (previous.get().path("archived").asBoolean()) throw new Conflict("archived programs cannot be edited");
         ObjectNode record = previous.get().deepCopy();
         record.put("name", name).put("revision", nextRevision(expectedRevision));
         record.set("definition", definition.deepCopy());
@@ -70,11 +69,10 @@ public final class VisualProgramRepository {
     }
 
     private void validateRecord(JsonNode record, String id) {
-        StationProgramValidator.fields(record, java.util.Set.of("formatVersion", "id", "name", "revision", "archived", "definition", "contentIdentity"), "program library record");
+        StationProgramValidator.fields(record, java.util.Set.of("formatVersion", "id", "name", "revision", "definition", "contentIdentity"), "program library record");
         if (!record.isObject() || !record.path("formatVersion").isIntegralNumber() || record.path("formatVersion").asLong() != 1
             || !record.path("id").isTextual() || !id.equals(record.path("id").asText())
-            || !record.path("revision").isIntegralNumber() || !record.path("revision").canConvertToLong() || record.path("revision").asLong() < 1 || record.path("revision").asLong() > 9_007_199_254_740_991L
-            || !record.path("archived").isBoolean()) throw new IllegalArgumentException("invalid program library record");
+            || !record.path("revision").isIntegralNumber() || !record.path("revision").canConvertToLong() || record.path("revision").asLong() < 1 || record.path("revision").asLong() > 9_007_199_254_740_991L) throw new IllegalArgumentException("invalid program library record");
         validateInput(record.path("name").isTextual() ? record.path("name").asText() : null, record.path("definition"));
         if (!ProgramContentIdentity.of(record.path("definition")).equals(record.path("contentIdentity").asText())) {
             throw new IllegalArgumentException("program content identity mismatch");

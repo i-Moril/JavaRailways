@@ -25,7 +25,6 @@ import kotlinx.serialization.json.JsonObject
     val doorSideOverride: String? = null, val extensionCall: SavedTimetableExtensionCallV1? = null,
     val condition: SavedTimetableConditionV1? = null, val thenSteps: List<SavedTimetableStepV1> = emptyList(),
     val elseSteps: List<SavedTimetableStepV1> = emptyList(),
-    val arrivalSteps: List<SavedTimetableStepV1> = emptyList(),
     val eventId: String? = null, val outputId: String? = null,
     val berthCandidates: List<SavedStationStopCandidateV1> = emptyList(),
     val selectionPolicy: SavedStationStopSelectionPolicyV1? = null,
@@ -38,11 +37,6 @@ import kotlinx.serialization.json.JsonObject
         require(stopPrograms == null || type in setOf(SavedTimetableActionTypeV1.BEGIN_STATION_STOP,
             SavedTimetableActionTypeV1.DESTINATION_OPTIONS, SavedTimetableActionTypeV1.STATION_DESTINATION_OPTIONS,
             SavedTimetableActionTypeV1.SELECT_STOP)) { "stopPrograms is only valid on station stop boundaries" }
-        require(stopPrograms == null || arrivalSteps.isEmpty()) { "legacy and shared station program inputs cannot coexist" }
-        require(arrivalSteps.isEmpty() || type in setOf(SavedTimetableActionTypeV1.DESTINATION_OPTIONS,
-            SavedTimetableActionTypeV1.STATION_DESTINATION_OPTIONS, SavedTimetableActionTypeV1.SELECT_STOP)) {
-            "arrivalSteps is only valid on destination options and station stops"
-        }
     }
 }
 @Serializable data class SavedTimetableStepV1(val type: SavedTimetableStepTypeV1, val tick: Long? = null, val wayPointId: String? = null, val action: SavedTimetableActionV1? = null)
@@ -120,7 +114,7 @@ import kotlinx.serialization.json.JsonObject
     }
 }
 
-@Serializable enum class SavedTimetableBranchArmV1 { THEN, ELSE, ARRIVAL }
+@Serializable enum class SavedTimetableBranchArmV1 { THEN, ELSE }
 @Serializable data class SavedTimetableBranchPathEntryV1(val arm: SavedTimetableBranchArmV1, val index: Int) {
     init { require(index >= 0) }
 }

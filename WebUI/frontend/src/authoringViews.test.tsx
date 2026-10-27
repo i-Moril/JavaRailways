@@ -33,11 +33,6 @@ describe('authoring workspace views',()=>{
   const origin=render(<RunRouteEditor run={run} focusedCallId="origin" lines={lines} metadata={{}} busy={false} onChange={noop} onError={noop} onDelete={noop}/>);
   expect(origin).toContain(translate('en-US','stationPrograms.hint'));expect(origin).toContain(translate('en-US','programs.editArrival'));
  });
- it('labels arrival cursor paths as station actions rather than a false branch',()=>{
-  const html=render(<AuthoringValidation {...props} simulation={{status:'PERIOD_ENDED',simulatedTicks:100,runs:[{timetableId:'t',serviceId:'duty-a',trainId:'train',state:'WAITING',timetableElapsedTicks:100,lastLatenessTicks:0,nextStepIndex:4,activeStepIndex:2,activeStepBranchPath:[{arm:'ARRIVAL',index:0}]}]}}/>);
-  expect(html).toContain('2 / '+translate('en-US','editor.stationActions')+' 0');
-  expect(html).not.toContain('2 / When false 0');
- });
  it('provides the shared block canvas with a compact accessible history toolbar',()=>{
    const html=render(<ProgramDefinitionEditor fieldScope="branch" onChange={noop} value={{parameters:[],steps:[{id:'choose',type:'BRANCH',typeId:'demo:condition',version:1,parameters:{value:{}},thenSteps:[{id:'until',type:'WAIT_UNTIL',tick:{value:80}}],elseSteps:[{id:'pause',type:'WAIT_DURATION',durationTicks:{value:10}}]}]}}/>);
    expect(html).toContain('program-block-canvas');

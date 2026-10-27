@@ -150,7 +150,6 @@ data class SavedTimetableActionV1(
     val condition: SavedTimetableConditionV1? = null,
     val thenSteps: List<SavedTimetableStepV1> = emptyList(),
     val elseSteps: List<SavedTimetableStepV1> = emptyList(),
-    val arrivalSteps: List<SavedTimetableStepV1> = emptyList(),
     val eventId: String? = null,
     val outputId: String? = null,
     val berthCandidates: List<SavedStationStopCandidateV1> = emptyList(),
@@ -166,14 +165,7 @@ data class SavedTimetableActionV1(
         require(stopPrograms == null || type in setOf(SavedTimetableActionTypeV1.BEGIN_STATION_STOP,
             SavedTimetableActionTypeV1.DESTINATION_OPTIONS, SavedTimetableActionTypeV1.STATION_DESTINATION_OPTIONS,
             SavedTimetableActionTypeV1.SELECT_STOP)) { "stopPrograms is only valid on station stop boundaries" }
-        require(stopPrograms == null || arrivalSteps.isEmpty()) { "legacy and shared station program inputs cannot coexist" }
-        require(arrivalSteps.isEmpty() || type in setOf(SavedTimetableActionTypeV1.DESTINATION_OPTIONS,
-            SavedTimetableActionTypeV1.STATION_DESTINATION_OPTIONS, SavedTimetableActionTypeV1.SELECT_STOP)) {
-            "arrivalSteps is only valid on destination options and station stops"
-        }
     }
-
-    private fun restoreArrivalSteps() = arrivalSteps.map { requireNotNull(it.restore() as? TimetableStep.At) { "Arrival children must be AT steps" } }
 
     fun restore(): TimetableAction = when (type) {
         SavedTimetableActionTypeV1.BEGIN_STATION_STOP -> TimetableAction.BeginStationStop(requireNotNull(stopPrograms).restore())
@@ -184,7 +176,7 @@ data class SavedTimetableActionV1(
             StationStopSelection(StationId(requireNotNull(stationId)),
                 berthCandidates.map { StationStopCandidate(it.berthId, it.priority) },
                 StationStopSelectionPolicy.valueOf(requireNotNull(selectionPolicy).name)),
-            minimumDwellTicks, stoppingOffsetMetersBefore, doorSideOverride, restoreArrivalSteps(), stopPrograms?.restore())
+            minimumDwellTicks, stoppingOffsetMetersBefore, doorSideOverride, stopPrograms?.restore())
         SavedTimetableActionTypeV1.COUPLE -> TimetableAction.Couple(requireNotNull(eventId))
         SavedTimetableActionTypeV1.SPLIT -> TimetableAction.Split(requireNotNull(eventId))
         SavedTimetableActionTypeV1.TAKE_FROM_FORMATION_OUTPUT ->
@@ -215,7 +207,6 @@ data class SavedTimetableActionV1(
             minimumDwellTicks = minimumDwellTicks,
             stoppingOffsetMetersBefore = stoppingOffsetMetersBefore,
             doorSide = doorSideOverride,
-            arrivalSteps = restoreArrivalSteps(),
             stopPrograms = stopPrograms?.restore()
         )
         SavedTimetableActionTypeV1.STOP -> TimetableAction.Stop(requireNotNull(stopTicks))
@@ -228,7 +219,6 @@ data class SavedTimetableActionV1(
             minimumDwellTicks = minimumDwellTicks,
             stoppingOffsetMetersBefore = stoppingOffsetMetersBefore,
             doorSideOverride = doorSideOverride,
-            arrivalSteps = restoreArrivalSteps(),
             stopPrograms = stopPrograms?.restore()
         )
         SavedTimetableActionTypeV1.EXTENSION -> TimetableAction.Extension(
@@ -252,7 +242,7 @@ data class SavedTimetableActionV1(
                 berthCandidates = value.selection.candidates.map { SavedStationStopCandidateV1(it.berthId, it.priority) },
                 selectionPolicy = SavedStationStopSelectionPolicyV1.valueOf(value.selection.policy.name),
                 minimumDwellTicks = value.minimumDwellTicks, stoppingOffsetMetersBefore = value.stoppingOffsetMetersBefore,
-                doorSideOverride = value.doorSideOverride, arrivalSteps = value.arrivalSteps.map(SavedTimetableStepV1::capture),
+                doorSideOverride = value.doorSideOverride,
                 stopPrograms = value.stopPrograms?.let(SavedStationStopPrograms::capture))
             is TimetableAction.Couple -> SavedTimetableActionV1(SavedTimetableActionTypeV1.COUPLE, eventId = value.eventId)
             is TimetableAction.Split -> SavedTimetableActionV1(SavedTimetableActionTypeV1.SPLIT, eventId = value.eventId)
@@ -290,7 +280,6 @@ data class SavedTimetableActionV1(
                 minimumDwellTicks = value.minimumDwellTicks,
                 stoppingOffsetMetersBefore = value.stoppingOffsetMetersBefore,
                 doorSideOverride = value.doorSide,
-                arrivalSteps = value.arrivalSteps.map(SavedTimetableStepV1::capture),
                 stopPrograms = value.stopPrograms?.let(SavedStationStopPrograms::capture)
             )
             is TimetableAction.Stop -> SavedTimetableActionV1(
@@ -311,7 +300,6 @@ data class SavedTimetableActionV1(
                 minimumDwellTicks = value.minimumDwellTicks,
                 stoppingOffsetMetersBefore = value.stoppingOffsetMetersBefore,
                 doorSideOverride = value.doorSideOverride,
-                arrivalSteps = value.arrivalSteps.map(SavedTimetableStepV1::capture),
                 stopPrograms = value.stopPrograms?.let(SavedStationStopPrograms::capture)
             )
             is TimetableAction.Extension -> SavedTimetableActionV1(
@@ -356,69 +344,7 @@ data class SavedTimetableStepV1(
 }
 
 @Serializable
-enum class SavedServiceRowTypeV1 { STATION, SPECIAL_DESTINATION, DEPOT_OPERATION, ACTION_ONLY }
-
-@Serializable
-enum class SavedServiceStopStatusV1 { ORIGIN, STOP, PASS, TERMINAL, DISABLED }
-
-/** WebUI authoring metadata. Runtime remains authoritative through the generated steps list. */
-@Serializable
-data class SavedServiceEditorRowV1(
-    val id: String,
-    val type: SavedServiceRowTypeV1,
-    val status: SavedServiceStopStatusV1? = null,
-    val stationId: String? = null,
-    val berthId: String? = null,
-    val destinationId: String? = null,
-    val tick: Long? = null,
-    /** Presentation-only planned arrival; ignored by restore(). */
-    val arrivalTick: Long? = null,
-    val departureTick: Long? = null,
-    val depotOperation: SavedTimetableActionTypeV1? = null,
-    val depotId: String? = null,
-    val actions: List<SavedTimetableActionV1> = emptyList()
-) {
-    fun restore() = TimetableServiceEditorRow(
-        id = id,
-        type = TimetableServiceRowType.valueOf(type.name),
-        status = status?.let { TimetableServiceStopStatus.valueOf(it.name) },
-        stationId = stationId,
-        berthId = berthId,
-        destinationId = destinationId,
-        tick = tick,
-        departureTick = departureTick,
-        depotOperation = depotOperation?.let {
-            when (it) {
-                SavedTimetableActionTypeV1.TAKE_FROM_DEPOT -> TimetableServiceDepotOperation.TAKE_FROM_DEPOT
-                SavedTimetableActionTypeV1.STORE_AT_DEPOT -> TimetableServiceDepotOperation.STORE_AT_DEPOT
-                else -> error("Invalid depot row operation: $it")
-            }
-        },
-        depotId = depotId,
-        actions = actions.map(SavedTimetableActionV1::restore)
-    )
-
-    companion object {
-        fun capture(value: TimetableServiceEditorRow) = SavedServiceEditorRowV1(
-            id = value.id,
-            type = SavedServiceRowTypeV1.valueOf(value.type.name),
-            status = value.status?.let { SavedServiceStopStatusV1.valueOf(it.name) },
-            stationId = value.stationId,
-            berthId = value.berthId,
-            destinationId = value.destinationId,
-            tick = value.tick,
-            departureTick = value.departureTick,
-            depotOperation = value.depotOperation?.let {
-                when (it) {
-                    TimetableServiceDepotOperation.TAKE_FROM_DEPOT -> SavedTimetableActionTypeV1.TAKE_FROM_DEPOT
-                    TimetableServiceDepotOperation.STORE_AT_DEPOT -> SavedTimetableActionTypeV1.STORE_AT_DEPOT
-                }
-            },
-            depotId = value.depotId,
-            actions = value.actions.map(SavedTimetableActionV1::capture)
-        )
-    }
-}
+enum class SavedServiceStopStatusV1 { ORIGIN, STOP, PASS, TERMINAL }
 
 @Serializable
 enum class SavedDiagramDirectionV1 { UP, DOWN }
@@ -434,7 +360,6 @@ data class SavedTimetableServiceV1(
     val diagramLineId: String? = null,
     /** Presentation/editor hint only; generated runtime steps remain authoritative. */
     val lineDirection: SavedDiagramDirectionV1? = null,
-    val rows: List<SavedServiceEditorRowV1>? = null,
     /** Actual Basic infrastructure line; independent from diagramLineId. */
     val lineId: String? = null,
     val runSegments: List<SavedTimetableRunSegmentV1> = emptyList()
@@ -447,7 +372,6 @@ data class SavedTimetableServiceV1(
         },
         steps = steps.map(SavedTimetableStepV1::restore),
         activation = activation.restore(),
-        editorRows = rows?.map(SavedServiceEditorRowV1::restore),
         lineId = lineId?.let(::LineId),
         runSegments = java.util.List.copyOf(runSegments.map { it.restore() })
     )
@@ -461,7 +385,6 @@ data class SavedTimetableServiceV1(
             trainId = (value.trainSelector as? TrainSelector.TrainId)?.trainId,
             steps = value.steps.map(SavedTimetableStepV1::capture),
             activation = SavedTimetableActivationV1.capture(value.activation),
-            rows = value.editorRows?.map(SavedServiceEditorRowV1::capture),
             lineId = value.lineId?.value,
             runSegments = value.runSegments.map(SavedTimetableRunSegmentV1::capture)
         )
@@ -694,7 +617,7 @@ fun captureFormationEvent(value: TimetableFormationEvent): SavedFormationEventV1
             SavedFormationSplitOutputV1(value.rest.id, SavedFormationSplitGroup.REST, captureDisposition(value.rest.disposition))))
 }
 
-@Serializable enum class SavedTimetableBranchArmV1 { THEN, ELSE, ARRIVAL }
+@Serializable enum class SavedTimetableBranchArmV1 { THEN, ELSE }
 @Serializable data class SavedTimetableBranchPathEntryV1(val arm: SavedTimetableBranchArmV1, val index: Int) {
     init { require(index >= 0) }
 }

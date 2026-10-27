@@ -1,7 +1,7 @@
 import {flushSync} from 'react-dom';
 import {clearProgramBlockDraft} from './programBlockDrafts';
 import { useEffect,useRef,useState } from 'react';
-import { Alert,Button,Flex,Input,Modal,Space,Tag,Typography } from 'antd';
+import { Alert,Button,Flex,Input,Modal,Space,Typography } from 'antd';
 import { api } from './api';
 import { ProgramDefinitionEditor } from './ProgramFields';
 import { findProgramStep,validateStationProgram } from './stationPrograms';
@@ -64,7 +64,7 @@ function Library({world,recoveryOwner,extensions=[],conditions=[],focus}:Props){
     if(current()){updateList(record);select(record);}
   }));
   const save=()=>{
-    if(!selected||selected.archived||!valid||validateStationProgram(definition).length)return;
+    if(!selected||!valid||validateStationProgram(definition).length)return;
     const source=selected;const snapshot=structuredClone(definition);
     void perform(async(current)=>{const record=await api.saveStationProgram(world,source.id,source.name,snapshot,source.revision);if(current()){updateList(record);select(record);}});
   };
@@ -72,7 +72,7 @@ function Library({world,recoveryOwner,extensions=[],conditions=[],focus}:Props){
     if(!dialog||locked.current)return;
     if(dialog.kind==='leave'){setDialog(undefined);discardSelection();dialog.action();return;}
     const {record,kind}=dialog;
-    if(kind==='rename'&&(!rename.trim()||record.archived))return;
+    if(kind==='rename'&&!rename.trim())return;
     void perform(async(current)=>{
       if(kind==='delete'){
         const result=await api.deleteStationProgram(world,record.id,record.revision);
@@ -88,11 +88,11 @@ function Library({world,recoveryOwner,extensions=[],conditions=[],focus}:Props){
   return <div className="module-page program-library"><div className="page-heading"><div><Typography.Title level={3}>{t('programs.title')}</Typography.Title><Typography.Text type="secondary">{t('programs.description')}</Typography.Text></div><Button disabled={busy||!world} onClick={()=>leave(()=>void load(selected?.id))}>{t('common.refresh')}</Button></div>
     {error&&<Alert type="error" showIcon title={error}/>}
     <div className="program-library-grid"><aside className="panel-surface program-library-files" aria-label={t('programs.title')}><Button type="primary" disabled={busy||!world} onClick={create}>{t('programs.new')}</Button>
-      <div role="list" className="program-library-file-list">{records.map((record)=><div role="listitem" key={record.id} className="program-library-file"><Button type={selected?.id===record.id?'primary':'text'} disabled={busy} onClick={()=>{if(record.id!==selected?.id)leave(()=>select(record));}} title={record.name}><span className="program-library-file-name">{record.name}</span>{record.archived&&<Tag>{t('programs.archived')}</Tag>}</Button><Space size={0}><Button type="text" disabled={busy||record.archived} aria-label={`${t('programs.rename')} ${record.name}`} title={t('programs.rename')} onClick={()=>{setError('');setRename(record.name);setDialog({kind:'rename',record});}}>✎</Button><Button danger type="text" disabled={busy} aria-label={`${t('common.delete')} ${record.name}`} title={t('common.delete')} onClick={()=>{setError('');setDialog({kind:'delete',record});}}>×</Button></Space></div>)}</div>
-    </aside><section className="panel-surface program-library-editor">{selected?<><Flex align="center" justify="space-between" gap={12}><Typography.Title level={4}>{selected.name}{dirty?' *':''}</Typography.Title><Button type="primary" loading={busy} disabled={busy||selected.archived||!!errors.length||!valid||!dirty} onClick={save}>{t('common.save')}</Button></Flex>
+      <div role="list" className="program-library-file-list">{records.map((record)=><div role="listitem" key={record.id} className="program-library-file"><Button type={selected?.id===record.id?'primary':'text'} disabled={busy} onClick={()=>{if(record.id!==selected?.id)leave(()=>select(record));}} title={record.name}><span className="program-library-file-name">{record.name}</span></Button><Space size={0}><Button type="text" disabled={busy} aria-label={`${t('programs.rename')} ${record.name}`} title={t('programs.rename')} onClick={()=>{setError('');setRename(record.name);setDialog({kind:'rename',record});}}>✎</Button><Button danger type="text" disabled={busy} aria-label={`${t('common.delete')} ${record.name}`} title={t('common.delete')} onClick={()=>{setError('');setDialog({kind:'delete',record});}}>×</Button></Space></div>)}</div>
+    </aside><section className="panel-surface program-library-editor">{selected?<><Flex align="center" justify="space-between" gap={12}><Typography.Title level={4}>{selected.name}{dirty?' *':''}</Typography.Title><Button type="primary" loading={busy} disabled={busy||!!errors.length||!valid||!dirty} onClick={save}>{t('common.save')}</Button></Flex>
       <Alert type="info" showIcon title={t('programs.executionHint')}/>
       {focus?.programId===selected.id&&focus?.stepId&&!findProgramStep(selected.definition.steps,focus.stepId)&&<Alert type="info" title={t('programs.stepUnavailable')}/>}
-      <fieldset inert={busy||selected.archived} disabled={busy||selected.archived} className="program-editor-fields"><ProgramDefinitionEditor conditions={conditions} extensions={extensions} onValidityChange={setValid} focusedStep={focus?.programId===selected.id?focus.stepId:undefined} key={`${selected.id}/${editorEpoch}`} fieldScope={`${recoveryOwner}/${world}/${selected.id}`} value={definition} onChange={setDefinition}/></fieldset>
+      <fieldset inert={busy} disabled={busy} className="program-editor-fields"><ProgramDefinitionEditor conditions={conditions} extensions={extensions} onValidityChange={setValid} focusedStep={focus?.programId===selected.id?focus.stepId:undefined} key={`${selected.id}/${editorEpoch}`} fieldScope={`${recoveryOwner}/${world}/${selected.id}`} value={definition} onChange={setDefinition}/></fieldset>
       {!!errors.length&&<Alert type="warning" title={errors.join('; ')}/>}
       <Typography.Paragraph type="secondary">{t('programs.conflictHint')}</Typography.Paragraph>
     </>:<Typography.Paragraph type="secondary">{t('programs.selectFile')}</Typography.Paragraph>}</section></div>

@@ -116,7 +116,7 @@ After ledger restore, SimpleATOWorldData re-establishes separate private Core fo
 
 ## 停站程序与经停点（CURRENT）
 
-当前未发布 Timetable 边界继续 formatVersion1。动作 snapshot 新增 `BEGIN_STATION_STOP` 和可空 `stopPrograms: SavedStationStopPrograms`，只允许挂载在停站边界上；禁止同一动作同时提供旧 arrivalSteps 与新共享程序。嵌套 action 使用稳定 type，包含 OPEN_DOORS/CLOSE_DOORS/END/REVERSE/WAIT_UNTIL/WAIT_DURATION/ASYNC/AWAIT/SET_DISPLAY/RESET_DISPLAY/EXTENSION。ASYNC 递归保存 steps，AWAIT 保存 taskId；tick/duration 的单位为 tick。恢复先构建当前不可变领域模型，由同一模型验证结束、深度、数量、任务先启动后等待及祖先等待环，不能绕过验证恢复可执行树。
+当前未发布 Timetable 边界继续 formatVersion1。动作 snapshot 新增 `BEGIN_STATION_STOP` 和可空 `stopPrograms: SavedStationStopPrograms`，只允许挂载在停站边界上；旧 arrivalSteps 字段与 ARRIVAL cursor arm 已删除，strict decoder 直接拒绝；旧 rows 编辑元数据及 DISABLED 调用状态也不属于 current model。嵌套 action 使用稳定 type，包含 OPEN_DOORS/CLOSE_DOORS/END/REVERSE/WAIT_UNTIL/WAIT_DURATION/ASYNC/AWAIT/SET_DISPLAY/RESET_DISPLAY/EXTENSION。ASYNC 递归保存 steps，AWAIT 保存 taskId；tick/duration 的单位为 tick。恢复先构建当前不可变领域模型，由同一模型验证结束、深度、数量、任务先启动后等待及祖先等待环，不能绕过验证恢复可执行树。
 
 run metadata 的 call 增加默认空 `viaIds`；保存、恢复、worker DTO 和前端 wire 保持相同顺序，不按集合排序。`StationStopProgramSnapshotTest` 与 `TimetableRunMetadataTest` 覆盖往返及非法输入；真实浏览器脚本 fixture 的 Graal 编译测试覆盖 writer→worker→snapshot→domain。
 

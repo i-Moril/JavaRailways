@@ -473,12 +473,7 @@ class ServiceBuilder(private val branchDepth: Int = 0, initialTick: Long = 0L, i
         require(tick >= lastEmittedTick && (pendingPasses.isEmpty() || tick == currentTick))
         currentTick = tick
         require(target.isNotBlank()) { "destination target must not be blank" }
-        options.requireOnly(setOf("arrivalTick", "minimumDwellTicks", "stoppingOffsetMetersBefore", "doorSide", "arrivalProgram", "stationId", "callId", "callRole", "departureTick", "stationProgram", "plannedContext"), "destination options")
-        val arrivalProgram = options.member("arrivalProgram")?.let { value ->
-            val raw = toJson(value, 64)
-            validateArrivalProgram(raw)
-            expandStationProgram(raw, JsonObject(emptyMap()), 0L)
-        }
+        options.requireOnly(setOf("arrivalTick", "minimumDwellTicks", "stoppingOffsetMetersBefore", "doorSide", "stationId", "callId", "callRole", "departureTick", "stationProgram", "plannedContext"), "destination options")
         val arrivalTick = options.long("arrivalTick")
         val dwell = options.long("minimumDwellTicks")
         val offset = options.double("stoppingOffsetMetersBefore")
@@ -491,14 +486,12 @@ class ServiceBuilder(private val branchDepth: Int = 0, initialTick: Long = 0L, i
             require(it in setOf("NONE", "LEFT", "RIGHT", "BOTH")) { "doorSide must be NONE, LEFT, RIGHT, or BOTH" }
         }
         val stopPrograms = compileStationStopPrograms(target, toJson(options, 64) as? JsonObject ?: JsonObject(emptyMap()))
-        val optionsIndex = steps.size
         append(SavedTimetableStepV1(
             SavedTimetableStepTypeV1.AT,
             tick,
             action = SavedTimetableActionV1(
                 SavedTimetableActionTypeV1.DESTINATION_OPTIONS,
                 wayPointIds = listOf(target),
-                arrivalSteps = arrivalProgram?.steps ?: emptyList(),
                 stopPrograms = stopPrograms,
                 arrivalTick = arrivalTick,
                 minimumDwellTicks = dwell,
@@ -506,11 +499,6 @@ class ServiceBuilder(private val branchDepth: Int = 0, initialTick: Long = 0L, i
                 doorSideOverride = doorSide
             )
         ))
-        arrivalProgram?.origins?.forEach { origin ->
-            trace += BuilderStepOrigin(optionsIndex,
-                listOfNotNull(currentOrigin, "step:${origin.programStepId}").joinToString("/"),
-                listOf(SavedTimetableBranchPathEntryV1(SavedTimetableBranchArmV1.ARRIVAL, origin.stepIndex)) + origin.branchPath)
-        }
         append(SavedTimetableStepV1(
             SavedTimetableStepTypeV1.AT,
             tick,

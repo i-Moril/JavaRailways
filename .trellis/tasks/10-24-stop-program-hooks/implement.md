@@ -20,3 +20,7 @@ User authorized incremental fixes and deployment on 2026-10-26. First-round beha
 ## Feedback round2
 
 User approved program library management round on 2026-10-27. Boundary, ownership and acceptance: research/feedback-round-2.md. Existing snapshots survive real library deletion; task remains unarchived.
+
+## Obsolete development compatibility cleanup
+
+User requested removal on 2026-10-27. Inventory and implementation boundary: research/obsolete-compat-inventory.md and research/obsolete-compat-removal.md. Remove archived status and obsolete per-call arrivals/rows code; strict current inputs, offline migration only.

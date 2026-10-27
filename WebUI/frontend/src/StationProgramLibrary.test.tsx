@@ -4,7 +4,7 @@ import {I18nProvider,translate} from './i18n';
 import {libraryHasChanges,newLibraryProgram,StationProgramLibrary} from './StationProgramLibrary';
 import type {StationProgramDefinition,StationProgramRecord} from './types';
 const definition:StationProgramDefinition={parameters:[],steps:[]};
-const record=(id:string,name=id):StationProgramRecord=>({formatVersion:1,id,name,definition,revision:1,archived:false,contentIdentity:'hash'});
+const record=(id:string,name=id):StationProgramRecord=>({formatVersion:1,id,name,definition,revision:1,contentIdentity:'hash'});
 
 describe('program library file management',()=>{
  it('uses 128-bit numeric identities and retries collisions without depending on the wall clock',()=>{
@@ -33,6 +33,5 @@ describe('program library file management',()=>{
   expect(html).toContain(translate('en-US','programs.new'));
   expect(html).not.toContain(`aria-label="${translate('en-US','programs.id')}"`);
   expect(html).not.toContain(`aria-label="${translate('en-US','programs.name')}"`);
-  expect(html).not.toContain(translate('en-US','programs.archive'));
  });
 });

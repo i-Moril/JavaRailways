@@ -911,3 +911,26 @@ User explicitly authorized upload/deploy. Deployed numeric authoring IDs and for
 ### Status
 
 [OK] **Completed**
+
+
+## Session 29: Feedback round4: explicit time points and object actions
+<!-- trellis-session: v=2 fp=cf4e22c20d4c63e3 -->
+
+**Date**: 2026-10-27
+**Task**: Feedback round4: explicit time points and object actions
+**Package**: webui
+**Branch**: `codex/timetable-station-programs`
+
+### Summary
+
+Fixed feedback12/13 with explicit time-point creation, shared dialog and real object menus; stale/reference guards and numeric IDs preserved. Frontend236/WebUI36 pass, real browser acceptance and restart checked. Deployed with recoveryekuh0eth;17assets match,bridge healthy,ATO RUNNING. Keep task unarchived.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ceea884e` | fix(webui): expose time point creation and object actions |
+
+### Status
+
+[OK] **Completed**

@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.simpleato.routing.OperationalRoutePlanner
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions
@@ -450,9 +451,9 @@ internal class StructuralTimetableValidator(private val world: World,
                     OperationalRouteLocation(last.railId, last.arcLengthInAbMeters), OperationalRouteLocation(point.railId, point.arcLength),
                     "structural-onward:${cursor.service.id}:$index:$target", 0, last.facing,
                     world.simpleAtoWorldData.destinations[target]?.approachDirection,
-                    requireUniquePath = true, blockedLocations = world.basicWorldData.wayPoints.all().map {
-                        OperationalRouteLocation(it.railId, it.arcLength)
-                    }))
+                    requireUniquePath = true, blockedLocations = OperationalRoutePlanner(world).waypointBlockers(
+                        targets.getOrNull(targetIndex - 1) ?: candidate.pointId, target
+                    )))
                 require(planned is TopologyRoutePlanningResult.Planned) {
                     (planned as? TopologyRoutePlanningResult.Rejected)?.detail ?: "onward route was not planned" }
                 result = route(planned.route.routeId, result.segments + planned.route.segments)

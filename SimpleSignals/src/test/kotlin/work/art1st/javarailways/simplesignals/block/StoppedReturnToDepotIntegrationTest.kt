@@ -212,7 +212,9 @@ class StoppedReturnToDepotIntegrationTest {
                 // The explicit Reverse action constrains this run's return leg to BA.
                 destinations.register(OperationalDestination("return-depot@return-home", "Home", rail.id, 20.0,
                     null, DestinationRole.DepotStablingPointRole(depot.value, home.pointId, usableLengthMeters = 20.0)))
-                basic.wayPoints.add(WayPoint("inside", "Inside block", rail.id, 100.0))
+                // This is the outbound stop marker; the reversed return passes it in BA.
+                destinations.register(OperationalDestination("inside", "Inside block", rail.id, 100.0,
+                    ViewDirection.AB, DestinationRole.Regular))
                 secondStop?.let { basic.wayPoints.add(WayPoint("second", "Second block stop", rail.id, it)) }
                 data.depots.registerRollingStock(RollingStockRecord(train.id, depot, "test/train", emptySet(),
                     1, 10.0, TrainProfile.maxSpeed, emptySet()), out)

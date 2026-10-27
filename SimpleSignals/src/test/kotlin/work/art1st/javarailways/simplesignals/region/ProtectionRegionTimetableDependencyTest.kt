@@ -82,8 +82,6 @@ class ProtectionRegionTimetableDependencyTest {
                 ato.routePlanningRestrictions.replaceSources(listOf(signals.routePlanningBinding))
                 basic.wayPoints.add(WayPoint("A", "Origin", rail.id, origin))
                 basic.wayPoints.add(WayPoint("B", "Beyond region", rail.id, origin + 25.0))
-                basic.wayPoints.add(WayPoint("C", "Candidate initial position", rail.id, origin + 2.0))
-                basic.wayPoints.add(WayPoint("D", "Internal target", rail.id, origin + 10.0))
                 fun timetable(start: String, target: String, moveInitially: Boolean = false) = Timetable("protection",
                     services = listOf(TimetableService("s1", TrainSelector.TrainId(train.id), listOf(
                         TimetableStep.Check(start), TimetableStep.At(0L, TimetableAction.GoTo(target))))),
@@ -95,6 +93,9 @@ class ProtectionRegionTimetableDependencyTest {
                     assertEquals(setOf(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)),
                         registry.dependencySnapshots().single().dependencies.resourceIds)
                 }
+                // Temporary markers belong only to the rejected internal-endpoint candidate.
+                basic.wayPoints.add(WayPoint("C", "Candidate initial position", rail.id, origin + 2.0))
+                basic.wayPoints.add(WayPoint("D", "Internal target", rail.id, origin + 10.0))
                 val previous = registry.dependencySnapshots().singleOrNull()
                 val oldClocks = dispatcher.saveCheckpoint().clocks
                 val oldLocation = train.head.location.arcLength
@@ -120,6 +121,9 @@ class ProtectionRegionTimetableDependencyTest {
                 assertNull(signals.sectionOccupancySnapshot())
                 assertNull(signals.protectionRouteSelectionSnapshot())
                 assertFalse(coordinator.isStalled)
+                // Remove the rejected candidate's markers before the independent A-to-B query.
+                basic.wayPoints.remove("C")
+                basic.wayPoints.remove("D")
                 // A fresh legal apply still succeeds, independently of absent signal/occupancy baseline.
                 ato.timetables.add(timetable("A", "B"))
                 assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, "protection") } is TimetableEpochStartResult.Started)

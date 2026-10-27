@@ -30,6 +30,12 @@ data class OperationalRouteLocation(
     }
 }
 
+/** A query-local forbidden position, optionally restricted to traversal facing on its owning rail. */
+data class OperationalRouteBlocker(
+    val location: OperationalRouteLocation,
+    val facing: ViewDirection? = null
+)
+
 data class TopologyRoutePlanningInput(
     val topology: TopologyState,
     val restrictions: RoutePlanningRestrictions,
@@ -43,8 +49,8 @@ data class TopologyRoutePlanningInput(
     val endFacing: ViewDirection? = null,
     /** Reject distinct legal physical paths, including longer alternatives. */
     val requireUniquePath: Boolean = false,
-    /** Query-local physical positions that no traversal may enter, including macro interiors. */
-    val blockedLocations: List<OperationalRouteLocation> = emptyList(),
+    /** Query-local forbidden positions and optional local facing, including macro interiors. */
+    val blockedLocations: List<OperationalRouteBlocker> = emptyList(),
     /** Work limit for exhaustive uniqueness proof; exhaustion is a rejection, never success. */
     val uniqueSearchLimit: Int = 100_000
 ) {
@@ -136,9 +142,10 @@ object TopologyRoutePlanner {
                 result.detail
             )
         }
-        val blocked = input.blockedLocations.toList().map { location ->
-            resolveLocation(location, topology) ?: return invalidLocation(location)
-        }.filterNot { point -> point.samePhysicalPosition(start) || point.samePhysicalPosition(end) }
+        val blocked = input.blockedLocations.toList().map { blocker ->
+            val location = resolveLocation(blocker.location, topology) ?: return invalidLocation(blocker.location)
+            ResolvedBlocker(location, blocker.facing?.let { location.edgeDirection(it) })
+        }.filterNot { (point, _) -> point.samePhysicalPosition(start) || point.samePhysicalPosition(end) }
         val graph = QueryGraph(topology, compiled, start, end, blocked)
         val startDirections = input.startFacing?.let { facing -> start.edgeDirection(facing) }?.let(::listOf)
             ?: EdgeDirection.entries
@@ -387,7 +394,7 @@ object TopologyRoutePlanner {
         private val restrictions: CompiledRestrictions,
         start: ResolvedLocation,
         end: ResolvedLocation,
-        private val blocked: List<ResolvedLocation> = emptyList()
+        private val blocked: List<ResolvedBlocker> = emptyList()
     ) {
         private val cutsByEdge: Map<TrackEdgeId, List<Double>>
         private val incidentEnds: Map<TopologyNodeId, List<IncidentEnd>> = buildIncidentEnds(topology)
@@ -399,7 +406,7 @@ object TopologyRoutePlanner {
             restrictions.cutPoints.forEach { point -> cuts.getValue(point.edgeId) += point.distanceMeters }
             cuts.getValue(start.edgeId) += start.edgeDistanceMeters
             cuts.getValue(end.edgeId) += end.edgeDistanceMeters
-            blocked.forEach { cuts.getValue(it.edgeId) += it.edgeDistanceMeters }
+            blocked.forEach { cuts.getValue(it.location.edgeId) += it.location.edgeDistanceMeters }
             cutsByEdge = cuts.mapValues { (_, values) -> values.sorted() }
         }
 
@@ -407,14 +414,23 @@ object TopologyRoutePlanner {
             baseArc(point)?.let(::add)
             addAll(restrictions.macrosByStart[point].orEmpty())
             structuralArcs(point).forEach(::add)
-        }.filterNot { arc -> blocked.any { location ->
-            arc.target.matches(location) || point.matches(location) || arc.segments.any { segment ->
-                if (segment.railId != location.railId) false else {
-                    val distance = if (segment.facing == ViewDirection.AB) location.canonicalAbMeters
-                        else location.railLengthMeters - location.canonicalAbMeters
-                    distance >= segment.startArcLengthMeters - POSITION_EPSILON &&
-                        distance <= segment.endArcLengthMeters + POSITION_EPSILON
-                }
+        }.filterNot { arc -> blocked.any { blocker ->
+            val location = blocker.location
+            fun matches(point: OrientedPoint): Boolean = point.matches(location) &&
+                (blocker.direction == null || blocker.direction == point.direction)
+            matches(point) || matches(arc.target) || arc.segments.any segmentIntersects@ { segment ->
+                val projection = topology.railProjection.getValue(segment.railId).single()
+                if (projection.edgeId != location.edgeId) return@segmentIntersects false
+                val abStart = if (segment.facing == ViewDirection.AB) segment.startArcLengthMeters
+                    else abs(projection.railEndAbMeters - projection.railStartAbMeters) - segment.startArcLengthMeters
+                val abEnd = if (segment.facing == ViewDirection.AB) segment.endArcLengthMeters
+                    else abStart - segment.lengthMeters
+                val segmentStart = resolveLocation(OperationalRouteLocation(segment.railId, abStart), topology)!!
+                val segmentEnd = resolveLocation(OperationalRouteLocation(segment.railId, abEnd), topology)!!
+                segmentStart.edgeId == location.edgeId &&
+                    (blocker.direction == null || blocker.direction == segmentStart.edgeDirection(segment.facing)) &&
+                    location.edgeDistanceMeters >= minOf(segmentStart.edgeDistanceMeters, segmentEnd.edgeDistanceMeters) - POSITION_EPSILON &&
+                    location.edgeDistanceMeters <= maxOf(segmentStart.edgeDistanceMeters, segmentEnd.edgeDistanceMeters) + POSITION_EPSILON
             }
         } }
 
@@ -824,6 +840,8 @@ object TopologyRoutePlanner {
         val edgeId: TrackEdgeId,
         val edgeDistanceMeters: Double
     )
+
+    private data class ResolvedBlocker(val location: ResolvedLocation, val direction: EdgeDirection?)
 
     private data class DirectedEdge(val edgeId: TrackEdgeId, val direction: EdgeDirection)
     private data class UnorientedPoint(val edgeId: TrackEdgeId, val distanceMeters: Double)

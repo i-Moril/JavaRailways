@@ -19,6 +19,7 @@ class TopologyRouteUniquenessTest {
     private fun rail(id: Int, length: Double = 10.0) = TestTopologyRail(UUID(0, id.toLong()), length)
     private fun TestTopologyRail.a() = RailEndpointRef(id, RailEndpoint.A)
     private fun TestTopologyRail.b() = RailEndpointRef(id, RailEndpoint.B)
+    private fun blocker(rail: TestTopologyRail, at: Double, facing: ViewDirection? = null) = OperationalRouteBlocker(location(rail, at), facing)
     private fun location(rail: TestTopologyRail, at: Double) = OperationalRouteLocation(rail.id, at)
     private fun topology(rails: List<TestTopologyRail>, vararg connections: Pair<RailEndpointRef, RailEndpointRef>): TopologyState {
         val continuations = linkedMapOf<RailEndpointRef, MutableSet<RailEndpointRef>>()
@@ -54,7 +55,7 @@ class TopologyRouteUniquenessTest {
         val split = PhysicalTraversalPath(listOf(DirectedRailSpan(shorter.id, ViewDirection.AB, 0.0, 4.0), DirectedRailSpan(shorter.id, ViewDirection.AB, 4.0, 10.0)))
         val duplicate = restrictions(listOf(PhysicalTraversalPath(listOf(shortSpan)), split, split))
         assertTrue(TopologyRoutePlanner.plan(query.copy(restrictions = duplicate)) is TopologyRoutePlanningResult.Planned)
-        assertEquals(TopologyRoutePlanningRejection.UNREACHABLE, rejection(query.copy(restrictions = duplicate, blockedLocations = listOf(location(shorter, 5.0)))))
+        assertEquals(TopologyRoutePlanningRejection.UNREACHABLE, rejection(query.copy(restrictions = duplicate, blockedLocations = listOf(blocker(shorter, 5.0)))))
         assertEquals(TopologyRoutePlanningRejection.UNREACHABLE, rejection(query.copy(restrictions = duplicate, end = location(shorter, 5.0))))
     }
 
@@ -63,11 +64,11 @@ class TopologyRouteUniquenessTest {
         val start = location(rail, 2.0); val via = location(rail, 15.0); val end = location(rail, 28.0)
         for (reverse in listOf(false, true)) {
             val from = if (reverse) end else start; val to = if (reverse) start else end
-            val query = input(topology, from, to).copy(startFacing = if (reverse) ViewDirection.BA else ViewDirection.AB, blockedLocations = listOf(start, via, end))
+            val query = input(topology, from, to).copy(startFacing = if (reverse) ViewDirection.BA else ViewDirection.AB, blockedLocations = listOf(start, via, end).map(::OperationalRouteBlocker))
             assertEquals(TopologyRoutePlanningRejection.UNREACHABLE, rejection(query))
             assertTrue(TopologyRoutePlanner.plan(query.copy(end = via)) is TopologyRoutePlanningResult.Planned)
             assertTrue(TopologyRoutePlanner.plan(query.copy(start = via)) is TopologyRoutePlanningResult.Planned)
-            assertTrue(TopologyRoutePlanner.plan(query.copy(blockedLocations = listOf(start, end, start))) is TopologyRoutePlanningResult.Planned)
+            assertTrue(TopologyRoutePlanner.plan(query.copy(blockedLocations = listOf(start, end, start).map(::OperationalRouteBlocker))) is TopologyRoutePlanningResult.Planned)
         }
     }
 
@@ -75,8 +76,41 @@ class TopologyRouteUniquenessTest {
         val first = rail(1); val second = rail(2)
         val topology = topology(listOf(first, second), first.b() to second.a())
         val query = input(topology, location(first, 1.0), location(second, 0.0))
-        assertTrue(TopologyRoutePlanner.plan(query.copy(blockedLocations = listOf(location(first, 10.0)))) is TopologyRoutePlanningResult.Planned)
+        assertTrue(TopologyRoutePlanner.plan(query.copy(blockedLocations = listOf(blocker(first, 10.0)))) is TopologyRoutePlanningResult.Planned)
         assertEquals(TopologyRoutePlanningRejection.INVALID_LOCATION, rejection(query.copy(start = location(first, 10.0))))
+    }
+
+    @Test fun `directional blockers follow local rail orientation in ordinary and protected traversals`() {
+        val first = rail(1); val reversed = rail(2); val last = rail(3)
+        val topology = topology(listOf(first, reversed, last), first.b() to reversed.b(), reversed.a() to last.a())
+        val query = input(topology, location(first, 1.0), location(last, 9.0))
+        val span = DirectedRailSpan(reversed.id, ViewDirection.BA, 0.0, 10.0)
+        val protected = RoutePlanningRestrictions(topology.revision,
+            pathReplacements = listOf(PathReplacement(listOf(span), listOf(PhysicalTraversalPath(listOf(span))))))
+        for (restrictions in listOf(query.restrictions, protected)) {
+            for (at in listOf(0.0, 5.0, 10.0)) {
+                assertTrue(TopologyRoutePlanner.plan(query.copy(restrictions = restrictions,
+                    blockedLocations = listOf(blocker(reversed, at, ViewDirection.AB)))) is TopologyRoutePlanningResult.Planned)
+                assertEquals(TopologyRoutePlanningRejection.UNREACHABLE, rejection(query.copy(restrictions = restrictions,
+                    blockedLocations = listOf(blocker(reversed, at, ViewDirection.BA)))))
+                assertEquals(TopologyRoutePlanningRejection.UNREACHABLE, rejection(query.copy(restrictions = restrictions,
+                    blockedLocations = listOf(blocker(reversed, at)))))
+            }
+        }
+    }
+
+    @Test fun `directional boundary aliases use normalized orientation inside protected macro`() {
+        val first = rail(1); val reversed = rail(2); val last = rail(3)
+        val topology = topology(listOf(first, reversed, last), first.b() to reversed.b(), reversed.a() to last.a())
+        val spans = listOf(DirectedRailSpan(first.id, ViewDirection.AB, 2.0, 10.0),
+            DirectedRailSpan(reversed.id, ViewDirection.BA, 0.0, 10.0),
+            DirectedRailSpan(last.id, ViewDirection.AB, 0.0, 8.0))
+        val protected = RoutePlanningRestrictions(topology.revision,
+            pathReplacements = listOf(PathReplacement(spans, listOf(PhysicalTraversalPath(spans)))))
+        val query = input(topology, location(first, 1.0), location(last, 9.0)).copy(restrictions = protected)
+        assertTrue(TopologyRoutePlanner.plan(query.copy(blockedLocations = listOf(blocker(first, 10.0, ViewDirection.BA)))) is TopologyRoutePlanningResult.Planned)
+        assertEquals(TopologyRoutePlanningRejection.UNREACHABLE,
+            rejection(query.copy(blockedLocations = listOf(blocker(first, 10.0, ViewDirection.AB)))))
     }
 
     @Test fun `single required loop wrap is allowed but extra junction detours are not another simple path`() {
@@ -93,6 +127,6 @@ class TopologyRouteUniquenessTest {
     @Test fun `work limit is an explicit inconclusive rejection and invalid prune locations are not ignored`() {
         val rail = rail(1); val topology = topology(listOf(rail)); val query = input(topology, location(rail, 1.0), location(rail, 9.0))
         assertEquals(TopologyRoutePlanningRejection.SEARCH_LIMIT_EXCEEDED, rejection(query.copy(uniqueSearchLimit = 1)))
-        assertEquals(TopologyRoutePlanningRejection.INVALID_LOCATION, rejection(query.copy(blockedLocations = listOf(OperationalRouteLocation(UUID(9, 9), 1.0)))))
+        assertEquals(TopologyRoutePlanningRejection.INVALID_LOCATION, rejection(query.copy(blockedLocations = listOf(OperationalRouteBlocker(OperationalRouteLocation(UUID(9, 9), 1.0))))))
     }
 }

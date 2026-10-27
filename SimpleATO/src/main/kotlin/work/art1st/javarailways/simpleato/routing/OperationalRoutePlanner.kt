@@ -4,6 +4,8 @@ import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.route.planning.OperatingDirectionOverlay
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.route.ExpandedRoute
+import work.art1st.javarailways.basic.route.OperationalRouteBlocker
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.basic.route.OperationalRouteLocation
 import work.art1st.javarailways.basic.api.route.RailViewRef
 import work.art1st.javarailways.simpleato.routing.RouteBuildResult
@@ -52,6 +54,7 @@ class OperationalRoutePlanner(private val world: World) {
     ): RouteBuildResult {
         val topology = world.topologyState
         val simpleAto = world.simpleAtoWorldData
+        val blockers = if (pruneNonTargetWaypoints) waypointBlockers(from.id, to.id) else emptyList()
         return when (val result = plan(
             topology = topology,
             operatingDirections = world.basicWorldData.operatingDirections.overlay(topology),
@@ -63,9 +66,7 @@ class OperationalRoutePlanner(private val world: World) {
             startFacing = requiredStartDirection,
             endFacing = requiredGoalDirection,
             requireUniquePath = requireUniquePath,
-            blockedLocations = if (pruneNonTargetWaypoints) world.basicWorldData.wayPoints.all().map {
-                OperationalRouteLocation(it.railId, it.arcLength)
-            } else emptyList()
+            blockedLocations = blockers
         )) {
             is TopologyRoutePlanningResult.Planned -> {
                 val segments = result.route.segments.filter { segment ->
@@ -91,6 +92,21 @@ class OperationalRoutePlanner(private val world: World) {
         }
     }
 
+    /** Station semantics stay here; Basic receives only rail positions and local facing. */
+    internal fun waypointBlockers(fromId: String?, toId: String): List<OperationalRouteBlocker> {
+        val simpleAto = world.simpleAtoWorldData
+        val endpointStations = listOfNotNull(fromId, toId).mapNotNull {
+            (simpleAto.destinations[it]?.role as? DestinationRole.StationBerthRole)?.stationId
+        }.toSet()
+        return world.basicWorldData.wayPoints.all().mapNotNull { waypoint ->
+            val destination = simpleAto.destinations[waypoint.id]
+            val station = (destination?.role as? DestinationRole.StationBerthRole)?.stationId
+            if (station != null && station in endpointStations) null else OperationalRouteBlocker(
+                OperationalRouteLocation(waypoint.railId, waypoint.arcLength), destination?.approachDirection
+            )
+        }
+    }
+
     internal companion object {
         private const val ROUTE_POSITION_EPSILON = 1.0e-9
 
@@ -106,7 +122,7 @@ class OperationalRoutePlanner(private val world: World) {
             startFacing: ViewDirection? = null,
             endFacing: ViewDirection? = null,
             requireUniquePath: Boolean = false,
-            blockedLocations: List<OperationalRouteLocation> = emptyList()
+            blockedLocations: List<OperationalRouteBlocker> = emptyList()
         ): TopologyRoutePlanningResult {
             val restrictions = try {
                 planningRestrictions.compile(topology, operatingDirections)

@@ -100,6 +100,12 @@ Dispatcher在安装inspection binding或向Basic提交准入前，把完整exact
 拥有释放权。只有旧binding和Basic admission生命周期结束后才删除依赖，任何set/remove失败均保留较安全旧状态并stall。
 时刻表应用时的静态selected-route dependency仍使用另一owner及独立生命周期。
 
+### 非目标 waypoint 剪枝例外
+
+时刻表与 Reset 使用的 `pruneNonTargetWaypoints` 仍要求实际途经的其他站点／普通 waypoint 被显式指定。组装剪枝候选时，SimpleATO 通过 canonical destination 的 `StationBerthRole.stationId` 排除起点与终点所属车站的其他停车位置；不解析名称前缀。候选的 approachDirection 为 null 时双向生效，非空时由 Basic 按候选所在 rail 上的实际 traversal facing 判断，反向经过不剪枝。standalone WayPoint 没有方向，保持双向剪枝。
+
+这修正了同站 U/D 停车点自动派生为 WayPoint 后互相阻塞的问题，例如到八丁堀 2U 前经过 2D。例外只作用于 waypoint 剪枝，不放宽轨道运行方向、保护路径不可拆分或物理路径唯一性。无持久化格式变更。
+
 ### 3.2 冻结路线与准入客户端
 
 冻结路线保存其生成时读取的 `topologyRevision`、独立的 `routeRevision` 和有序 traversal。

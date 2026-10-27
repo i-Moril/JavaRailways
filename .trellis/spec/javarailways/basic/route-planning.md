@@ -142,7 +142,7 @@ val runsFirstToSecond = if (facing == ViewDirection.AB) railRunsFirstToSecond el
 
 ## 显式唯一路径证明与禁止经过的位置（CURRENT）
 
-纯规划输入增加 requireUniquePath=false、blockedLocations=[]、uniqueSearchLimit=100000，非严格默认仍为原最短路。SimpleATO 提供运营 waypoint 策略，Basic 只消费物理位置。blockedLocations 解析到同一 topology 的切点；查询起终点同位 alias 被排除，中间位置对普通弧和保护替换弧的真实 rail slices 都生效。端点落在原子保护路径内部不能任意切开该路径，保持不可达拒绝。查询失败不改变拓扑、资源或授权。
+纯规划输入增加 requireUniquePath=false、blockedLocations=[]、uniqueSearchLimit=100000，非严格默认仍为原最短路。SimpleATO 提供运营 waypoint 策略，Basic 只消费 `OperationalRouteBlocker(location, facing?)` 的物理位置及可选本轨道行驶方向。剪枝位置解析到同一 topology 的切点；查询起终点同位 alias 被排除。未指定方向时阻断双向，指定方向时只阻断沿该 rail facing 经过的路径；须覆盖普通弧、结构端点和保护替换弧内部的真实 rail slices。不能把不同轨道的 AB/BA 当作全局上行/下行比较。端点落在原子保护路径内部不能任意切开该路径，保持不可达拒绝。查询失败不改变拓扑、资源或授权。
 
 `requireUniquePath=true` 使用有工作预算的迭代深度搜索，检查全部合法物理简单路径，找到第二条不同路径即 AMBIGUOUS；两条路径长度不同也拒绝，不能只证明最短路径唯一。状态记录有方向切点、当前路径 rail intervals 和 node visits，回溯删除当前分支状态，拒绝重复占用物理区间及不同距离重复访问节点的绕圈捷径。每条保护区域替换弧展开真实 rail footprint 做同样检查，归一相邻同向片段后比较物理路径，重复的相同替换描述不伪装为不同路线。
 

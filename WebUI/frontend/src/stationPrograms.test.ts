@@ -16,7 +16,7 @@ const call={id:'call-1',programId:'turnback',tick:900,arguments:{target:'b@1'}};
 const document=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),boundPrograms:[snapshot],diagramLines:[{id:'line',upStationIds:['a','b'],downStationIds:['b','a']}],runs:[
   {id:'up',type:'PASSENGER',lineId:'line',diagramLineId:'line',lineDirection:'UP',calls:[{id:'a',stationId:'a',targetId:'a@1',status:'ORIGIN',departureTick:100},{id:'b',stationId:'b',targetId:'b@1',status:'TERMINAL',arrivalTick:800}]},
   {id:'down',type:'PASSENGER',lineId:'line',diagramLineId:'line',lineDirection:'DOWN',calls:[{id:'c',stationId:'b',targetId:'b@1',status:'ORIGIN',departureTick:1000},{id:'d',stationId:'a',targetId:'a@1',status:'TERMINAL',arrivalTick:1800}]},
-],duties:[{id:'duty',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'up',type:'RUN',runId:'up'},{id:'program',type:'PROGRAM',call},{id:'down',type:'RUN',runId:'down'}]}]});
+],duties:[{id:'duty',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'up',type:'RUN',runId:'up'},{id:'program',type:'PROGRAM',tick:call.tick,program:{programId:call.programId,arguments:call.arguments}},{id:'down',type:'RUN',runId:'down'}]}]});
 afterEach(()=>vi.unstubAllGlobals());
 describe('shared station program bindings',()=>{
   it('keeps ordered dynamic stop candidates typed and rejects empty or duplicate bound choices',()=>{
@@ -24,7 +24,7 @@ describe('shared station program bindings',()=>{
     expect(validateStationProgram(selection,{station:'central',berths:['long','short']})).toEqual([]);
     for(const berths of [[],['long','long']])expect(validateStationProgram(selection,{station:'central',berths}).join(' ')).toContain('distinct nonempty');
     expect(validateStationProgram({...selection,parameters:[{id:'station',type:'DESTINATION'},{id:'berths',type:'ID_LIST'}]}).join(' ')).toContain('incompatible');
-    const doc=document();doc.boundPrograms=[{...snapshot,definition:selection}];doc.duties[0].elements[1]={id:'program',type:'PROGRAM',call:{...call,arguments:{station:'central',berths:['long','short']}}};
+    const doc=document();doc.boundPrograms=[{...snapshot,definition:selection}];doc.duties[0].elements[1]={id:'program',type:'PROGRAM',tick:call.tick,program:{programId:call.programId,arguments:{station:'central',berths:['long','short']}}};
     const before=JSON.stringify(doc);expect(generateTimetableSource(doc).source).toContain('AVAILABLE_PRIORITY');expect(JSON.stringify(doc)).toBe(before);
   });
   it('validates both timed branch arms and rejects conditional fixed obligations',()=>{
@@ -57,20 +57,20 @@ describe('shared station program bindings',()=>{
     expect(second.boundPrograms![0].revision).toBe(1);expect(adoptStationProgram(adopted,library)).toBe(adopted);
   });
   it('emits one embedded definition for repeated calls with quoted arguments and stable call attribution',()=>{
-    const value=document();value.duties[0].elements.splice(2,0,{id:'again',type:'PROGRAM',call:{...call,id:'call-2'}});
+    const value=document();value.duties[0].elements.splice(2,0,{id:'again',type:'PROGRAM',tick:call.tick,program:{programId:call.programId,arguments:call.arguments}});
     const source=generateTimetableSource(value).source;
     expect(validateAuthoringDocument(value).some((issue)=>issue.message.includes('Duplicate program call ID'))).toBe(false);
     expect(source.match(/const program0 =/g)).toHaveLength(1);expect(source.match(/\.program\("turnback", program0/g)).toHaveLength(2);
-    expect(source).toContain('duty:duty/element:program/call:call-1');expect(source).toContain('duty:duty/element:again/call:call-2');
-    value.duties[0].elements.splice(2,0,{id:'duplicate',type:'PROGRAM',call});expect(validateAuthoringDocument(value).some((issue)=>issue.message.includes('Duplicate program call ID'))).toBe(true);value.duties[0].elements.splice(2,1);
+    expect(source).toContain('duty:duty/element:program/call:program');expect(source).toContain('duty:duty/element:again/call:again');
+    value.duties[0].elements.splice(2,0,{id:'program',type:'PROGRAM',tick:call.tick,program:{programId:call.programId,arguments:call.arguments}});expect(validateAuthoringDocument(value).some((issue)=>issue.message.includes('Duplicate element ID'))).toBe(true);value.duties[0].elements.splice(2,1);
     const before=generateTimetableSource(value);const changed=adoptStationProgram(value,record(2));expect(generateTimetableSource(changed).documentHashInput).not.toBe(before.documentHashInput);
-    value.duties[0].elements[1]={id:'program',type:'PROGRAM',call:{...call,arguments:{target:'x"; injected() //'}}};
+    value.duties[0].elements[1]={id:'program',type:'PROGRAM',tick:call.tick,program:{programId:call.programId,arguments:{target:'x"; injected() //'}}};
     expect(generateTimetableSource(value).source).toContain(`JSON.parse(${JSON.stringify(JSON.stringify({target:'x"; injected() //'}))})`);
   });
   it('retains known run location through nonmoving and consecutive programs',()=>{
     const value=document();value.boundPrograms=[{...snapshot,definition:{parameters:[],steps:[{id:'reverse',type:'REVERSE'}]}}];
-    value.duties[0].elements[1]={id:'program',type:'PROGRAM',call:{...call,arguments:{}}};
-    value.duties[0].elements.splice(2,0,{id:'again',type:'PROGRAM',call:{...call,id:'call-2',arguments:{}}});
+    value.duties[0].elements[1]={id:'program',type:'PROGRAM',tick:call.tick,program:{programId:call.programId,arguments:{}}};
+    value.duties[0].elements.splice(2,0,{id:'again',type:'PROGRAM',tick:call.tick,program:{programId:call.programId,arguments:{}}});
     expect(validateAuthoringDocument(value)).toEqual([]);
     value.runs[1].calls[0].targetId='wrong-origin';expect(validateAuthoringDocument(value).some((issue)=>issue.message.includes('Program location discontinuity'))).toBe(true);
   });

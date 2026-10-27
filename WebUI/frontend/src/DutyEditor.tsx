@@ -1,5 +1,7 @@
 import {defaultStationStopProgram} from './stationPlans';
 import {defaultDutyProgramArguments,orderDutyTimeline,projectDutyTimeline,sortDutyTasks} from './dutyTimeline';
+import {TimedOperationFields} from './TimedOperationFields';
+import {projectTimetableOperations,validateTimedOperation} from './timedOperations';
 import {TimetableEventsEditor} from './TimetableEventsEditor';
 import {deleteTimetableEvent,saveTimetableEvent,timetableEventUnchanged,referencedTimetableEventIds,type GraphEventContext} from './timetableEvents';
 import {renameFormationDuty} from './formationAuthoring';
@@ -19,7 +21,7 @@ import {
 import {loadLastAuthoringDocument,rememberAuthoringDocument,resumeAuthoringWorkspace} from './authoringResume';
 import { clearAuthoringRecovery,loadAuthoringRecovery,saveAuthoringRecovery } from './authoringRecovery';
 import { useDocumentHistory } from './documentHistory';
-import { Graph } from './Graph';
+import { Graph,type GraphDutyOperationContext } from './Graph';
 import { getProgramBlockDraftValidity } from './ProgramBlockEditor';
 import { RunRouteEditor } from './RunRouteEditor';
 import { editAuthoringGraphTime,shiftAuthoringGraphSuffix } from './authoringGraphEditing';
@@ -31,7 +33,7 @@ import type { AuthoringCommand,AuthoringCommandState } from './authoringCommands
 import { TimetableWorkspace } from './TimetableWorkspace';
 import { useI18n } from './i18n';
 import { formatTimetableTick } from './timetableTime';
-import type { StationProgramRecord,StationProgramCall,CompiledTimetableSource,EditorDocumentSummary,LineV1,TimetableEventPoint,TimetableSimulationResult,WorldMetadata } from './types';
+import type { StationProgramRecord,TimedOperation,CompiledTimetableSource,EditorDocumentSummary,LineV1,TimetableEventPoint,TimetableSimulationResult,WorldMetadata } from './types';
 
 const uid=(prefix:string)=>`${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`;
 const hash=(value:string)=>{let result=2166136261;for(let index=0;index<value.length;index++){result^=value.charCodeAt(index);result=Math.imul(result,16777619);}return (result>>>0).toString(16).padStart(8,'0');};
@@ -50,7 +52,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   const [programResources,setProgramResources]=useState<{world:string;records:StationProgramRecord[]}>({world:'',records:[]});
   const [programError,setProgramError]=useState('');const [programLoading,setProgramLoading]=useState(false);const programRequest=useRef(0);
   const loadPrograms=async()=>{const token=++programRequest.current;setProgramLoading(true);setProgramError('');try{const records=await api.stationPrograms(world);if(token===programRequest.current)setProgramResources({world,records});}catch(failure){if(token===programRequest.current)setProgramError(String(failure));}finally{if(token===programRequest.current)setProgramLoading(false);}};
-  useEffect(()=>{if(page==='duties'&&world)void loadPrograms();return()=>{programRequest.current++;};},[world,page]);
+  useEffect(()=>{if(page!=='validation'&&world)void loadPrograms();return()=>{programRequest.current++;};},[world,page]);
   const programLibrary=programResources.world===world?programResources.records:[];
   const [documents,setDocuments]=useState<EditorDocumentSummary[]>([]);
   const blockDraftKey=useRef(initialRecovery?.blockDraftKey||(initialRecovery?.documentId||initialDocument.id));
@@ -65,7 +67,10 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   const [previewRun,setPreviewRun]=useState<AuthoringRunV1>();
   const [moveOpen,setMoveOpen]=useState(false);
   const [selectedPoint,setSelectedPoint]=useState<{runId:string;callId:string;kind:'ARRIVAL'|'DEPARTURE';stepIndex:number;routeSignature:string;anchor:{x:number;y:number}}>();
-  const [eventDraft,setEventDraft]=useState<{scope:string;original?:TimetableEventPoint;stationId:string;tick:number;label:string;valid:boolean}>();
+  const [eventDraft,setEventDraft]=useState<{scope:string;original?:TimetableEventPoint;operation:TimedOperation;valid:boolean}>();
+  const [pendingGraphEvent,setPendingGraphEvent]=useState<{id:string;scope:string}>();
+  const [focusedDutyElement,setFocusedDutyElement]=useState<{dutyId:string;elementId:string;scope:string}>();
+  const [dutyOperationMenu,setDutyOperationMenu]=useState<GraphDutyOperationContext&{scope:string}>();
   const [eventMenu,setEventMenu]=useState<GraphEventContext&{scope:string}>();
   const [moveSource,setMoveSource]=useState('');
   const [copyOpen,setCopyOpen]=useState(false);
@@ -357,12 +362,21 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
       const next=value.boundPrograms?.some((item)=>item.programId===programId)?value:record?adoptStationProgram(value,record):undefined;
       const snapshot=next?.boundPrograms?.find((item)=>item.programId===programId);if(!next||!snapshot)return;
       const tick=Math.min(value.periodDays*24000-1,Math.max(0,...projectDutyTimeline(value,selectedDutyValue,simulation).map((task)=>task.endTick??task.startTick)));
-      const call:StationProgramCall={id:uid('program-call'),programId,tick,arguments:defaultDutyProgramArguments(snapshot.definition.parameters)};
-      setValue({...next,duties:next.duties.map((duty)=>{if(duty.id!==selectedDutyValue.id)return duty;const updated:AuthoringDutyV1={...duty,elements:[...duty.elements,{id:uid('element'),type:'PROGRAM',call}]};return {...updated,elements:sortDutyTasks(next,updated)};})});
+      const operation:TimedOperation={id:uid('element'),tick,program:{programId,arguments:defaultDutyProgramArguments(snapshot.definition.parameters)}};
+      setValue({...next,duties:next.duties.map((duty)=>{if(duty.id!==selectedDutyValue.id)return duty;const updated:AuthoringDutyV1={...duty,elements:[...duty.elements,{...operation,type:'PROGRAM',program:operation.program!}]};return {...updated,elements:sortDutyTasks(next,updated)};})});
     }catch(failure){onError(String(failure));}
   };
   const adoptProgram=(programId:string)=>{const record=programLibrary.find((item)=>item.id===programId);if(!record)return;try{setValue(adoptStationProgram(value,record));}catch(failure){onError(String(failure));}};
-  const patchProgram=(elementId:string,patch:Partial<StationProgramCall>)=>{if(!selectedDutyValue)return;const updated:AuthoringDutyV1={...selectedDutyValue,elements:selectedDutyValue.elements.map((element)=>element.id===elementId&&element.type==='PROGRAM'?{...element,call:{...element.call,...patch}}:element)};patchDuty(selectedDutyValue.id,{elements:sortDutyTasks(value,updated)});};
+  const patchProgram=(elementId:string,patch:Partial<TimedOperation>)=>{
+    if(!selectedDutyValue)return;
+    const programId=patch.program?.programId,record=programLibrary.find((item)=>item.id===programId);
+    try{const next=programId&&!value.boundPrograms?.some((item)=>item.programId===programId)&&record?adoptStationProgram(value,record):value;
+      const updated:AuthoringDutyV1={...selectedDutyValue,elements:selectedDutyValue.elements.map((element)=>element.id===elementId&&element.type==='PROGRAM'?{...element,...patch,id:element.id,type:'PROGRAM',program:patch.program??element.program}:element)};
+      setValue({...next,duties:next.duties.map((duty)=>duty.id===updated.id?{...updated,elements:sortDutyTasks(next,updated)}:duty)});
+    }catch(failure){onError(String(failure));}
+  };
+  const referenceEvent=(eventId:string)=>{if(!selectedDutyValue||!value.events?.some((event)=>event.id===eventId&&event.program))return;const updated:AuthoringDutyV1={...selectedDutyValue,elements:[...selectedDutyValue.elements,{id:uid('element'),type:'EVENT',eventId}]};patchDuty(updated.id,{elements:sortDutyTasks(value,updated)});};
+
   const patchTimelineDuty=(patch:Partial<AuthoringDutyV1>)=>{if(!selectedDutyValue)return;renameDuty({...patch,...(patch.elements?{elements:sortDutyTasks(value,{...selectedDutyValue,...patch})}:{})});};
   const selectGraphRun=(serviceIndex:number)=>{const runId=graphValue.services[serviceIndex]?.id,run=value.runs.find((candidate)=>candidate.id===runId);if(runId){setSelectedRun(runId);setFocusedCall('');}if(run)setRunDirection(run.lineDirection);if(run?.diagramLineId)setGraphLineId(run.diagramLineId);};
   const addRunToSelectedDuty=(runId:string)=>{
@@ -451,12 +465,11 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   const eventStationIds=[...new Set(lines.flatMap((line)=>[...line.upStationIds,...line.downStationIds]))];
   const currentGraphLine=lines.find((line)=>line.id===graphLineId);
   const newEventStationId=currentGraphLine?.upStationIds[0]??currentGraphLine?.downStationIds[0];
-  useEffect(()=>{setEventDraft(undefined);setEventMenu(undefined);},[eventScope]);
+  useEffect(()=>{setEventDraft(undefined);setEventMenu(undefined);setDutyOperationMenu(undefined);},[eventScope]);
   const openGraphEvent=(original?:TimetableEventPoint)=>{
     if(original&&!timetableEventUnchanged(value.events??[],original)){onError(t('events.changed'));return;}
-    if(!original&&!newEventStationId)return;
     setSelectedPoint(undefined);setEventMenu(undefined);
-    setEventDraft({scope:eventScope,original:original?{...original}:undefined,stationId:original?.stationId??newEventStationId!,tick:original?.tick??0,label:original?.label??'',valid:true});
+    setEventDraft({scope:eventScope,original:original?{...original}:undefined,operation:original?structuredClone(original):{id:'',stationId:newEventStationId,tick:0},valid:true});
   };
   const deleteEvent=(original:TimetableEventPoint)=>{
     try{const events=deleteTimetableEvent(value.events??[],original);setValue((current)=>({...current,events}));setEventDraft(undefined);setEventMenu(undefined);}
@@ -466,13 +479,20 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     if(eventDraft?.scope!==eventScope||!eventDraft?.valid)return;
     const draft=eventDraft;
     try{
-      const event:TimetableEventPoint={id:draft.original?.id??'',stationId:draft.stationId,tick:draft.tick,...(draft.label.trim()?{label:draft.label.trim()}:{})};
-      const events=saveTimetableEvent(value.events??[],event,value.periodDays*24000,eventStationIds,draft.original,referencedTimetableEventIds(value));
-      setValue((current)=>({...current,events}));setEventDraft(undefined);
+      const event:TimetableEventPoint={...draft.operation,id:draft.original?.id??''};
+      const programId=event.program?.programId,record=programLibrary.find((item)=>item.id===programId);
+      const next=programId&&!value.boundPrograms?.some((binding)=>binding.programId===programId)&&record?adoptStationProgram(value,record):value;
+      const events=saveTimetableEvent(next.events??[],event,value.periodDays*24000,eventStationIds,draft.original,referencedTimetableEventIds(value));
+      setValue({...next,events});setEventDraft(undefined);
     }catch{onError(t(draft.original&&!timetableEventUnchanged(value.events??[],draft.original)?'events.changed':'ui.invalidNumber'));}
   };
   const visibleEventMenu=eventMenu?.scope===eventScope&&timetableEventUnchanged(value.events??[],eventMenu.event)?eventMenu:undefined;
-  const eventDraftValid=!!eventDraft&&eventDraft.scope===eventScope&&eventDraft.valid&&eventStationIds.includes(eventDraft.stationId)&&Number.isSafeInteger(eventDraft.tick)&&eventDraft.tick>=0&&eventDraft.tick<value.periodDays*24000&&(!eventDraft.original||timetableEventUnchanged(value.events??[],eventDraft.original));
+  const eventDraftValid=!!eventDraft&&eventDraft.scope===eventScope&&eventDraft.valid&&!validateTimedOperation(eventDraft.operation,value.periodDays*24000).length&&(!eventDraft.operation.stationId||eventStationIds.includes(eventDraft.operation.stationId))&&(!eventDraft.original||timetableEventUnchanged(value.events??[],eventDraft.original));
+  const projectedOperations=projectTimetableOperations(value,simulation);
+  const visibleDutyOperationMenu=dutyOperationMenu?.scope===eventScope&&projectedOperations.some((item)=>item.owner==='DUTY'&&item.dutyId===dutyOperationMenu.dutyId&&item.elementId===dutyOperationMenu.elementId&&JSON.stringify(item.operation)===JSON.stringify(dutyOperationMenu.operation))?dutyOperationMenu:undefined;
+  useEffect(()=>{if(page!=='graph'||!pendingGraphEvent)return;const original=pendingGraphEvent.scope===fieldScope?value.events?.find((event)=>event.id===pendingGraphEvent.id):undefined;setPendingGraphEvent(undefined);if(original)setEventDraft({scope:eventScope,original:structuredClone(original),operation:structuredClone(original),valid:true});},[page,eventScope,fieldScope,pendingGraphEvent,value.events]);
+  const openDutyOperation=(dutyId:string,elementId:string)=>{const duty=value.duties.find((item)=>item.id===dutyId),element=duty?.elements.find((item)=>item.id===elementId);if(!duty||element?.type!=='PROGRAM')return;setSelectedDuty(duty.id);setFocusedDutyElement({dutyId,elementId,scope:fieldScope});const snapshot=value.boundPrograms?.find((item)=>item.programId===element.program.programId);if(snapshot)setFocusedProgram({epoch:ownerEpoch.current,target:{dutyId,elementId,callId:elementId,programId:snapshot.programId,revision:snapshot.revision,contentIdentity:snapshot.contentIdentity}});onPageChange?.('duties');};
+
 
   const runTools=<section className="option-section"><Typography.Title level={5}>{t('ui.resetSetup')}</Typography.Title><div className="function-fields">
     <label>{t('duties.originDepartureMode')}<Select value={selectedRunValue?.originDepartureMode??'AUTO'} options={(['AUTO','CONTINUE','REVERSE'] as const).map((mode)=>({value:mode,label:t(`duties.originDeparture.${mode}`)}))} onChange={(originDepartureMode)=>selectedRunValue&&replaceRun({...selectedRunValue,originDepartureMode})}/><Typography.Text type="secondary">{t('duties.originDepartureHelp')}</Typography.Text></label>
@@ -492,7 +512,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     <Flex gap={6} wrap><Button icon={<EditOutlined/>} onClick={()=>void renameFormalScript()} disabled={busy||!persistedFormalScriptName||formalScriptName===persistedFormalScriptName}>{t('duties.renameScript')}</Button><Button danger icon={<DeleteOutlined/>} onClick={()=>void deleteFormalScript()} disabled={busy||!persistedFormalScriptName}>{t('duties.deleteScript')}</Button><Button danger onClick={()=>void remove()} disabled={!documentId||busy||!!persistedFormalScriptName}>{t('common.deleteDocument')}</Button></Flex>
   </div>;
   return <section className="duty-page studio-timetable-page">
-    {page==='duties'?<DutyManagement onValidityChange={onAdvancedValidityChange} simulation={simulation} onSimulate={()=>void simulate()} simulationReason={simulationReason} busy={busy} document={value} onDocumentChange={setValue} formationEvents={value.formationEvents} onFormationEventsChange={(formationEvents)=>setValue((current)=>({...current,formationEvents}))} focusedProgram={visibleFocusedProgram} onOpenProgramLibrary={onOpenProgramLibrary} programLibrary={programLibrary} boundPrograms={value.boundPrograms} programError={programError} programLoading={programLoading} onRefreshPrograms={()=>void loadPrograms()} onAddProgram={addProgram} onAdoptProgram={adoptProgram} onPatchProgram={patchProgram} fieldScope={fieldScope} duties={value.duties} runs={value.runs} selectedId={selectedDuty} metadata={metadata} onSelect={setSelectedDuty} onAdd={addDuty}
+    {page==='duties'?<DutyManagement focusedDutyElement={focusedDutyElement?.scope===fieldScope?focusedDutyElement:undefined} onOperationValidityChange={(dutyId,elementId,valid)=>onDraftValidityChange(`duty/${dutyId}/${elementId}`,valid)} onReferenceEvent={referenceEvent} onOpenGraphEvent={(id)=>{setPendingGraphEvent({id,scope:fieldScope});onPageChange?.('graph');}} onValidityChange={onAdvancedValidityChange} simulation={simulation} onSimulate={()=>void simulate()} simulationReason={simulationReason} busy={busy} document={value} onDocumentChange={setValue} formationEvents={value.formationEvents} onFormationEventsChange={(formationEvents)=>setValue((current)=>({...current,formationEvents}))} focusedProgram={visibleFocusedProgram} onOpenProgramLibrary={onOpenProgramLibrary} programLibrary={programLibrary} boundPrograms={value.boundPrograms} programError={programError} programLoading={programLoading} onRefreshPrograms={()=>void loadPrograms()} onAddProgram={addProgram} onAdoptProgram={adoptProgram} onPatchProgram={patchProgram} fieldScope={fieldScope} duties={value.duties} runs={value.runs} selectedId={selectedDuty} metadata={metadata} onSelect={setSelectedDuty} onAdd={addDuty}
       onDelete={()=>{if(!selectedDutyValue||!window.confirm(t('ui.confirmDuty')))return;setValue((current)=>({...current,operationalTrips:current.operationalTrips?.map((trip)=>({...trip,segments:trip.segments.filter((s)=>s.serviceId!==selectedDutyValue.id)})),duties:current.duties.filter((duty)=>duty.id!==selectedDutyValue.id)}));setSelectedDuty('');}}
       onPatch={patchTimelineDuty} onAssign={assignRun} onRemove={removeElement} onViewRun={viewRun}/>:page==='validation'?<AuthoringValidation fieldScope={fieldScope} duties={value.duties} issues={generated.issues} compiled={compiled} compileError={compileFailure?.key===generated.documentHashInput?compileFailure.message:''}
       simulation={simulation} profiles={simulationProfiles} assignments={profileAssignments} threshold={delayThresholdTicks} conflicting={hasConflictingProfiles} busy={busy} compileReason={compileReason} simulationReason={simulationReason} delayedOrigin={delayedOrigin} source={generated.source}
@@ -503,11 +523,11 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
       onLineChange={(lineId)=>{setGraphLineId(lineId);const first=value.runs.find((run)=>run.diagramLineId===lineId&&run.lineDirection===runDirection);setSelectedRun(first?.id??'');}}
       onDirectionChange={(direction)=>{setRunDirection(direction);const first=value.runs.find((run)=>run.diagramLineId===graphLineId&&run.lineDirection===direction);setSelectedRun(first?.id??'');}}
       onSearchChange={setRunSearch} onSelectRun={(id)=>{setSelectedRun(id);setFocusedCall('');}} onAddRun={addRun} assignmentFor={(runId)=>assigned.get(runId)}
-      graph={<Graph onEditEvent={openGraphEvent} onEventContext={(context)=>{setEventDraft(undefined);setSelectedPoint(undefined);setEventMenu({...context,scope:eventScope});}} events={value.events} value={graphValue} metadata={metadata} line={lines.find((line)=>line.id===graphLineId)} graphLineId={graphLineId||undefined}
-        highlightedServiceIds={highlightedRunIds} previewServiceIds={previewRunIds} onSelectPoint={selectPoint} onDismissPoint={()=>{if(!moveOpen)setSelectedPoint(undefined);setEventMenu(undefined);}}/>}
+      graph={<Graph onEditEvent={openGraphEvent} onEventContext={(context)=>{setEventDraft(undefined);setSelectedPoint(undefined);setDutyOperationMenu(undefined);setEventMenu({...context,scope:eventScope});}} operations={projectedOperations} onDutyOperationContext={(context)=>{setEventMenu(undefined);setEventDraft(undefined);setSelectedPoint(undefined);setDutyOperationMenu({...context,scope:eventScope});}} onOpenDutyOperation={openDutyOperation} value={graphValue} metadata={metadata} line={lines.find((line)=>line.id===graphLineId)} graphLineId={graphLineId||undefined}
+        highlightedServiceIds={highlightedRunIds} previewServiceIds={previewRunIds} onSelectPoint={selectPoint} onDismissPoint={()=>{if(!moveOpen)setSelectedPoint(undefined);setEventMenu(undefined);setDutyOperationMenu(undefined);}}/>}
       inspector={!selectedRunValue?<p className="empty inspector-empty">{t('duties.selectRun')}</p>:<RunRouteEditor events={value.events} stationPrograms={value.stationPrograms} onStationProgramChange={(program)=>setValue((current)=>({...current,stationPrograms:[...(current.stationPrograms??[]).filter((item)=>item.stationId!==program.stationId),program]}))} programDraftScope={programDraftScope} onArrivalValidityChange={onArrivalValidityChange} focusedArrivalStep={focusedArrivalStep} onUndo={documentHistory.undo} onRedo={documentHistory.redo} onRename={renameRun} fieldScope={fieldScope} focusedCallId={focusedCall} tools={runTools} issues={generated.issues.filter((issue)=>issue.path.startsWith(`runs[${value.runs.findIndex((run)=>run.id===selectedRunValue.id)}]`))} run={selectedRunValue} lines={lines} metadata={metadata} busy={busy} onError={onError} onChange={replaceRun} onDelete={deleteSelectedRun}/>}
-      graphActions={<><Button icon={<PlusOutlined/>} disabled={!newEventStationId} onClick={()=>openGraphEvent()}>{t('events.add')}</Button><Popover trigger="click" placement="bottomRight" title={t('common.documentSettings')} content={documentSettings}><Button type="text" icon={<SettingOutlined/>}/></Popover></>}
-      graphPreviewActive={Boolean(previewRun)} saved={JSON.stringify(value)===savedDocumentJson.current}/><TimetableEventsEditor events={value.events??[]} onEdit={openGraphEvent} stationNames={stationNames}/></>}
+      graphActions={<><Button icon={<PlusOutlined/>} onClick={()=>{void loadPrograms();openGraphEvent();}}>{t('events.add')}</Button><Popover trigger="click" placement="bottomRight" title={t('common.documentSettings')} content={documentSettings}><Button type="text" icon={<SettingOutlined/>}/></Popover></>}
+      graphPreviewActive={Boolean(previewRun)} saved={JSON.stringify(value)===savedDocumentJson.current}/><TimetableEventsEditor operations={projectedOperations} onEdit={openGraphEvent} onOpenDuty={openDutyOperation} stationNames={stationNames}/></>}
 
     {visibleEventMenu&&<Dropdown open autoFocus trigger={['click']} placement="bottomLeft" onOpenChange={(open)=>{if(!open)setEventMenu(undefined);}} menu={{'aria-label':t('events.menu'),items:[{key:'edit',label:t('events.edit'),icon:<EditOutlined/>},{key:'delete',label:t('common.delete'),icon:<DeleteOutlined/>,danger:true}],onClick:({key})=>{
       if(eventMenu?.scope!==eventScope)return;
@@ -515,12 +535,11 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
       if(key==='edit')openGraphEvent(eventMenu.event);else if(key==='delete')deleteEvent(eventMenu.event);
     }}}><span className="graph-event-menu-anchor" style={{left:visibleEventMenu.anchor.x,top:visibleEventMenu.anchor.y}}/></Dropdown>}
 
+    {visibleDutyOperationMenu&&<Dropdown open autoFocus trigger={['click']} placement="bottomLeft" onOpenChange={(open)=>{if(!open)setDutyOperationMenu(undefined);}} menu={{'aria-label':t('events.menu'),items:[{key:'owner',label:t('timed.openDuty')}],onClick:()=>{openDutyOperation(visibleDutyOperationMenu.dutyId,visibleDutyOperationMenu.elementId);setDutyOperationMenu(undefined);}}}><span className="graph-event-menu-anchor" style={{left:visibleDutyOperationMenu.anchor.x,top:visibleDutyOperationMenu.anchor.y}}/></Dropdown>}
     <Modal title={t(eventDraft?.original?'events.edit':'events.add')} open={Boolean(eventDraft&&eventDraft.scope===eventScope)} onCancel={()=>setEventDraft(undefined)} onOk={applyGraphEvent} okText={t('common.save')} okButtonProps={{disabled:!eventDraftValid}} destroyOnHidden footer={(_, {OkBtn,CancelBtn})=><Flex justify="space-between"><span>{eventDraft?.original&&<Button danger icon={<DeleteOutlined/>} disabled={eventDraft.scope!==eventScope||!timetableEventUnchanged(value.events??[],eventDraft.original)} onClick={()=>{if(eventDraft.scope===eventScope&&eventDraft.original)deleteEvent(eventDraft.original);}}>{t('common.delete')}</Button>}</span><Space><CancelBtn/><OkBtn/></Space></Flex>}>
-      {eventDraft&&<div className="graph-event-dialog">
-        <label>{t('editor.station')}<Select aria-label={t('editor.station')} value={eventDraft.stationId} options={eventStationIds.map((id)=>({value:id,label:stationNames.get(id)||id}))} onChange={(stationId)=>setEventDraft((current)=>current?{...current,stationId}:current)}/></label>
-        <label>{t('duties.executeTick')}<CommittedNumberInput aria-label={t('duties.executeTick')} fieldKey={`${fieldScope}/graph-event/${eventDraft.original?.id??'new'}`} min={0} max={value.periodDays*24000-1} precision={0} allowEmpty={false} value={eventDraft.tick} onValidityChange={(valid)=>setEventDraft((current)=>current?{...current,valid}:current)} onCommit={(tick)=>setEventDraft((current)=>current&&tick!=null?{...current,tick}:current)}/></label>
-        <label>{t('events.label')}<Input aria-label={t('events.label')} value={eventDraft.label} onChange={(event)=>setEventDraft((current)=>current?{...current,label:event.target.value}:current)}/></label>
-      </div>}
+      <Flex wrap gap={12} align="center"><Button loading={programLoading} onClick={()=>void loadPrograms()}>{t('programs.refresh')}</Button>{programError&&<Typography.Text type="danger" role="alert">{programError}</Typography.Text>}</Flex>
+      {eventDraft&&<TimedOperationFields key={`${eventScope}/${eventDraft.original?.id??'new'}`} fieldScope={`${fieldScope}/graph-event/${eventDraft.original?.id??'new'}`} operation={eventDraft.operation} onChange={(operation)=>setEventDraft((current)=>current?{...current,operation}:current)} stationIds={eventStationIds} stationNames={stationNames} bindings={value.boundPrograms??[]} library={programLibrary} allowMarker onValidityChange={(valid)=>setEventDraft((current)=>current&&current.valid!==valid?{...current,valid}:current)} measuredTicks={(()=>{const projection=projectedOperations.find((item)=>item.owner==='GRAPH'&&item.operation.id===eventDraft.original?.id);return JSON.stringify([eventDraft.original?.tick,eventDraft.original?.program])===JSON.stringify([eventDraft.operation.tick,eventDraft.operation.program])&&projection?.measured&&projection.endTick!==undefined?projection.endTick-projection.startTick:undefined;})()} onSimulate={()=>void simulate()} simulationReason={!eventDraft.original||JSON.stringify([eventDraft.original.tick,eventDraft.original.program])!==JSON.stringify([eventDraft.operation.tick,eventDraft.operation.program])?t('timed.saveFirst'):simulationReason} busy={busy} onOpenProgramLibrary={onOpenProgramLibrary}/>}
+
     </Modal>
 
     {page==='graph'&&selectedPoint&&pointCall&&!moveOpen&&<div className="graph-node-toolbar panel-surface" role="dialog" aria-label={t('ui.nodeEditor')} style={{left:Math.max(12,Math.min(selectedPoint.anchor.x+12,typeof window==='undefined'?1000:window.innerWidth-330)),top:Math.max(54,Math.min(selectedPoint.anchor.y+12,typeof window==='undefined'?500:window.innerHeight-205))}}>

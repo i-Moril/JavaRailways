@@ -3,6 +3,18 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from 're
 export type Locale = 'zh-CN' | 'en-US';
 
 const zh = {
+  'timed.saveFirst':'请先保存定时作业，再执行模拟。',
+  'timed.station':'显示车站（可选）',
+  'timed.stationHint':'车站仅用于运行图显示，不会自动移动车辆。',
+  'timed.marker':'仅时间标记',
+  'timed.markerHint':'未绑定程序，只作为时间标记；不会自行执行，也不能作为作业加入交路。',
+  'timed.graphOwned':'运行图作业：这里只保存引用。时刻、参数和耗时请在运行图中编辑。',
+  'timed.dutyOwned':'交路所属作业（只读）',
+  'timed.openGraph':'前往运行图编辑',
+  'timed.openDuty':'前往所属交路',
+  'timed.reference':'选择运行图作业',
+  'timed.missing':'引用的运行图作业缺失或没有程序。',
+
   "timeline.description":"按时间安排运行线与作业程序。",
   "timeline.tasks":"项任务",
   "timeline.title":"交路时间轴",
@@ -31,10 +43,10 @@ const zh = {
   "timeline.initialHint":"初始化或重置时放置命名列车的位置，不是时间轴任务。",
 
  'programs.displayHint':'此动作更新运营车次中指定单元的显示数据，不会自动改变列车模型或显示屏。',
- 'events.edit':'编辑时间点',
+ 'events.edit':'编辑定时作业',
  'events.editAction':'编辑',
- 'events.menu':'时间点操作',
- 'events.empty':'暂无独立时间点，使用运行图上方的添加按钮创建。',
+ 'events.menu':'定时作业操作',
+ 'events.empty':'暂无定时作业，使用运行图上方的添加按钮创建。',
  'events.changed':'该时间点已发生变化，请重新打开后编辑。',
 
  'duties.optionalTick':'执行时刻（留空则按顺序）',
@@ -46,9 +58,9 @@ const zh = {
   'programs.offset': "偏移（tick）",
   'programs.eventWait': "引用事件时刻",
   'events.id': "事件 ID",
-  'events.add': "添加事件点",
+  'events.add': "添加定时作业",
   'events.label': "标记",
-  'events.title': "定时事件",
+  'events.title': "运行图定时作业",
   'stationPrograms.hint': "同一时刻表、同一车站的停车共用程序。始发只执行发车准备，终到只执行到达后，通过不执行。",
   'stationPrograms.lead': "提前开始（tick）",
   'stationPrograms.preparation': "发车准备",
@@ -650,6 +662,18 @@ const zh = {
 
 type TranslationKey = keyof typeof zh;
 const en: Record<TranslationKey, string> = {
+  'timed.saveFirst':'Save the timed operation before simulating.',
+  'timed.station':'Display station (optional)',
+  'timed.stationHint':'The station controls graph placement only; it does not move the train.',
+  'timed.marker':'Time marker only',
+  'timed.markerHint':'No program is bound. This is a time marker; it does not execute and cannot be added to a duty as work.',
+  'timed.graphOwned':'Graph-owned operation: this duty stores a reference. Edit timing, arguments and duration on the graph.',
+  'timed.dutyOwned':'Duty-owned operation (read-only)',
+  'timed.openGraph':'Edit on running graph',
+  'timed.openDuty':'Go to owning duty',
+  'timed.reference':'Select graph operation',
+  'timed.missing':'The referenced graph operation is missing or has no program.',
+
   "timeline.description":"Schedule runs and operation programs over time.",
   "timeline.tasks":"tasks",
   "timeline.title":"Duty timeline",
@@ -678,10 +702,10 @@ const en: Record<TranslationKey, string> = {
   "timeline.initialHint":"Place the named train here during initialization or reset. This is not a scheduled task.",
 
  'programs.displayHint':'Updates display data for selected units in an operational trip; it does not automatically change the train model or display screens.',
- 'events.edit':'Edit time point',
+ 'events.edit':'Edit timed operation',
  'events.editAction':'Edit',
- 'events.menu':'Time point actions',
- 'events.empty':'No time points yet. Use the add button above the graph to create one.',
+ 'events.menu':'Timed operation actions',
+ 'events.empty':'No timed operations yet. Use the add button above the graph to create one.',
  'events.changed':'This time point changed. Reopen it before editing.',
 
  'duties.optionalTick':'Start tick (empty follows the sequence)',
@@ -693,9 +717,9 @@ const en: Record<TranslationKey, string> = {
   'programs.offset': "Offset (ticks)",
   'programs.eventWait': "Wait for event time",
   'events.id': "Event ID",
-  'events.add': "Add event point",
+  'events.add': "Add timed operation",
   'events.label': "Label",
-  'events.title': "Timed events",
+  'events.title': "Graph timed operations",
   'stationPrograms.hint': "Shared by stopping calls in this timetable. Origins run preparation; termini run arrival; passing calls run neither.",
   'stationPrograms.lead': "Preparation lead (ticks)",
   'stationPrograms.preparation': "Departure preparation",

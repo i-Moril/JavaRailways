@@ -2,7 +2,7 @@ import {describe,it,expect} from 'vitest';
 import {emptyAuthoringDocument,generateTimetableSource,type TimetableAuthoringDocumentV1} from './authoring';
 import {projectDutyTimeline,sortDutyTasks} from './dutyTimeline';
 import type {TimetableSimulationResult} from './types';
-const fixture=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),id:'test',runs:[{id:'R',type:'PASSENGER',lineDirection:'UP',calls:[{id:'a',stationId:'a',targetId:'a',status:'ORIGIN',departureTick:100},{id:'b',stationId:'b',targetId:'b',status:'TERMINAL',arrivalTick:200,departureTick:220,minimumDwellTicks:10}]}],boundPrograms:[{programId:'1',revision:1,contentIdentity:`sha256:${'a'.repeat(64)}`,definition:{parameters:[],steps:[]}}],duties:[{id:'D',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'r',type:'RUN',runId:'R'},{id:'p',type:'PROGRAM',call:{id:'call',programId:'1',tick:230,arguments:{}}}]}]});
+const fixture=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),id:'test',runs:[{id:'R',type:'PASSENGER',lineDirection:'UP',calls:[{id:'a',stationId:'a',targetId:'a',status:'ORIGIN',departureTick:100},{id:'b',stationId:'b',targetId:'b',status:'TERMINAL',arrivalTick:200,departureTick:220,minimumDwellTicks:10}]}],boundPrograms:[{programId:'1',revision:1,contentIdentity:`sha256:${'a'.repeat(64)}`,definition:{parameters:[],steps:[]}}],duties:[{id:'D',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'r',type:'RUN',runId:'R'},{id:'p',type:'PROGRAM',tick:230,program:{programId:'1',arguments:{}}}]}]});
 describe('duty timeline projection',()=>{
  it('uses effective terminal arrival, dwell and departure without mutating the document',()=>{
   const doc=fixture();doc.arrivalOverrides=[{runId:'R',callId:'b',tick:215}];const before=JSON.stringify(doc);
@@ -23,9 +23,9 @@ describe('duty timeline projection',()=>{
   expect(projectDutyTimeline(doc,duty,{...result,tasks:[{serviceId:'D',taskId:'p',startTick:250,endTick:250}]})[1]).toMatchObject({endTick:230,measured:true});
  });
  it('marks occupancy overlaps, sorts starts and preserves ties',()=>{
-  const doc=fixture(),duty=doc.duties[0],element=duty.elements[1];if(element.type!=='PROGRAM')throw Error();element.call.tick=150;element.duration={type:'MANUAL',ticks:20};
+  const doc=fixture(),duty=doc.duties[0],element=duty.elements[1];if(element.type!=='PROGRAM')throw Error();element.tick=150;element.duration={type:'MANUAL',ticks:20};
   expect(projectDutyTimeline(doc,duty).map((task)=>task.overlaps)).toEqual([['p'],['r']]);
-  duty.elements.reverse();expect(sortDutyTasks(doc,duty).map((e)=>e.id)).toEqual(['r','p']);element.call.tick=100;expect(sortDutyTasks(doc,duty).map((e)=>e.id)).toEqual(['p','r']);
+  duty.elements.reverse();expect(sortDutyTasks(doc,duty).map((e)=>e.id)).toEqual(['r','p']);element.tick=100;expect(sortDutyTasks(doc,duty).map((e)=>e.id)).toEqual(['p','r']);
  });
  it('validates current planning duration boundaries',()=>{
   const doc=fixture(),element=doc.duties[0].elements[1];if(element.type!=='PROGRAM')throw Error();doc.runs=[];doc.duties[0].initialPosition='a';doc.duties[0].elements=[element];
@@ -42,7 +42,7 @@ describe('duty timeline projection',()=>{
 
 import {orderDutyTimeline} from './dutyTimeline';
 it('orders tasks after run time edits in one transaction and preserves equal-time order',()=>{
- const d:TimetableAuthoringDocumentV1={formatVersion:1,id:'t',periodDays:1,diagramLines:[],arrivalOverrides:[],runs:[{id:'r',type:'PASSENGER',lineDirection:'UP',calls:[{id:'a',stationId:'a',targetId:'a',status:'ORIGIN',departureTick:50}]}],duties:[{id:'d',selector:{type:'TRAIN_NAME',name:'t'},elements:[{id:'p',type:'PROGRAM',call:{id:'c',programId:'1',tick:30,arguments:{}}},{id:'r',type:'RUN',runId:'r'}]}]};
+ const d:TimetableAuthoringDocumentV1={formatVersion:1,id:'t',periodDays:1,diagramLines:[],arrivalOverrides:[],runs:[{id:'r',type:'PASSENGER',lineDirection:'UP',calls:[{id:'a',stationId:'a',targetId:'a',status:'ORIGIN',departureTick:50}]}],duties:[{id:'d',selector:{type:'TRAIN_NAME',name:'t'},elements:[{id:'p',type:'PROGRAM',tick:30,program:{programId:'1',arguments:{}}},{id:'r',type:'RUN',runId:'r'}]}]};
  expect(orderDutyTimeline(d)).toBe(d);
  const edited={...d,runs:[{...d.runs[0],calls:[{...d.runs[0].calls[0],departureTick:10}]}]};
  const ordered=orderDutyTimeline(edited);expect(ordered.duties[0].elements.map(e=>e.id)).toEqual(['r','p']);expect(edited.duties[0].elements.map(e=>e.id)).toEqual(['p','r']);

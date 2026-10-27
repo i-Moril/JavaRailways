@@ -7,17 +7,18 @@ import {DutyGraphEditor} from './DutyGraphEditor';
 import {FormationEventsEditor} from './FormationEventsEditor';
 import {formationOutputs,type AuthoringFormationEvent} from './formationAuthoring';
 import type {ProgramSourceTarget} from './programNavigation';
-import type {BoundStationProgram,StationProgramCall,StationProgramRecord,TimetableSimulationResult,WorldMetadata} from './types';
+import type {BoundStationProgram,TimedOperation,StationProgramRecord,TimetableSimulationResult,WorldMetadata} from './types';
 import {CommittedNumberInput} from './CommittedNumberInput';
 import {useI18n} from './i18n';
 
 export interface DutyManagementProps {
-  onValidityChange?:(valid:boolean)=>void;
+  onValidityChange?:(valid:boolean)=>void;onOperationValidityChange?:(dutyId:string,elementId:string,valid:boolean)=>void;
   document?:TimetableAuthoringDocumentV1;onDocumentChange?:(document:TimetableAuthoringDocumentV1)=>void;
   formationEvents?:AuthoringFormationEvent[];onFormationEventsChange?:(events:AuthoringFormationEvent[])=>void;
-  fieldScope?:string;focusedProgram?:ProgramSourceTarget;onOpenProgramLibrary?:(programId:string,stepId?:string)=>void;
+  focusedDutyElement?:{dutyId:string;elementId:string};fieldScope?:string;focusedProgram?:ProgramSourceTarget;onOpenProgramLibrary?:(programId:string,stepId?:string)=>void;
   programLibrary?:StationProgramRecord[];boundPrograms?:BoundStationProgram[];programError?:string;programLoading?:boolean;
-  onRefreshPrograms?:()=>void;onAddProgram?:(id:string)=>void;onAdoptProgram?:(id:string)=>void;onPatchProgram?:(id:string,patch:Partial<StationProgramCall>)=>void;
+  onReferenceEvent?:(id:string)=>void;onOpenGraphEvent?:(id:string)=>void;
+  onRefreshPrograms?:()=>void;onAddProgram?:(id:string)=>void;onAdoptProgram?:(id:string)=>void;onPatchProgram?:(id:string,patch:Partial<TimedOperation>)=>void;
   duties:AuthoringDutyV1[];runs:AuthoringRunV1[];selectedId:string;metadata:WorldMetadata;
   onSelect:(id:string)=>void;onAdd:()=>void;onDelete:()=>void;
   onPatch:(patch:Partial<AuthoringDutyV1>)=>void;onAssign:(runId:string)=>void;
@@ -49,7 +50,7 @@ export function DutyManagement(p:DutyManagementProps) {
 
       {selector.type==='TRAIN_NAME'&&<label className="duty-initial-position">{t('duties.initialWaypoint')}<Select allowClear aria-label={t('duties.initialWaypoint')} value={duty.initialPosition} options={options(p.metadata.wayPoints??[])} onChange={(initialPosition)=>p.onPatch({initialPosition})}/><Typography.Text type="secondary">{t('timeline.initialHint')}</Typography.Text></label>}
       {p.programError&&<Typography.Paragraph type="danger" role="alert">{p.programError}</Typography.Paragraph>}
-      {p.document&&<DutyTimeline key={duty.id} document={p.document} duty={duty} fieldScope={p.fieldScope??''} library={p.programLibrary??[]} simulation={p.simulation} simulationReason={p.simulationReason} busy={p.busy} onSimulate={p.onSimulate} onAssign={p.onAssign} onAddProgram={p.onAddProgram} onPatch={p.onPatch} onPatchProgram={p.onPatchProgram} onRemove={p.onRemove} onViewRun={p.onViewRun} onOpenProgramLibrary={p.onOpenProgramLibrary} onRefreshPrograms={p.onRefreshPrograms} programLoading={p.programLoading} focusedProgram={p.focusedProgram}/>}
+      {p.document&&<DutyTimeline key={duty.id} document={p.document} duty={duty} focusedElementId={p.focusedDutyElement?.dutyId===duty.id?p.focusedDutyElement.elementId:undefined} fieldScope={p.fieldScope??''} library={p.programLibrary??[]} stationNames={new Map((p.metadata.stations??[]).map((station)=>[station.stationId,station.stationDisplayName||station.stationId]))} stationIds={[...new Set((p.metadata.stations??[]).map((station)=>station.stationId))]} onReferenceEvent={p.onReferenceEvent} onOpenGraphEvent={p.onOpenGraphEvent} onOperationValidityChange={(elementId,valid)=>p.onOperationValidityChange?.(duty.id,elementId,valid)} simulation={p.simulation} simulationReason={p.simulationReason} busy={p.busy} onSimulate={p.onSimulate} onAssign={p.onAssign} onAddProgram={p.onAddProgram} onPatch={p.onPatch} onPatchProgram={p.onPatchProgram} onRemove={p.onRemove} onViewRun={p.onViewRun} onOpenProgramLibrary={p.onOpenProgramLibrary} onRefreshPrograms={p.onRefreshPrograms} programLoading={p.programLoading} focusedProgram={p.focusedProgram}/>}
       {!!p.boundPrograms?.length&&<Collapse className="duty-advanced" items={[{key:'bindings',label:t('programs.bound'),children:<><Typography.Paragraph type="secondary">{t('programs.snapshotHint')}</Typography.Paragraph>{p.boundPrograms.map((snapshot)=>{const latest=p.programLibrary?.find((record)=>record.id===snapshot.programId);return <Flex wrap gap={8} key={snapshot.programId}><Typography.Text>{latest?.name??snapshot.programId} · r{snapshot.revision}</Typography.Text>{latest&&latest.revision!==snapshot.revision?<Button onClick={()=>p.onAdoptProgram?.(snapshot.programId)}>{t('programs.adopt')} r{latest.revision}</Button>:null}</Flex>;})}</>}]} />}
     </>}</section></div>
     {p.document&&p.onDocumentChange&&<Collapse className="duty-advanced" items={[{key:'advanced',label:t('timeline.advanced'),children:<><DutyGraphEditor onValidityChange={p.onValidityChange} document={p.document} onChange={p.onDocumentChange} onViewRun={p.onViewRun} onSelectDuty={p.onSelect} fieldScope={p.fieldScope??''}/>{p.onFormationEventsChange&&<FormationEventsEditor events={p.formationEvents??[]} dutyIds={p.duties.map((d)=>d.id)} destinations={p.metadata.wayPoints??[]} onChange={p.onFormationEventsChange} fieldScope={`${p.fieldScope}/formationEvents`}/>}</>}]} />}

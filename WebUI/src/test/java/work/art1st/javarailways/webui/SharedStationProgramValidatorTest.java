@@ -39,7 +39,7 @@ class SharedStationProgramValidatorTest {
         var document = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree("""
             {"formatVersion":1,"id":"weekday","periodDays":1,"runs":[],"diagramLines":[],"arrivalOverrides":[],
              "duties":[{"id":"d","selector":{"type":"TRAIN_NAME","name":"train"},"initialPosition":"A","elements":[
-               {"id":"1","type":"PROGRAM","call":{"id":"1","programId":"1","tick":100,"arguments":{}},"duration":{"type":"MANUAL","ticks":20}}]}]}
+               {"id":"1","type":"PROGRAM","tick":100,"program":{"programId":"1","arguments":{}},"duration":{"type":"MANUAL","ticks":20}}]}]}
             """);
         var snapshot = mapper.createObjectNode().put("programId", "1").put("revision", 1).put("contentIdentity", ProgramContentIdentity.of(definition));
         snapshot.set("definition", definition);

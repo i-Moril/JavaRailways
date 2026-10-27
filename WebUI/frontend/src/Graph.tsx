@@ -3,10 +3,14 @@ import { Button,Tooltip } from 'antd';
 import { graphServiceColors,layoutGraph,type GraphPoint } from './graph';
 import { useI18n } from './i18n';
 import { formatTimetableTick } from './timetableTime';
+import type {TimedOperation} from './types';
+import type {ProjectedTimedOperation} from './timedOperations';
 import {type GraphEventContext} from './timetableEvents';
 export type {GraphEventContext} from './timetableEvents';
 import { useTheme } from './theme';
 import type { LineV1,SavedTimetableV1,WorldMetadata } from './types';
+
+export interface GraphDutyOperationContext {dutyId:string;elementId:string;operation:TimedOperation;anchor:{x:number;y:number}}
 
 type Pan={x:number;y:number};
 type DragState={pointerId:number;x:number;y:number;originX:number;originY:number};
@@ -16,9 +20,9 @@ const pointKey=(point:GraphPoint)=>`${point.serviceIndex}:${point.stepIndex}:${p
 const clamp=(value:number)=>Math.min(3.2,Math.max(.55,value));
 
 export function Graph({
-  events=[],value,onSelect,metadata,line,graphLineId,highlightedServiceIds,previewServiceIds,onSelectPoint,onDismissPoint,onEditEvent,onEventContext,
+  operations=[],onOpenDutyOperation,onDutyOperationContext,value,onSelect,metadata,line,graphLineId,highlightedServiceIds,previewServiceIds,onSelectPoint,onDismissPoint,onEditEvent,onEventContext,
 }:{
-  events?:import('./types').TimetableEventPoint[];
+  operations?:ProjectedTimedOperation[];onDutyOperationContext?:(context:GraphDutyOperationContext)=>void;onOpenDutyOperation?:(dutyId:string,elementId:string)=>void;
   value:SavedTimetableV1;
   metadata?:WorldMetadata;
   line?:LineV1;
@@ -71,7 +75,7 @@ export function Graph({
   return <div className={`graph-wrap ${panning?'is-panning':''}`}
     onWheel={(event)=>{event.preventDefault();onDismissPoint?.();setPan((current)=>({x:current.x-event.deltaX,y:current.y-event.deltaY}));}}
     onPointerDown={(event)=>{
-      if(event.button!==0||(event.target as HTMLElement).closest('.canvas-controls,[data-graph-point],[data-event-id]'))return;
+      if(event.button!==0||(event.target as HTMLElement).closest('.canvas-controls,[data-graph-point],[data-event-id],[data-duty-operation]'))return;
       onDismissPoint?.();event.currentTarget.setPointerCapture(event.pointerId);
       drag.current={pointerId:event.pointerId,x:event.clientX,y:event.clientY,originX:pan.x,originY:pan.y};setPanning(true);
     }}
@@ -89,7 +93,7 @@ export function Graph({
       </Button.Group>
     </div>
     <div className="canvas-sheet" style={{width:sheetWidth,height:sheetHeight,transform:`translate(${pan.x}px,${pan.y}px)`}}>
-      <svg className="diagram-svg" width={sheetWidth} height={sheetHeight} viewBox={`0 0 ${sheetWidth} ${sheetHeight}`} role={onSelectPoint||onSelect||onEditEvent||onEventContext?'group':'img'} aria-label={t('editor.graph')}>
+      <svg className="diagram-svg" width={sheetWidth} height={sheetHeight} viewBox={`0 0 ${sheetWidth} ${sheetHeight}`} role={onSelectPoint||onSelect||onEditEvent||onEventContext||onOpenDutyOperation?'group':'img'} aria-label={t('editor.graph')}>
 
         <defs><pattern id="timetable-minor-grid" width="40" height="22" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 22" className="minor-grid-line"/></pattern></defs>
         <rect x={layout.left} width={Math.max(0,sheetWidth-layout.left)} height={sheetHeight} fill="url(#timetable-minor-grid)"/>
@@ -122,26 +126,28 @@ export function Graph({
             })}
           </g>;
         })}
-        {events.map((event)=>{
+        {operations.map(({operation:event,owner,dutyId,elementId,endTick})=>{
           const lane=layout.lanes.find((lane)=>lane.id===event.stationId);if(!lane)return null;
-          const label=`${event.label||event.id} · ${stationNames.get(event.stationId)||event.stationId} · ${formatTimetableTick(event.tick,locale)}`;
-          const editable=!!onEditEvent||!!onEventContext;
+          const name=event.label||event.program?.programId||event.id;
+          const label=`${name} · ${stationNames.get(event.stationId!)||event.stationId} · ${formatTimetableTick(event.tick,locale)}${endTick!==undefined&&endTick!==event.tick?`–${formatTimetableTick(endTick,locale)}`:''}${owner==='DUTY'?` · ${t('timed.dutyOwned')} ${dutyId}`:''}`;
+          const editable=owner==='DUTY'?!!onOpenDutyOperation:!!onEditEvent||!!onEventContext;
+          const open=()=>{onDismissPoint?.();if(owner==='DUTY')onOpenDutyOperation?.(dutyId!,elementId!);else onEditEvent?.(structuredClone(event));};
           const menu=(element:SVGGElement,anchor?:{x:number;y:number})=>{
-            if(!onEventContext)return;
             const bounds=element.getBoundingClientRect();
+            if(owner==='DUTY'){onDismissPoint?.();onDutyOperationContext?.({dutyId:dutyId!,elementId:elementId!,operation:structuredClone(event),anchor:anchor??{x:bounds.left+bounds.width/2,y:bounds.top+bounds.height/2}});return;}if(!onEventContext)return;
             onDismissPoint?.();onEventContext({event:{...event},anchor:anchor??{x:bounds.left+bounds.width/2,y:bounds.top+bounds.height/2}});
           };
-          return <g key={`event-${event.id}`} data-event-id={event.id} transform={`translate(${layout.tickToX(event.tick)} ${lane.y})`}
-            role={editable?'button':undefined} tabIndex={editable?0:undefined} aria-label={label} aria-haspopup={onEventContext?'menu':undefined}
+          return <g key={`event-${owner}-${dutyId??''}-${event.id}`} data-event-id={owner==='GRAPH'?event.id:undefined} data-operation-owner={owner} data-duty-operation={owner==='DUTY'?`${dutyId}/${elementId}`:undefined} transform={`translate(${layout.tickToX(event.tick)} ${lane.y})`}
+            role={editable?'button':undefined} tabIndex={editable?0:undefined} aria-label={label} aria-haspopup={(owner==='GRAPH'?onEventContext:onDutyOperationContext)?'menu':undefined}
             style={{cursor:editable?'pointer':undefined}}
             onPointerDown={(mouse)=>mouse.stopPropagation()}
-            onClick={(mouse)=>{mouse.stopPropagation();onDismissPoint?.();onEditEvent?.({...event});}}
-            onContextMenu={(mouse)=>{if(!onEventContext)return;mouse.preventDefault();mouse.stopPropagation();menu(mouse.currentTarget,{x:mouse.clientX,y:mouse.clientY});}}
+            onClick={(mouse)=>{mouse.stopPropagation();open();}}
+            onContextMenu={(mouse)=>{if(!(owner==='DUTY'?onDutyOperationContext:onEventContext))return;mouse.preventDefault();mouse.stopPropagation();menu(mouse.currentTarget,{x:mouse.clientX,y:mouse.clientY});}}
             onKeyDown={(key)=>{
               if(key.key==='ContextMenu'||(key.key==='F10'&&key.shiftKey)){key.preventDefault();key.stopPropagation();menu(key.currentTarget);}
-              else if(key.key==='Enter'||key.key===' '){key.preventDefault();key.stopPropagation();onDismissPoint?.();onEditEvent?.({...event});}
+              else if(key.key==='Enter'||key.key===' '){key.preventDefault();key.stopPropagation();open();}
             }}>
-            <title>{label}</title><path d="M 0 -7 L 7 0 L 0 7 L -7 0 Z" fill="var(--ant-color-primary)"/><text x={10} y={-9} fill="currentColor">{event.label||event.id}</text>
+            <title>{label}</title>{endTick!==undefined&&endTick>event.tick&&<rect x={0} y={-6} width={Math.max(2,layout.tickToX(endTick)-layout.tickToX(event.tick))} height={12} rx={3} fill="var(--ant-color-primary-bg)" stroke="var(--ant-color-primary)" strokeDasharray={owner==='DUTY'?'4 3':undefined}/>}{endTick===undefined&&<text x={10} y={14} fill="currentColor">{t('timeline.unknown')}</text>}<path d="M 0 -7 L 7 0 L 0 7 L -7 0 Z" fill="var(--ant-color-primary)"/><text x={10} y={-9} fill="currentColor">{name}{owner==='DUTY'?` · ${dutyId}`:''}</text>
           </g>;
         })}
         {hoveredPoint&&layout.points.filter((point)=>pointKey(point)===hoveredPoint).map((point)=><g className="graph-point-tooltip" key={`tooltip-${pointKey(point)}`} transform={`translate(${point.x+10} ${point.y-30})`}><rect width="158" height="24" rx="5"/><text x="8" y="16">{stationNames.get(point.location)||point.location} · {point.tick}</text></g>)}

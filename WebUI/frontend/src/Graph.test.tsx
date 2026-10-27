@@ -31,7 +31,7 @@ describe('running graph component',()=>{
   });
 
   it('exposes event points as keyboard actions only when event editing is available',()=>{
-    const render=(editable:boolean)=>renderToStaticMarkup(<I18nProvider><ThemeProvider><Graph value={value} graphLineId="airport" events={[{id:'1',stationId:'airport',tick:1500,label:'Turnback'}]} onEditEvent={editable?()=>{}:undefined} onEventContext={editable?()=>{}:undefined}/></ThemeProvider></I18nProvider>);
+    const render=(editable:boolean)=>renderToStaticMarkup(<I18nProvider><ThemeProvider><Graph value={value} graphLineId="airport" operations={[{operation:{id:'1',stationId:'airport',tick:1500,label:'Turnback'},owner:'GRAPH',startTick:1500,endTick:1500}]} onEditEvent={editable?()=>{}:undefined} onEventContext={editable?()=>{}:undefined}/></ThemeProvider></I18nProvider>);
     expect(render(true)).toMatch(/data-event-id="1"[^>]*role="button"[^>]*tabindex="0"/);
     expect(render(true)).toContain('Turnback');
     expect(render(true)).toContain('aria-haspopup="menu"');
@@ -54,4 +54,17 @@ describe('running graph component',()=>{
     expect(html).toContain('AP101');
     expect(html).not.toContain('graph-surface');
   });
+});
+
+describe('timed operation ownership on graph',()=>{
+ it('shows graph intervals and read-only duty projections with distinct identities',()=>{
+  const html=renderToStaticMarkup(<I18nProvider><ThemeProvider><Graph value={value} graphLineId="airport" operations={[
+   {owner:'GRAPH',operation:{id:'1',tick:1000,stationId:'airport'},startTick:1000,endTick:2000},
+   {owner:'DUTY',dutyId:'D1',elementId:'1',operation:{id:'1',tick:2000,stationId:'airport',program:{programId:'2',arguments:{}}},startTick:2000,endTick:3000},
+   {owner:'DUTY',dutyId:'D2',elementId:'1',operation:{id:'1',tick:3000,program:{programId:'2',arguments:{}}},startTick:3000,endTick:4000},
+  ]} onEditEvent={()=>{}} onOpenDutyOperation={()=>{}} onDutyOperationContext={()=>{}}/></ThemeProvider></I18nProvider>);
+  expect(html).toContain('data-event-id="1"');expect(html).toContain('data-duty-operation="D1/1"');expect(html).not.toContain('data-duty-operation="D2/1"');
+  expect(html).toContain('Duty-owned operation (read-only) D1');expect(html).toContain('stroke-dasharray="4 3"');
+  expect(html.match(/data-operation-owner=/g)).toHaveLength(2);
+ });
 });

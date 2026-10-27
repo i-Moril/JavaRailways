@@ -43,7 +43,7 @@ describe('shared station programs',()=>{
   for(const use of ['station','library'] as const){
    const value=document(),definition:StationProgramDefinition={parameters:[],steps:[{id:'wait-event',type:'WAIT_EVENT',eventId:'missing',offsetTicks:0}]};
    if(use==='station')value.stationPrograms![0].arrival.steps.unshift(definition.steps[0]);
-   if(use==='library'){value.boundPrograms=[{programId:'library',revision:1,contentIdentity:`sha256:${'a'.repeat(64)}`,definition}];value.duties[0].elements.unshift({id:'library',type:'PROGRAM',call:{id:'call',programId:'library',tick:0,arguments:{}}});}
+   if(use==='library'){value.boundPrograms=[{programId:'library',revision:1,contentIdentity:`sha256:${'a'.repeat(64)}`,definition}];value.duties[0].elements.unshift({id:'library',type:'PROGRAM',tick:0,program:{programId:'library',arguments:{}}});}
    let generated:ReturnType<typeof generateTimetableSource>|undefined;
    expect(()=>{generated=generateTimetableSource(value,lines);}).not.toThrow();expect(generated!.source).toBe('');expect(generated!.issues.some((issue)=>issue.message.includes('Unknown event'))).toBe(true);
   }

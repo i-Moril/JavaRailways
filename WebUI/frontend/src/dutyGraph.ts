@@ -1,3 +1,4 @@
+import {resolveDutyTimedOperation} from './timedOperations';
 import type {TimetableAuthoringDocumentV1} from './authoring';
 import {resolveProgramValue} from './stationPrograms';
 export interface DutyGraphNode {id:string;kind:'BOUNDARY'|'COUPLE'|'SPLIT';label:string;dutyIds:string[];incoming:string[];outgoing:string[]}
@@ -10,9 +11,9 @@ export function buildDutyGraph(document:TimetableAuthoringDocumentV1):{nodes:Dut
   for(const duty of document.duties){
     const tokens=duty.elements.flatMap<{kind:'RUN'|'EVENT';id:string;runId:string}>((element)=>{
       if(element.type==='RUN')return [{kind:'RUN' as const,id:element.id,runId:element.runId}];
-      if(element.type!=='PROGRAM')return [];
-      const definition=document.boundPrograms?.find((p)=>p.programId===element.call.programId)?.definition;
-      return (definition?.steps??[]).flatMap((step)=>step.type==='COUPLE'||step.type==='SPLIT'?[{kind:'EVENT' as const,id:resolveProgramValue(step.eventId,element.call.arguments),runId:''}]:[]);
+      const operation=resolveDutyTimedOperation(document,element);if(!operation?.program)return [];
+      const definition=document.boundPrograms?.find((p)=>p.programId===operation.program!.programId)?.definition;
+      return (definition?.steps??[]).flatMap((step)=>step.type==='COUPLE'||step.type==='SPLIT'?[{kind:'EVENT' as const,id:resolveProgramValue(step.eventId,operation.program!.arguments),runId:''}]:[]);
     });
     let current=duty.selector.type==='TAKE_FROM_FORMATION_OUTPUT'?eventNode(duty.selector.eventId):node(`duty:${duty.id}:start`,duty.id);
     tokens.forEach((token,i)=>{

@@ -1,3 +1,4 @@
+import {validateTimedOperation} from './timedOperations';
 import type {TimetableEventPoint,StationProgramStep} from './types';
 import type {TimetableAuthoringDocumentV1} from './authoring';
 
@@ -8,13 +9,13 @@ export interface GraphEventContext {
 
 export function timetableEventUnchanged(events:readonly TimetableEventPoint[],original:TimetableEventPoint):boolean {
   const current=events.find((event)=>event.id===original.id);
-  return !!current&&current.stationId===original.stationId&&current.tick===original.tick&&current.label===original.label;
+  return !!current&&JSON.stringify(current)===JSON.stringify(original);
 }
 
 /** Validate before a single document/history transaction, preserving all references. */
 export function saveTimetableEvent(events:TimetableEventPoint[],draft:TimetableEventPoint,periodTicks:number,stationIds:readonly string[],original?:TimetableEventPoint,reservedIds:readonly string[]=[]):TimetableEventPoint[] {
   if(original&&!timetableEventUnchanged(events,original))throw new Error('Event changed');
-  if(!stationIds.includes(draft.stationId)||!Number.isSafeInteger(draft.tick)||draft.tick<0||draft.tick>=periodTicks)throw new Error('Invalid event');
+  if(draft.stationId!==undefined&&!stationIds.includes(draft.stationId)||validateTimedOperation(draft,periodTicks).length>0)throw new Error('Invalid event');
   const event={...draft,id:original?.id??nextTimetableEventId(events,reservedIds)};
   return original?events.map((item)=>item.id===original.id?event:item):[...events,event];
 }
@@ -34,7 +35,7 @@ export function deleteTimetableEvent(events:TimetableEventPoint[],original:Timet
 }
 
 /** A dangling wait keeps its identity: adding a point must not silently rebind it. */
-export function referencedTimetableEventIds(document:Pick<TimetableAuthoringDocumentV1,'stationPrograms'|'boundPrograms'>):string[] {
+export function referencedTimetableEventIds(document:Pick<TimetableAuthoringDocumentV1,'stationPrograms'|'boundPrograms'> & Partial<Pick<TimetableAuthoringDocumentV1,'duties'>>):string[] {
   const ids=new Set<string>();
   const visit=(steps:StationProgramStep[])=>{for(const step of steps){
     if(step.type==='WAIT_EVENT')ids.add(step.eventId);
@@ -43,5 +44,6 @@ export function referencedTimetableEventIds(document:Pick<TimetableAuthoringDocu
   }};
   for(const program of document.stationPrograms??[]){visit(program.arrival.steps);visit(program.departurePreparation.steps);}
   for(const program of document.boundPrograms??[])visit(program.definition.steps);
+  for(const duty of document.duties??[])for(const element of duty.elements)if(element.type==='EVENT')ids.add(element.eventId);
   return [...ids];
 }

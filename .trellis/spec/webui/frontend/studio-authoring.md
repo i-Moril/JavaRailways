@@ -130,9 +130,9 @@ CURRENT：`authoringResume.ts` 保存 owner/world 隔离的最后文档 ID；内
 
 文档 `stationPrograms` 按 stationId 保存一次到达/准备定义，调用保存有序 `viaIds`，终点 `departureTick` 可空。终点发车时刻只表示后续交路动作最早开始时刻，不触发准备；跨 RUN 冲突检查用有效到达加最小停站与终点 departure 的最大值。缺省程序与运行 gate 见 dispatcher-runtime，积木上下文、草稿门禁见 program-blocks。
 
-`events?: {id,stationId,tick,label?}[]` 为不分上下行的单站时间点，在运行图站点线上画菱形及标签，由同一 history owner 编辑。程序的 WAIT_EVENT 在生成前解析 event tick + offsetTicks 成绝对等待；缺失引用或越周期产生 authoring issue、返回空 source，不抛出渲染异常。时刻表生成仍不执行通用 Blockly JavaScript。
+`events?: TimedOperation[]`为运行图所属定时作业，使用与交路程序作业相同的时刻、程序调用、可选车站/标记与规划耗时模型。可无程序保留纯时间锚点，WAIT_EVENT只引用此集合，生成前仍将tick+offsetTicks解析为绝对等待。缺失或越周期产生authoring issue、返回空source，不抛渲染异常。
 
-交路 `referenceVehicle?: {type:'WORLD_TRAIN'|'TRAIN_TEMPLATE',id}` 持久保存于 duty，模拟从此引用取参数；它不限制实际运营列车。交路元素仅有 RUN 与 PROGRAM。命名车辆的初始位置为 duty.initialPosition，不作为可执行任务。程序调用有显式 tick 和参数；可选 duration 为 MANUAL/ticks 或 SIMULATED，省略表示时间点。当前未发布格式仍为1，无旧元素 runtime compatibility；现有开发数据使用 ai_tasks/migrations/migrate_duty_timeline.py 离线 dry-run/备份迁移。
+交路 `referenceVehicle?: {type:'WORLD_TRAIN'|'TRAIN_TEMPLATE',id}`持久保存于duty，模拟由此取参数，不限制实际运营列车。元素支持RUN、交路所属PROGRAM及运行图作业EVENT引用。PROGRAM复用TimedOperation字段，program必需；EVENT只存{id,type,eventId}，不复制时刻、参数或耗时。初始位置仍为duty.initialPosition，不作为执行任务。当前未发布格式仍为1；旧PROGRAM.call结构只由离线迁移处理，不在运行时兼容。
 
 `DutyTimeline` 取运行线始发时刻及有效终点到达+最小停站、可选终点发车的最大值显示区间；程序支持拖动开始、手动区间拖动右边界及等价数值输入，pointerup 才提交一次 history。右键移除仅删除引用。RUN 时刻仍由运行线编辑器唯一维护；函数本体在程序库编辑，调用保持已绑定快照。高级编组事件和运营显示配置仍保留在折叠区。
 
@@ -152,3 +152,11 @@ CURRENT：`authoringResume.ts` 保存 owner/world 隔离的最后文档 ID；内
 运行图标题操作区提供显式添加时间点按钮，填写当前文档内的车站、时刻和可选标记；无站点禁用。新增和列表/图点编辑复用同一对话框，取消不写领域文档，保存一次history。图空白右键不承担创建行为；对象右键、菜单键或ShiftF10提供该事件的编辑/删除，普通点击/Enter编辑。菜单及编辑草稿属于瞬时UI，文档/世界/线路/页面切换关闭，动作重新核对打开时事件快照，避免旧菜单覆盖新内容。
 
 事件仍为文档级上下行共享数据，不复制给每条运行线。删除被WAIT_EVENT引用的事件保留引用并产生现有issue；不得通过悄悄删除等待动作或重用悬空事件ID掩盖问题。保存仍遵循周期内整数tick校验，未改变schema或调度语义。
+
+## 定时作业归属与复用（CURRENT）
+
+共用TimedOperation字段：id、tick、可选stationId/label/duration/program；program为{programId,arguments}。程序体和已采用快照仍由库/绑定定义持有；不复制为作业的可编辑程序体。
+
+运行图创建的作业只在运行图编辑，交路保存EVENT引用，引用元素id为该次执行taskId。未引用作业不自行生成执行；多个交路引用各自列车执行。交路创建的PROGRAM只在交路编辑，绑定站点后运行图投影只读，可跳转所属交路；站点是显示锚点，不意味着移动或动态停靠。移除交路引用不删除运行图原作业。缺失事件或引用纯标记报issue；不得silent跳过或虚构执行。
+
+共享字段组件、resolver、验证与投影复用同一套参数/时间/耗时规则；外围唯一document owner负责采用程序快照和history。图上区间采用手动耗时或当前完整成功模拟；同一图作业的所有引用测量齐全且相同才展示唯一模拟耗时，未引用、未完成或不同则未知，交路自身仍按各自报告展示。站点、标记、规划耗时不影响生成输入hash；解析后的时刻/程序参数和执行顺序会影响。编辑归属、菜单及草稿必须保留文档/世界/线路/页面隔离。

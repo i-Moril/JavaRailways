@@ -1,3 +1,4 @@
+import {resolveDutyTimedOperation} from './timedOperations';
 import {findProgramStep} from './stationPrograms';
 import type {TimetableAuthoringDocumentV1} from './authoring';
 import type {SavedTimetableV1} from './types';
@@ -18,9 +19,9 @@ export function resolveProgramSourceTarget(document:TimetableAuthoringDocumentV1
   const indexed=/^duties\[(\d+)\]\.elements\[(\d+)\]/.exec(path);
   const targets:ProgramSourceTarget[]=[];
   document.duties.forEach((duty,dutyIndex)=>duty.elements.forEach((element,elementIndex)=>{
-    if(element.type!=='PROGRAM')return;
-    const snapshot=document.boundPrograms?.find((item)=>item.programId===element.call.programId);if(!snapshot)return;
-    const stem=`duty:${duty.id}/element:${element.id}/call:${element.call.id}/program:${snapshot.programId}`;
+    const operation=resolveDutyTimedOperation(document,element);if(!operation?.program)return;
+    const snapshot=document.boundPrograms?.find((item)=>item.programId===operation.program!.programId);if(!snapshot)return;
+    const stem=`duty:${duty.id}/element:${element.id}/call:${element.id}/program:${snapshot.programId}`;
     const offset=path.indexOf(stem);
     const byIndex=indexed&&Number(indexed[1])===dutyIndex&&Number(indexed[2])===elementIndex;
     if(offset<0&&!byIndex)return;
@@ -28,7 +29,7 @@ export function resolveProgramSourceTarget(document:TimetableAuthoringDocumentV1
     if(rest&&!rest.startsWith('/step:')&&!/^[\s"':]/.test(rest))return;
     const stepId=rest.startsWith('/step:')?/^\/step:([A-Za-z0-9_-]+)/.exec(rest)?.[1]:undefined;
     if(rest.startsWith('/step:')&&(!stepId||!findProgramStep(snapshot.definition.steps,stepId)))return;
-    targets.push({dutyId:duty.id,elementId:element.id,callId:element.call.id,programId:snapshot.programId,revision:snapshot.revision,contentIdentity:snapshot.contentIdentity,stepId});
+    targets.push({dutyId:duty.id,elementId:element.id,callId:element.id,programId:snapshot.programId,revision:snapshot.revision,contentIdentity:snapshot.contentIdentity,stepId});
   }));
   return targets.length===1?targets[0]:undefined;
 }

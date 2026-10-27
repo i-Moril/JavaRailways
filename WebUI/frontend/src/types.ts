@@ -132,7 +132,10 @@ export type StationProgramStep=
  | {id:string;type:'MOVE';destinationId:StationProgramValue<string>;viaIds:StationProgramValue<string[]>}
  | {id:string;type:'STORE_AT_DEPOT';depotId:StationProgramValue<string>;stablingPointIds:StationProgramValue<string[]>};
 export interface StationStopProgram {stationId:string;arrival:StationProgramDefinition;departurePreparation:StationProgramDefinition;preparationLeadTicks:number}
-export interface TimetableEventPoint {id:string;stationId:string;tick:number;label?:string}
+export type TimedOperationDuration={type:'MANUAL';ticks:number}|{type:'SIMULATED'};
+export interface TimedOperationProgram {programId:string;arguments:Record<string,StationProgramLiteral>}
+export interface TimedOperation {id:string;tick:number;stationId?:string;label?:string;duration?:TimedOperationDuration;program?:TimedOperationProgram}
+export type TimetableEventPoint=TimedOperation;
 export interface StationProgramDefinition {
  parameters:{id:string;type:StationProgramParameterType}[];
  steps:StationProgramStep[];

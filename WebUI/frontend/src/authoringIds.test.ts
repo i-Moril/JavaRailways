@@ -13,7 +13,7 @@ const split=(coordinatorDutyId:string,outputDutyId:string)=>({
 describe('visible authoring IDs',()=>{
   it('starts each independent namespace at 1 and keeps custom and internal identities unchanged',()=>{
     const document:TimetableAuthoringDocumentV1={...emptyAuthoringDocument(),runs:[run('express-42'),run('run-old')],duties:[{
-      ...duty('depot-duty'),elements:[{id:'999',type:'RUN',runId:'express-42'},{id:'1000',type:'PROGRAM',call:{id:'1001',programId:'1002',tick:0,arguments:{}}}],
+      ...duty('depot-duty'),elements:[{id:'999',type:'RUN',runId:'express-42'},{id:'1000',type:'PROGRAM',tick:0,program:{programId:'1002',arguments:{}}}],
     }]};
     const before=JSON.stringify(document);
     expect(allocateAuthoringIds(document,'RUN',3)).toEqual(['1','2','3']);

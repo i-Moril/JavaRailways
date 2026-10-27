@@ -1,8 +1,9 @@
+import {resolveDutyTimedOperation,measuredOperationDuration,operationDuration} from './timedOperations';
 import type {AuthoringDutyElementV1,AuthoringDutyV1,TimetableAuthoringDocumentV1} from './authoring';
 import type {StationProgramDefinition,StationProgramLiteral,TimetableSimulationResult} from './types';
 
 export interface DutyTimelineTask {
- id:string;type:'RUN'|'PROGRAM';label:string;startTick:number;endTick?:number;
+ id:string;type:'RUN'|'PROGRAM'|'EVENT';label:string;startTick:number;endTick?:number;
  durationMode:'RUN'|'POINT'|'MANUAL'|'SIMULATED';measured?:boolean;overlaps:string[];
 }
 export function defaultDutyProgramArguments(parameters:StationProgramDefinition['parameters']):Record<string,StationProgramLiteral> {
@@ -10,7 +11,7 @@ export function defaultDutyProgramArguments(parameters:StationProgramDefinition[
 }
 /** Run occupancy includes effective terminal arrival, dwell and optional terminal departure. */
 export function dutyTaskStart(document:TimetableAuthoringDocumentV1,element:AuthoringDutyElementV1):number {
- return element.type==='PROGRAM'?element.call.tick:document.runs.find((run)=>run.id===element.runId)?.calls[0]?.departureTick??0;
+ return element.type==='RUN'?document.runs.find((run)=>run.id===element.runId)?.calls[0]?.departureTick??0:resolveDutyTimedOperation(document,element)?.tick??0;
 }
 /** Stable ties preserve the player's chosen order at the same scheduled tick. */
 export function sortDutyTasks(document:TimetableAuthoringDocumentV1,duty:AuthoringDutyV1):AuthoringDutyElementV1[] {
@@ -36,12 +37,12 @@ export function projectDutyTimeline(document:TimetableAuthoringDocumentV1,duty:A
    const endTick=arrival==null&&terminal?.departureTick==null?undefined:Math.max(arrival==null?0:arrival+(terminal?.minimumDwellTicks??0),terminal?.departureTick??0);
    return {id:element.id,type:'RUN',label:element.runId,startTick,endTick,durationMode:'RUN',overlaps:[]};
   }
-  const mode=element.duration?.type??'POINT';
-  // A failed/incomplete simulation cannot establish a final task duration.
-  const measurement=simulation?.status==='COMPLETED'?simulation.tasks?.find((task)=>task.serviceId===duty.id&&task.taskId===element.id):undefined;
-  const measured=mode==='SIMULATED'&&measurement?.endTick!==undefined&&Number.isSafeInteger(measurement.startTick)&&Number.isSafeInteger(measurement.endTick)&&measurement.endTick>=measurement.startTick;
-  const duration=mode==='POINT'?0:element.duration?.type==='MANUAL'?element.duration.ticks:measured?measurement!.endTick!-measurement!.startTick:undefined;
-  return {id:element.id,type:'PROGRAM',label:element.call.programId,startTick,endTick:duration===undefined?undefined:startTick+duration,durationMode:mode,measured:measured||undefined,overlaps:[]};
+  const operation=resolveDutyTimedOperation(document,element);
+  const mode=operation?.duration?.type??'POINT';
+  const measurement=measuredOperationDuration(simulation,duty.id,element.id);
+  const measured=mode==='SIMULATED'&&measurement!==undefined;
+  const duration=operation?operationDuration(operation,measurement):undefined;
+  return {id:element.id,type:element.type,label:operation?.label??operation?.program?.programId??(element.type==='EVENT'?element.eventId:element.id),startTick,endTick:duration===undefined?undefined:startTick+duration,durationMode:mode,measured:measured||undefined,overlaps:[]};
  });
  for(let i=0;i<tasks.length;i++)for(let j=i+1;j<tasks.length;j++){
   const a=tasks[i],b=tasks[j];

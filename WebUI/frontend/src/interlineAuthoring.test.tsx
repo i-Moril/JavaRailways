@@ -38,7 +38,7 @@ describe('one-document through running and unit trips',()=>{
  it('establishes a named train origin before its initial display program without a second run check',()=>{
   const d=document();
   d.boundPrograms=[{programId:'display',revision:1,contentIdentity:'sha256:'+'a'.repeat(64),definition:{parameters:[],steps:[{id:'set',type:'SET_DISPLAY',unitSlots:{value:[1]},values:{value:{destination:'E'}}}]}}];
-  d.duties[0].elements.unshift({id:'initial-display',type:'PROGRAM',call:{id:'initial-display-call',programId:'display',tick:50,arguments:{}}});
+  d.duties[0].elements.unshift({id:'initial-display',type:'PROGRAM',tick:50,program:{programId:'display',arguments:{}}});
   const generated=generateTimetableSource(d);
   expect(generated.issues).toEqual([]);
   expect(generated.source.match(/\.check\(/g)).toHaveLength(1);
@@ -73,7 +73,7 @@ describe('one-document through running and unit trips',()=>{
  it('shares split graph node across continuation duties without duplicating a common run',()=>{
   const d=document();d.formationEvents=[{id:'split',kind:'SPLIT',coordinatorDutyId:'duty',partition:{from:'HEAD',firstUnitCount:1},outputs:[{id:'first',group:'FIRST',disposition:{type:'DUTY',dutyId:'duty'}},{id:'rest',group:'REST',disposition:{type:'DUTY',dutyId:'child'}}]}];
   d.boundPrograms=[{programId:'split-program',revision:1,contentIdentity:'sha256:'+ 'a'.repeat(64),definition:{parameters:[],steps:[{id:'split-step',type:'SPLIT',eventId:{value:'split'}}]}}];
-  d.duties[0].elements.splice(1,0,{id:'split',type:'PROGRAM',call:{id:'split-call',programId:'split-program',tick:320,arguments:{}}});
+  d.duties[0].elements.splice(1,0,{id:'split',type:'PROGRAM',tick:320,program:{programId:'split-program',arguments:{}}});
   d.duties.push({id:'child',selector:{type:'TAKE_FROM_FORMATION_OUTPUT',eventId:'split',outputId:'rest',tick:330},elements:[{id:'child-run',type:'RUN',runId:'child-run'}]});d.runs.push({...d.runs[1],id:'child-run'});
   const graph=buildDutyGraph(d),split=graph.nodes.find((n)=>n.id==='event:split')!;
   expect(split.kind).toBe('SPLIT');expect(split.incoming).toHaveLength(1);expect(split.outgoing).toHaveLength(2);expect(graph.edges).toHaveLength(3);

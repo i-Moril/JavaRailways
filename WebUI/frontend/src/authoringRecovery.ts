@@ -39,9 +39,9 @@ export function parseAuthoringRecovery(serialized:string|null,owner:string,world
       for(const element of duty.elements??[]){
         if(element.type==='RUN'){if(typeof element.runId!=='string')return undefined;}
         else if(element.type==='PROGRAM'){
-          if(!element.call||typeof element.call.id!=='string'||typeof element.call.programId!=='string'||!Number.isSafeInteger(element.call.tick)||!element.call.arguments||typeof element.call.arguments!=='object'||Array.isArray(element.call.arguments))return undefined;
+          if(!element.program||typeof element.program.programId!=='string'||!Number.isSafeInteger(element.tick)||!element.program.arguments||typeof element.program.arguments!=='object'||Array.isArray(element.program.arguments))return undefined;
           if(element.duration&&(element.duration.type==='MANUAL'?(!Number.isSafeInteger(element.duration.ticks)||element.duration.ticks<0):element.duration.type!=='SIMULATED'))return undefined;
-        }else return undefined;
+        }else if(element.type==='EVENT'){if(typeof element.eventId!=='string')return undefined;}else return undefined;
       }
     }
     if(typeof value.documentId!=='string'||typeof value.formalScriptName!=='string'||typeof value.persistedFormalScriptName!=='string')return undefined;

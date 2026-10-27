@@ -1,7 +1,8 @@
+import {resolveDutyTimedOperation,timedOperationCall,validateTimedOperation} from './timedOperations';
 import {defaultStationStopProgram,resolveEventWaits,validateStopProgram} from './stationPlans';
 import {validateFormationAuthoring,type AuthoringFormationEvent} from './formationAuthoring';
 import { copyStationProgram,validateArrivalProgram,stationProgramSchedule,resolveProgramValue,displayValuesError,validateStationProgram,validateStationProgramCall } from './stationPrograms';
-import type { StationStopProgram,TimetableEventPoint,OperationalTrip,BoundStationProgram,StationProgramCall,DiagramLineV1, LineDirection, LineSimulationResult, LineV1, SavedTimetableV1, SimulationProfile, TimetableActionV1, WorldMetadata } from './types';
+import type { StationStopProgram,TimetableEventPoint,OperationalTrip,BoundStationProgram,TimedOperation,TimedOperationProgram,TimedOperationDuration,DiagramLineV1, LineDirection, LineSimulationResult, LineV1, SavedTimetableV1, SimulationProfile, TimetableActionV1, WorldMetadata } from './types';
 
 export type AuthoringDoorSide = 'NONE'|'LEFT'|'RIGHT'|'BOTH';
 export type AuthoringRunCallStatusV1 = 'ORIGIN'|'STOP'|'PASS'|'TERMINAL';
@@ -32,10 +33,11 @@ export type AuthoringDutySelectorV1 =
   | {type:'TAKE_FROM_DEPOT';depotId:string;tick:number;tags:string[]}
   | {type:'TAKE_FROM_WAYPOINT';wayPointIds:string[];tick:number}
   | {type:'TAKE_FROM_FORMATION_OUTPUT';eventId:string;outputId:string;tick:number};
-export type DutyProgramDuration = {type:'MANUAL';ticks:number}|{type:'SIMULATED'};
+export type DutyProgramDuration = TimedOperationDuration;
 export type AuthoringDutyElementV1 =
   | {id:string;type:'RUN';runId:string}
-  | {id:string;type:'PROGRAM';call:StationProgramCall;duration?:DutyProgramDuration};
+  | (TimedOperation & {type:'PROGRAM';program:TimedOperationProgram})
+  | {id:string;type:'EVENT';eventId:string};
 export interface AuthoringDutyV1 {
   id:string;
   selector:AuthoringDutySelectorV1;
@@ -402,7 +404,6 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
       if(!duty.initialPosition.trim())issues.push(issue(`${path}.initialPosition`,'Initial placement waypoint is required'));
       if(duty.selector.type!=='TRAIN_NAME')issues.push(issue(`${path}.initialPosition`,'Initial placement requires a named-train selector'));
     }
-    const programCallIds=new Set<string>();
     duty.elements.forEach((element,elementIndex)=>{
       const elementPath=`${path}.elements[${elementIndex}]`;
       if(!element.id.trim()) issues.push(issue(`${elementPath}.id`,'Element ID is required'));
@@ -437,28 +438,24 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
           if(runEnd!=null) previousElementEndTick=Math.max(previousElementEndTick??0,runEnd);
           previousRun=run;
         }
-      } else if(element.type==='PROGRAM') {
-        if(element.duration){
-          if(element.duration.type==='MANUAL'){
-            if(!nonNegativeInteger(element.duration.ticks))issues.push(issue(elementPath,'Program duration must be a non-negative integer'));
-            else if(element.call.tick+element.duration.ticks>=periodTicks)issues.push(issue(elementPath,'Program duration crosses the timetable period'));
-          }else if(element.duration.type!=='SIMULATED')issues.push(issue(elementPath,'Unknown program duration type'));
-        }
-        if(programCallIds.has(element.call.id))issues.push(issue(elementPath,'Duplicate program call ID'));
-        programCallIds.add(element.call.id);
-        const snapshot=document.boundPrograms?.find((item)=>item.programId===element.call.programId);
-        if(!snapshot)issues.push(issue(elementPath,`Missing bound program: ${element.call.programId}`));
+      } else {
+        const operation=resolveDutyTimedOperation(document,element);
+        if(!operation?.program){issues.push(issue(elementPath,`Missing program operation: ${element.type==='EVENT'?element.eventId:element.id}`));return;}
+        const call=timedOperationCall(operation,element.id);
+        for(const message of validateTimedOperation(operation,periodTicks))issues.push(issue(elementPath,message));
+        const snapshot=document.boundPrograms?.find((item)=>item.programId===call.programId);
+        if(!snapshot)issues.push(issue(elementPath,`Missing bound program: ${call.programId}`));
         else {
-          const callIssues=validateStationProgramCall(snapshot,element.call,periodTicks);
+          const callIssues=validateStationProgramCall(snapshot,call,periodTicks);
           for(const message of callIssues)issues.push(issue(elementPath,message));
           if(callIssues.length)return;
           programDestination=programDestination??previousRun?.calls.at(-1)?.targetId;
-          if(previousElementEndTick!=null&&element.call.tick<previousElementEndTick)issues.push(issue(elementPath,'Program starts before the previous duty element completes'));
+          if(previousElementEndTick!=null&&call.tick<previousElementEndTick)issues.push(issue(elementPath,'Program starts before the previous duty element completes'));
           if(duty.selector.type==='TRAIN_NAME'&&!previousRun&&!programDestination)issues.push(issue(elementPath,'Program requires a prior run or service-boundary acquisition'));
-          const lower=stationProgramSchedule(snapshot.definition.steps,element.call.arguments,element.call.tick,periodTicks).earliest;
+          const lower=stationProgramSchedule(snapshot.definition.steps,call.arguments,call.tick,periodTicks).earliest;
           for(const step of snapshot.definition.steps){
             if(step.type==='COUPLE'||step.type==='SPLIT'||(step.type==='BRANCH'||step.type==='SELECT_STOP'))programDestination=undefined;
-            if(step.type==='MOVE')programDestination=String(resolveProgramValue(step.destinationId,element.call.arguments));
+            if(step.type==='MOVE')programDestination=String(resolveProgramValue(step.destinationId,call.arguments));
             if(step.type==='STORE_AT_DEPOT'&&(elementIndex!==duty.elements.length-1||step!==snapshot.definition.steps.at(-1)))issues.push(issue(elementPath,'Store at depot must be the final duty action'));
           }
           previousElementEndTick=lower;
@@ -477,8 +474,13 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
   }
   const eventIds=new Set<string>();
   for(const [index,event] of (document.events??[]).entries()){
-    if(!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(event.id)||eventIds.has(event.id)||!event.stationId.trim()||!Number.isSafeInteger(event.tick)||event.tick<0||event.tick>=periodTicks)issues.push(issue(`events[${index}]`,'Invalid or duplicate timed event'));
+    if(!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(event.id)||eventIds.has(event.id)||validateTimedOperation(event,periodTicks).length>0)issues.push(issue(`events[${index}]`,'Invalid or duplicate timed event'));
     eventIds.add(event.id);
+    if(event.program){
+      const snapshot=document.boundPrograms?.find((item)=>item.programId===event.program!.programId);
+      if(!snapshot)issues.push(issue(`events[${index}]`,`Missing bound program: ${event.program.programId}`));
+      else for(const message of validateStationProgramCall(snapshot,timedOperationCall(event,event.id),periodTicks))issues.push(issue(`events[${index}]`,message));
+    }
   }
   for(const [index,snapshot] of (document.boundPrograms??[]).entries()){
     if(programIds.has(snapshot.programId))issues.push(issue(`boundPrograms[${index}]`,'Duplicate bound program'));
@@ -569,12 +571,16 @@ function destinationOptions(document:TimetableAuthoringDocumentV1,duty:Authoring
 export function generateTimetableSource(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[]):GeneratedTimetableSource {
   const issues=validateAuthoringDocument(document,infrastructureLines);
   const {formalScriptName:ignoredName,...savedInput}=authoringDocumentForSave(document);
-  const semanticInput={...savedInput,duties:savedInput.duties.map((duty)=>({...duty,elements:duty.elements.map((element)=>element.type==='PROGRAM'?{id:element.id,type:element.type,call:element.call}:element)}))};
+  const semanticInput={...savedInput,events:savedInput.events?.map(({id,tick})=>({id,tick})),duties:savedInput.duties.map((duty)=>({...duty,elements:duty.elements.map((element)=>{
+    if(element.type==='RUN')return element;
+    const operation=resolveDutyTimedOperation(document,element);
+    return {id:element.id,type:element.type,...(element.type==='EVENT'?{eventId:element.eventId}:{}),tick:operation?.tick,program:operation?.program};
+  })}))};
   const documentHashInput=JSON.stringify({document:semanticInput,lineSpeedLimits:authoringLineSpeedLimits(infrastructureLines,document)});
   if(issues.some((issue)=>issue.severity==='error'))return {source:'',issues,documentHashInput};
   const lines:string[]=['// Generated by JavaRailways WebUI. Do not edit in structured mode.','function main(timetable) {',`    timetable.setPeriodDays(${document.periodDays})`];
   for(const [index,snapshot] of (document.boundPrograms??[]).entries()) {
-    if(document.duties.some((duty)=>duty.elements.some((element)=>element.type==='PROGRAM'&&element.call.programId===snapshot.programId)))lines.push(`    const program${index} = JSON.parse(${quote(JSON.stringify(resolveEventWaits(snapshot.definition,document.events??[],document.periodDays*24000)))})`);
+    if(document.duties.some((duty)=>duty.elements.some((element)=>resolveDutyTimedOperation(document,element)?.program?.programId===snapshot.programId)))lines.push(`    const program${index} = JSON.parse(${quote(JSON.stringify(resolveEventWaits(snapshot.definition,document.events??[],document.periodDays*24000)))})`);
   }
   for(const event of document.formationEvents??[]) {
     const {id,...definition}=event;
@@ -639,16 +645,19 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1,in
           pendingPasses='';
         }
         lines.push('          })','        })');
-      } else if(element.type==='PROGRAM') {
-        const index=(document.boundPrograms??[]).findIndex((item)=>item.programId===element.call.programId);
-        const argumentsSource=`JSON.parse(${quote(JSON.stringify(element.call.arguments))})`;
+      } else {
+        const operation=resolveDutyTimedOperation(document,element);
+        if(!operation?.program)continue;
+        const call=timedOperationCall(operation,element.id);
+        const index=(document.boundPrograms??[]).findIndex((item)=>item.programId===call.programId);
+        const argumentsSource=`JSON.parse(${quote(JSON.stringify(call.arguments))})`;
         if(index>=0){
-          lines.push(`        t.origin(${quote(`${origin(duty.id,element.id)}/call:${element.call.id}`)}, scoped => {`);
+          lines.push(`        t.origin(${quote(`${origin(duty.id,element.id)}/call:${call.id}`)}, scoped => {`);
           if(!emittedCheck&&duty.selector.type==='TRAIN_NAME'){
             const target=namedDutyInitialTarget(document,duty);
             if(target){lines.push(`            scoped.check(${quote(target)})`);emittedCheck=true;}
           }
-          lines.push(`            scoped.task(${quote(element.id)}, ${element.call.tick}, taskScope => taskScope.program(${quote(element.call.programId)}, program${index}, ${argumentsSource}, JSON.parse(${quote(JSON.stringify({dutyId:duty.id}))})))`,'        })');
+          lines.push(`            scoped.task(${quote(element.id)}, ${call.tick}, taskScope => taskScope.program(${quote(call.programId)}, program${index}, ${argumentsSource}, JSON.parse(${quote(JSON.stringify({dutyId:duty.id}))})))`,'        })');
         }
       }
     }

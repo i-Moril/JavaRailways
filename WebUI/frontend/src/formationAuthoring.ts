@@ -1,3 +1,4 @@
+import {resolveDutyTimedOperation,timedOperationCall} from './timedOperations';
 import type {AuthoringIssue,TimetableAuthoringDocumentV1} from './authoring';
 import {resolveProgramValue,validateStationProgramCall} from './stationPrograms';
 
@@ -46,11 +47,12 @@ export function validateFormationAuthoring(document:TimetableAuthoringDocumentV1
   }
   const invocations=new Map<string,string[]>();
   for(const [di,duty] of document.duties.entries())for(const [ei,element] of duty.elements.entries()){
-    if(element.type!=='PROGRAM')continue;
-    const snapshot=document.boundPrograms?.find((p)=>p.programId===element.call.programId);
-    if(!snapshot||validateStationProgramCall(snapshot,element.call,document.periodDays*24000).length)continue;
+    const operation=resolveDutyTimedOperation(document,element);if(!operation?.program)continue;
+    const call=timedOperationCall(operation,element.id);
+    const snapshot=document.boundPrograms?.find((p)=>p.programId===call.programId);
+    if(!snapshot||validateStationProgramCall(snapshot,call,document.periodDays*24000).length)continue;
     for(const [si,step] of snapshot.definition.steps.entries())if(step.type==='COUPLE'||step.type==='SPLIT'){
-      const id=resolveProgramValue(step.eventId,element.call.arguments),event=catalog.get(id),path=`duties[${di}].elements[${ei}]`;
+      const id=resolveProgramValue(step.eventId,call.arguments),event=catalog.get(id),path=`duties[${di}].elements[${ei}]`;
       invocations.set(id,[...(invocations.get(id)??[]),duty.id]);
       if(!event||event.kind!==step.type){error(path,`Missing or mismatched formation event: ${id}`);continue;}
       const continues=formationOutputs(event).some((o)=>o.disposition.type==='DUTY'&&o.disposition.dutyId===duty.id);

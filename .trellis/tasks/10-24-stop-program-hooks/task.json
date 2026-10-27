@@ -15,12 +15,12 @@
   "branch": "codex/timetable-station-programs",
   "base_branch": "deploy/station-blocks-20261024",
   "worktree_path": null,
-  "commit": "feb17c02b53e1045fc59c91a4f03fdb70172babf",
+  "commit": "8ae62d563dee6254574b652a288dce6cae8d6182",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Timeline rewrite implemented; frontend217/backend1309/migration14 gates pass; browser drag/resize/undo/contextremove/source/save/restart checked. Pending deployment and player acceptance; keep in_progress/unarchived.",
+  "notes": "Duty timeline deployed2026-10-27 09:28UTC, source8ae62d56; migrationfixes38f8bb54/39ea6890. Front217/backend1309/migration14 pass; browserdrag/resize/undo/contextremove/source/save/restart checked. Six docs+one library validated,one initializer migrated with fullrecovery y2c52jpo;17loopback/publicassets match. Keep in_progress/unarchived for player acceptance.",
   "meta": {}
 }

@@ -785,3 +785,40 @@ Implemented independent authenticated disk log page, module/Throwable/context lo
 ### Next Steps
 
 - Review or merge feat/error-log-webui; live Paper/Folia acceptance remains separate
+
+
+## Session 25: Rewrite duty editor as a timed task timeline and deploy
+<!-- trellis-session: v=2 fp=3eb40e71203c8b4d -->
+
+**Date**: 2026-10-27
+**Task**: Rewrite duty editor as a timed task timeline and deploy
+**Package**: webui
+**Branch**: `codex/timetable-station-programs`
+
+### Summary
+
+Implemented RUN intervals and program point/manual/simulated durations; true dispatcher task timing; offline migration and verified developer-server deployment. Task remains unarchived for player acceptance.
+
+### Main Changes
+
+- Replaced duty Scratch editor with controlled timeline; drag/resize, current schema and task timing metadata.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8ae62d56` | Replace duty block editor with a task timeline and measured durations |
+| `38f8bb54` | Respect independent document storage identity during timeline migration |
+| `39ea6890` | Identify JVM executables accurately in offline migration guard |
+
+### Testing
+
+- [OK] Frontend217/backend1309/migration14 tests pass; real browser save/restart and public17assets verified.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Player verification of timeline UI and live program scheduling; keep existing task in_progress.

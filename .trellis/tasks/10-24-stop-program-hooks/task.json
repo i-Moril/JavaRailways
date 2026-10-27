@@ -15,12 +15,12 @@
   "branch": "codex/timetable-station-programs",
   "base_branch": "deploy/station-blocks-20261024",
   "worktree_path": null,
-  "commit": "ea72a9ff9007f6749f65615e80b30b8ea6446949",
+  "commit": "abd8f9aa682dd938abde996fa8244cf8afa7f87b",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Round 1 feedback fixes committed ea72a9ff and deployed 2026-10-26 16:42 UTC; bridge/sidecar/public resources verified. Recovery merged-review-20261023-hkz6r8g9. Frontend 229 tests passed; browser drag/delete/save verified. Remaining feedback tracked in research/feedback-backlog.md. Keep in_progress and unarchived pending user testing and further rounds.",
+  "notes": "Round2 program library file management and real deletion committed abd8f9aa; deployed 2026-10-27 06:57 UTC. Frontend234/backend37 tests and packaged HTTP browser acceptance passed. Live bridge, sidecar,17assets and public resources matched. Recovery merged-review-20261023-506cevta. Keep in_progress and unarchived for user testing and later feedback rounds.",
   "meta": {}
 }

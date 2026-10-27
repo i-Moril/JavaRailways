@@ -21,6 +21,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Timeline rewrite implemented; frontend217/backend1309/migration12 gates pass; browser drag/resize/undo/contextremove/source/save/restart checked. Pending deployment and player acceptance; keep in_progress/unarchived.",
+  "notes": "Timeline rewrite implemented; frontend217/backend1309/migration13 gates pass; browser drag/resize/undo/contextremove/source/save/restart checked. Pending deployment and player acceptance; keep in_progress/unarchived.",
   "meta": {}
 }

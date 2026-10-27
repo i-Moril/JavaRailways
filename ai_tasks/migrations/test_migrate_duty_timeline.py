@@ -108,6 +108,16 @@ class JavaIntegrationTests(unittest.TestCase):
         self.assertTrue(all(f['action'] == 'unchanged' for f in next_plan['files']))
         self.assertEqual(len(list((self.library / 'world').glob('*.json'))), 1)
 
+    def test_storage_identity_is_independent_of_document_id(self):
+        second = self.docs / 'world/doc-2.json'
+        second.write_bytes(self.source.read_bytes())
+        plan, original, output = inspect(self.docs, self.library, self.bridge)
+        self.assertEqual(set(output['documents']), {'world/doc.json', 'world/doc-2.json'})
+        self.assertEqual(len(output['library']), 2)
+        self.assertEqual(len(set(output['library'])), 2)
+        self.assertEqual(len(original['documents']), 2)
+        self.assertEqual(len(plan['files']), 4)
+
     def test_precompiled_bridge_for_jre_host_is_hash_pinned(self):
         classes = self.root / 'classes'
         target = classes / 'work/art1st/javarailways/webui/DutyTimelineMigrationBridge.class'

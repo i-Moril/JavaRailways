@@ -116,7 +116,7 @@ def schedule(steps, args, start, period):
     return visit(steps, start, start)[1]
 
 
-def convert_document(document, world, library, identity):
+def convert_document(document, world, library, identity, storage_id=None):
     result = copy.deepcopy(document)
     snapshots = result.get('boundPrograms', [])
     snapshot_map = {s['programId']: s for s in snapshots}
@@ -158,7 +158,7 @@ def convert_document(document, world, library, identity):
                     definition = resolve_events(element['definition'], result)
                     if definition['parameters']: raise ValueError('inline parameters cannot be migrated')
                 else: raise ValueError('unknown duty element')
-                seed = output_json([world, result['id'], duty['id'], element['id']])
+                seed = output_json([world, storage_id if storage_id is not None else result['id'], duty['id'], element['id']])
                 program_id = str(int.from_bytes(hashlib.sha256(seed).digest()[:16], 'big'))
                 if program_id in used: raise ValueError('deterministic program ID collision')
                 used.add(program_id)
@@ -194,8 +194,7 @@ def inspect(documents_root, library_root, bridge):
     for relative, raw in originals['documents'].items():
         world = relative.split('/')[0]
         document = decode(raw)
-        if document['id'] != Path(relative).stem: raise ValueError('document filename/ID mismatch')
-        converted = convert_document(document, world, library.setdefault(world, {}), lambda d: bridge('identity', d)['identity'])
+        converted = convert_document(document, world, library.setdefault(world, {}), lambda d: bridge('identity', d)['identity'], storage_id=Path(relative).stem)
         documents.append(converted)
         outputs['documents'][relative] = raw if converted == document else output_json(converted)
     for world, records in library.items():

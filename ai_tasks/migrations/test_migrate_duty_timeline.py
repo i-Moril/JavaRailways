@@ -1,10 +1,12 @@
 import copy
 import os
+import subprocess
+import sys
 from pathlib import Path
 import tempfile
 import unittest
 
-from migrate_duty_timeline import convert_document, resolve_events, schedule, inspect, apply, JavaBridge
+from migrate_duty_timeline import convert_document, resolve_events, schedule, inspect, apply, JavaBridge, ensure_stopped
 from remove_program_library_archived import output_json
 
 
@@ -21,6 +23,13 @@ class ConversionTests(unittest.TestCase):
     # Unit identity adapter; Java-backed integration below verifies real hashes.
     def convert(self, value, library=None):
         return convert_document(value, 'world', library if library is not None else {}, lambda _: 'sha256:' + '0' * 64)
+
+    def test_java_path_in_python_arguments_is_not_a_running_jvm(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            process = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(60)', str(root / 'JavaRailways'), 'java'])
+            try: ensure_stopped(root)
+            finally: process.terminate(); process.wait(timeout=10)
 
     def test_initializer_only_preserves_no_snapshot_field(self):
         source = document([dict(id='a', type='FUNCTION', call=dict(id='a', type='PLACE_INITIAL', trainName='train', wayPointId='way'))])

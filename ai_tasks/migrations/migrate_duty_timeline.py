@@ -218,8 +218,8 @@ def ensure_stopped(instance):
     for proc in Path('/proc').iterdir():
         if not proc.name.isdigit(): continue
         try:
+            if (proc / 'exe').resolve(strict=True).name != 'java': continue
             command = (proc / 'cmdline').read_bytes()
-            if b'java' not in command.lower(): continue
             cwd = str((proc / 'cwd').resolve(strict=True))
             if instance in cwd or instance.encode() in command:
                 raise ValueError('instance Java process is running: ' + proc.name)

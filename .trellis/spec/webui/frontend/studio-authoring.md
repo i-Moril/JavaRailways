@@ -100,9 +100,11 @@ JSON 对象允许{}；拒绝空文本/非对象、不有限数字和超出安全
 
 校验每个参与方恰好引用一次、被消耗参与者结束、接收互反引用、时序与来源依赖环。生成仍使用已有 formationEvent、takeFromFormationOutput 及直接 split/couple DSL，外包真实 task 起止标记供测量；目录的编辑时刻、耗时与车站字段先从物理声明剥离。规划耗时／显示站点不进入执行源与输入哈希，已知重叠独立阻止编译。保存后端及本地恢复同步当前开发格式，保持版本 1，不增加旧开发数据 runtime reader。当前物理解编规则仅支持从实际运行车头数完整单元，范围 1..Int32 上限；保留现有一分为二操作；复杂分割通过多次解编组合，不增加选端 UI。浏览器编辑与脚本编译验证不等于真实游戏重联运行验收。
 
-## 单文档跨线与运营车次编辑
+## 单文档跨线与连续显示计划
 
-当前同一 duty 可引用不同基础设施线路和不同运行图的 RUN，每 RUN 必须有明确 lineId。`RunConnectionEditor` 对相邻 RUN 的到达/发车作一次 document/history 事务，校验使用 arrivalOverride 后的实际计划值与最小停站。`DutyGraphEditor` 仅派生整编组 RUN 边及共享编组节点；运营车次列表另按完整 RUN 和单元槽位组织，不能复制运行任务。
+当前同一 duty 可引用不同基础设施线路和不同运行图的 RUN，每 RUN 必须有明确 lineId。`RunConnectionEditor` 对相邻 RUN 的到达/发车作一次 document/history 事务，校验使用 arrivalOverride 后的实际计划值与最小停站。连续显示配置由时间轴选中 RUN 的 `RunDisplayPlansEditor` 编辑，不再提供独立的运营车次/交路图面板。一个显示计划以有序 RUN 和完整单元槽位组织，关联多个交路时仍保留各实际 service/run 身份，不复制运行任务。
+
+显示计划复用当前 `operationalTrips` 权威，不另造隐式上下文或第二份存储。创建/关联必须来自实际已分配的 RUN，用户显式选单元，禁止重复段和重叠槽位；新身份按现有计划命名空间分配数字字符串，不改已有ID。共享默认值、全部有序段、单元和失效引用都在 RUN 详情中可编辑，删除最后一段同时删除该计划。完全无可解析 RUN 的计划在交路页警告中可查看和删除，不能随旧面板移除而隐藏。`displayPlans.ts` 负责不可变文档变换，每次既有history事务保留无关字段；打开、保存不自动排序或重建计划。
 
 默认显示 JSON 草稿的有效性回传到 DutyEditor；无效时禁用保存/编译/正式脚本/模拟/发布，并递增草稿 revision，拒绝同文档哈希下已过期的异步结果。字段提交仍经 blur/Ctrl+Enter，Escape 恢复。生成 JS 时，命名车初始 PROGRAM 前使用明确初始位置或首 RUN 起点建立一次 CHECK。编译器在合适边界初始化新车次，具体动作、wire 和运行时生命周期由 [SimpleATO 规范](../../javarailways/simpleato/through-running-and-unit-displays.md) 定义。
 

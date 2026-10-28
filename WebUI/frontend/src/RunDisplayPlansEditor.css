@@ -1,0 +1,17 @@
+.run-display-plans { display:grid; gap:16px; margin-top:20px; min-width:0; }
+.run-display-plans .ant-typography { margin-bottom:0; }
+.display-plan,.display-plan-attach { display:grid; gap:12px; padding:16px; border:1px solid var(--ant-color-border-secondary); border-radius:8px; min-width:0; }
+.run-display-plans .program-json-input { min-width:0; width:100%; }
+.display-plan-attach .ant-select { min-width:min(200px,100%); max-width:100%; }
+.display-plan-legs { display:grid; gap:16px; margin:0; padding-left:24px; }
+.display-plan-leg { min-width:0; padding-left:4px; }
+.display-plan-leg-heading { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.display-plan-leg-heading > .ant-select { flex:1 1 180px; min-width:0; }
+.display-plan-add-leg { display:grid; gap:8px; min-width:0; }
+.display-plan-add-leg > .ant-select { width:100%; }
+.display-plan-orphans { margin:20px 0; }
+.display-plan-orphans details { margin-top:12px; }
+.display-plan-orphans pre { white-space:pre-wrap; overflow-wrap:anywhere; }
+@media(max-width:600px) { .display-plan,.display-plan-attach { padding:12px; } }
+
+.display-plan-attach .ant-btn,.display-plan > .ant-flex > .ant-btn { max-width:100%; white-space:normal; height:auto; min-height:32px; }

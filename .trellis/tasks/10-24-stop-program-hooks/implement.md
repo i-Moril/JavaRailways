@@ -46,3 +46,13 @@ User requested split commits then continue. Formation committed5be9d190; train-i
 - [x] Shrink JSON parameter controls to shared call grid and retain field gap; narrow layout.
 - [x] Bound snapshot rows vertical spacing and long-name wrapping; behavior unchanged.
 - [x] Browser before/after geometry and native editing/update callbacks, frontend276/build and independent scoped review passed; new batch uncommitted, no deployment/archive.
+
+## Original feedback10 next batch
+
+Spacing committed0900f865 per user request; user game validation deferred. Investigate coherent replacement/retirement of old operational-trip authoring, research/operational-trip-retirement.md. Existing display actions depend on trip lifetime; do not hide controls or drop configuration. User chose retained capabilities; follow timeline RUN inspector contract below, current schema/runtime unchanged. No deployment/archive.
+
+User answered: preserve continuous display and per-unit future stops, configured through program/timeline. Adopt timeline RUN inspector with unchanged authoritative catalog/runtime model; see research/run-display-plans.md.
+
+- [x] Pure immutable display-plan edits, claims/identity and current-format roundtrip/generation tests.
+- [x] RUN inspector editor, orphan visibility and removal of old independent panel.
+- [x] Frontend287/build, actual App browser/history/recovery/invalid gate/narrow screen and scoped independent review pass. User authorized separate local commit; no deployment/archive, game acceptance deferred.

@@ -1,7 +1,8 @@
 import {renderToStaticMarkup} from 'react-dom/server';
 import type {ChangeEvent,KeyboardEvent,ReactNode} from 'react';
 import {describe,expect,it,vi} from 'vitest';
-import {DutyManagement} from './DutyManagement';
+import {ProgramJsonInput} from './ProgramJsonInput';
+import {updateDisplayPlanDefaults} from './displayPlans';
 import {I18nProvider} from './i18n';
 import {emptyAuthoringDocument} from './authoring';
 
@@ -19,14 +20,11 @@ vi.mock('antd',()=>{
     Typography:{Title:container,Text:container,Paragraph:container}};
 });
 
-describe('operational trip defaults draft ownership',()=>{
-  it('propagates invalid JSON through the duty view without writing stale defaults and recovers on Escape',()=>{
-    const noop=()=>undefined,change=vi.fn(),validity=vi.fn();
+describe('continuous display defaults draft ownership',()=>{
+  it('rejects invalid shared defaults without changing the plan and recovers on Escape',()=>{
+    const change=vi.fn(),validity=vi.fn();
     const document={...emptyAuthoringDocument(),operationalTrips:[{id:'trip',defaults:{destination:'E'},segments:[]}]};
-    renderToStaticMarkup(<I18nProvider><DutyManagement document={document} onDocumentChange={change}
-      onValidityChange={validity} duties={[]} runs={[]} selectedId="" metadata={{}} fieldScope="world/document"
-      onSelect={noop} onAdd={noop} onDelete={noop} onPatch={noop} onAssign={noop}
-      onRemove={noop} onViewRun={noop}/></I18nProvider>);
+    renderToStaticMarkup(<I18nProvider><ProgramJsonInput fieldKey="world/document/plan/trip/defaults" value={document.operationalTrips[0].defaults} onValidityChange={validity} onChange={defaults=>change(updateDisplayPlanDefaults(document,'trip',defaults))}/></I18nProvider>);
     const draft=captured.draft!;expect(draft).toBeDefined();
     draft.onChange({target:{value:'{"destination":'}} as ChangeEvent<HTMLTextAreaElement>);
     draft.onBlur();

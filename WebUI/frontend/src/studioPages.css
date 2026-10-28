@@ -221,15 +221,6 @@
 
 .program-branch { border-inline-start: 2px solid var(--ant-color-border); padding-inline-start: 12px; min-width: 0; }
 
-.duty-network { margin-top: 20px; padding: 20px; }
-.duty-network-canvas { overflow: auto; border: 1px solid var(--ant-color-border); border-radius: 8px; margin-bottom: 16px; }
-.duty-network-canvas [role=button] { cursor: pointer; }
-.duty-network-canvas [role=button]:focus-visible { outline: 2px solid var(--ant-color-primary); }
-.duty-network-edge { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px; border-bottom: 1px solid var(--ant-color-border); }
-.duty-network-edge > div { flex: 1; text-align: center; }
-.duty-network-edge .active { border-color: var(--ant-color-primary); color: var(--ant-color-primary); }
-.trip-boundary, .trip-editor { margin-top: 16px; padding: 16px; background: var(--ant-color-fill-quaternary); border-radius: 8px; }
-.trip-leg { padding: 10px 0; }
 
 .timetable-events-editor { margin-top: 16px; padding: 16px; }
 .timetable-event-row { margin: 12px 0; }

@@ -5,3 +5,4 @@
 {"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "Current cross-layer implementation contract"}
 {"file": "ai_tasks/persistence_schema_evolution_rules.md", "reason": "Current cross-layer implementation contract"}
 {"file": ".trellis/tasks/10-24-stop-program-hooks/research/train-info.md", "reason": "User-approved feedback17 runtime readonly train data boundary and ownership"}
+{"file": ".trellis/tasks/10-24-stop-program-hooks/research/run-display-plans.md", "reason": "User selected retained display continuity and per-unit stops, timeline RUN inspector replacement contract"}

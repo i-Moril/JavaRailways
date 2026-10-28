@@ -15,12 +15,12 @@
   "branch": "codex/timetable-station-programs",
   "base_branch": "deploy/station-blocks-20261024",
   "worktree_path": null,
-  "commit": "07678147",
+  "commit": "0900f865",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "User requested split commits and continued original feedback. Duty formation committed5be9d190; readonly train information committed07678147. Each index independently exported, SHA audited and frontend tests/build passed (269 then276); prior full runtime/backend gates passed. Rejected TAIL extension remains withdrawn. Current scope original#7 parameter overflow/gap and bound-snapshot row spacing, see research/feedback-spacing.md. Keep task in_progress, new spacing batch uncommitted for review; no push/deploy/archive. Game acceptance pending. Spacing batch implemented: JSON column overlap and snapshot rows fixed; browser geometry/input/update callbacks, frontend276/build, scoped review pass. Remains uncommitted.",
+  "notes": "Formation5be9d190, train info07678147, spacing0900f865 committed locally; user postpones game validation. Originalfeedback10 retained display continuity/futurestops now configured in RUN timeline inspector; existing current schema/generator/runtime unchanged, old standalone editor/unused graph removed, orphan configs visible/editable/removable. Purehelper10 + frontend287/build + actualAppbrowser and independentreview pass. User authorized separate local batch commit; no push/deploy/archive. Keepin_progress; see research/run-display-plans.md.",
   "meta": {}
 }

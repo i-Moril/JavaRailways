@@ -1,8 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {DutyGraphEditor} from './DutyGraphEditor';
+import {RunDisplayPlansEditor} from './RunDisplayPlansEditor';
 import {I18nProvider} from './i18n';
-import {buildDutyGraph} from './dutyGraph';
 import {filterTimetableForDiagramLine,layoutGraph} from './graph';
 import {deleteRunFromDocument,editRunConnection,generateTimetableSource as generateWithLines,moveRunToDuty,renameAuthoringRun,validateAuthoringDocument as validateWithLines,type TimetableAuthoringDocumentV1} from './authoring';
 import {createDocumentHistory,updateDocumentHistory,undoDocumentHistory,redoDocumentHistory} from './documentHistory';
@@ -65,17 +64,10 @@ describe('one-document through running and unit trips',()=>{
   expect(moved.operationalTrips?.[0].segments[0]).toEqual({serviceId:'other',runId:'new-M',unitSlots:[1]});
   const deleted=deleteRunFromDocument(moved,'new-M');expect(deleted.operationalTrips?.[0].segments.map((s)=>s.runId)).toEqual(['B01']);expect(deleted.operationalTrips?.[1].segments).toEqual([]);
  });
- it('builds one edge per physical run and joins the shared ordinary boundary',()=>{
-  const d=document(),graph=buildDutyGraph(d);expect(graph.edges).toHaveLength(2);expect(graph.edges[0].to).toBe(graph.edges[1].from);
-  const html=renderToStaticMarkup(<I18nProvider><DutyGraphEditor document={d} onChange={()=>{}} onViewRun={()=>{}} onSelectDuty={()=>{}} fieldScope="test"/></I18nProvider>);
-  expect(html).toContain('<svg');expect(html).toContain('Formation duty graph');expect(html).toContain('Run boundary');expect(html).toContain('to-E');expect(html).toContain('to-D');expect(html).toContain('U2');expect(html).toContain('tabindex="0"');
- });
- it('shares split graph node across continuation duties without duplicating a common run',()=>{
-  const d=document();d.formationEvents=[{id:'split',tick:320,kind:'SPLIT',coordinatorDutyId:'duty',partition:{from:'HEAD',firstUnitCount:1},outputs:[{id:'first',group:'FIRST',disposition:{type:'DUTY',dutyId:'duty'}},{id:'rest',group:'REST',disposition:{type:'DUTY',dutyId:'child'}}]}];
-  d.duties[0].elements.splice(1,0,{id:'split',type:'FORMATION',eventId:'split'});
-  d.duties.push({id:'child',selector:{type:'TAKE_FROM_FORMATION_OUTPUT',eventId:'split',outputId:'rest'},elements:[{id:'child-run',type:'RUN',runId:'child-run'}]});d.runs.push({...d.runs[1],id:'child-run'});
-  const graph=buildDutyGraph(d),split=graph.nodes.find((n)=>n.id==='event:split')!;
-  expect(split.kind).toBe('SPLIT');expect(split.incoming).toHaveLength(1);expect(split.outgoing).toHaveLength(2);expect(graph.edges).toHaveLength(3);
+ it('edits continuous display plans from a real assigned run',()=>{
+  const d=document();
+  const html=renderToStaticMarkup(<I18nProvider><RunDisplayPlansEditor document={d} serviceId="duty" runId="M01" onChange={()=>{}} onViewRun={()=>{}} fieldScope="test"/></I18nProvider>);
+  expect(html).toContain('Continuous display plans');expect(html).toContain('to-E');expect(html).toContain('to-D');expect(html).toContain('Unit 2');expect(html).not.toContain('Formation duty graph');
  });
  it('projects compiled segments on each diagram while retaining physical service and step addresses',()=>{
   const d=document(),service:TimetableServiceV1={id:'duty',selectorType:'ANY',activation:{type:'SCHEDULED'},steps:[{type:'CHECK',wayPointId:'A@1'},{type:'AT',tick:100,action:{type:'DESTINATION',wayPointIds:['C@1'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenSteps:[],elseSteps:[]}},{type:'AT',tick:350,action:{type:'DESTINATION',wayPointIds:['E@1'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenSteps:[],elseSteps:[]}}],runSegments:d.runs.map((r,i)=>({runId:r.id,lineId:r.lineId!,diagramLineId:r.diagramLineId,startStepIndex:i?2:0,endStepIndexExclusive:i?3:2,calls:r.calls.map((c)=>({...c,destinationId:c.targetId}))}))};

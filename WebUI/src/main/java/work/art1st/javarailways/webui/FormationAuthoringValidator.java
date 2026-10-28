@@ -10,9 +10,12 @@ final class FormationAuthoringValidator {
     static void validate(JsonNode event) {
         id(event.path("id"));
         String coordinator = id(event.path("coordinatorDutyId"));
+        EditorDocumentValidator.requireSafeNonnegative(event.path("tick"), "formation event tick");
+        EditorDocumentValidator.validateDuration(event);
+        if (event.has("stationId")) id(event.path("stationId"));
         switch (event.path("kind").asText()) {
             case "SPLIT" -> {
-                StationProgramValidator.fields(event, Set.of("id", "kind", "coordinatorDutyId", "partition", "outputs"), "split event");
+                fields(event, Set.of("id", "kind", "coordinatorDutyId", "partition", "outputs"), "split event");
                 JsonNode partition = event.path("partition");
                 StationProgramValidator.fields(partition, Set.of("from", "firstUnitCount"), "split partition");
                 if (!partition.path("from").asText().equals("HEAD") || !partition.path("firstUnitCount").isIntegralNumber() ||
@@ -29,7 +32,7 @@ final class FormationAuthoringValidator {
                 if (!groups.equals(Set.of("FIRST", "REST"))) fail("split requires FIRST and REST outputs");
             }
             case "COUPLE" -> {
-                StationProgramValidator.fields(event, Set.of("id", "kind", "coordinatorDutyId", "approachingDutyId", "stationaryDutyId", "stationaryEnd", "rendezvous", "maximumApproachSpeedMetersPerSecond", "output"), "coupling event");
+                fields(event, Set.of("id", "kind", "coordinatorDutyId", "approachingDutyId", "stationaryDutyId", "stationaryEnd", "rendezvous", "maximumApproachSpeedMetersPerSecond", "output"), "coupling event");
                 String approaching = id(event.path("approachingDutyId")), stationary = id(event.path("stationaryDutyId"));
                 if (approaching.equals(stationary) || !Set.of(approaching, stationary).contains(coordinator)) fail("invalid coupling participants");
                 if (!Set.of("HEAD", "TAIL").contains(event.path("stationaryEnd").asText())) fail("invalid stationary end");
@@ -42,6 +45,12 @@ final class FormationAuthoringValidator {
             }
             default -> fail("unknown formation event kind");
         }
+    }
+    private static void fields(JsonNode event, Set<String> required, String label) {
+        Set<String> fields = new HashSet<>(required);
+        fields.add("tick");
+        for (String optional : Set.of("duration", "stationId")) if (event.has(optional)) fields.add(optional);
+        StationProgramValidator.fields(event, fields, label);
     }
     private static void output(JsonNode output, boolean split) {
         StationProgramValidator.fields(output, split ? Set.of("id", "group", "disposition") : Set.of("id", "disposition"), "formation output");

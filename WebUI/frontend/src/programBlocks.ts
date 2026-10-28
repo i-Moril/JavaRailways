@@ -1,10 +1,10 @@
 import type {StationProgramDefinition,StationProgramParameterType,StationProgramStep} from './types';
 
-export const programStepTypes:StationProgramStep['type'][]=['SET_DISPLAY','RESET_DISPLAY','WAIT_UNTIL','WAIT_EVENT','WAIT_DURATION','REVERSE','MOVE','SELECT_STOP','STORE_AT_DEPOT','COUPLE','SPLIT','EXTENSION','BRANCH','OPEN_DOORS','CLOSE_DOORS','END','ASYNC','AWAIT'];
-export const libraryStepTypes:StationProgramStep['type'][]=['SET_DISPLAY','RESET_DISPLAY','WAIT_UNTIL','WAIT_EVENT','WAIT_DURATION','REVERSE','MOVE','STORE_AT_DEPOT','COUPLE','SPLIT','EXTENSION','BRANCH'];
+export const programStepTypes:StationProgramStep['type'][]=['SET_DISPLAY','RESET_DISPLAY','WAIT_UNTIL','WAIT_EVENT','WAIT_DURATION','REVERSE','MOVE','SELECT_STOP','STORE_AT_DEPOT','EXTENSION','BRANCH','OPEN_DOORS','CLOSE_DOORS','END','ASYNC','AWAIT'];
+export const libraryStepTypes:StationProgramStep['type'][]=['SET_DISPLAY','RESET_DISPLAY','WAIT_UNTIL','WAIT_EVENT','WAIT_DURATION','REVERSE','MOVE','STORE_AT_DEPOT','EXTENSION','BRANCH'];
 export const arrivalStepTypes:StationProgramStep['type'][]=['SET_DISPLAY','RESET_DISPLAY','WAIT_UNTIL','WAIT_EVENT','WAIT_DURATION','REVERSE','OPEN_DOORS','CLOSE_DOORS','END','ASYNC','AWAIT','EXTENSION','BRANCH'];
 export const expressionFields:Partial<Record<StationProgramStep['type'],Record<string,StationProgramParameterType>>>={
- SET_DISPLAY:{unitSlots:'UNIT_SLOTS',values:'JSON_OBJECT',removeKeys:'ID_LIST'},RESET_DISPLAY:{unitSlots:'UNIT_SLOTS'},WAIT_UNTIL:{tick:'TICK'},WAIT_DURATION:{durationTicks:'DURATION'},MOVE:{destinationId:'DESTINATION',viaIds:'ID_LIST'},SELECT_STOP:{stationId:'STATION',berthIds:'ID_LIST'},STORE_AT_DEPOT:{depotId:'DEPOT',stablingPointIds:'ID_LIST'},COUPLE:{eventId:'FORMATION_EVENT'},SPLIT:{eventId:'FORMATION_EVENT'},EXTENSION:{parameters:'JSON_OBJECT'},BRANCH:{parameters:'JSON_OBJECT'},
+ SET_DISPLAY:{unitSlots:'UNIT_SLOTS',values:'JSON_OBJECT',removeKeys:'ID_LIST'},RESET_DISPLAY:{unitSlots:'UNIT_SLOTS'},WAIT_UNTIL:{tick:'TICK'},WAIT_DURATION:{durationTicks:'DURATION'},MOVE:{destinationId:'DESTINATION',viaIds:'ID_LIST'},SELECT_STOP:{stationId:'STATION',berthIds:'ID_LIST'},STORE_AT_DEPOT:{depotId:'DEPOT',stablingPointIds:'ID_LIST'},EXTENSION:{parameters:'JSON_OBJECT'},BRANCH:{parameters:'JSON_OBJECT'},
 };
 export interface ProgramBlockState {type:string;id?:string;fields?:Record<string,string|number>;inputs?:Record<string,{block?:ProgramBlockState}>;next?:{block:ProgramBlockState};x?:number;y?:number;enabled?:boolean;disabledReasons?:string[]}
 export interface ProgramWorkspaceState {blocks?:{languageVersion:number;blocks:ProgramBlockState[]}}

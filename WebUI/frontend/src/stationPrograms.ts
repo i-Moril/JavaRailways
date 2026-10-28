@@ -3,7 +3,7 @@ import type { BoundStationProgram,StationProgramCall,StationProgramDefinition,St
 
 const clone=<T,>(value:T):T=>JSON.parse(JSON.stringify(value)) as T;
 const validId=(value:string)=>/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value);
-const types:StationProgramParameterType[]=['TICK','DURATION','DESTINATION','STATION','DEPOT','FORMATION_EVENT','STRING','ID_LIST','JSON_OBJECT','UNIT_SLOTS'];
+const types:StationProgramParameterType[]=['TICK','DURATION','DESTINATION','STATION','DEPOT','STRING','ID_LIST','JSON_OBJECT','UNIT_SLOTS'];
 export function stationProgramLiteralValid(value:unknown,type:StationProgramParameterType):boolean {
   if(type==='UNIT_SLOTS')return Array.isArray(value)&&value.length>0&&value.length<=128&&value.every((slot)=>Number.isSafeInteger(slot)&&slot>0&&slot<=2147483647)&&new Set(value).size===value.length;
   if(type==='JSON_OBJECT')return programJsonObjectError(value)==='';
@@ -40,7 +40,7 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
     if(!step||typeof step.id!=='string'||typeof step.type!=='string'){errors.push('Invalid step shape');continue;}
     if(!validId(step.id)||ids.has(step.id))errors.push(`Invalid or duplicate step ID: ${step.id}`);
     ids.add(step.id);
-    if(depth>0&&['COUPLE','SPLIT','STORE_AT_DEPOT'].includes(step.type))errors.push(`Fixed operations cannot be conditional: ${step.id}`);
+    if(depth>0&&step.type==='STORE_AT_DEPOT')errors.push(`Fixed operations cannot be conditional: ${step.id}`);
     switch(step.type){
       case 'SET_DISPLAY':{
         check(step.unitSlots,'UNIT_SLOTS');check(step.values,'JSON_OBJECT');if(step.removeKeys)check(step.removeKeys,'ID_LIST');
@@ -62,7 +62,6 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
         if(typeof step.typeId!=='string'||step.typeId.length>256||! /^[a-z0-9_.-]+:[a-z0-9_./-]+$/.test(step.typeId))errors.push('Extension typeId must be namespaced');
         if(!Number.isInteger(step.version)||step.version<1||step.version>2147483647)errors.push('Extension version must be a positive integer');
         check(step.parameters,'JSON_OBJECT');break;
-      case 'COUPLE':case 'SPLIT':check(step.eventId,'FORMATION_EVENT');break;
       case 'REVERSE':case 'OPEN_DOORS':case 'CLOSE_DOORS':case 'END':break;
       case 'ASYNC':if(!validId(step.taskId))errors.push('Invalid task ID');visit(step.steps,depth+1);break;
       case 'AWAIT':if(!validId(step.taskId))errors.push('Invalid task ID');break;

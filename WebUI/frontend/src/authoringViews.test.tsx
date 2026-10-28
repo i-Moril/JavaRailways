@@ -53,7 +53,7 @@ describe('authoring workspace views',()=>{
  });
 
  it('does not request a second vehicle profile for a formation output duty',()=>{
-   const html=render(<AuthoringValidation {...props} duties={[{id:'child',selector:{type:'TAKE_FROM_FORMATION_OUTPUT',eventId:'split',outputId:'rest',tick:100},elements:[]}]}/>);
+   const html=render(<AuthoringValidation {...props} duties={[{id:'child',selector:{type:'TAKE_FROM_FORMATION_OUTPUT',eventId:'split',outputId:'rest'},elements:[]}]}/>);
    expect(html).toContain('Vehicles are supplied by the fixed event output');
    expect(html).not.toContain('Simulation train profile child');
  });

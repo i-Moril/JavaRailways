@@ -69,7 +69,14 @@ final class EditorDocumentValidator {
         }
         if (document.has("formationEvents")) {
             requireObjectArray(document, "formationEvents");
-            document.path("formationEvents").forEach(FormationAuthoringValidator::validate);
+            java.util.Set<String> ids = new java.util.HashSet<>();
+            for (JsonNode event : document.path("formationEvents")) {
+                FormationAuthoringValidator.validate(event);
+                if (!ids.add(event.path("id").asText())) fail("duplicate formation event id");
+                if (event.path("tick").asLong() >= Math.multiplyExact(document.path("periodDays").asLong(), 24_000L)) {
+                    fail("formation event tick outside timetable period");
+                }
+            }
         }
         if (document.has("operationalTrips")) validateOperationalTrips(document);
         document.path("runs").forEach(EditorDocumentValidator::validateRun);
@@ -153,7 +160,7 @@ final class EditorDocumentValidator {
                 requireStringArray(selector, "tags", "depot selector");
             }
             case "TAKE_FROM_FORMATION_OUTPUT" -> {
-                requireIntegral(selector, "tick", "formation output selector");
+                StationProgramValidator.fields(selector, java.util.Set.of("type", "eventId", "outputId"), "formation output selector");
                 requireText(selector, "eventId", "formation output selector");
                 requireText(selector, "outputId", "formation output selector");
             }
@@ -171,9 +178,9 @@ final class EditorDocumentValidator {
         switch (element.path("type").asText()) {
             case "RUN" -> requireText(element, "runId", "run element");
             case "PROGRAM" -> { /* Validated with its shared timed operation above. */ }
-            case "EVENT" -> {
-                StationProgramValidator.fields(element, java.util.Set.of("id", "type", "eventId"), "event element");
-                StationProgramValidator.text(element.path("eventId"), "time event reference");
+            case "EVENT", "FORMATION" -> {
+                StationProgramValidator.fields(element, java.util.Set.of("id", "type", "eventId"), "event reference element");
+                StationProgramValidator.text(element.path("eventId"), "event reference");
             }
             default -> fail("unknown duty element type");
         }
@@ -195,17 +202,7 @@ final class EditorDocumentValidator {
         }
         if (operation.has("stationId")) StationProgramValidator.text(operation.path("stationId"), "timed operation station");
         if (operation.has("label") && !operation.path("label").isTextual()) fail("timed operation label must be text");
-        if (operation.has("duration")) {
-            JsonNode duration = operation.path("duration");
-            switch (duration.path("type").asText()) {
-                case "MANUAL" -> {
-                    StationProgramValidator.fields(duration, java.util.Set.of("type", "ticks"), "program duration");
-                    requireSafeNonnegative(duration.path("ticks"), "program duration");
-                }
-                case "SIMULATED" -> StationProgramValidator.fields(duration, java.util.Set.of("type"), "program duration");
-                default -> fail("unknown program duration type");
-            }
-        }
+        validateDuration(operation);
         if (operation.has("program")) {
             JsonNode program = operation.path("program");
             StationProgramValidator.fields(program, java.util.Set.of("programId", "arguments"), "timed program invocation");
@@ -217,7 +214,20 @@ final class EditorDocumentValidator {
         return id;
     }
 
-    private static void requireSafeNonnegative(JsonNode value, String label) {
+    static void validateDuration(JsonNode operation) {
+        if (!operation.has("duration")) return;
+        JsonNode duration = operation.path("duration");
+        switch (duration.path("type").asText()) {
+            case "MANUAL" -> {
+                StationProgramValidator.fields(duration, java.util.Set.of("type", "ticks"), "operation duration");
+                requireSafeNonnegative(duration.path("ticks"), "operation duration");
+            }
+            case "SIMULATED" -> StationProgramValidator.fields(duration, java.util.Set.of("type"), "operation duration");
+            default -> fail("unknown operation duration type");
+        }
+    }
+
+    static void requireSafeNonnegative(JsonNode value, String label) {
         if (!value.isIntegralNumber() || !value.canConvertToLong() || value.asLong() < 0
             || value.asLong() > 9_007_199_254_740_991L) fail("invalid " + label);
     }

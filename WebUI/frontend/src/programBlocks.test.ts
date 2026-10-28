@@ -1,5 +1,5 @@
 import {describe,expect,it,vi,afterEach} from 'vitest';
-import {blocksToDefinition,definitionToBlocks,defaultProgramStep,programStepTypes,type ProgramBlockState,type ProgramWorkspaceState} from './programBlocks';
+import {blocksToDefinition,definitionToBlocks,defaultProgramStep,programStepTypes,libraryStepTypes,type ProgramBlockState,type ProgramWorkspaceState} from './programBlocks';
 import {getProgramBlockDraftValidity,clearProgramBlockDraft,readProgramBlockDraft,storeProgramBlockDraft} from './programBlockDrafts';
 import type {StationProgramDefinition,StationProgramStep} from './types';
 const clone=<T,>(value:T):T=>JSON.parse(JSON.stringify(value));
@@ -14,8 +14,6 @@ const definition:StationProgramDefinition={parameters:[{id:'duration',type:'DURA
 {id:'move',type:'MOVE',destinationId:{value:'Central'},viaIds:{value:['a','b']}},
 {id:'select',type:'SELECT_STOP',stationId:{parameterId:'station'},berthIds:{value:['long']},selectionPolicy:'AVAILABLE_PRIORITY'},
 {id:'store',type:'STORE_AT_DEPOT',depotId:{value:'home'},stablingPointIds:{value:['one']}},
-{id:'couple',type:'COUPLE',eventId:{value:'join'}},
-{id:'split',type:'SPLIT',eventId:{value:'separate'}},
 {id:'extension',type:'EXTENSION',typeId:'demo:act',version:2,parameters:{value:{nested:{a:'b'}}}},
 {id:'branch',type:'BRANCH',typeId:'demo:condition',version:3,parameters:{value:{}},thenSteps:[{id:'inside',type:'WAIT_DURATION',durationTicks:{value:10}}],elseSteps:[{id:'nested',type:'BRANCH',typeId:'demo:condition',version:1,parameters:{value:{}},thenSteps:[],elseSteps:[{id:'reverse-inside',type:'REVERSE'}]}]},
 ]};
@@ -29,7 +27,14 @@ describe('rail program Blockly mapping',()=>{
    for(const step of steps){expect(step.id).toMatch(/^step-[0-9a-f]{32}$/);expect(blocksToDefinition(definitionToBlocks({parameters:[],steps:[step]}),[]).steps).toEqual([step]);}
   }finally{vi.unstubAllGlobals();}
  });
- it('round trips all 12 step types, nested branches, expressions and omitted optional fields exactly',()=>{expect(blocksToDefinition(definitionToBlocks(definition),definition.parameters)).toEqual(definition);});
+ it('round trips supported actions, nested branches, expressions and omitted optional fields exactly',()=>{expect(blocksToDefinition(definitionToBlocks(definition),definition.parameters)).toEqual(definition);});
+ it('keeps formation work out of the player program toolbox',()=>{
+  for(const type of ['COUPLE','SPLIT']){
+   expect(programStepTypes).not.toContain(type);expect(libraryStepTypes).not.toContain(type);
+   const state:ProgramWorkspaceState={blocks:{languageVersion:0,blocks:[{type:'rail_entry',id:'entry',next:{block:{type:`rail_${type}`,id:'formation'}}}]}};
+   expect(()=>blocksToDefinition(state,[])).toThrow('Unsupported action block');
+  }
+ });
  it('round trips every parameter reference type without resolving its value',()=>{
   const refDefinition=clone(definition);const all=refDefinition.steps as unknown as Record<string,unknown>[];let n=0;
   for(const step of all)for(const [key,value] of Object.entries(step))if(value&&typeof value==='object'&&!Array.isArray(value)&&('value' in value||'parameterId' in value))step[key]={parameterId:`p${n++}`};
@@ -65,7 +70,7 @@ describe('rail program Blockly mapping',()=>{
   expect(()=>blocksToDefinition(definitionToBlocks({parameters:[],steps}),[])).toThrow('depth');
  });
  it('limits arrival actions recursively and rejects arrival parameter declarations',()=>{
-  for(const type of programStepTypes){const step=defaultProgramStep(type);const convert=()=>blocksToDefinition(definitionToBlocks({parameters:[],steps:[step]}),[],'arrival');if(['MOVE','SELECT_STOP','STORE_AT_DEPOT','COUPLE','SPLIT'].includes(type))expect(convert).toThrow('unavailable');else expect(convert).not.toThrow();}
+  for(const type of programStepTypes){const step=defaultProgramStep(type);const convert=()=>blocksToDefinition(definitionToBlocks({parameters:[],steps:[step]}),[],'arrival');if(['MOVE','SELECT_STOP','STORE_AT_DEPOT'].includes(type))expect(convert).toThrow('unavailable');else expect(convert).not.toThrow();}
   expect(()=>blocksToDefinition(definitionToBlocks({parameters:[],steps:[]}),[{id:'p',type:'STRING'}],'arrival')).toThrow('declare');
   const state=definitionToBlocks({parameters:[],steps:[{id:'b',type:'BRANCH',typeId:'demo:c',version:1,parameters:{value:{}},thenSteps:[{id:'r',type:'MOVE',destinationId:{value:'x'},viaIds:{value:[]}}],elseSteps:[]}]});expect(()=>blocksToDefinition(state,[],'arrival')).toThrow('unavailable');
  });

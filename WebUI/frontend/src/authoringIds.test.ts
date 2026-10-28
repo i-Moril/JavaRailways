@@ -6,7 +6,7 @@ import {createDocumentHistory,redoDocumentHistory,undoDocumentHistory,updateDocu
 const run=(id:string):AuthoringRunV1=>({id,type:'PASSENGER',lineDirection:'UP',calls:[]});
 const duty=(id:string)=>({id,selector:{type:'TRAIN_NAME' as const,name:''},elements:[]});
 const split=(coordinatorDutyId:string,outputDutyId:string)=>({
-  id:'event',kind:'SPLIT' as const,coordinatorDutyId,partition:{from:'HEAD' as const,firstUnitCount:1},
+  id:'event',tick:10,kind:'SPLIT' as const,coordinatorDutyId,partition:{from:'HEAD' as const,firstUnitCount:1},
   outputs:[{id:'first',group:'FIRST' as const,disposition:{type:'DUTY' as const,dutyId:outputDutyId}},{id:'rest',group:'REST' as const,disposition:{type:'HOLD' as const}}],
 });
 
@@ -39,7 +39,7 @@ describe('visible authoring IDs',()=>{
     ['split coordinator',(document:TimetableAuthoringDocumentV1)=>{document.formationEvents=[split('8','custom')];}],
     ['formation output',(document:TimetableAuthoringDocumentV1)=>{document.formationEvents=[split('custom','8')];}],
     ['couple participants',(document:TimetableAuthoringDocumentV1)=>{document.formationEvents=[{
-      id:'event',kind:'COUPLE',coordinatorDutyId:'custom',approachingDutyId:'7',stationaryDutyId:'8',stationaryEnd:'HEAD',
+      id:'event',kind:'COUPLE',tick:10,coordinatorDutyId:'custom',approachingDutyId:'7',stationaryDutyId:'8',stationaryEnd:'HEAD',
       rendezvous:{approachDestinationId:'a',stationaryDestinationId:'b'},maximumApproachSpeedMetersPerSecond:1,
       output:{id:'joined',disposition:{type:'HOLD'}},
     }];}],

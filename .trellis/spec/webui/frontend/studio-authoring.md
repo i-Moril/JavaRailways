@@ -92,13 +92,13 @@ JSON 对象允许{}；拒绝空文本/非对象、不有限数字和超出安全
 
 来源导航先验证当前文档输入及实际 trace，再匹配稳定 call/program/step。交路页显示已绑定步骤只读，可显式打开共享库对应步骤编辑，再由用户采用更新；不提供就地修改绑定快照的第二 owner。无法在当前绑定找到的步骤、不同调用及过期编译 trace 不得猜测定位。ScriptWorker 保留 captured timed builder 的 Tick，并在完整展开前严格检查表达式原始 keyset，不能让 nullable decode 把额外的 parameterId:null 当作字段不存在。
 
-### 固定重联／解编事件编辑
+### 交路重联／解编任务
 
-当前共享程序增加 COUPLE/SPLIT，eventId 只接受 literal 或 FORMATION_EVENT 类型静态参数。时刻表文档可选 formationEvents 缺省空；交路页在同一 history owner 下编辑固定参与交路、HEAD 完整单元数量、FIRST/REST 输出去向、会合目的地与接近速度（显示 km/h，协议 m/s）。输出去向为 HOLD 或 DUTY，后续新交路使用 TAKE_FROM_FORMATION_OUTPUT(eventId,outputId,tick)，不重新分配模拟车型。
+重联／解编由交路时间轴直接创建 FORMATION 任务，不再是玩家程序步骤，也没有 FORMATION_EVENT 程序参数。任务只存 `{id,type:'FORMATION',eventId}`；文档 `formationEvents` 目录保存共享 `tick`、可选 `duration`／`stationId` 及固定参与交路、输出、会合地点与接近速度（显示 km/h，协议 m/s）。重联双方引用同一声明与时刻，协调交路编辑，另一方只读并可跳转到所属任务。协调交路必须仍是参与方。
 
-前端校验声明与实际程序调用种类、每个参与者恰好调用一次、被消耗参与者结束、输出交路互反引用。最终物理、单位、依赖环校验仍由服务器负责。重命名交路同时更新固定事件引用；删除/改事件 ID 不猜测改写共享快照中的 literal，保留上下文错误。生成使用现有 formationEvent 与 takeFromFormationOutput DSL，并安全引用 JSON。库/编辑器后端及本地恢复同步当前格式，不升级版本。
+接收交路由玩家通过既有新建操作手动创建，输出仅选择已有交路或显式 HOLD；允许一部分继续原交路，不自动生成新交路。接收来源为 `{type:'TAKE_FROM_FORMATION_OUTPUT',eventId,outputId}`，不另存一份取得时刻，运行时从共享作业时刻进入现有真实输出交接；UI 显示来源交路、任务与输出部分。调整输出及接收来源在同一次文档/history 事务完成；不能悄悄抢占已从另一作业接收车辆的交路，显式换来源先释放旧声明。删除来源或解除分配保留明确的缺失来源诊断，不自动取得另一列车。重命名同步参与方及输出引用。未指定或尚未测得耗时保持未知，不伪装成零时长。
 
-浏览器 demo 的新增/Enter/Undo 与编译失效已检查；不能据此声称真实服务器编译或重联运行验收完成。分支编辑、动态选择和完整运行诊断仍由活动任务后续批次实现。
+校验每个参与方恰好引用一次、被消耗参与者结束、接收互反引用、时序与来源依赖环。生成仍使用已有 formationEvent、takeFromFormationOutput 及直接 split/couple DSL，外包真实 task 起止标记供测量；目录的编辑时刻、耗时与车站字段先从物理声明剥离。规划耗时／显示站点不进入执行源与输入哈希，已知重叠独立阻止编译。保存后端及本地恢复同步当前开发格式，保持版本 1，不增加旧开发数据 runtime reader。当前物理解编规则仅支持从实际运行车头数完整单元，范围 1..Int32 上限；保留现有一分为二操作；复杂分割通过多次解编组合，不增加选端 UI。浏览器编辑与脚本编译验证不等于真实游戏重联运行验收。
 
 ## 单文档跨线与运营车次编辑
 
@@ -132,15 +132,15 @@ CURRENT：`authoringResume.ts` 保存 owner/world 隔离的最后文档 ID；内
 
 `events?: TimedOperation[]`为运行图所属定时作业，使用与交路程序作业相同的时刻、程序调用、可选车站/标记与规划耗时模型。可无程序保留纯时间锚点，WAIT_EVENT只引用此集合，生成前仍将tick+offsetTicks解析为绝对等待。缺失或越周期产生authoring issue、返回空source，不抛渲染异常。
 
-交路 `referenceVehicle?: {type:'WORLD_TRAIN'|'TRAIN_TEMPLATE',id}`持久保存于duty，模拟由此取参数，不限制实际运营列车。元素支持RUN、交路所属PROGRAM及运行图作业EVENT引用。PROGRAM复用TimedOperation字段，program必需；EVENT只存{id,type,eventId}，不复制时刻、参数或耗时。初始位置仍为duty.initialPosition，不作为执行任务。当前未发布格式仍为1；旧PROGRAM.call结构只由离线迁移处理，不在运行时兼容。
+交路 `referenceVehicle?: {type:'WORLD_TRAIN'|'TRAIN_TEMPLATE',id}`持久保存于duty，模拟由此取参数，不限制实际运营列车。元素支持RUN、交路所属PROGRAM、运行图作业EVENT及共享编组作业FORMATION引用。PROGRAM复用TimedOperation字段，program必需；EVENT／FORMATION只存{id,type,eventId}，不复制时刻、参数或耗时，分别引用运行图作业和编组目录。来自编组输出的交路不重新指定模拟车辆。初始位置仍为duty.initialPosition，不作为执行任务。当前未发布格式仍为1；旧PROGRAM.call结构只由离线迁移处理，不在运行时兼容。
 
-`DutyTimeline` 取运行线始发时刻及有效终点到达+最小停站、可选终点发车的最大值显示区间；程序支持拖动开始、手动区间拖动右边界及等价数值输入，pointerup 才提交一次 history。右键移除仅删除引用。RUN 时刻仍由运行线编辑器唯一维护；函数本体在程序库编辑，调用保持已绑定快照。高级编组事件和运营显示配置仍保留在折叠区。
+`DutyTimeline` 取运行线始发时刻及有效终点到达+最小停站、可选终点发车的最大值显示区间；程序支持拖动开始、手动区间拖动右边界及等价数值输入，pointerup 才提交一次 history。普通任务右键移除只删除引用；编组任务仅协调交路可删除，其目录与参与方引用一并移除并保留接收方缺失来源诊断。编组时刻和耗时当前通过详情字段编辑。RUN 时刻仍由运行线编辑器唯一维护；函数本体在程序库编辑，调用保持已绑定快照。编组不再使用折叠区的事件 ID 表单。
 
 同一交路的全部任务共用一条横向轨道，不再逐任务分行。已知正时长区间按真实 tick 比例绘制，短任务的命中范围不能伪装成更长的占用区间；零时长点与未知时长任务分别标记，未知不能当作零时长。独立的紧凑任务标签复用相同选择、双击导航和右键移除入口，任务条负责拖动开始时刻，右边界手柄负责调整手动耗时；下方 inspector 仍是唯一编辑位置。已知重叠在共享轨道上标记实际交集并保留既有诊断，不通过增加任务行掩盖冲突；本次布局改动不自行改变调度或规划耗时语义。
 
 手动耗时只影响规划显示，不进入 source/hash，不引入等待或超时。模拟耗时取当前输入+车型报告中同 serviceId/taskId 的实际 END−START，仅完整成功模拟并有结束值时展示，未知不伪造零。改变手动耗时或显示模式不使有效模拟失效，修改执行输入则隐藏旧结果。完整模拟按钮可以先编译；异步编译/模拟均检查 owner、草稿 revision 和执行输入。
 
-任务按指定 tick 排序，相同时刻保持元素顺序；运行时等待指定时刻及前序真实完成。已知静态时序冲突仍遵循编译器单调约束，规划区间重叠另显示警告。
+任务按指定 tick 排序，相同时刻保持元素顺序；运行时等待指定时刻及前序真实完成。已知静态时序冲突仍遵循编译器单调约束；已知规划区间重叠产生 authoring error 阻止编译，同时保留时间轴警告及交集标记供修正。未知测量不能据此证明无冲突。
 生成器为起点发出无显式时刻的 beginStationStop，避免把“准备提前量”插入已前进的计划游标；准备开始由执行器调度。目的地携带具体 role、stationProgram、plannedContext 和 departureTick；条件在 worker 按可静态确定的上下文选分支。缺省与自定义共享程序都必须通过所有当前步骤验证后生成；不保留旧格式专项判断、生成门禁或迁移提示。
 
 `arrivalAuthoring.test`、`dutyTimeline.test`、`DutyTimeline.test` 与 `programBlocks.test` 覆盖共享停站、终点时间、任务区间、模拟未知及草稿映射；Java SharedStationProgramValidatorTest 和 EditorDocumentRestartTest 检查持久边界。浏览器另验时间轴拖动/调整长度、右键移除、程序库导航、保存重开；真实执行计时另由 isolated simulation/dispatcher 测试证明。

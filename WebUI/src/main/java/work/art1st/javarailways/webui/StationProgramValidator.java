@@ -9,7 +9,7 @@ import java.util.Set;
 
 /** Strict authoring structure. World references and executable continuity remain runtime validation. */
 final class StationProgramValidator {
-    private static final Set<String> PARAMETER_TYPES = Set.of("TICK", "DURATION", "DESTINATION", "STATION", "DEPOT", "FORMATION_EVENT", "STRING", "ID_LIST", "JSON_OBJECT", "UNIT_SLOTS");
+    private static final Set<String> PARAMETER_TYPES = Set.of("TICK", "DURATION", "DESTINATION", "STATION", "DEPOT", "STRING", "ID_LIST", "JSON_OBJECT", "UNIT_SLOTS");
     private static final long MAX_SAFE_INTEGER = 9_007_199_254_740_991L;
     private StationProgramValidator() {}
 
@@ -91,7 +91,7 @@ final class StationProgramValidator {
             if (!steps.add(id)) fail("duplicate step id: " + id);
             if (steps.size() > 256) fail("program exceeds256 total steps");
             String type = text(step.path("type"), "step type");
-            if (depth > 0 && Set.of("COUPLE", "SPLIT", "STORE_AT_DEPOT").contains(type)) fail("fixed operations cannot be conditional: " + id);
+            if (depth > 0 && type.equals("STORE_AT_DEPOT")) fail("fixed operations cannot be conditional: " + id);
             switch (type) {
                 case "SET_DISPLAY" -> {
                     fields(step, step.has("removeKeys") ? Set.of("id", "type", "unitSlots", "values", "removeKeys") : Set.of("id", "type", "unitSlots", "values"), "SET_DISPLAY step");
@@ -131,10 +131,6 @@ final class StationProgramValidator {
                     if (!typeId.matches("[a-z0-9_.-]+:[a-z0-9_./-]+")) fail("extension typeId must be namespaced");
                     if (!step.path("version").isIntegralNumber() || !step.path("version").canConvertToInt() || step.path("version").asInt() < 1) fail("extension version must be a positive integer");
                     value(step.path("parameters"), "JSON_OBJECT", parameters, false);
-                }
-                case "COUPLE", "SPLIT" -> {
-                    fields(step, Set.of("id", "type", "eventId"), type + " step");
-                    value(step.path("eventId"), "FORMATION_EVENT", parameters, false);
                 }
                 case "REVERSE", "OPEN_DOORS", "CLOSE_DOORS", "END" -> fields(step, Set.of("id", "type"), type + " step");
                 case "WAIT_EVENT" -> {

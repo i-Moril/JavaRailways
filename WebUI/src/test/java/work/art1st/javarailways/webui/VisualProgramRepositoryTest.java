@@ -44,26 +44,12 @@ class VisualProgramRepositoryTest {
             """);
         assertDoesNotThrow(() -> StationProgramValidator.validateArguments(branch, mapper.readTree("{\"duration\":1}")));
         assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateArguments(branch, mapper.readTree("{\"duration\":0}")));
-        for (String type : java.util.List.of("SPLIT", "COUPLE")) {
-            var forbidden = branch.deepCopy();
-            var children = (com.fasterxml.jackson.databind.node.ArrayNode) forbidden.path("steps").get(0).path("elseSteps");
-            children.addObject().put("id", "fixed").put("type", type).putObject("eventId").put("value", "event");
-            assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(forbidden));
-        }
-    }
-
-    @Test void fixedFormationProgramsRequireTypedStaticEventReferences() throws Exception {
-        JsonNode definition = mapper.readTree("""
-            {"parameters":[{"id":"event","type":"FORMATION_EVENT"}],"steps":[
-              {"id":"join","type":"COUPLE","eventId":{"parameterId":"event"}},
-              {"id":"divide","type":"SPLIT","eventId":{"value":"split"}}]}
-            """);
-        assertDoesNotThrow(() -> StationProgramValidator.validateArguments(definition, mapper.readTree("{\"event\":\"join\"}")));
-        assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(mapper.readTree(definition.toString().replace("FORMATION_EVENT", "STRING"))));
-        assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateArguments(definition, mapper.readTree("{\"event\":\"\"}")));
-        assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(mapper.readTree("""
-            {"parameters":[],"steps":[{"id":"split","type":"SPLIT","eventId":{"value":"event","parameterId":null}}]}
-            """)));
+        var forbidden = branch.deepCopy();
+        var children = (com.fasterxml.jackson.databind.node.ArrayNode) forbidden.path("steps").get(0).path("elseSteps");
+        var store = children.addObject().put("id", "fixed").put("type", "STORE_AT_DEPOT");
+        store.putObject("depotId").put("value", "depot");
+        store.putObject("stablingPointIds").putArray("value");
+        assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(forbidden));
     }
 
     @Test void revisionCheckedDeletionSurvivesReloadWithoutMutatingBoundValues() throws Exception {

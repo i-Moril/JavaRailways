@@ -75,3 +75,25 @@ describe('graph operation references',()=>{
   const rendered=html(document);expect(rendered).toContain('The referenced graph operation is missing or has no program.');expect(rendered).not.toContain('timed-operation-fields');
  });
 });
+
+describe('direct duty formation tasks',()=>{
+ function splitDocument(){const document=fixture();document.formationEvents=[{id:'split-internal',kind:'SPLIT',tick:400,duration:{type:'MANUAL',ticks:2},coordinatorDutyId:'d',partition:{from:'HEAD',firstUnitCount:2},outputs:[{id:'front-internal',group:'FIRST',disposition:{type:'DUTY',dutyId:'d'}},{id:'rest-internal',group:'REST',disposition:{type:'DUTY',dutyId:'5'}}]}];document.duties[0].elements=[{id:'split-task',type:'FORMATION',eventId:'split-internal'}];document.duties.push({id:'5',selector:{type:'TAKE_FROM_FORMATION_OUTPUT',eventId:'split-internal',outputId:'rest-internal'},elements:[]});return document;}
+ it('edits a split directly without a reusable program or raw identity fields',()=>{
+  const rendered=html(splitDocument());
+  expect(rendered).toContain('Complete units from operating head');expect(rendered).toContain('aria-valuemax="2147483647"');
+  expect(rendered).toContain('Remaining units');
+  expect(rendered).toContain('Create the receiving duty yourself');
+  expect(rendered).toContain('400–402');
+  expect(rendered).not.toContain('timed-operation-fields');
+  expect(rendered).not.toContain('Output ID');
+  expect(rendered).not.toContain('split-internal');
+  expect(rendered.match(/class="duty-timeline-lane"/g)).toHaveLength(1);
+  const span=interval(rendered,400);expect(Number(span.match(/width:([\d.]+)px/)?.[1])).toBeLessThan(2);
+ });
+ it('shows another coupling participant read-only with a coordinator link',()=>{
+  const document=splitDocument();document.duties[1].selector={type:'TRAIN_NAME',name:'other'};
+  document.formationEvents=[{id:'coupling',kind:'COUPLE',tick:400,duration:{type:'SIMULATED'},coordinatorDutyId:'5',approachingDutyId:'d',stationaryDutyId:'5',stationaryEnd:'HEAD',rendezvous:{approachDestinationId:'a',stationaryDestinationId:'b'},maximumApproachSpeedMetersPerSecond:.5,output:{id:'combined',disposition:{type:'DUTY',dutyId:'5'}}}];
+  document.duties[0].elements=[{id:'couple-task',type:'FORMATION',eventId:'coupling'}];
+  const rendered=html(document);expect(rendered).toContain('Shared coupling operation. Edit it in the coordinator duty.');expect(rendered).toContain('View source operation');expect(rendered).toContain('disabled=""');expect(rendered).not.toContain('The referenced graph operation is missing');expect(rendered).not.toContain('timed-operation-fields');
+ });
+});

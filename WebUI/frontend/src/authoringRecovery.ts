@@ -41,7 +41,7 @@ export function parseAuthoringRecovery(serialized:string|null,owner:string,world
         else if(element.type==='PROGRAM'){
           if(!element.program||typeof element.program.programId!=='string'||!Number.isSafeInteger(element.tick)||!element.program.arguments||typeof element.program.arguments!=='object'||Array.isArray(element.program.arguments))return undefined;
           if(element.duration&&(element.duration.type==='MANUAL'?(!Number.isSafeInteger(element.duration.ticks)||element.duration.ticks<0):element.duration.type!=='SIMULATED'))return undefined;
-        }else if(element.type==='EVENT'){if(typeof element.eventId!=='string')return undefined;}else return undefined;
+        }else if(element.type==='EVENT'||element.type==='FORMATION'){if(typeof element.eventId!=='string')return undefined;}else return undefined;
       }
     }
     if(typeof value.documentId!=='string'||typeof value.formalScriptName!=='string'||typeof value.persistedFormalScriptName!=='string')return undefined;

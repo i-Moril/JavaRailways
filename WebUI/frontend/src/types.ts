@@ -111,7 +111,7 @@ export interface ServerLogPage {
 }
 export interface ServerLogQuery { source:string; query?:string; cursor?:string }
 // Shared library records are authoring inputs; runtime uses bound embedded definitions.
-export type StationProgramParameterType='TICK'|'DURATION'|'DESTINATION'|'STATION'|'DEPOT'|'FORMATION_EVENT'|'STRING'|'ID_LIST'|'JSON_OBJECT'|'UNIT_SLOTS';
+export type StationProgramParameterType='TICK'|'DURATION'|'DESTINATION'|'STATION'|'DEPOT'|'STRING'|'ID_LIST'|'JSON_OBJECT'|'UNIT_SLOTS';
 export type ProgramJsonValue=null|boolean|number|string|ProgramJsonValue[]|ProgramJsonObject;
 export interface ProgramJsonObject {[key:string]:ProgramJsonValue}
 export type StationProgramLiteral=number|string|string[]|number[]|ProgramJsonObject;
@@ -125,7 +125,6 @@ export type StationProgramStep=
  | {id:string;type:'SELECT_STOP';stationId:StationProgramValue<string>;berthIds:StationProgramValue<string[]>;selectionPolicy:'FIXED_PREFERENCE'|'AVAILABLE_PRIORITY'}
  | {id:string;type:'BRANCH';typeId:string;version:number;parameters:StationProgramValue<ProgramJsonObject>;thenSteps:StationProgramStep[];elseSteps:StationProgramStep[]}
  | {id:string;type:'EXTENSION';typeId:string;version:number;parameters:StationProgramValue<ProgramJsonObject>}
- | {id:string;type:'COUPLE'|'SPLIT';eventId:StationProgramValue<string>}
  | {id:string;type:'REVERSE'|'OPEN_DOORS'|'CLOSE_DOORS'|'END'}
  | {id:string;type:'ASYNC';taskId:string;steps:StationProgramStep[]}
  | {id:string;type:'AWAIT';taskId:string}

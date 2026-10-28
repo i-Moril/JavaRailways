@@ -1,6 +1,7 @@
+import {projectDutyTimeline} from './dutyTimeline';
 import {resolveDutyTimedOperation,timedOperationCall,validateTimedOperation} from './timedOperations';
 import {defaultStationStopProgram,resolveEventWaits,validateStopProgram} from './stationPlans';
-import {validateFormationAuthoring,type AuthoringFormationEvent} from './formationAuthoring';
+import {validateFormationAuthoring,formationPlannedEnd,type AuthoringFormationEvent} from './formationAuthoring';
 import { copyStationProgram,validateArrivalProgram,stationProgramSchedule,resolveProgramValue,displayValuesError,validateStationProgram,validateStationProgramCall } from './stationPrograms';
 import type { StationStopProgram,TimetableEventPoint,OperationalTrip,BoundStationProgram,TimedOperation,TimedOperationProgram,TimedOperationDuration,DiagramLineV1, LineDirection, LineSimulationResult, LineV1, SavedTimetableV1, SimulationProfile, TimetableActionV1, WorldMetadata } from './types';
 
@@ -32,12 +33,13 @@ export type AuthoringDutySelectorV1 =
   | {type:'TRAIN_NAME';name:string}
   | {type:'TAKE_FROM_DEPOT';depotId:string;tick:number;tags:string[]}
   | {type:'TAKE_FROM_WAYPOINT';wayPointIds:string[];tick:number}
-  | {type:'TAKE_FROM_FORMATION_OUTPUT';eventId:string;outputId:string;tick:number};
+  | {type:'TAKE_FROM_FORMATION_OUTPUT';eventId:string;outputId:string};
 export type DutyProgramDuration = TimedOperationDuration;
 export type AuthoringDutyElementV1 =
   | {id:string;type:'RUN';runId:string}
   | (TimedOperation & {type:'PROGRAM';program:TimedOperationProgram})
-  | {id:string;type:'EVENT';eventId:string};
+  | {id:string;type:'EVENT';eventId:string}
+  | {id:string;type:'FORMATION';eventId:string};
 export interface AuthoringDutyV1 {
   id:string;
   selector:AuthoringDutySelectorV1;
@@ -396,6 +398,11 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
       if(!duty.selector.wayPointIds.length||duty.selector.wayPointIds.some((id)=>!id.trim())) issues.push(issue(`${path}.selector.wayPointIds`,'At least one waypoint is required'));
       if(!nonNegativeInteger(duty.selector.tick)||duty.selector.tick>=periodTicks) issues.push(issue(`${path}.selector.tick`,'Acquisition tick must be inside the timetable period'));
     }
+    const plannedTasks=projectDutyTimeline(document,duty);
+    for(let index=0;index<plannedTasks.length;index++){
+      const task=plannedTasks[index];
+      if(plannedTasks.slice(0,index).some((prior)=>prior.endTick!==undefined&&prior.endTick>task.startTick))issues.push(issue(`${path}.elements[${index}]`,'Task starts before a previous planned task completes'));
+    }
     let previousRun:AuthoringRunV1|undefined;
     let programDestination:string|undefined=namedDutyInitialTarget(document,duty);
     let previousElementEndTick:number|undefined;
@@ -438,6 +445,15 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
           if(runEnd!=null) previousElementEndTick=Math.max(previousElementEndTick??0,runEnd);
           previousRun=run;
         }
+      } else if(element.type==='FORMATION'){
+        const event=document.formationEvents?.find((event)=>event.id===element.eventId);
+        if(event){
+          if(duty.selector.type==='TRAIN_NAME'&&!previousRun&&!programDestination)issues.push(issue(elementPath,'Formation requires a prior run or initial placement'));
+          if(previousElementEndTick!==undefined&&event.tick<previousElementEndTick)issues.push(issue(elementPath,'Formation starts before the previous duty element completes'));
+          previousElementEndTick=formationPlannedEnd(event);
+          programDestination=event.kind==='COUPLE'?(duty.id===event.approachingDutyId?event.rendezvous.approachDestinationId:event.rendezvous.stationaryDestinationId):programDestination??previousRun?.calls.at(-1)?.targetId;
+          previousRun=undefined;
+        }
       } else {
         const operation=resolveDutyTimedOperation(document,element);
         if(!operation?.program){issues.push(issue(elementPath,`Missing program operation: ${element.type==='EVENT'?element.eventId:element.id}`));return;}
@@ -454,7 +470,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
           if(duty.selector.type==='TRAIN_NAME'&&!previousRun&&!programDestination)issues.push(issue(elementPath,'Program requires a prior run or service-boundary acquisition'));
           const lower=stationProgramSchedule(snapshot.definition.steps,call.arguments,call.tick,periodTicks).earliest;
           for(const step of snapshot.definition.steps){
-            if(step.type==='COUPLE'||step.type==='SPLIT'||(step.type==='BRANCH'||step.type==='SELECT_STOP'))programDestination=undefined;
+            if(step.type==='BRANCH'||step.type==='SELECT_STOP')programDestination=undefined;
             if(step.type==='MOVE')programDestination=String(resolveProgramValue(step.destinationId,call.arguments));
             if(step.type==='STORE_AT_DEPOT'&&(elementIndex!==duty.elements.length-1||step!==snapshot.definition.steps.at(-1)))issues.push(issue(elementPath,'Store at depot must be the final duty action'));
           }
@@ -542,8 +558,8 @@ export function authoringSelectorKey(selector:AuthoringDutySelectorV1):string {
   return JSON.stringify(['TAKE_FROM_DEPOT',selector.depotId,[...selector.tags].sort()]);
 }
 
-function selectorSource(selector:AuthoringDutySelectorV1):string {
-  if(selector.type==='TAKE_FROM_FORMATION_OUTPUT') return `timetable.takeFromFormationOutput(${quote(selector.eventId)}, ${quote(selector.outputId)}, ${selector.tick})`;
+function selectorSource(selector:AuthoringDutySelectorV1,document:TimetableAuthoringDocumentV1):string {
+  if(selector.type==='TAKE_FROM_FORMATION_OUTPUT') return `timetable.takeFromFormationOutput(${quote(selector.eventId)}, ${quote(selector.outputId)}, ${document.formationEvents?.find((event)=>event.id===selector.eventId)?.tick??0})`;
   if(selector.type==='TRAIN_NAME') return quote(selector.name);
   if(selector.type==='TAKE_FROM_WAYPOINT') return `timetable.takeFromWaypoint([${selector.wayPointIds.map(quote).join(', ')}], ${selector.tick})`;
   const options=selector.tags.length?`, { tags: [${[...selector.tags].sort().map(quote).join(', ')}] }`:'';
@@ -571,8 +587,8 @@ function destinationOptions(document:TimetableAuthoringDocumentV1,duty:Authoring
 export function generateTimetableSource(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[]):GeneratedTimetableSource {
   const issues=validateAuthoringDocument(document,infrastructureLines);
   const {formalScriptName:ignoredName,...savedInput}=authoringDocumentForSave(document);
-  const semanticInput={...savedInput,events:savedInput.events?.map(({id,tick})=>({id,tick})),duties:savedInput.duties.map((duty)=>({...duty,elements:duty.elements.map((element)=>{
-    if(element.type==='RUN')return element;
+  const semanticInput={...savedInput,formationEvents:savedInput.formationEvents?.map(({duration:_,stationId:__,...event})=>event),events:savedInput.events?.map(({id,tick})=>({id,tick})),duties:savedInput.duties.map((duty)=>({...duty,elements:duty.elements.map((element)=>{
+    if(element.type==='RUN'||element.type==='FORMATION')return element;
     const operation=resolveDutyTimedOperation(document,element);
     return {id:element.id,type:element.type,...(element.type==='EVENT'?{eventId:element.eventId}:{}),tick:operation?.tick,program:operation?.program};
   })}))};
@@ -583,7 +599,7 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1,in
     if(document.duties.some((duty)=>duty.elements.some((element)=>resolveDutyTimedOperation(document,element)?.program?.programId===snapshot.programId)))lines.push(`    const program${index} = JSON.parse(${quote(JSON.stringify(resolveEventWaits(snapshot.definition,document.events??[],document.periodDays*24000)))})`);
   }
   for(const event of document.formationEvents??[]) {
-    const {id,...definition}=event;
+    const {id,tick:_,duration:__,stationId:___,...definition}=event;
     lines.push(`    timetable.formationEvent(${quote(id)}, JSON.parse(${quote(JSON.stringify(definition))}))`);
   }
   for(const limit of authoringLineSpeedLimits(infrastructureLines,document)) {
@@ -609,7 +625,7 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1,in
     if(diagramIds.length===1) optionFields.push(`diagramLineId: ${quote(diagramIds[0]!)}`);
     if(infrastructureLineIds.length===1) optionFields.push(`lineId: ${quote(infrastructureLineIds[0]!)}`);
     const serviceOptions=optionFields.length?`, { ${optionFields.join(', ')} }`:'';
-    lines.push('',`    timetable.service(${quote(duty.id)}, ${selectorSource(duty.selector)}${serviceOptions}, t => {`);
+    lines.push('',`    timetable.service(${quote(duty.id)}, ${selectorSource(duty.selector,document)}${serviceOptions}, t => {`);
     let emittedCheck=false;
     for(const element of duty.elements) {
       if(element.type==='RUN') {
@@ -645,6 +661,16 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1,in
           pendingPasses='';
         }
         lines.push('          })','        })');
+      } else if(element.type==='FORMATION'){
+        const event=document.formationEvents?.find((event)=>event.id===element.eventId);
+        if(event){
+          lines.push(`        t.origin(${quote(origin(duty.id,element.id))}, scoped => {`);
+          if(!emittedCheck&&duty.selector.type==='TRAIN_NAME'){
+            const target=namedDutyInitialTarget(document,duty);
+            if(target){lines.push(`            scoped.check(${quote(target)})`);emittedCheck=true;}
+          }
+          lines.push(`            scoped.task(${quote(element.id)}, ${event.tick}, taskScope => taskScope.${event.kind==='SPLIT'?'split':'couple'}(${quote(event.id)}))`,'        })');
+        }
       } else {
         const operation=resolveDutyTimedOperation(document,element);
         if(!operation?.program)continue;

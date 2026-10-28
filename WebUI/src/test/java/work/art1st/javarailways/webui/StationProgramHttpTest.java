@@ -33,6 +33,25 @@ class StationProgramHttpTest {
             assertEquals(401, send(client,root,base,"GET",null,null).statusCode());
             HttpResponse<String> login=send(client,root,"/auth/exchange","POST","{\"token\":\"one-time\"}",null);
             String cookie=login.headers().firstValue("Set-Cookie").orElseThrow().split(";",2)[0];
+            for (String type : java.util.List.of("SPLIT", "COUPLE")) {
+                ObjectNode invalid = mapper.createObjectNode().put("id", "formation").put("name", "Formation");
+                var definitionNode = invalid.putObject("definition");
+                definitionNode.putArray("parameters");
+                var operation = definitionNode.putArray("steps").addObject().put("id", "op").put("type", type);
+                operation.putObject("eventId").put("value", "event");
+                var rejected = send(client, root, base, "POST", invalid.toString(), cookie);
+                assertEquals(400, rejected.statusCode());
+                assertTrue(rejected.body().contains("unsupported sequential program step: " + type));
+                var branch = mapper.createObjectNode().put("id", "branch").put("type", "BRANCH")
+                    .put("typeId", "javarailways:plan_duty_id").put("version", 1);
+                branch.putObject("parameters").putObject("value").putArray("values").add("1");
+                branch.putArray("thenSteps").add(operation.deepCopy());
+                branch.putArray("elseSteps");
+                definitionNode.withArray("steps").removeAll().add(branch);
+                rejected = send(client, root, base, "POST", invalid.toString(), cookie);
+                assertEquals(400, rejected.statusCode());
+                assertTrue(rejected.body().contains("unsupported sequential program step: " + type));
+            }
             JsonNode definition=mapper.readTree("{\"parameters\":[],\"steps\":[{\"id\":\"reverse\",\"type\":\"REVERSE\"},{\"id\":\"action\",\"type\":\"EXTENSION\",\"typeId\":\"demo:action\",\"version\":1,\"parameters\":{\"value\":{\"one\":1.0,\"zero\":-0.0,\"nested\":[null,true,0.25]}}}]}");
             ObjectNode create=mapper.createObjectNode().put("id","turnback").put("name","Turnback");create.set("definition",definition);
             var created=send(client,root,base,"POST",create.toString(),cookie);assertEquals(201,created.statusCode());

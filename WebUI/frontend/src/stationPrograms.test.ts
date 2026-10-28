@@ -35,17 +35,16 @@ describe('shared station program bindings',()=>{
     expect(findProgramStep(branch.steps,'dwell')?.type).toBe('WAIT_DURATION');
     expect(validateStationProgramCall({...snapshot,definition:branch},{...call,tick:10,arguments:{}},110).join(' ')).toContain('crosses');
     const first=branch.steps[0];if(first.type!=='BRANCH')throw new Error('fixture');
-    for(const type of ['COUPLE','SPLIT'] as const)expect(validateStationProgram({...branch,steps:[{...first,elseSteps:[{id:'fixed',type,eventId:{value:'event'}}]}]}).join(' ')).toContain('cannot be conditional');
     expect(validateStationProgram({...branch,steps:[{...first,elseSteps:[{id:'store',type:'STORE_AT_DEPOT',depotId:{value:'b'},stablingPointIds:{value:[]}}]}]}).join(' ')).toContain('cannot be conditional');
   });
 
-  it('binds fixed formation events with a distinct static parameter type',()=>{
-    const fixed:StationProgramDefinition={parameters:[{id:'event',type:'FORMATION_EVENT'}],steps:[
-      {id:'join',type:'COUPLE',eventId:{parameterId:'event'}},{id:'divide',type:'SPLIT',eventId:{value:'split'}}]};
-    expect(validateStationProgram(fixed,{event:'join'})).toEqual([]);
-    expect(validateStationProgram({...fixed,parameters:[{id:'event',type:'STRING'}]},{event:'join'}).join(' ')).toContain('incompatible');
-    expect(validateStationProgram(fixed,{event:''}).length).toBeGreaterThan(0);
-    expect(validateStationProgram({parameters:[],steps:[{id:'s',type:'SPLIT',eventId:{value:''}}]}).length).toBeGreaterThan(0);
+  it('accepts only current program actions and parameter types',()=>{
+    for(const type of ['COUPLE','SPLIT','UNKNOWN_ACTION']){
+      const value=JSON.parse(JSON.stringify({parameters:[],steps:[{id:'action',type,eventId:{value:'event'}}]})) as StationProgramDefinition;
+      expect(validateStationProgram(value)).toContain('Unsupported program step');
+    }
+    const value=JSON.parse('{"parameters":[{"id":"event","type":"FORMATION_EVENT"}],"steps":[]}') as StationProgramDefinition;
+    expect(validateStationProgram(value)).toContain('Unknown parameter type: FORMATION_EVENT');
   });
 
   it('two timetables retain independent immutable snapshots until explicit one-history adoption',()=>{

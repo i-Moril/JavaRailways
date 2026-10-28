@@ -18,8 +18,6 @@ import kotlinx.serialization.json.*
     @Serializable @SerialName("EXTENSION") data class Extension(override val id: String, val typeId: String, val version: Int, val parameters: StationProgramValue) : StationProgramStep()
     @Serializable @SerialName("BRANCH") data class Branch(override val id: String, val typeId: String, val version: Int,
         val parameters: StationProgramValue, val thenSteps: List<StationProgramStep>, val elseSteps: List<StationProgramStep>) : StationProgramStep()
-    @Serializable @SerialName("COUPLE") data class Couple(override val id: String, val eventId: StationProgramValue) : StationProgramStep()
-    @Serializable @SerialName("SPLIT") data class Split(override val id: String, val eventId: StationProgramValue) : StationProgramStep()
     @Serializable @SerialName("REVERSE") data class Reverse(override val id: String) : StationProgramStep()
     @Serializable @SerialName("MOVE") data class Move(override val id: String, val destinationId: StationProgramValue, val viaIds: StationProgramValue) : StationProgramStep()
     @Serializable @SerialName("SELECT_STOP") data class SelectStop(override val id: String, val stationId: StationProgramValue, val berthIds: StationProgramValue, val selectionPolicy: SavedStationStopSelectionPolicyV1) : StationProgramStep()
@@ -48,13 +46,12 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
         val id = step.getValue("id").jsonPrimitive.content
         requireProgramId(id)
         require(stepIds.add(id)) { "duplicate program step id: $id" }
-        if (depth > 0) require(step["type"]?.jsonPrimitive?.content !in setOf("COUPLE", "SPLIT", "STORE_AT_DEPOT")) {
+        if (depth > 0) require(step["type"]?.jsonPrimitive?.content != "STORE_AT_DEPOT") {
             "step:$id: fixed operations cannot be conditional"
         }
         when (step["type"]?.jsonPrimitive?.content) {
             "SET_DISPLAY" -> { expressionShape(step.getValue("unitSlots")); expressionShape(step.getValue("values")); step["removeKeys"]?.let(::expressionShape) }
             "RESET_DISPLAY" -> expressionShape(step.getValue("unitSlots"))
-            "COUPLE", "SPLIT" -> expressionShape(step.getValue("eventId"))
             "BRANCH" -> {
                 expressionShape(step.getValue("parameters"))
                 checkSteps(step.getValue("thenSteps").jsonArray, depth + 1)
@@ -75,7 +72,7 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
     require(definition.parameters.size <= 64 && definition.steps.size <= 256) { "program exceeds parameter/step limits" }
     val parameters = definition.parameters.associate { parameter ->
         requireProgramId(parameter.id)
-        require(parameter.type in setOf("TICK", "DURATION", "DESTINATION", "STATION", "DEPOT", "FORMATION_EVENT", "STRING", "ID_LIST", "JSON_OBJECT", "UNIT_SLOTS")) { "unknown parameter type: ${parameter.type}" }
+        require(parameter.type in setOf("TICK", "DURATION", "DESTINATION", "STATION", "DEPOT", "STRING", "ID_LIST", "JSON_OBJECT", "UNIT_SLOTS")) { "unknown parameter type: ${parameter.type}" }
         parameter.id to parameter.type
     }
     require(parameters.size == definition.parameters.size) { "duplicate program parameter id" }
@@ -136,10 +133,6 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
                 origins += expanded.origins.map { it.copy(stepIndex = it.stepIndex + offset) }
                 tick = nextTick
             }
-            is StationProgramStep.Couple -> append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.COUPLE,
-                eventId = value(step.eventId, "FORMATION_EVENT").jsonPrimitive.content))
-            is StationProgramStep.Split -> append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.SPLIT,
-                eventId = value(step.eventId, "FORMATION_EVENT").jsonPrimitive.content))
             is StationProgramStep.Reverse -> append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.REVERSE))
             is StationProgramStep.Move -> {
                 val destination = value(step.destinationId, "DESTINATION").jsonPrimitive.content

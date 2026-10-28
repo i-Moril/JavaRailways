@@ -26,6 +26,8 @@
 
 交路由 DutyTimeline 时间轴编辑RUN、交路所属PROGRAM和运行图所属EVENT引用；不再提供交路积木或内联程序画布。程序体仍使用本规范的程序库编辑器，交路时间与耗时规则见 studio-authoring.md。
 
+重联／解编仅由交路 FORMATION 任务安排。玩家程序定义、参数类型和 Blockly 工具箱不包含 COUPLE、SPLIT 或 FORMATION_EVENT；当前普通未知步骤／类型校验负责处理不支持的输入，不保留旧程序动作兼容分支。内部时刻表执行器与直接 split/couple DSL 仍由交路生成使用，不因此删除物理执行能力。接收交路由玩家手动创建，输出和来源互反关系由交路文档事务维护，详见 studio-authoring.md。
+
 `WAIT_EVENT` 选择运行图所属的无方向定时作业/纯时间锚点并填写有符号offsetTicks，生成时规范化为 WAIT_UNTIL；删除仍被引用的事件必须显示 issue，不能让生成期间抛错导致页面空白。事件定义、工作区和合法领域定义分别由文档/history、草稿恢复、程序 owner 管理。
 
 ## 必需验证

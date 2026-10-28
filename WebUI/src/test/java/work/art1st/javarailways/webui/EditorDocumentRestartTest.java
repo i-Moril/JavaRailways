@@ -36,7 +36,15 @@ class EditorDocumentRestartTest {
             {"formatVersion":1,"id":"weekday","formalScriptName":"weekday.js","periodDays":2,
              "runs":[{"id":"run","type":"PASSENGER","lineDirection":"UP","calls":[
                 {"id":"call","stationId":"central","status":"TERMINAL","targetId":"central@one"}
-             ] }],"duties":[],"diagramLines":[],"arrivalOverrides":[],
+             ] }],"duties":[
+                {"id":"1","selector":{"type":"TRAIN_NAME","name":"train"},"elements":[{"id":"split-task","type":"FORMATION","eventId":"split"}]},
+                {"id":"2","selector":{"type":"TAKE_FROM_FORMATION_OUTPUT","eventId":"split","outputId":"rest"},"elements":[]}
+             ],"formationEvents":[{"id":"split","kind":"SPLIT","tick":100,"stationId":"central",
+               "duration":{"type":"MANUAL","ticks":40},"coordinatorDutyId":"1",
+               "partition":{"from":"HEAD","firstUnitCount":1},"outputs":[
+                 {"id":"first","group":"FIRST","disposition":{"type":"DUTY","dutyId":"1"}},
+                 {"id":"rest","group":"REST","disposition":{"type":"DUTY","dutyId":"2"}}]}],
+             "diagramLines":[],"arrivalOverrides":[],
              "stationPrograms":[{"stationId":"central","preparationLeadTicks":0,
                "arrival":{"parameters":[],"steps":[{"id":"wait","type":"WAIT_DURATION","durationTicks":{"value":20}},{"id":"end","type":"END"}]},
                "departurePreparation":{"parameters":[],"steps":[{"id":"end","type":"END"}]}}]}

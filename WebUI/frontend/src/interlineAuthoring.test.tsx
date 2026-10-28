@@ -71,10 +71,9 @@ describe('one-document through running and unit trips',()=>{
   expect(html).toContain('<svg');expect(html).toContain('Formation duty graph');expect(html).toContain('Run boundary');expect(html).toContain('to-E');expect(html).toContain('to-D');expect(html).toContain('U2');expect(html).toContain('tabindex="0"');
  });
  it('shares split graph node across continuation duties without duplicating a common run',()=>{
-  const d=document();d.formationEvents=[{id:'split',kind:'SPLIT',coordinatorDutyId:'duty',partition:{from:'HEAD',firstUnitCount:1},outputs:[{id:'first',group:'FIRST',disposition:{type:'DUTY',dutyId:'duty'}},{id:'rest',group:'REST',disposition:{type:'DUTY',dutyId:'child'}}]}];
-  d.boundPrograms=[{programId:'split-program',revision:1,contentIdentity:'sha256:'+ 'a'.repeat(64),definition:{parameters:[],steps:[{id:'split-step',type:'SPLIT',eventId:{value:'split'}}]}}];
-  d.duties[0].elements.splice(1,0,{id:'split',type:'PROGRAM',tick:320,program:{programId:'split-program',arguments:{}}});
-  d.duties.push({id:'child',selector:{type:'TAKE_FROM_FORMATION_OUTPUT',eventId:'split',outputId:'rest',tick:330},elements:[{id:'child-run',type:'RUN',runId:'child-run'}]});d.runs.push({...d.runs[1],id:'child-run'});
+  const d=document();d.formationEvents=[{id:'split',tick:320,kind:'SPLIT',coordinatorDutyId:'duty',partition:{from:'HEAD',firstUnitCount:1},outputs:[{id:'first',group:'FIRST',disposition:{type:'DUTY',dutyId:'duty'}},{id:'rest',group:'REST',disposition:{type:'DUTY',dutyId:'child'}}]}];
+  d.duties[0].elements.splice(1,0,{id:'split',type:'FORMATION',eventId:'split'});
+  d.duties.push({id:'child',selector:{type:'TAKE_FROM_FORMATION_OUTPUT',eventId:'split',outputId:'rest'},elements:[{id:'child-run',type:'RUN',runId:'child-run'}]});d.runs.push({...d.runs[1],id:'child-run'});
   const graph=buildDutyGraph(d),split=graph.nodes.find((n)=>n.id==='event:split')!;
   expect(split.kind).toBe('SPLIT');expect(split.incoming).toHaveLength(1);expect(split.outgoing).toHaveLength(2);expect(graph.edges).toHaveLength(3);
  });

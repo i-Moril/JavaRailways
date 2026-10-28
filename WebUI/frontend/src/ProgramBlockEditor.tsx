@@ -15,7 +15,7 @@ import {plannedConditions} from './stationPlans';
 
 const workspaceDraftInvalidators=new WeakMap<Blockly.Workspace,()=>void>();
 const workspaceEntries=new WeakMap<Blockly.Workspace,{label:string;leadLabel:string;lead?:number}>();
-const parameterTypes:StationProgramParameterType[]=['TICK','DURATION','DESTINATION','STATION','DEPOT','FORMATION_EVENT','STRING','ID_LIST','JSON_OBJECT','UNIT_SLOTS'];
+const parameterTypes:StationProgramParameterType[]=['TICK','DURATION','DESTINATION','STATION','DEPOT','STRING','ID_LIST','JSON_OBJECT','UNIT_SLOTS'];
 export interface ProgramBlockEditorProps {value:StationProgramDefinition;onChange:(value:StationProgramDefinition)=>void;fieldScope:string;draftScope?:string;extensions?:TimetableExtensionDescriptor[];conditions?:TimetableExtensionDescriptor[];events?:TimetableEventPoint[];onValidityChange?:(valid:boolean)=>void;focusedStep?:string;context?:'library'|'arrival'|'duty';onUndo?:()=>void;onRedo?:()=>void;entryLabel?:string;preparationLeadTicks?:number;onEntryChange?:(value:StationProgramDefinition,preparationLeadTicks:number)=>void}
 const copy=<T,>(value:T):T=>JSON.parse(JSON.stringify(value)) as T;
 const fingerprint=(snapshot:Snapshot)=>JSON.stringify(snapshot,(key,value)=>key==='x'||key==='y'||key==='acceptedPreparationLeadTicks'?undefined:value);

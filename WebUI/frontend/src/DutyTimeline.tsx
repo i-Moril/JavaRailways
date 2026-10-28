@@ -1,11 +1,13 @@
 import {useEffect,useRef,useState,type PointerEvent} from 'react';
-import {Alert,Button,Dropdown,Flex,Select,Space,Tag,Typography} from 'antd';
+import {Alert,Button,Dropdown,Flex,Select,Space,Typography} from 'antd';
 import {DeleteOutlined,PlusOutlined} from '@ant-design/icons';
 import type {AuthoringDutyV1,TimetableAuthoringDocumentV1} from './authoring';
 import {projectDutyTimeline} from './dutyTimeline';
 import type {ProgramSourceTarget} from './programNavigation';
 import type {TimedOperation,StationProgramRecord,TimetableSimulationResult} from './types';
 import {TimedOperationFields} from './TimedOperationFields';
+import {FormationTaskFields} from './FormationEventsEditor';
+import type {AuthoringFormationEvent} from './formationAuthoring';
 import {resolveDutyTimedOperation} from './timedOperations';
 import {useI18n} from './i18n';
 import './DutyTimeline.css';
@@ -13,6 +15,7 @@ import './DutyTimeline.css';
 export interface DutyTimelineProps {
   document:TimetableAuthoringDocumentV1;duty:AuthoringDutyV1;fieldScope:string;library:StationProgramRecord[];
   simulation?:TimetableSimulationResult;simulationReason?:string;busy?:boolean;programLoading?:boolean;focusedElementId?:string;focusedProgram?:ProgramSourceTarget;
+  onAddFormation?:(kind:AuthoringFormationEvent['kind'])=>void;onPatchFormation?:(event:AuthoringFormationEvent)=>void;onSelectDuty?:(id:string)=>void;onOpenFormation?:(dutyId:string,eventId:string)=>void;destinations?:string[];
   onSimulate?:()=>void;onRefreshPrograms?:()=>void;onAssign:(id:string)=>void;onAddProgram?:(id:string)=>void;
   onPatch:(patch:Partial<AuthoringDutyV1>)=>void;onPatchProgram?:(id:string,patch:Partial<TimedOperation>)=>void;
   onReferenceEvent?:(id:string)=>void;onOpenGraphEvent?:(id:string)=>void;onOperationValidityChange?:(elementId:string,valid:boolean)=>void;stationNames:ReadonlyMap<string,string>;stationIds:string[];
@@ -28,7 +31,7 @@ export function DutyTimeline(p:DutyTimelineProps) {
   useEffect(()=>{const target=p.focusedProgram;if(target?.dutyId===p.duty.id)setSelected(target.elementId);},[p.focusedProgram,p.duty.id]);
   useEffect(()=>{if(p.focusedElementId)setSelected(p.focusedElementId);},[p.focusedElementId,p.duty.id]);
   useEffect(()=>{setPreview(undefined);drag.current=undefined;},[p.duty.elements]);
-  const tasks=projectDutyTimeline(p.document,p.duty,p.simulation);
+  const tasks=projectDutyTimeline(p.document,p.duty,p.simulation).map(task=>{if(task.type!=='FORMATION')return task;const element=p.duty.elements.find(e=>e.id===task.id),event=element?.type==='FORMATION'?p.document.formationEvents?.find(e=>e.id===element.eventId):undefined;return {...task,label:event?t(`programs.step.${event.kind}`):t('formation.missingTask')};});
   const selectedElement=p.duty.elements.find((item)=>item.id===selected)??p.duty.elements[0];
   const task=tasks.find((item)=>item.id===selectedElement?.id);
   const availableRuns=p.document.runs.filter((run)=>!p.document.duties.some((d)=>d.elements.some((e)=>e.type==='RUN'&&e.runId===run.id)));
@@ -65,7 +68,8 @@ export function DutyTimeline(p:DutyTimelineProps) {
     else if(element?.type==='PROGRAM')p.onOpenProgramLibrary?.(element.program.programId);
     else if(element?.type==='EVENT')p.onOpenGraphEvent?.(element.eventId);
   };
-  const taskMenu=(id:string)=>({items:[{key:'delete',danger:true,label:t('timeline.remove')}],onClick:()=>p.onRemove(id)});
+  const canEdit=(id:string)=>{const e=p.duty.elements.find(e=>e.id===id);if(e?.type!=='FORMATION')return true;const event=p.document.formationEvents?.find(event=>event.id===e.eventId);return !event||event.coordinatorDutyId===p.duty.id;};
+  const taskMenu=(id:string)=>({items:[{key:'delete',danger:true,label:t('timeline.remove'),disabled:!canEdit(id)}],onClick:()=>p.onRemove(id)});
   // Hit targets and labels do not represent occupancy. Only the inner interval uses elapsed time.
   const layout=tasks.map((item)=>{
     const draft=preview?.id===item.id?preview:undefined;
@@ -87,6 +91,7 @@ export function DutyTimeline(p:DutyTimelineProps) {
       <Space.Compact><Select aria-label={t('timeline.run')} placeholder={t('timeline.run')} value={availableRuns.some((r)=>r.id===runId)?runId:undefined} options={availableRuns.map((run)=>({value:run.id,label:run.id}))} onChange={setRunId}/><Button icon={<PlusOutlined/>} disabled={!runId||!availableRuns.some((r)=>r.id===runId)} onClick={()=>{if(runId)p.onAssign(runId);setRunId(undefined);}}>{t('common.add')}</Button></Space.Compact>
       <Space.Compact><Select aria-label={t('timeline.program')} placeholder={t('timeline.program')} value={programOptions.some((o)=>o.value===programId)?programId:undefined} options={programOptions} onChange={setProgramId}/><Button icon={<PlusOutlined/>} disabled={!programId||!p.onAddProgram||!programOptions.some((o)=>o.value===programId)} onClick={()=>{if(programId)p.onAddProgram?.(programId);setProgramId(undefined);}}>{t('common.add')}</Button></Space.Compact>
       <Space.Compact><Select aria-label={t('timed.reference')} placeholder={t('timed.reference')} value={(p.document.events??[]).some((event)=>event.id===eventId&&event.program)?eventId:undefined} options={(p.document.events??[]).filter((event)=>event.program).map((event)=>({value:event.id,label:event.label||event.id}))} onChange={setEventId}/><Button icon={<PlusOutlined/>} disabled={!eventId||!p.onReferenceEvent} onClick={()=>{if(eventId)p.onReferenceEvent?.(eventId);setEventId(undefined);}}>{t('common.add')}</Button></Space.Compact>
+      {p.onAddFormation&&(['SPLIT','COUPLE'] as const).map(kind=><Button key={kind} icon={<PlusOutlined/>} onClick={()=>p.onAddFormation?.(kind)}>{t(`programs.step.${kind}`)}</Button>)}
       <Button loading={p.programLoading} onClick={p.onRefreshPrograms}>{t('programs.refresh')}</Button>
       <label>{t('timeline.zoom')}<Select aria-label={t('timeline.zoom')} value={zoom} options={[1,2,4,8].map((value)=>({value,label:`${value}×`}))} onChange={setZoom}/></label>
     </Flex>
@@ -113,8 +118,8 @@ export function DutyTimeline(p:DutyTimelineProps) {
     </div></div>}
     {tasks.length>0&&<div className="duty-timeline-labels">{layout.map((item)=><Dropdown key={item.id} trigger={['contextMenu']} menu={taskMenu(item.id)}><button type="button" className={`duty-timeline-label ${selectedElement?.id===item.id?'selected':''} ${item.overlaps.length?'conflict':''}`} aria-pressed={selectedElement?.id===item.id} onClick={()=>setSelected(item.id)} onDoubleClick={()=>openTask(item.id)}><span>{item.label}</span><small>{item.start}{item.end===undefined?` · ${t('timeline.unknown')}`:`–${item.end}`}</small></button></Dropdown>)}</div>}
     {selectedElement&&<section className="duty-timeline-inspector" aria-label={t('timeline.selected')}>
-      <Flex justify="space-between" gap={12} align="center"><Typography.Title level={5}>{task?.label??selectedElement.id}</Typography.Title><Button danger icon={<DeleteOutlined/>} onClick={()=>p.onRemove(selectedElement.id)}>{t('timeline.remove')}</Button></Flex>
-      {selectedElement.type==='RUN'?<><Typography.Paragraph type="secondary">{t('timeline.runHint')}</Typography.Paragraph><Button onClick={()=>p.onViewRun(selectedElement.runId)}>{t('timeline.editRun')}</Button></>:selectedElement.type==='EVENT'?<>
+      <Flex justify="space-between" gap={12} align="center"><Typography.Title level={5}>{task?.label??selectedElement.id}</Typography.Title><Button danger disabled={!canEdit(selectedElement.id)} icon={<DeleteOutlined/>} onClick={()=>p.onRemove(selectedElement.id)}>{t('timeline.remove')}</Button></Flex>
+      {selectedElement.type==='FORMATION'?(()=>{const event=p.document.formationEvents?.find(e=>e.id===selectedElement.eventId);return event?<FormationTaskFields key={`${p.fieldScope}/${selectedElement.id}`} event={event} dutyId={p.duty.id} document={p.document} fieldScope={`${p.fieldScope}/${selectedElement.id}`} destinations={p.destinations??[]} stationNames={p.stationNames} stationIds={p.stationIds} onChange={e=>p.onPatchFormation?.(e)} onSelectDuty={id=>p.onOpenFormation?p.onOpenFormation(id,event.id):p.onSelectDuty?.(id)} onValidityChange={valid=>p.onOperationValidityChange?.(selectedElement.id,valid)}/>:<Alert type="error" title={t('formation.missingSource')}/>;})():selectedElement.type==='RUN'?<><Typography.Paragraph type="secondary">{t('timeline.runHint')}</Typography.Paragraph><Button onClick={()=>p.onViewRun(selectedElement.runId)}>{t('timeline.editRun')}</Button></>:selectedElement.type==='EVENT'?<>
         <Typography.Paragraph type="secondary">{t('timed.graphOwned')}</Typography.Paragraph>
         {(()=>{const operation=resolveDutyTimedOperation(p.document,selectedElement);return operation?.program?<TimedOperationFields key={`${p.fieldScope}/${selectedElement.id}/reference`} fieldScope={`${p.fieldScope}/${selectedElement.id}/reference`} operation={operation} onChange={()=>{}} stationNames={p.stationNames} stationIds={p.stationIds} bindings={p.document.boundPrograms??[]} library={p.library} readOnly measuredTicks={task?.measured&&task.endTick!==undefined?task.endTick-task.startTick:undefined}/>:<Alert type="error" title={t('timed.missing')}/>;})()}
         <Button onClick={()=>p.onOpenGraphEvent?.(selectedElement.eventId)} disabled={!p.onOpenGraphEvent}>{t('timed.openGraph')}</Button>

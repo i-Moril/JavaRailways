@@ -64,9 +64,7 @@ class StationProgramScriptTest {
         val child = result.compilationTrace.single { it.origin.endsWith("step:yes") }
         assertEquals(2, child.stepIndex)
         assertTrue(child.branchPath.isEmpty())
-        for (fixed in listOf("{id:'fixed',type:'SPLIT',eventId:{value:'event'}}",
-            "{id:'fixed',type:'COUPLE',eventId:{value:'event'}}",
-            "{id:'fixed',type:'STORE_AT_DEPOT',depotId:{value:'depot'},stablingPointIds:{value:[]}}")) {
+        for (fixed in listOf("{id:'fixed',type:'STORE_AT_DEPOT',depotId:{value:'depot'},stablingPointIds:{value:[]}}")) {
             assertThrows(Throwable::class.java) { compile("""
               timetable.service('s','train',t=>{t.check('start');t.program('p',{parameters:[],steps:[
                 {id:'branch',type:'BRANCH',typeId:'demo:condition',version:1,parameters:{value:{}},thenSteps:[$fixed],elseSteps:[]}]},{});});
@@ -97,23 +95,17 @@ class StationProgramScriptTest {
         }
     }
 
-    @Test fun `fixed formation references expand from typed static parameters with step provenance`() {
-        val result = compile("""
-          timetable.service('s','train',t=>{t.check('start');t.at(30).program('formation',{
-            parameters:[{id:'join',type:'FORMATION_EVENT'}],steps:[
-              {id:'join-step',type:'COUPLE',eventId:{parameterId:'join'}},
-              {id:'split-step',type:'SPLIT',eventId:{value:'divide'}}]}, {join:'meeting'});});
-        """)
-        val actions = result.services.single().steps.drop(1)
-        assertEquals(listOf(SavedTimetableActionTypeV1.COUPLE, SavedTimetableActionTypeV1.SPLIT), actions.map { it.action!!.type })
-        assertEquals(listOf("meeting", "divide"), actions.map { it.action!!.eventId })
-        assertTrue(actions.all { it.tick == 30L })
-        for (expression in listOf("{value:'event',parameterId:null}", "{value:''}", "{parameterId:'wrong'}")) {
+    @Test fun `formation operations are not reusable program instructions or parameter types`() {
+        for (type in listOf("SPLIT", "COUPLE")) {
             assertThrows(Throwable::class.java) { compile("""
-                timetable.service('s','train',t=>{t.check('start');t.program('p',{
-                    parameters:[{id:'wrong',type:'STRING'}],steps:[{id:'split',type:'SPLIT',eventId:$expression}]},{wrong:'event'});});
+              timetable.service('s','train',t=>t.program('p',{
+                parameters:[],steps:[{id:'op',type:'$type',eventId:{value:'event'}}]},{}));
             """) }
         }
+        assertThrows(Throwable::class.java) { compile("""
+          timetable.service('s','train',t=>t.program('p',{
+            parameters:[{id:'event',type:'FORMATION_EVENT'}],steps:[]},{event:'event'}));
+        """) }
     }
 
     @Test fun `embedded sequential program expands exact actions and traces each stable step`() {

@@ -1,9 +1,10 @@
+import {formationPlannedEnd} from './formationAuthoring';
 import {resolveDutyTimedOperation,measuredOperationDuration,operationDuration} from './timedOperations';
 import type {AuthoringDutyElementV1,AuthoringDutyV1,TimetableAuthoringDocumentV1} from './authoring';
 import type {StationProgramDefinition,StationProgramLiteral,TimetableSimulationResult} from './types';
 
 export interface DutyTimelineTask {
- id:string;type:'RUN'|'PROGRAM'|'EVENT';label:string;startTick:number;endTick?:number;
+ id:string;type:'RUN'|'PROGRAM'|'EVENT'|'FORMATION';label:string;startTick:number;endTick?:number;
  durationMode:'RUN'|'POINT'|'MANUAL'|'SIMULATED';measured?:boolean;overlaps:string[];
 }
 export function defaultDutyProgramArguments(parameters:StationProgramDefinition['parameters']):Record<string,StationProgramLiteral> {
@@ -11,6 +12,7 @@ export function defaultDutyProgramArguments(parameters:StationProgramDefinition[
 }
 /** Run occupancy includes effective terminal arrival, dwell and optional terminal departure. */
 export function dutyTaskStart(document:TimetableAuthoringDocumentV1,element:AuthoringDutyElementV1):number {
+ if(element.type==='FORMATION')return document.formationEvents?.find((event)=>event.id===element.eventId)?.tick??0;
  return element.type==='RUN'?document.runs.find((run)=>run.id===element.runId)?.calls[0]?.departureTick??0:resolveDutyTimedOperation(document,element)?.tick??0;
 }
 /** Stable ties preserve the player's chosen order at the same scheduled tick. */
@@ -36,6 +38,11 @@ export function projectDutyTimeline(document:TimetableAuthoringDocumentV1,duty:A
    const arrival=document.arrivalOverrides.find((override)=>override.runId===run?.id&&override.callId===terminal?.id)?.tick??terminal?.arrivalTick;
    const endTick=arrival==null&&terminal?.departureTick==null?undefined:Math.max(arrival==null?0:arrival+(terminal?.minimumDwellTicks??0),terminal?.departureTick??0);
    return {id:element.id,type:'RUN',label:element.runId,startTick,endTick,durationMode:'RUN',overlaps:[]};
+  }
+  if(element.type==='FORMATION'){
+   const event=document.formationEvents?.find((event)=>event.id===element.eventId);
+   const duration=measuredOperationDuration(simulation,duty.id,element.id);
+   return {id:element.id,type:'FORMATION',label:event?.kind??element.eventId,startTick,endTick:event?formationPlannedEnd(event,duration):undefined,durationMode:event?.duration?.type??'SIMULATED',measured:event?.duration?.type!=='MANUAL'&&duration!==undefined||undefined,overlaps:[]};
   }
   const operation=resolveDutyTimedOperation(document,element);
   const mode=operation?.duration?.type??'POINT';

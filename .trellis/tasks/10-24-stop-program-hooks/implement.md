@@ -24,3 +24,11 @@ User approved program library management round on 2026-10-27. Boundary, ownershi
 ## Obsolete development compatibility cleanup
 
 User requested removal on 2026-10-27. Inventory and implementation boundary: research/obsolete-compat-inventory.md and research/obsolete-compat-removal.md. Remove archived status and obsolete per-call arrivals/rows code; strict current inputs, offline migration only.
+
+## Duty formation follow-up (existing task, user-authorized)
+
+- [x] Batch A: put one duty's existing tasks on one shared horizontal track; preserve real timing, interaction and unknown-duration semantics. Full frontend254/build and independent review passed. Actual app selection/shared geometry and explicit real-component fixture drag/resize/context/navigation verified; details and mobile limitation in research/duty-formation-follow-up.md.
+- [ ] Batch B: add duty-owned formation task authoring and local participant/output editing; remove formation blocks from reusable player programs and synchronize generated source and backend current-model validation.
+- [ ] Batch C: reciprocal assignment to manually created receiving duties, source-task/output selection, source renames/removal/history/recovery, planned-time conflict gates and formation dependency validation.
+- [ ] Batch D: complete HEAD/TAIL partition support through persistence, simulation, structural projection and physical execution; current-format fixtures and narrowly audited offline development-data migration where needed.
+- [ ] Integration: scoped reviewer, frontend/backend/runtime regression gates and browser checks; report actual game/runtime gaps. Keep task in_progress pending user testing; no automatic deployment or archive.

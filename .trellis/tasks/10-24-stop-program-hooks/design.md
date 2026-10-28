@@ -31,3 +31,9 @@ Events `{id,stationId,tick,label?}` are explicit directionless diagram points wi
 ## Verification and scope
 
 Meaningful pure regression tests, Kotlin/Java compile and affected module tests, frontend test/build, full HTTP browser checks. No push or live deployment implied by latest request. Keep primary worktree untouched. Root integrates ownership boundaries, serializes Gradle invocations and reports any remaining evidence gaps truthfully.
+
+## 2026-10-27 duty formation follow-up
+
+The user approved production changes after the formation mockups and explicitly retained this in-progress task. Preserve the current timetable worktree, document/history owner and unreleased format number. One duty uses one horizontal lane; selection, context actions, timing edits and the inspector remain existing component responsibilities. Planned spans stay proportional; short/point/unknown tasks need independent interaction affordances rather than invented occupancy. Existing overlap diagnostics remain visible on the shared lane until domain-level overlap policy is updated in the formation batch.
+
+Formation follow-up moves authored COUPLE/SPLIT calls out of reusable player programs into duty tasks. Receiving duties are manually created and reference an explicitly declared split output; never auto-create duty identities. A split can continue its source duty with one output. Vehicle identities and total composition are runtime data; authored partition rules use complete units from an operating end. Existing dispatcher formation ownership and output handoff should be reused, not replaced by a second physical executor. The current persisted split contract accepts HEAD only; TAIL requires coordinated changes to partition validation, saved DTOs, structural/unit-circulation projection and actual split planning. This remains a separate cross-layer follow-up, not a claim that changing the editor alone implements it.

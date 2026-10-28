@@ -59,6 +59,29 @@ export function DutyTimeline(p:DutyTimelineProps) {
     patchTiming(d.id,d.resize?d.tick:Math.max(0,d.tick+delta),d.resize?Math.max(0,(d.ticks??0)+delta):undefined);
   };
   const pointerHandlers={onPointerMove:move,onPointerUp:finish,onPointerCancel:()=>{drag.current=undefined;setPreview(undefined);}};
+  const openTask=(id:string)=>{
+    const element=p.duty.elements.find((item)=>item.id===id);
+    if(element?.type==='RUN')p.onViewRun(element.runId);
+    else if(element?.type==='PROGRAM')p.onOpenProgramLibrary?.(element.program.programId);
+    else if(element?.type==='EVENT')p.onOpenGraphEvent?.(element.eventId);
+  };
+  const taskMenu=(id:string)=>({items:[{key:'delete',danger:true,label:t('timeline.remove')}],onClick:()=>p.onRemove(id)});
+  // Hit targets and labels do not represent occupancy. Only the inner interval uses elapsed time.
+  const layout=tasks.map((item)=>{
+    const draft=preview?.id===item.id?preview:undefined;
+    const start=draft?.tick??item.startTick;
+    const end=draft?draft.ticks!==undefined?start+draft.ticks:item.endTick===undefined?undefined:start+item.endTick-item.startTick:item.endTick;
+    const marker=end===undefined?'unknown':end===start?'point':undefined;
+    const intervalWidth=end===undefined?0:Math.max(0,(end-start)*scale);
+    const hitWidth=Math.max(24,intervalWidth),inset=(hitWidth-intervalWidth)/2;
+    return {...item,start,end,marker,intervalWidth,hitWidth,inset,left:20+(start-min)*scale,
+      description:`${item.label} · ${start}${end===undefined?' ?':`–${end}`}`};
+  });
+  const conflicts=layout.flatMap((a,index)=>layout.slice(index+1).flatMap((b)=>{
+    if(a.end===undefined||b.end===undefined||a.end<=a.start||b.end<=b.start)return [];
+    const start=Math.max(a.start,b.start),end=Math.min(a.end,b.end);
+    return start<end?[{id:JSON.stringify([a.id,b.id]),taskIds:[a.id,b.id],left:20+(start-min)*scale,width:(end-start)*scale,label:`${a.description}; ${b.description}`}]:[];
+  }));
   return <section className="duty-timeline" aria-label={t('timeline.title')}>
     <Flex wrap gap={12} align="center" className="duty-timeline-toolbar">
       <Space.Compact><Select aria-label={t('timeline.run')} placeholder={t('timeline.run')} value={availableRuns.some((r)=>r.id===runId)?runId:undefined} options={availableRuns.map((run)=>({value:run.id,label:run.id}))} onChange={setRunId}/><Button icon={<PlusOutlined/>} disabled={!runId||!availableRuns.some((r)=>r.id===runId)} onClick={()=>{if(runId)p.onAssign(runId);setRunId(undefined);}}>{t('common.add')}</Button></Space.Compact>
@@ -71,18 +94,24 @@ export function DutyTimeline(p:DutyTimelineProps) {
     {tasks.some((item)=>item.overlaps.length>0)&&<Alert type="warning" showIcon title={t('timeline.overlap')}/>}
     {!tasks.length?<Typography.Paragraph type="secondary">{t('timeline.empty')}</Typography.Paragraph>:<div className="duty-timeline-scroll"><div className="duty-timeline-track" style={{width:width+200}}>
       <div className="duty-timeline-axis">{Array.from({length:9},(_,i)=><span key={i} style={{left:20+i*width/8}}>{Math.round(min+i*span/8)}</span>)}<small>{t('timeline.tickUnit')}</small></div>
-      {tasks.map((item)=>{
-        const e=p.duty.elements.find((e)=>e.id===item.id),draft=preview?.id===item.id?preview:undefined;
-        const start=draft?.tick??item.startTick,end=draft?draft.tick+(draft.ticks??(item.endTick===undefined?0:item.endTick-item.startTick)):item.endTick;
-        const point=end===undefined||end===start,left=20+(start-min)*scale,barWidth=point?14:Math.max(20,(end-start)*scale);
-        return <div key={item.id} className="duty-timeline-row" data-task-id={item.id}>
-          <Dropdown trigger={['contextMenu']} menu={{items:[{key:'delete',danger:true,label:t('timeline.remove')}],onClick:()=>p.onRemove(item.id)}}>
-            <button type="button" aria-label={`${item.label} · ${start}${end===undefined?' ?':`–${end}`}`} aria-pressed={selectedElement?.id===item.id} className={`duty-timeline-task ${item.type.toLowerCase()} ${point?'point':''} ${item.endTick===undefined?'unknown':''} ${selectedElement?.id===item.id?'selected':''}`} style={{left,width:barWidth}} onClick={()=>setSelected(item.id)} onDoubleClick={()=>{if(e?.type==='RUN')p.onViewRun(e.runId);else if(e?.type==='PROGRAM')p.onOpenProgramLibrary?.(e.program.programId);else if(e?.type==='EVENT')p.onOpenGraphEvent?.(e.eventId);}} onPointerDown={(event)=>begin(event,item.id,false)} {...pointerHandlers}><span>{item.label}</span><small>{start} · {item.durationMode==='SIMULATED'&&item.endTick===undefined?t('timeline.unknown'):end===undefined?'?':end-start} {t('timeline.tickUnit')}</small></button>
-          </Dropdown>
-          {e?.type==='PROGRAM'&&e.duration?.type==='MANUAL'&&<button type="button" className="duty-timeline-resize" style={{left:left+barWidth-4}} aria-label={`${t('timeline.resize')} ${item.label}`} onPointerDown={(event)=>begin(event,item.id,true)} {...pointerHandlers}/>}
-        </div>;
-      })}
+      <div className="duty-timeline-lane" role="group" aria-label={p.duty.id}>
+        {layout.map((item)=>{
+          const e=p.duty.elements.find((e)=>e.id===item.id),selected=selectedElement?.id===item.id;
+          const conflict=conflicts.some((entry)=>entry.taskIds.includes(item.id));
+          return <div key={item.id} className="duty-timeline-item" data-task-id={item.id}>
+            <Dropdown trigger={['contextMenu']} menu={taskMenu(item.id)}>
+              <button type="button" aria-label={item.description} title={item.description} aria-pressed={selected} className={`duty-timeline-task ${item.type.toLowerCase()} ${selected?'selected':''} ${conflict?'conflict':''}`} style={{left:item.left-item.inset,width:item.hitWidth}} onClick={()=>setSelected(item.id)} onDoubleClick={()=>openTask(item.id)} onPointerDown={(event)=>begin(event,item.id,false)} {...pointerHandlers}>
+                <span aria-hidden="true" className={`duty-timeline-interval ${item.marker??''}`} data-start-tick={item.start} data-end-tick={item.end} style={{left:item.marker?item.hitWidth/2:item.inset,width:item.marker?undefined:item.intervalWidth}}/>
+                {item.intervalWidth>=110&&<span aria-hidden="true" className="duty-timeline-task-text"><span>{item.label}</span><small>{item.start}–{item.end}</small></span>}
+              </button>
+            </Dropdown>
+            {e?.type==='PROGRAM'&&e.duration?.type==='MANUAL'&&<button type="button" className="duty-timeline-resize" style={{left:item.left+item.intervalWidth-8}} aria-label={`${t('timeline.resize')} ${item.label}`} onPointerDown={(event)=>begin(event,item.id,true)} {...pointerHandlers}/>}
+          </div>;
+        })}
+        {conflicts.map((conflict)=><span key={conflict.id} className="duty-timeline-conflict" role="img" aria-label={`${t('timeline.overlap')} ${conflict.label}`} title={`${t('timeline.overlap')} ${conflict.label}`} style={{left:conflict.left,width:conflict.width}}/>)}
+      </div>
     </div></div>}
+    {tasks.length>0&&<div className="duty-timeline-labels">{layout.map((item)=><Dropdown key={item.id} trigger={['contextMenu']} menu={taskMenu(item.id)}><button type="button" className={`duty-timeline-label ${selectedElement?.id===item.id?'selected':''} ${item.overlaps.length?'conflict':''}`} aria-pressed={selectedElement?.id===item.id} onClick={()=>setSelected(item.id)} onDoubleClick={()=>openTask(item.id)}><span>{item.label}</span><small>{item.start}{item.end===undefined?` · ${t('timeline.unknown')}`:`–${item.end}`}</small></button></Dropdown>)}</div>}
     {selectedElement&&<section className="duty-timeline-inspector" aria-label={t('timeline.selected')}>
       <Flex justify="space-between" gap={12} align="center"><Typography.Title level={5}>{task?.label??selectedElement.id}</Typography.Title><Button danger icon={<DeleteOutlined/>} onClick={()=>p.onRemove(selectedElement.id)}>{t('timeline.remove')}</Button></Flex>
       {selectedElement.type==='RUN'?<><Typography.Paragraph type="secondary">{t('timeline.runHint')}</Typography.Paragraph><Button onClick={()=>p.onViewRun(selectedElement.runId)}>{t('timeline.editRun')}</Button></>:selectedElement.type==='EVENT'?<>

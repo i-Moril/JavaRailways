@@ -1,3 +1,4 @@
+import {useStationProgramLibrary} from './useStationProgramLibrary';
 import {defaultStationStopProgram} from './stationPlans';
 import {defaultDutyProgramArguments,orderDutyTimeline,projectDutyTimeline,sortDutyTasks} from './dutyTimeline';
 import {TimedOperationFields} from './TimedOperationFields';
@@ -33,14 +34,14 @@ import type { AuthoringCommand,AuthoringCommandState } from './authoringCommands
 import { TimetableWorkspace } from './TimetableWorkspace';
 import { useI18n } from './i18n';
 import { formatTimetableTick } from './timetableTime';
-import type { StationProgramRecord,TimedOperation,CompiledTimetableSource,EditorDocumentSummary,LineV1,TimetableEventPoint,TimetableSimulationResult,WorldMetadata } from './types';
+import type { TimedOperation,CompiledTimetableSource,EditorDocumentSummary,LineV1,TimetableEventPoint,TimetableSimulationResult,WorldMetadata } from './types';
 
 const uid=(prefix:string)=>`${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`;
 const hash=(value:string)=>{let result=2166136261;for(let index=0;index<value.length;index++){result^=value.charCodeAt(index);result=Math.imul(result,16777619);}return (result>>>0).toString(16).padStart(8,'0');};
 const defaultScriptName=(id:string)=>`${(id.replace(/[^A-Za-z0-9._-]/g,'-').replace(/^[^A-Za-z0-9]+/,'')||'timetable').slice(0,120)}.js`;
 export const clampAuthoringSidebarWidth=(width:number,viewportWidth:number)=>Math.max(360,Math.min(width,960,Math.max(360,viewportWidth-320)));
 
-export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenProgramLibrary,page='graph',onPageChange,onCommandState}:{onOpenProgramLibrary?:(programId:string,stepId?:string)=>void;page?:'graph'|'duties'|'validation';onPageChange?:(page:'graph'|'duties'|'validation')=>void;onCommandState?:(state:AuthoringCommandState)=>void;world:string;recoveryOwner:string;lines:LineV1[];metadata:WorldMetadata;onError:(message:string)=>void}) {
+export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,metadata,onError,onOpenProgramLibrary,page='graph',onPageChange,onCommandState}:{programLibraryRevision?:number;onOpenProgramLibrary?:(programId:string,stepId?:string)=>void;page?:'graph'|'duties'|'validation';onPageChange?:(page:'graph'|'duties'|'validation')=>void;onCommandState?:(state:AuthoringCommandState)=>void;world:string;recoveryOwner:string;lines:LineV1[];metadata:WorldMetadata;onError:(message:string)=>void}) {
   const {locale,t}=useI18n();
   const [initialRecovery]=useState(()=>{const recovered=loadAuthoringRecovery(recoveryOwner,world);return recovered&&JSON.stringify(recovered.document)!==recovered.savedDocumentJson?recovered:undefined;});
   const initialDocument=initialRecovery?.document??emptyAuthoringDocument();
@@ -49,11 +50,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   const ownerIdentity=useRef(`${recoveryOwner}::${world}`);
   if(ownerIdentity.current!==`${recoveryOwner}::${world}`){ownerIdentity.current=`${recoveryOwner}::${world}`;ownerEpoch.current++;}
   const operationSerial=useRef(0);
-  const [programResources,setProgramResources]=useState<{world:string;records:StationProgramRecord[]}>({world:'',records:[]});
-  const [programError,setProgramError]=useState('');const [programLoading,setProgramLoading]=useState(false);const programRequest=useRef(0);
-  const loadPrograms=async()=>{const token=++programRequest.current;setProgramLoading(true);setProgramError('');try{const records=await api.stationPrograms(world);if(token===programRequest.current)setProgramResources({world,records});}catch(failure){if(token===programRequest.current)setProgramError(String(failure));}finally{if(token===programRequest.current)setProgramLoading(false);}};
-  useEffect(()=>{if(page!=='validation'&&world)void loadPrograms();return()=>{programRequest.current++;};},[world,page]);
-  const programLibrary=programResources.world===world?programResources.records:[];
+  const {records:programLibrary,error:programError,loading:programLoading,refresh:loadPrograms}=useStationProgramLibrary(world,page,programLibraryRevision);
   const [documents,setDocuments]=useState<EditorDocumentSummary[]>([]);
   const blockDraftKey=useRef(initialRecovery?.blockDraftKey||(initialRecovery?.documentId||initialDocument.id));
   const [documentId,setDocumentId]=useState(initialRecovery?.documentId??'');

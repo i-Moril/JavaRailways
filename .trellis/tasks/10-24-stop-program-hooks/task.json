@@ -15,12 +15,12 @@
   "branch": "codex/timetable-station-programs",
   "base_branch": "deploy/station-blocks-20261024",
   "worktree_path": null,
-  "commit": "0900f865",
+  "commit": "f8b80012",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Formation5be9d190, train info07678147, spacing0900f865 committed locally; user postpones game validation. Originalfeedback10 retained display continuity/futurestops now configured in RUN timeline inspector; existing current schema/generator/runtime unchanged, old standalone editor/unused graph removed, orphan configs visible/editable/removable. Purehelper10 + frontend287/build + actualAppbrowser and independentreview pass. User authorized separate local batch commit; no push/deploy/archive. Keepin_progress; see research/run-display-plans.md.",
+  "notes": "Formation5be9d190, train info07678147, spacing0900f865 committed locally; user postpones game validation. Originalfeedback10 retained display continuity/futurestops now configured in RUN timeline inspector; existing current schema/generator/runtime unchanged, old standalone editor/unused graph removed, orphan configs visible/editable/removable. Purehelper10 + frontend287/build + actualAppbrowser and independentreview pass. User authorized separate local batch commit; no push/deploy/archive. Keepin_progress; see research/run-display-plans.md. Deployed f8b80012 on2026-10-28; saved/backup/hash guards and local/public17asset verification passed; ATO RUNNING. No data migration; game acceptance postponed, keep in_progress. See research/deployment-2026-10-28.md. User reported program deletion mismatch. Fixed frontend library invalidation/current-only selectors and explicit existing-snapshot labels; removed archive wording. Frontend301/49files + build + independentcheck pass; no commit/deploy, existing livef8b80012. See research/program-library-sync.md.",
   "meta": {}
 }

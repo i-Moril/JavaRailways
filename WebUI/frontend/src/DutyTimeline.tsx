@@ -36,7 +36,7 @@ export function DutyTimeline(p:DutyTimelineProps) {
   const selectedElement=p.duty.elements.find((item)=>item.id===selected)??p.duty.elements[0];
   const task=tasks.find((item)=>item.id===selectedElement?.id);
   const availableRuns=p.document.runs.filter((run)=>!p.document.duties.some((d)=>d.elements.some((e)=>e.type==='RUN'&&e.runId===run.id)));
-  const programOptions=[...(p.document.boundPrograms??[]).map((binding)=>({value:binding.programId,label:p.library.find((record)=>record.id===binding.programId)?.name??binding.programId})),...p.library.filter((record)=>!p.document.boundPrograms?.some((binding)=>binding.programId===record.id)).map((record)=>({value:record.id,label:record.name}))];
+  const programOptions=p.library.map((record)=>({value:record.id,label:record.name}));
   const min=Math.max(0,Math.floor((tasks.length?Math.min(...tasks.map((item)=>item.startTick)):0)/100)*100);
   const max=Math.max(min+1200,...tasks.map((item)=>item.endTick??item.startTick));
   const span=Math.max(1200,max-min)*1.08,width=900*zoom,scale=width/span;
@@ -66,7 +66,7 @@ export function DutyTimeline(p:DutyTimelineProps) {
   const openTask=(id:string)=>{
     const element=p.duty.elements.find((item)=>item.id===id);
     if(element?.type==='RUN')p.onViewRun(element.runId);
-    else if(element?.type==='PROGRAM')p.onOpenProgramLibrary?.(element.program.programId);
+    else if(element?.type==='PROGRAM'&&p.library.some((record)=>record.id===element.program.programId))p.onOpenProgramLibrary?.(element.program.programId);
     else if(element?.type==='EVENT')p.onOpenGraphEvent?.(element.eventId);
   };
   const canEdit=(id:string)=>{const e=p.duty.elements.find(e=>e.id===id);if(e?.type!=='FORMATION')return true;const event=p.document.formationEvents?.find(event=>event.id===e.eventId);return !event||event.coordinatorDutyId===p.duty.id;};

@@ -8,7 +8,7 @@ import { findProgramStep,validateStationProgram } from './stationPrograms';
 import { useI18n } from './i18n';
 import type { TimetableExtensionDescriptor,StationProgramDefinition,StationProgramRecord } from './types';
 
-type Props={world:string;recoveryOwner:string;extensions?:TimetableExtensionDescriptor[];conditions?:TimetableExtensionDescriptor[];focus?:{programId:string;stepId?:string}};
+type Props={onLibraryChange?:()=>void;world:string;recoveryOwner:string;extensions?:TimetableExtensionDescriptor[];conditions?:TimetableExtensionDescriptor[];focus?:{programId:string;stepId?:string}};
 export function newLibraryProgram(records:StationProgramRecord[],entropy=()=>crypto.getRandomValues(new Uint32Array(4))){
   let id:string;
   do{id=String(entropy().reduce((value,word)=>(value<<32n)|BigInt(word),0n));}while(records.some((record)=>record.id===id));
@@ -21,7 +21,7 @@ export function libraryHasChanges(record:StationProgramRecord|undefined,definiti
 }
 // A different owner/world owns a completely separate editor, request generation and recovery scope.
 export function StationProgramLibrary(props:Props){return <Library key={JSON.stringify([props.recoveryOwner,props.world])} {...props}/>;}
-function Library({world,recoveryOwner,extensions=[],conditions=[],focus}:Props){
+function Library({world,recoveryOwner,extensions=[],conditions=[],focus,onLibraryChange}:Props){
   const {t}=useI18n();
   const [records,setRecords]=useState<StationProgramRecord[]>([]);
   const [selected,setSelected]=useState<StationProgramRecord>();
@@ -61,12 +61,12 @@ function Library({world,recoveryOwner,extensions=[],conditions=[],focus}:Props){
   const updateList=(record:StationProgramRecord)=>setRecords((values)=>sortLibraryRecords([...values.filter((item)=>item.id!==record.id),record]));
   const create=()=>leave(()=>void perform(async(current)=>{
     const next=newLibraryProgram(records);const record=await api.createStationProgram(world,next.id,next.name,next.definition);
-    if(current()){updateList(record);select(record);}
+    onLibraryChange?.();if(current()){updateList(record);select(record);}
   }));
   const save=()=>{
     if(!selected||!valid||validateStationProgram(definition).length)return;
     const source=selected;const snapshot=structuredClone(definition);
-    void perform(async(current)=>{const record=await api.saveStationProgram(world,source.id,source.name,snapshot,source.revision);if(current()){updateList(record);select(record);}});
+    void perform(async(current)=>{const record=await api.saveStationProgram(world,source.id,source.name,snapshot,source.revision);onLibraryChange?.();if(current()){updateList(record);select(record);}});
   };
   const confirm=()=>{
     if(!dialog||locked.current)return;
@@ -76,11 +76,12 @@ function Library({world,recoveryOwner,extensions=[],conditions=[],focus}:Props){
     void perform(async(current)=>{
       if(kind==='delete'){
         const result=await api.deleteStationProgram(world,record.id,record.revision);
-        if(current()){if(!result.removed)throw new Error(t('programs.deleteMissing'));setRecords((values)=>values.filter((item)=>item.id!==record.id));if(selected?.id===record.id)discardSelection();setDialog(undefined);}
+        if(!result.removed)throw new Error(t('programs.deleteMissing'));onLibraryChange?.();
+        if(current()){setRecords((values)=>values.filter((item)=>item.id!==record.id));if(selected?.id===record.id)discardSelection();setDialog(undefined);}
       }else{
         // Rename the server baseline only. Unsaved definition/invalid canvas stays in this editor.
         const renamed=await api.saveStationProgram(world,record.id,rename.trim(),record.definition,record.revision);
-        if(current()){updateList(renamed);if(selected?.id===record.id)setSelected(renamed);setDialog(undefined);}
+        onLibraryChange?.();if(current()){updateList(renamed);if(selected?.id===record.id)setSelected(renamed);setDialog(undefined);}
       }
     });
   };

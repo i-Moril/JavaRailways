@@ -1,3 +1,4 @@
+import {trainInfoError} from './trainInfo';
 import type { TimetableAuthoringDocumentV1 } from './authoring';
 import type { BoundStationProgram,StationProgramCall,StationProgramDefinition,StationProgramLiteral,StationProgramParameterType,StationProgramRecord,StationProgramStep,StationProgramValue } from './types';
 
@@ -24,8 +25,9 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
     if(args&&!stationProgramLiteralValid(args[parameter.id],parameter.type))errors.push(`Invalid argument: ${parameter.id}`);
   }
   if(args)for(const name of Object.keys(args))if(!parameters.has(name))errors.push(`Unknown argument: ${name}`);
-  const check=(value:StationProgramValue<StationProgramLiteral>,type:StationProgramParameterType,positive=false)=>{
+  const check=(value:StationProgramValue<StationProgramLiteral>,type:StationProgramParameterType,positive=false,allowTrainInfo=false)=>{
     if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==1){errors.push('Program value requires exactly value or parameterId');return;}
+    if('trainInfo' in value){if(!allowTrainInfo)errors.push('Train information is unavailable in this input');else {const error=trainInfoError(value.trainInfo);if(error)errors.push(error);}return;}
     if('parameterId' in value){
       if(parameters.get(value.parameterId)!==type)errors.push(`Unknown or incompatible parameter: ${value.parameterId}`);
       else if(args&&positive&&Number(args[value.parameterId])<=0)errors.push('Wait duration must be positive');
@@ -43,8 +45,8 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
     if(depth>0&&step.type==='STORE_AT_DEPOT')errors.push(`Fixed operations cannot be conditional: ${step.id}`);
     switch(step.type){
       case 'SET_DISPLAY':{
-        check(step.unitSlots,'UNIT_SLOTS');check(step.values,'JSON_OBJECT');if(step.removeKeys)check(step.removeKeys,'ID_LIST');
-        const values=step.values&&('value' in step.values?step.values.value:args?.[step.values.parameterId]);
+        check(step.unitSlots,'UNIT_SLOTS');check(step.values as StationProgramValue<StationProgramLiteral>,'JSON_OBJECT',false,true);if(step.removeKeys)check(step.removeKeys,'ID_LIST');
+        const values=step.values&&('value' in step.values?step.values.value:'parameterId' in step.values?args?.[step.values.parameterId]:undefined);
         if(values!==undefined){const error=displayValuesError(values);if(error)errors.push(error);}
         const keys=step.removeKeys&&('value' in step.removeKeys?step.removeKeys.value:args?.[step.removeKeys.parameterId]);
         if(Array.isArray(keys)&&new Set<unknown>(keys).size!==keys.length)errors.push('Display removal keys must be unique');
@@ -61,7 +63,7 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
       case 'EXTENSION':
         if(typeof step.typeId!=='string'||step.typeId.length>256||! /^[a-z0-9_.-]+:[a-z0-9_./-]+$/.test(step.typeId))errors.push('Extension typeId must be namespaced');
         if(!Number.isInteger(step.version)||step.version<1||step.version>2147483647)errors.push('Extension version must be a positive integer');
-        check(step.parameters,'JSON_OBJECT');break;
+        check(step.parameters as StationProgramValue<StationProgramLiteral>,'JSON_OBJECT',false,step.type==='EXTENSION');break;
       case 'REVERSE':case 'OPEN_DOORS':case 'CLOSE_DOORS':case 'END':break;
       case 'ASYNC':if(!validId(step.taskId))errors.push('Invalid task ID');visit(step.steps,depth+1);break;
       case 'AWAIT':if(!validId(step.taskId))errors.push('Invalid task ID');break;

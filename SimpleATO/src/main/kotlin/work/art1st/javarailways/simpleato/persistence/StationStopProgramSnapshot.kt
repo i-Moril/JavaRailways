@@ -15,8 +15,13 @@ import work.art1st.javarailways.simpleato.timetable.*
     val unitSlots: List<Int> = emptyList(),
     val values: JsonObject = JsonObject(emptyMap()),
     val removeKeys: List<String> = emptyList(),
-    val extensionCall: SavedTimetableExtensionCallV1? = null
+    val extensionCall: SavedTimetableExtensionCallV1? = null,
+    val trainInfo: Map<String, SavedTrainInfoField> = emptyMap()
 ) {
+    init {
+        require(trainInfo.isEmpty() || type in setOf(SavedStationProgramActionType.SET_DISPLAY, SavedStationProgramActionType.EXTENSION)) { "trainInfo belongs to display or extension actions" }
+        immutableTrainInfo(trainInfo.mapValues { TrainInfoField.valueOf(it.value.name) })
+    }
     fun restore(): StationProgramAction = when (type) {
         SavedStationProgramActionType.OPEN_DOORS -> StationProgramAction.OpenDoors
         SavedStationProgramActionType.CLOSE_DOORS -> StationProgramAction.CloseDoors
@@ -26,9 +31,9 @@ import work.art1st.javarailways.simpleato.timetable.*
         SavedStationProgramActionType.WAIT_DURATION -> StationProgramAction.WaitDuration(requireNotNull(durationTicks))
         SavedStationProgramActionType.AWAIT -> StationProgramAction.Await(requireNotNull(taskId))
         SavedStationProgramActionType.ASYNC -> StationProgramAction.Async(requireNotNull(taskId), java.util.List.copyOf(steps.map { it.restore() }))
-        SavedStationProgramActionType.SET_DISPLAY -> StationProgramAction.SetDisplay(java.util.List.copyOf(unitSlots), values, java.util.List.copyOf(removeKeys))
+        SavedStationProgramActionType.SET_DISPLAY -> StationProgramAction.SetDisplay(java.util.List.copyOf(unitSlots), values, java.util.List.copyOf(removeKeys), trainInfo.mapValues { TrainInfoField.valueOf(it.value.name) })
         SavedStationProgramActionType.RESET_DISPLAY -> StationProgramAction.ResetDisplay(java.util.List.copyOf(unitSlots))
-        SavedStationProgramActionType.EXTENSION -> StationProgramAction.Extension(requireNotNull(extensionCall).restore())
+        SavedStationProgramActionType.EXTENSION -> StationProgramAction.Extension(requireNotNull(extensionCall).restore(), trainInfo.mapValues { TrainInfoField.valueOf(it.value.name) })
     }
     companion object {
         fun capture(action: StationProgramAction): SavedStationProgramAction = when (action) {
@@ -40,9 +45,9 @@ import work.art1st.javarailways.simpleato.timetable.*
             is StationProgramAction.WaitDuration -> SavedStationProgramAction(SavedStationProgramActionType.WAIT_DURATION, durationTicks = action.ticks)
             is StationProgramAction.Await -> SavedStationProgramAction(SavedStationProgramActionType.AWAIT, taskId = action.taskId)
             is StationProgramAction.Async -> SavedStationProgramAction(SavedStationProgramActionType.ASYNC, taskId = action.taskId, steps = action.steps.map(::capture))
-            is StationProgramAction.SetDisplay -> SavedStationProgramAction(SavedStationProgramActionType.SET_DISPLAY, unitSlots = action.unitSlots, values = action.values, removeKeys = action.removeKeys)
+            is StationProgramAction.SetDisplay -> SavedStationProgramAction(SavedStationProgramActionType.SET_DISPLAY, unitSlots = action.unitSlots, values = action.values, removeKeys = action.removeKeys, trainInfo = action.trainInfo.mapValues { SavedTrainInfoField.valueOf(it.value.name) })
             is StationProgramAction.ResetDisplay -> SavedStationProgramAction(SavedStationProgramActionType.RESET_DISPLAY, unitSlots = action.unitSlots)
-            is StationProgramAction.Extension -> SavedStationProgramAction(SavedStationProgramActionType.EXTENSION, extensionCall = SavedTimetableExtensionCallV1.capture(action.call))
+            is StationProgramAction.Extension -> SavedStationProgramAction(SavedStationProgramActionType.EXTENSION, extensionCall = SavedTimetableExtensionCallV1.capture(action.call), trainInfo = action.trainInfo.mapValues { SavedTrainInfoField.valueOf(it.value.name) })
         }
     }
 }

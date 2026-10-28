@@ -161,9 +161,12 @@ data class SavedTimetableActionV1(
     val unitSlots: List<Int> = emptyList(),
     val displayValues: JsonObject = JsonObject(emptyMap()),
     val removeDisplayKeys: List<String> = emptyList(),
-    val stopPrograms: SavedStationStopPrograms? = null
+    val stopPrograms: SavedStationStopPrograms? = null,
+    val trainInfo: Map<String, SavedTrainInfoField> = emptyMap()
 ) {
     init {
+        require(trainInfo.isEmpty() || type in setOf(SavedTimetableActionTypeV1.SET_DISPLAY, SavedTimetableActionTypeV1.EXTENSION)) { "trainInfo belongs to display or extension actions" }
+        immutableTrainInfo(trainInfo.mapValues { TrainInfoField.valueOf(it.value.name) })
         require((type in setOf(SavedTimetableActionTypeV1.TASK_START, SavedTimetableActionTypeV1.TASK_END)) == (taskId != null)) { "taskId belongs to task boundaries" }
         require(taskId == null || (taskId.isNotBlank() && taskId.length <= 128)) { "invalid taskId" }
         require(stopPrograms == null || type in setOf(SavedTimetableActionTypeV1.BEGIN_STATION_STOP,
@@ -176,7 +179,7 @@ data class SavedTimetableActionV1(
         SavedTimetableActionTypeV1.TASK_END -> TimetableAction.TaskEnd(requireNotNull(taskId))
         SavedTimetableActionTypeV1.BEGIN_STATION_STOP -> TimetableAction.BeginStationStop(requireNotNull(stopPrograms).restore())
         SavedTimetableActionTypeV1.BEGIN_OPERATIONAL_TRIP -> TimetableAction.BeginOperationalTrip(requireNotNull(operationalTripId),requireNotNull(runId),unitSlots)
-        SavedTimetableActionTypeV1.SET_DISPLAY -> TimetableAction.SetDisplay(unitSlots, displayValues, removeDisplayKeys)
+        SavedTimetableActionTypeV1.SET_DISPLAY -> TimetableAction.SetDisplay(unitSlots, displayValues, removeDisplayKeys, trainInfo.mapValues { TrainInfoField.valueOf(it.value.name) })
         SavedTimetableActionTypeV1.RESET_DISPLAY -> TimetableAction.ResetDisplay(unitSlots)
         SavedTimetableActionTypeV1.SELECT_STOP -> TimetableAction.SelectStop(
             StationStopSelection(StationId(requireNotNull(stationId)),
@@ -228,7 +231,7 @@ data class SavedTimetableActionV1(
             stopPrograms = stopPrograms?.restore()
         )
         SavedTimetableActionTypeV1.EXTENSION -> TimetableAction.Extension(
-            requireNotNull(extensionCall).restore()
+            requireNotNull(extensionCall).restore(), trainInfo.mapValues { TrainInfoField.valueOf(it.value.name) }
         )
         SavedTimetableActionTypeV1.CONDITIONAL -> TimetableAction.Conditional(
             condition = requireNotNull(condition).restore(),
@@ -243,7 +246,7 @@ data class SavedTimetableActionV1(
             is TimetableAction.TaskEnd -> SavedTimetableActionV1(SavedTimetableActionTypeV1.TASK_END, taskId = value.taskId)
             is TimetableAction.BeginStationStop -> SavedTimetableActionV1(SavedTimetableActionTypeV1.BEGIN_STATION_STOP, stopPrograms = SavedStationStopPrograms.capture(value.stopPrograms))
             is TimetableAction.BeginOperationalTrip -> SavedTimetableActionV1(SavedTimetableActionTypeV1.BEGIN_OPERATIONAL_TRIP,operationalTripId=value.tripId,runId=value.runId,unitSlots=value.unitSlots)
-            is TimetableAction.SetDisplay -> SavedTimetableActionV1(SavedTimetableActionTypeV1.SET_DISPLAY, unitSlots = value.unitSlots, displayValues = value.values, removeDisplayKeys = value.removeKeys)
+            is TimetableAction.SetDisplay -> SavedTimetableActionV1(SavedTimetableActionTypeV1.SET_DISPLAY, unitSlots = value.unitSlots, displayValues = value.values, removeDisplayKeys = value.removeKeys, trainInfo = value.trainInfo.mapValues { SavedTrainInfoField.valueOf(it.value.name) })
             is TimetableAction.ResetDisplay -> SavedTimetableActionV1(SavedTimetableActionTypeV1.RESET_DISPLAY, unitSlots = value.unitSlots)
             is TimetableAction.SelectStop -> SavedTimetableActionV1(SavedTimetableActionTypeV1.SELECT_STOP,
                 stationId = value.selection.stationId.value,
@@ -312,7 +315,8 @@ data class SavedTimetableActionV1(
             )
             is TimetableAction.Extension -> SavedTimetableActionV1(
                 type = SavedTimetableActionTypeV1.EXTENSION,
-                extensionCall = SavedTimetableExtensionCallV1.capture(value.call)
+                extensionCall = SavedTimetableExtensionCallV1.capture(value.call),
+                trainInfo = value.trainInfo.mapValues { SavedTrainInfoField.valueOf(it.value.name) }
             )
             is TimetableAction.Conditional -> SavedTimetableActionV1(
                 type = SavedTimetableActionTypeV1.CONDITIONAL,

@@ -53,6 +53,9 @@ class StationProgramHttpTest {
                 assertTrue(rejected.body().contains("unsupported sequential program step: " + type));
             }
             JsonNode definition=mapper.readTree("{\"parameters\":[],\"steps\":[{\"id\":\"reverse\",\"type\":\"REVERSE\"},{\"id\":\"action\",\"type\":\"EXTENSION\",\"typeId\":\"demo:action\",\"version\":1,\"parameters\":{\"value\":{\"one\":1.0,\"zero\":-0.0,\"nested\":[null,true,0.25]}}}]}");
+            var sourceStep = ((ObjectNode)definition).withArray("steps").addObject().put("id", "info").put("type", "SET_DISPLAY");
+            sourceStep.putObject("unitSlots").putArray("value").add(1);
+            sourceStep.putObject("values").putObject("trainInfo").put("name", "NAME").put("cars", "CAR_COUNT").put("units", "UNIT_COUNT").put("direction", "DIRECTION");
             ObjectNode create=mapper.createObjectNode().put("id","turnback").put("name","Turnback");create.set("definition",definition);
             var created=send(client,root,base,"POST",create.toString(),cookie);assertEquals(201,created.statusCode());
             JsonNode first=mapper.readTree(created.body());

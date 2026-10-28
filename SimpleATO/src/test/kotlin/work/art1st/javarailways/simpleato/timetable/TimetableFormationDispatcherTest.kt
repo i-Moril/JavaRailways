@@ -241,6 +241,50 @@ class TimetableFormationDispatcherTest {
     }
 
     @Test
+    fun `train information follows published split outputs and a receiving duty`() {
+        Fixture(newDuty = true).use { f ->
+            val observed = arrayListOf<Pair<String, JsonObject>>()
+            val binding = TrainInfoField.entries.associateBy { it.name }
+            f.world.onOwnerForTest {
+                f.world.simpleAtoWorldData.timetableExtensions.registerAction(object : TimetableActionProvider {
+                    override val typeId = "test:train-info"
+                    override val version = 1
+                    override val descriptor = TimetableExtensionDescriptor("Info", "Actual output train")
+                    override fun validate(parameters: JsonObject) = if (parameters.size == 4) emptyList() else listOf("four properties required")
+                    override fun start(parameters: JsonObject, context: TimetableRuntimeContext): TimetableExtensionActionStartResult {
+                        observed += checkNotNull(context.train).trainId to parameters
+                        return TimetableExtensionActionStartResult.Accepted(object : TimetableExtensionActionTicket {
+                            override fun snapshot() = TimetableExtensionActionSnapshot(TimetableExtensionActionState.SUCCEEDED)
+                            override fun cancel() = Unit
+                        })
+                    }
+                })
+                val table = checkNotNull(f.world.simpleAtoWorldData.timetables["split"])
+                val read = TimetableStep.At(0, TimetableAction.Extension(TimetableExtensionCall("test:train-info"), binding))
+                f.world.simpleAtoWorldData.timetables.add(table.copy(services = table.services.map { duty ->
+                    duty.copy(steps = duty.steps.flatMap { step ->
+                        if (step is TimetableStep.At &&
+                            (step.action is TimetableAction.Split || step.action is TimetableAction.TakeFromFormationOutput)) listOf(step, read.copy(tick = step.tick))
+                        else listOf(step)
+                    })
+                }))
+            }
+            f.begin(); f.physics.start()
+            repeat(4500) { f.tick() }
+            assertTrue(f.dispatcher.statuses().all { it.state == TimetableServiceRunState.COMPLETED }, f.dispatcher.statuses().toString())
+            assertEquals(2, observed.size)
+            for ((trainId, values) in observed) {
+                val actual = f.world.allTrains.single { it.id == trainId }.publishedFrame!!
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(actual.trainName), values["NAME"])
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(1), values["CAR_COUNT"])
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(1), values["UNIT_COUNT"])
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(if (actual.reversed) "REVERSED" else "FORWARD"), values["DIRECTION"])
+            }
+            assertEquals(2, observed.map { it.first }.distinct().size)
+        }
+    }
+
+    @Test
     fun `retained ATO receives the new duty line cap and preserves independent restrictions`() {
         Fixture(false, sourceReversed = true, outputReversed = true, orientationCase = true,
             separateDutyCaps = true).use { f ->
@@ -329,8 +373,9 @@ class TimetableFormationDispatcherTest {
     }
 
 
-    @Test
-    fun `compile-selected display update follows actual unit through split and held sibling stays separate`() {
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
+    fun `compile-selected display update follows actual unit through split and held sibling stays separate`(dynamic: Boolean) {
         Fixture(false,separateDutyCaps=true).use { f ->
             f.world.onOwnerForTest {
                 f.world.simpleAtoWorldData.timetableExtensions.registerCondition(object : TimetableConditionProvider {
@@ -342,7 +387,8 @@ class TimetableFormationDispatcherTest {
                 })
                 val table=checkNotNull(f.world.simpleAtoWorldData.timetables["split"])
                 val source=table.services.single()
-                val branch=TimetableStep.At(0,TimetableAction.SetDisplay(listOf(1),kotlinx.serialization.json.buildJsonObject { put("destination",kotlinx.serialization.json.JsonPrimitive("D express")) }))
+                val branch=TimetableStep.At(0,TimetableAction.SetDisplay(listOf(1), if(dynamic) JsonObject(emptyMap()) else kotlinx.serialization.json.buildJsonObject { put("destination",kotlinx.serialization.json.JsonPrimitive("D express")) },
+                    trainInfo = if(dynamic) mapOf("destination" to TrainInfoField.NAME, "cars" to TrainInfoField.CAR_COUNT) else emptyMap()))
                 val steps=listOf(source.steps[0],branch)+source.steps.drop(1)
                 val line=checkNotNull(source.lineId)
                 val updated=source.copy(steps=steps,runSegments=listOf(TimetableRunSegment("before",line,0,2),TimetableRunSegment("after",line,3,4)))
@@ -360,7 +406,8 @@ class TimetableFormationDispatcherTest {
             assertEquals(2,outputs.size)
             f.world.onOwnerForTest {
                 val displays=outputs.flatMap { f.dispatcher.unitDisplaysForTrain(f.world,it.id,"split",0) }.associateBy { it.unitId }
-                assertEquals("D express",displays.getValue("unit-0").values["destination"].toString().trim('"'))
+                assertEquals(if(dynamic) f.train.publishedFrame.trainName else "D express",displays.getValue("unit-0").values["destination"].toString().trim('"'))
+                if(dynamic) assertEquals(kotlinx.serialization.json.JsonPrimitive(2), displays.getValue("unit-0").values["cars"])
                 assertEquals("E",displays.getValue("unit-1").values["destination"].toString().trim('"'))
             }
         }

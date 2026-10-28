@@ -92,6 +92,54 @@ class TimetableDispatcherTest {
     }
 
     @Test
+    fun `train information unit failures and extension validation fail before provider start`() {
+        for (requestUnit in listOf(false, true)) {
+            val world = TestWorldFixture.create().also(worldFixtures::add).world
+            val data = BasicWorldData()
+            TestSimpleATOWorldDataRegistry.register(world, data)
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+            val train = createTrainWithConfig("T", rail, world, listOf(10.0))
+            val origin = "A"
+            data.wayPoints.add(WayPoint(origin, origin, rail.id, train.head.location.arcLength))
+            val acquisition = TimetableAction.TakeFromWaypoint(listOf(origin))
+            data.wayPoints.add(WayPoint("B", "B", rail.id, train.head.location.arcLength + 30.0))
+            var starts = 0
+            var validations = 0
+            world.simpleAtoWorldData.timetableExtensions.registerAction(object : TimetableActionProvider {
+                override val typeId = "test:acquired"
+                override val version = 1
+                override val descriptor = TimetableExtensionDescriptor("Acquired", "Observe acquired context")
+                override fun validate(parameters: JsonObject): List<String> {
+                    validations++
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive("T"), parameters["name"])
+                    return listOf("test rejects resolved values")
+                }
+                override fun start(parameters: JsonObject, context: TimetableRuntimeContext): TimetableExtensionActionStartResult {
+                    starts++
+                    assertEquals(origin, context.currentWayPointId)
+                    assertEquals(train.id, context.train?.trainId)
+                    return TimetableExtensionActionStartResult.Accepted(object : TimetableExtensionActionTicket {
+                        override fun snapshot() = TimetableExtensionActionSnapshot(TimetableExtensionActionState.SUCCEEDED)
+                        override fun cancel() = Unit
+                    })
+                }
+            })
+            world.simpleAtoWorldData.timetables.add(Timetable("extension-first", services = listOf(TimetableService("s",
+                steps = listOf(TimetableStep.At(0L, acquisition),
+                    TimetableStep.At(0L, TimetableAction.Extension(TimetableExtensionCall("test:acquired"), if (requestUnit) mapOf("units" to TrainInfoField.UNIT_COUNT) else mapOf("name" to TrainInfoField.NAME))),
+                    TimetableStep.At(0L, TimetableAction.GoTo("B")))))))
+            val dispatcher = dispatcher()
+            val result = world.onOwnerForTest { dispatcher.startService(world, "extension-first", "s") }
+            assertTrue(result is TimetableServiceStartResult.Failure, result.toString())
+            val id = TimetableServiceRunId("extension-first", "s")
+            assertEquals(0, starts)
+            assertEquals(if (requestUnit) 0 else 1, validations)
+            assertTrue(dispatcher.status(id)?.state == TimetableServiceRunState.FAILED ||
+                world.simpleAtoWorldData.atoCoordinator.isStalled, dispatcher.status(id).toString())
+        }
+    }
+
+    @Test
     fun `extension after stopped acquisition starts once without a first mission and holds until ticket success`() {
         for (depotTake in listOf(false, true)) {
             val world = TestWorldFixture.create().also(worldFixtures::add).world

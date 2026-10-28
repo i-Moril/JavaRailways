@@ -6,7 +6,7 @@ import kotlinx.serialization.json.*
 
 /** Visual authoring DTOs are expanded at compile time, never evaluated as runtime JavaScript. */
 @Serializable internal data class StationProgramParameter(val id: String, val type: String)
-@Serializable internal data class StationProgramValue(val value: JsonElement? = null, val parameterId: String? = null)
+@Serializable internal data class StationProgramValue(val value: JsonElement? = null, val parameterId: String? = null, val trainInfo: Map<String, SavedTrainInfoField>? = null)
 @Serializable internal data class StationProgramDefinition(val parameters: List<StationProgramParameter>, val steps: List<StationProgramStep>)
 @Serializable internal sealed class StationProgramStep {
     abstract val id: String
@@ -32,8 +32,12 @@ internal data class ExpandedStationProgram(val steps: List<SavedTimetableStepV1>
 
 internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: JsonElement, initialTick: Long, plannedContext: Map<String, JsonElement> = emptyMap()): ExpandedStationProgram {
     require(initialTick in 0L..9_007_199_254_740_991L) { "program start tick must be a nonnegative safe integer" }
-    fun expressionShape(value: JsonElement) {
+    fun expressionShape(value: JsonElement, allowTrainInfo: Boolean = false) {
         val fields = value as? JsonObject ?: error("program value must be an object")
+        if (allowTrainInfo && fields.keys == setOf("trainInfo")) {
+            parseTrainInfo(fields.getValue("trainInfo"))
+            return
+        }
         require(fields.keys == setOf("value") || fields.keys == setOf("parameterId")) { "program value requires exactly value or parameterId" }
     }
     var count = 0
@@ -49,21 +53,22 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
         if (depth > 0) require(step["type"]?.jsonPrimitive?.content != "STORE_AT_DEPOT") {
             "step:$id: fixed operations cannot be conditional"
         }
-        when (step["type"]?.jsonPrimitive?.content) {
-            "SET_DISPLAY" -> { expressionShape(step.getValue("unitSlots")); expressionShape(step.getValue("values")); step["removeKeys"]?.let(::expressionShape) }
+        try { when (step["type"]?.jsonPrimitive?.content) {
+            "SET_DISPLAY" -> { expressionShape(step.getValue("unitSlots")); expressionShape(step.getValue("values"), true); step["removeKeys"]?.let { expressionShape(it) } }
             "RESET_DISPLAY" -> expressionShape(step.getValue("unitSlots"))
             "BRANCH" -> {
                 expressionShape(step.getValue("parameters"))
                 checkSteps(step.getValue("thenSteps").jsonArray, depth + 1)
                 checkSteps(step.getValue("elseSteps").jsonArray, depth + 1)
             }
-            "EXTENSION" -> expressionShape(step.getValue("parameters"))
+            "EXTENSION" -> expressionShape(step.getValue("parameters"), true)
             "WAIT_UNTIL" -> expressionShape(step.getValue("tick"))
             "WAIT_DURATION" -> expressionShape(step.getValue("durationTicks"))
             "MOVE" -> { expressionShape(step.getValue("destinationId")); expressionShape(step.getValue("viaIds")) }
             "SELECT_STOP" -> { expressionShape(step.getValue("stationId")); expressionShape(step.getValue("berthIds")) }
             "STORE_AT_DEPOT" -> { expressionShape(step.getValue("depotId")); expressionShape(step.getValue("stablingPointIds")) }
         }
+        } catch (failure: RuntimeException) { throw if (failure is ProgramStepFailure) failure else ProgramStepFailure(id, failure) }
     }
     }
     checkSteps(definitionJson.jsonObject.getValue("steps").jsonArray, 0)
@@ -80,7 +85,7 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
     parameters.forEach { (id, type) -> validateProgramLiteral(arguments.getValue(id), type) }
     require(definition.steps.map { it.id }.distinct().size == definition.steps.size) { "duplicate program step id" }
     fun value(expression: StationProgramValue, type: String): JsonElement {
-        require((expression.value != null) != (expression.parameterId != null)) { "program value requires exactly value or parameterId" }
+        require(expression.trainInfo == null && (expression.value != null) != (expression.parameterId != null)) { "program value requires exactly value or parameterId" }
         val literal = expression.parameterId?.let { id ->
             require(parameters[id] == type) { "unknown or incompatible parameter: $id" }
             arguments.getValue(id)
@@ -105,7 +110,8 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
                 val keys = value(step.removeKeys, "ID_LIST").jsonArray.map { it.jsonPrimitive.content }
                 require(keys.distinct().size == keys.size) { "display removal keys must be distinct" }
                 append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.SET_DISPLAY, unitSlots = slots,
-                    displayValues = value(step.values, "JSON_OBJECT").jsonObject.also(::validateDisplayValues), removeDisplayKeys = keys))
+                    displayValues = if (step.values.trainInfo != null) JsonObject(emptyMap()) else value(step.values, "JSON_OBJECT").jsonObject.also(::validateDisplayValues),
+                    removeDisplayKeys = keys, trainInfo = step.values.trainInfo.orEmpty()))
             }
             is StationProgramStep.ResetDisplay -> append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.RESET_DISPLAY,
                 unitSlots = value(step.unitSlots, "UNIT_SLOTS").jsonArray.map { it.jsonPrimitive.int }))
@@ -123,7 +129,9 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
                 require(step.typeId.matches(Regex("[a-z0-9_.-]+:[a-z0-9_./-]+")) && step.typeId.length <= 256) { "extension typeId must be namespaced" }
                 require(step.version > 0) { "extension version must be positive" }
                 append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.EXTENSION,
-                    extensionCall = SavedTimetableExtensionCallV1(step.typeId, step.version, value(step.parameters, "JSON_OBJECT").jsonObject)))
+                    extensionCall = SavedTimetableExtensionCallV1(step.typeId, step.version,
+                        if (step.parameters.trainInfo != null) JsonObject(emptyMap()) else value(step.parameters, "JSON_OBJECT").jsonObject),
+                    trainInfo = step.parameters.trainInfo.orEmpty()))
             }
             is StationProgramStep.Branch -> {
                 val chosen = evaluatePlannedCondition(step.typeId, step.version, value(step.parameters, "JSON_OBJECT").jsonObject, plannedContext)
@@ -209,5 +217,17 @@ internal fun validateDisplayValues(value: JsonObject) {
     validateProgramJsonObject(value)
     require(value.size <= 128 && value.keys.all { it.isNotBlank() } && value.toString().length <= 65536) {
         "display values require at most128 nonblank keys and64 KiB"
+    }
+}
+
+/** Explicit authoring expression only; literal JSON and library arguments never pass through here. */
+internal fun parseTrainInfo(raw: JsonElement): Map<String, SavedTrainInfoField> {
+    val fields = raw as? JsonObject ?: error("trainInfo must be an object")
+    require(fields.size in 1..64) { "trainInfo requires1 to64 bindings" }
+    return fields.mapValues { (key, value) ->
+        require(key.isNotBlank() && key.length <= 256) { "trainInfo keys must be nonblank and at most256 characters" }
+        val field = value as? JsonPrimitive ?: error("trainInfo field must be a string")
+        require(field.isString) { "trainInfo field must be a string" }
+        SavedTrainInfoField.valueOf(field.content)
     }
 }

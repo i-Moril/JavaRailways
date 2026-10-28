@@ -4055,7 +4055,7 @@ class TimetableDispatcher(
             run.currentUnitIds = units
             val slots = if (action is StationProgramAction.SetDisplay) action.unitSlots else (action as StationProgramAction.ResetDisplay).unitSlots
             val selected = slots.map { slot -> requireNotNull(units.getOrNull(slot - 1)) { "absent registered unit slot $slot" } }
-            if (action is StationProgramAction.SetDisplay) displayRuntime.set(run.id.timetableId, run.cycleIndex, selected, action.values, action.removeKeys)
+            if (action is StationProgramAction.SetDisplay) displayRuntime.set(run.id.timetableId, run.cycleIndex, selected, actionValues(world, run, action.values, action.trainInfo), action.removeKeys)
             else displayRuntime.set(run.id.timetableId, run.cycleIndex, selected, null)
             refreshUnitDisplays(world, run)
             null
@@ -4064,7 +4064,12 @@ class TimetableDispatcher(
             val provider = requireNotNull(world.simpleAtoWorldData.timetableExtensions.action(action.call.typeId, action.call.version)) {
                 "action provider is not registered: ${action.call.typeId}@${action.call.version}"
             }
-            val result = provider.start(action.call.parameters, extensionContext(world, run, null))
+            val parameters = actionValues(world, run, action.call.parameters, action.trainInfo)
+            if (action.trainInfo.isNotEmpty()) {
+                val errors = provider.validate(parameters)
+                require(errors.isEmpty()) { errors.joinToString("; ") }
+            }
+            val result = provider.start(parameters, extensionContext(world, run, null))
             check(result is TimetableExtensionActionStartResult.Accepted) {
                 (result as TimetableExtensionActionStartResult.Rejected).reason
             }
@@ -4218,7 +4223,7 @@ class TimetableDispatcher(
                             run.currentUnitIds = units
                             val slots = if (action is TimetableAction.SetDisplay) action.unitSlots else (action as TimetableAction.ResetDisplay).unitSlots
                             val selected = slots.map { slot -> requireNotNull(units.getOrNull(slot - 1)) { "absent registered unit slot $slot" } }
-                            if (action is TimetableAction.SetDisplay) displayRuntime.set(run.id.timetableId,run.cycleIndex,selected,action.values,action.removeKeys)
+                            if (action is TimetableAction.SetDisplay) displayRuntime.set(run.id.timetableId,run.cycleIndex,selected,actionValues(world, run, action.values, action.trainInfo),action.removeKeys)
                             else displayRuntime.set(run.id.timetableId,run.cycleIndex,selected,null)
                             refreshUnitDisplays(world,run)
                         }.exceptionOrNull()
@@ -4593,7 +4598,14 @@ class TimetableDispatcher(
             stallRun(world, run, "TimetableExtensionFailure", "action provider is not registered: ${call.typeId}@${call.version}")
             return
         }
-        val result = runCatching { provider.start(call.parameters, extensionContext(world, run, scheduledTick)) }.getOrElse {
+        val result = runCatching {
+            val parameters = actionValues(world, run, call.parameters, action.trainInfo)
+            if (action.trainInfo.isNotEmpty()) {
+                val errors = provider.validate(parameters)
+                require(errors.isEmpty()) { errors.joinToString("; ") }
+            }
+            provider.start(parameters, extensionContext(world, run, scheduledTick))
+        }.getOrElse {
             stallRun(world, run, "TimetableExtensionFailure", "action provider ${call.typeId}@${call.version} threw: ${it.message}")
             return
         }
@@ -6314,6 +6326,12 @@ class TimetableDispatcher(
         val timetable=world.simpleAtoWorldData.timetables[run.id.timetableId] ?: return
         run.unitDisplays=displayRuntime.snapshots(timetable,run.cycleIndex,run.currentUnitIds)
     }
+
+    private fun actionValues(world: World, run: ActiveRun, literal: kotlinx.serialization.json.JsonObject,
+        bindings: Map<String, TrainInfoField>): kotlinx.serialization.json.JsonObject =
+        if (bindings.isEmpty()) literal else resolveTrainInfo(bindings, run.train.publishedFrame) { cars ->
+            world.simpleAtoWorldData.depots.fixedUnitsForFormation(cars).size
+        }
 
     private fun registeredOperatingUnits(world: World, run: ActiveRun): List<String> {
         val cars = run.train.cars.map { it.id }.let { if (run.train.isReversed) it.reversed() else it }

@@ -263,3 +263,9 @@ A branch selected against a published child can reverse a still-held body before
 例：到达【开门】【非阻塞：等待40tick后更新显示】【结束】；准备【关门】【结束】。开门主任务结束后，准备可在 due 时开始；实际发车仍等显示子任务及安全 gate。终到相同到达程序保持门开，后续交路若要移动须显式关门；不能因主任务已 END 就自动起车。
 
 验证：`StationStopProgramRuntimeTest` 覆盖阻塞/立即派生、后代 join、任务本地等待和取消；`TimetableStationCallDispatcherTest` 覆盖起终点、准备与主线程顺序、最小停站、开门终到禁止后缀存车、换向及停止。`BrowserGeneratedStationProgramTest` 用实际 HTTP 浏览器生成的脚本通过真实 Graal 和 snapshot/domain 链路验证。纯测试和隔离浏览器不等同于游戏客户端验收。持久化使用当前未发布边界的约定版本1，不为本次开发重构递增；编辑数据仅离线迁移，不新增任意旧开发 reader。
+
+## 程序只读列车信息
+
+程序的显示／扩展动作可携带独立 immutable trainInfo 绑定（TrainInfoField NAME/CAR_COUNT/UNIT_COUNT/DIRECTION），绑定与 literal values/call.parameters 互斥；TimetableExtensionCall 和 condition 不承载此字段。持久化 DTO 对应显式 enum/map，保持当前格式版本，capture/restore 不丢失绑定。
+
+Dispatcher 在每条动作开始时共用 resolver 从实际 ActiveRun 绑定列车的一个最新 publishedFrame 读取 trainName、cars.size、reversed；方向输出 FORWARD/REVERSED。只有请求 UNIT_COUNT 才按同一帧 carIds 调 fixedUnitsForFormation，登记缺失或不完整通过既有失败链处理，不能回退0或车厢数。解编交接与换向后重新读取，不复用编译时或旧列车缓存。扩展仍静态检查 provider 存在；仅显式动态参数延后到执行时 validate(resolved)，校验通过才 start，错误保留 provider 原因。literal 扩展的既有编译校验不变。显示动作仍遵守单元槽位、display JSON 限制和运营显示上下文。

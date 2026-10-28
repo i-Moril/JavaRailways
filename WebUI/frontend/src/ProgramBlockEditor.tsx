@@ -1,3 +1,5 @@
+import {TrainInfoFields} from './TrainInfoFields';
+import {defaultTrainInfoRows} from './trainInfo';
 import {useEffect,useRef,useState} from 'react';
 import {Alert,Button,Flex,Input,Select,Space,Typography} from 'antd';
 import * as Blockly from 'blockly/core';
@@ -33,6 +35,7 @@ function defineBlocks(t:ReturnType<typeof useI18n>['t']){
   if(type==='BRANCH')for(const arm of ['thenSteps','elseSteps'] as const)this.appendStatementInput(arm).setCheck('RailStep').appendField(t(`programs.${arm}` as Parameters<typeof t>[0]));
   this.setInputsInline(false);
  }};
+ Blockly.Blocks.rail_train_info={init(this:Blockly.Block){this.appendDummyInput().appendField(t('trainInfo.title')).appendField(rawField(JSON.stringify(defaultTrainInfoRows())),'VALUE');this.getField('VALUE')!.setVisible(false);this.setOutput(true,'JSON_OBJECT');this.setColour(160);this.setTooltip(t('trainInfo.help'));}};
  for(const type of parameterTypes){
   Blockly.Blocks[`rail_literal_${type}`]={init(this:Blockly.Block){this.appendDummyInput().appendField(t(`programs.param.${type}`)).appendField(rawField(type==='JSON_OBJECT'?'{}':type==='ID_LIST'?'[]':type==='UNIT_SLOTS'?'[1]':type==='DURATION'?'1':type==='TICK'?'0':''),'VALUE');this.setOutput(true,type);this.setColour(160);if(type==='UNIT_SLOTS')this.setTooltip(t('programs.unitSlotsHelp'));}};
   Blockly.Blocks[`rail_parameter_${type}`]={init(this:Blockly.Block){this.appendDummyInput().appendField(t('programs.parameter')).appendField(t(`programs.param.${type}`)).appendField(rawField(''),'VALUE');this.setOutput(true,type);this.setColour(315);}};
@@ -69,7 +72,7 @@ export function ProgramBlockEditor(props:ProgramBlockEditorProps){
  useEffect(()=>{
   if(!host.current)return;
   Blockly.setLocale(Object.fromEntries(Object.entries(locale==='zh-CN'?zh:en).filter((entry):entry is [string,string]=>typeof entry[1]==='string')));defineBlocks(t);
-  const toolbox={kind:'categoryToolbox',contents:[{kind:'category',name:t('programs.steps'),colour:'210',contents:(context==='arrival'?arrivalStepTypes:libraryStepTypes).map((type)=>({kind:'block',...definitionToBlocks({parameters:[],steps:[defaultProgramStep(type,type==='BRANCH'?conditions[0]:extensions[0])]}).blocks!.blocks[0].next!.block,id:undefined}))},...parameterTypes.filter((type)=>context!=='arrival'||['TICK','DURATION','ID_LIST','JSON_OBJECT','UNIT_SLOTS'].includes(type)).map((type)=>({kind:'category',name:t(`programs.param.${type}`),colour:'160',contents:[{kind:'block',type:`rail_literal_${type}`},...(context!=='library'?[]:[{kind:'block',type:`rail_parameter_${type}`}])]}))]};
+  const toolbox={kind:'categoryToolbox',contents:[{kind:'category',name:t('programs.steps'),colour:'210',contents:(context==='arrival'?arrivalStepTypes:libraryStepTypes).map((type)=>({kind:'block',...definitionToBlocks({parameters:[],steps:[defaultProgramStep(type,type==='BRANCH'?conditions[0]:extensions[0])]}).blocks!.blocks[0].next!.block,id:undefined}))},...parameterTypes.filter((type)=>context!=='arrival'||['TICK','DURATION','ID_LIST','JSON_OBJECT','UNIT_SLOTS'].includes(type)).map((type)=>({kind:'category',name:t(`programs.param.${type}`),colour:'160',contents:[{kind:'block',type:`rail_literal_${type}`},...(type==='JSON_OBJECT'?[{kind:'block',type:'rail_train_info'}]:[]),...(context!=='library'?[]:[{kind:'block',type:`rail_parameter_${type}`}])]}))]};
   const dark=document.documentElement.dataset.theme!=='light';
   const theme=Blockly.Theme.defineTheme(`rail-${dark?'dark':'light'}`,{name:`rail-${dark?'dark':'light'}`,base:Blockly.Themes.Classic,componentStyles:{workspaceBackgroundColour:dark?'#141c28':'#ffffff',toolboxBackgroundColour:dark?'#1e293b':'#f1f5f9',toolboxForegroundColour:dark?'#e5e7eb':'#172033',flyoutBackgroundColour:dark?'#283448':'#e2e8f0',flyoutForegroundColour:dark?'#e5e7eb':'#172033',flyoutOpacity:1,scrollbarColour:dark?'#64748b':'#94a3b8'},fontStyle:{family:'system-ui, sans-serif',weight:'normal',size:12}});
   const ws=Blockly.inject(host.current,{renderer:'zelos',toolbox,theme,trashcan:false,scrollbars:true,move:{scrollbars:true,drag:true,wheel:true},zoom:{controls:false,wheel:true,startScale:0.8,minScale:0.3,maxScale:1.5},media:'/blockly-media/',sounds:false});workspace.current=ws;workspaceDraftInvalidators.set(ws,()=>{if(!restoring.current)latest.current.onValidityChange?.(false);});ws.undo=(redo)=>historyAction.current(!!redo);
@@ -111,10 +114,12 @@ export function ProgramBlockEditor(props:ProgramBlockEditorProps){
  const selectedType=selected?.type.slice(5) as StationProgramStep['type']|undefined;
  const changeField=(block:Blockly.Block,name:string,text:string)=>transaction(()=>block.setFieldValue(text,name));
  const expressionMode=(parent:Blockly.Block,name:string,type:StationProgramParameterType)=>{
-  const child=parent.getInputTargetBlock(name);const mode=child?(child.type.startsWith('rail_parameter_')?'parameter':'literal'):undefined;
-  return <Select aria-label={`${t('programs.valueMode')} · ${name}`} value={mode} placeholder={t('programs.blockMissingInput')} options={[{value:'literal',label:t('programs.literal')},...(context!=='library'?[]:[{value:'parameter',label:t('programs.parameter')}])]} onChange={(nextMode)=>{if(!ws)return;transaction(()=>{child?.dispose(false);const block=ws.newBlock(`rail_${nextMode}_${type}`) as Blockly.BlockSvg;block.initSvg();block.render();if(nextMode==='parameter')block.setFieldValue(parameters.current.find((p)=>p.type===type)?.id??'','VALUE');parent.getInput(name)!.connection!.connect(block.outputConnection!);});}}/>;
+  const child=parent.getInputTargetBlock(name);const mode=child?(child.type==='rail_train_info'?'trainInfo':child.type.startsWith('rail_parameter_')?'parameter':'literal'):undefined;
+  const allowTrainInfo=parent.type==='rail_SET_DISPLAY'&&name==='values'||parent.type==='rail_EXTENSION'&&name==='parameters';
+  return <Select aria-label={`${t('programs.valueMode')} · ${name}`} value={mode} placeholder={t('programs.blockMissingInput')} options={[{value:'literal',label:t('programs.literal')},...(allowTrainInfo?[{value:'trainInfo',label:t('trainInfo.title')}]:[]),...(context!=='library'?[]:[{value:'parameter',label:t('programs.parameter')}])]} onChange={(nextMode)=>{if(!ws)return;transaction(()=>{child?.dispose(false);const block=ws.newBlock(nextMode==='trainInfo'?'rail_train_info':`rail_${nextMode}_${type}`) as Blockly.BlockSvg;block.initSvg();block.render();if(nextMode==='parameter')block.setFieldValue(parameters.current.find((p)=>p.type===type)?.id??'','VALUE');parent.getInput(name)!.connection!.connect(block.outputConnection!);});}}/>;
  };
  const expressionInput=(block:Blockly.Block)=>{
+  if(block.type==='rail_train_info')return <TrainInfoFields key={block.id} raw={String(block.getFieldValue('VALUE')??'')} onChange={raw=>changeField(block,'VALUE',raw)}/>;
   const type=parameterTypes.find((type)=>block.type===`rail_literal_${type}`||block.type===`rail_parameter_${type}`);if(!type)return null;
   const raw=String(block.getFieldValue('VALUE')??'');const reference=block.type.startsWith('rail_parameter_');
   if(!reference&&type==='UNIT_SLOTS')return <div key={block.id}><Typography.Text>{t('programs.unitSlots')}</Typography.Text><UnitSlotsInput fieldKey={`${fieldScope}/${block.id}`} rawValue={raw} onRawChange={(text)=>changeField(block,'VALUE',text)} onChange={(slots)=>changeField(block,'VALUE',JSON.stringify(slots))}/></div>;

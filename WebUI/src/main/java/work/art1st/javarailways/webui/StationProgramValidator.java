@@ -96,7 +96,7 @@ final class StationProgramValidator {
                 case "SET_DISPLAY" -> {
                     fields(step, step.has("removeKeys") ? Set.of("id", "type", "unitSlots", "values", "removeKeys") : Set.of("id", "type", "unitSlots", "values"), "SET_DISPLAY step");
                     value(step.path("unitSlots"), "UNIT_SLOTS", parameters, false);
-                    value(step.path("values"), "JSON_OBJECT", parameters, false);
+                    dataValue(step.path("values"), parameters);
                     if (step.path("values").has("value")) displayValues(step.path("values").path("value"));
                     if (step.has("removeKeys")) {
                         value(step.path("removeKeys"), "ID_LIST", parameters, false);
@@ -130,7 +130,7 @@ final class StationProgramValidator {
                     String typeId = text(step.path("typeId"), "extension typeId");
                     if (!typeId.matches("[a-z0-9_.-]+:[a-z0-9_./-]+")) fail("extension typeId must be namespaced");
                     if (!step.path("version").isIntegralNumber() || !step.path("version").canConvertToInt() || step.path("version").asInt() < 1) fail("extension version must be a positive integer");
-                    value(step.path("parameters"), "JSON_OBJECT", parameters, false);
+                    dataValue(step.path("parameters"), parameters);
                 }
                 case "REVERSE", "OPEN_DOORS", "CLOSE_DOORS", "END" -> fields(step, Set.of("id", "type"), type + " step");
                 case "WAIT_EVENT" -> {
@@ -210,6 +210,17 @@ final class StationProgramValidator {
         Set<String> ids = new HashSet<>();
         if (value.isEmpty()) fail("station selection requires distinct nonempty berth IDs");
         for (JsonNode item : value) if (!ids.add(text(item, "berth ID"))) fail("station selection requires distinct nonempty berth IDs");
+    }
+
+    private static void dataValue(JsonNode node, Map<String, String> parameters) {
+        if (node.isObject() && node.size() == 1 && node.has("trainInfo")) {
+            JsonNode bindings = node.path("trainInfo");
+            if (!bindings.isObject() || bindings.size() < 1 || bindings.size() > 64) fail("trainInfo requires1 to64 bindings");
+            bindings.fields().forEachRemaining(entry -> {
+                if (entry.getKey().isBlank() || entry.getKey().length() > 256) fail("trainInfo key must be nonblank and at most256 characters");
+                if (!entry.getValue().isTextual() || !Set.of("NAME", "CAR_COUNT", "UNIT_COUNT", "DIRECTION").contains(entry.getValue().asText())) fail("unknown trainInfo field");
+            });
+        } else value(node, "JSON_OBJECT", parameters, false);
     }
 
     private static void value(JsonNode node, String type, Map<String, String> parameters, boolean positive) {

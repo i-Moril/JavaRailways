@@ -46,7 +46,7 @@ class EditorDocumentRestartTest {
                  {"id":"rest","group":"REST","disposition":{"type":"DUTY","dutyId":"2"}}]}],
              "diagramLines":[],"arrivalOverrides":[],
              "stationPrograms":[{"stationId":"central","preparationLeadTicks":0,
-               "arrival":{"parameters":[],"steps":[{"id":"wait","type":"WAIT_DURATION","durationTicks":{"value":20}},{"id":"end","type":"END"}]},
+               "arrival":{"parameters":[],"steps":[{"id":"info","type":"SET_DISPLAY","unitSlots":{"value":[1]},"values":{"trainInfo":{"name":"NAME","cars":"CAR_COUNT","units":"UNIT_COUNT","direction":"DIRECTION"}}},{"id":"wait","type":"WAIT_DURATION","durationTicks":{"value":20}},{"id":"end","type":"END"}]},
                "departurePreparation":{"parameters":[],"steps":[{"id":"end","type":"END"}]}}]}
             """;
         Javalin app = null;

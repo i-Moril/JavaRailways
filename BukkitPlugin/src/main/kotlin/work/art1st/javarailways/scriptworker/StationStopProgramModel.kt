@@ -13,7 +13,8 @@ import kotlinx.serialization.json.JsonObject
     val unitSlots: List<Int> = emptyList(),
     val values: JsonObject = JsonObject(emptyMap()),
     val removeKeys: List<String> = emptyList(),
-    val extensionCall: SavedTimetableExtensionCallV1? = null
+    val extensionCall: SavedTimetableExtensionCallV1? = null,
+    val trainInfo: Map<String, SavedTrainInfoField> = emptyMap()
 )
 @Serializable data class SavedStationStopPrograms(
     val stationId: String,

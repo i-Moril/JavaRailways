@@ -129,7 +129,7 @@ object TimetableDumper {
     private fun TimetableAction.toJson(): JsonObject = when (this) {
         is TimetableAction.BeginStationStop -> JsonObject(mapOf("type" to JsonPrimitive("beginStationStop"), "stationId" to JsonPrimitive(stopPrograms.stationId), "callId" to JsonPrimitive(stopPrograms.callId)))
         is TimetableAction.BeginOperationalTrip -> JsonObject(mapOf("type" to JsonPrimitive("beginOperationalTrip"), "operationalTripId" to JsonPrimitive(tripId), "runId" to JsonPrimitive(runId), "unitSlots" to JsonArray(unitSlots.map(::JsonPrimitive))))
-        is TimetableAction.SetDisplay -> JsonObject(mapOf("type" to JsonPrimitive("setDisplay"), "unitSlots" to JsonArray(unitSlots.map(::JsonPrimitive)), "displayValues" to values, "removeDisplayKeys" to JsonArray(removeKeys.map(::JsonPrimitive))))
+        is TimetableAction.SetDisplay -> JsonObject(mapOf("type" to JsonPrimitive("setDisplay"), "unitSlots" to JsonArray(unitSlots.map(::JsonPrimitive)), "displayValues" to values, "trainInfo" to JsonObject(trainInfo.mapValues { JsonPrimitive(it.value.name) }), "removeDisplayKeys" to JsonArray(removeKeys.map(::JsonPrimitive))))
         is TimetableAction.ResetDisplay -> JsonObject(mapOf("type" to JsonPrimitive("resetDisplay"), "unitSlots" to JsonArray(unitSlots.map(::JsonPrimitive))))
         is TimetableAction.SelectStop -> JsonObject(mapOf(
             "type" to JsonPrimitive("selectStop"), "stationId" to JsonPrimitive(selection.stationId.value),
@@ -205,7 +205,7 @@ object TimetableDumper {
             )
         )
         is TimetableAction.Extension -> JsonObject(
-            mapOf("type" to JsonPrimitive("extension"), "call" to call.toJson())
+            mapOf("type" to JsonPrimitive("extension"), "call" to call.toJson(), "trainInfo" to JsonObject(trainInfo.mapValues { JsonPrimitive(it.value.name) }))
         )
         is TimetableAction.Conditional -> JsonObject(
             mapOf(

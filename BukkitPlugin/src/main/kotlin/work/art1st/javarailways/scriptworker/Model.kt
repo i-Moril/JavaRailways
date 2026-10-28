@@ -3,6 +3,8 @@ package work.art1st.javarailways.scriptworker
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
+@Serializable enum class SavedTrainInfoField { NAME, CAR_COUNT, UNIT_COUNT, DIRECTION }
+
 @Serializable enum class SavedTrainSelectorTypeV1 { ANY, TRAIN_ID }
 @Serializable enum class SavedLineDirectionV1 { UP, DOWN }
 @Serializable enum class SavedTimetableStepTypeV1 { CHECK, AT }
@@ -32,7 +34,8 @@ import kotlinx.serialization.json.JsonObject
     val unitSlots: List<Int> = emptyList(), val displayValues: JsonObject = JsonObject(emptyMap()),
     val removeDisplayKeys: List<String> = emptyList(),
     val operationalTripId: String? = null, val runId: String? = null,
-    val stopPrograms: SavedStationStopPrograms? = null
+    val stopPrograms: SavedStationStopPrograms? = null,
+    val trainInfo: Map<String, SavedTrainInfoField> = emptyMap()
 ) {
     init {
         require((type in setOf(SavedTimetableActionTypeV1.TASK_START, SavedTimetableActionTypeV1.TASK_END)) == (taskId != null)) { "taskId belongs to task boundaries" }

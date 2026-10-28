@@ -4,3 +4,4 @@
 {"file": ".trellis/spec/javarailways/simpleato/dispatcher-runtime.md", "reason": "Current cross-layer implementation contract"}
 {"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "Current cross-layer implementation contract"}
 {"file": "ai_tasks/persistence_schema_evolution_rules.md", "reason": "Current cross-layer implementation contract"}
+{"file": ".trellis/tasks/10-24-stop-program-hooks/research/train-info.md", "reason": "User-approved feedback17 runtime readonly train data boundary and ownership"}

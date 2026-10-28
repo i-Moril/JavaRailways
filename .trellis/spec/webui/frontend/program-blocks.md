@@ -24,6 +24,8 @@
 
 条件工具箱仅提供可由编辑文档确定的计划值：run_type、line_direction、station_id、run_id、line_id、call_status、duty_id，使用 `javarailways:plan_*` 的 version1 literal values；ScriptWorker 在编译时选择分支。不能按实际车长、车型或运行迟到求条件。
 
+“读取当前列车信息”是 JSON_OBJECT 数据源 `{trainInfo:{outputKey:field}}`，field 为 NAME／CAR_COUNT／UNIT_COUNT／DIRECTION，仅可连接 SET_DISPLAY.values 或 EXTENSION.parameters。键名1至64项、非空白且最长256 UTF-16 单元，保留原文；编辑器重复键、空键和不完整映射必须保留为无效工作区并阻止保存，不能转换对象后静默覆盖。与 literal/parameterId 互斥，普通 JSON 对象内容不触发数据读取。键/属性侧栏复用画布历史和草稿；`__proto__` 等键通过 own-property 安全构造保留。四项数据分别是实际列车名称、车厢数、完整登记单元数和当前编组正向／反向（FORWARD／REVERSED），方向不是上/下行或地理方向。运行时在动作开始时求值，不在编译或参考车辆上提前取值；不开放计划条件、移动、选站或等待的动态参数。
+
 交路由 DutyTimeline 时间轴编辑RUN、交路所属PROGRAM和运行图所属EVENT引用；不再提供交路积木或内联程序画布。程序体仍使用本规范的程序库编辑器，交路时间与耗时规则见 studio-authoring.md。
 
 重联／解编仅由交路 FORMATION 任务安排。玩家程序定义、参数类型和 Blockly 工具箱不包含 COUPLE、SPLIT 或 FORMATION_EVENT；当前普通未知步骤／类型校验负责处理不支持的输入，不保留旧程序动作兼容分支。内部时刻表执行器与直接 split/couple DSL 仍由交路生成使用，不因此删除物理执行能力。接收交路由玩家手动创建，输出和来源互反关系由交路文档事务维护，详见 studio-authoring.md。

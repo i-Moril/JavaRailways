@@ -1,3 +1,4 @@
+import {trainInfoFromRows} from './trainInfo';
 import type {StationProgramDefinition,StationProgramParameterType,StationProgramStep} from './types';
 
 export const programStepTypes:StationProgramStep['type'][]=['SET_DISPLAY','RESET_DISPLAY','WAIT_UNTIL','WAIT_EVENT','WAIT_DURATION','REVERSE','MOVE','SELECT_STOP','STORE_AT_DEPOT','EXTENSION','BRANCH','OPEN_DOORS','CLOSE_DOORS','END','ASYNC','AWAIT'];
@@ -14,7 +15,7 @@ export function definitionToBlocks(definition:StationProgramDefinition):ProgramW
   let next:ProgramBlockState|undefined;
   for(const step of [...steps].reverse()){
    const source=step as unknown as Record<string,unknown>;const inputs:NonNullable<ProgramBlockState['inputs']>={};
-   for(const [name,type] of Object.entries(expressionFields[step.type]??{}))if(source[name]!==undefined){const expression=source[name] as {parameterId?:string;value?:unknown};inputs[name]={block:{type:`rail_${'parameterId' in expression?'parameter':'literal'}_${type}`,id:`e_${step.id}_${name}`,fields:'parameterId' in expression?{VALUE:expression.parameterId??''}:{VALUE:['TICK','DURATION','ID_LIST','UNIT_SLOTS','JSON_OBJECT'].includes(type)?JSON.stringify(expression.value):String(expression.value)}}};}
+   for(const [name,type] of Object.entries(expressionFields[step.type]??{}))if(source[name]!==undefined){const expression=source[name] as {parameterId?:string;value?:unknown;trainInfo?:Record<string,string>};inputs[name]={block:'trainInfo' in expression?{type:'rail_train_info',id:`e_${step.id}_${name}`,fields:{VALUE:JSON.stringify(Object.entries(expression.trainInfo??{}).map(([key,field])=>({key,field})))}}:{type:`rail_${'parameterId' in expression?'parameter':'literal'}_${type}`,id:`e_${step.id}_${name}`,fields:'parameterId' in expression?{VALUE:expression.parameterId??''}:{VALUE:['TICK','DURATION','ID_LIST','UNIT_SLOTS','JSON_OBJECT'].includes(type)?JSON.stringify(expression.value):String(expression.value)}}};}
    if(step.type==='BRANCH')for(const arm of ['thenSteps','elseSteps'] as const){const child=chain(step[arm]);if(child)inputs[arm]={block:child};}
    if(step.type==='ASYNC'){const child=chain(step.steps);if(child)inputs.steps={block:child};}
    const fields:Record<string,string|number>={};
@@ -57,7 +58,8 @@ export function blocksToDefinition(state:ProgramWorkspaceState,parameters:Statio
     if(expression.next||Object.keys(expression.inputs??{}).length)throw new Error('Malformed expression block');
     const raw=expression.fields?.VALUE;
     if(typeof raw!=='string')throw new Error(`Missing value: ${name}`);
-    if(expression.type===`rail_parameter_${valueType}`)step[name]={parameterId:raw};
+    if(expression.type==='rail_train_info'){if(!((type==='SET_DISPLAY'&&name==='values')||(type==='EXTENSION'&&name==='parameters')))throw new Error(`Train information is unavailable in input: ${name}`);step[name]={trainInfo:trainInfoFromRows(raw)};}
+    else if(expression.type===`rail_parameter_${valueType}`)step[name]={parameterId:raw};
     else if(expression.type===`rail_literal_${valueType}`){try{step[name]={value:['TICK','DURATION','ID_LIST','UNIT_SLOTS','JSON_OBJECT'].includes(valueType)?JSON.parse(raw):raw};}catch{throw new Error(`Invalid value: ${name}`);}}
     else throw new Error(`Incompatible input: ${name}`);
    }

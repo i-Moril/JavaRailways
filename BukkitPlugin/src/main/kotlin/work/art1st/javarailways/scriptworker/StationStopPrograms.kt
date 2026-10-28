@@ -39,6 +39,22 @@ internal fun compileStationStopPrograms(target: String, options: JsonObject): Sa
                 else -> error("station action is not allowed: $type")
             }
             require(step.keys == fields) { "invalid station step fields: $type" }
+            // Validate every source branch before selecting it, including expressions not executed.
+            val expressions = when (type) {
+                "WAIT_UNTIL" -> listOf("tick")
+                "WAIT_DURATION" -> listOf("durationTicks")
+                "SET_DISPLAY" -> listOf("unitSlots", "values") + if (step.containsKey("removeKeys")) listOf("removeKeys") else emptyList()
+                "RESET_DISPLAY" -> listOf("unitSlots")
+                "EXTENSION", "BRANCH" -> listOf("parameters")
+                else -> emptyList()
+            }
+            for (name in expressions) {
+                val expression = step.getValue(name) as? JsonObject ?: error("step:$id: expression must be an object")
+                if (expression.keys == setOf("trainInfo") && ((type == "SET_DISPLAY" && name == "values") || type == "EXTENSION")) {
+                    try { parseTrainInfo(expression.getValue("trainInfo")) }
+                    catch (failure: RuntimeException) { throw IllegalArgumentException("step:$id: ${failure.message}", failure) }
+                } else require(expression.keys == setOf("value")) { "step:$id: shared station expressions must be literal" }
+            }
             if (type == "BRANCH") {
                 val parameters = step.getValue("parameters").jsonObject
                 require(parameters.keys == setOf("value")) { "station conditions require literal parameters" }
@@ -60,6 +76,7 @@ internal fun compileStationStopPrograms(target: String, options: JsonObject): Sa
         val result = mutableListOf<SavedStationProgramAction>()
         fun expression(step: JsonObject, name: String): JsonElement {
             val value = step.getValue(name).jsonObject
+            if (value.keys == setOf("trainInfo") && name in setOf("values", "parameters")) return JsonObject(emptyMap())
             require(value.keys == setOf("value")) { "shared station expressions must be literal" }
             return value.getValue("value")
         }
@@ -80,12 +97,14 @@ internal fun compileStationStopPrograms(target: String, options: JsonObject): Sa
                 "SET_DISPLAY" -> SavedStationProgramAction(SavedStationProgramActionType.SET_DISPLAY,
                     unitSlots = expression(step,"unitSlots").jsonArray.map { it.jsonPrimitive.int }.also(::requireUnitSlots),
                     values = expression(step,"values").jsonObject.also(::validateDisplayValues),
-                    removeKeys = step["removeKeys"]?.let { expression(step,"removeKeys").jsonArray.map { it.jsonPrimitive.content } }.orEmpty())
+                    removeKeys = step["removeKeys"]?.let { expression(step,"removeKeys").jsonArray.map { it.jsonPrimitive.content } }.orEmpty(),
+                    trainInfo = step.getValue("values").jsonObject["trainInfo"]?.let(::parseTrainInfo).orEmpty())
                 "RESET_DISPLAY" -> SavedStationProgramAction(SavedStationProgramActionType.RESET_DISPLAY,
                     unitSlots = expression(step,"unitSlots").jsonArray.map { it.jsonPrimitive.int }.also(::requireUnitSlots))
                 "EXTENSION" -> SavedStationProgramAction(SavedStationProgramActionType.EXTENSION,
                     extensionCall = SavedTimetableExtensionCallV1(step.getValue("typeId").jsonPrimitive.content,
-                        step.getValue("version").jsonPrimitive.int.also { require(it > 0) }, expression(step,"parameters").jsonObject.also(::validateProgramJsonObject)).also { require(it.typeId.matches(Regex("[a-z0-9_.-]+:[a-z0-9_./-]+"))) })
+                        step.getValue("version").jsonPrimitive.int.also { require(it > 0) }, expression(step,"parameters").jsonObject.also(::validateProgramJsonObject)).also { require(it.typeId.matches(Regex("[a-z0-9_.-]+:[a-z0-9_./-]+"))) },
+                    trainInfo = step.getValue("parameters").jsonObject["trainInfo"]?.let(::parseTrainInfo).orEmpty())
                 "ASYNC" -> {
                     val taskId = step.getValue("taskId").jsonPrimitive.content
                     require(taskId.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,127}")) && taskIds.add(taskId)) { "invalid or duplicate station task: $taskId" }

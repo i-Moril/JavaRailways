@@ -14,3 +14,8 @@
 .program-block-inspector > .ant-typography { margin: 0; }
 .program-block-inspector > div { display: flex; flex-direction: column; gap: 8px; }
 .program-block-inspector details { margin-bottom: 8px; }
+
+.program-block-inspector .train-info-fields { display:flex; flex-direction:column; gap:12px; margin:12px 0; }
+.train-info-fields .ant-typography { margin-bottom:0; }
+.train-info-row { display:grid; grid-template-columns:minmax(100px,1fr) minmax(150px,1fr) auto; gap:8px; align-items:center; }
+@media(max-width:600px) { .train-info-row { grid-template-columns:minmax(0,1fr) auto; } .train-info-row > .ant-select { grid-column:1; grid-row:2; } .train-info-row > button { grid-column:2; grid-row:1 / 3; } }

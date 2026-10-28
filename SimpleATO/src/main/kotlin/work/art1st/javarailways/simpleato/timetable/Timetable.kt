@@ -139,13 +139,15 @@ sealed class TimetableAction {
         override fun equals(other: Any?) = other is BeginOperationalTrip && tripId == other.tripId && runId == other.runId && unitSlots == other.unitSlots
         override fun hashCode() = java.util.Objects.hash(tripId,runId,unitSlots)
     }
-    class SetDisplay(unitSlots: List<Int>, values: kotlinx.serialization.json.JsonObject, removeKeys: List<String> = emptyList()) : TimetableAction() {
+    class SetDisplay(unitSlots: List<Int>, values: kotlinx.serialization.json.JsonObject, removeKeys: List<String> = emptyList(), trainInfo: Map<String, TrainInfoField> = emptyMap()) : TimetableAction() {
         val unitSlots = immutableUnitSlots(unitSlots)
         val values = immutableDisplayValues(values)
+        val trainInfo = immutableTrainInfo(trainInfo)
+        init { require(trainInfo.isEmpty() || values.isEmpty()) { "trainInfo replaces literal values" } }
         val removeKeys: List<String> = java.util.List.copyOf(removeKeys)
         init { require(removeKeys.distinct().size == removeKeys.size && removeKeys.all { it.isNotBlank() }) }
-        override fun equals(other: Any?) = other is SetDisplay && unitSlots == other.unitSlots && values == other.values && removeKeys == other.removeKeys
-        override fun hashCode() = java.util.Objects.hash(unitSlots, values, removeKeys)
+        override fun equals(other: Any?) = other is SetDisplay && unitSlots == other.unitSlots && values == other.values && removeKeys == other.removeKeys && trainInfo == other.trainInfo
+        override fun hashCode() = java.util.Objects.hash(unitSlots, values, removeKeys, trainInfo)
     }
     class ResetDisplay(unitSlots: List<Int>) : TimetableAction() {
         val unitSlots = immutableUnitSlots(unitSlots)
@@ -187,7 +189,12 @@ sealed class TimetableAction {
     data class Stop(val ticks: Long) : TimetableAction()
 
     /** Execute one plugin-supplied action through the world's timetable extension registry. */
-    data class Extension(val call: TimetableExtensionCall) : TimetableAction()
+    class Extension(val call: TimetableExtensionCall, trainInfo: Map<String, TrainInfoField> = emptyMap()) : TimetableAction() {
+        val trainInfo = immutableTrainInfo(trainInfo)
+        init { require(trainInfo.isEmpty() || call.parameters.isEmpty()) { "trainInfo replaces literal parameters" } }
+        override fun equals(other: Any?) = other is Extension && call == other.call && trainInfo == other.trainInfo
+        override fun hashCode() = java.util.Objects.hash(call, trainInfo)
+    }
 
     /**
      * Evaluate once at its At tick and execute the selected timed branch.
@@ -411,7 +418,7 @@ class TimetableValidator(private val world: World) {
                             for (instruction in actions) when (instruction) {
                                 is StationProgramAction.WaitUntil -> if (instruction.tick >= periodTicks) errors += "[${timetable.id}/${service.id}] $address station wait outside timetable period"
                                 is StationProgramAction.Async -> validateStationActions(instruction.steps)
-                                is StationProgramAction.Extension -> validateExtensionAction("[${timetable.id}/${service.id}]", address, TimetableAction.Extension(instruction.call), errors)
+                                is StationProgramAction.Extension -> validateExtensionAction("[${timetable.id}/${service.id}]", address, TimetableAction.Extension(instruction.call, instruction.trainInfo), errors)
                                 else -> Unit
                             }
                         }
@@ -948,7 +955,7 @@ class TimetableValidator(private val world: World) {
                 val provider = world.simpleAtoWorldData.timetableExtensions.action(call.typeId, call.version)
                 if (provider == null) {
                     errors.add("$prefix $address action provider is not registered: ${call.typeId}@${call.version}")
-                } else {
+                } else if (action.trainInfo.isEmpty()) {
                     runCatching { provider.validate(call.parameters) }
                         .getOrElse { listOf("provider validation failed: ${it.message}") }
                         .forEach { errors.add("$prefix $address action ${call.typeId}: $it") }

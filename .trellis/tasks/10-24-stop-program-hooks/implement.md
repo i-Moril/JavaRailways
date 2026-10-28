@@ -32,3 +32,9 @@ User requested removal on 2026-10-27. Inventory and implementation boundary: res
 - [x] Batch C: reciprocal assignment to manually created receiving duties, source-task/output selection, source renames/removal/history/recovery, planned-time conflict gates and formation dependency validation. Frontend269/WebUI41/BukkitPlugin641 tests, production build and actual React editor flow passed; no live game acceptance claimed.
 - Withdrawn Batch D: user rejected extra HEAD/TAIL selection as unnecessary; restore the existing one-into-two primitive and compose repeated splits. This is not a pending feature. See research/duty-formation-batch-d.md.
 - [x] Retained B/C integration: frontend269/build, WebUI41/BukkitPlugin641 pass after exact D rollback; independent SHA audit confirms preserved B/C. Previous B/C browser checks remain evidence; real game acceptance remains pending. Keep task in_progress; no automatic deployment/archive.
+
+## Original feedback17 batch
+
+- [x] Shared readonly data bindings through authoring/Blockly, Java validation, worker expansion, saved/runtime actions and both Dispatcher execution paths.
+- [x] Real frame data and fail-visible unit count; resolved extension validation before start. Literal and planned-condition rules unchanged.
+- [x] Frontend276/build, SimpleATO641/WebUI44/BukkitPlugin645 and signal API compile; snapshot/compiler/HTTP restart, real component browser, scoped independent review and spec sync passed. No commit/deploy/archive; live game acceptance pending.

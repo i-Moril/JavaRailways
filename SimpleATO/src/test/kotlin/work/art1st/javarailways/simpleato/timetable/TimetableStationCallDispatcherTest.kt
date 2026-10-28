@@ -186,6 +186,55 @@ class TimetableStationCallDispatcherTest {
         assertEquals(0.0, fixture.train.speed, 1e-8)
     }
 
+    @Test fun `station train information reads each published direction and validates before start`() {
+        val bindings = mapOf("name" to TrainInfoField.NAME, "cars" to TrainInfoField.CAR_COUNT,
+            "units" to TrainInfoField.UNIT_COUNT, "direction" to TrainInfoField.DIRECTION)
+        val read = StationProgramAction.Extension(TimetableExtensionCall("test:train-info"), bindings)
+        val fixture = fixture(destinationOptions = TimetableAction.DestinationOptions("C", doorSide = DoorSide.NONE,
+            stopPrograms = programs(StationStopRole.TERMINAL, departure = null,
+                arrival = listOf(read, StationProgramAction.Reverse, read, StationProgramAction.End))))
+        val observed = arrayListOf<JsonObject>()
+        val cars = fixture.train.cars.map { it.id }
+        val home = work.art1st.javarailways.simpleato.api.depot.DepotId("info-home")
+        val point = work.art1st.javarailways.simpleato.api.depot.StablingPointRef(home, "info-point")
+        fixture.world.simpleAtoWorldData.depots.addStablingPoint(home, "Info home",
+            work.art1st.javarailways.simpleato.api.depot.DepotStablingPoint(point, "A"))
+        fixture.world.simpleAtoWorldData.depots.registerFixedUnit(
+            work.art1st.javarailways.simpleato.api.depot.FixedEmuUnit("info-unit",
+                work.art1st.javarailways.simpleato.api.depot.DepotId("info-home"), cars, "emu"), cars)
+        var validations = 0
+        fixture.world.simpleAtoWorldData.timetableExtensions.registerAction(object : TimetableActionProvider {
+            override val typeId = "test:train-info"
+            override val version = 1
+            override val descriptor = TimetableExtensionDescriptor("Info", "Published train information")
+            override fun validate(parameters: JsonObject): List<String> {
+                validations++
+                return if (parameters.keys == bindings.keys) emptyList() else listOf("missing current train information")
+            }
+            override fun start(parameters: JsonObject, context: TimetableRuntimeContext): TimetableExtensionActionStartResult {
+                assertEquals(observed.size + 1, validations)
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(fixture.train.publishedFrame.trainName), parameters["name"])
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(cars.size), parameters["cars"])
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(1), parameters["units"])
+                observed += parameters
+                return TimetableExtensionActionStartResult.Accepted(object : TimetableExtensionActionTicket {
+                    override fun snapshot() = TimetableExtensionActionSnapshot(TimetableExtensionActionState.SUCCEEDED)
+                    override fun cancel() = Unit
+                })
+            }
+        })
+        val id = TimetableServiceRunId("tt", "service")
+        val start = fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        assertTrue(start is TimetableServiceStartResult.Started, start.toString())
+        for (tick in 0 until 2200) {
+            fixture.tick()
+            if (fixture.dispatcher.status(id)!!.state == TimetableServiceRunState.COMPLETED) break
+        }
+        assertEquals(listOf("FORWARD", "REVERSED"), observed.map { it["direction"].toString().trim('"') })
+        assertEquals(2, validations)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
     @Test fun `terminal station reverse awaits physical publication and retained body rebase`() {
         val fixture=fixture(destinationOptions=TimetableAction.DestinationOptions("C",doorSide=DoorSide.NONE,
             stopPrograms=programs(StationStopRole.TERMINAL,departure=null,

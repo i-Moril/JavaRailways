@@ -23,3 +23,13 @@ Normal startup completed18:22:01 UTC in27.299s; final manager status3/PID729147.
 No JavaRailways/SimpleSignals ERROR/SEVERE in startup log. Existing Terra Unsafe reflection error, plaintext HTTP warnings and transient startup physics warnings persist. Initial health probe before startup completed refused connection; post-start checks all passed.
 
 Installation/startup/resource delivery are verified. Actual browser interaction and game/train behavior remain for user acceptance. No push or task archive.
+
+## Follow-up deployment: program deletion synchronization
+
+User explicitly requested commit+deploy while keeping task open. Product commit `5d588574ac22d54bc5a013ba874f2fdedd07912a`. Frontend301 tests/49 files and TypeScript/Vite build already passed on unchanged source; deployment shadowJar rebuild and WebUI tests passed. Main JAR SHA256 `33dd28e14df42eb1ee118d5a483edec0f910d1710c2430a5164ff05189872cd7`; embedded/managed WebUI `a5e3c6424c2e752f311a96301ae4d29f0216ded121b7f7b2d2c07ed843772a87`.
+
+Candidate validator accepted all6 current editor documents and0 library records. Normal stop saved all worlds/global/player data18:36:32 UTC; management status0/PID0. Stopped drafts matched preflight hashes. No migration required. Recovery `/opt/mcsmanager/backups/javarailways/merged-review-20261023-i47zdrxw`, archive SHA256 `2005547ead0f7e5c5930e07676249f3cbb710096ce9ebe03f78ff46e99c5b2ba`;135 data files inventoried. Hash-guarded atomic replacement18:36:57 UTC preserved plugin data and all other plugin JAR hashes. Stage `/tmp/jr-deploy-20261028-5d588574`.
+
+Normal startup Done18:37:28 UTC in27.114s; bridge /health200/ok, managed sidecar matches embedded bytes, all17 resources both local/public match candidate. New JS `assets/index-Bq52Cfge.js`, CSS `assets/index-BJG04iiE.css`. No JavaRailways/SimpleSignals ERROR/SEVERE startup markers; existing HTTP and transient physics startup warnings remain. Game/browser interaction acceptance remains with user. No push, completion or archive; task explicitly remains in_progress.
+
+Final follow-up status: manager3/PID730077; actual `jr ato status world` returned RUNNING18:37:33 UTC.

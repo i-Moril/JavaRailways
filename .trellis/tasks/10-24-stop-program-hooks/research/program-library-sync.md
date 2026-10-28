@@ -21,3 +21,7 @@ New task/event selectors must use current library sources. A deleted-source snap
 Implemented App resource invalidation after all successful library writes, including completion after navigating away. Retained editor reloads via useStationProgramLibrary; invalidated cache clears, obsolete response tokens cannot reintroduce deleted entries, errors remain visible. New duty/event choices use live source entries; existing deleted-source selection is disabled and labelled, dead edit buttons/double-click source links removed. Existing snapshot/arguments/history are preserved. Updated owner frontend spec.
 
 Root final verification: frontend301 tests across49 files passed; TypeScript/Vite build passed; git diff --check passed. Added mounted component tests for all4 mutations, failed removal, late deletion after unmount; resource-hook tests for invalidation, stale responses/world isolation and refresh failure; selection assertions for deleted snapshots. Independent trellis-check review found no blocker. These are unit/component/source-review results. Attempted local browser setup did not complete a usable interaction run; do not claim actual-browser or game acceptance from these checks. No commit/deploy/archive this round; live server still runs f8b80012.
+
+## Commit and deployment authorized
+
+User requested commit+deploy and explicitly keep task open. Committed5d588574 and deployed on2026-10-28; full backup/startup/publicresource verification in deployment-2026-10-28.md follow-up section. Earlier no-commit/no-deploy entries record historical stages only.

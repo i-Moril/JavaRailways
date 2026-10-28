@@ -1,6 +1,9 @@
 .timed-operation-fields { display:grid; gap:14px; margin-top:16px; min-width:0; }
-.timed-operation-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:14px 18px; align-items:start; min-width:0; }
+.timed-operation-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr)); gap:14px 18px; align-items:start; min-width:0; }
 .timed-operation-grid > label { display:flex; flex-direction:column; gap:6px; min-width:0; }
 .timed-operation-grid .ant-select,.timed-operation-grid .ant-input-number { width:100%; }
 .timed-operation-fields .ant-typography { margin-bottom:0; }
 .duty-timeline-task.event { cursor:pointer; border-style:dashed; }
+
+.timed-operation-grid .program-json-input { min-width:0; width:100%; }
+.timed-operation-grid .duty-program-argument { --program-literal-select-min-width:0px; }

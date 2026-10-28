@@ -15,12 +15,12 @@
   "branch": "codex/timetable-station-programs",
   "base_branch": "deploy/station-blocks-20261024",
   "worktree_path": null,
-  "commit": "5be9d190",
+  "commit": "07678147",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Unified timed operations implemented a824bc2e: sharedfields/model, graphowned references/dutyowned readonly projections, runtime task identities/hash/navigation/persistence and offline migration. Frontend250/WebUI40/migration9 pass; actual browser ownership/history/invalid/cancel/stationless/unknown/restart checked. Upload blocked by auto-review pending explicit payload/target approval; live remainsceea884e. Keep in_progress/unarchived. 2026-10-28: user requested prior commit; single-lane batch committed a19a76e1. Duty formation tasks/reciprocal manually created receivers/program formation removal implemented uncommitted. Frontend269/WebUI41/Bukkit641 and real React authoring passed. Batch D HEAD/TAIL extension rejected by user as unnecessary; revert to existing one-into-two split, compose repeated splits instead. Do not schedule TAIL extension. Game acceptance remains pending. Keep in_progress, no deployment/archive. Feedback17 first readonly train data batch implemented uncommitted: NAME/CAR_COUNT/UNIT_COUNT/DIRECTION in display/extension params; static plan conditions unchanged. Frontend276/build, SimpleATO641/WebUI44/Bukkit645 and component browser passed; see research/train-info.md. Keep in_progress, no deployment/archive. User requested split commits then continue: duty formation committed5be9d190; readonly train data staged as separate second batch. No push/deploy/archive.",
+  "notes": "User requested split commits and continued original feedback. Duty formation committed5be9d190; readonly train information committed07678147. Each index independently exported, SHA audited and frontend tests/build passed (269 then276); prior full runtime/backend gates passed. Rejected TAIL extension remains withdrawn. Current scope original#7 parameter overflow/gap and bound-snapshot row spacing, see research/feedback-spacing.md. Keep task in_progress, new spacing batch uncommitted for review; no push/deploy/archive. Game acceptance pending. Spacing batch implemented: JSON column overlap and snapshot rows fixed; browser geometry/input/update callbacks, frontend276/build, scoped review pass. Remains uncommitted.",
   "meta": {}
 }

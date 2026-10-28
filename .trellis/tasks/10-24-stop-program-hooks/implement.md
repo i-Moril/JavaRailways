@@ -38,3 +38,11 @@ User requested removal on 2026-10-27. Inventory and implementation boundary: res
 - [x] Shared readonly data bindings through authoring/Blockly, Java validation, worker expansion, saved/runtime actions and both Dispatcher execution paths.
 - [x] Real frame data and fail-visible unit count; resolved extension validation before start. Literal and planned-condition rules unchanged.
 - [x] Frontend276/build, SimpleATO641/WebUI44/BukkitPlugin645 and signal API compile; snapshot/compiler/HTTP restart, real component browser, scoped independent review and spec sync passed. No commit/deploy/archive; live game acceptance pending.
+
+## Original feedback7 spacing batch
+
+User requested split commits then continue. Formation committed5be9d190; train-info committed07678147. Next bounded scope in research/feedback-spacing.md.
+
+- [x] Shrink JSON parameter controls to shared call grid and retain field gap; narrow layout.
+- [x] Bound snapshot rows vertical spacing and long-name wrapping; behavior unchanged.
+- [x] Browser before/after geometry and native editing/update callbacks, frontend276/build and independent scoped review passed; new batch uncommitted, no deployment/archive.

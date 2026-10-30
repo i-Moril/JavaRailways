@@ -15,6 +15,12 @@ public interface ModelPresentationService {
      */
     ModelHandle create(Plugin owner, UUID worldId, String objectId, ModelDefinition definition);
 
+    /** Create on the viewer entity owner; captures exact viewer/world instances. The caller closes
+     * when editing ends. Quit, world change/unload and owner shutdown also withdraw the outline.
+     * Session IDs are nonblank and unique for the exact owner/viewer/world identity.
+     */
+    EditorModelHighlightHandle createEditorHighlight(Plugin owner, org.bukkit.entity.Player viewer, String sessionId);
+
     /**
      * Intersect authored selection boxes at the latest accepted root poses of this exact owner's
      * active models. Value-only and safe on workers; never queries blocks, entities or viewers.

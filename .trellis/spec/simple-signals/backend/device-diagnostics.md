@@ -38,3 +38,11 @@ SectionOccupancyRuntime从单个volatile PublishedState捕获一组事实，并�
 必需断言：同一发布来源、成功/投影前失败、有效null和缺下游的区别、未变输出保留来源、定义/拓扑baseline不继承失效事实、附属主信号投影，以及读取不增加JS调用。复用原epoch与handoff用例，UI仅检查必要状态与过期回调；不建立大量重复样例测试。真实客户端可读性与红灯现场原因需部署后另验，离线通过不等于已定位现场问题。
 
 复制报告复用既有编辑器用例，验证摘要/详情返回不增加读取、刷新才更新、Unavailable不伪造成JS停车输出、表示器无独立JS不误称缺baseline。未知观察枚举保留原值，不能将缺失本地化键当成诊断值。客户端实际复制与页面可读性须游戏内另验。
+
+## 编辑中的故障模型红色描边
+
+区间/信号/进路工具复用现有 `SectionWandOverlay` 玩家编辑会话，创建宿主 `EditorModelHighlightHandle`，以实际模型objectId提交红色(0xff0000)集合。描边只对该编辑玩家可见，退出工具、权限失效、换世界、离线或关闭即撤销；与TextDisplay标记分别清理，不能因为一项关闭异常遗漏另一项。
+
+`SignalEditorProblems`从捕获的publication和topology guard准备静态绑定/不可用关系，使用现有 `PlacedSignalChoice.renderObjectId()`生成模型身份。每次既有worker刷新独立读取共享 `WorldIssueService` 的SimpleSignals SIGNAL故障（topology、rules、models、preparation、model-preparation）；诊断变化不使区间几何缓存失效，也不重采样轨道。显式未绑定主信号、无效固定进路/入口和未绑定或无静态可用入口的表示器标红；附属模型继承主信号故障，同时保留自身模型故障。恢复或重绑后下次刷新清除。
+
+不能仅按 `SectionSignalState.Unavailable`、0速度、红灯或没有当前列车请求判故障。正常停车、尚无ready进路及ExpectedUnavailable不属于配置故障；以当前结构校验和正式内容诊断为准。没有摆放模型的设备不制造假模型；已移除对象不能因为旧issue发光。持工具刷新、过期worker/owner回调、诊断恢复、显式未绑定、正常停止不标红及附属继承必须回归；不改变业务信号速度、灯色、存档或授权语义。

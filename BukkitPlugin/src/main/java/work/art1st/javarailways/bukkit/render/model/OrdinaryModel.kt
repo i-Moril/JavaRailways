@@ -29,6 +29,8 @@ internal class OrdinaryModel(
     private val visuals: List<work.art1st.javarailways.bukkit.render.backend.DisplayVisual>
 ) {
     internal val affinityEntity get() = composite.affinityEntity
+    internal val packetGlowBaselines = visuals.mapNotNull { visual -> visual.packetEntityId?.let { it to visual.packetGlowBaseline } }.toMap()
+    internal val packetEntityIds get() = packetGlowBaselines.keys
     private val destruction = Destruction()
     @Volatile private var destroyed = false
     internal class Binding(val model: AbstractModel, val path: String, val definition: ModelPart)

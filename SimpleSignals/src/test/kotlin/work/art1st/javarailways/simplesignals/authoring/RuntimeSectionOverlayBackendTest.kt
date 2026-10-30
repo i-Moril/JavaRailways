@@ -69,7 +69,7 @@ class RuntimeSectionOverlayBackendTest {
             curveCalls++
             Optional.of(SectionOverlayDrawingTest.curve())
         }
-        val backend = RuntimeSectionOverlayBackend({ runtime }, infrastructure, targets)
+        val backend = RuntimeSectionOverlayBackend({ runtime }, infrastructure, targets, work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService())
         val first = backend.capture(world)!!
         val drawing = backend.prepare(first)
         assertTrue(backend.current(first))

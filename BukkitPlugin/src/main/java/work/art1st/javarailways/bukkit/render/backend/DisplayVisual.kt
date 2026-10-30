@@ -24,6 +24,10 @@ sealed interface DisplayVisualContent {
 }
 
 interface DisplayVisual {
+    /** Actual client entity identity, captured on its owner; absent only for non-packet test visuals. */
+    val packetEntityId: Int? get() = null
+    /** Owner-captured initial shared entity flags and display glow color. */
+    val packetGlowBaseline: Pair<Byte, Int> get() = 0.toByte() to -1
     /** Internal renderer affinity; packet visuals have no server entity. */
     val affinityEntity: org.bukkit.entity.Entity? get() = null
     fun showTo(player: Player)

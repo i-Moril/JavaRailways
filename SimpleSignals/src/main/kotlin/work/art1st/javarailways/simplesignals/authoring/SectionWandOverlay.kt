@@ -11,6 +11,7 @@ import org.bukkit.event.inventory.InventoryDragEvent
 import org.bukkit.event.player.*
 import org.bukkit.event.world.WorldUnloadEvent
 import org.bukkit.plugin.Plugin
+import work.art1st.javarailways.bukkit.api.model.EditorModelHighlightHandle
 import work.art1st.javarailways.bukkit.api.editor.EditorTextHandle
 import work.art1st.javarailways.bukkit.api.editor.EditorTextService
 import work.art1st.javarailways.bukkit.api.editor.EditorTextLabel
@@ -25,6 +26,7 @@ internal class SectionWandOverlay(
     private val plugin: Plugin,
     private val backend: SectionOverlayBackend,
     private val texts: EditorTextService,
+    private val createHighlight: (Player) -> EditorModelHighlightHandle,
     private val toolInHand: (Player) -> Boolean = {
         SectionWandHandler.readTool(plugin, it.inventory.itemInMainHand) != null ||
             SignalWandHandler.readTool(plugin, it.inventory.itemInMainHand) != null ||
@@ -43,15 +45,20 @@ internal class SectionWandOverlay(
     }
 ) : Listener, AutoCloseable {
     private class Session(val viewer: Player, val world: World, val worldId: UUID,
-        val text: EditorTextHandle) {
+        val text: EditorTextHandle, val highlight: EditorModelHighlightHandle) {
         val active = AtomicBoolean(true)
         val busy = AtomicBoolean(false)
         @Volatile var refresh: AutoCloseable? = null
         @Volatile var capture: SectionOverlayCapture? = null
         @Volatile var drawing: SectionOverlayDrawing? = null
         var revision = 0L
+        var problemModels = emptySet<String>()
+        var displayedProblems: Set<String>? = null
         var failure: String? = null
-        fun close() { active.set(false); try { refresh?.close() } finally { text.close() } }
+        fun close(): List<Throwable> {
+            active.set(false)
+            return listOfNotNull(refresh, text, highlight).mapNotNull { runCatching { it.close() }.exceptionOrNull() }
+        }
     }
     private val closed = AtomicBoolean(false)
     private val sessions = ConcurrentHashMap<UUID, Session>()
@@ -75,12 +82,16 @@ internal class SectionWandOverlay(
         if (session == null || session.viewer !== player || session.world !== world) {
             invalidate(id)
             val text = texts.create(plugin, player, "section-overlay")
-            val next = Session(player, world, world.uid, text)
+            val highlight = try { createHighlight(player) } catch (failure: Exception) {
+                try { text.close() } catch (cleanup: Exception) { failure.addSuppressed(cleanup) }
+                throw failure
+            }
+            val next = Session(player, world, world.uid, text, highlight)
             sessions[id] = next
             session = next
             try {
                 next.refresh = repeat(player, { if (sessions[id] === next && next.active.get()) refresh(player) }, { invalidate(id, next) })
-                if (closed.get() || !next.active.get()) { invalidate(id, next); next.close(); return }
+                if (closed.get() || !next.active.get()) { invalidate(id, next); close(next); return }
             } catch (failure: Exception) { invalidate(id, next); throw failure }
         }
         val current = session
@@ -93,6 +104,7 @@ internal class SectionWandOverlay(
                         val previous = current.capture
                         val capture = if (previous != null && backend.current(previous)) previous else backend.capture(current.worldId)
                         val drawing = if (capture == null) null else if (capture === previous) current.drawing else backend.prepare(capture)
+                        val problems = capture?.let(backend::problemModels).orEmpty()
                         val valid = capture == null || backend.current(capture)
                         // No eager retry after a changing input; the next refresh captures again.
                         owner(player, {
@@ -104,6 +116,7 @@ internal class SectionWandOverlay(
                                         .getOrDefault(false))
                                     current.capture = capture.takeIf { stillCurrent }
                                     current.drawing = drawing.takeIf { stillCurrent }
+                                    current.problemModels = if (stillCurrent) problems else emptySet()
                                     current.failure = null
                                     val position = player.location
                                     display(current, position.x, position.y, position.z)
@@ -118,7 +131,7 @@ internal class SectionWandOverlay(
                             if (sessions[id] === current && current.active.get() && !closed.get() &&
                                 player.isOnline && player.world === world && enabled() &&
                                 player.hasPermission(SectionWandHandler.PERMISSION) && toolInHand(player)) {
-                                current.capture = null; current.drawing = null
+                                current.capture = null; current.drawing = null; current.problemModels = emptySet()
                                 current.failure = reason
                                 val position = player.location
                                 display(current, position.x, position.y, position.z)
@@ -141,11 +154,24 @@ internal class SectionWandOverlay(
         if (prepared == null || prepared.unavailableGeometry.isNotEmpty()) labels += EditorTextLabel("geometry-status",
             x, y + 2.0, z, Component.text(if (prepared == null) WandI18n.format(session.viewer, "overlay.failed", session.failure.orEmpty()) else
                 WandI18n.format(session.viewer, "overlay.geometry", prepared.unavailableGeometry.size)))
-        session.text.submit(++session.revision, labels)
+        val revision = ++session.revision
+        try {
+            session.text.submit(revision, labels)
+            if (session.displayedProblems != session.problemModels) {
+                session.highlight.submit(revision, session.problemModels, 0xFF0000)
+                session.displayedProblems = session.problemModels
+            }
+        } catch (failure: Exception) {
+            invalidate(session.viewer.uniqueId, session)
+            throw failure
+        }
     }
 
-    private fun invalidate(id: UUID) { sessions.remove(id)?.close() }
-    private fun invalidate(id: UUID, session: Session) { if (sessions.remove(id, session)) session.close() }
+    private fun close(session: Session) {
+        session.close().forEach { plugin.logger.log(Level.WARNING, "Section overlay cleanup failed world=${session.worldId}", it) }
+    }
+    private fun invalidate(id: UUID) { sessions.remove(id)?.let(::close) }
+    private fun invalidate(id: UUID, session: Session) { if (sessions.remove(id, session)) close(session) }
     private fun invalidate(player: Player) {
         val id = player.uniqueId
         sessions[id]?.takeIf { it.viewer === player }?.let { invalidate(id, it) }

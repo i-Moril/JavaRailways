@@ -5,6 +5,7 @@ import com.github.retrooper.packetevents.manager.protocol.ProtocolManager
 import com.github.retrooper.packetevents.netty.channel.ChannelHelper
 import com.github.retrooper.packetevents.wrapper.PacketWrapper
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBundle
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityMetadata
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
@@ -42,7 +43,12 @@ class TrainPacketBundleCoordinator internal constructor(
         val protocolManager = PacketEvents.getAPI().protocolManager
         val sendTask = Runnable {
             protocolManager.sendPacketSilently(channel, WrapperPlayServerBundle())
-            packets.forEach { packet -> protocolManager.sendPacketSilently(channel, packet) }
+            packets.forEach { packet ->
+                // Display metadata must pass the viewer-specific editor outline filter.
+                // A silent scene update would otherwise overwrite its flags/color on the client.
+                if (packet is WrapperPlayServerEntityMetadata) protocolManager.sendPacket(channel, packet)
+                else protocolManager.sendPacketSilently(channel, packet)
+            }
             protocolManager.sendPacketSilently(channel, WrapperPlayServerBundle())
             val bundleSequence = bundlesSent.incrementAndGet()
             packetsBundled.addAndGet(packets.size.toLong())

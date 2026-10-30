@@ -111,6 +111,16 @@ Bukkit HTTP factory不再注入SimpleATO的duration-only SimulationTrainOperatio
 
 ## 交路程序任务耗时
 
+### 独立函数模拟与统一放置
+
+独立函数不增加执行器：Bukkit 将 exact definition/arguments 包成现有 sandbox DSL 的真实路径点取车、可选 `reverse()`、TaskStart/程序/TaskEnd，交给同一 isolated factory 和 Dispatcher。无移动函数仅在显式列出的 SIMULATION standalone service 中允许，LIVE 校验不放宽。起始方向从路径点自有 approachDirection、其次轨道 operatingDirection 解析；两者皆缺失则拒绝，不默认 AB，也不改路径点身份或终点约束。
+
+所有 factory 播种列车先用 Core 的唯一物理放置准备接口，唯一结果直接安装后发布；歧义、无解和未能证明均阻止开始。用户的 `reverseTrain` 为显式布尔值，只有正常放置后才执行一次真实原地换向；车头车尾交换、车体占用不变，不以反向重生代替。当前道岔选择不是唯一性证明；源世界和源列车不变。
+
+耗时取真实 task 边界，排除取车与这次准备换向；模拟推进上限包括准备，可能在函数开始前耗尽。失败、未完成或周期结束不输出成功耗时。复用既有队列、取消、墙钟超时与逐车行为，不伪造 template 单元或 LIVE 显示上下文；需要已登记单元的程序必须捕获真实登记。当前函数语言不因模拟入口增加站内 ASYNC/AWAIT/门动作。
+
+SIMULATION 与 LIVE 均须回归验证：未显式换向时不会为身后的目标自动反转或倒行；显式换向保持物理占用。跨局部 AB/BA 基准不同的轨道连续换向时，物理 head 朝向与原路线锚点方向须分别保留正确基准，不能把另一条轨道的局部 enum 覆盖到原锚点。
+
 当前 TaskStart/TaskEnd 为顶层、成对、唯一 taskId 的元数据动作，受既有节点上限约束。TaskStart 等待计划时刻及前序完成，Dispatcher 在实际推进时记录 tick；TaskEnd 不等待自己的计划 tick。HALT、STORE 和被消耗的编组交接须在真实操作成功后关闭末尾边界。失败、未完成或超出模拟周期不产生结束值。
 
 运行快照提供 transient taskTimings；HTTP 模拟响应扁平 tasks 为 serviceId/taskId/startTick/endTick?。不能用下一任务开始或最终运行快照推断耗时。计时不写 checkpoint；恢复后没有观测到 START 的 END 只推进游标，不伪造测量。相同交路的编组交接保留本次观测历史，新的运行实例独立。手动规划耗时不参与运行执行。

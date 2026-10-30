@@ -2,20 +2,23 @@ import {useEffect,useRef,useState} from 'react';
 import {Button,ConfigProvider,Input,Select,Space,Tag,Typography} from 'antd';
 import {CommittedNumberInput} from './CommittedNumberInput';
 import {ProgramLiteralInput} from './ProgramFields';
+import {ProgramSimulationDialog,type ProgramSimulationContext} from './ProgramSimulationDialog';
 import {defaultDutyProgramArguments} from './dutyTimeline';
 import {useI18n} from './i18n';
 import type {BoundStationProgram,StationProgramRecord,TimedOperation} from './types';
 import './TimedOperationFields.css';
 
 /** One form for both owners. The parent adopts library snapshots and commits history. */
-export function TimedOperationFields(p:{operation:TimedOperation;onChange:(operation:TimedOperation)=>void;fieldScope:string;stationNames:ReadonlyMap<string,string>;stationIds:string[];library:StationProgramRecord[];bindings:BoundStationProgram[];allowMarker?:boolean;readOnly?:boolean;onValidityChange?:(valid:boolean)=>void;measuredTicks?:number;onSimulate?:()=>void;simulationReason?:string;busy?:boolean;onOpenProgramLibrary?:(id:string)=>void}) {
+export function TimedOperationFields(p:{programSimulation?:ProgramSimulationContext;operation:TimedOperation;onChange:(operation:TimedOperation)=>void;fieldScope:string;stationNames:ReadonlyMap<string,string>;stationIds:string[];library:StationProgramRecord[];bindings:BoundStationProgram[];allowMarker?:boolean;readOnly?:boolean;onValidityChange?:(valid:boolean)=>void;measuredTicks?:number;onSimulate?:()=>void;simulationReason?:string;busy?:boolean;onOpenProgramLibrary?:(id:string)=>void}) {
  const {t}=useI18n();
  const [invalid,setInvalid]=useState<Record<string,boolean>>({});
+ const [simulationOpen,setSimulationOpen]=useState(false),[draftRevision,setDraftRevision]=useState(0);
  const op=p.operation;
  const patch=(change:Partial<TimedOperation>)=>p.onChange({...op,...change});
  const programs=[...p.bindings.filter((binding)=>p.library.some((item)=>item.id===binding.programId)||binding.programId===op.program?.programId).map((binding)=>({id:binding.programId,name:p.library.find((item)=>item.id===binding.programId)?.name??`${binding.programId} · ${t('programs.snapshotOnly')}`,definition:binding.definition,disabled:!p.library.some((item)=>item.id===binding.programId)})),...p.library.filter((item)=>!p.bindings.some((binding)=>binding.programId===item.id)).map((item)=>({id:item.id,name:item.name,definition:item.definition,disabled:false}))];
+ const boundDefinition=p.bindings.find(binding=>binding.programId===op.program?.programId)?.definition;
  const definition=programs.find((item)=>item.id===op.program?.programId)?.definition;
- const validity=(key:string,valid:boolean)=>setInvalid((current)=>current[key]===!valid?current:{...current,[key]:!valid});
+ const validity=(key:string,valid:boolean)=>{setDraftRevision(value=>value+1);setInvalid((current)=>current[key]===!valid?current:{...current,[key]:!valid});};
  const validityCallback=useRef(p.onValidityChange);validityCallback.current=p.onValidityChange;
  useEffect(()=>{validityCallback.current?.(!Object.values(invalid).some(Boolean));},[invalid]);
  useEffect(()=>()=>{validityCallback.current?.(true);},[]);
@@ -32,6 +35,8 @@ export function TimedOperationFields(p:{operation:TimedOperation;onChange:(opera
   {!op.program&&<Typography.Paragraph type="secondary">{t('timed.markerHint')}</Typography.Paragraph>}
   <Typography.Paragraph type="secondary">{t('timed.stationHint')} {t('timeline.durationHint')}</Typography.Paragraph>
   {op.duration?.type==='SIMULATED'&&<Space wrap><Tag>{p.measuredTicks===undefined?t('timeline.unknown'):`${p.measuredTicks} ${t('timeline.tickUnit')}`}</Tag>{p.onSimulate&&<Button loading={p.busy} disabled={!!p.simulationReason||p.busy} onClick={p.onSimulate}>{t('timeline.simulate')}</Button>}{p.simulationReason&&<Typography.Text type="secondary">{p.simulationReason}</Typography.Text>}</Space>}
+  {op.program&&boundDefinition&&p.programSimulation&&<ConfigProvider componentDisabled={false}><div className="duty-timeline-source"><Button disabled={p.busy||Object.values(invalid).some(Boolean)} onClick={()=>setSimulationOpen(true)}>{t('programSimulation.open')}</Button></div></ConfigProvider>}
+  {simulationOpen&&op.program&&boundDefinition&&p.programSimulation&&<ConfigProvider componentDisabled={false}><ProgramSimulationDialog key={draftRevision} {...p.programSimulation} owner={`${p.programSimulation.owner}/${p.fieldScope}`} programId={op.program.programId} definition={boundDefinition} arguments={op.program.arguments} startTick={op.tick} valid={!Object.values(invalid).some(Boolean)} onClose={()=>setSimulationOpen(false)} onAdoptDuration={p.readOnly?undefined:ticks=>patch({duration:{type:'MANUAL',ticks}})}/></ConfigProvider>}
   {op.program&&p.library.some((record)=>record.id===op.program!.programId)&&p.onOpenProgramLibrary&&<div className="duty-timeline-source"><Button onClick={()=>p.onOpenProgramLibrary?.(op.program!.programId)}>{t('timeline.editProgram')}</Button></div>}
  </div></ConfigProvider>;
 }

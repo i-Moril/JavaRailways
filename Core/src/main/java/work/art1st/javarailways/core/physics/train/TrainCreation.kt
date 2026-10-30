@@ -11,7 +11,9 @@ class TrainCreation internal constructor(private val world: CoreWorld) {
     private val cars = mutableListOf<CoreCar>()
     private var train: CoreTrain? = null
     private var published = false
+    private var installedPlacement: PreparedTrainPlacement? = null
     private val rollback = mutableListOf<() -> Unit>()
+    private val rollbackAfterResources = mutableListOf<() -> Unit>()
 
     private var closed = false
 
@@ -61,14 +63,39 @@ class TrainCreation internal constructor(private val world: CoreWorld) {
         }
     }
 
+    /**
+     * Prepare all directed rigid body paths for these new cars, without registering a train or
+     * changing cars, switches or extensions. Bounded failure never claims a unique placement.
+     * Call on the world's between-frame owner and consume a Unique result in this scope's train().
+     */
+    fun prepareUniquePlacement(
+        cars: List<CoreCar>,
+        headLocation: RailLocationWithFacing,
+        maximumPathExpansions: Int = 4096
+    ): TrainPlacementResult {
+        validateCars(cars)
+        return prepareUniqueTrainPlacement(world, cars, headLocation, maximumPathExpansions)
+    }
+
     fun train(
         id: String,
         cars: List<CoreCar>,
         name: String = id,
-        extensionData: Map<String, SerializableExtensionData> = emptyMap()
+        extensionData: Map<String, SerializableExtensionData> = emptyMap(),
+        preparedPlacement: PreparedTrainPlacement? = null
     ): CoreTrain {
         validateCars(cars)
-        return CoreTrain(id, cars, world, extensionData, name).also { train = it }
+        preparedPlacement?.let { prepared ->
+            require(prepared.world === world) { "prepared train placement belongs to another world" }
+            prepared.install(cars, rollbackAfterResources::add)
+            installedPlacement = prepared
+        }
+        return CoreTrain(id, cars, world, extensionData, name,
+            persistedHeadLocation = preparedPlacement?.head,
+            persistedTailLocation = preparedPlacement?.tail).also {
+                train = it
+                preparedPlacement?.validateInstalled(it)
+            }
     }
 
     internal fun loadCar(saved: SavedCarV1): CoreCar {
@@ -94,7 +121,9 @@ class TrainCreation internal constructor(private val world: CoreWorld) {
     /** Transfers the fully initialized train to the world's published lifecycle. */
     fun publish() {
         check(!closed && !published) { "Train creation scope is closed" }
-        world.publishOwnerChanges(listOf(requireNotNull(train)))
+        val created = requireNotNull(train)
+        installedPlacement?.validateInstalled(created)
+        world.publishOwnerChanges(listOf(created))
         published = true
     }
 
@@ -122,6 +151,7 @@ class TrainCreation internal constructor(private val world: CoreWorld) {
         train?.let { created -> cleanup.await { created.destroy() } }
         cars.forEach { car -> cleanup.await { car.destroyOwnedResources() } }
         bogies.forEach { bogie -> cleanup.await { bogie.destroy() } }
+        rollbackAfterResources.asReversed().forEach { cleanup.action(it) }
         cleanup.finish().whenComplete { _, cleanupFailure ->
             if (cleanupFailure != null) {
                 failure.addSuppressed(cleanupFailure)

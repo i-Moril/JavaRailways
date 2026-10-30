@@ -1086,6 +1086,129 @@ class TimetableDispatcherTest {
     }
 
     @Test
+    fun `live and isolated services never turn a train to face a destination without an explicit reverse`() {
+        for (mode in work.art1st.javarailways.core.api.physics.WorldExecutionMode.entries) {
+            for (reverse in listOf(false, true)) {
+                val world = TestWorldFixture.create(executionMode = mode).also(worldFixtures::add).world
+                val dispatcher = dispatcher()
+                val data = BasicWorldData()
+                TestSimpleATOWorldDataRegistry.register(world, data)
+                val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(140.0, 0.0, 0.0))
+                val train = createTrainWithConfig("reference", rail, world, listOf(10.0))
+                val initial = train.publishedFrame
+                OperationalDestinationService(world).register(OperationalDestination("origin", "Origin", rail.id,
+                    initial.head.arcLengthInAbMeters, ViewDirection.AB, DestinationRole.Regular))
+                OperationalDestinationService(world).register(OperationalDestination("behind", "Behind", rail.id,
+                    initial.head.arcLengthInAbMeters - 15.0, ViewDirection.BA, DestinationRole.Regular))
+                val steps = listOf(TimetableStep.At(0, TimetableAction.TakeFromWaypoint(listOf("origin")))) +
+                    (if (reverse) listOf(TimetableStep.At(0, TimetableAction.Reverse)) else emptyList()) +
+                    TimetableStep.At(0, TimetableAction.GoTo("behind"))
+                world.simpleAtoWorldData.timetables.add(Timetable("direction", services =
+                    listOf(TimetableService("duty", steps = steps))))
+                val registration = ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
+                    override fun isMainThread() = true
+                })
+                try {
+                    val result = world.onOwnerForTest { dispatcher.startService(world, "direction", "duty") }
+                    if (!reverse) {
+                        assertTrue(result is TimetableServiceStartResult.Failure) { "$mode: $result" }
+                        assertFalse(train.isReversed)
+                        assertSame(initial, train.publishedFrame)
+                        assertNull(train.controller)
+                    } else {
+                        assertTrue(result is TimetableServiceStartResult.Started) { "$mode: $result" }
+                        val ato = train.controller as SimpleATO
+                        tickAndPublish(ato)
+                        world.onOwnerForTest { dispatcher.tick(world) }
+                        assertTrue(train.isReversed)
+                        assertEquals(initial.tail.arcLengthInAbMeters, train.publishedFrame.head.arcLengthInAbMeters, 1e-7)
+                        assertEquals(initial.head.arcLengthInAbMeters, train.publishedFrame.tail.arcLengthInAbMeters, 1e-7)
+                        assertEquals(initial.occupiedIntervals.toSet(), train.publishedFrame.occupiedIntervals.toSet())
+                        tickAndPublish(ato)
+                        world.onOwnerForTest { dispatcher.tick(world) }
+                        assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled) {
+                            "$mode: ${world.simpleAtoWorldData.atoCoordinator.lastStall}"
+                        }
+                        assertTrue(dispatcher.status(TimetableServiceRunId("direction", "duty"))!!.missionRevision > 0L)
+                    }
+                    assertEquals(0.0, train.publishedFrame.speedMetersPerSecond)
+                } finally {
+                    registration.close()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `repeated in-place reversals across mixed rail directions keep the original route anchor basis`() {
+        for (mode in work.art1st.javarailways.core.api.physics.WorldExecutionMode.entries) {
+            for (reverseCount in listOf(1, 2)) {
+                val world = TestWorldFixture.create(executionMode = mode).also(worldFixtures::add).world
+                val dispatcher = dispatcher()
+                val data = BasicWorldData()
+                TestSimpleATOWorldDataRegistry.register(world, data)
+                val headRail = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(240.0, 0.0, 0.0))
+                val tailRail = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
+                IsolatedSimulationThreadMarker.run { RailView.connect(headRail.viewBA, tailRail.viewBA) }
+                val train = createTrainWithConfig("mixed", headRail, world, listOf(10.0))
+                world.onOwnerForTest {
+                    train.setLocation(RailLocationWithFacing(headRail.viewAB, 5.0))
+                    train.commitMaintenancePlacement()
+                }
+                val initial = train.publishedFrame
+                assertEquals(headRail.id, initial.head.railId)
+                assertEquals(ViewDirection.AB, initial.head.facing)
+                assertEquals(tailRail.id, initial.tail.railId)
+                assertEquals(ViewDirection.BA, initial.tail.facing)
+                assertEquals(2, initial.occupiedIntervals.size)
+                OperationalDestinationService(world).register(OperationalDestination("origin", "Origin", headRail.id,
+                    initial.head.arcLengthInAbMeters, ViewDirection.AB, DestinationRole.Regular))
+                val targetRail = if (reverseCount % 2 == 0) headRail else tailRail
+                OperationalDestinationService(world).register(OperationalDestination("target", "Target", targetRail.id,
+                    50.0, ViewDirection.AB, DestinationRole.Regular))
+                val steps = listOf(TimetableStep.Check("origin")) +
+                    List(reverseCount) { TimetableStep.At(0, TimetableAction.Reverse) } +
+                    TimetableStep.At(0, TimetableAction.GoTo("target"))
+                world.simpleAtoWorldData.timetables.add(Timetable("mixed-direction", services =
+                    listOf(TimetableService("duty", TrainSelector.TrainId(train.id), steps))))
+                val registration = ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
+                    override fun isMainThread() = true
+                })
+                try {
+                    val result = world.onOwnerForTest { dispatcher.startService(world, "mixed-direction", "duty") }
+                    assertTrue(result is TimetableServiceStartResult.Started) { "$mode/$reverseCount: $result" }
+                    val ato = train.controller as SimpleATO
+                    var observed = 0
+                    var previousReversed = false
+                    repeat(reverseCount * 2 + 1) {
+                        tickAndPublish(ato)
+                        world.onOwnerForTest { dispatcher.tick(world) }
+                        val frame = train.publishedFrame
+                        if (frame.reversed != previousReversed) {
+                            observed++
+                            previousReversed = frame.reversed
+                            assertEquals(initial.occupiedIntervals.toSet(), frame.occupiedIntervals.toSet())
+                            assertEquals(if (observed % 2 == 0) initial.head.railId else initial.tail.railId, frame.head.railId)
+                            assertEquals(if (observed % 2 == 0) initial.head.arcLengthInAbMeters else initial.tail.arcLengthInAbMeters,
+                                frame.head.arcLengthInAbMeters, 1e-7)
+                            // Both rails' AB arrows point in opposite physical directions.
+                            assertEquals(ViewDirection.AB, frame.head.facing)
+                            assertEquals(0.0, frame.speedMetersPerSecond)
+                        }
+                    }
+                    assertEquals(reverseCount, observed)
+                    assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled) {
+                        "$mode/$reverseCount: ${world.simpleAtoWorldData.atoCoordinator.lastStall}"
+                    }
+                    assertTrue(dispatcher.status(TimetableServiceRunId("mixed-direction", "duty"))!!.missionRevision > 0L)
+                } finally {
+                    registration.close()
+                }
+            }
+        }
+    }
+
+    @Test
     fun `storeAtDepot releases departure occupancy and completes availability handoff`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val dispatcher = dispatcher()

@@ -1,0 +1,8 @@
+.program-simulation{display:flex;flex-direction:column;gap:18px;margin-top:18px}
+.program-simulation-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:16px 20px}
+.program-simulation-grid>label{display:flex;flex-direction:column;gap:8px;min-width:0}
+.program-simulation-grid .ant-select,.program-simulation-grid .ant-input-number{width:100%;min-width:0}
+.program-simulation-grid .program-json-input{width:100%;min-width:0}
+.program-simulation-reversal,.program-simulation-arguments,.program-simulation-result{display:flex;flex-direction:column;gap:10px}
+.program-simulation-reversal .ant-radio-group{display:flex;flex-wrap:wrap;gap:10px}
+.program-simulation-arguments code{overflow-wrap:anywhere;white-space:pre-wrap}

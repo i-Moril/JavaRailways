@@ -4,11 +4,12 @@ import { useEffect,useRef,useState } from 'react';
 import { Alert,Button,Flex,Input,Modal,Space,Typography } from 'antd';
 import { api } from './api';
 import { ProgramDefinitionEditor } from './ProgramFields';
+import {ProgramSimulationDialog} from './ProgramSimulationDialog';
 import { findProgramStep,validateStationProgram } from './stationPrograms';
 import { useI18n } from './i18n';
-import type { TimetableExtensionDescriptor,StationProgramDefinition,StationProgramRecord } from './types';
+import type { WorldMetadata,TimetableExtensionDescriptor,StationProgramDefinition,StationProgramRecord } from './types';
 
-type Props={onLibraryChange?:()=>void;world:string;recoveryOwner:string;extensions?:TimetableExtensionDescriptor[];conditions?:TimetableExtensionDescriptor[];focus?:{programId:string;stepId?:string}};
+type Props={metadata?:WorldMetadata;onLibraryChange?:()=>void;world:string;recoveryOwner:string;extensions?:TimetableExtensionDescriptor[];conditions?:TimetableExtensionDescriptor[];focus?:{programId:string;stepId?:string}};
 export function newLibraryProgram(records:StationProgramRecord[],entropy=()=>crypto.getRandomValues(new Uint32Array(4))){
   let id:string;
   do{id=String(entropy().reduce((value,word)=>(value<<32n)|BigInt(word),0n));}while(records.some((record)=>record.id===id));
@@ -21,7 +22,7 @@ export function libraryHasChanges(record:StationProgramRecord|undefined,definiti
 }
 // A different owner/world owns a completely separate editor, request generation and recovery scope.
 export function StationProgramLibrary(props:Props){return <Library key={JSON.stringify([props.recoveryOwner,props.world])} {...props}/>;}
-function Library({world,recoveryOwner,extensions=[],conditions=[],focus,onLibraryChange}:Props){
+function Library({world,recoveryOwner,metadata={},extensions=[],conditions=[],focus,onLibraryChange}:Props){
   const {t}=useI18n();
   const [records,setRecords]=useState<StationProgramRecord[]>([]);
   const [selected,setSelected]=useState<StationProgramRecord>();
@@ -29,7 +30,7 @@ function Library({world,recoveryOwner,extensions=[],conditions=[],focus,onLibrar
   const [valid,setValid]=useState(true);const [editorEpoch,setEditorEpoch]=useState(0);
   const [busy,setBusy]=useState(false);const [error,setError]=useState('');
   const [dialog,setDialog]=useState<{kind:'leave';action:()=>void}|{kind:'rename'|'delete';record:StationProgramRecord}>();
-  const [rename,setRename]=useState('');
+  const [rename,setRename]=useState('');const [simulationOpen,setSimulationOpen]=useState(false);
   const alive=useRef(true);const request=useRef(0);const locked=useRef(false);
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;request.current++;locked.current=false;};},[]);
   const perform=async(action:(current:()=>boolean)=>Promise<void>)=>{
@@ -41,7 +42,7 @@ function Library({world,recoveryOwner,extensions=[],conditions=[],focus,onLibrar
   const load=(reloadId?:string)=>perform(async(current)=>{const values=await api.stationPrograms(world);if(current()){setRecords(sortLibraryRecords(values));if(reloadId)select(values.find((record)=>record.id===reloadId));}});
   useEffect(()=>{if(world)void load();},[world]);
   const select=(record?:StationProgramRecord)=>{
-    setSelected(record);setDefinition(record?structuredClone(record.definition):{parameters:[],steps:[]});setValid(true);setEditorEpoch((value)=>value+1);setError('');
+    setSimulationOpen(false);setSelected(record);setDefinition(record?structuredClone(record.definition):{parameters:[],steps:[]});setValid(true);setEditorEpoch((value)=>value+1);setError('');
   };
   const discardSelection=()=>{const scope=selected?`${recoveryOwner}/${world}/${selected.id}`:undefined;flushSync(()=>select());if(scope)clearProgramBlockDraft(scope);};
   const dirty=libraryHasChanges(selected,definition,valid);
@@ -90,13 +91,14 @@ function Library({world,recoveryOwner,extensions=[],conditions=[],focus,onLibrar
     {error&&<Alert type="error" showIcon title={error}/>}
     <div className="program-library-grid"><aside className="panel-surface program-library-files" aria-label={t('programs.title')}><Button type="primary" disabled={busy||!world} onClick={create}>{t('programs.new')}</Button>
       <div role="list" className="program-library-file-list">{records.map((record)=><div role="listitem" key={record.id} className="program-library-file"><Button type={selected?.id===record.id?'primary':'text'} disabled={busy} onClick={()=>{if(record.id!==selected?.id)leave(()=>select(record));}} title={record.name}><span className="program-library-file-name">{record.name}</span></Button><Space size={0}><Button type="text" disabled={busy} aria-label={`${t('programs.rename')} ${record.name}`} title={t('programs.rename')} onClick={()=>{setError('');setRename(record.name);setDialog({kind:'rename',record});}}>✎</Button><Button danger type="text" disabled={busy} aria-label={`${t('common.delete')} ${record.name}`} title={t('common.delete')} onClick={()=>{setError('');setDialog({kind:'delete',record});}}>×</Button></Space></div>)}</div>
-    </aside><section className="panel-surface program-library-editor">{selected?<><Flex align="center" justify="space-between" gap={12}><Typography.Title level={4}>{selected.name}{dirty?' *':''}</Typography.Title><Button type="primary" loading={busy} disabled={busy||!!errors.length||!valid||!dirty} onClick={save}>{t('common.save')}</Button></Flex>
+    </aside><section className="panel-surface program-library-editor">{selected?<><Flex align="center" justify="space-between" gap={12}><Typography.Title level={4}>{selected.name}{dirty?' *':''}</Typography.Title><Space><Button disabled={busy||!!errors.length||!valid} onClick={()=>setSimulationOpen(true)}>{t('programSimulation.open')}</Button><Button type="primary" loading={busy} disabled={busy||!!errors.length||!valid||!dirty} onClick={save}>{t('common.save')}</Button></Space></Flex>
       <Alert type="info" showIcon title={t('programs.executionHint')}/>
       {focus?.programId===selected.id&&focus?.stepId&&!findProgramStep(selected.definition.steps,focus.stepId)&&<Alert type="info" title={t('programs.stepUnavailable')}/>}
       <fieldset inert={busy} disabled={busy} className="program-editor-fields"><ProgramDefinitionEditor conditions={conditions} extensions={extensions} onValidityChange={setValid} focusedStep={focus?.programId===selected.id?focus.stepId:undefined} key={`${selected.id}/${editorEpoch}`} fieldScope={`${recoveryOwner}/${world}/${selected.id}`} value={definition} onChange={setDefinition}/></fieldset>
       {!!errors.length&&<Alert type="warning" title={errors.join('; ')}/>}
       <Typography.Paragraph type="secondary">{t('programs.conflictHint')}</Typography.Paragraph>
     </>:<Typography.Paragraph type="secondary">{t('programs.selectFile')}</Typography.Paragraph>}</section></div>
+    {simulationOpen&&selected&&<ProgramSimulationDialog world={world} owner={`${recoveryOwner}/${selected.id}`} metadata={metadata} periodDays={1} programId={selected.id} definition={definition} valid={valid&&!errors.length} editableArguments onClose={()=>setSimulationOpen(false)}/>}
     <Modal open={!!dialog} title={dialog?.kind==='rename'?t('programs.rename'):dialog?.kind==='delete'?t('common.delete'):t('programs.unsavedTitle')} onCancel={()=>{if(!busy)setDialog(undefined);}} onOk={confirm} confirmLoading={busy} closable={!busy} maskClosable={!busy} cancelButtonProps={{disabled:busy}} okButtonProps={{danger:dialog?.kind==='delete',disabled:busy||dialog?.kind==='rename'&&!rename.trim()}}>
       {error&&<Alert type="error" showIcon title={error}/>}
       {dialog?.kind==='rename'?<Input autoFocus maxLength={256} aria-label={t('programs.name')} value={rename} disabled={busy} onChange={(event)=>setRename(event.target.value)} onPressEnter={confirm}/>:<Typography.Paragraph>{dialog?.kind==='delete'?t('programs.deleteHint'):t('programs.unsavedHint')}</Typography.Paragraph>}

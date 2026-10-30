@@ -166,6 +166,7 @@ class FullFeatureSimulationIsolationTest {
             val source = fixture.world
             val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
             registerWorldData(source)
+            source.basicWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
             source.basicWorldData.wayPoints.add(WayPoint("lead-origin", "Lead", rail.id, 50.0))
             source.basicWorldData.wayPoints.add(WayPoint("incoming-origin", "Incoming", rail.id, 40.0))
             source.basicWorldData.wayPoints.add(WayPoint("terminal", "Terminal", rail.id, 250.0))

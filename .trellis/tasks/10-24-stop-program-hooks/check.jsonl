@@ -6,3 +6,8 @@
 {"file": "ai_tasks/persistence_schema_evolution_rules.md", "reason": "Current cross-layer implementation contract"}
 {"file": ".trellis/tasks/10-24-stop-program-hooks/research/train-info.md", "reason": "User-approved feedback17 runtime readonly train data boundary and ownership"}
 {"file": ".trellis/tasks/10-24-stop-program-hooks/research/run-display-plans.md", "reason": "User selected retained display continuity and per-unit stops, timeline RUN inspector replacement contract"}
+{"file": ".trellis/spec/javarailways/core/train-placement.md", "reason": "Shared rigid placement solver and unique prepare/install ownership"}
+{"file": ".trellis/spec/javarailways/simpleato/simulation.md", "reason": "Existing dispatcher simulation, explicit reversal and honest task timing"}
+{"file": ".trellis/spec/bukkit-plugin/backend/simulation-car-behavior.md", "reason": "Real captured per-car behavior and isolated lifecycle"}
+{"file": ".trellis/tasks/10-24-stop-program-hooks/research/function-simulation.md", "reason": "Current Oct30 unique baseline placement then actual in-place reversal contract"}
+{"file": ".trellis/tasks/10-24-stop-program-hooks/research/function-simulation-review-2026-10-30.md", "reason": "Independent review and evidenced mixed-rail reversal corrections"}

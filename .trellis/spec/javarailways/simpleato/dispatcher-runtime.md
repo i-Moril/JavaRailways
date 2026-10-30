@@ -264,6 +264,12 @@ A branch selected against a published child can reverse a still-held body before
 
 验证：`StationStopProgramRuntimeTest` 覆盖阻塞/立即派生、后代 join、任务本地等待和取消；`TimetableStationCallDispatcherTest` 覆盖起终点、准备与主线程顺序、最小停站、开门终到禁止后缀存车、换向及停止。`BrowserGeneratedStationProgramTest` 用实际 HTTP 浏览器生成的脚本通过真实 Graal 和 snapshot/domain 链路验证。纯测试和隔离浏览器不等同于游戏客户端验收。持久化使用当前未发布边界的约定版本1，不为本次开发重构递增；编辑数据仅离线迁移，不新增任意旧开发 reader。
 
+## 显式换向与路线起点方向
+
+ATO 不根据目标位置自行换向；未显式 Reverse 的身后目标必须沿当前朝向有可行路径，否则拒绝，不能反向种车或倒行来满足任务。`requiredNextStartDirection` 表达尚未消费的原路径点 route-key 方向，不是另一条轨道上的物理 head 局部 AB/BA。显式换向先使用已有 pending 方向，否则取当前 head 方向，再取反；连续换向必须保留同一锚点基准。GoTo/GoVia、选择停车点和 StoreAtDepot 的 movement plan 均传递该方向，缺 pending 时沿用实际 head 的既有默认。不得用新车头所在轨道的局部 enum 覆盖原锚点。
+
+必需回归：LIVE/SIM 两模式下无显式换向拒绝身后不可达目标且不改车体/控制器；局部 AB 朝向相反的相接轨道上一次和两次原地换向保持占用；真实物理模拟跨接缝换向后存车完成。测试须检查实际 mission/frame/终点及错误，不以静态 source 中出现 reverse 字符串代替执行证据。
+
 ## 程序只读列车信息
 
 程序的显示／扩展动作可携带独立 immutable trainInfo 绑定（TrainInfoField NAME/CAR_COUNT/UNIT_COUNT/DIRECTION），绑定与 literal values/call.parameters 互斥；TimetableExtensionCall 和 condition 不承载此字段。持久化 DTO 对应显式 enum/map，保持当前格式版本，capture/restore 不丢失绑定。

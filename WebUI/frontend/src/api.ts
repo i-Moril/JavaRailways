@@ -1,6 +1,6 @@
 import { authoringDocumentForSave,type TimetableAuthoringDocumentV1 } from './authoring';
 import { demoApi, frontendDemoEnabled } from './frontendDev';
-import type { StationProgramDefinition, StationProgramRecord, CompiledTimetableSource, DraftSummary, EditorDocumentSummary, LineCollection, LineSimulationResult, LineV1, RailMapFile, RenderedTimetableScript, SavedLineResult, SavedTimetableV1, SimulationProfile, TimetableScriptSummary, TimetableSimulationProfileAssignment, TimetableSimulationResult, ValidationResult, WebSessionStatus, WorldMetadata, WorldSummary, WorldIssue, ServerLogSources, ServerLogPage, ServerLogQuery } from './types';
+import type { ProgramSimulationRequest, ProgramSimulationResult, StationProgramDefinition, StationProgramRecord, CompiledTimetableSource, DraftSummary, EditorDocumentSummary, LineCollection, LineSimulationResult, LineV1, RailMapFile, RenderedTimetableScript, SavedLineResult, SavedTimetableV1, SimulationProfile, TimetableScriptSummary, TimetableSimulationProfileAssignment, TimetableSimulationResult, ValidationResult, WebSessionStatus, WorldMetadata, WorldSummary, WorldIssue, ServerLogSources, ServerLogPage, ServerLogQuery } from './types';
 async function request<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { headers: { 'Content-Type': 'application/json', ...init?.headers }, ...init }); if (!response.ok) { if(response.status===401&&typeof window!=='undefined')window.dispatchEvent(new Event('javarailways:unauthorized')); throw new Error((await response.text()) || `${response.status} ${response.statusText}`); } return response.status === 204 ? undefined as T : response.json(); }
 const base = (worldId: string) => `/api/v1/worlds/${encodeURIComponent(worldId)}`;
 const liveApi = {
@@ -23,6 +23,7 @@ const liveApi = {
  createDraft: (worldId: string, value: SavedTimetableV1) => request<DraftSummary>(`${base(worldId)}/drafts`, { method:'POST', body:JSON.stringify(value) }),
  saveDraft: (worldId: string, draftId: string, value: SavedTimetableV1) => request<void>(`${base(worldId)}/drafts/${encodeURIComponent(draftId)}`, { method:'PUT', body:JSON.stringify(value) }),
  deleteDraft: (worldId: string, draftId: string) => request<void>(`${base(worldId)}/drafts/${encodeURIComponent(draftId)}`, { method:'DELETE' }),
+ simulateProgram:(worldId:string,input:ProgramSimulationRequest)=>request<ProgramSimulationResult>(`${base(worldId)}/programs/simulate`,{method:'POST',body:JSON.stringify(input)}),
  stationPrograms:(worldId:string)=>request<StationProgramRecord[]>(`${base(worldId)}/station-programs`),
  stationProgram:(worldId:string,id:string)=>request<StationProgramRecord>(`${base(worldId)}/station-programs/${encodeURIComponent(id)}`),
  createStationProgram:(worldId:string,id:string,name:string,definition:StationProgramDefinition)=>request<StationProgramRecord>(`${base(worldId)}/station-programs`,{method:'POST',body:JSON.stringify({id,name,definition})}),

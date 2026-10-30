@@ -17,6 +17,7 @@
 | [rail topology 与 occupancy](./rail-topology-and-occupancy.md) | 改 connection、split/merge/remove、占用 | topology transaction、swept interval、release |
 | [版本化铁路拓扑](./versioned-operational-topology.md) | 改寻路图、结构节点、拓扑 snapshot 或外部 rail-slice 引用 | 唯一 immutable state、edge/node 归一化与原子 publication |
 | [train physics](./train-physics.md) | 改 consist movement、collision、derail、reverse、结构生命周期 | 列车物理与两阶段碰撞 |
+| [train placement](./train-placement.md) | 改新建列车唯一放置、prepare/install与模拟播种 | 完整车体候选与一次安装 |
 | [train controller](./train-controller.md) | 实现/替换 controller 或 command | `TrainController` worker contract |
 | [render publication](./render-publication.md) | 增加 frame 字段或平台消费 | value frame、revision、latest mailbox |
 | [extension data](./extension-data.md) | 注册 Plugin slot 或 host data | runtime slot、save identity、initialize/save |

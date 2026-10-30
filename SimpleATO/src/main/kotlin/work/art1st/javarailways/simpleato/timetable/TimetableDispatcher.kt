@@ -306,8 +306,10 @@ class TimetableDispatcher(
     private val operationTimeoutTicks: Long = DEFAULT_OPERATION_TIMEOUT_TICKS,
     private val atoFactory: TimetableAtoFactory? = null,
     private val authorityStoppingMarginMeters: Double = AtoSafetyProfile().safetyDistanceMeters,
-    val admissionRetryTicks: Int = 5
+    val admissionRetryTicks: Int = 5,
+    standaloneSimulationServices: Set<TimetableServiceRunId> = emptySet()
 ) : DepotResetDispatchParticipant {
+    private val standaloneSimulationServices = java.util.Set.copyOf(standaloneSimulationServices)
     init {
         require(authorityStoppingMarginMeters.isFinite() && authorityStoppingMarginMeters >= 0.0)
         require(operationTimeoutTicks > 0L)
@@ -529,7 +531,7 @@ class TimetableDispatcher(
         if (timetableId in recoveryRequiredDefinitions) {
             return TimetableEpochStartResult.Failure("structural timetable requires explicit recovery handling before a fresh apply")
         }
-        val validation = TimetableValidator(world).validate(timetable)
+        val validation = validator(world, timetableId).validate(timetable)
         if (!validation.isSuccess) {
             return TimetableEpochStartResult.Failure(validation.errors.joinToString("; "))
         }
@@ -673,7 +675,7 @@ class TimetableDispatcher(
             return TimetableServiceStartResult.Failure("apply the complete formation timetable before starting services")
         }
         val serviceValidation = if (applied != null && timetable.formationEvents.isNotEmpty())
-            TimetableValidationResult(emptyList(), emptyList()) else TimetableValidator(world).validateForServiceStart(timetable, service.id)
+            TimetableValidationResult(emptyList(), emptyList()) else validator(world, timetableId).validateForServiceStart(timetable, service.id)
         val validationErrors = serviceValidation.errors
         if (validationErrors.isNotEmpty()) {
             return TimetableServiceStartResult.Failure(validationErrors.joinToString("; "))
@@ -2718,8 +2720,10 @@ class TimetableDispatcher(
                 ?: run.ato.publishedState.preparedReverseRevision
             if (preparedRevision < reverse.preparationRevision) return
             val reversedBefore = run.train.isReversed
-            val facingBefore =
-                (run.train.headLocation as? work.art1st.javarailways.core.physics.rail.RailLocationWithFacing)
+            // Pending direction is expressed at the unchanged waypoint anchor, whose AB basis
+            // may differ from the current head's rail after an earlier in-place reversal.
+            val facingBefore = run.requiredNextStartDirection
+                ?: (run.train.headLocation as? work.art1st.javarailways.core.physics.rail.RailLocationWithFacing)
                     ?.facing
             run.train.reverse()
             if (run.train.isReversed == reversedBefore) {
@@ -4382,7 +4386,7 @@ class TimetableDispatcher(
                             movementStep,
                             checkNotNull(run.programCursor.address),
                             run.programCursor.advance()
-                        )
+                        ).copy(requiredStartDirection = run.requiredNextStartDirection)
                         val submission = submitMissionForRun(world, run, plan)
                         val accepted = submission.accepted
                         if (accepted == null) {
@@ -4811,6 +4815,10 @@ class TimetableDispatcher(
     }
 
     private fun bindWorld(world: World) {
+        require(standaloneSimulationServices.isEmpty() ||
+            world.executionMode == work.art1st.javarailways.core.api.physics.WorldExecutionMode.SIMULATION) {
+            "standalone simulation services cannot be used in a live world"
+        }
         val currentWorld = boundWorld
         check(currentWorld == null || currentWorld === world) {
             "TimetableDispatcher cannot be shared between worlds"
@@ -4824,6 +4832,9 @@ class TimetableDispatcher(
         (world as? CoreWorld)?.physicsCoordinator?.ensureBetweenFrames("TimetableDispatcher mutation")
     }
 
+    private fun validator(world: World, timetableId: String) = TimetableValidator(world,
+        standaloneSimulationServices.filter { it.timetableId == timetableId }.mapTo(HashSet()) { it.serviceId })
+
     private fun compileAndInstallAppliedPlan(
         world: World,
         timetableId: String,
@@ -4832,7 +4843,7 @@ class TimetableDispatcher(
     ): AppliedPlanInstallResult {
         val timetable = world.simpleAtoWorldData.timetables[timetableId]
             ?: return AppliedPlanInstallResult.Rejected("timetable not found: $timetableId")
-        val validation = validatedRoutes ?: TimetableValidator(world).validate(timetable)
+        val validation = validatedRoutes ?: validator(world, timetableId).validate(timetable)
         if (!validation.isSuccess) {
             return AppliedPlanInstallResult.Rejected(validation.errors.joinToString("; "))
         }

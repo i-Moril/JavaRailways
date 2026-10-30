@@ -56,3 +56,15 @@ User answered: preserve continuous display and per-unit future stops, configured
 - [x] Pure immutable display-plan edits, claims/identity and current-format roundtrip/generation tests.
 - [x] RUN inspector editor, orphan visibility and removal of old independent panel.
 - [x] Frontend287/build, actual App browser/history/recovery/invalid gate/narrow screen and scoped independent review pass. User authorized separate local commit; no deployment/archive, game acceptance deferred.
+
+## Standalone function duration simulation (2026-10-29)
+
+User approved explicit directed waypoint + ALONG/OPPOSITE initial facing. Execute bounded contract in research/function-simulation.md; preserve original waypoint routing semantics, reference blueprint boundary and current persistence. Implement runtime transient initial-condition flow, bridge/sidecar endpoint and shared frontend dialog; independently check before reporting. No task archive or automatic deployment.
+
+User correction2026-10-30: all actual simulation seeding proves unique whole-train placement in configured direction; optional actual in-place reverse follows placement; then existing execution. Remove opposite-facing respawn draft. Add SIM+LIVE ATO no-implicit-reverse regression and mixed rail-local orientation check. See CURRENT correction in research/function-simulation.md and research/placement-uniqueness.md.
+
+
+- [x] Current Oct30 contract implemented: shared Core whole-body unique placement, real optional reverse, original dispatcher/sandbox execution; previous facing override removed.
+- [x] Actual regression failures for mixed-rail repeated reverse and reverse→depot fixed with retained origin direction; test fixture owner nesting corrected without weakening production guards.
+- [x] Final Core538/Basic435/SimpleATO643/Bukkit663/WebUI49 tests (2328 total), frontend323/build, actual local browser input/error/narrow-layout check, independent review, spec/context validation pass. See research/function-simulation-validation-2026-10-30.md.
+- [ ] User game validation, commit/deployment follow-up and remaining parent issues. Keep task in_progress; no finish/archive.

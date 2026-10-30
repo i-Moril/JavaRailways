@@ -303,6 +303,9 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     val body = readBody(exchange)
                     exchange.respond(200, await { deleteLineJson(worldName, parts[2], body) })
                 }
+                exchange.requestMethod == "POST" && parts.size == 3 && parts[1] == "programs" && parts[2] == "simulate" -> {
+                    exchange.respond(200, simulateProgramJson(worldName, readBody(exchange)))
+                }
                 exchange.requestMethod == "POST" && parts.size == 3 && parts[1] == "timetables" && parts[2] == "simulate" -> {
                     exchange.respond(200, simulateTimetableJson(worldName, readBody(exchange)))
                 }
@@ -365,6 +368,12 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 put("name", bukkit.name)
                 put("uuid", bukkit.uid.toString())
                 put("wayPoints", JsonArray(data.wayPoints.all().map { JsonPrimitive(it.id) }))
+                put("programSimulationWayPoints", JsonArray(data.wayPoints.all().mapNotNull { point ->
+                    val rail = world.getRail(point.railId)
+                    if (rail == null || point.arcLength > rail.curve.totalArcLength ||
+                        (operationalData.destinations[point.id]?.approachDirection == null && data.operatingDirections[point.railId] == null)) null
+                    else resolveProgramSimulationWayPoint(world, point.id).json()
+                }))
                 put("stations", JsonArray(destinations.mapNotNull { destination ->
                     val role = destination.role as? DestinationRole.StationBerthRole
                         ?: return@mapNotNull null
@@ -540,6 +549,58 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     })
                 }
             }
+
+        private fun simulateProgramJson(worldName: String, body: String): String {
+            val request = ProgramSimulationRequest.parse(body)
+            val factory = IsolatedTimetableSimulationFactory(
+                SimulationControlProfileCatalog(plugin),
+                plugin.physicsConfig.track.gravityMetersPerSecondSquared,
+                plugin.javaRailwaysConfig.atoSafetyDistanceMeters,
+                speedSafety = plugin.physicsConfig.overspeed.let {
+                    work.art1st.javarailways.basic.safety.SpeedSafetyMonitor.Config(
+                        it.derailEnabled, it.toleranceKmH / 3.6, it.graceTicks)
+                },
+                requiredDomainFeatures = plugin::requiredSimulationDomainFeatures,
+                prepareDomainFeatures = plugin::prepareSimulationDomainFeatures
+            )
+            val response = runBoundedProgramSimulation(simulationExecutor) {
+                val compiled = try { plugin.timetableScriptSandbox.compileSource(request.source(), "function-simulation") }
+                catch (failure: TimetableScriptFailure) { throw HttpFailure(422, failure.message ?: "program compilation failed") }
+                val captured = await {
+                    withWorld(worldName) { _, world ->
+                        val coreWorld = world as? work.art1st.javarailways.core.physics.CoreWorld
+                            ?: throw HttpFailure(422, "world does not support isolated simulation")
+                        try {
+                            val point = resolveProgramSimulationWayPoint(coreWorld, request.wayPointId)
+                            val normalized = TimetableScriptNormalizer.normalize(compiled, coreWorld.simpleAtoWorldData.destinations)
+                            val timetable = normalized.restore()
+                            val snapshot = factory.capture(coreWorld, timetable,
+                                listOf(TimetableProfileSelection(PROGRAM_SIMULATION_SERVICE, request.profileType, request.profileId)),
+                                standaloneProgramServiceIds = setOf(PROGRAM_SIMULATION_SERVICE),
+                                requireRegisteredUnitsForServices = if (programSimulationNeedsRegisteredUnits(normalized)) setOf(PROGRAM_SIMULATION_SERVICE) else emptySet())
+                            Triple(normalized, point, snapshot)
+                        } catch (failure: IllegalArgumentException) {
+                            throw HttpFailure(422, failure.message ?: "could not capture program simulation")
+                        } catch (failure: IllegalStateException) {
+                            throw HttpFailure(422, failure.message ?: "could not capture program simulation")
+                        }
+                    }
+                }
+                try {
+                    factory.create(captured.third, workerThreads = plugin.physicsConfig.workerThreads.coerceIn(1, 4)).use { simulation ->
+                        val result = simulation.simulate(IsolatedTimetableSimulationRequest(captured.third.timetable,
+                            delayThresholdTicks = request.maximumSimulationTicks + 1L,
+                            maximumSimulationTicks = request.maximumSimulationTicks))
+                        programSimulationResultJson(result, captured.first, captured.second, request.reverseTrain)
+                    }
+                } catch (failure: IllegalArgumentException) {
+                    throw HttpFailure(422, failure.message ?: "program simulation setup failed")
+                } catch (failure: IllegalStateException) {
+                    throw HttpFailure(422, failure.message ?: "program simulation setup failed")
+                }
+            }
+            return json.encodeToString(response)
+        }
 
         private fun simulateTimetableJson(worldName: String, body: String): String {
             val root = json.parseToJsonElement(body).jsonObject

@@ -22,6 +22,7 @@ import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.route.ExpandedRoute
 import work.art1st.javarailways.simpleato.routing.RouteBuildResult
 import work.art1st.javarailways.core.api.physics.World
+import work.art1st.javarailways.core.api.physics.WorldExecutionMode
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.routing.OperationalRoutePlanner
@@ -349,7 +350,15 @@ data class TimetableValidationResult private constructor(
     val isSuccess: Boolean get() = errors.isEmpty()
 }
 
-class TimetableValidator(private val world: World) {
+class TimetableValidator(
+    private val world: World,
+    private val standaloneSimulationServiceIds: Set<String> = emptySet()
+) {
+    init {
+        require(standaloneSimulationServiceIds.isEmpty() || world.executionMode == WorldExecutionMode.SIMULATION) {
+            "standalone simulation validation cannot be used in a live world"
+        }
+    }
     private val routePlanner = OperationalRoutePlanner(world)
 
     fun validate(timetable: Timetable): TimetableValidationResult = validateDefinition(timetable, timetable)
@@ -484,6 +493,18 @@ class TimetableValidator(private val world: World) {
         retainedSelections: MutableSet<ValidatedStationSelectionKey>
     ) {
         val prefix = "[$timetableId/${service.id}]"
+        val standaloneSimulation = service.id in standaloneSimulationServiceIds
+        var initialSimulationDirection: ViewDirection? = null
+        if (standaloneSimulation) {
+            val take = (service.steps.firstOrNull() as? TimetableStep.At)?.action as? TimetableAction.TakeFromWaypoint
+            val point = take?.wayPointIds?.singleOrNull()?.let { world.basicWorldData.wayPoints[it] }
+            initialSimulationDirection = point?.let {
+                world.simpleAtoWorldData.destinations[it.id]?.approachDirection
+                    ?: world.basicWorldData.operatingDirections[it.railId]
+            }
+            if (point == null || world.getRail(point.railId) == null || initialSimulationDirection == null)
+                errors += "$prefix simulation initial waypoint must have an explicit waypoint or rail direction"
+        }
         if (service.id.isBlank()) errors.add("$prefix service id 不能为空")
         when (val activation = service.activation) {
             TimetableServiceActivation.Scheduled,
@@ -672,7 +693,7 @@ class TimetableValidator(private val world: World) {
                             }
                         }
                         TimetableAction.Halt -> {
-                            if (!hasMovement) errors.add("$prefix step#$index halt 前必须至少有一个 destination")
+                            if (!hasMovement && !standaloneSimulation) errors.add("$prefix step#$index halt 前必须至少有一个 destination")
                             if (service.steps.drop(index + 1).any { (it as? TimetableStep.At)?.action !is TimetableAction.TaskEnd }) {
                                 errors.add("$prefix step#$index halt 必须是 service 的最后一步")
                             }
@@ -792,8 +813,8 @@ class TimetableValidator(private val world: World) {
                         is TimetableAction.TakeFromDepot,
                         is TimetableAction.TakeFromFormationOutput,
                         is TimetableAction.Couple,
-                        is TimetableAction.Split,
-                        is TimetableAction.TakeFromWaypoint -> setOf(null)
+                        is TimetableAction.Split -> setOf(null)
+                        is TimetableAction.TakeFromWaypoint -> setOf(initialSimulationDirection)
                         else -> requiredStartDirections
                     }
                     if (stationProgram != null && stationProgram.reverseParity() != 0) {
@@ -830,7 +851,7 @@ class TimetableValidator(private val world: World) {
             }
             if (service.trainSelector == TrainSelector.AnyTrain && outcome.takeActionCount == 0)
                 sink.errors += "$prefix AnyTrain service 必须以 takeFromDepot 或 takeFromWaypoint 开始"
-            if (!outcome.hasMovement && service.steps.none { it is TimetableStep.At &&
+            if (!outcome.hasMovement && !standaloneSimulation && service.steps.none { it is TimetableStep.At &&
                     (it.action is TimetableAction.Couple || it.action is TimetableAction.Split ||
                         outcome.hasFormationOrigin && it.action is TimetableAction.StoreAtDepot) })
                 sink.errors += "$prefix service 至少需要一个 destination"

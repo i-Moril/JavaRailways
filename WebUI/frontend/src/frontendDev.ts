@@ -102,6 +102,7 @@ export const demoApi={
   async draft(_worldId:string,draftId:string){const value=drafts.get(draftId);if(!value)throw new Error(`Unknown demo draft: ${draftId}`);return clone(value);},
   async createDraft(_worldId:string,value:SavedTimetableV1):Promise<DraftSummary>{drafts.set(value.id,clone(value));return {id:value.id,updatedAt:now(),timetable:clone(value)};},
   async saveDraft(_worldId:string,draftId:string,value:SavedTimetableV1){drafts.set(draftId,clone(value));},async deleteDraft(_worldId:string,draftId:string){drafts.delete(draftId);},
+  async simulateProgram(_worldId:string,_input:import('./types').ProgramSimulationRequest):Promise<import('./types').ProgramSimulationResult>{throw new Error('Program simulation requires a live authenticated server');},
   async stationPrograms(_worldId:string):Promise<import('./types').StationProgramRecord[]>{throw new Error('The shared program library requires a live authenticated server');},
   async stationProgram(_worldId:string,_id:string):Promise<import('./types').StationProgramRecord>{throw new Error('The shared program library requires a live authenticated server');},
   async createStationProgram(_worldId:string,_id:string,_name:string,_definition:import('./types').StationProgramDefinition):Promise<import('./types').StationProgramRecord>{throw new Error('The shared program library requires a live authenticated server');},

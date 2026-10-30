@@ -54,8 +54,9 @@ export interface StationBerthMetadata {
   stoppingAreaId?:string;minimumTrainLengthMeters?:number;maximumTrainLengthMeters?:number;usableLengthMeters?:number; stationId:string; stationDisplayName?:string; berthId:string; destinationId:string }
 export interface DepotMetadata { id:string; displayName?:string; stablingPoints:{id:string;destinationId:string}[] }
 export interface SimulationProfileDescriptor { type:'WORLD_TRAIN'|'TRAIN_TEMPLATE'; id:string; displayName:string; carCount:number }
+export interface ProgramSimulationWayPoint {id:string;displayName:string;railId:string;direction:'AB'|'BA';directionSource:'WAYPOINT'|'RAIL'}
 export interface TimetableExtensionDescriptor { typeId:string; version:number; title:string; description:string; parameterSchema?:Record<string,unknown> }
-export interface WorldMetadata { wayPoints?: string[]; stations?: StationBerthMetadata[]; depots?: string[]; depotDetails?:DepotMetadata[]; trains?: string[]; simulationProfiles?:SimulationProfileDescriptor[]; extensions?:{ actions?:TimetableExtensionDescriptor[]; conditions?:TimetableExtensionDescriptor[] } }
+export interface WorldMetadata { wayPoints?: string[]; programSimulationWayPoints?:ProgramSimulationWayPoint[]; stations?: StationBerthMetadata[]; depots?: string[]; depotDetails?:DepotMetadata[]; trains?: string[]; simulationProfiles?:SimulationProfileDescriptor[]; extensions?:{ actions?:TimetableExtensionDescriptor[]; conditions?:TimetableExtensionDescriptor[] } }
 export interface DraftSummary { id: string; updatedAt?: string; timetable?: SavedTimetableV1 }
 export interface EditorDocumentSummary { id:string; updatedAt?:string }
 export interface ValidationIssue { path?: string; message: string; severity?: string }
@@ -142,6 +143,15 @@ export type TimetableEventPoint=TimedOperation;
 export interface StationProgramDefinition {
  parameters:{id:string;type:StationProgramParameterType}[];
  steps:StationProgramStep[];
+}
+export interface ProgramSimulationRequest {
+ programId:string;definition:StationProgramDefinition;arguments:Record<string,StationProgramLiteral>;startTick:number;periodDays:number;
+ profile:{type:'WORLD_TRAIN'|'TRAIN_TEMPLATE';id:string};initialPosition:{wayPointId:string;reverseTrain:boolean};
+ plannedContext?:Record<string,string>;maximumDurationTicks:number;
+}
+export interface ProgramSimulationResult {
+ status:'COMPLETED'|'FAILED'|'LIMIT_REACHED';simulatedTicks:number;durationTicks?:number;startTick?:number;endTick?:number;reason?:string;failedProgramStepId?:string;
+ initialPosition:{wayPointId:string;direction:'AB'|'BA';directionSource:'WAYPOINT'|'RAIL';reverseTrain:boolean};
 }
 export interface StationProgramRecord {
  formatVersion:1;id:string;name:string;revision:number;contentIdentity:string;definition:StationProgramDefinition;

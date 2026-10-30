@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import work.art1st.javarailways.basic.BasicWorldData
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
@@ -204,7 +205,10 @@ class AdmittedCouplingPhysicalIntegrationTest {
         private val grant = owner { assertInstanceOf(RouteAdmissionResult.Granted::class.java,
             runtime.requestCouplingApproach(requester, handle, RouteResourceIntent("test:request/contact", movingOwner,
                 moving.id, observation.stamp, route, RouteBoundary(route.totalLengthMeters)))).grant }
-        private val selection = FrozenRouteSelectionResult.Selected(moving.id, observation.stamp, route)
+        private val selection = FrozenRouteSelectionResult.Selected(moving.id, observation.stamp, route,
+            work.art1st.javarailways.simpleato.routing.RouteOperatingDirectionLimit.calculate(
+                observation.stamp.worldId, route, world.topologyState, world.basicWorldData.operatingDirections.snapshot(
+                    world.topologyState, route.segments.map { it.railId })))
         private val admission = RouteAuthorityAdmissionClient(moving.id, "test:consumer", movingOwner,
             service, ato.trainRestrictionPublisher)
         init { owner {

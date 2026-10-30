@@ -49,9 +49,7 @@ class SignalObservationGraphPublicationTest {
         val first = FixedBlockDefinition(
             "test:first",
             1,
-            listOf(FixedBlockTraversal(firstRail, ViewDirection.AB, 2.0, 8.0)),
-            bidirectional = true
-        )
+            listOf(FixedBlockTraversal(firstRail, ViewDirection.AB, 2.0, 8.0)))
         val second = FixedBlockDefinition(
             "test:second",
             1,
@@ -98,6 +96,14 @@ class SignalObservationGraphPublicationTest {
         val next = observation.graph.nodesByState.getValue(forwardState).continuations.single()
         assertEquals(4.0, next.distanceMeters)
         assertEquals(SectionRef(SectionKind.FIXED_BLOCK, second.blockId), next.target!!.section)
+        // The second block has no reverse signal, but its reverse geometry still scans back
+        // toward the first block's reverse entrance instead of ending at the missing device.
+        val secondReverse = SignalObservationScanState(SectionRef(SectionKind.FIXED_BLOCK, second.blockId),
+            ViewDirection.BA, "${second.blockId}/exit")
+        val previous = observation.graph.nodesByState.getValue(secondReverse).continuations.single()
+        assertEquals(4.0, previous.distanceMeters)
+        assertEquals(reverseState, previous.target)
+        assertEquals(4, observation.graph.nodesByState.size)
     }
 
     @Test

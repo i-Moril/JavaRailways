@@ -192,8 +192,7 @@ internal class SimpleSignalsRuntimePublication(
     val fixedBlockSignals: CompiledFixedBlockSignals,
     val protectionSignals: CompiledProtectionSignals,
     val signalObservationGraph: SignalObservationGraphPublication,
-    previous: SimpleSignalsRuntimePublication? = null,
-    val directionPolicy: work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy()
+    previous: SimpleSignalsRuntimePublication? = null
 ) {
     internal var topologyIndex: SectionTopologyIndex? = null
     internal var topologyGuard: SectionTopologyGuard? = null
@@ -224,7 +223,6 @@ internal data class PreviewRegionState(val definition: ProtectionRegionDefinitio
  */
 internal class SimpleSignalsWorldRuntime(
     val worldId: UUID,
-    private val directionPolicy: work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy(),
     private val protectionRegionMaxDistanceMeters: Double = 1000.0
 ) {
     private data class RuntimeState(
@@ -363,8 +361,7 @@ internal class SimpleSignalsWorldRuntime(
         ::fixedBlockInspectionLeadTime,
         ::protectionDeviceDeclarations,
         ::protectionDeviceSignal,
-        { id -> state.publication?.protectionSignals?.signalIdsByDeclaration?.containsKey(id) == true },
-        directionPolicy
+        { id -> state.publication?.protectionSignals?.signalIdsByDeclaration?.containsKey(id) == true }
     ).source
 
     val protectionRegionInspectionSource = ProtectionRegionInspectionSource(
@@ -687,8 +684,7 @@ internal class SimpleSignalsWorldRuntime(
             candidateSignals,
             candidateProtectionSignals,
             candidateObservationGraph,
-            current,
-            directionPolicy
+            current
         )
         candidate.topologyIndex = SectionTopologyIndex(candidate, current?.topologyIndex)
         SimpleSignalsDefinitionPreparationResult.Prepared(
@@ -1365,10 +1361,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                     "SimpleSignals is disabled")
                 val previous = runtimes[worldId]
                 if (previous == null) {
-                    SimpleSignalsWorldRuntime(worldId,
-                        work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy(
-                            { topology, rails -> infrastructure.operatingDirections(worldId, topology, rails) }),
-                        protectionRegionMaxDistanceMeters).also { runtimes[worldId] = it }
+                    SimpleSignalsWorldRuntime(worldId, protectionRegionMaxDistanceMeters).also { runtimes[worldId] = it }
                 } else previous
             }
             if (!reserved.closed) {

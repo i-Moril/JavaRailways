@@ -21,7 +21,6 @@ internal const val FIXED_BLOCK_RESOURCE_TYPE = "simplesignals:fixed-block"
 /** Bridges plugin-owned fixed blocks into the host's one generic route-resource transaction. */
 internal class FixedBlockRouteResourcePolicy(
     private val plugin: Plugin,
-    private val directionPolicyForWorld: (UUID) -> FixedBlockDirectionPolicy = { FixedBlockDirectionPolicy() },
     private val validateRouteAdmission: (UUID, RouteResourceIntent) -> Unit = { _, _ -> },
     private val snapshotForWorld: (UUID) -> FixedBlockReadSnapshot?
 ) : InfrastructureResourceProvider, RouteResourceContributor {
@@ -40,7 +39,7 @@ internal class FixedBlockRouteResourcePolicy(
         else -> null
     }
 
-    private fun policy(worldId: UUID) = FixedBlockDomainResourcePolicy(worldId, directionPolicyForWorld(worldId),
+    private fun policy(worldId: UUID) = FixedBlockDomainResourcePolicy(worldId,
         { validateRouteAdmission(worldId, it) }, { snapshotForWorld(worldId) })
 
     override fun authorizeFormationRoute(worldId: UUID, context: FormationRouteContext,
@@ -56,13 +55,12 @@ internal class FixedBlockRouteResourcePolicy(
 /** The same fixed-block resource calculation for LIVE authentication and detached simulation. */
 internal class FixedBlockDomainResourcePolicy(
     private val worldId: UUID,
-    private val directionPolicy: FixedBlockDirectionPolicy,
     private val validateRouteAdmission: (RouteResourceIntent) -> Unit,
     private val snapshot: () -> FixedBlockReadSnapshot?
 ) {
     fun exists(resourceId: String): Boolean = snapshot()?.blocksById?.containsKey(resourceId) == true
 
-    /** Same territory, direction and matcher gates as ordinary admission, without partner-lock exemptions. */
+    /** Same territory and matcher gates as ordinary admission, without partner-lock exemptions. */
     fun authorizeFormationRoute(context: FormationRouteContext, intent: RouteResourceIntent): RouteAdmissionFailure? = try {
         require(intent.formationContext === context) { "formation context does not match intent" }
         if (context.purpose != FormationRoutePurpose.COUPLING_APPROACH)
@@ -105,16 +103,14 @@ internal class FixedBlockDomainResourcePolicy(
         val match = FixedBlockRouteMatcher.matchAuthority(
             snapshot,
             intent.route,
-            intent.desiredAuthority.distanceFromRouteStartMeters,
-            detectReverse = true
+            intent.desiredAuthority.distanceFromRouteStartMeters
         )
         val windows = when (match) {
             is FixedBlockAuthorityMatchResult.Matched -> match.windows
             is FixedBlockAuthorityMatchResult.Rejected -> error(match.detail)
         }
-        val disabled = directionPolicy.disabledBlocks(snapshot, windows.map { snapshot.blocksById.getValue(it.blockId) }.distinct())
         val lastExitByBlock = linkedMapOf<String, Double>()
-        directionPolicy.normalWindows(snapshot, windows, disabled).forEach { window ->
+        windows.forEach { window ->
             lastExitByBlock.merge(window.blockId, window.exitRouteDistanceMeters, ::maxOf)
         }
         return java.util.List.copyOf(

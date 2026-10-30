@@ -44,48 +44,45 @@ import java.util.UUID
 /** Real Basic claims and cursor release, using the concrete plugin contributor. */
 class FixedBlockStopContinuationTest {
     @Test
-    fun `active single reverse refusal makes no new claim and known disable preserves held token until tail release`() {
-        BidirectionalFixture(false, prepareDevice = true).use { fixture ->
+    fun `rejected admission and extension have no preparation side effects and preserve held claims`() {
+        BlockFixture(prepareDevice = true).use { fixture ->
             val requester = Any()
-            val reverse = fixture.route("test:reverse", 1L,
-                listOf(RouteSegmentSnapshot(fixture.first, ViewDirection.BA, 5.0, 40.0)))
-            fixture.observe(1L, fixture.train("reverse", 1L, fixture.first, 95.0, 90.0, ViewDirection.BA))
-            val denied = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
-                fixture.runtime.request(requester, fixture.intent("reverse", reverse, 35.0)))
-            assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION, denied.failure.code)
-            assertTrue(fixture.registry.claimSnapshots().isEmpty())
-            assertTrue(fixture.runtime.activeAdmissions().isEmpty(), "refusal cannot leave a pending resource request")
-            assertEquals(0, fixture.preparationResolutions)
-            assertEquals(0, fixture.preparationStarts, "refusal precedes every preparation side effect")
-
             val forward = fixture.route("test:forward", 1L, listOf(
                 RouteSegmentSnapshot(fixture.first, ViewDirection.AB, 5.0, 100.0),
                 RouteSegmentSnapshot(fixture.second, ViewDirection.AB, 0.0, 100.0)))
-            fixture.observe(2L, fixture.train("forward", 2L, fixture.first, 5.0, 10.0))
+            fixture.observe(1L, fixture.train("forward", 1L, fixture.first, 5.0, 10.0))
+            fixture.rejectAdmission = true
+            val denied = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+                fixture.runtime.request(requester, fixture.intent("forward", forward, 80.0)))
+            assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION, denied.failure.code)
+            assertTrue(fixture.registry.claimSnapshots().isEmpty())
+            assertTrue(fixture.runtime.activeAdmissions().isEmpty())
+            assertEquals(0, fixture.preparationResolutions)
+            assertEquals(0, fixture.preparationStarts)
+            fixture.rejectAdmission = false
             val grant = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
                 fixture.runtime.request(requester, fixture.intent("forward", forward, 80.0))).grant
             assertTrue(fixture.token in fixture.held())
-            assertEquals(1, fixture.preparationStarts, "the same fixture actually prepares an accepted request")
-            fixture.directions.put(fixture.first, null) // isolated policy/lifecycle evidence; production edits retain their guard
+            assertEquals(1, fixture.preparationStarts)
+            fixture.rejectAdmission = true
             val refused = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
                 fixture.runtime.request(requester, fixture.intent("forward", forward, 115.0)))
             assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION, refused.failure.code)
-            assertTrue(fixture.token in fixture.held(), "refusal cannot erase a held token")
-            fixture.directions.put(fixture.first, ViewDirection.AB)
+            assertTrue(fixture.token in fixture.held(), "a contributor failure cannot erase a held token")
+            fixture.rejectAdmission = false
             val extension = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
                 fixture.runtime.request(requester, fixture.intent("forward", forward, 115.0))).grant
             assertSame(grant.grantId, extension.grantId)
-            assertTrue(fixture.token in fixture.held(), "repaired admission extends the same held token")
-            fixture.observe(3L, fixture.train("forward", 3L, fixture.first, 79.0, 89.0))
+            fixture.observe(2L, fixture.train("forward", 2L, fixture.first, 79.0, 89.0))
             assertTrue(fixture.token in fixture.held())
-            fixture.observe(4L, fixture.train("forward", 4L, fixture.second, 5.0, 15.0))
+            fixture.observe(3L, fixture.train("forward", 3L, fixture.second, 5.0, 15.0))
             assertFalse(fixture.token in fixture.held())
         }
     }
 
     @Test
     fun `opposing disjoint prefixes conflict on one token atomically and regrant after tail clear`() {
-        BidirectionalFixture().use { fixture ->
+        BlockFixture().use { fixture ->
             val forward = fixture.route("test:forward", 1L, listOf(
                 RouteSegmentSnapshot(fixture.first, ViewDirection.AB, 5.0, 100.0),
                 RouteSegmentSnapshot(fixture.second, ViewDirection.AB, 0.0, 100.0)))
@@ -121,7 +118,7 @@ class FixedBlockStopContinuationTest {
 
     @Test
     fun `stopped reversal retains shared token and releases it using the new route tail`() {
-        BidirectionalFixture().use { fixture ->
+        BlockFixture().use { fixture ->
             val forward = fixture.route("test:return", 1L,
                 listOf(RouteSegmentSnapshot(fixture.first, ViewDirection.AB, 10.0, 60.0)))
             fixture.observe(1L, fixture.train("train", 1L, fixture.first, 10.0, 20.0))
@@ -154,7 +151,7 @@ class FixedBlockStopContinuationTest {
         }
     }
 
-    private class BidirectionalFixture(bidirectional: Boolean = true, prepareDevice: Boolean = false) : AutoCloseable {
+    private class BlockFixture(prepareDevice: Boolean = false) : AutoCloseable {
         val world = createTestWorld()
         private val firstRail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 2))
         private val views = getViewsInOrder(firstRail, false)
@@ -173,14 +170,13 @@ class FixedBlockStopContinuationTest {
             }
         })
         private val block = FixedBlockDefinition("test:two-way", 1L,
-            listOf(FixedBlockTraversal(first, ViewDirection.AB, 20.0, 80.0)), bidirectional)
+            listOf(FixedBlockTraversal(first, ViewDirection.AB, 20.0, 80.0)))
         private val snapshot = FixedBlockCatalog().also {
             assertEquals(FixedBlockCatalogStatus.PUBLISHED, it.publish(topology, 1L, listOf(block)).status)
         }.snapshot(topology)
-        val directions = work.art1st.javarailways.basic.rail.OperatingDirectionStore().also {
-            if (!bidirectional) it.put(first, ViewDirection.AB)
-        }
-        private val policy = FixedBlockRouteResourcePolicy(plugin, { FixedBlockDirectionPolicy(directions::snapshot) }) { snapshot }
+        var rejectAdmission = false
+        private val policy = FixedBlockRouteResourcePolicy(plugin,
+            validateRouteAdmission = { _, _ -> check(!rejectAdmission) { "injected contributor failure" } }) { snapshot }
         val token = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)
         private val device = StableInfrastructureResource("test:device", "test:prepared-device")
         private val preparation = ResourcePreparationDescriptor("test:prepare-device", emptyMap())

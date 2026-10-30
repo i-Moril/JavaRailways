@@ -37,12 +37,12 @@ class FixedBlockCatalogTest {
     }
 
     @Test
-    fun `bidirectional compilation derives immutable reverse path without duplicating occupancy or index`() {
+    fun `every compilation derives immutable reverse path without duplicating occupancy or index`() {
         val topology = lineTopologyState(7L, first, second)
         val traversals = listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 10.0),
             FixedBlockTraversal(second, ViewDirection.AB, 0.0, 10.0 + Curve.TOLERANCE / 2))
         val catalog = FixedBlockCatalog()
-        val twoWay = FixedBlockDefinition("test:two-way", 1L, traversals, true)
+        val twoWay = FixedBlockDefinition("test:two-way", 1L, traversals)
         assertEquals(FixedBlockCatalogStatus.PUBLISHED, catalog.publish(topology, 1L, listOf(twoWay)).status)
         val snapshot = catalog.snapshot(topology)
         val compiled = snapshot.blocksById.getValue(twoWay.blockId)
@@ -61,7 +61,7 @@ class FixedBlockCatalogTest {
             (compiled.reverseTraversals as MutableList<FixedBlockTraversal>).clear()
         }
         assertEquals(FixedBlockCatalogStatus.REJECTED, catalog.publish(topology, 2L,
-            listOf(FixedBlockDefinition(twoWay.blockId, 1L, traversals, false))).status)
+            listOf(FixedBlockDefinition(twoWay.blockId, 1L, traversals.dropLast(1)))).status)
         assertSame(snapshot, catalog.snapshot(topology))
     }
 

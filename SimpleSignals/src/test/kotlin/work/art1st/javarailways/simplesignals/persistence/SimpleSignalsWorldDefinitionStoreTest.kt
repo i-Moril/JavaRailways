@@ -27,7 +27,7 @@ class SimpleSignalsWorldDefinitionStoreTest {
     lateinit var directory: Path
 
     @Test fun `fixed pre-name fixture loads through world store with empty names`() {
-        val fixture = requireNotNull(javaClass.getResource("/fixed-block-without-bidirectional.json")).readText()
+        val fixture = requireNotNull(javaClass.getResource("/fixed-block-definitions.json")).readText()
         val world = UUID(0, 32)
         val store = SimpleSignalsWorldDefinitionStore(directory.toFile())
         Files.createDirectories(store.primaryFile(world).parent)
@@ -60,24 +60,21 @@ class SimpleSignalsWorldDefinitionStoreTest {
     }
 
     @Test
-    fun `fixed absent bidirectional fixture defaults false and explicit true stays in current schema`() {
-        val fixture = requireNotNull(javaClass.getResource("/fixed-block-without-bidirectional.json")).readText()
+    fun `current fixed fixture preserves path identity and strictly rejects the removed permission field`() {
+        val fixture = requireNotNull(javaClass.getResource("/fixed-block-definitions.json")).readText()
         val fixtureWorld = UUID(0L, 32L)
         val decoded = SimpleSignalsWorldDefinitionsCodec.decode(fixture, fixtureWorld)
         val block = decoded.fixedBlocks.single()
-        assertFalse(block.bidirectional)
-        val enabled = SimpleSignalsWorldDefinitions(fixtureWorld, 2L, emptyList(), emptyList(),
-            listOf(FixedBlockDefinition(block.blockId, 2L, block.traversals, true)))
-        val encoded = SimpleSignalsWorldDefinitionsCodec.encode(enabled)
-        assertTrue(encoded.contains("\"bidirectional\": true"))
+        val encoded = SimpleSignalsWorldDefinitionsCodec.encode(decoded)
+        assertFalse(encoded.contains("bidirectional"))
         assertTrue(encoded.contains("\"schemaVersion\": 1"))
-        assertEquals(enabled, SimpleSignalsWorldDefinitionsCodec.decode(encoded, fixtureWorld))
-        assertTrue(SimpleSignalsWorldDefinitionsCodec.encode(decoded).contains("\"bidirectional\": false"))
-        listOf("null", "1", "\"true\"", "[]").forEach { invalid ->
+        assertEquals(decoded, SimpleSignalsWorldDefinitionsCodec.decode(encoded, fixtureWorld))
+        assertEquals(block.traversals, SimpleSignalsWorldDefinitionsCodec.decode(encoded, fixtureWorld).fixedBlocks.single().traversals)
+        listOf("true", "false", "null", "1", "\"true\"", "[]").forEach { invalid ->
+            val obsolete = encoded.replace("\"traversals\": [", "\"bidirectional\": $invalid, \"traversals\": [")
             assertThrows(IllegalArgumentException::class.java) {
-                SimpleSignalsWorldDefinitionsCodec.decode(encoded.replace("\"bidirectional\": true",
-                    "\"bidirectional\": $invalid"), fixtureWorld)
-            }.also { assertTrue(it.message.orEmpty().isNotBlank()) }
+                SimpleSignalsWorldDefinitionsCodec.decode(obsolete, fixtureWorld)
+            }
         }
     }
 

@@ -42,6 +42,49 @@ import kotlin.concurrent.thread
 
 class SignalEpochRuntimeTest {
     @Test
+    fun `direction changes invalidate only related ATO routes even without any signal source`() {
+        val runtime = runtime()
+        val inspection = work.art1st.javarailways.simpleato.inspection.InspectionRuntime(
+            TrainRestrictionPublisher { accepted(it) }, { _, _, failure -> throw failure })
+        runtime.attachInspectionRuntime(inspection)
+        val route = RouteSnapshot("test:ato", 1L, 7L,
+            listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0)))
+        val stamp = RailwayStateStamp("world", 1L, 7L)
+        inspection.synchronizeRoute(stamp, "train", route)
+        val binding = inspection.bindingFor("train")
+        runtime.publishOperatingDirectionChanges(setOf(UUID(0L, 99L)))
+        runtime.process(frame(1L, emptyList()))
+        assertEquals(true, binding.activeRoute!!.available)
+        runtime.publishOperatingDirectionChanges(setOf(railId))
+        assertEquals(false, binding.activeRoute!!.available,
+            "the existing route is fenced before another physics epoch can use it")
+        runtime.process(frame(2L, emptyList()))
+        assertEquals(false, binding.activeRoute!!.available)
+        assertThrows(IllegalStateException::class.java) {
+            inspection.synchronizeRoute(stamp.copy(physicsEpoch = 2L), "train", route)
+        }
+    }
+
+    @Test
+    fun `a route prepared after a direction edit is not invalidated by its queued signal notification`() {
+        val runtime = runtime()
+        val inspection = work.art1st.javarailways.simpleato.inspection.InspectionRuntime(
+            TrainRestrictionPublisher { accepted(it) }, { _, _, failure -> throw failure })
+        runtime.attachInspectionRuntime(inspection)
+        runtime.publishOperatingDirectionChanges(setOf(railId))
+        val route = RouteSnapshot("test:current-directions", 1L, 7L,
+            listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0)))
+        val stamp = RailwayStateStamp("world", 1L, 7L)
+        inspection.synchronizeRoute(stamp, "train", route)
+        val binding = inspection.bindingFor("train")
+
+        runtime.process(frame(1L, emptyList()))
+
+        assertEquals(true, binding.activeRoute!!.available)
+        inspection.synchronizeRoute(stamp, "train", route)
+    }
+
+    @Test
     fun `transaction during prepared source commit also invalidates the candidate`() {
         val received = mutableListOf<work.art1st.javarailways.simpleato.api.signal.SignalEpochInput>()
         val original = area(firstAreaId, 10.0, 20.0)

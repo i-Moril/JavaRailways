@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyCrossingKind
-import work.art1st.javarailways.basic.api.route.RailOperatingDirections
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
@@ -20,7 +19,6 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublic
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
-import work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import work.art1st.javarailways.simplesignals.region.lineTopologyState
@@ -96,26 +94,24 @@ class SectionOccupancyRuntimeTest {
     }
 
     @Test
-    fun `ordinary physical updates reuse immutable direction controls without policy rereads`() {
-        var reads = 0
-        val policy = FixedBlockDirectionPolicy { root, rails ->
-            reads++
-            RailOperatingDirections(root, rails.associateWith { null })
-        }
-        val world = SimpleSignalsWorldRuntime(worldId, policy)
+    fun `direction edits do not disable the physical block or discard occupancy evidence`() {
+        val world = SimpleSignalsWorldRuntime(worldId)
         world.initializeDefinitions(topology, SimpleSignalsWorldDefinitions(
             worldId, 1L, emptyList(), emptyList(), listOf(block)))
         val occupancy = world.initializeSectionOccupancy()
         val epochs = epochRuntime(requireNotNull(occupancy.source))
+        val section = SectionRef(SectionKind.FIXED_BLOCK, block.blockId)
 
-        epochs.process(frame(1L, listOf(RailInterval(railId, 0.0, 1.0))))
-        val baseline = requireNotNull(occupancy.presentationSnapshot())
-        assertTrue(baseline.blockControls.getValue(block.blockId) is SectionSignalState.Unavailable)
+        epochs.process(frame(1L, listOf(RailInterval(railId, 4.0, 5.0))))
+        val baseline = requireNotNull(occupancy.snapshot())
+        epochs.publishOperatingDirectionChanges(setOf(railId))
         epochs.process(frame(2L, listOf(RailInterval(railId, 4.0, 5.0))))
-        val updated = requireNotNull(occupancy.presentationSnapshot())
-        assertNotSame(baseline.occupancy, updated.occupancy)
-        assertSame(baseline.blockControls, updated.blockControls)
-        assertEquals(1, reads)
+        val updated = requireNotNull(occupancy.snapshot())
+        assertTrue(updated.sections.getValue(section).available)
+        assertEquals(setOf("train"), updated.sections.getValue(section).occupants)
+        assertEquals(baseline.sections, updated.sections)
+        assertEquals(null, occupancy.fixedBlockSignal(
+            work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry(block.blockId)))
     }
 
     private fun epochRuntime(source: work.art1st.javarailways.simpleato.api.signal.SignalEpochSource) =

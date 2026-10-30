@@ -31,35 +31,23 @@ import java.util.UUID
 
 class FixedBlockRouteResourcePolicyTest {
     @Test
-    fun `all traversals require exact allowed directions including mixed facing and unset`() {
+    fun `resource contribution follows both geometric directions on a mixed facing path`() {
         val mixed = topologyState(7L, listOf(first, second), listOf(
             endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.B)))
         val definition = FixedBlockDefinition("test:mixed", 1L, listOf(
             FixedBlockTraversal(first, ViewDirection.AB, 2.0, 10.0),
             FixedBlockTraversal(second, ViewDirection.BA, 2.0, 10.0)))
         val snapshot = FixedBlockCatalog().also { it.publish(mixed, 1L, listOf(definition)) }.snapshot(mixed)
-        val directions = work.art1st.javarailways.basic.rail.OperatingDirectionStore()
-        var reads = 0
-        val policy = FixedBlockDirectionPolicy({ root, rails -> reads++; directions.snapshot(root, rails) })
-        val contributor = FixedBlockRouteResourcePolicy(plugin, { policy }) { snapshot }
+        val contributor = FixedBlockRouteResourcePolicy(plugin) { snapshot }
         val forward = route(listOf(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0),
             RouteSegmentSnapshot(second, ViewDirection.BA, 0.0, 10.0)))
-        assertThrows(IllegalStateException::class.java) { contributor.contribute(worldId, intent(20.0, forward)) }
-        directions.put(first, ViewDirection.AB)
-        assertThrows(IllegalStateException::class.java) { contributor.contribute(worldId, intent(5.0, forward)) }
-        directions.put(second, ViewDirection.BA)
-        assertEquals(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, definition.blockId), contributor.contribute(worldId, intent(5.0, forward)).single().resource)
-        assertEquals(3, reads, "one coherent full-path subset per contribution")
-        directions.put(second, ViewDirection.AB)
-        assertThrows(IllegalStateException::class.java) { contributor.contribute(worldId, intent(5.0, forward)) }
-
-        val bidi = FixedBlockCatalog().also { it.publish(mixed, 1L, listOf(
-            FixedBlockDefinition(definition.blockId, definition.revision, definition.traversals, true))) }.snapshot(mixed)
-        assertEquals(setOf(definition.blockId), policy.disabledBlocks(bidi, bidi.blocksById.values))
-        directions.put(first, null)
-        directions.put(second, null)
-        assertEquals(emptySet<String>(), policy.disabledBlocks(bidi, bidi.blocksById.values))
-        assertTrue(contributor.exists(worldId, definition.blockId), "disabled policy preserves the authored resource identity")
+        val reverse = route(listOf(RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0),
+            RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 10.0)))
+        val resource = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, definition.blockId)
+        assertEquals(resource, contributor.contribute(worldId, intent(5.0, forward)).single().resource)
+        assertEquals(resource, contributor.contribute(worldId, intent(18.0, reverse)).single().resource)
+        assertEquals(RouteBoundary(18.0), contributor.contribute(worldId, intent(20.0, reverse)).single().releaseAfterTailPasses)
+        assertTrue(contributor.exists(worldId, definition.blockId))
     }
 
     private val worldId = UUID.randomUUID()
@@ -86,12 +74,11 @@ class FixedBlockRouteResourcePolicyTest {
     }
 
     @Test
-    fun `bidirectional full and clipped reverse visits share the authored block token`() {
+    fun `full and clipped reverse visits share the authored block token`() {
         val reverseRoute = route(listOf(
             RouteSegmentSnapshot(second, ViewDirection.BA, 0.0, 10.0),
             RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 10.0)))
-        assertThrows(IllegalStateException::class.java) { policy.contribute(worldId, intent(20.0, reverseRoute)) }
-        val twoWay = FixedBlockDefinition(block.blockId, block.revision, block.traversals, true)
+        val twoWay = FixedBlockDefinition(block.blockId, block.revision, block.traversals)
         val twoWaySnapshot = FixedBlockCatalog().also {
             assertEquals(FixedBlockCatalogStatus.PUBLISHED, it.publish(topology, 4L, listOf(twoWay)).status)
         }.snapshot(topology)
@@ -107,12 +94,12 @@ class FixedBlockRouteResourcePolicyTest {
     }
 
     @Test
-    fun `bidirectional mixed-facing path reverses order and preserves internal start and end`() {
+    fun `mixed-facing path reverses order and preserves internal start and end`() {
         val mixedTopology = topologyState(8L, listOf(first, second), listOf(
             endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.B)))
         val mixed = FixedBlockDefinition("test:mixed", 1L, listOf(
             FixedBlockTraversal(first, ViewDirection.AB, 2.0, 10.0),
-            FixedBlockTraversal(second, ViewDirection.BA, 2.0, 10.0)), true)
+            FixedBlockTraversal(second, ViewDirection.BA, 2.0, 10.0)))
         val mixedSnapshot = FixedBlockCatalog().also {
             assertEquals(FixedBlockCatalogStatus.PUBLISHED, it.publish(mixedTopology, 1L, listOf(mixed)).status)
         }.snapshot(mixedTopology)
@@ -137,7 +124,7 @@ class FixedBlockRouteResourcePolicyTest {
             endpoint(second, RailEndpoint.B) to endpoint(third, RailEndpoint.A),
             endpoint(third, RailEndpoint.B) to endpoint(first, RailEndpoint.A)))
         val twoWay = FixedBlockDefinition("test:loop", 1L,
-            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)), true)
+            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)))
         val loopSnapshot = FixedBlockCatalog().also { it.publish(loop, 1L, listOf(twoWay)) }.snapshot(loop)
         val loopPolicy = fixedBlockPolicy(plugin) { loopSnapshot }
         val repeated = RouteSnapshot("test:reverse-loop", 1L, 8L, listOf(
@@ -161,7 +148,7 @@ class FixedBlockRouteResourcePolicyTest {
         val fork = topologyState(8L, listOf(first, second, branch), listOf(
             endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A),
             endpoint(first, RailEndpoint.B) to endpoint(branch, RailEndpoint.A)))
-        val twoWay = FixedBlockDefinition(block.blockId, block.revision, block.traversals, true)
+        val twoWay = FixedBlockDefinition(block.blockId, block.revision, block.traversals)
         val forkSnapshot = FixedBlockCatalog(allowTurnoutGeometry = true).also {
             assertEquals(FixedBlockCatalogStatus.PUBLISHED, it.publish(fork, 1L, listOf(twoWay)).status)
         }.snapshot(fork)
@@ -418,7 +405,7 @@ class FixedBlockRouteResourcePolicyTest {
     }
 
     @Test
-    fun `formation opt-in still rejects wrong context direction and unavailable territory`() {
+    fun `formation rejects wrong context and unavailable territory while both geometries share one resource`() {
         val context = formationContext(emptyList())
         assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
             policy.authorizeFormationRoute(worldId, context, intent(5.0)))
@@ -426,9 +413,14 @@ class FixedBlockRouteResourcePolicyTest {
             snapshotForWorld = { snapshot })
         assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
             blocked.authorizeFormationRoute(worldId, context, intent(5.0).copy(formationContext = context)))
-        val unsetDirections = FixedBlockRouteResourcePolicy(plugin, snapshotForWorld = { snapshot })
-        assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
-            unsetDirections.authorizeFormationRoute(worldId, context, intent(5.0).copy(formationContext = context)))
+        // Operating permission belongs to ATO. This resource policy validates the exact
+        // physical path in either orientation without inventing a block-level permission.
+        val reverse = route(listOf(RouteSegmentSnapshot(second, ViewDirection.BA, 0.0, 10.0),
+            RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 10.0)))
+        val reverseRequest = intent(20.0, reverse).copy(formationContext = context)
+        assertNull(policy.authorizeFormationRoute(worldId, context, reverseRequest))
+        assertEquals(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId),
+            policy.contribute(worldId, reverseRequest).single().resource)
     }
 
     // Fixture only: production contexts are issued exclusively by Basic's prepared formation owner.

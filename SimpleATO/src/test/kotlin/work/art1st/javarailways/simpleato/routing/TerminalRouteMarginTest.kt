@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
@@ -23,6 +24,44 @@ class TerminalRouteMarginTest {
     private val first = UUID(0L, 71L)
     private val second = UUID(0L, 72L)
     private val branch = UUID(0L, 73L)
+
+    @Test
+    fun `provider protection suffix cannot mask a failed direction margin and reused suffix is checked`() {
+        val exit = RailEndpointRef(first, RailEndpoint.A)
+        val entrance = RailEndpointRef(second, RailEndpoint.B)
+        val topology = buildTestTopology(1L,
+            listOf(TestTopologyRail(first, 100.0), TestTopologyRail(second, 100.0)),
+            mapOf(exit to setOf(entrance), entrance to setOf(exit)))
+        val selected = route(segment(first, ViewDirection.BA, 10.0, 98.0))
+        val restrictions = RoutePlanningRestrictions(topology.revision,
+            forbiddenTraversals = listOf(DirectedRailSpan(second, ViewDirection.BA, 0.0, 100.0)))
+        val proposal = TerminalRouteMargin.propose(topology, restrictions, selected, 93.0)
+        assertNotNull(proposal.failure)
+        val runtime = work.art1st.javarailways.simpleato.inspection.InspectionRuntime(
+            { error("preparation must not publish restrictions") }, { _, _, failure -> throw failure })
+        runtime.replaceSources(listOf(work.art1st.javarailways.simpleato.api.inspection.InspectionSource(
+            "test:protection", { error("no train binding") }, { error("no physics callbacks") },
+            terminalRouteContinuation = { _, _ -> listOf(
+                segment(first, ViewDirection.BA, 98.0, 100.0),
+                segment(second, ViewDirection.BA, 0.0, 100.0)) })))
+        val completed = runtime.completeTerminalRoute(selected, proposal.route, proposal.failure)
+        assertTrue(completed.totalLengthMeters > 93.0, "full protection is physically long enough")
+        TerminalRouteMargin.requireLegalPrefix(topology, restrictions, completed, 90.0,
+            selected.totalLengthMeters)
+        assertThrows(IllegalArgumentException::class.java) {
+            TerminalRouteMargin.requireLegalPrefix(topology, restrictions, completed, 93.0,
+                selected.totalLengthMeters)
+        }
+        // A later mission reuses the entire existing physical suffix; no newly appended segment
+        // is available to the old margin walker on which to discover the illegal movement.
+        val reused = TerminalRouteMargin.propose(topology, restrictions, completed, 93.0)
+        assertNull(reused.failure)
+        assertSame(completed, reused.route)
+        assertThrows(IllegalArgumentException::class.java) {
+            TerminalRouteMargin.requireLegalPrefix(topology, restrictions, reused.route, 93.0,
+                completed.totalLengthMeters)
+        }
+    }
 
     @Test
     fun `five meter margin appends real same rail geometry without rewriting frozen prefix`() {

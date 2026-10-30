@@ -39,6 +39,10 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapsh
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionConstraintAdapter
 import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionResult
+import work.art1st.javarailways.simpleato.routing.RouteOperatingDirectionLimit
+import work.art1st.javarailways.basic.api.route.RailOperatingDirections
+import work.art1st.javarailways.core.physics.rail.topology.TestTopologyRail
+import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
 import java.util.UUID
 
 class RouteAuthorityAdmissionClientTest {
@@ -49,6 +53,86 @@ class RouteAuthorityAdmissionClientTest {
     private val publisher = RecordingPublisher()
     private val service = FakeAdmissionService()
     private val client = client(service, publisher)
+
+    @Test
+    fun `protection grant remains truthful while direction restriction limits actual movement`() {
+        val safe = UUID(0L, 21L)
+        val forbidden = UUID(0L, 22L)
+        val protectedRoute = RouteSnapshot(route.routeId, route.revision, route.topologyRevision,
+            listOf(RouteSegmentSnapshot(safe, ViewDirection.BA, 0.0, 60.0),
+                RouteSegmentSnapshot(forbidden, ViewDirection.BA, 0.0, 40.0)))
+        val limited = selection(protectedRoute, directions = mapOf(forbidden to ViewDirection.AB))
+        val held = grant(100.0, protectedRoute)
+        val handle = RouteAdmissionTestFixtures.handle()
+        service.onRequest = { RouteAdmissionResult.Pending(handle, null) }
+        service.onProgress = { RouteAdmissionResult.Granted(held) }
+
+        client.request(limited, RouteBoundary(100.0))
+        assertEquals(0.0, publisher.authorities().last())
+        client.progress()
+
+        assertSame(held, client.committedGrantSnapshot)
+        assertEquals(RouteBoundary(100.0), client.state.committedAuthority)
+        val authorities = publisher.snapshots.last().restrictions.filterIsInstance<MovementAuthorityRestriction>()
+        assertEquals(mapOf("simpleato:committed-authority" to 100.0, "simpleato:operating-direction" to 60.0),
+            authorities.associate { it.restrictionId to it.routeDistanceMeters })
+        val manager = ConstraintManager()
+        val adapter = TrainRestrictionConstraintAdapter("train", manager)
+        adapter.publish(publisher.snapshots.last())
+        adapter.apply(stamp, FrozenRouteBinding.from(protectedRoute), 10.0)
+        assertEquals(listOf(50.0, 90.0), manager.snapshot().values.flatten()
+            .filterIsInstance<MovementAuthorityConstraint>().map { it.remainingDistanceMeters }.sorted())
+        adapter.apply(stamp, FrozenRouteBinding.from(protectedRoute), 55.0)
+        assertEquals(0.0, manager.permittedSpeedMetersPerSecond(0.0, 30.0,
+            AtoSafetyProfile(safetyDistanceMeters = 5.0)),
+            "the direction boundary uses the existing common stopping safety distance")
+    }
+
+    @Test
+    fun `direction boundary survives pending denied continuation and formation adoption`() {
+        val forbidden = UUID(0L, 23L)
+        val protectedRoute = RouteSnapshot(route.routeId, route.revision, route.topologyRevision,
+            listOf(route.segments.single(), RouteSegmentSnapshot(forbidden, ViewDirection.BA, 0.0, 40.0)))
+        val limited = selection(protectedRoute, directions = mapOf(forbidden to ViewDirection.AB))
+        val held = grant(140.0, protectedRoute)
+        client.adoptFormationGrant(limited, held)
+        fun assertRetained() {
+            assertSame(held, client.committedGrantSnapshot)
+            assertEquals(100.0, publisher.snapshots.last().restrictions
+                .filterIsInstance<MovementAuthorityRestriction>()
+                .single { it.restrictionId == "simpleato:operating-direction" }.routeDistanceMeters)
+        }
+        assertRetained()
+        val appended = RouteSnapshot(protectedRoute.routeId, protectedRoute.revision + 1,
+            protectedRoute.topologyRevision, protectedRoute.segments +
+                RouteSegmentSnapshot(UUID(0L, 24L), ViewDirection.AB, 0.0, 30.0))
+        val next = selection(appended, directions = mapOf(forbidden to ViewDirection.AB))
+        val pending = RouteAdmissionTestFixtures.handle()
+        service.onRequest = { RouteAdmissionResult.Pending(pending, held) }
+        service.onProgress = { rejected(RouteAdmissionFailureCode.PREPARATION_ABORTED_SAFE, "preparation rejected") }
+        client.prepareContinuation(next)
+        client.request(next, RouteBoundary(appended.totalLengthMeters))
+        assertRetained()
+        client.progress()
+        assertRetained()
+        assertEquals(RouteBoundary(140.0), client.state.committedAuthority)
+    }
+
+    @Test
+    fun `missing or mismatched direction proof cannot reach Basic or adopt a grant`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            client.request(selection.copy(operatingDirectionLimit = null), RouteBoundary(30.0))
+        }
+        val different = route("simpleato:route/other")
+        assertThrows(IllegalArgumentException::class.java) {
+            client.request(selection.copy(route = different), RouteBoundary(30.0))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            client.adoptFormationGrant(selection.copy(operatingDirectionLimit = null), grant(30.0))
+        }
+        assertTrue(service.intents.isEmpty())
+        assertEquals(RouteAuthorityAdmissionState.EMPTY, client.state)
+    }
 
     @Test
     fun `prepared continuation republishes only existing prefix and leaves Basic grant unchanged`() {
@@ -195,11 +279,7 @@ class RouteAuthorityAdmissionClientTest {
         }
         val reversedRoute = route("simpleato:route/reverse", revision = 3L)
         val reversedStamp = stamp.copy(physicsEpoch = 11L)
-        val reversedSelection = FrozenRouteSelectionResult.Selected(
-            "train",
-            reversedStamp,
-            reversedRoute
-        )
+        val reversedSelection = selection(reversedRoute).copy(observationStamp = reversedStamp)
         service.onRebaseReversal = { intent ->
             RouteGrantReversalResult.Accepted(
                 first.copy(
@@ -555,8 +635,17 @@ class RouteAuthorityAdmissionClientTest {
 
     private fun selection(
         route: RouteSnapshot,
-        trainId: String = "train"
-    ) = FrozenRouteSelectionResult.Selected(trainId, stamp, route)
+        trainId: String = "train",
+        directions: Map<UUID, ViewDirection> = emptyMap()
+    ): FrozenRouteSelectionResult.Selected {
+        val topology = buildTestTopology(route.topologyRevision,
+            route.segments.groupBy { it.railId }.map { (id, segments) ->
+                TestTopologyRail(id, segments.maxOf { it.endArcLengthMeters })
+            }, emptyMap())
+        return FrozenRouteSelectionResult.Selected(trainId, stamp, route,
+            RouteOperatingDirectionLimit.calculate(stamp.worldId, route, topology,
+                RailOperatingDirections(topology, route.segments.associate { it.railId to directions[it.railId] })))
+    }
 
     private fun route(
         routeId: String = "simpleato:route/main",
@@ -604,7 +693,7 @@ class RouteAuthorityAdmissionClientTest {
 
         fun authorities(): List<Double> = snapshots.mapNotNull { snapshot ->
             snapshot.restrictions.filterIsInstance<MovementAuthorityRestriction>()
-                .singleOrNull()?.routeDistanceMeters
+                .singleOrNull { it.restrictionId == "simpleato:committed-authority" }?.routeDistanceMeters
         }
     }
 

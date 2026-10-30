@@ -13,7 +13,6 @@ import work.art1st.javarailways.simpleato.api.simulation.PreparedSimulationFeatu
 import work.art1st.javarailways.simpleato.api.simulation.SimulationDomainTarget
 import work.art1st.javarailways.simpleato.api.simulation.SimulationResourceProvider
 import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_RESOURCE_TYPE
-import work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy
 import work.art1st.javarailways.simplesignals.block.FixedBlockDomainResourcePolicy
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import work.art1st.javarailways.simplesignals.signalpack.SignalPackEpochRuntime
@@ -29,11 +28,7 @@ internal class SimpleSignalsSimulationFeature(
     private val protectionRegionMaxDistanceMeters: Double
 ) : PreparedSimulationFeature {
     override fun install(target: SimulationDomainTarget): AutoCloseable {
-        val directionPolicy = FixedBlockDirectionPolicy { topology, rails ->
-            check(topology === target.topology) { "simulation operating directions belong to another topology" }
-            target.operatingDirections(rails)
-        }
-        val runtime = SimpleSignalsWorldRuntime(target.worldId, directionPolicy, protectionRegionMaxDistanceMeters)
+        val runtime = SimpleSignalsWorldRuntime(target.worldId, protectionRegionMaxDistanceMeters)
         val registrations = arrayListOf<AutoCloseable>()
         try {
             val copied = SimpleSignalsWorldDefinitions(target.worldId, definitions.definitionRevision,
@@ -55,7 +50,7 @@ internal class SimpleSignalsSimulationFeature(
             }
             val occupancy = SectionOccupancyRuntime.from(publication, epoch)
             check(runtime.replaceSectionOccupancy(publication, null, occupancy))
-            val policy = FixedBlockDomainResourcePolicy(target.worldId, directionPolicy,
+            val policy = FixedBlockDomainResourcePolicy(target.worldId,
                 { publication.unavailableTerritory.requireUsable(it.route, it.desiredAuthority.distanceFromRouteStartMeters) },
                 runtime::fixedBlockSnapshot)
             registrations += target.registerResourceProvider(FIXED_BLOCK_RESOURCE_TYPE, object : SimulationResourceProvider {

@@ -39,7 +39,7 @@ import java.util.UUID
 @OptIn(ExtensionData::class)
 class FixedBlockTimetableDependencyTest {
     @Test
-    fun `completed direction edit before physical guard is matched from current publication and rejects reverse route`() =
+    fun `completed block orientation edit before physical guard is matched from current publication`() =
         runEditOrdering(editBeforeGuard = true)
 
     @Test
@@ -121,6 +121,12 @@ class FixedBlockTimetableDependencyTest {
             inspection.replaceSources(listOf(InspectionSource(actualSource.sourceId, actualSource.bindingProvider,
                 actualSource.updateHandler, { route ->
                     assertEquals(setOf(entry.id, upper.id), registry.dependencySnapshots().single().dependencies.railIds)
+                    val captured = signals.fixedBlockSnapshot()
+                    assertEquals(if (editBeforeGuard) 2L else 1L, captured.definitionRevision)
+                    val windows = assertInstanceOf(FixedBlockAuthorityMatchResult.Matched::class.java,
+                        FixedBlockRouteMatcher.matchRoute(captured, route)).windows
+                    assertEquals(editBeforeGuard, windows.single().reversed,
+                        "matching must use the current authored orientation without imposing operating permission")
                     actualSource.routeInfrastructureDependencies.dependencies(route).also { matched = true }
                 })))
             val dispatcher = TimetableDispatcher(TimetableRouteAdmissionContextProvider { null }, restrictions,
@@ -141,28 +147,20 @@ class FixedBlockTimetableDependencyTest {
                 assertEquals(TimetableCheckpointRestoreResult.Restored, world.onOwnerForTest { dispatcher.restoreCheckpoint(world,
                     SavedDispatcherV1(1, 0L, 0L, listOf(SavedTimetableClockV1("race", 0L, 24_000L, 1L,
                         emptySet(), emptyMap())), emptyList())) })
-            } else if (editBeforeGuard) {
-                val failed = assertInstanceOf(TimetableEpochStartResult.Failure::class.java,
-                    world.onOwnerForTest { dispatcher.beginTimetable(world, "race") })
-                assertTrue(failed.reason.contains("reverse admission is forbidden"), failed.reason)
-                assertFalse(world.onOwnerForTest { dispatcher.scheduleInitialCycle("race") })
-                assertTrue(registry.dependencySnapshots().isEmpty())
-                assertEquals(2L, signals.currentDefinitions().definitionRevision)
             } else {
                 assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, "race") } is TimetableEpochStartResult.Started)
             }
             assertTrue(registry.claimSnapshots().isEmpty(), "guard and final dependencies are non-exclusive")
-            if (!editBeforeGuard) {
-                val token = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, originalBlock.blockId)
-                assertTrue(token in registry.dependencySnapshots().single().dependencies.resourceIds)
-                val claimOwner = InfrastructureOwner("test:train", 1L)
-                assertEquals(InfrastructureMutationStatus.ACQUIRED, registry.acquireClaim(requester,
-                    InfrastructureClaimRequest(claimOwner, InfrastructureFootprint(listOf(token)))).status)
-                assertEquals(InfrastructureMutationStatus.RELEASED, registry.releaseClaim(requester, claimOwner).status)
-                assertTrue(world.onOwnerForTest { dispatcher.stopFutureCycles("race") })
-                assertTrue(registry.dependencySnapshots().isEmpty())
-            }
-            assertEquals(if (editBeforeGuard) 1 else 2, setCalls)
+            assertEquals(if (editBeforeGuard) reversedBlock else originalBlock, signals.currentDefinitions().fixedBlocks.single())
+            val token = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, originalBlock.blockId)
+            assertTrue(token in registry.dependencySnapshots().single().dependencies.resourceIds)
+            val claimOwner = InfrastructureOwner("test:train", 1L)
+            assertEquals(InfrastructureMutationStatus.ACQUIRED, registry.acquireClaim(requester,
+                InfrastructureClaimRequest(claimOwner, InfrastructureFootprint(listOf(token)))).status)
+            assertEquals(InfrastructureMutationStatus.RELEASED, registry.releaseClaim(requester, claimOwner).status)
+            assertTrue(world.onOwnerForTest { dispatcher.stopFutureCycles("race") })
+            assertTrue(registry.dependencySnapshots().isEmpty())
+            assertEquals(2, setCalls)
             assertFalse(coordinator.isStalled)
         } finally {
             world.physicsCoordinator.close()

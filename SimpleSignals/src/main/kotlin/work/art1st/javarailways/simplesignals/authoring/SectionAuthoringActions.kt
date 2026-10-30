@@ -2,7 +2,6 @@ package work.art1st.javarailways.simplesignals.authoring
 
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
-import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
@@ -56,7 +55,7 @@ internal object SectionAuthoringActions {
             a.railId == b.railId && min(a.upperAbMeters, b.upperAbMeters) - max(a.lowerAbMeters, b.lowerAbMeters) > Curve.TOLERANCE
         } } }) { "Block interior overlaps an existing block" }
         return SectionAuthoringEdit(SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(block)),
-            WandText.key("block.created", WandText.key(if (block.bidirectional) "block.bidirectional" else "block.one-way"), authoringName(block.blockId, "name.block")))
+            WandText.key("block.created", authoringName(block.blockId, "name.block")))
     }
 
     fun deleteBlock(definitions: SimpleSignalsWorldDefinitions, point: RailCutPosition, boundary: Boolean,
@@ -144,7 +143,6 @@ internal object SectionAuthoringActions {
     fun placeSectionBoundary(topology: TopologyState, definitions: SimpleSignalsWorldDefinitions,
         point: RailCutPosition, maxDistanceMeters: Double,
         retainedInteriors: Map<String, List<ProtectionRegionInteriorSlice>>,
-        directions: (Set<UUID>) -> Map<UUID, ViewDirection?>,
         newId: () -> String = { "simplesignals:${UUID.randomUUID()}" }): SectionAuthoringEdit {
         val retainedCut = definitions.regions.filter { it.boundaryDraft != null }.flatMap { it.boundaries }
             .filter { samePoint(it.position, point, SNAP_METERS) }
@@ -157,7 +155,7 @@ internal object SectionAuthoringActions {
             ?: original?.cut() ?: ProtectionBoundaryCut(newId(), snapped)
         val components = components(topology, definitions, maxDistanceMeters, cut).beside(cut)
             .filterNot { occupied(definitions, it, retainedInteriors) }
-        if (components.size == 1) return completeSection(topology, definitions, components.single(), retainedInteriors, directions, maxDistanceMeters, newId)
+        if (components.size == 1) return completeSection(topology, definitions, components.single(), retainedInteriors, maxDistanceMeters, newId)
         val draftOwners = definitions.regions.filter { it.boundaryDraft != null &&
             retainedInteriors[it.regionId].orEmpty().any { slice -> slice.railId == snapped.railId &&
                 snapped.arcLengthInAbMeters > slice.startAbMeters - Curve.TOLERANCE &&
@@ -177,7 +175,6 @@ internal object SectionAuthoringActions {
     fun confirmSection(topology: TopologyState, definitions: SimpleSignalsWorldDefinitions,
         point: RailCutPosition, maxDistanceMeters: Double,
         retainedInteriors: Map<String, List<ProtectionRegionInteriorSlice>>,
-        directions: (Set<UUID>) -> Map<UUID, ViewDirection?>,
         newId: () -> String = { "simplesignals:${UUID.randomUUID()}" }): SectionAuthoringEdit {
         val search = components(topology, definitions, maxDistanceMeters)
         if (search.cuts.any { samePoint(it.position, point) || topology.sameBlockBoundary(it.position, point) })
@@ -185,7 +182,7 @@ internal object SectionAuthoringActions {
         val component = search.containing(point)
             ?: return SectionAuthoringEdit(SimpleSignalsDefinitionPatch(), WandText.key("section.not.closed"))
         require(!occupied(definitions, component, retainedInteriors)) { "This section already exists" }
-        return completeSection(topology, definitions, component, retainedInteriors, directions, maxDistanceMeters, newId)
+        return completeSection(topology, definitions, component, retainedInteriors, maxDistanceMeters, newId)
     }
 
     private fun components(topology: TopologyState, definitions: SimpleSignalsWorldDefinitions,
@@ -204,14 +201,14 @@ internal object SectionAuthoringActions {
 
     private fun completeSection(topology: TopologyState, definitions: SimpleSignalsWorldDefinitions,
         component: SectionBoundaryComponent, retainedInteriors: Map<String, List<ProtectionRegionInteriorSlice>>,
-        directions: (Set<UUID>) -> Map<UUID, ViewDirection?>, maxDistanceMeters: Double, newId: () -> String): SectionAuthoringEdit {
+        maxDistanceMeters: Double, newId: () -> String): SectionAuthoringEdit {
         val owners = definitions.regions.filter { overlaps(component.interior, retainedInteriors[it.regionId].orEmpty()) }
         require(owners.size <= 1) { "These cuts would merge established protection regions" }
         val owner = owners.singleOrNull()
         val found = component.boundaries
         val pending = definitions.pendingProtectionBoundaries.filterNot { pending -> found.any { samePoint(it.position, pending.position) } }
         if (owner == null && component.blockPath != null) {
-            val block = BlockPathBuilder.definition(newId(), component.blockPath, directions(component.blockPath.map { it.railId }.toSet()))
+            val block = BlockPathBuilder.definition(newId(), component.blockPath)
             val made = createBlock(definitions, block)
             return SectionAuthoringEdit(SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(block), pendingProtectionBoundaries = pending), made.text)
         }

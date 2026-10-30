@@ -102,6 +102,10 @@ Dispatcher在安装inspection binding或向Basic提交准入前，把完整exact
 
 ### 3.2 冻结路线与准入客户端
 
+轨道方向约束由 SimpleATO 使用 Basic 公共配置计算，不由闭塞单双向属性决定。冻结选择进入准入前必须具有匹配世界和精确路径的内部 `RouteOperatingDirectionLimit`；它在保护后缀上记录第一个禁行边界。实际运营／车身和停车余量须在该边界内，而更远物理后缀仍可用于完整闭塞保护。计算、数值及定向失效由[实际运行方向限制](operating-direction-enforcement.md)唯一拥有。
+
+准入客户端保留真实 Basic grant；当方向边界更近时，在原 `simpleato:resource-admission` snapshot 中增加 `simpleato:operating-direction` 限制，与物理授权、信号和任务约束取最严格值，不裁剪 grant 或新增 Basic 字段。完整有效选择首次申请的 0m 约束不变；缺失／错绑方向结果是进入服务前的内部不变量拒绝，不能作为可运行选择提交。
+
 冻结路线保存其生成时读取的 `topologyRevision`、独立的 `routeRevision` 和有序 traversal。
 其中世界拓扑版本只是生成来源，不是整个路线的有效期；不要求后续观测仍处于该世界版本。
 SimpleATO 向 Basic 提交路线、列车 ID、同一 observation stamp 与期望 authority boundary；不提交 caller-authored route progress/occurrence index、可替代物理底线的 raw `InfrastructureFootprint`、可信列车长度或已枚举的 turnout/diamond 列表。Basic 从同一 observation 的权威列车尾验证冻结路线起点，并自行初始化进度。信号系统插件可以附加自己注册的资源要求，但这些要求只增加最终 union。每项addition必须包含exact stable identity与显式route-metre车尾释放boundary；可选preparation descriptor只描述provider-owned target，不能携带callback或mutable train/world。完整shape由[Basic路线资源准入](../basic/route-resource-admission.md)唯一拥有。
@@ -136,7 +140,7 @@ pending request时，SimpleATO轮询该handle而不是并行提交另一个请�
 完整`FrozenRouteSelectionResult.Selected`、一个nullable committed grant和至多一个pending handle；Basic的首次申请与同路线
 延长都调用同一个`RouteResourceAdmissionService.request`。第一次处理冻结选择时，client先以
 `simpleato:resource-admission`来源发布位于路线起点0 m的`MovementAuthorityRestriction`，因此尚无grant、首次pending或首次
-拒绝（包括选择属于另一列车的调用方错误）都不会产生可用前方权限。`Granted`是唯一能改变该来源的结果：无论部分还是完整授权，均发布返回的真实`committedAuthority`边界，不能因覆盖完整frozen route就清空该限制。运营停车目标和真实余量按[终点分离契约](terminal-route-completion.md)处理。extension pending及rejected不发布更宽restriction，继续使用旧grant边界。pending只通过原handle调用`progress`，不重放intent。
+拒绝（包括选择属于另一列车的调用方错误）都不会产生可用前方权限。`Granted`是唯一允许放宽已提交物理授权边界的结果：无论部分还是完整授权，均发布返回的真实`committedAuthority`边界，不能因覆盖完整frozen route就清空该限制。运营停车目标和真实余量按[终点分离契约](terminal-route-completion.md)处理。extension pending及rejected不发布更宽restriction，继续使用旧grant边界。pending只通过原handle调用`progress`，不重放intent。
 
 client以route ID、train和world做常量时间预筛；完整有序traversal、revision和append-only关系仍由
 Basic的现有route state权威核对。新的observation epoch可以用于同路线延长或正向mission append。pending continuation保存
@@ -160,7 +164,7 @@ Basic准入来源与信号插件来源进入同一个`ConstraintManager`，没�
 
 每个 controlled train 在一个成功 physics epoch 中最多执行一次前方路线 perception。区间、车辆和信号插件从这次扫描及 world-level 索引读取数据；任何策略都不得为了自己的信号显示或资源判断再做一次完整路线遍历。Basic 的 grant/denial 作为候选输入，不在 SimpleATO 中复制资源冲突计算。
 
-Dispatcher 的滚动资源授权复用这次 perception 已有的距离，不维护第二个前视距离，也不重新扫描路线。首次申请的绝对边界为“冻结路线中的当前车头位置 + perception 距离”；已有 grant 时，仅当剩余授权距离降到现有 route-allocation trigger 后才计算下一边界，并截断到冻结路线末端。pending 期间不发出第二个请求。这个判断只读取路线总长、车头进度和 admission client 的 committed/pending 状态，时间与额外空间均为 `O(1)`；重试时机、拓扑变化后的重新选路和跨 mission 生命周期仍由 Dispatcher 负责。
+Dispatcher 的滚动资源授权复用这次 perception 已有的距离，不维护第二个前视距离，也不重新扫描路线。滚动申请阈值取既有 timing 距离与控制器最大速度下停车前视包络的较大者，后者包括 service braking、reaction 和同一全局 safetyDistance；不能让列车在更远的安全余量处停住，却还未进入较小的申请阈值。仍使用稳定最大速度，不随制动中的当前速度缩小阈值。首次申请的绝对边界为“冻结路线中的当前车头位置 + perception 距离”；已有 grant 时，仅当剩余授权距离降到现有 route-allocation trigger 后才计算下一边界，并截断到冻结路线末端。pending 期间不发出第二个请求。这个判断只读取路线总长、车头进度和 admission client 的 committed/pending 状态，时间与额外空间均为 `O(1)`；重试时机、拓扑变化后的重新选路和跨 mission 生命周期仍由 Dispatcher 负责。
 
 当前第一批公开限制契约位于`simpleato.api.restriction`。一个外部信号来源为一列车发布完整不可变
 `TrainRestrictionSnapshot`，其中`sourceId`和每项`restrictionId`都必须为namespaced稳定身份；revision只在

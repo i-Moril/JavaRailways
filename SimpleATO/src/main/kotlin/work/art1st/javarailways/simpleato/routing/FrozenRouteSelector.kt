@@ -60,7 +60,8 @@ internal sealed interface FrozenRouteSelectionResult {
     data class Selected(
         val trainId: String,
         val observationStamp: RailwayStateStamp,
-        val route: RouteSnapshot
+        val route: RouteSnapshot,
+        val operatingDirectionLimit: RouteOperatingDirectionLimit? = null
     ) : FrozenRouteSelectionResult
 
     data class Rejected(
@@ -127,7 +128,14 @@ internal object FrozenRouteSelector {
             is TopologyRoutePlanningResult.Planned -> FrozenRouteSelectionResult.Selected(
                 trainId = train.trainId,
                 observationStamp = input.observation.stamp,
-                route = planned.route
+                route = planned.route,
+                operatingDirectionLimit = RouteOperatingDirectionLimit.calculate(
+                    input.observation.stamp.worldId, planned.route, input.topology,
+                    work.art1st.javarailways.basic.api.route.RailOperatingDirections(input.topology,
+                        planned.route.segments.associate { segment ->
+                            segment.railId to input.operatingDirections.allowedDirections[segment.railId]
+                        })
+                ).also { it.requireLegalThrough(planned.route.totalLengthMeters) }
             )
 
             is TopologyRoutePlanningResult.Rejected -> FrozenRouteSelectionResult.Rejected(

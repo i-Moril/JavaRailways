@@ -389,9 +389,10 @@ class SimpleATO(
      */
     internal fun routeAllocationTriggerDistanceMeters(
         timing: RouteAllocationTiming
-    ): Double = timing.triggerDistanceMeters(
-        actuator.maximumSpeedMetersPerSecond,
-        safetyProfile.serviceDecelerationMetersPerSecondSquared
+    ): Double = maxOf(
+        timing.triggerDistanceMeters(actuator.maximumSpeedMetersPerSecond,
+            safetyProfile.serviceDecelerationMetersPerSecondSquared),
+        inspectionDynamicLookaheadMeters(actuator.maximumSpeedMetersPerSecond)
     )
 
     /**

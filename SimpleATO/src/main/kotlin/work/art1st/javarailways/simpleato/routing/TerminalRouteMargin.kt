@@ -17,6 +17,42 @@ internal data class TerminalMarginProposal(val route: RouteSnapshot, val failure
 
 /** Walks only determined ordinary connections; it never selects a turnout or replacement path. */
 internal object TerminalRouteMargin {
+    /** Rechecks reused and provider-supplied geometry, not only the newly walked margin. */
+    fun requireLegalPrefix(topology: TopologyState, restrictions: RoutePlanningRestrictions,
+        route: RouteSnapshot, requiredEndRouteMeters: Double, selectedEndRouteMeters: Double) {
+        require(restrictions.topologyRevision == topology.revision)
+        require(requiredEndRouteMeters.isFinite() && requiredEndRouteMeters >= 0.0 &&
+            route.totalLengthMeters + EPSILON >= requiredEndRouteMeters) {
+            "selected terminal policy cannot provide the configured stopping margin"
+        }
+        var start = 0.0
+        route.segments.forEach { segment ->
+            val covered = min(segment.lengthMeters, (requiredEndRouteMeters - start).coerceAtLeast(0.0))
+            if (covered > EPSILON) {
+                val rail = requireNotNull(topology.railProjection[segment.railId]?.singleOrNull()) {
+                    "terminal route references an ambiguous or missing rail ${segment.railId}"
+                }
+                val length = abs(rail.railEndAbMeters - rail.railStartAbMeters)
+                fun overlaps(span: DirectedRailSpan, from: Double = 0.0): Boolean {
+                    val lower = if (segment.facing == ViewDirection.AB) segment.startArcLengthMeters + from
+                        else length - segment.startArcLengthMeters - covered
+                    val upper = if (segment.facing == ViewDirection.AB) segment.startArcLengthMeters + covered
+                        else length - segment.startArcLengthMeters - from
+                    return span.railId == segment.railId && span.facing == segment.facing &&
+                        min(upper, span.upperAbMeters) - maxOf(lower, span.lowerAbMeters) > EPSILON
+                }
+                require(restrictions.forbiddenTraversals.none { overlaps(it) }) {
+                    "operating route, train body or stopping margin crosses a forbidden traversal or operating direction"
+                }
+                val unselectedStart = (selectedEndRouteMeters - start).coerceAtLeast(0.0)
+                require(unselectedStart + EPSILON >= covered || restrictions.pathReplacements.none { replacement ->
+                    replacement.replacedTraversals.any { overlaps(it, unselectedStart) }
+                }) { "terminal margin enters a replacement path that was not selected" }
+            }
+            start += segment.lengthMeters
+        }
+    }
+
     fun propose(topology: TopologyState, restrictions: RoutePlanningRestrictions, route: RouteSnapshot,
         requiredEndRouteMeters: Double): TerminalMarginProposal {
         require(requiredEndRouteMeters.isFinite() && requiredEndRouteMeters >= 0.0)

@@ -65,6 +65,11 @@ internal class RouteAuthorityAdmissionClient(
     @MainThread
     fun adoptFormationGrant(selection: FrozenRouteSelectionResult.Selected, grant: RouteGrantSnapshot) {
         require(selection.trainId == trainId) { "formation selection belongs to another train" }
+        requireDirectionLimit(selection)
+        grant.couplingContactAuthority?.let {
+            requireNotNull(selection.operatingDirectionLimit)
+                .requireLegalThrough(it.contactBoundary.distanceFromRouteStartMeters)
+        }
         validateGrantIdentity(selection, grant)
         active?.let { current ->
             check(current.pending == null && !current.reversalPending && !current.unsafeFailure) {
@@ -83,6 +88,7 @@ internal class RouteAuthorityAdmissionClient(
      */
     @MainThread
     fun prepareContinuation(selection: FrozenRouteSelectionResult.Selected) {
+        requireDirectionLimit(selection)
         val current = active ?: return
         val grant = current.committedGrant ?: return
         val binding = FrozenRouteBinding.from(selection.route)
@@ -101,6 +107,8 @@ internal class RouteAuthorityAdmissionClient(
             "a physical continuation requires authority through the previous route end"
         }
         current.restrictionRoute = binding
+        current.directionEndMeters = minOf(current.directionEndMeters,
+            requireNotNull(selection.operatingDirectionLimit).endRouteDistanceMeters)
         publishAuthority(current, selection.observationStamp, grant.committedAuthority.distanceFromRouteStartMeters)
     }
 
@@ -110,6 +118,7 @@ internal class RouteAuthorityAdmissionClient(
         selection: FrozenRouteSelectionResult.Selected,
         desiredAuthority: RouteBoundary
     ): RouteAdmissionResult {
+        requireDirectionLimit(selection)
         val current = active
         if (selection.trainId != trainId) {
             if (current == null) {
@@ -221,6 +230,9 @@ internal class RouteAuthorityAdmissionClient(
         selection: FrozenRouteSelectionResult.Selected,
         observedHeadBoundary: RouteBoundary
     ): RouteAdmissionResult {
+        requireDirectionLimit(selection)
+        requireNotNull(selection.operatingDirectionLimit)
+            .requireLegalThrough(observedHeadBoundary.distanceFromRouteStartMeters)
         val route = active
             ?: return rejected(RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,
                 "no active route grant can be rebased after reversal")
@@ -253,6 +265,7 @@ internal class RouteAuthorityAdmissionClient(
                 }
                 route.selection = selection
                 route.restrictionRoute = FrozenRouteBinding.from(selection.route)
+                route.directionEndMeters = requireNotNull(selection.operatingDirectionLimit).endRouteDistanceMeters
                 route.committedGrant = grant
                 route.reversalPending = false
                 publishAuthority(
@@ -305,6 +318,7 @@ internal class RouteAuthorityAdmissionClient(
                 route.committedGrant = result.grant
                 route.selection = requestedSelection
                 route.restrictionRoute = FrozenRouteBinding.from(requestedSelection.route)
+                route.directionEndMeters = requireNotNull(requestedSelection.operatingDirectionLimit).endRouteDistanceMeters
                 publishAuthority(
                     route,
                     result.grant.observationStamp,
@@ -409,6 +423,12 @@ internal class RouteAuthorityAdmissionClient(
                 }
                 add(CouplingContactRestriction(AUTHORITY_RESTRICTION_ID, contact))
             }
+            // A complete physical grant may protect a suffix that the train cannot enter.
+            // A fully legal path needs no duplicate constraint at its physical end; in particular
+            // it must not replace Basic's separately proved zero-gap coupling contact semantics.
+            if (route.directionEndMeters < boundaryMeters) {
+                add(MovementAuthorityRestriction(DIRECTION_RESTRICTION_ID, route.directionEndMeters))
+            }
             route.committedGrant?.maximumSpeedMetersPerSecond?.let { maximumSpeed ->
                 add(CurrentSpeedRestriction(SPEED_RESTRICTION_ID, maximumSpeed))
             }
@@ -418,6 +438,12 @@ internal class RouteAuthorityAdmissionClient(
             restrictions,
             stamp
         )
+    }
+
+    private fun requireDirectionLimit(selection: FrozenRouteSelectionResult.Selected) {
+        requireNotNull(selection.operatingDirectionLimit) {
+            "an exact operating direction result is required before route admission"
+        }.requireMatches(selection)
     }
 
     private fun publish(
@@ -449,6 +475,7 @@ internal class RouteAuthorityAdmissionClient(
 
     private data class ActiveRoute(
         var selection: FrozenRouteSelectionResult.Selected,
+        var directionEndMeters: Double = requireNotNull(selection.operatingDirectionLimit).endRouteDistanceMeters,
         var restrictionRoute: FrozenRouteBinding =
             FrozenRouteBinding.from(selection.route),
         var committedGrant: RouteGrantSnapshot? = null,
@@ -466,6 +493,7 @@ internal class RouteAuthorityAdmissionClient(
         const val AUTHORITY_SOURCE_ID = "simpleato:resource-admission"
         const val AUTHORITY_RESTRICTION_ID = "simpleato:committed-authority"
         const val SPEED_RESTRICTION_ID = "simpleato:admitted-speed"
+        const val DIRECTION_RESTRICTION_ID = "simpleato:operating-direction"
         const val COMPLETE_ROUTE_EPSILON_METERS = 1.0e-6
 
         fun rejected(code: RouteAdmissionFailureCode, detail: String): RouteAdmissionResult.Rejected =

@@ -73,10 +73,7 @@ class SimpleSignalsPlugin : JavaPlugin() {
             topologyWorker = { action -> server.asyncScheduler.runNow(this) { if (isEnabled) action() } },
             worldIssues = services.worldIssues()
         )
-        val fixedBlocks = FixedBlockRouteResourcePolicy(this, { worldId ->
-            work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy(
-                { topology, rails -> services.infrastructure().operatingDirections(worldId, topology, rails) })
-        }, runtimes::validateRouteAdmission, runtimes::fixedBlockSnapshot)
+        val fixedBlocks = FixedBlockRouteResourcePolicy(this, runtimes::validateRouteAdmission, runtimes::fixedBlockSnapshot)
         val providerRegistration = services.infrastructure().registerResourceProvider(
             this,
             FIXED_BLOCK_RESOURCE_TYPE,

@@ -166,11 +166,10 @@ internal class RuntimeSectionWandBackend(
             SectionWandTool.DELETE -> SectionAuthoringActions.deleteSection(definitions, point, leftClick, topology, retainDevices)
             SectionWandTool.CREATE -> {
                 val interiors = publication.regions.compilationSnapshot()!!.regionsById.mapValues { it.value.interior }
-                val directions = { rails: Set<UUID> -> infrastructure.operatingDirections(captured.worldId, topology, rails).directions }
                 val placed = if (leftClick) SectionAuthoringActions.confirmSection(topology, definitions, point,
-                    maxRegionDistanceMeters, interiors, directions)
+                    maxRegionDistanceMeters, interiors)
                 else SectionAuthoringActions.placeSectionBoundary(topology, definitions, point,
-                    maxRegionDistanceMeters, interiors, directions)
+                    maxRegionDistanceMeters, interiors)
                 val region = placed.patch.upsertRegions.singleOrNull()?.takeIf { it.boundaryDraft == null &&
                     definitions.regions.none { old -> old.regionId == it.regionId } }
                 if (region == null) placed else {

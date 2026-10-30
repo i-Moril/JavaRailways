@@ -33,16 +33,26 @@ import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 
 /** Actual scheduled action, Basic admission, Core split and handle-driven output movement. */
 class TimetableFormationDispatcherTest {
-    @Test
-    fun `scheduled split continues FIRST and keeps REST physically held`() {
-        Fixture(false).use { f ->
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(doubles = [0.5, 5.0])
+    fun `scheduled split continues FIRST and keeps REST physically held`(safetyDistanceMeters: Double) {
+        Fixture(false, safetyDistanceMeters = safetyDistanceMeters).use { f ->
             f.begin()
             val before = f.train.publishedFrame
             f.physics.start()
-            repeat(1000) { f.tick() }
+            repeat(1800) { f.tick() }
             assertEquals(2, f.world.allTrains.size)
-            val continuing = f.world.getTrain(f.dispatcher.statuses().single { it.id == TimetableServiceRunId("split", "source") }.trainId) as CoreTrain
+            val run = f.dispatcher.statuses().single { it.id == TimetableServiceRunId("split", "source") }
+            val continuing = f.world.getTrain(run.trainId) as CoreTrain
             val held = f.world.allTrains.single { it.id != continuing.id } as CoreTrain
+            assertEquals(TimetableServiceRunState.COMPLETED, run.state, run.toString())
+            assertEquals(120.0, continuing.publishedFrame.head.arcLengthInAbMeters, 0.5)
+            assertTrue(f.outputRequests.last().route.segments.last().endArcLengthMeters >=
+                120.0 + safetyDistanceMeters - 1e-6,
+                "departure completes the full stopping margin after the body-only handoff")
+            assertTrue(f.outputBindings.all {
+                it.route.totalLengthMeters == it.desiredAuthority.distanceFromRouteStartMeters
+            }, "bootstrap grants protect only the actual complete body route")
             assertTrue(continuing.publishedFrame!!.head.arcLengthInAbMeters > before.head.arcLengthInAbMeters + 10.0)
             assertTrue(held.movementHeld)
             assertEquals(0.0, held.publishedFrame.speedMetersPerSecond)
@@ -51,6 +61,20 @@ class TimetableFormationDispatcherTest {
             assertEquals(listOf(before.cars.first().carId), continuing.cars.map { it.id })
             assertEquals(setOf("unit-0", "unit-1"), f.world.simpleAtoWorldData.depots.allFixedUnitAssignments().map { it.unitId }.toSet())
             assertInstanceOf(AtoMissionOrigin.FormationOutput::class.java, (continuing.controller as SimpleATO).currentMission!!.origin)
+        }
+    }
+
+    @Test
+    fun `applied formation output protects the extra rail required only by its stopping margin`() {
+        Fixture(false, safetyDistanceMeters = 5.0, marginCrossesRail = true).use { f ->
+            f.begin()
+            val marginRail = checkNotNull(f.stoppingMarginRail)
+            val applied = f.dependencies.applied.values.single {
+                it.owner.ownerId.startsWith("simpleato:timetable/")
+            }
+            assertTrue(marginRail.id in applied.dependencies.railIds,
+                "the static output target is at248m; its5m margin crosses the250m ordinary connection")
+            assertTrue(f.outputRequests.isEmpty(), "dependency protection precedes physical output departure")
         }
     }
 
@@ -428,13 +452,15 @@ class TimetableFormationDispatcherTest {
         }
     }
 
-    private class Fixture(private val newDuty: Boolean, sourceReversed: Boolean = false, outputReversed: Boolean = false, orientationCase: Boolean = false, separateDutyCaps: Boolean = false, private val coupling: Boolean = false, coupledContinuation: Boolean = false, viaOutput: Boolean = false, deferredOutput: Boolean = false, chooseOutputBranch: Boolean = true, reverseOutputBranch: Boolean = false) : AutoCloseable {
+    private class Fixture(private val newDuty: Boolean, sourceReversed: Boolean = false, outputReversed: Boolean = false, orientationCase: Boolean = false, separateDutyCaps: Boolean = false, private val coupling: Boolean = false, coupledContinuation: Boolean = false, viaOutput: Boolean = false, deferredOutput: Boolean = false, chooseOutputBranch: Boolean = true, reverseOutputBranch: Boolean = false, safetyDistanceMeters: Double = 0.5, marginCrossesRail: Boolean = false) : AutoCloseable {
         val physics = PhysicsCoordinator(1, automaticFallback = false)
         private val fixture = TestWorldFixture.create(physics)
         val world = fixture.world
         private val coordinator = AtoWorldCoordinator(WORLD, reportSink = {})
         init { TestSimpleATOWorldDataRegistry.register(world, BasicWorldData(safetyInterlock = coordinator.safetyInterlock), coordinator) }
-        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(250.0, 1))
+        val rail = createStraightRailFromSegments(world,
+            PrimeCurveGenerator.buildStraight(if (marginCrossesRail) 500.0 else 250.0, if (marginCrossesRail) 2 else 1))
+        val stoppingMarginRail = if (marginCrossesRail) getViewsInOrder(rail, false)[1].rail else null
         val train = createTrainWithConfig("source-train", rail, world, listOf(10.0, 10.0))
         init { world.onOwnerForTest {
             if (orientationCase) {
@@ -458,6 +484,8 @@ class TimetableFormationDispatcherTest {
             authorizeFormationRoute = { _, _ -> FormationRoutePolicyResult.Accepted(emptyList()) },
             stallWorld = { detail, _ -> failures += detail })
         var preparations = 0
+        val outputBindings = arrayListOf<RouteResourceIntent>()
+        val outputRequests = arrayListOf<RouteResourceIntent>()
         val observedBranchCarCounts = arrayListOf<Int?>()
         private val service = object : RouteResourceAdmissionService {
             override fun prepareFormationChange(intent: FixedFormationChangeIntent): FormationChangeResult {
@@ -468,8 +496,14 @@ class TimetableFormationDispatcherTest {
             override fun formationChangeState(handle: FormationChangeHandle) = runtime.formationChangeState(requester, handle)
             override fun abortFormationChange(handle: FormationChangeHandle) = runtime.abortFormationChange(requester, handle)
             override fun requestCouplingApproach(handle: FormationChangeHandle, intent: RouteResourceIntent) = runtime.requestCouplingApproach(requester, handle, intent)
-            override fun bindFormationOutputs(handle: FormationChangeHandle, intents: List<RouteResourceIntent>) = runtime.bindFormationOutputs(requester, handle, intents)
-            override fun requestFormationOutput(handle: FormationChangeHandle, intent: RouteResourceIntent) = runtime.requestFormationOutput(requester, handle, intent)
+            override fun bindFormationOutputs(handle: FormationChangeHandle, intents: List<RouteResourceIntent>): FormationChangeResult {
+                outputBindings += intents
+                return runtime.bindFormationOutputs(requester, handle, intents)
+            }
+            override fun requestFormationOutput(handle: FormationChangeHandle, intent: RouteResourceIntent): RouteAdmissionResult {
+                outputRequests += intent
+                return runtime.requestFormationOutput(requester, handle, intent)
+            }
             override fun resumeFormationOutput(handle: FormationChangeHandle, grantId: RouteGrantId) = runtime.resumeFormationOutput(requester, handle, grantId)
             override fun request(intent: RouteResourceIntent) = runtime.request(requester, intent)
             override fun progress(handle: RouteAdmissionHandle) = runtime.progress(requester, handle)
@@ -481,11 +515,12 @@ class TimetableFormationDispatcherTest {
         private val inspection = InspectionRuntime(signals) { _, _, failure -> throw failure }
         private val profile = AtoSafetyProfile(accelerationMetersPerSecondSquared = 1.0,
             serviceDecelerationMetersPerSecondSquared = 2.0, reactionTimeSeconds = 0.0,
-            safetyDistanceMeters = 0.5, stopToleranceMeters = 0.1)
+            safetyDistanceMeters = safetyDistanceMeters, stopToleranceMeters = 0.1)
+        val dependencies = RecordingInfrastructureDependencyService()
         val dispatcher = TimetableDispatcher(authorityStoppingMarginMeters = profile.safetyDistanceMeters,
             routeAdmissionContextProvider = TimetableRouteAdmissionContextProvider { TimetableRouteAdmissionContext(observation, service) },
             signalRestrictionSnapshots = signals, inspectionRuntime = inspection,
-            infrastructureDependencyService = acceptingInfrastructureDependencyService(),
+            infrastructureDependencyService = dependencies,
             atoFactory = TimetableAtoFactory { selected, selectedWorld -> SimpleATO(selected, selectedWorld,
                 HandleTrainActuator(selected, Dynamics, List(selected.cars.size) { CarDynamics }, 9.8), profile,
                 inspection::maximumDeclaredLeadTimeSeconds) })
@@ -500,7 +535,7 @@ class TimetableFormationDispatcherTest {
             val allocation = checkNotNull(depots.reservePhysicallySelected(train.id, point, DepotTrainSelector(depot), "source-assignment", cars))
             check(depots.confirmInService(allocation)); check(depots.releaseDeparture(allocation))
             world.basicWorldData.wayPoints.add(WayPoint("origin", "origin", rail.id, train.publishedFrame.head.arcLengthInAbMeters))
-            world.basicWorldData.wayPoints.add(WayPoint("end", "end", rail.id, if (orientationCase) { if (sourceReversed xor outputReversed) 50.0 else 200.0 } else if (newDuty) 180.0 else if (reverseOutputBranch) 2.0 else 120.0))
+            world.basicWorldData.wayPoints.add(WayPoint("end", "end", rail.id, if (orientationCase) { if (sourceReversed xor outputReversed) 50.0 else 200.0 } else if (marginCrossesRail) 248.0 else if (newDuty) 180.0 else if (reverseOutputBranch) 2.0 else 120.0))
             world.basicWorldData.wayPoints.add(WayPoint("branch-end", "branch-end", rail.id, if (orientationCase) { if (sourceReversed xor outputReversed) 2.0 else 248.0 } else 120.0))
             val first = TimetableFormationOutput("first", if (reverseOutputBranch) FormationOutputDisposition.Hold else FormationOutputDisposition.Duty("source"))
             val rest = TimetableFormationOutput("rest", if (reverseOutputBranch) FormationOutputDisposition.Duty("source") else if (newDuty || outputReversed) FormationOutputDisposition.Duty("branch") else FormationOutputDisposition.Hold)

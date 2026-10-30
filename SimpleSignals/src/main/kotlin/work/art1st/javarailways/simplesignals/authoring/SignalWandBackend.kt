@@ -362,8 +362,7 @@ internal class RuntimeSignalWandBackend(
             val occupied = captured.publication.definitions.fixedBlockSignals.filter { it.signalId != device.signalId }.mapNotNull { it.entry }.toSet()
             return blocks.blocksById.values.filter { it.definition.blockId !in blocks.unavailableBlockIds }.sortedBy { it.definition.blockId }
                 .flatMap { block ->
-                    val directions = if (block.definition.bidirectional) FixedBlockEntryDirection.entries else listOf(FixedBlockEntryDirection.FORWARD)
-                    directions.map { FixedBlockSignalEntry(block.definition.blockId, it) }
+                    FixedBlockEntryDirection.entries.map { FixedBlockSignalEntry(block.definition.blockId, it) }
                 }.filterNot { it in occupied }.map(::FixedBlockSignalRebindTarget)
         }
         require(device is ProtectionSignalRebindChoice)

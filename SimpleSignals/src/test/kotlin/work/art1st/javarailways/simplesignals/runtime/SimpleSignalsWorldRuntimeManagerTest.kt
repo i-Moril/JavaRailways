@@ -66,7 +66,6 @@ import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionConte
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceStartResult
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunState
 import work.art1st.javarailways.simpleato.timetable.InfrastructureDependencyService
-import work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy
 import work.art1st.javarailways.simplesignals.block.FixedBlockRouteResourcePolicy
 import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.core.physics.infrastructure.InfrastructureClaimRequest
@@ -327,7 +326,11 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val saved = manager.authoringRuntime(world)!!.currentDefinitions()
         assertTrue(saved.regions.isEmpty())
         assertTrue(saved.pendingProtectionBoundaries.isEmpty())
-        assertEquals(listOf(FixedBlockTraversal(rail, ViewDirection.AB, 0.0, 10.0)), saved.fixedBlocks.single().traversals)
+        assertEquals(listOf(FixedBlockTraversal(rail, ViewDirection.BA, 0.0, 10.0)), saved.fixedBlocks.single().traversals,
+            "the closing click selects 10m toward 0m; direction configuration must not reverse the authored path")
+        val compiled = manager.authoringRuntime(world)!!.fixedBlockSnapshot().blocksById.getValue(saved.fixedBlocks.single().blockId)
+        assertEquals(listOf(ViewDirection.BA, ViewDirection.AB), compiled.entryTraversals.map { it.facing })
+        assertEquals(listOf(10.0, 0.0), compiled.entryTraversals.map { it.travelStartAbMeters })
         manager.remove(world)
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(world).status)
         assertEquals(saved, manager.authoringRuntime(world)!!.currentDefinitions())
@@ -1973,7 +1976,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
     fun `signal wand creates updates and exactly deletes attached signals selected from a placed primary`() {
         val fixture = Fixture()
         val block = FixedBlockDefinition("test:attached-wand-block", 1,
-            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 4.0)), bidirectional = true)
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 4.0)))
         val primaryPosition = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)
         val primary = FixedBlockSignalDefinition("test:attached-wand-primary", 3, block.blockId, 0.0,
             "automatic:block", placement = ModelPlacement.RailAttached(primaryPosition))
@@ -2277,7 +2280,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val worldId = UUID.randomUUID()
         val block = FixedBlockDefinition("test:directed-scan", 1, rails.map {
             FixedBlockTraversal(it, ViewDirection.AB, 0.0, 10.0)
-        }, true)
+        })
         val signals = listOf(FixedBlockEntryDirection.FORWARD, FixedBlockEntryDirection.REVERSE)
             .take(if (bothDirections) 2 else 1).map { direction ->
             FixedBlockSignalDefinition("test:scan-${direction.name.lowercase()}", 1, block.blockId, 0.0,
@@ -3621,7 +3624,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val infrastructure = MutableTopologyService(topology, registry)
         val successor = FixedBlockDefinition("test:reverse-successor", 1L, listOf(
             FixedBlockTraversal(outside, ViewDirection.AB, 0.0, 10.0),
-            FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0)), true)
+            FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0)))
         val definitions = store()
         definitions.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1L,
             listOf(fixture.region), listOf(fixture.table(1L, fixture.upperRoute())), listOf(successor)))
@@ -3632,15 +3635,18 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val before = Files.readString(definitions.primaryFile(fixture.worldId))
         val publication = runtime.authoringPublication()
         val retained = sources.sources.getValue(fixture.worldId)
+        val shortened = listOf(
+            FixedBlockTraversal(outside, ViewDirection.AB, 1.0, 10.0),
+            FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0))
         val withoutRevision = SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(
-            FixedBlockDefinition(successor.blockId, 1L, successor.traversals, false)))
+            FixedBlockDefinition(successor.blockId, 1L, shortened)))
         assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
             manager.applyDefinitionPatch(fixture.worldId, 1L, withoutRevision).status)
         assertEquals(0, infrastructure.permitAcquisitionCount)
         val releaseRegion = protect(registry, topology, fixture.upperIn, TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY)
-        val disabling = SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(
-            FixedBlockDefinition(successor.blockId, 2L, successor.traversals, false)))
-        listOf(disabling, SimpleSignalsDefinitionPatch(removeFixedBlockIds = listOf(successor.blockId))).forEach { patch ->
+        val shortening = SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(
+            FixedBlockDefinition(successor.blockId, 2L, shortened)))
+        listOf(shortening, SimpleSignalsDefinitionPatch(removeFixedBlockIds = listOf(successor.blockId))).forEach { patch ->
             assertEquals(SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED,
                 manager.applyDefinitionPatch(fixture.worldId, 1L, patch).status)
             assertTrue(fixture.upperIn in infrastructure.lastEditRequest!!.impact.railIds)
@@ -3661,8 +3667,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertSame(retained, sources.sources.getValue(fixture.worldId))
         releaseBlock()
         assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED,
-            manager.applyDefinitionPatch(fixture.worldId, 1L, disabling).status)
-        assertFalse(runtime.authoringPublication().definitions.fixedBlocks.single().bidirectional)
+            manager.applyDefinitionPatch(fixture.worldId, 1L, shortening).status)
+        assertEquals(shortened, runtime.authoringPublication().definitions.fixedBlocks.single().traversals)
     }
 
     @Test
@@ -4275,7 +4281,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val invalid = manager.applyDefinitionPatch(f.worldId, 1,
             SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(fixed.copy(revision = 3, controlledBlockId = "test:unknown"))))
         assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED, invalid.status)
-        val block = FixedBlockDefinition("test:target", 0, listOf(FixedBlockTraversal(f.entry, ViewDirection.AB, 2.0, 8.0)), true)
+        val block = FixedBlockDefinition("test:target", 0, listOf(FixedBlockTraversal(f.entry, ViewDirection.AB, 2.0, 8.0)))
         assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, manager.applyDefinitionPatch(f.worldId, 1,
             SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(block))).status)
         assertTrue(runtime.currentDefinitions().fixedBlockSignals.all { it.controlledBlockId == null })
@@ -5519,7 +5525,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
-    fun `duplicate directional entry and reverse on one way reject candidate before disk source or permit changes`() {
+    fun `duplicate directional entry rejects atomically while the other entry can be added independently`() {
         val f = Fixture()
         val block = FixedBlockDefinition("test:entry-block", 1,
             listOf(FixedBlockTraversal(f.entry, ViewDirection.AB, 1.0, 4.0)))
@@ -5535,16 +5541,19 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val originalSource = sources.sources.getValue(f.worldId).single()
         val originalRuntime = manager.authoringRuntime(f.worldId)!!
         val originalPublication = originalRuntime.authoringPublication()
-        for (candidate in listOf(signal.reconfigured(signalId = "test:duplicate"),
-            signal.reconfigured(signalId = "test:reverse", entryDirection = work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection.REVERSE))) {
-            val patch = SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(candidate))
-            assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
-                manager.applyDefinitionPatch(f.worldId, 1, patch).status)
-            assertEquals(0, infrastructure.permitAcquisitionCount)
-            assertEquals(originalDisk, Files.readString(stored.primaryFile(f.worldId)))
-            assertSame(originalSource, sources.sources.getValue(f.worldId).single())
-            assertSame(originalPublication, originalRuntime.authoringPublication())
-        }
+        val duplicate = signal.reconfigured(signalId = "test:duplicate")
+        val patch = SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(duplicate))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
+            manager.applyDefinitionPatch(f.worldId, 1, patch).status)
+        assertEquals(0, infrastructure.permitAcquisitionCount)
+        assertEquals(originalDisk, Files.readString(stored.primaryFile(f.worldId)))
+        assertSame(originalSource, sources.sources.getValue(f.worldId).single())
+        assertSame(originalPublication, originalRuntime.authoringPublication())
+        val reverse = signal.reconfigured(signalId = "test:reverse", entryDirection = FixedBlockEntryDirection.REVERSE)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED,
+            manager.applyDefinitionPatch(f.worldId, 1, SimpleSignalsDefinitionPatch(
+                upsertFixedBlockSignals = listOf(reverse))).status)
+        assertEquals(setOf(signal.entry, reverse.entry), originalRuntime.currentDefinitions().fixedBlockSignals.map { it.entry }.toSet())
     }
 
     @Test
@@ -6515,7 +6524,6 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val claimHost = Any()
         val requester = Any()
         val policy = FixedBlockRouteResourcePolicy(ownerPlugin,
-            { FixedBlockDirectionPolicy(source.basicWorldData.operatingDirections::snapshot) },
             manager::validateRouteAdmission, manager::fixedBlockSnapshot)
         val validator = registry.registerResourceValidator { resource ->
             resource is StableInfrastructureResource && resource.typeId == FIXED_BLOCK_RESOURCE_TYPE &&
@@ -6642,9 +6650,11 @@ class SimpleSignalsWorldRuntimeManagerTest {
                         assertEquals(listOf("proceed", "slow", "caution", "stop"), actualAspects(simulation.runtime))
                         assertLiveUnchanged()
                     }
+                    val beforeDirectionEdit = actualLimits(first.runtime)
                     first.world.onOwnerForTest { first.world.basicWorldData.operatingDirections.put(sourceRail.id, ViewDirection.BA) }
                     first.step()
-                    assertTrue(actualLimits(first.runtime).all { it == 0.0 })
+                    assertEquals(beforeDirectionEdit, actualLimits(first.runtime), "track direction does not disable the physical block")
+                    assertTrue(blockToken in first.world.infrastructureCoordination.claimSnapshots().single().footprint.resources)
                     assertLiveUnchanged()
                     first.close()
                     assertTrue(first.world.infrastructureCoordination.claimSnapshots().isEmpty())
@@ -6701,7 +6711,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
-    fun `real simulation admission claims fixed blocks releases by tail and observes direction updates`() {
+    fun `real simulation admission claims fixed blocks releases by tail and keeps signals independent of direction edits`() {
         initializeDomainPlugins()
         val source = actualSignalWorld()
         val id = UUID.fromString(source.runtimeId)
@@ -6744,11 +6754,14 @@ class SimpleSignalsWorldRuntimeManagerTest {
             repeat(175) { simulation.step(200.0) }
             val afterTail = request("following", "test:following-after-tail")
             assertTrue(afterTail is work.art1st.javarailways.basic.api.route.RouteAdmissionResult.Granted, afterTail.toString())
+            val beforeDirectionEdit = actualLimits(simulation.runtime)
+            val claimsBeforeDirectionEdit = world.infrastructureCoordination.claimSnapshots()
             world.onOwnerForTest {
                 world.basicWorldData.operatingDirections.put(rail.id, ViewDirection.BA)
             }
             simulation.step()
-            assertTrue(actualLimits(simulation.runtime).all { it == 0.0 }, "direction restrictions reach installed signal sources")
+            assertEquals(beforeDirectionEdit, actualLimits(simulation.runtime), "track direction does not disable fixed-block signals")
+            assertEquals(claimsBeforeDirectionEdit, world.infrastructureCoordination.claimSnapshots())
             world.onOwnerForTest { world.basicWorldData.operatingDirections.put(rail.id, ViewDirection.AB) }
             simulation.step()
             assertEquals("stop", actualAspects(simulation.runtime).last())
@@ -7047,14 +7060,14 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
-    fun `real simulation reversal retains the same bidirectional block claim and releases after the reverse tail`() {
+    fun `real simulation reversal retains the same physical block claim and releases after the reverse tail`() {
         initializeDomainPlugins()
         val source = actualSignalWorld()
         val id = UUID.fromString(source.runtimeId)
         val rail = source.allRails.single()
         source.basicWorldData.operatingDirections.put(rail.id, null)
-        val block = FixedBlockDefinition("test:actual-bidirectional", 1,
-            listOf(FixedBlockTraversal(rail.id, ViewDirection.AB, 0.0, 1450.0)), bidirectional = true)
+        val block = FixedBlockDefinition("test:actual-reversible", 1,
+            listOf(FixedBlockTraversal(rail.id, ViewDirection.AB, 0.0, 1450.0)))
         val definitions = SimpleSignalsWorldDefinitions(id, 1, emptyList(), emptyList(), listOf(block), listOf(
             FixedBlockSignalDefinition("test:forward", 1, block.blockId, 0.0, "jr_four_light:block"),
             FixedBlockSignalDefinition("test:reverse", 1, block.blockId, 0.0, "jr_four_light:block", FixedBlockEntryDirection.REVERSE)))
@@ -7413,7 +7426,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val infrastructure = MutableTopologyService(fixture.currentTopology)
         val definitions = store()
         val block = FixedBlockDefinition("test:local", 1,
-            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 1.0, 3.0)), true)
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 1.0, 3.0)))
         definitions.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
             emptyList(), emptyList(), listOf(block)))
         val sources = CapturingSignalEpochSourceService()
@@ -7455,7 +7468,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val infrastructure = MutableTopologyService(fixture.currentTopology)
         val definitions = store()
         val block = FixedBlockDefinition("test:topology-model-block", 1,
-            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 1.0, 3.0)), true)
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 1.0, 3.0)))
         val signal = FixedBlockSignalDefinition("test:topology-model-device", 1, block.blockId, 0.0,
             signalType = "automatic:block",
             placement = ModelPlacement.RailAttached(RailPositionSnapshot(fixture.entry, ViewDirection.AB, 2.0)))

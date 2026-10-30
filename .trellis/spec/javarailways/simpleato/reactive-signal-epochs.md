@@ -120,6 +120,7 @@ selection revision未变时continuation检查为`O(1)`；变化时比较`W`个�
 不保存每一次中间值或重放历史修改。每个 epoch 取出这一集合，通过候选安装时编译的
 `rail UUID → source IDs` 索引分发，再与该来源的占用、道岔和准入变化合并成一次回调。
 插件读取相关轨道时必须取得一次完整方向子集，不能逐段读取并拼成跨写入状态。
+`publishOperatingDirectionChanges` 在存储锁释放后的通知入口立即调用 `InspectionRuntime.invalidateOperatingDirections`，通过已有 route→rail 索引使当时相交的自动路线不可用，不依赖任何信号 source。合并 ID 仅供后续 source 通知，不能在 process 时再次失效编辑后新建的合法绑定。未知结果不放宽权限，原 grant／claim 保留；无关路线不变。机制归[实际运行方向限制](operating-direction-enforcement.md)。
 首次来源 baseline 仍建立完整状态，无变化或无关轨道编辑不执行相关回调。
 新增分发成本为 O(H + J)，H 为待消费的变化轨道数、J 为相关索引命中数；不增加全世界政策轮询或全局失效 revision。
 

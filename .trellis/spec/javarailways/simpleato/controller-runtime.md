@@ -83,7 +83,7 @@ observation stamp。下一次physics tick中controller从route绑定携带的wor
 并经 `InspectionUpdateInput.speedRanges` 交给来源的完整限制投影。缓存范围要求正的有限速度和明确终点；
 `declarationId` 只用来接收既有失效通知，不要求入口仍在激活集合内。每次经过有独立的 restriction ID，
 同一物理声明 ID 可以唤醒这些范围。没有入口声明的区间内部起步也能在首次检查时发布限制。
-来源仍负责把未知状态投影为 0，SimpleATO 不解释闭塞、方向失配或信号灯色。
+来源仍负责把未知信号状态投影为 0，SimpleATO 不解释闭塞内部规则或灯色；公共轨道方向由自身[方向限制](operating-direction-enforcement.md)校验，不再依赖整个闭塞方向失配。
 
 例如范围为 `[40m, 100m]`：车头在 20m 时按既有曲线为入口减速，在 60m 时保持上限，
 越过 100m 后这项限制结束。资源是否仍被车身占用由 Basic 的车尾释放流程决定，不由速度范围决定。

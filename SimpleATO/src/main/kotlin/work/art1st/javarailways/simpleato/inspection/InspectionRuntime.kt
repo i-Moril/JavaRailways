@@ -97,6 +97,13 @@ class InspectionRuntime(
         }
     }
 
+    /** The same frozen-route rail index also fences direction edits without a signal plugin. */
+    fun invalidateOperatingDirections(railIds: Set<UUID>) {
+        railIds.forEach { rail ->
+            routesByRail[rail].orEmpty().forEach { route -> route.available = false }
+        }
+    }
+
     private fun forgetRoute(trainId: String) {
         activeRoutesByTrain.remove(trainId)?.let { route ->
             route.railIds.forEach { rail ->

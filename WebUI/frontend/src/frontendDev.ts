@@ -14,7 +14,7 @@ const clone=<T,>(value:T):T=>JSON.parse(JSON.stringify(value)) as T;
 const now=()=>new Date().toISOString();
 
 const lineSeed:LineV1[]=[
-  {id:'airport-line',displayName:'Airport Line',color:'#1677ff',upStationIds:['harbour','old-town','central','university','airport-t2'],downStationIds:['airport-t2','university','central','old-town','harbour']},
+  {id:'airport-line',maximumSpeedMetersPerSecond:27.78,displayName:'Airport Line',color:'#1677ff',upStationIds:['harbour','old-town','central','university','airport-t2'],downStationIds:['airport-t2','university','central','old-town','harbour']},
   {id:'coastal-line',displayName:'Coastal Line',color:'#13a8a8',upStationIds:['marina','museum','central','cliff-gardens','north-port'],downStationIds:['north-port','cliff-gardens','central','museum','marina']},
   {id:'university-link',displayName:'University Link',color:'#722ed1',upStationIds:['old-town','market','university'],downStationIds:['university','market','old-town']},
 ];
@@ -36,7 +36,7 @@ const metadataSeed:WorldMetadata={
 const documentSeed:TimetableAuthoringDocumentV1={
   formatVersion:1,id:'weekday-demo',formalScriptName:'weekday-demo.js',periodDays:1,
   diagramLines:lineSeed.map(({id,upStationIds,downStationIds})=>({id,upStationIds,downStationIds})),
-  lineSpeedLimits:[{lineId:'airport-line',maximumSpeedMetersPerSecond:27.78}],arrivalOverrides:[],
+  arrivalOverrides:[],
   runs:[
     {id:'AP101',type:'PASSENGER',diagramLineId:'airport-line',lineDirection:'UP',originDepartureMode:'AUTO',calls:[
       {id:'AP101-1',stationId:'harbour',berthId:'harbour-platform-1',status:'ORIGIN',targetId:'harbour-destination',departureTick:1200},
@@ -55,7 +55,7 @@ const documentSeed:TimetableAuthoringDocumentV1={
   ],
   duties:[{id:'Duty A',selector:{type:'TRAIN_NAME',name:'demo-express'},elements:[{id:'duty-a-1',type:'RUN',runId:'AP101'},{id:'duty-a-2',type:'RUN',runId:'AP102'}]}],
 };
-const timetableSeed:SavedTimetableV1={id:'weekday-demo',periodDays:1,services:[],diagramLines:documentSeed.diagramLines,lineSpeedLimits:documentSeed.lineSpeedLimits};
+const timetableSeed:SavedTimetableV1={id:'weekday-demo',periodDays:1,services:[],diagramLines:documentSeed.diagramLines,lineSpeedLimits:lineSeed.filter((line)=>line.maximumSpeedMetersPerSecond!=null).map((line)=>({lineId:line.id,maximumSpeedMetersPerSecond:line.maximumSpeedMetersPerSecond!}))};
 const railMapSeed:RailMapFile={
   formatVersion:1,world:'demo-world',runtimeId:'frontend-demo',generatedAtEpochMillis:Date.now(),
   rails:[
@@ -102,11 +102,12 @@ export const demoApi={
   async draft(_worldId:string,draftId:string){const value=drafts.get(draftId);if(!value)throw new Error(`Unknown demo draft: ${draftId}`);return clone(value);},
   async createDraft(_worldId:string,value:SavedTimetableV1):Promise<DraftSummary>{drafts.set(value.id,clone(value));return {id:value.id,updatedAt:now(),timetable:clone(value)};},
   async saveDraft(_worldId:string,draftId:string,value:SavedTimetableV1){drafts.set(draftId,clone(value));},async deleteDraft(_worldId:string,draftId:string){drafts.delete(draftId);},
+  async simulateProgram(_worldId:string,_input:import('./types').ProgramSimulationRequest):Promise<import('./types').ProgramSimulationResult>{throw new Error('Program simulation requires a live authenticated server');},
   async stationPrograms(_worldId:string):Promise<import('./types').StationProgramRecord[]>{throw new Error('The shared program library requires a live authenticated server');},
   async stationProgram(_worldId:string,_id:string):Promise<import('./types').StationProgramRecord>{throw new Error('The shared program library requires a live authenticated server');},
   async createStationProgram(_worldId:string,_id:string,_name:string,_definition:import('./types').StationProgramDefinition):Promise<import('./types').StationProgramRecord>{throw new Error('The shared program library requires a live authenticated server');},
   async saveStationProgram(_worldId:string,_id:string,_name:string,_definition:import('./types').StationProgramDefinition,_revision:number):Promise<import('./types').StationProgramRecord>{throw new Error('The shared program library requires a live authenticated server');},
-  async archiveStationProgram(_worldId:string,_id:string,_revision:number):Promise<import('./types').StationProgramRecord>{throw new Error('The shared program library requires a live authenticated server');},
+  async deleteStationProgram(_worldId:string,_id:string,_revision:number):Promise<{removed:boolean}>{throw new Error('The shared program library requires a live authenticated server');},
   async editorDocuments(_worldId:string):Promise<EditorDocumentSummary[]>{return [...documents.values()].map((document)=>({id:document.id,updatedAt:now()}));},
   async editorDocument(_worldId:string,id:string){const value=documents.get(id);if(!value)throw new Error(`Unknown demo editor document: ${id}`);return clone(value);},
   async createEditorDocument(_worldId:string,value:TimetableAuthoringDocumentV1){documents.set(value.id,clone(value));return {id:value.id};},async saveEditorDocument(_worldId:string,id:string,value:TimetableAuthoringDocumentV1){documents.set(id,clone(value));},async deleteEditorDocument(_worldId:string,id:string){documents.delete(id);},

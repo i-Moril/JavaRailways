@@ -1,40 +1,40 @@
-import {Button,Flex,Input,Select,Typography} from 'antd';
-import {DeleteOutlined} from '@ant-design/icons';
+import {useEffect,useRef,useState} from 'react';
+import {Alert,Button,ConfigProvider,Flex,Select,Typography} from 'antd';
 import {CommittedNumberInput} from './CommittedNumberInput';
 import {useI18n} from './i18n';
-import {type AuthoringFormationEvent,type FormationOutput} from './formationAuthoring';
+import {formationOutputs,type AuthoringFormationEvent,type FormationOutput} from './formationAuthoring';
+import type {TimetableAuthoringDocumentV1} from './authoring';
 
-export function FormationEventsEditor({events,dutyIds,destinations,onChange,fieldScope}:{events:AuthoringFormationEvent[];dutyIds:string[];destinations:string[];onChange:(events:AuthoringFormationEvent[])=>void;fieldScope:string}){
-  const {t}=useI18n();
-  const options=(ids:string[])=>ids.map((value)=>({value,label:value}));
-  const patch=(index:number,event:AuthoringFormationEvent)=>onChange(events.map((e,i)=>i===index?event:e));
-  const outputFields=(output:FormationOutput,onPatch:(next:FormationOutput)=>void)=><Flex wrap gap={8} align="center">
-    <label>{t('formation.outputId')}<Input value={output.id} onChange={(e)=>onPatch({...output,id:e.target.value})}/></label>
-    <label>{t('formation.disposition')}<Select value={output.disposition.type} options={[{value:'HOLD',label:t('formation.hold')},{value:'DUTY',label:t('formation.duty')}]} onChange={(type)=>onPatch({...output,disposition:type==='HOLD'?{type}:{type:'DUTY',dutyId:''}})}/></label>
-    {output.disposition.type==='DUTY'&&<label>{t('formation.outputDuty')}<Select value={output.disposition.dutyId||undefined} options={options(dutyIds)} onChange={(dutyId)=>onPatch({...output,disposition:{type:'DUTY',dutyId}})}/></label>}
-  </Flex>;
-  return <section className="panel-surface">
-    <Typography.Title level={4}>{t('formation.title')}</Typography.Title><Typography.Paragraph type="secondary">{t('formation.help')}</Typography.Paragraph>
-    {events.map((event,index)=><section className="program-step" key={index}>
-      <Flex wrap gap={8} align="center"><Typography.Text strong>{t(`programs.step.${event.kind}`)}</Typography.Text><label>{t('programs.eventId')}<Input value={event.id} onChange={(e)=>patch(index,{...event,id:e.target.value})}/></label><label>{t('formation.coordinator')}<Select value={event.coordinatorDutyId||undefined} options={options(dutyIds)} onChange={(coordinatorDutyId)=>patch(index,{...event,coordinatorDutyId})}/></label><Button danger icon={<DeleteOutlined/>} aria-label={t('common.delete')} onClick={()=>onChange(events.filter((_,i)=>i!==index))}/></Flex>
-      {event.kind==='SPLIT'?<>
-        <label>{t('formation.firstUnitCount')}<CommittedNumberInput fieldKey={`${fieldScope}/${index}/${event.id}/count`} value={event.partition.firstUnitCount} min={1} precision={0} allowEmpty={false} onCommit={(count)=>patch(index,{...event,partition:{from:'HEAD',firstUnitCount:count??1}})}/></label>
-        {event.outputs.map((output,oi)=><div key={oi}><Typography.Text>{t(output.group==='FIRST'?'formation.first':'formation.rest')}</Typography.Text>{outputFields(output,(next)=>patch(index,{...event,outputs:event.outputs.map((o,j)=>j===oi?{...next,group:output.group}:o)}))}</div>)}
-      </>:<>
-        <Flex wrap gap={8}>
-          <label>{t('formation.approaching')}<Select value={event.approachingDutyId||undefined} options={options(dutyIds)} onChange={(approachingDutyId)=>patch(index,{...event,approachingDutyId})}/></label>
-          <label>{t('formation.stationary')}<Select value={event.stationaryDutyId||undefined} options={options(dutyIds)} onChange={(stationaryDutyId)=>patch(index,{...event,stationaryDutyId})}/></label>
-          <label>{t('formation.stationaryEnd')}<Select value={event.stationaryEnd} options={[{value:'HEAD',label:t('formation.head')},{value:'TAIL',label:t('formation.tail')}]} onChange={(stationaryEnd)=>patch(index,{...event,stationaryEnd})}/></label>
-          <label>{t('formation.approachTarget')}<Select value={event.rendezvous.approachDestinationId||undefined} options={options(destinations)} onChange={(approachDestinationId)=>patch(index,{...event,rendezvous:{...event.rendezvous,approachDestinationId}})}/></label>
-          <label>{t('formation.stationaryTarget')}<Select value={event.rendezvous.stationaryDestinationId||undefined} options={options(destinations)} onChange={(stationaryDestinationId)=>patch(index,{...event,rendezvous:{...event.rendezvous,stationaryDestinationId}})}/></label>
-          <label>{t('formation.approachSpeed')}<CommittedNumberInput fieldKey={`${fieldScope}/${index}/${event.id}/speed`} value={event.maximumApproachSpeedMetersPerSecond*3.6} min={0.01} allowEmpty={false} onCommit={(kmh)=>patch(index,{...event,maximumApproachSpeedMetersPerSecond:(kmh??0)/3.6})}/></label>
-        </Flex>{outputFields(event.output,(output)=>patch(index,{...event,output}))}
-      </>}
-    </section>)}
-    <Flex wrap gap={8}>{(['SPLIT','COUPLE'] as const).map((kind)=><Button key={kind} onClick={()=>{
-      const id=`event-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`;
-      const event:AuthoringFormationEvent=kind==='SPLIT'?{id,kind,coordinatorDutyId:dutyIds[0]??'',partition:{from:'HEAD',firstUnitCount:1},outputs:[{id:'first',group:'FIRST',disposition:{type:'HOLD'}},{id:'rest',group:'REST',disposition:{type:'HOLD'}}]}:{id,kind,coordinatorDutyId:dutyIds[0]??'',approachingDutyId:dutyIds[0]??'',stationaryDutyId:dutyIds[1]??'',stationaryEnd:'TAIL',rendezvous:{approachDestinationId:'',stationaryDestinationId:''},maximumApproachSpeedMetersPerSecond:0.5,output:{id:'combined',disposition:{type:'HOLD'}}};
-      onChange([...events,event]);
-    }}>{t(`programs.step.${kind}`)}</Button>)}</Flex>
-  </section>;
+/** A local view of one operation. Identity stays in the catalog, never in editable fields. */
+export function FormationTaskFields(p:{event:AuthoringFormationEvent;dutyId:string;document:TimetableAuthoringDocumentV1;fieldScope:string;destinations:string[];stationNames:ReadonlyMap<string,string>;stationIds:string[];onChange:(event:AuthoringFormationEvent)=>void;onSelectDuty:(id:string)=>void;onValidityChange?:(valid:boolean)=>void}) {
+ const {t}=useI18n(),e=p.event,readOnly=e.coordinatorDutyId!==p.dutyId;
+ const [invalid,setInvalid]=useState<Record<string,boolean>>({});
+ const callback=useRef(p.onValidityChange);callback.current=p.onValidityChange;
+ const validity=(key:string,valid:boolean)=>setInvalid(current=>current[key]===!valid?current:{...current,[key]:!valid});
+ useEffect(()=>{callback.current?.(!Object.values(invalid).some(Boolean));},[invalid]);
+ useEffect(()=>()=>{callback.current?.(true);},[]);
+ const patch=(change:Partial<AuthoringFormationEvent>)=>p.onChange({...e,...change} as AuthoringFormationEvent);
+ const options=(ids:string[])=>ids.map(value=>({value,label:value}));
+ const output=(o:FormationOutput,label:string,change:(value:FormationOutput)=>void)=><div className="formation-output" key={o.id}><Typography.Text strong>{label}</Typography.Text><Select aria-label={label} value={o.disposition.type==='DUTY'?o.disposition.dutyId:'__hold'} options={[{value:'__hold',label:t('formation.hold')},...p.document.duties.filter(d=>(d.selector.type!=='TAKE_FROM_FORMATION_OUTPUT'||d.selector.eventId===e.id&&d.selector.outputId===o.id)&&!formationOutputs(e).some(other=>other.id!==o.id&&other.disposition.type==='DUTY'&&other.disposition.dutyId===d.id)).map(d=>({value:d.id,label:d.id===e.coordinatorDutyId?`${d.id} · ${t('formation.continue')}`:d.id}))]} onChange={id=>change({...o,disposition:id==='__hold'?{type:'HOLD'}:{type:'DUTY',dutyId:id}})}/>{o.disposition.type==='DUTY'&&<Button disabled={false} onClick={()=>o.disposition.type==='DUTY'&&p.onSelectDuty(o.disposition.dutyId)}>{t('formation.openDuty')} {o.disposition.dutyId}</Button>}</div>;
+ return <div className="formation-task-fields">
+  {readOnly&&<Alert type="info" title={t('formation.sharedReadOnly')} action={<Button onClick={()=>p.onSelectDuty(e.coordinatorDutyId)}>{t('formation.openOwner')} {e.coordinatorDutyId}</Button>}/>}
+  <ConfigProvider componentDisabled={readOnly}><div className="timed-operation-grid">
+   <label>{t('programs.callTick')}<CommittedNumberInput aria-label={t('programs.callTick')} fieldKey={`${p.fieldScope}/tick`} value={e.tick} min={0} max={p.document.periodDays*24000-1} precision={0} allowEmpty={false} onValidityChange={valid=>validity('tick',valid)} onCommit={tick=>patch({tick:tick??0})}/></label>
+   <label>{t('timed.station')}<Select allowClear aria-label={t('timed.station')} value={e.stationId} options={p.stationIds.map(value=>({value,label:p.stationNames.get(value)||value}))} onChange={stationId=>patch({stationId})}/></label>
+   <label>{t('timeline.durationMode')}<Select aria-label={t('timeline.durationMode')} value={e.duration?.type??'SIMULATED'} options={[{value:'MANUAL',label:t('timeline.manual')},{value:'SIMULATED',label:t('timeline.simulated')}]} onChange={type=>{validity('duration',true);patch({duration:type==='MANUAL'?{type:'MANUAL',ticks:1}:{type:'SIMULATED'}});}}/></label>
+   {e.duration?.type==='MANUAL'&&<label>{t('timeline.duration')}<CommittedNumberInput aria-label={t('timeline.duration')} fieldKey={`${p.fieldScope}/duration`} value={e.duration.ticks} min={0} precision={0} allowEmpty={false} onValidityChange={valid=>validity('duration',valid)} onCommit={ticks=>patch({duration:{type:'MANUAL',ticks:ticks??0}})}/></label>}
+  </div>
+  {e.kind==='SPLIT'?<><Typography.Paragraph type="secondary">{t('formation.partitionHelp')}</Typography.Paragraph><label className="formation-count">{t('formation.firstUnitCount')}<CommittedNumberInput aria-label={t('formation.firstUnitCount')} fieldKey={`${p.fieldScope}/count`} value={e.partition.firstUnitCount} min={1} max={2147483647} precision={0} allowEmpty={false} onValidityChange={valid=>validity('count',valid)} onCommit={count=>patch({partition:{from:'HEAD',firstUnitCount:count??1}})}/></label>{e.outputs.map(o=>output(o,t(o.group==='FIRST'?'formation.first':'formation.rest'),value=>patch({outputs:e.outputs.map(item=>item.id===o.id?{...value,group:o.group}:item)})))}</>:<>
+   <div className="timed-operation-grid"><label>{t('formation.approaching')}<Select disabled={readOnly||e.approachingDutyId===e.coordinatorDutyId} aria-label={t('formation.approaching')} value={e.approachingDutyId||undefined} options={options(p.document.duties.filter(d=>d.id!==e.stationaryDutyId).map(d=>d.id))} onChange={approachingDutyId=>patch({approachingDutyId})}/></label><label>{t('formation.stationary')}<Select disabled={readOnly||e.stationaryDutyId===e.coordinatorDutyId} aria-label={t('formation.stationary')} value={e.stationaryDutyId||undefined} options={options(p.document.duties.filter(d=>d.id!==e.approachingDutyId).map(d=>d.id))} onChange={stationaryDutyId=>patch({stationaryDutyId})}/></label><label>{t('formation.stationaryEnd')}<Select aria-label={t('formation.stationaryEnd')} value={e.stationaryEnd} options={[{value:'HEAD',label:t('formation.head')},{value:'TAIL',label:t('formation.tail')}]} onChange={stationaryEnd=>patch({stationaryEnd})}/></label><label>{t('formation.approachTarget')}<Select value={e.rendezvous.approachDestinationId||undefined} options={options(p.destinations)} onChange={approachDestinationId=>patch({rendezvous:{...e.rendezvous,approachDestinationId}})}/></label><label>{t('formation.stationaryTarget')}<Select value={e.rendezvous.stationaryDestinationId||undefined} options={options(p.destinations)} onChange={stationaryDestinationId=>patch({rendezvous:{...e.rendezvous,stationaryDestinationId}})}/></label><label>{t('formation.approachSpeed')}<CommittedNumberInput fieldKey={`${p.fieldScope}/speed`} value={e.maximumApproachSpeedMetersPerSecond*3.6} min={0.01} allowEmpty={false} onValidityChange={valid=>validity('speed',valid)} onCommit={speed=>patch({maximumApproachSpeedMetersPerSecond:(speed??0)/3.6})}/></label></div>{output(e.output,t('formation.combined'),value=>patch({output:value}))}
+  </>}
+  <Typography.Paragraph type="secondary">{t('formation.receiverHelp')}</Typography.Paragraph>
+  </ConfigProvider>
+  <Flex wrap gap={8}>{[...new Set(e.kind==='SPLIT'?[e.coordinatorDutyId]:[e.approachingDutyId,e.stationaryDutyId])].filter(id=>id&&id!==p.dutyId).map(id=><Button key={id} onClick={()=>p.onSelectDuty(id)}>{t('formation.openDuty')} {id}</Button>)}</Flex>
+ </div>;
+}
+
+export function FormationSourceFields(p:{document:TimetableAuthoringDocumentV1;dutyId:string;eventId:string;outputId:string;onSelectDuty:(id:string)=>void;onChange:(eventId:string,outputId:string)=>void}) {
+ const {t}=useI18n(),event=p.document.formationEvents?.find(e=>e.id===p.eventId),source=event&&formationOutputs(event).find(o=>o.id===p.outputId&&o.disposition.type==='DUTY'&&o.disposition.dutyId===p.dutyId);
+ const candidates=(p.document.formationEvents??[]).flatMap(e=>formationOutputs(e).filter(o=>o.disposition.type==='HOLD'||o.disposition.dutyId===p.dutyId).filter(()=>e.coordinatorDutyId!==p.dutyId&&(e.kind!=='COUPLE'||![e.approachingDutyId,e.stationaryDutyId].includes(p.dutyId))).map(o=>({value:JSON.stringify([e.id,o.id]),label:`${e.coordinatorDutyId} · ${t(`programs.step.${e.kind}`)} · ${e.tick} · ${t(e.kind==='SPLIT'&&'group'in o?(o.group==='FIRST'?'formation.first':'formation.rest'):'formation.combined')}`})));
+ return <div className="formation-source"><label>{t('formation.source')}<Select aria-label={t('formation.source')} value={source?JSON.stringify([p.eventId,p.outputId]):undefined} options={candidates} onChange={value=>{const [id,outputId]=JSON.parse(value) as string[];p.onChange(id,outputId);}}/></label>{event&&source?<><Typography.Text type="secondary">{t('formation.available')} {event.tick}{event.duration?.type==='MANUAL'?`–${event.tick+event.duration.ticks}`:` · ${t('timeline.unknown')}`} · {t('formation.actualHandoff')}</Typography.Text><Button onClick={()=>p.onSelectDuty(event.coordinatorDutyId)}>{t('formation.openOwner')} {event.coordinatorDutyId}</Button></>:<Alert type="warning" title={t('formation.missingSource')}/>} {event&&!source&&<Button onClick={()=>p.onSelectDuty(event.coordinatorDutyId)}>{t('formation.openOwner')} {event.coordinatorDutyId}</Button>}</div>;
 }

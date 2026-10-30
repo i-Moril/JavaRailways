@@ -92,6 +92,54 @@ class TimetableDispatcherTest {
     }
 
     @Test
+    fun `train information unit failures and extension validation fail before provider start`() {
+        for (requestUnit in listOf(false, true)) {
+            val world = TestWorldFixture.create().also(worldFixtures::add).world
+            val data = BasicWorldData()
+            TestSimpleATOWorldDataRegistry.register(world, data)
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+            val train = createTrainWithConfig("T", rail, world, listOf(10.0))
+            val origin = "A"
+            data.wayPoints.add(WayPoint(origin, origin, rail.id, train.head.location.arcLength))
+            val acquisition = TimetableAction.TakeFromWaypoint(listOf(origin))
+            data.wayPoints.add(WayPoint("B", "B", rail.id, train.head.location.arcLength + 30.0))
+            var starts = 0
+            var validations = 0
+            world.simpleAtoWorldData.timetableExtensions.registerAction(object : TimetableActionProvider {
+                override val typeId = "test:acquired"
+                override val version = 1
+                override val descriptor = TimetableExtensionDescriptor("Acquired", "Observe acquired context")
+                override fun validate(parameters: JsonObject): List<String> {
+                    validations++
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive("T"), parameters["name"])
+                    return listOf("test rejects resolved values")
+                }
+                override fun start(parameters: JsonObject, context: TimetableRuntimeContext): TimetableExtensionActionStartResult {
+                    starts++
+                    assertEquals(origin, context.currentWayPointId)
+                    assertEquals(train.id, context.train?.trainId)
+                    return TimetableExtensionActionStartResult.Accepted(object : TimetableExtensionActionTicket {
+                        override fun snapshot() = TimetableExtensionActionSnapshot(TimetableExtensionActionState.SUCCEEDED)
+                        override fun cancel() = Unit
+                    })
+                }
+            })
+            world.simpleAtoWorldData.timetables.add(Timetable("extension-first", services = listOf(TimetableService("s",
+                steps = listOf(TimetableStep.At(0L, acquisition),
+                    TimetableStep.At(0L, TimetableAction.Extension(TimetableExtensionCall("test:acquired"), if (requestUnit) mapOf("units" to TrainInfoField.UNIT_COUNT) else mapOf("name" to TrainInfoField.NAME))),
+                    TimetableStep.At(0L, TimetableAction.GoTo("B")))))))
+            val dispatcher = dispatcher()
+            val result = world.onOwnerForTest { dispatcher.startService(world, "extension-first", "s") }
+            assertTrue(result is TimetableServiceStartResult.Failure, result.toString())
+            val id = TimetableServiceRunId("extension-first", "s")
+            assertEquals(0, starts)
+            assertEquals(if (requestUnit) 0 else 1, validations)
+            assertTrue(dispatcher.status(id)?.state == TimetableServiceRunState.FAILED ||
+                world.simpleAtoWorldData.atoCoordinator.isStalled, dispatcher.status(id).toString())
+        }
+    }
+
+    @Test
     fun `extension after stopped acquisition starts once without a first mission and holds until ticket success`() {
         for (depotTake in listOf(false, true)) {
             val world = TestWorldFixture.create().also(worldFixtures::add).world
@@ -157,7 +205,7 @@ class TimetableDispatcherTest {
     }
 
     @Test
-    fun `undirected input retains both feasible facings and propagates each arrival into onward movement`() {
+    fun `undirected input retains only facing that avoids unspecified loop waypoints`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
@@ -170,9 +218,9 @@ class TimetableDispatcherTest {
                 TimetableStep.At(1L, TimetableAction.GoTo("C"))))))
         val result = TimetableValidator(world).validate(timetable)
         assertTrue(result.isSuccess, result.errors.toString())
-        assertEquals(4, result.retainedRoutes.size)
-        assertEquals(ViewDirection.entries.toSet(), result.retainedRoutes.keys.filter { it.stepIndex == 1 }.map { it.startDirection }.toSet())
-        assertEquals(ViewDirection.entries.toSet(), result.retainedRoutes.keys.filter { it.stepIndex == 2 }.map { it.startDirection }.toSet())
+        assertEquals(2, result.retainedRoutes.size)
+        assertEquals(setOf(ViewDirection.AB), result.retainedRoutes.keys.filter { it.stepIndex == 1 }.map { it.startDirection }.toSet())
+        assertEquals(setOf(ViewDirection.AB), result.retainedRoutes.keys.filter { it.stepIndex == 2 }.map { it.startDirection }.toSet())
     }
 
     @Test
@@ -871,7 +919,7 @@ class TimetableDispatcherTest {
                             TimetableStep.At(
                                 3L,
                                 TimetableAction.TakeFromWaypoint(
-                                    listOf("empty-siding", "platform@1")
+                                    listOf("platform@1")
                                 )
                             ),
                             TimetableStep.At(3L, TimetableAction.GoTo("next"))
@@ -1038,12 +1086,135 @@ class TimetableDispatcherTest {
     }
 
     @Test
+    fun `live and isolated services never turn a train to face a destination without an explicit reverse`() {
+        for (mode in work.art1st.javarailways.core.api.physics.WorldExecutionMode.entries) {
+            for (reverse in listOf(false, true)) {
+                val world = TestWorldFixture.create(executionMode = mode).also(worldFixtures::add).world
+                val dispatcher = dispatcher()
+                val data = BasicWorldData()
+                TestSimpleATOWorldDataRegistry.register(world, data)
+                val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(140.0, 0.0, 0.0))
+                val train = createTrainWithConfig("reference", rail, world, listOf(10.0))
+                val initial = train.publishedFrame
+                OperationalDestinationService(world).register(OperationalDestination("origin", "Origin", rail.id,
+                    initial.head.arcLengthInAbMeters, ViewDirection.AB, DestinationRole.Regular))
+                OperationalDestinationService(world).register(OperationalDestination("behind", "Behind", rail.id,
+                    initial.head.arcLengthInAbMeters - 15.0, ViewDirection.BA, DestinationRole.Regular))
+                val steps = listOf(TimetableStep.At(0, TimetableAction.TakeFromWaypoint(listOf("origin")))) +
+                    (if (reverse) listOf(TimetableStep.At(0, TimetableAction.Reverse)) else emptyList()) +
+                    TimetableStep.At(0, TimetableAction.GoTo("behind"))
+                world.simpleAtoWorldData.timetables.add(Timetable("direction", services =
+                    listOf(TimetableService("duty", steps = steps))))
+                val registration = ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
+                    override fun isMainThread() = true
+                })
+                try {
+                    val result = world.onOwnerForTest { dispatcher.startService(world, "direction", "duty") }
+                    if (!reverse) {
+                        assertTrue(result is TimetableServiceStartResult.Failure) { "$mode: $result" }
+                        assertFalse(train.isReversed)
+                        assertSame(initial, train.publishedFrame)
+                        assertNull(train.controller)
+                    } else {
+                        assertTrue(result is TimetableServiceStartResult.Started) { "$mode: $result" }
+                        val ato = train.controller as SimpleATO
+                        tickAndPublish(ato)
+                        world.onOwnerForTest { dispatcher.tick(world) }
+                        assertTrue(train.isReversed)
+                        assertEquals(initial.tail.arcLengthInAbMeters, train.publishedFrame.head.arcLengthInAbMeters, 1e-7)
+                        assertEquals(initial.head.arcLengthInAbMeters, train.publishedFrame.tail.arcLengthInAbMeters, 1e-7)
+                        assertEquals(initial.occupiedIntervals.toSet(), train.publishedFrame.occupiedIntervals.toSet())
+                        tickAndPublish(ato)
+                        world.onOwnerForTest { dispatcher.tick(world) }
+                        assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled) {
+                            "$mode: ${world.simpleAtoWorldData.atoCoordinator.lastStall}"
+                        }
+                        assertTrue(dispatcher.status(TimetableServiceRunId("direction", "duty"))!!.missionRevision > 0L)
+                    }
+                    assertEquals(0.0, train.publishedFrame.speedMetersPerSecond)
+                } finally {
+                    registration.close()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `repeated in-place reversals across mixed rail directions keep the original route anchor basis`() {
+        for (mode in work.art1st.javarailways.core.api.physics.WorldExecutionMode.entries) {
+            for (reverseCount in listOf(1, 2)) {
+                val world = TestWorldFixture.create(executionMode = mode).also(worldFixtures::add).world
+                val dispatcher = dispatcher()
+                val data = BasicWorldData()
+                TestSimpleATOWorldDataRegistry.register(world, data)
+                val headRail = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(240.0, 0.0, 0.0))
+                val tailRail = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
+                IsolatedSimulationThreadMarker.run { RailView.connect(headRail.viewBA, tailRail.viewBA) }
+                val train = createTrainWithConfig("mixed", headRail, world, listOf(10.0))
+                world.onOwnerForTest {
+                    train.setLocation(RailLocationWithFacing(headRail.viewAB, 5.0))
+                    train.commitMaintenancePlacement()
+                }
+                val initial = train.publishedFrame
+                assertEquals(headRail.id, initial.head.railId)
+                assertEquals(ViewDirection.AB, initial.head.facing)
+                assertEquals(tailRail.id, initial.tail.railId)
+                assertEquals(ViewDirection.BA, initial.tail.facing)
+                assertEquals(2, initial.occupiedIntervals.size)
+                OperationalDestinationService(world).register(OperationalDestination("origin", "Origin", headRail.id,
+                    initial.head.arcLengthInAbMeters, ViewDirection.AB, DestinationRole.Regular))
+                val targetRail = if (reverseCount % 2 == 0) headRail else tailRail
+                OperationalDestinationService(world).register(OperationalDestination("target", "Target", targetRail.id,
+                    50.0, ViewDirection.AB, DestinationRole.Regular))
+                val steps = listOf(TimetableStep.Check("origin")) +
+                    List(reverseCount) { TimetableStep.At(0, TimetableAction.Reverse) } +
+                    TimetableStep.At(0, TimetableAction.GoTo("target"))
+                world.simpleAtoWorldData.timetables.add(Timetable("mixed-direction", services =
+                    listOf(TimetableService("duty", TrainSelector.TrainId(train.id), steps))))
+                val registration = ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
+                    override fun isMainThread() = true
+                })
+                try {
+                    val result = world.onOwnerForTest { dispatcher.startService(world, "mixed-direction", "duty") }
+                    assertTrue(result is TimetableServiceStartResult.Started) { "$mode/$reverseCount: $result" }
+                    val ato = train.controller as SimpleATO
+                    var observed = 0
+                    var previousReversed = false
+                    repeat(reverseCount * 2 + 1) {
+                        tickAndPublish(ato)
+                        world.onOwnerForTest { dispatcher.tick(world) }
+                        val frame = train.publishedFrame
+                        if (frame.reversed != previousReversed) {
+                            observed++
+                            previousReversed = frame.reversed
+                            assertEquals(initial.occupiedIntervals.toSet(), frame.occupiedIntervals.toSet())
+                            assertEquals(if (observed % 2 == 0) initial.head.railId else initial.tail.railId, frame.head.railId)
+                            assertEquals(if (observed % 2 == 0) initial.head.arcLengthInAbMeters else initial.tail.arcLengthInAbMeters,
+                                frame.head.arcLengthInAbMeters, 1e-7)
+                            // Both rails' AB arrows point in opposite physical directions.
+                            assertEquals(ViewDirection.AB, frame.head.facing)
+                            assertEquals(0.0, frame.speedMetersPerSecond)
+                        }
+                    }
+                    assertEquals(reverseCount, observed)
+                    assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled) {
+                        "$mode/$reverseCount: ${world.simpleAtoWorldData.atoCoordinator.lastStall}"
+                    }
+                    assertTrue(dispatcher.status(TimetableServiceRunId("mixed-direction", "duty"))!!.missionRevision > 0L)
+                } finally {
+                    registration.close()
+                }
+            }
+        }
+    }
+
+    @Test
     fun `storeAtDepot releases departure occupancy and completes availability handoff`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val dispatcher = dispatcher()
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
-        val (rail, returnRail) = depotLoop(world)
+        val (rail, inboundRail, returnRail) = depotBranchLoop(world)
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
         val originArc = train.head.location.arcLength
         val destinations = OperationalDestinationService(world)
@@ -1065,8 +1236,8 @@ class TimetableDispatcherTest {
             OperationalDestination(
                 "north@in",
                 "North inbound",
-                rail.id,
-                originArc + 100.0,
+                inboundRail.id,
+                originArc,
                 ViewDirection.AB,
                 DestinationRole.DepotStablingPointRole(
                     "north",
@@ -1102,10 +1273,12 @@ class TimetableDispatcherTest {
                                 TimetableAction.TakeFromDepot(DepotTrainSelector(depotId))
                             ),
                             TimetableStep.At(0L, TimetableAction.GoTo("B")),
+                            TimetableStep.At(0L, TimetableAction.TaskStart("store")),
                             TimetableStep.At(
                                 0L,
                                 TimetableAction.StoreAtDepot(depotId, setOf("in"))
-                            )
+                            ),
+                            TimetableStep.At(0L, TimetableAction.TaskEnd("store"))
                         )
                     )
                 )
@@ -1122,8 +1295,12 @@ class TimetableDispatcherTest {
 
         val status = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
         assertEquals(TimetableServiceRunState.COMPLETED, status.state)
+        val measured = status.taskTimings.single()
+        assertEquals("store", measured.taskId)
+        assertTrue(measured.endTick!! > measured.startTick, "storage ends after physical arrival and availability handoff")
         assertTrue(status.routeGrantActive)
-        assertEquals(originArc + 100.0, train.head.location.arcLength, 0.6)
+        assertEquals(inboundRail.id, train.head.location.rail.id)
+        assertEquals(originArc, train.head.location.arcLength, 0.6)
         val rolling = world.simpleAtoWorldData.depots.rollingStock(train.id)!!
         assertEquals(RollingStockState.AVAILABLE, rolling.state)
         assertEquals(StablingPointRef(depotId, "in"), rolling.stablingPointRef)
@@ -1131,7 +1308,7 @@ class TimetableDispatcherTest {
         assertEquals(train.id, world.simpleAtoWorldData.depots.stablingPoint(StablingPointRef(depotId, "in"))?.occupantTrainId)
         assertTrue(!world.simpleAtoWorldData.atoCoordinator.isStalled)
 
-        data.wayPoints.add(WayPoint("C", "C", rail.id, originArc + 115.0))
+        data.wayPoints.add(WayPoint("C", "C", returnRail.id, 100.0))
         world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt-depart-again",
@@ -1145,7 +1322,7 @@ class TimetableDispatcherTest {
                                     DepotTrainSelector(depotId, requiredTags = setOf("metro"))
                                 )
                             ),
-                            TimetableStep.At(0L, TimetableAction.GoTo("C"))
+                            TimetableStep.At(0L, TimetableAction.GoVia(listOf("B", "C")))
                         )
                     )
                 )
@@ -1178,7 +1355,7 @@ class TimetableDispatcherTest {
         val coordinator = AtoWorldCoordinator("dispatcher-store-capacity", reportSink = {})
         val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
         TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
-        val (outboundRail, returnRail) = depotLoop(world)
+        val (outboundRail, inboundRail, returnRail) = depotBranchLoop(world)
         val train = createTrainWithConfig("T1", outboundRail, world, listOf(10.0))
         val originArc = train.head.location.arcLength
         val destinations = OperationalDestinationService(world)
@@ -1200,8 +1377,8 @@ class TimetableDispatcherTest {
             OperationalDestination(
                 "north@in",
                 "North in",
-                outboundRail.id,
-                originArc + 100.0,
+                inboundRail.id,
+                originArc,
                 ViewDirection.AB,
                 DestinationRole.DepotStablingPointRole(
                     "north",
@@ -1261,7 +1438,8 @@ class TimetableDispatcherTest {
                 )
             )
         )
-        world.onOwnerForTest { dispatcher.startService(world, "tt-store-capacity", "s1") }
+        val start = world.onOwnerForTest { dispatcher.startService(world, "tt-store-capacity", "s1") }
+        assertInstanceOf(TimetableServiceStartResult.Started::class.java, start, start.toString())
         val ato = train.controller as SimpleATO
 
         for (ignored in 0 until 8_000) {
@@ -1303,20 +1481,6 @@ class TimetableDispatcherTest {
                 DestinationRole.DepotStablingPointRole(
                     "north",
                     "one",
-                    usableLengthMeters = 20.0
-                )
-            )
-        )
-        destinations.register(
-            OperationalDestination(
-                "north@two",
-                "North two",
-                outboundRail.id,
-                originArc + 100.0,
-                ViewDirection.AB,
-                DestinationRole.DepotStablingPointRole(
-                    "north",
-                    "two",
                     usableLengthMeters = 20.0
                 )
             )
@@ -2122,7 +2286,7 @@ class TimetableDispatcherTest {
                         trainSelector = TrainSelector.TrainId(mainTrain.id),
                         steps = listOf(
                             TimetableStep.Check("M0"),
-                            TimetableStep.At(10L, TimetableAction.GoVia(listOf("P", "M1")))
+                            TimetableStep.At(10L, TimetableAction.GoVia(listOf("P", "B0", "M1")))
                         )
                     )
                 )
@@ -2186,7 +2350,7 @@ class TimetableDispatcherTest {
             Timetable(
                 id = "tt",
                 services = listOf(
-                    service("s1", firstTrain.id, "A1", "B1"),
+                    service("s1", firstTrain.id, "A1", "B1", viaIds = listOf("A2")),
                     service("s2", secondTrain.id, "A2", "B2")
                 )
             )
@@ -2295,7 +2459,7 @@ class TimetableDispatcherTest {
             Timetable(
                 "tt",
                 services = listOf(
-                    service("late", lateTrain.id, "L0", "L1", tick = 100L),
+                    service("late", lateTrain.id, "L0", "L1", tick = 100L, viaIds = listOf("E0")),
                     service("early", earlyTrain.id, "E0", "E1", tick = 10L)
                 )
             )
@@ -2336,7 +2500,7 @@ class TimetableDispatcherTest {
     }
 
     @Test
-    fun `wait-until-true activation starts a future cycle only after provider becomes true`() {
+    fun `runtime activation rejects before evaluating provider or installing controller`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val dispatcher = dispatcher()
         val data = BasicWorldData()
@@ -2371,23 +2535,17 @@ class TimetableDispatcherTest {
             ))
         ))
 
-        assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, "tt-activation") } is TimetableEpochStartResult.Started)
-        assertTrue(world.onOwnerForTest { dispatcher.scheduleInitialCycle("tt-activation") })
-        world.onOwnerForTest { dispatcher.tick(world) }
+        val rejected = world.onOwnerForTest { dispatcher.beginTimetable(world, "tt-activation") }
+        assertInstanceOf(TimetableEpochStartResult.Failure::class.java, rejected)
+        assertEquals(0, evaluations)
+        assertNull(train.controller)
         assertNull(dispatcher.status(TimetableServiceRunId("tt-activation", "service")))
-        assertEquals(1, evaluations)
+        assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
 
-        enabled = true
-        world.onOwnerForTest { dispatcher.tick(world) }
-
-        val started = dispatcher.status(TimetableServiceRunId("tt-activation", "service"))
-        assertNotNull(started)
-        assertEquals(0L, started?.cycleIndex)
-        assertEquals(2, evaluations)
     }
 
     @Test
-    fun `evaluates runtime condition once and waits for registered extension action ticket`() {
+    fun `compile-selected action starts once and waits for registered extension ticket`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val dispatcher = dispatcher()
         val data = BasicWorldData()
@@ -2440,14 +2598,7 @@ class TimetableDispatcherTest {
                 steps = listOf(
                     TimetableStep.Check("A"),
                     TimetableStep.At(0L, TimetableAction.GoTo("B")),
-                    TimetableStep.At(0L, TimetableAction.Conditional(
-                        condition = TimetableCondition.Predicate(
-                            TimetableExtensionCall("test:enabled")
-                        ),
-                        thenSteps = listOf(TimetableStep.At(0L, TimetableAction.Extension(
-                            TimetableExtensionCall("test:record")
-                        )))
-                    ))
+                    TimetableStep.At(0L, TimetableAction.Extension(TimetableExtensionCall("test:record")))
                 )
             ))
         ))
@@ -2461,13 +2612,13 @@ class TimetableDispatcherTest {
 
         assertEquals(TimetableServiceRunState.WAITING_EXTENSION_ACTION,
             dispatcher.status(TimetableServiceRunId("tt-extension", "service"))?.state)
-        assertEquals(1, evaluations)
+        assertEquals(0, evaluations)
         assertEquals(1, actionStarts)
 
         world.onOwnerForTest { dispatcher.tick(world) }
         assertEquals(TimetableServiceRunState.COMPLETED,
             dispatcher.status(TimetableServiceRunId("tt-extension", "service"))?.state)
-        assertEquals(1, evaluations)
+        assertEquals(0, evaluations)
         assertEquals(1, actionStarts)
     }
 
@@ -2580,7 +2731,7 @@ class TimetableDispatcherTest {
     }
 
     @Test
-    fun `nested branch children keep their own ticks and chosen address`() {
+    fun `compile-selected timed children preserve waits and extension scheduled ticks`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val dispatcher = dispatcher()
         val data = BasicWorldData()
@@ -2635,20 +2786,11 @@ class TimetableDispatcherTest {
                 steps = listOf(
                     TimetableStep.Check("A"),
                     TimetableStep.At(0L, TimetableAction.GoTo("B")),
-                    TimetableStep.At(0L, TimetableAction.Conditional(
-                        condition = TimetableCondition.Predicate(
-                            TimetableExtensionCall("test:enabled")
-                        ),
-                        thenSteps = listOf(TimetableStep.At(10L, TimetableAction.Conditional(
-                            TimetableCondition.Predicate(TimetableExtensionCall("test:enabled")),
-                            thenSteps = listOf(
-                                TimetableStep.At(15L, TimetableAction.WaitUntil),
-                                TimetableStep.At(15L, TimetableAction.Stop(2L)),
-                                TimetableStep.At(20L, TimetableAction.Extension(TimetableExtensionCall("test:record"))),
-                                TimetableStep.At(25L, TimetableAction.Extension(TimetableExtensionCall("test:record")))
-                            )
-                        )))
-                    ))
+                    TimetableStep.At(10L, TimetableAction.WaitUntil),
+                    TimetableStep.At(15L, TimetableAction.WaitUntil),
+                    TimetableStep.At(15L, TimetableAction.Stop(2L)),
+                    TimetableStep.At(20L, TimetableAction.Extension(TimetableExtensionCall("test:record"))),
+                    TimetableStep.At(25L, TimetableAction.Extension(TimetableExtensionCall("test:record")))
                 )
             ))
         ))
@@ -2661,14 +2803,14 @@ class TimetableDispatcherTest {
         world.onOwnerForTest { dispatcher.tick(world) }
 
         val id = TimetableServiceRunId("tt-extension", "service")
-        assertEquals(1, evaluations)
+        assertEquals(0, evaluations)
         assertEquals(0, actionStarts)
         assertEquals(10L, dispatcher.status(id)?.nextScheduledTick)
-        assertEquals(listOf(TimetableBranchEntry(TimetableBranchArm.THEN, 0)), dispatcher.status(id)?.nextStepBranchPath)
+        assertEquals(emptyList<TimetableBranchEntry>(), dispatcher.status(id)?.nextStepBranchPath)
         repeat(8) { world.onOwnerForTest { dispatcher.tick(world) } }
-        assertEquals(2, evaluations)
+        assertEquals(0, evaluations)
         assertEquals(15L, dispatcher.status(id)?.nextScheduledTick)
-        assertEquals(listOf(TimetableBranchEntry(TimetableBranchArm.THEN, 0), TimetableBranchEntry(TimetableBranchArm.THEN, 0)),
+        assertEquals(emptyList<TimetableBranchEntry>(),
             dispatcher.status(id)?.nextStepBranchPath)
         repeat(5) { world.onOwnerForTest { dispatcher.tick(world) } }
         assertEquals(TimetableServiceRunState.DWELLING, dispatcher.status(id)?.state)
@@ -2683,12 +2825,12 @@ class TimetableDispatcherTest {
         assertEquals(listOf(20L, 25L), scheduled)
         world.onOwnerForTest { dispatcher.tick(world) }
         assertEquals(TimetableServiceRunState.COMPLETED, dispatcher.status(id)?.state)
-        assertEquals(2, evaluations, "branch choices must not be reevaluated during timed child waits")
+        assertEquals(0, evaluations, "compiled plans do not evaluate runtime conditions")
     }
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
-    fun `branch movement preserves selected successor and actual onward origin`(chooseThen: Boolean) {
+    fun `compile-selected movement preserves successor and actual onward origin`(chooseThen: Boolean) {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val dispatcher = dispatcher()
         val data = BasicWorldData()
@@ -2710,12 +2852,11 @@ class TimetableDispatcherTest {
                 return if (chooseThen) TimetableConditionResult.True else TimetableConditionResult.False
             }
         })
-        val branch = TimetableAction.Conditional(TimetableCondition.Predicate(TimetableExtensionCall("test:branch-choice")),
-            thenSteps = listOf(TimetableStep.At(0L, TimetableAction.GoTo("B"))),
-            elseSteps = listOf(TimetableStep.At(0L, TimetableAction.GoTo("C"))))
+        val firstMovement = if (chooseThen) TimetableAction.GoTo("B") else TimetableAction.GoVia(listOf("B","C"))
+        val onward = if (chooseThen) TimetableAction.GoVia(listOf("C","D")) else TimetableAction.GoTo("D")
         world.simpleAtoWorldData.timetables.add(Timetable("branch-motion", services = listOf(TimetableService("service",
-            TrainSelector.TrainId(train.id), listOf(TimetableStep.Check("A"), TimetableStep.At(0L, branch),
-                TimetableStep.At(0L, TimetableAction.GoTo("D")))))))
+            TrainSelector.TrainId(train.id), listOf(TimetableStep.Check("A"), TimetableStep.At(0L, firstMovement),
+                TimetableStep.At(0L, onward))))))
         val id = TimetableServiceRunId("branch-motion", "service")
         world.onOwnerForTest {
             assertInstanceOf(TimetableEpochStartResult.Started::class.java, dispatcher.beginTimetable(world, id.timetableId))
@@ -2724,7 +2865,7 @@ class TimetableDispatcherTest {
         val ato = train.controller as SimpleATO
         val initial = checkNotNull(dispatcher.status(id))
         assertEquals(1, initial.activeStepIndex)
-        assertEquals(listOf(TimetableBranchEntry(if (chooseThen) TimetableBranchArm.THEN else TimetableBranchArm.ELSE, 0)), initial.activeStepBranchPath)
+        assertEquals(emptyList<TimetableBranchEntry>(), initial.activeStepBranchPath)
         assertEquals(2, initial.nextStepIndex)
         val origins = linkedSetOf<String?>()
         var ticks = 0
@@ -2739,7 +2880,7 @@ class TimetableDispatcherTest {
         assertEquals(100.0, train.publishedFrame.head.arcLengthInAbMeters, 0.5)
         assertTrue((if (chooseThen) "B" else "C") in origins, origins.toString())
         assertFalse((if (chooseThen) "C" else "B") in origins, origins.toString())
-        assertEquals(1, evaluations)
+        assertEquals(0, evaluations)
     }
 
     @Test
@@ -2753,7 +2894,7 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("A", "A", rail.id, train.publishedFrame.head.arcLengthInAbMeters))
         data.wayPoints.add(WayPoint("D", "D", rail.id, 100.0))
         val station = StationId("station")
-        for ((id, arc) in listOf("short" to 50.0, "long" to 60.0)) {
+        for ((id, arc) in listOf("short" to 60.0, "long" to 60.0)) {
             OperationalDestinationService(world).register(OperationalDestination("station@$id", id, rail.id, arc,
                 ViewDirection.AB, DestinationRole.StationBerthRole(station, berthId = id, doorSide = DoorSide.NONE,
                     usableLengthMeters = 20.0, maximumTrainLengthMeters = if (id == "short") 5.0 else 20.0)))
@@ -2795,18 +2936,22 @@ class TimetableDispatcherTest {
         val dispatcher = dispatcher()
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
-        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(150.0, 1))
+        val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(50.0, 0.0, 0.0))
+        val shortBranch = rail(world, Vector3d(50.0, 0.0, 0.0), Vector3d(150.0, 0.0, 0.0))
+        val longBranch = rail(world, Vector3d(50.0, 0.0, 0.0), Vector3d(150.0, 0.0, 20.0))
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(rail, shortBranch) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(rail, longBranch) }
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
         data.wayPoints.add(WayPoint("A", "A", rail.id, train.publishedFrame.head.arcLengthInAbMeters))
         data.wayPoints.add(WayPoint("D", "D", rail.id, 10.0))
         val station = StationId("station")
-        for ((id, arc) in listOf("short" to 60.0, "long" to 80.0)) {
-            OperationalDestinationService(world).register(OperationalDestination("station@$id", id, rail.id, arc,
+        for ((id, branch) in listOf("short" to shortBranch, "long" to longBranch)) {
+            OperationalDestinationService(world).register(OperationalDestination("station@$id", id, branch.id, 30.0,
                 ViewDirection.AB, DestinationRole.StationBerthRole(station, berthId = id, doorSide = DoorSide.NONE,
                     usableLengthMeters = 20.0, maximumTrainLengthMeters = 20.0)))
         }
         world.onOwnerForTest {
-            val head = RailLocationWithFacing(rail.viewAB, 85.0)
+            val head = RailLocationWithFacing(longBranch.viewAB, 35.0)
             val car = work.art1st.javarailways.core.physics.train.CoreCar.create("blocking-car",
                 work.art1st.javarailways.core.physics.train.CoreBogie.create(head),
                 work.art1st.javarailways.core.physics.train.CoreBogie.create(head), length = 10.0,
@@ -2823,7 +2968,7 @@ class TimetableDispatcherTest {
         world.simpleAtoWorldData.timetables.add(Timetable("select-stop", services = listOf(TimetableService("service",
             TrainSelector.TrainId(train.id), listOf(TimetableStep.Check("A"),
                 TimetableStep.At(0L, TimetableAction.SelectStop(selection)), TimetableStep.At(0L, TimetableAction.Reverse),
-                TimetableStep.At(0L, TimetableAction.GoTo("D")))))))
+                TimetableStep.At(0L, TimetableAction.GoVia(listOf("A", "D"))))))))
         val id = TimetableServiceRunId("select-stop", "service")
         val start = world.onOwnerForTest { dispatcher.startService(world, id.timetableId, id.serviceId) }
         assertInstanceOf(TimetableServiceStartResult.Started::class.java, start, start.toString())
@@ -2845,7 +2990,7 @@ class TimetableDispatcherTest {
         assertEquals(StationBerthRef(station, "short"), dispatcher.status(id)?.selectedBerthRef)
         assertTrue("station@short" in visited)
         assertFalse("station@long" in visited)
-        assertEquals(10.0, train.publishedFrame.head.arcLengthInAbMeters, 0.5)
+        assertEquals(10.0, train.publishedFrame.head.arcLengthInAbMeters, 0.6)
         assertFalse(checkNotNull(dispatcher.status(id)).berthHeld)
     }
 
@@ -2860,7 +3005,7 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("A", "A", rail.id, train.publishedFrame.head.arcLengthInAbMeters))
         data.wayPoints.add(WayPoint("D", "D", rail.id, 100.0))
         val station = StationId("station")
-        for ((id, arc) in listOf("short" to 50.0, "long" to 60.0)) {
+        for ((id, arc) in listOf("short" to 60.0, "long" to 60.0)) {
             OperationalDestinationService(world).register(OperationalDestination("station@$id", id, rail.id, arc,
                 ViewDirection.AB, DestinationRole.StationBerthRole(station, berthId = id, doorSide = DoorSide.NONE,
                     usableLengthMeters = 20.0, maximumTrainLengthMeters = if (id == "short") 5.0 else 20.0)))
@@ -2904,7 +3049,7 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("A", "A", rail.id, train.publishedFrame.head.arcLengthInAbMeters))
         data.wayPoints.add(WayPoint("D", "D", rail.id, 100.0))
         val station = StationId("station")
-        for ((id, arc) in listOf("short" to 50.0, "long" to 60.0)) {
+        for ((id, arc) in listOf("short" to 60.0, "long" to 60.0)) {
             OperationalDestinationService(world).register(OperationalDestination("station@$id", id, rail.id, arc,
                 ViewDirection.AB, DestinationRole.StationBerthRole(station, berthId = id, doorSide = DoorSide.NONE,
                     usableLengthMeters = 20.0, maximumTrainLengthMeters = if (id == "short") 5.0 else 20.0)))
@@ -2985,19 +3130,34 @@ class TimetableDispatcherTest {
         trainId: String,
         origin: String,
         target: String,
-        tick: Long = 0L
+        tick: Long = 0L,
+        viaIds: List<String> = emptyList()
     ): TimetableService = TimetableService(
         id = serviceId,
         trainSelector = TrainSelector.TrainId(trainId),
         steps = listOf(
             TimetableStep.Check(origin),
-            TimetableStep.At(tick, TimetableAction.GoTo(target))
+            TimetableStep.At(tick, if (viaIds.isEmpty()) TimetableAction.GoTo(target) else TimetableAction.GoVia(viaIds + target))
         )
     )
 
     private fun tickAndPublish(ato: SimpleATO, deltaMillis: Double = 50.0) {
         AsyncTickTestSupport.run { ato.tick(deltaMillis) }
         ato.commit()
+    }
+
+    private fun depotBranchLoop(world: CoreWorld): Triple<CoreRail, CoreRail, CoreRail> {
+        val (branchCurve, returnCurve) = PrimeCurveGenerator.buildCircle(140.0 / PI, 2, step = 0.1)
+        val outbound = world.createRailForTest(branchCurve)
+        val inbound = world.createRailForTest(branchCurve)
+        val shared = world.createRailForTest(returnCurve)
+        IsolatedSimulationThreadMarker.run {
+            RailView.connect(outbound.viewAB, shared.viewBA)
+            RailView.connect(inbound.viewAB, shared.viewBA)
+            RailView.connect(shared.viewAB, outbound.viewBA)
+            RailView.connect(shared.viewAB, inbound.viewBA)
+        }
+        return Triple(outbound, inbound, shared)
     }
 
     private fun depotLoop(world: CoreWorld): Pair<CoreRail, CoreRail> {

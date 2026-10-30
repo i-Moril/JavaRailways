@@ -79,6 +79,53 @@ class WebUiApplicationTest {
         } finally { app.stop(); }
     }
 
+    @Test void standaloneProgramSimulationRequiresSessionValidatesBodyAndPreservesBridgeStatus() throws Exception {
+        HttpServer bridge = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        bridge.createContext("/auth/exchange", exchange -> {
+            byte[] body = "{\"playerId\":\"player\",\"playerName\":\"Player\",\"worldId\":\"world\"}".getBytes();
+            exchange.sendResponseHeaders(200, body.length); exchange.getResponseBody().write(body); exchange.close();
+        });
+        var received = new java.util.concurrent.atomic.AtomicReference<String>();
+        var status = new java.util.concurrent.atomic.AtomicInteger(200);
+        bridge.createContext("/worlds/world/programs/simulate", exchange -> {
+            assertEquals("Bearer bridge-token", exchange.getRequestHeaders().getFirst("Authorization"));
+            assertEquals("POST", exchange.getRequestMethod());
+            received.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            byte[] body = (status.get() == 200 ? "{\"status\":\"COMPLETED\",\"durationTicks\":1300}" : "{\"error\":\"simulation unavailable\"}").getBytes();
+            exchange.sendResponseHeaders(status.get(), body.length); exchange.getResponseBody().write(body); exchange.close();
+        });
+        bridge.start();
+        Javalin app = new WebUiApplication(new WebUiConfig(
+            URI.create("http://127.0.0.1:" + bridge.getAddress().getPort() + "/"), "bridge-token", drafts,
+            "127.0.0.1", false, 0, 8192, Duration.ofSeconds(2))).createApp().start(0);
+        try {
+            HttpClient client = HttpClient.newHttpClient(); String root = "http://127.0.0.1:" + app.port();
+            URI endpoint = URI.create(root + "/api/v1/worlds/world/programs/simulate");
+            String body = """
+                {"programId":"p","definition":{"parameters":[],"steps":[{"id":"w","type":"WAIT_DURATION","durationTicks":{"value":1300}}]},
+                 "arguments":{},"startTick":100,"periodDays":1,"maximumDurationTicks":2000,
+                 "profile":{"type":"WORLD_TRAIN","id":"reference"},"initialPosition":{"wayPointId":"point","reverseTrain":true}}
+                """;
+            assertEquals(401, client.send(HttpRequest.newBuilder(endpoint).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+            assertEquals(null, received.get());
+            HttpResponse<String> login = client.send(HttpRequest.newBuilder(URI.create(root + "/auth/exchange"))
+                .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{\"token\":\"one-time-token\"}")).build(), HttpResponse.BodyHandlers.ofString());
+            String cookie = login.headers().firstValue("Set-Cookie").orElseThrow().split(";", 2)[0];
+            HttpResponse<String> invalid = client.send(HttpRequest.newBuilder(endpoint).header("Cookie", cookie)
+                .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.replace(",\"reverseTrain\":true", ""))).build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, invalid.statusCode()); assertEquals(null, received.get());
+            for (int code : new int[]{200, 422, 429, 504}) {
+                status.set(code);
+                HttpResponse<String> response = client.send(HttpRequest.newBuilder(endpoint).header("Cookie", cookie)
+                    .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
+                assertEquals(code, response.statusCode());
+                assertEquals(new ObjectMapper().readTree(body), new ObjectMapper().readTree(received.get()));
+                assertTrue(!response.body().contains("bridge-token") && !response.body().contains("one-time-token"));
+            }
+        } finally { app.stop(); bridge.stop(0); }
+    }
+
     @Test void forwardsAuthoringResetSpeedCapAndPreservesBridgeErrors() throws Exception {
         HttpServer bridge = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         bridge.createContext("/auth/exchange", exchange -> {

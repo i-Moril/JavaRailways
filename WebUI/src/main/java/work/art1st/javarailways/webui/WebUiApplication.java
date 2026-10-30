@@ -160,6 +160,7 @@ public final class WebUiApplication {
         app.get("/api/v1/worlds/{world}/scripts", this::scripts);
         app.post("/api/v1/worlds/{world}/scripts/compile", this::compileSource);
         app.post("/api/v1/worlds/{world}/timetables/simulate", this::simulateTimetable);
+        app.post("/api/v1/worlds/{world}/programs/simulate", this::simulateProgram);
         app.get("/api/v1/worlds/{world}/scripts/{script}", this::renderScript);
         app.get("/api/v1/worlds/{world}/lines", this::lines);
         app.post("/api/v1/worlds/{world}/lines/{line}/simulate", this::simulateLine);
@@ -176,7 +177,7 @@ public final class WebUiApplication {
                 .ifPresentOrElse(context::json, () -> error(context, 404, "program not found")));
         app.post("/api/v1/worlds/{world}/station-programs", this::createStationProgram);
         app.put("/api/v1/worlds/{world}/station-programs/{program}", this::updateStationProgram);
-        app.post("/api/v1/worlds/{world}/station-programs/{program}/archive", this::archiveStationProgram);
+        app.delete("/api/v1/worlds/{world}/station-programs/{program}", this::deleteStationProgram);
         app.get("/api/v1/worlds/{world}/editor-documents", this::listEditorDocuments);
         app.post("/api/v1/worlds/{world}/editor-documents", this::createEditorDocument);
         app.get("/api/v1/worlds/{world}/editor-documents/{document}", this::getEditorDocument);
@@ -444,6 +445,12 @@ public final class WebUiApplication {
         respond(context, bridge.post(worldPath(context) + "/scripts/compile", requestJson(context)));
     }
 
+    private void simulateProgram(Context context) throws IOException, InterruptedException {
+        JsonNode request = requestJson(context);
+        ProgramSimulationValidator.validate(request);
+        respond(context, bridge.post(worldPath(context) + "/programs/simulate", request));
+    }
+
     private void simulateTimetable(Context context) throws IOException, InterruptedException {
         respond(context, bridge.post(worldPath(context) + "/timetables/simulate", requestJson(context)));
     }
@@ -526,12 +533,15 @@ public final class WebUiApplication {
             .ifPresentOrElse(context::json, () -> error(context, 404, "program not found"));
     }
 
-    private void archiveStationProgram(Context context) throws IOException {
+    private void deleteStationProgram(Context context) throws IOException {
         JsonNode request = requestJson(context);
-        StationProgramValidator.fields(request, java.util.Set.of("expectedRevision"), "archive program request");
-        stationPrograms.archive(context.pathParam("world"), context.pathParam("program"),
-            StationProgramValidator.revision(request.path("expectedRevision")))
-            .ifPresentOrElse(context::json, () -> error(context, 404, "program not found"));
+        StationProgramValidator.fields(request, java.util.Set.of("expectedRevision"), "delete program request");
+        if (!stationPrograms.delete(context.pathParam("world"), context.pathParam("program"),
+            StationProgramValidator.revision(request.path("expectedRevision")))) {
+            error(context, 404, "program not found");
+            return;
+        }
+        context.json(Map.of("removed", true));
     }
 
     private void listEditorDocuments(Context context) throws IOException {

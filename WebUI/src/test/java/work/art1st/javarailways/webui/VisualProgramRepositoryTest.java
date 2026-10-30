@@ -22,12 +22,12 @@ class VisualProgramRepositoryTest {
     }
     private JsonNode definition() throws Exception { return mapper.readTree("{\"parameters\":[],\"steps\":[]}"); }
 
-    @Test void dynamicStopValidatesStationTypePolicyAndBoundCandidateUniqueness() throws Exception {
+    @Test void dynamicStopIsNotAnAuthoredTimetableProgramAction() throws Exception {
         JsonNode selection = mapper.readTree("""
             {"parameters":[{"id":"station","type":"STATION"},{"id":"berths","type":"ID_LIST"}],"steps":[
               {"id":"choose","type":"SELECT_STOP","stationId":{"parameterId":"station"},"berthIds":{"parameterId":"berths"},"selectionPolicy":"AVAILABLE_PRIORITY"}]}
             """);
-        assertDoesNotThrow(() -> StationProgramValidator.validateArguments(selection, mapper.readTree("{\"station\":\"central\",\"berths\":[\"long\",\"short\"]}")));
+        assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateArguments(selection, mapper.readTree("{\"station\":\"central\",\"berths\":[\"long\",\"short\"]}")));
         for (String ids : java.util.List.of("[]", "[\"same\",\"same\"]")) {
             assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateArguments(selection,
                 mapper.readTree("{\"station\":\"central\",\"berths\":" + ids + "}")));
@@ -39,34 +39,20 @@ class VisualProgramRepositoryTest {
     @Test void nestedBranchesValidateParametersAndRejectFixedOperations() throws Exception {
         JsonNode branch = mapper.readTree("""
             {"parameters":[{"id":"duration","type":"DURATION"}],"steps":[
-              {"id":"choose","type":"BRANCH","typeId":"demo:condition","version":1,"parameters":{"value":{}},
+              {"id":"choose","type":"BRANCH","typeId":"javarailways:plan_duty_id","version":1,"parameters":{"value":{"values":["d"]}},
                 "thenSteps":[{"id":"wait","type":"WAIT_DURATION","durationTicks":{"parameterId":"duration"}}],"elseSteps":[]}]}
             """);
         assertDoesNotThrow(() -> StationProgramValidator.validateArguments(branch, mapper.readTree("{\"duration\":1}")));
         assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateArguments(branch, mapper.readTree("{\"duration\":0}")));
-        for (String type : java.util.List.of("SPLIT", "COUPLE")) {
-            var forbidden = branch.deepCopy();
-            var children = (com.fasterxml.jackson.databind.node.ArrayNode) forbidden.path("steps").get(0).path("elseSteps");
-            children.addObject().put("id", "fixed").put("type", type).putObject("eventId").put("value", "event");
-            assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(forbidden));
-        }
+        var forbidden = branch.deepCopy();
+        var children = (com.fasterxml.jackson.databind.node.ArrayNode) forbidden.path("steps").get(0).path("elseSteps");
+        var store = children.addObject().put("id", "fixed").put("type", "STORE_AT_DEPOT");
+        store.putObject("depotId").put("value", "depot");
+        store.putObject("stablingPointIds").putArray("value");
+        assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(forbidden));
     }
 
-    @Test void fixedFormationProgramsRequireTypedStaticEventReferences() throws Exception {
-        JsonNode definition = mapper.readTree("""
-            {"parameters":[{"id":"event","type":"FORMATION_EVENT"}],"steps":[
-              {"id":"join","type":"COUPLE","eventId":{"parameterId":"event"}},
-              {"id":"divide","type":"SPLIT","eventId":{"value":"split"}}]}
-            """);
-        assertDoesNotThrow(() -> StationProgramValidator.validateArguments(definition, mapper.readTree("{\"event\":\"join\"}")));
-        assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(mapper.readTree(definition.toString().replace("FORMATION_EVENT", "STRING"))));
-        assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateArguments(definition, mapper.readTree("{\"event\":\"\"}")));
-        assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(mapper.readTree("""
-            {"parameters":[],"steps":[{"id":"split","type":"SPLIT","eventId":{"value":"event","parameterId":null}}]}
-            """)));
-    }
-
-    @Test void revisionsArchiveAndWorldIsolationSurviveReloadWithoutMutatingBoundValues() throws Exception {
+    @Test void revisionCheckedDeletionSurvivesReloadWithoutMutatingBoundValues() throws Exception {
         VisualProgramRepository repository = repository();
         JsonNode bound = repository.create("world", "turnback", "Turnback", definition());
         JsonNode updated = repository.update("world", "turnback", 1, "New name", definition()).orElseThrow();
@@ -76,13 +62,17 @@ class VisualProgramRepositoryTest {
         assertTrue(repository.list("other").isEmpty());
         assertThrows(VisualProgramRepository.Conflict.class, () -> repository.update("world", "turnback", 1, "Stale", definition()));
         assertThrows(VisualProgramRepository.Conflict.class, () -> repository.create("world", "turnback", "Duplicate", definition()));
-        JsonNode archived = repository.archive("world", "turnback", 2).orElseThrow();
-        assertEquals(3, archived.path("revision").asInt());
-        assertTrue(repository().find("world", "turnback").orElseThrow().path("archived").asBoolean());
-        assertFalse(bound.path("archived").asBoolean());
-        assertThrows(VisualProgramRepository.Conflict.class, () -> repository.update("world", "turnback", 3, "No", definition()));
-        assertThrows(VisualProgramRepository.Conflict.class, () -> repository.archive("world", "turnback", 2));
-        assertEquals(3, repository.archive("world", "turnback", 3).orElseThrow().path("revision").asInt());
+        byte[] beforeStaleDelete = Files.readAllBytes(directory.resolve("world/turnback.json"));
+        assertThrows(VisualProgramRepository.Conflict.class, () -> repository.delete("world", "turnback", 1));
+        assertArrayEquals(beforeStaleDelete, Files.readAllBytes(directory.resolve("world/turnback.json")));
+        assertEquals(2, repository().find("world", "turnback").orElseThrow().path("revision").asInt());
+        assertFalse(repository.delete("other", "turnback", 2));
+        assertTrue(repository.delete("world", "turnback", 2));
+        assertTrue(repository().find("world", "turnback").isEmpty());
+        assertTrue(repository().list("world").isEmpty());
+        assertFalse(Files.exists(directory.resolve("world/turnback.json")));
+        assertFalse(repository.delete("world", "turnback", 2));
+        assertEquals(1, bound.path("revision").asInt());
     }
 
     @Test void contentIdentityIgnoresObjectOrderButPreservesStepOrderAndValues() throws Exception {
@@ -112,6 +102,8 @@ class VisualProgramRepositoryTest {
         repository.create("world", "turnback", "Initial", definition());
         assertThrows(IllegalArgumentException.class, () -> repository.create("../outside", "x", "Name", definition()));
         assertThrows(IllegalArgumentException.class, () -> repository.create("world", "../outside", "Name", definition()));
+        assertThrows(IllegalArgumentException.class, () -> repository.delete("../outside", "turnback", 1));
+        assertThrows(IllegalArgumentException.class, () -> repository.delete("world", "../outside", 1));
         assertThrows(IllegalArgumentException.class, () -> repository.update("world", "turnback", 1, "", definition()));
         assertThrows(IllegalArgumentException.class, () -> repository.update("world", "turnback", 1, "Invalid", mapper.createArrayNode()));
         assertTrue(repository.update("world", "missing", 1, "Missing", definition()).isEmpty());

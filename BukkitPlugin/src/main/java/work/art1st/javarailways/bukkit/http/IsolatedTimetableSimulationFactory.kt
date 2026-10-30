@@ -32,6 +32,7 @@ import work.art1st.javarailways.simpleato.timetable.TimetableAction
 import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 import work.art1st.javarailways.simpleato.timetable.TimetableService
+import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunId
 import work.art1st.javarailways.simpleato.timetable.TimetableStep
 import work.art1st.javarailways.simpleato.timetable.TrainSelector
 import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationWorld
@@ -41,6 +42,7 @@ import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.train.CoreTrain
+import work.art1st.javarailways.core.physics.train.TrainPlacementResult
 
 internal data class TimetableProfileSelection(
     val serviceId: String,
@@ -60,7 +62,8 @@ internal data class IsolatedTimetableSimulationSnapshot(
     val domainFeatures: List<PreparedSimulationFeature>,
     val atoSafetyDistanceMeters: Double,
     val atoAdmissionRetryTicks: Int,
-    val formationsByService: Map<String, SimulationFormationBlueprint> = emptyMap()
+    val formationsByService: Map<String, SimulationFormationBlueprint> = emptyMap(),
+    val standaloneProgramServiceIds: Set<String> = emptySet()
 )
 
 /** Captures static configuration on the live thread, then creates a runtime with no live trains. */
@@ -98,13 +101,27 @@ internal class IsolatedTimetableSimulationFactory(
     fun capture(
         liveWorld: CoreWorld,
         timetable: Timetable,
-        selections: List<TimetableProfileSelection>
+        selections: List<TimetableProfileSelection>,
+        standaloneProgramServiceIds: Set<String> = emptySet(),
+        requireRegisteredUnitsForServices: Set<String> = emptySet()
     ): IsolatedTimetableSimulationSnapshot {
         val selectionsByService = selections.associateBy(TimetableProfileSelection::serviceId)
         require(selectionsByService.size == selections.size) { "duplicate simulation profile assignment" }
         val unknown = selectionsByService.keys - timetable.services.mapTo(HashSet()) { it.id }
         require(unknown.isEmpty()) { "profile assignments contain unknown services: ${unknown.sorted().joinToString()}" }
         val initialServices = timetable.services.filterNot(::takesFormationOutput)
+        val initialServiceIds = initialServices.mapTo(HashSet(), TimetableService::id)
+        require((standaloneProgramServiceIds + requireRegisteredUnitsForServices).all { it in initialServiceIds }) {
+            "standalone simulation or registered-unit requirements contain unknown initial services"
+        }
+        standaloneProgramServiceIds.forEach { serviceId ->
+            val acquisition = (initialServices.single { it.id == serviceId }.steps.firstOrNull() as? TimetableStep.At)?.action
+                as? TimetableAction.TakeFromWaypoint
+            val wayPointId = requireNotNull(acquisition?.wayPointIds?.singleOrNull()) {
+                "standalone simulation requires one initial acquisition waypoint: $serviceId"
+            }
+            resolveProgramSimulationWayPoint(liveWorld, wayPointId)
+        }
         val unexpected = selectionsByService.keys.intersect(timetable.services.filter(::takesFormationOutput).mapTo(HashSet()) { it.id })
         require(unexpected.isEmpty()) { "formation output duties inherit their physical units and cannot select simulation profiles: ${unexpected.sorted().joinToString()}" }
         val missing = initialServices.map(TimetableService::id).filterNot(selectionsByService::containsKey)
@@ -129,7 +146,9 @@ internal class IsolatedTimetableSimulationFactory(
             service.id to profileResolver.resolve(liveWorld, selection.profileType, selection.profileId)
         }.toMutableMap()
         val structuralSources = timetable.formationEvents.flatMapTo(HashSet()) { it.participantDutyIds }
-        val structuralSelectors = initialServices.filter { it.id in structuralSources }.mapTo(HashSet(), ::selectorIdentity)
+        val structuralSelectors = initialServices.filter {
+            it.id in structuralSources || it.id in requireRegisteredUnitsForServices
+        }.mapTo(HashSet(), ::selectorIdentity)
         val formations = initialServices.filter { selectorIdentity(it) in structuralSelectors }.associate { service ->
             val (formation, normalized) = SimulationFormationBlueprint.capture(liveWorld,
                 selectionsByService.getValue(service.id), profiles.getValue(service.id))
@@ -161,7 +180,8 @@ internal class IsolatedTimetableSimulationFactory(
             features,
             atoSafetyDistanceMeters,
             liveWorld.simpleAtoWorldData.dispatcher.admissionRetryTicks,
-            formations
+            formations,
+            java.util.Set.copyOf(standaloneProgramServiceIds)
         )
     }
 
@@ -195,6 +215,9 @@ internal class IsolatedTimetableSimulationFactory(
                     signalRestrictionSnapshots = signalRestrictions,
                     inspectionRuntime = inspectionRuntime,
                     infrastructureDependencyService = infrastructureDependencyService,
+                    standaloneSimulationServices = snapshot.standaloneProgramServiceIds.mapTo(HashSet()) {
+                        TimetableServiceRunId(snapshot.timetable.id, it)
+                    },
                     operationGateway = operationGateway,
                     atoFactory = TimetableAtoFactory { train, owningWorld ->
                         val profile = requireNotNull(train.simulationTrainProfileOrNull) {
@@ -362,7 +385,7 @@ internal class IsolatedTimetableSimulationFactory(
             "simulation waypoint not found: $wayPointId"
         }
         val rail = requireNotNull(world.getRail(point.railId)) { "simulation rail not found: ${point.railId}" }
-        val direction = world.simpleAtoWorldData.destinations[wayPointId]?.approachDirection ?: ViewDirection.AB
+        val direction = resolveProgramSimulationWayPoint(world, wayPointId).direction
         val view = rail.getView(direction)
         val arc = if (direction == ViewDirection.AB) point.arcLength else view.curve.totalArcLength - point.arcLength
         val head = RailLocationWithFacing(view, arc)
@@ -383,11 +406,16 @@ internal class IsolatedTimetableSimulationFactory(
                         behavior.initialize(car, emptyMap())
                     }
                 }
-                train(trainId, cars, trainName).also { created ->
+                val placement = when (val prepared = prepareUniquePlacement(cars, head)) {
+                    is TrainPlacementResult.Unique -> prepared.placement
+                    is TrainPlacementResult.Unplaceable -> error("cannot place simulation train at $wayPointId: ${prepared.reason}")
+                    is TrainPlacementResult.Ambiguous -> error("simulation train body has multiple valid placement paths at $wayPointId")
+                    is TrainPlacementResult.SearchLimit -> error("simulation train placement could not be proven at $wayPointId: ${prepared.reason}")
+                }
+                train(trainId, cars, trainName, preparedPlacement = placement).also { created ->
                     val configuration = SimulationTrainExtension(profile.trainControl)
                     created.registerExtensionData(extensionPlugin, configuration)
                     configuration.initialize(created, emptyMap())
-                    created.setLocation(head)
                     publish()
                 }
             }

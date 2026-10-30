@@ -34,7 +34,7 @@ runtime owner revision恢复旧声明。收集或最终安装失败也复用这�
 `scheduleInitialCycle`只能紧随begin，manual activation不自动启动。
 静态收集不调用列车inspection bind/update，不检查当前灯色或占用，不产生claim；其接口、复杂度和失败合同见
 [静态资源依赖](./operational-routing-and-authority.md#35-已选时刻表路线的静态资源依赖)。
-scheduled/conditional cycles按period recurrence；`WAIT_UNTIL_TRUE`只保留该cycle，不阻塞其他service/clock；`SKIP_CYCLE`跳过。
+scheduled cycles按period recurrence；当前时刻表校验拒绝依赖运行时条件的 activation，计划条件必须在编译时折叠。
 
 每个timetable使用由其ID确定性生成的稳定owner ID；revision只是在当前world runtime内单调递增的mutation序号，不是
 schema version，也不写入checkpoint。clock仍存在、checkpoint recovery run仍待管理员处理，或任一run尚未满足
@@ -245,3 +245,33 @@ zero; do not downgrade Basic's stationary-source requirement or submit an irreve
 The real isolated coupling→movement→split factory regression exercises this boundary.
 
 A branch selected against a published child can reverse a still-held body before choosing its first corridor. Dispatcher first suspends the exact Basic output grant, then marks that output's handoff as reversing. After the prepared Core reversal it records the actual new direction in the pending depot owner in the same serialized callback. The handoff remains paused until Basic accepts the exact reversed-body rebase; only then may ordinary cursor execution select departure and request movement. Failed ownership/rebase transitions retain holds and enter recovery. No condition is evaluated against the unsplit parent's length, and no sibling grant or owner is released by this reversal.
+
+## 共享停站程序与两个执行入口（CURRENT）
+
+同一时刻表每站一份作者定义，经 ScriptWorker 用当前运行线的静态计划上下文展开为 `StationStopPrograms`。ORIGIN 以 `BeginStationStop` 建立边界；STOP/TERMINAL 随目标动作携带 stopPrograms。实际寻路、接近及停车继续由运行线负责，车站程序不执行到达运动。旧 arrivalSteps/arrivalProgram 执行链与 ARRIVAL 分支游标已删除；编辑／DSL／snapshot 只按当前模型做通用校验，不保留旧输入专项识别或回退执行。
+
+`StationStopPrograms` 包含 stationId、callId、role、arrival、departurePreparation、preparationLeadTicks、plannedDepartureTick、destinationId、doorSide、minimumDwellTicks。时间为 timetable tick，1 day=24000 tick。正常停车确认后启动 arrival；ORIGIN 不执行 arrival，PASS 不建立停站程序。STOP 与 ORIGIN 的准备入口在计划发车时刻减 lead 到达后，且 arrival **主序列**完成时开始，不等待 arrival 的非阻塞子任务，也不额外等最小停站。TERMINAL 永不启动准备入口，缺省保持开门。
+
+`StationStopProgramRuntime` 对每个任务持有独立程序计数器、计时 gate、operation/extension ticket。普通动作等待真实完成；ASYNC 当 Tick 创建并推进子任务，父继续执行；AWAIT 等待指定任务及其全部后代。主序列必须 END；子任务不能逃逸到下一站。开放/关闭门与换向竞争同一物理操作所有权，不允许多个任务同时启动互斥物理操作。相对等待从任务实际执行 Tick 开始，绝对等待过期则立即通过；等待不中断停车保持。
+
+真正提交下一行车任务（含存车、接近联挂）前，公共 gate 要求两个适用入口及全部后代完成，时间和最小停站满足，门已确认关闭，后续物理授权已确认。主序列 END 不能直接开车或绕过这些 gate。到达主序列完成仅准许启动准备，不代表发车准备或子任务完成。终点有 departureTick 时它只门禁后续交路动作，无时刻则在到达及所有后代完成后立即交接；它不隐式关门。开门终到不能直接 MOVE、STORE 或接近联挂；交路须先明确关门。
+
+换向使用原有 ATO 准备、Core 真实反向 publication、同 grant body rebase 及下一 Tick 确认，门关闭证据在准备过程保留；反向失败不能抹掉停车保持。停止/世界关闭枚举所有任务 ticket，只有 pending 调 cancel 并检查确认；终态 ticket 直接清理。关闭在 `world.executionOwner` 串行阶段进行，不能依赖 Bukkit 主线程 guard，不能丢弃未确认操作或授权。checkpoint 仍只恢复诊断与人工处理要求，不恢复活跃任务、ticket 或 grant。
+
+任务树有界，创建与完整 join 按任务/步骤规模线性；每 Tick 仅推进活跃任务及其就绪动作，等待不阻塞宿主线程。计划分支在编译时折叠，运行时不重新扫描车长或车型。模型、worker、Java 编辑边界一致拒绝 station scope 的移动/编组/出入库及无效任务引用，失败保留停车并走既有错误路径。
+
+例：到达【开门】【非阻塞：等待40tick后更新显示】【结束】；准备【关门】【结束】。开门主任务结束后，准备可在 due 时开始；实际发车仍等显示子任务及安全 gate。终到相同到达程序保持门开，后续交路若要移动须显式关门；不能因主任务已 END 就自动起车。
+
+验证：`StationStopProgramRuntimeTest` 覆盖阻塞/立即派生、后代 join、任务本地等待和取消；`TimetableStationCallDispatcherTest` 覆盖起终点、准备与主线程顺序、最小停站、开门终到禁止后缀存车、换向及停止。`BrowserGeneratedStationProgramTest` 用实际 HTTP 浏览器生成的脚本通过真实 Graal 和 snapshot/domain 链路验证。纯测试和隔离浏览器不等同于游戏客户端验收。持久化使用当前未发布边界的约定版本1，不为本次开发重构递增；编辑数据仅离线迁移，不新增任意旧开发 reader。
+
+## 显式换向与路线起点方向
+
+ATO 不根据目标位置自行换向；未显式 Reverse 的身后目标必须沿当前朝向有可行路径，否则拒绝，不能反向种车或倒行来满足任务。`requiredNextStartDirection` 表达尚未消费的原路径点 route-key 方向，不是另一条轨道上的物理 head 局部 AB/BA。显式换向先使用已有 pending 方向，否则取当前 head 方向，再取反；连续换向必须保留同一锚点基准。GoTo/GoVia、选择停车点和 StoreAtDepot 的 movement plan 均传递该方向，缺 pending 时沿用实际 head 的既有默认。不得用新车头所在轨道的局部 enum 覆盖原锚点。
+
+必需回归：LIVE/SIM 两模式下无显式换向拒绝身后不可达目标且不改车体/控制器；局部 AB 朝向相反的相接轨道上一次和两次原地换向保持占用；真实物理模拟跨接缝换向后存车完成。测试须检查实际 mission/frame/终点及错误，不以静态 source 中出现 reverse 字符串代替执行证据。
+
+## 程序只读列车信息
+
+程序的显示／扩展动作可携带独立 immutable trainInfo 绑定（TrainInfoField NAME/CAR_COUNT/UNIT_COUNT/DIRECTION），绑定与 literal values/call.parameters 互斥；TimetableExtensionCall 和 condition 不承载此字段。持久化 DTO 对应显式 enum/map，保持当前格式版本，capture/restore 不丢失绑定。
+
+Dispatcher 在每条动作开始时共用 resolver 从实际 ActiveRun 绑定列车的一个最新 publishedFrame 读取 trainName、cars.size、reversed；方向输出 FORWARD/REVERSED。只有请求 UNIT_COUNT 才按同一帧 carIds 调 fixedUnitsForFormation，登记缺失或不完整通过既有失败链处理，不能回退0或车厢数。解编交接与换向后重新读取，不复用编译时或旧列车缓存。扩展仍静态检查 provider 存在；仅显式动态参数延后到执行时 validate(resolved)，校验通过才 start，错误保留 provider 原因。literal 扩展的既有编译校验不变。显示动作仍遵守单元槽位、display JSON 限制和运营显示上下文。

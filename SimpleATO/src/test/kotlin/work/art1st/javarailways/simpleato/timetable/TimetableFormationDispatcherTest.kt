@@ -36,7 +36,7 @@ class TimetableFormationDispatcherTest {
     @ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(doubles = [0.5, 5.0])
     fun `scheduled split continues FIRST and keeps REST physically held`(safetyDistanceMeters: Double) {
-        Fixture(false, safetyDistanceMeters = safetyDistanceMeters).use { f ->
+        Fixture(false, safetyDistanceMeters = safetyDistanceMeters, measureTasks = true).use { f ->
             f.begin()
             val before = f.train.publishedFrame
             f.physics.start()
@@ -58,6 +58,9 @@ class TimetableFormationDispatcherTest {
             assertEquals(0.0, held.publishedFrame.speedMetersPerSecond)
             assertEquals(before.tail.arcLengthInAbMeters, held.publishedFrame.tail.arcLengthInAbMeters, 1e-6)
             assertEquals(1, f.preparations, "scheduled split must prepare and publish once")
+            val measured = f.dispatcher.statuses().single { it.id.serviceId == "source" }.taskTimings.single()
+            assertEquals("divide-task", measured.taskId)
+            assertTrue(measured.endTick!! >= measured.startTick, "source task timing survives physical output handoff")
             assertEquals(listOf(before.cars.first().carId), continuing.cars.map { it.id })
             assertEquals(setOf("unit-0", "unit-1"), f.world.simpleAtoWorldData.depots.allFixedUnitAssignments().map { it.unitId }.toSet())
             assertInstanceOf(AtoMissionOrigin.FormationOutput::class.java, (continuing.controller as SimpleATO).currentMission!!.origin)
@@ -96,17 +99,17 @@ class TimetableFormationDispatcherTest {
 
     @ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
-    fun `first output branch and stop selection observe published child and retain body admission`(chooseThen: Boolean) {
+    fun `compile-selected output route observes published child and retains body admission`(chooseThen: Boolean) {
         Fixture(false, deferredOutput = true, chooseOutputBranch = chooseThen).use { f ->
             f.begin()
             assertEquals(2, f.train.cars.size)
-            assertTrue(f.observedBranchCarCounts.isEmpty(), "output condition must not use the source frame")
+            assertTrue(f.observedBranchCarCounts.isEmpty(), "output action must not observe the pre-split source frame")
             f.physics.start()
             repeat(2400) { f.tick() }
             val run = f.dispatcher.statuses().single { it.id == TimetableServiceRunId("split", "source") }
             assertEquals(listOf(1), f.observedBranchCarCounts)
-            assertEquals(if (chooseThen) StationBerthRef(StationId("marker"), "short") else null, run.selectedBerthRef)
-            assertEquals(chooseThen, run.selectedBerthCommitted)
+            assertNull(run.selectedBerthRef, "compile-selected fixed station call does not install dynamic berth selection")
+            assertFalse(run.selectedBerthCommitted)
             assertEquals(TimetableServiceRunState.COMPLETED, run.state, run.toString())
             val output = f.world.getTrain(run.trainId) as CoreTrain
             assertEquals(120.0, output.publishedFrame.head.arcLengthInAbMeters, 0.5)
@@ -116,7 +119,7 @@ class TimetableFormationDispatcherTest {
     }
 
     @Test
-    fun `first output branch may reverse the actual held child before choosing its route`() {
+    fun `compile-selected output may reverse the actual held child before its route`() {
         Fixture(false, deferredOutput = true, chooseOutputBranch = false, reverseOutputBranch = true).use { f ->
             f.begin()
             f.physics.start()
@@ -262,6 +265,50 @@ class TimetableFormationDispatcherTest {
     }
 
     @Test
+    fun `train information follows published split outputs and a receiving duty`() {
+        Fixture(newDuty = true).use { f ->
+            val observed = arrayListOf<Pair<String, JsonObject>>()
+            val binding = TrainInfoField.entries.associateBy { it.name }
+            f.world.onOwnerForTest {
+                f.world.simpleAtoWorldData.timetableExtensions.registerAction(object : TimetableActionProvider {
+                    override val typeId = "test:train-info"
+                    override val version = 1
+                    override val descriptor = TimetableExtensionDescriptor("Info", "Actual output train")
+                    override fun validate(parameters: JsonObject) = if (parameters.size == 4) emptyList() else listOf("four properties required")
+                    override fun start(parameters: JsonObject, context: TimetableRuntimeContext): TimetableExtensionActionStartResult {
+                        observed += checkNotNull(context.train).trainId to parameters
+                        return TimetableExtensionActionStartResult.Accepted(object : TimetableExtensionActionTicket {
+                            override fun snapshot() = TimetableExtensionActionSnapshot(TimetableExtensionActionState.SUCCEEDED)
+                            override fun cancel() = Unit
+                        })
+                    }
+                })
+                val table = checkNotNull(f.world.simpleAtoWorldData.timetables["split"])
+                val read = TimetableStep.At(0, TimetableAction.Extension(TimetableExtensionCall("test:train-info"), binding))
+                f.world.simpleAtoWorldData.timetables.add(table.copy(services = table.services.map { duty ->
+                    duty.copy(steps = duty.steps.flatMap { step ->
+                        if (step is TimetableStep.At &&
+                            (step.action is TimetableAction.Split || step.action is TimetableAction.TakeFromFormationOutput)) listOf(step, read.copy(tick = step.tick))
+                        else listOf(step)
+                    })
+                }))
+            }
+            f.begin(); f.physics.start()
+            repeat(4500) { f.tick() }
+            assertTrue(f.dispatcher.statuses().all { it.state == TimetableServiceRunState.COMPLETED }, f.dispatcher.statuses().toString())
+            assertEquals(2, observed.size)
+            for ((trainId, values) in observed) {
+                val actual = f.world.allTrains.single { it.id == trainId }.publishedFrame!!
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(actual.trainName), values["NAME"])
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(1), values["CAR_COUNT"])
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(1), values["UNIT_COUNT"])
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(if (actual.reversed) "REVERSED" else "FORWARD"), values["DIRECTION"])
+            }
+            assertEquals(2, observed.map { it.first }.distinct().size)
+        }
+    }
+
+    @Test
     fun `retained ATO receives the new duty line cap and preserves independent restrictions`() {
         Fixture(false, sourceReversed = true, outputReversed = true, orientationCase = true,
             separateDutyCaps = true).use { f ->
@@ -286,13 +333,16 @@ class TimetableFormationDispatcherTest {
     @ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
     fun `scheduled coupling joins actual units then holds or continues`(continueOutput: Boolean) {
-        Fixture(false, coupling = true, coupledContinuation = continueOutput).use { f ->
+        Fixture(false, coupling = true, coupledContinuation = continueOutput, measureTasks = true).use { f ->
             f.begin()
             f.physics.start()
             repeat(1600) { f.tick() }
             assertEquals(1, f.world.allTrains.size, f.dispatcher.statuses().toString())
             assertEquals(3, f.train.cars.size)
             assertEquals(1, f.preparations)
+            assertTrue(f.dispatcher.statuses().all { run ->
+                run.taskTimings.single().let { it.taskId == "join-task" && it.endTick != null && it.endTick >= it.startTick }
+            }, "both actual coupling participants complete their invocation at handoff")
             assertEquals(3, f.world.simpleAtoWorldData.depots.allFixedUnits().size)
             if (continueOutput) {
                 assertTrue(f.train.publishedFrame.head.arcLengthInAbMeters > 80.0, f.dispatcher.statuses().toString())
@@ -347,8 +397,9 @@ class TimetableFormationDispatcherTest {
     }
 
 
-    @Test
-    fun `branch display update follows actual unit through scheduled split and held sibling stays separate`() {
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
+    fun `compile-selected display update follows actual unit through split and held sibling stays separate`(dynamic: Boolean) {
         Fixture(false,separateDutyCaps=true).use { f ->
             f.world.onOwnerForTest {
                 f.world.simpleAtoWorldData.timetableExtensions.registerCondition(object : TimetableConditionProvider {
@@ -360,9 +411,8 @@ class TimetableFormationDispatcherTest {
                 })
                 val table=checkNotNull(f.world.simpleAtoWorldData.timetables["split"])
                 val source=table.services.single()
-                val branch=TimetableStep.At(0,TimetableAction.Conditional(TimetableCondition.Predicate(TimetableExtensionCall("test:display")),
-                    listOf(TimetableStep.At(0,TimetableAction.SetDisplay(listOf(1),kotlinx.serialization.json.buildJsonObject { put("destination",kotlinx.serialization.json.JsonPrimitive("D express")) }))),
-                    listOf(TimetableStep.At(0,TimetableAction.ResetDisplay(listOf(1))))))
+                val branch=TimetableStep.At(0,TimetableAction.SetDisplay(listOf(1), if(dynamic) JsonObject(emptyMap()) else kotlinx.serialization.json.buildJsonObject { put("destination",kotlinx.serialization.json.JsonPrimitive("D express")) },
+                    trainInfo = if(dynamic) mapOf("destination" to TrainInfoField.NAME, "cars" to TrainInfoField.CAR_COUNT) else emptyMap()))
                 val steps=listOf(source.steps[0],branch)+source.steps.drop(1)
                 val line=checkNotNull(source.lineId)
                 val updated=source.copy(steps=steps,runSegments=listOf(TimetableRunSegment("before",line,0,2),TimetableRunSegment("after",line,3,4)))
@@ -380,7 +430,8 @@ class TimetableFormationDispatcherTest {
             assertEquals(2,outputs.size)
             f.world.onOwnerForTest {
                 val displays=outputs.flatMap { f.dispatcher.unitDisplaysForTrain(f.world,it.id,"split",0) }.associateBy { it.unitId }
-                assertEquals("D express",displays.getValue("unit-0").values["destination"].toString().trim('"'))
+                assertEquals(if(dynamic) f.train.publishedFrame.trainName else "D express",displays.getValue("unit-0").values["destination"].toString().trim('"'))
+                if(dynamic) assertEquals(kotlinx.serialization.json.JsonPrimitive(2), displays.getValue("unit-0").values["cars"])
                 assertEquals("E",displays.getValue("unit-1").values["destination"].toString().trim('"'))
             }
         }
@@ -452,7 +503,7 @@ class TimetableFormationDispatcherTest {
         }
     }
 
-    private class Fixture(private val newDuty: Boolean, sourceReversed: Boolean = false, outputReversed: Boolean = false, orientationCase: Boolean = false, separateDutyCaps: Boolean = false, private val coupling: Boolean = false, coupledContinuation: Boolean = false, viaOutput: Boolean = false, deferredOutput: Boolean = false, chooseOutputBranch: Boolean = true, reverseOutputBranch: Boolean = false, safetyDistanceMeters: Double = 0.5, marginCrossesRail: Boolean = false) : AutoCloseable {
+    private class Fixture(private val newDuty: Boolean, sourceReversed: Boolean = false, outputReversed: Boolean = false, orientationCase: Boolean = false, separateDutyCaps: Boolean = false, private val coupling: Boolean = false, coupledContinuation: Boolean = false, viaOutput: Boolean = false, deferredOutput: Boolean = false, chooseOutputBranch: Boolean = true, reverseOutputBranch: Boolean = false, safetyDistanceMeters: Double = 0.5, marginCrossesRail: Boolean = false, measureTasks: Boolean = false) : AutoCloseable {
         val physics = PhysicsCoordinator(1, automaticFallback = false)
         private val fixture = TestWorldFixture.create(physics)
         val world = fixture.world
@@ -536,11 +587,13 @@ class TimetableFormationDispatcherTest {
             check(depots.confirmInService(allocation)); check(depots.releaseDeparture(allocation))
             world.basicWorldData.wayPoints.add(WayPoint("origin", "origin", rail.id, train.publishedFrame.head.arcLengthInAbMeters))
             world.basicWorldData.wayPoints.add(WayPoint("end", "end", rail.id, if (orientationCase) { if (sourceReversed xor outputReversed) 50.0 else 200.0 } else if (marginCrossesRail) 248.0 else if (newDuty) 180.0 else if (reverseOutputBranch) 2.0 else 120.0))
-            world.basicWorldData.wayPoints.add(WayPoint("branch-end", "branch-end", rail.id, if (orientationCase) { if (sourceReversed xor outputReversed) 2.0 else 248.0 } else 120.0))
+            world.basicWorldData.wayPoints.add(WayPoint("branch-end", "branch-end", rail.id, if (orientationCase) { if (sourceReversed xor outputReversed) 2.0 else 248.0 } else if (marginCrossesRail) 248.0 else 120.0))
             val first = TimetableFormationOutput("first", if (reverseOutputBranch) FormationOutputDisposition.Hold else FormationOutputDisposition.Duty("source"))
             val rest = TimetableFormationOutput("rest", if (reverseOutputBranch) FormationOutputDisposition.Duty("source") else if (newDuty || outputReversed) FormationOutputDisposition.Duty("branch") else FormationOutputDisposition.Hold)
-            val sourceSteps = arrayListOf<TimetableStep>(TimetableStep.Check("origin"),
-                TimetableStep.At(0, TimetableAction.Split("divide")))
+            val sourceSteps = arrayListOf<TimetableStep>(TimetableStep.Check("origin"))
+            if (measureTasks) sourceSteps += TimetableStep.At(0, TimetableAction.TaskStart("divide-task"))
+            sourceSteps += TimetableStep.At(0, TimetableAction.Split("divide"))
+            if (measureTasks) sourceSteps += TimetableStep.At(0, TimetableAction.TaskEnd("divide-task"))
             if (outputReversed) sourceSteps += TimetableStep.At(0, TimetableAction.Reverse)
             if (viaOutput) world.basicWorldData.wayPoints.add(WayPoint("mid", "mid", rail.id, 70.0))
             if (deferredOutput) {
@@ -552,36 +605,39 @@ class TimetableFormationDispatcherTest {
                             usableLengthMeters = 30.0, minimumTrainLengthMeters = if (id == "long") 16.0 else null,
                             maximumTrainLengthMeters = if (id == "short") 15.0 else 25.0)))
                 }
-                world.simpleAtoWorldData.timetableExtensions.registerCondition(object : TimetableConditionProvider {
-                    override val typeId = "test:published-output"
+                world.simpleAtoWorldData.timetableExtensions.registerAction(object : TimetableActionProvider {
+                    override val typeId = "test:published-output-observation"
                     override val version = 1
-                    override val descriptor = TimetableExtensionDescriptor("Output", "Published car count")
-                    override fun validate(parameters: JsonObject) = emptyList<String>()
-                    override fun evaluate(parameters: JsonObject, context: TimetableRuntimeContext): TimetableConditionResult {
+                    override val descriptor = TimetableExtensionDescriptor("Output", "Observe actual published child")
+                    override fun start(parameters: JsonObject, context: TimetableRuntimeContext): TimetableExtensionActionStartResult {
                         observedBranchCarCounts += context.train?.carCount
-                        return if (context.train?.carCount == 1 && chooseOutputBranch) TimetableConditionResult.True else TimetableConditionResult.False
+                        return TimetableExtensionActionStartResult.Accepted(object : TimetableExtensionActionTicket {
+                            override fun snapshot() = TimetableExtensionActionSnapshot(TimetableExtensionActionState.SUCCEEDED)
+                            override fun cancel() = Unit
+                        })
                     }
                 })
-                val selection = StationStopSelection(station, listOf(StationStopCandidate("short", 0),
-                    StationStopCandidate("long", 1)), StationStopSelectionPolicy.AVAILABLE_PRIORITY)
-                if (reverseOutputBranch) world.basicWorldData.wayPoints.add(WayPoint("reverse-turn", "reverse-turn", rail.id, 5.0))
-                sourceSteps += TimetableStep.At(0, TimetableAction.Conditional(
-                    TimetableCondition.Predicate(TimetableExtensionCall("test:published-output")),
-                    thenSteps = if (reverseOutputBranch) listOf(TimetableStep.At(0, TimetableAction.Reverse),
-                        TimetableStep.At(0, TimetableAction.GoTo("reverse-turn")))
-                    else listOf(TimetableStep.At(0, TimetableAction.SelectStop(selection))),
-                    elseSteps = if (reverseOutputBranch) listOf(TimetableStep.At(0, TimetableAction.Reverse),
-                        TimetableStep.At(0, TimetableAction.GoTo("reverse-turn")))
-                    else listOf(TimetableStep.At(0, TimetableAction.GoTo("marker@long")))))
+                sourceSteps += TimetableStep.At(0, TimetableAction.Extension(TimetableExtensionCall("test:published-output-observation")))
+                if (reverseOutputBranch) {
+                    world.basicWorldData.wayPoints.add(WayPoint("reverse-turn", "reverse-turn", rail.id, 5.0))
+                    sourceSteps += TimetableStep.At(0, TimetableAction.Reverse)
+                    sourceSteps += TimetableStep.At(0, TimetableAction.GoTo("reverse-turn"))
+                } else if (chooseOutputBranch) {
+                    sourceSteps += TimetableStep.At(0, TimetableAction.CallStation("marker", "short"))
+                    sourceSteps += TimetableStep.At(0, TimetableAction.GoTo("marker@short"))
+                } else {
+                    sourceSteps += TimetableStep.At(0, TimetableAction.GoVia(listOf("marker@short", "marker@long")))
+                }
+
             }
-            sourceSteps += TimetableStep.At(0, if (viaOutput) TimetableAction.GoVia(listOf("mid", "end")) else TimetableAction.GoTo("end"))
+            sourceSteps += TimetableStep.At(0, if (viaOutput) TimetableAction.GoVia(listOf("mid", "end")) else if(deferredOutput && !reverseOutputBranch && chooseOutputBranch) TimetableAction.GoVia(listOf("marker@long","end")) else if (newDuty) TimetableAction.GoVia(listOf("branch-end", "end")) else TimetableAction.GoTo("end"))
             val duties = arrayListOf(TimetableService("source", TrainSelector.TrainId(train.id), sourceSteps))
             if (newDuty || outputReversed) {
                 val takeTick = if (newDuty) 100L else 0L
                 val branchSteps = arrayListOf<TimetableStep>(TimetableStep.At(takeTick,
                     TimetableAction.TakeFromFormationOutput("divide", "rest")))
                 if (outputReversed) branchSteps += TimetableStep.At(takeTick, TimetableAction.Reverse)
-                branchSteps += TimetableStep.At(takeTick, TimetableAction.GoTo("branch-end"))
+                branchSteps += TimetableStep.At(takeTick, if (outputReversed) TimetableAction.GoVia(listOf("end", "branch-end")) else TimetableAction.GoTo("branch-end"))
                 duties += TimetableService("branch", steps = branchSteps)
             }
             val slow = work.art1st.javarailways.simpleato.api.line.LineId("source-line")
@@ -607,11 +663,14 @@ class TimetableFormationDispatcherTest {
                 val peerAllocation = checkNotNull(depots.reservePhysicallySelected(peer.id, peerPoint, DepotTrainSelector(peerHome), "peer-assignment", ids))
                 check(depots.confirmInService(peerAllocation)); check(depots.releaseDeparture(peerAllocation))
                 world.basicWorldData.wayPoints.add(WayPoint("peer-origin", "peer-origin", rail.id, peer.publishedFrame.head.arcLengthInAbMeters))
-                val joinSteps = listOf(TimetableStep.Check("origin"), TimetableStep.At(0, TimetableAction.Couple("join"))) +
+                val joinAction = if (measureTasks) listOf(TimetableStep.At(0, TimetableAction.TaskStart("join-task")),
+                    TimetableStep.At(0, TimetableAction.Couple("join")), TimetableStep.At(0, TimetableAction.TaskEnd("join-task")))
+                    else listOf(TimetableStep.At(0, TimetableAction.Couple("join")))
+                val joinSteps = listOf(TimetableStep.Check("origin")) + joinAction +
                     if (coupledContinuation) listOf(TimetableStep.At(0, TimetableAction.GoTo("end"))) else emptyList()
                 world.simpleAtoWorldData.timetables.add(Timetable("split", services = listOf(
                     TimetableService("source", TrainSelector.TrainId(train.id), joinSteps),
-                    TimetableService("peer", TrainSelector.TrainId(peer.id), listOf(TimetableStep.Check("peer-origin"), TimetableStep.At(0, TimetableAction.Couple("join"))))),
+                    TimetableService("peer", TrainSelector.TrainId(peer.id), (listOf(TimetableStep.Check("peer-origin")) + joinAction))),
                     formationEvents = TimetableFormationCatalog(listOf(TimetableFormationEvent.Couple("join", "source", "source", "peer",
                         FormationStationaryEnd.TAIL, FormationRendezvous("origin", "peer-origin"), 0.2,
                         TimetableFormationOutput("combined", if (coupledContinuation) FormationOutputDisposition.Duty("source") else FormationOutputDisposition.Hold))))))

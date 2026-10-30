@@ -30,6 +30,12 @@ data class OperationalRouteLocation(
     }
 }
 
+/** A query-local forbidden position, optionally restricted to traversal facing on its owning rail. */
+data class OperationalRouteBlocker(
+    val location: OperationalRouteLocation,
+    val facing: ViewDirection? = null
+)
+
 data class TopologyRoutePlanningInput(
     val topology: TopologyState,
     val restrictions: RoutePlanningRestrictions,
@@ -40,9 +46,16 @@ data class TopologyRoutePlanningInput(
     /** Restricts the first traversal to the authoritative physical facing when supplied. */
     val startFacing: ViewDirection? = null,
     /** Restricts arrival at the target to the caller's required physical facing when supplied. */
-    val endFacing: ViewDirection? = null
+    val endFacing: ViewDirection? = null,
+    /** Reject distinct legal physical paths, including longer alternatives. */
+    val requireUniquePath: Boolean = false,
+    /** Query-local forbidden positions and optional local facing, including macro interiors. */
+    val blockedLocations: List<OperationalRouteBlocker> = emptyList(),
+    /** Work limit for exhaustive uniqueness proof; exhaustion is a rejection, never success. */
+    val uniqueSearchLimit: Int = 100_000
 ) {
     init {
+        require(uniqueSearchLimit > 0) { "uniqueSearchLimit must be positive" }
         require(routeId.isNotBlank()) { "routeId must not be blank" }
         require(routeRevision >= 0L) { "routeRevision must be non-negative" }
     }
@@ -52,6 +65,8 @@ enum class TopologyRoutePlanningRejection {
     STALE_RESTRICTIONS,
     INVALID_RESTRICTIONS,
     INVALID_LOCATION,
+    AMBIGUOUS,
+    SEARCH_LIMIT_EXCEEDED,
     UNREACHABLE
 }
 
@@ -114,9 +129,7 @@ object TopologyRoutePlanner {
             ?: return invalidLocation(input.start)
         val end = resolveLocation(input.end, topology)
             ?: return invalidLocation(input.end)
-        if (input.start.railId == input.end.railId &&
-            samePosition(input.start.arcLengthInAbMeters, input.end.arcLengthInAbMeters)
-        ) {
+        if (start.samePhysicalPosition(end)) {
             return rejected(
                 TopologyRoutePlanningRejection.INVALID_LOCATION,
                 "route start and end are the same physical location"
@@ -129,16 +142,25 @@ object TopologyRoutePlanner {
                 result.detail
             )
         }
-        val graph = QueryGraph(topology, compiled, start, end)
+        val blocked = input.blockedLocations.toList().map { blocker ->
+            val location = resolveLocation(blocker.location, topology) ?: return invalidLocation(blocker.location)
+            ResolvedBlocker(location, blocker.facing?.let { location.edgeDirection(it) })
+        }.filterNot { (point, _) -> point.samePhysicalPosition(start) || point.samePhysicalPosition(end) }
+        val graph = QueryGraph(topology, compiled, start, end, blocked)
         val startDirections = input.startFacing?.let { facing -> start.edgeDirection(facing) }?.let(::listOf)
             ?: EdgeDirection.entries
         val endDirection = input.endFacing?.let { facing -> end.edgeDirection(facing) }
-        val path = Search(graph, end, endDirection).run(
-            startDirections.map { direction -> OrientedPoint(start.edgeId, start.edgeDistanceMeters, direction) }
-                .filterNot(graph::isForbidden)
-        ) ?: return rejected(
+        val starts = startDirections.map { direction -> OrientedPoint(start.edgeId, start.edgeDistanceMeters, direction) }
+            .filterNot(graph::isForbidden)
+        val path = if (input.requireUniquePath) {
+            when (val result = UniqueSearch(topology, graph, end, endDirection, input.uniqueSearchLimit).run(starts)) {
+                is UniqueSearchResult.Unique -> result.path
+                is UniqueSearchResult.Rejected -> return rejected(result.reason, result.detail)
+            }
+        } else Search(graph, end, endDirection).run(starts)
+        if (path == null) return rejected(
             TopologyRoutePlanningRejection.UNREACHABLE,
-            "no route satisfies topology and route-planning restrictions"
+            "no route satisfies topology and route-planning restrictions; endpoints inside atomic protected paths cannot split those paths"
         )
 
         val plannedSegments = path.arcs.flatMap(GraphArc::segments).toMutableList()
@@ -213,11 +235,166 @@ object TopologyRoutePlanner {
         }
     }
 
+    private sealed interface UniqueSearchResult {
+        data class Unique(val path: SearchPath?) : UniqueSearchResult
+        data class Rejected(val reason: TopologyRoutePlanningRejection, val detail: String) : UniqueSearchResult
+    }
+
+    /** Exhaustive, bounded physical-simple-path search; never substitutes shortest-path ties for uniqueness. */
+    private class UniqueSearch(
+        private val topology: TopologyState,
+        private val graph: QueryGraph,
+        private val goal: ResolvedLocation,
+        private val goalDirection: EdgeDirection?,
+        private val limit: Int
+    ) {
+        private data class Occupied(val railId: UUID, val lower: Double, val upper: Double)
+        private data class NodeVisit(val nodeId: TopologyNodeId, val distance: Double)
+        private data class Footprint(val intervals: List<Occupied>, val nodes: List<NodeVisit>)
+        private data class Frame(
+            val point: OrientedPoint, val next: Iterator<GraphArc>, val distance: Double,
+            val intervalCount: Int, val nodeCount: Int, val arcCount: Int
+        )
+        private class LimitReached : RuntimeException()
+        private var work = 0
+        private fun spend() { if (++work > limit) throw LimitReached() }
+
+        fun run(starts: Collection<OrientedPoint>): UniqueSearchResult {
+            var first: SearchPath? = null
+            var firstIdentity: List<RouteSegmentSnapshot>? = null
+            val next = hashMapOf<OrientedPoint, List<GraphArc>>()
+            val footprints = hashMapOf<GraphArc, Footprint>()
+            val arcs = ArrayList<GraphArc>()
+            val occupied = ArrayList<Occupied>()
+            val occupiedByRail = hashMapOf<UUID, MutableList<Occupied>>()
+            val nodes = ArrayList<NodeVisit>()
+            val nodeDistances = hashMapOf<TopologyNodeId, Double>()
+            val visited = hashSetOf<OrientedPoint>()
+            val stack = ArrayDeque<Frame>()
+            fun pop() {
+                val frame = stack.removeLast()
+                visited.remove(frame.point)
+                while (occupied.size > frame.intervalCount) {
+                    val interval = occupied.removeLast()
+                    val railIntervals = occupiedByRail.getValue(interval.railId)
+                    railIntervals.removeLast()
+                    if (railIntervals.isEmpty()) occupiedByRail.remove(interval.railId)
+                }
+                while (nodes.size > frame.nodeCount) nodeDistances.remove(nodes.removeLast().nodeId)
+                while (arcs.size > frame.arcCount) arcs.removeLast()
+            }
+            try {
+                for (start in starts) {
+                    visited += start
+                    stack.addLast(Frame(start, next.getOrPut(start) { graph.next(start) }.iterator(), 0.0, 0, 0, 0))
+                    while (stack.isNotEmpty()) {
+                        spend()
+                        val frame = stack.last()
+                        if (frame.point.matches(goal) && (goalDirection == null || frame.point.direction == goalDirection) && !graph.isForbidden(frame.point)) {
+                            if (frame.distance > POSITION_EPSILON) {
+                                val identity = normalizedSegments(arcs.flatMap(GraphArc::segments))
+                                if (firstIdentity == null) {
+                                    firstIdentity = identity
+                                    first = SearchPath(arcs.toList(), frame.point)
+                                } else if (identity != firstIdentity) {
+                                    return UniqueSearchResult.Rejected(TopologyRoutePlanningRejection.AMBIGUOUS,
+                                        "multiple legal physical routes exist; specify ordered via waypoints (" +
+                                            firstIdentity.joinToString(" -> ") { it.railId.toString() } + " versus " +
+                                            identity.joinToString(" -> ") { it.railId.toString() } + ")")
+                                }
+                            }
+                            pop(); continue
+                        }
+                        if (!frame.next.hasNext()) { pop(); continue }
+                        val arc = frame.next.next()
+                        if (arc.target in visited) continue
+                        val footprint = footprints.getOrPut(arc) { footprint(frame.point, arc) }
+                        val newIntervals = ArrayList<Occupied>()
+                        val newByRail = hashMapOf<UUID, MutableList<Occupied>>()
+                        var simple = true
+                        for (interval in footprint.intervals) {
+                            spend()
+                            if ((occupiedByRail[interval.railId].orEmpty().asSequence() + newByRail[interval.railId].orEmpty().asSequence()).any { previous ->
+                                spend()
+                                minOf(previous.upper, interval.upper) - maxOf(previous.lower, interval.lower) > POSITION_EPSILON
+                            }) { simple = false; break }
+                            newIntervals += interval
+                            newByRail.getOrPut(interval.railId) { arrayListOf() } += interval
+                        }
+                        if (!simple) continue
+                        val newNodes = ArrayList<NodeVisit>()
+                        val newNodeDistances = hashMapOf<TopologyNodeId, Double>()
+                        for (relative in footprint.nodes) {
+                            val visit = relative.copy(distance = frame.distance + relative.distance)
+                            spend()
+                            val previous = nodeDistances[visit.nodeId] ?: newNodeDistances[visit.nodeId]
+                            if (previous != null && !samePosition(previous, visit.distance)) { simple = false; break }
+                            if (previous == null) { newNodes += visit; newNodeDistances[visit.nodeId] = visit.distance }
+                        }
+                        if (!simple) continue
+                        val child = Frame(arc.target, next.getOrPut(arc.target) { graph.next(arc.target) }.iterator(),
+                            frame.distance + arc.costMeters, occupied.size, nodes.size, arcs.size)
+                        occupied += newIntervals
+                        newIntervals.forEach { occupiedByRail.getOrPut(it.railId) { arrayListOf() } += it }
+                        nodes += newNodes; nodeDistances.putAll(newNodeDistances)
+                        arcs += arc; visited += arc.target
+                        stack.addLast(child)
+                    }
+                }
+            } catch (_: LimitReached) {
+                return UniqueSearchResult.Rejected(TopologyRoutePlanningRejection.SEARCH_LIMIT_EXCEEDED,
+                    "physical route uniqueness could not be proven within $limit search work units; add explicit via waypoints")
+            }
+            return UniqueSearchResult.Unique(first)
+        }
+
+        private fun footprint(source: OrientedPoint, arc: GraphArc): Footprint {
+            val intervals = ArrayList<Occupied>()
+            val nodes = ArrayList<NodeVisit>()
+            fun visit(point: OrientedPoint, distance: Double) {
+                val edge = topology.edges.getValue(point.edgeId)
+                if (samePosition(point.distanceMeters, 0.0)) nodes += NodeVisit(edge.first.nodeId, distance)
+                if (samePosition(point.distanceMeters, edge.lengthMeters)) nodes += NodeVisit(edge.second.nodeId, distance)
+            }
+            visit(source, 0.0)
+            var distance = 0.0
+            arc.segments.forEach { segment ->
+                spend()
+                val projection = topology.railProjection.getValue(segment.railId).single()
+                val length = abs(projection.railEndAbMeters - projection.railStartAbMeters)
+                val start = if (segment.facing == ViewDirection.AB) segment.startArcLengthMeters else length - segment.startArcLengthMeters
+                val end = if (segment.facing == ViewDirection.AB) segment.endArcLengthMeters else length - segment.endArcLengthMeters
+                val startPosition = resolveLocation(OperationalRouteLocation(segment.railId, start), topology)!!
+                val endPosition = resolveLocation(OperationalRouteLocation(segment.railId, end), topology)!!
+                visit(OrientedPoint(startPosition.edgeId, startPosition.edgeDistanceMeters, startPosition.edgeDirection(segment.facing)), distance)
+                if (segment.lengthMeters > POSITION_EPSILON) intervals += Occupied(segment.railId, minOf(start, end), maxOf(start, end))
+                distance += segment.lengthMeters
+                visit(OrientedPoint(endPosition.edgeId, endPosition.edgeDistanceMeters, endPosition.edgeDirection(segment.facing)), distance)
+            }
+            visit(arc.target, distance)
+            return Footprint(intervals, nodes)
+        }
+    }
+
+    private fun normalizedSegments(segments: List<RouteSegmentSnapshot>): List<RouteSegmentSnapshot> {
+        val result = ArrayList<RouteSegmentSnapshot>()
+        for (segment in segments) {
+            if (segment.lengthMeters <= POSITION_EPSILON) continue
+            val previous = result.lastOrNull()
+            if (previous != null && previous.railId == segment.railId && previous.facing == segment.facing &&
+                samePosition(previous.endArcLengthMeters, segment.startArcLengthMeters)) {
+                result[result.lastIndex] = RouteSegmentSnapshot(previous.railId, previous.facing, previous.startArcLengthMeters, segment.endArcLengthMeters)
+            } else result += segment
+        }
+        return result
+    }
+
     private class QueryGraph(
         private val topology: TopologyState,
         private val restrictions: CompiledRestrictions,
         start: ResolvedLocation,
-        end: ResolvedLocation
+        end: ResolvedLocation,
+        private val blocked: List<ResolvedBlocker> = emptyList()
     ) {
         private val cutsByEdge: Map<TrackEdgeId, List<Double>>
         private val incidentEnds: Map<TopologyNodeId, List<IncidentEnd>> = buildIncidentEnds(topology)
@@ -229,6 +406,7 @@ object TopologyRoutePlanner {
             restrictions.cutPoints.forEach { point -> cuts.getValue(point.edgeId) += point.distanceMeters }
             cuts.getValue(start.edgeId) += start.edgeDistanceMeters
             cuts.getValue(end.edgeId) += end.edgeDistanceMeters
+            blocked.forEach { cuts.getValue(it.location.edgeId) += it.location.edgeDistanceMeters }
             cutsByEdge = cuts.mapValues { (_, values) -> values.sorted() }
         }
 
@@ -236,7 +414,25 @@ object TopologyRoutePlanner {
             baseArc(point)?.let(::add)
             addAll(restrictions.macrosByStart[point].orEmpty())
             structuralArcs(point).forEach(::add)
-        }
+        }.filterNot { arc -> blocked.any { blocker ->
+            val location = blocker.location
+            fun matches(point: OrientedPoint): Boolean = point.matches(location) &&
+                (blocker.direction == null || blocker.direction == point.direction)
+            matches(point) || matches(arc.target) || arc.segments.any segmentIntersects@ { segment ->
+                val projection = topology.railProjection.getValue(segment.railId).single()
+                if (projection.edgeId != location.edgeId) return@segmentIntersects false
+                val abStart = if (segment.facing == ViewDirection.AB) segment.startArcLengthMeters
+                    else abs(projection.railEndAbMeters - projection.railStartAbMeters) - segment.startArcLengthMeters
+                val abEnd = if (segment.facing == ViewDirection.AB) segment.endArcLengthMeters
+                    else abStart - segment.lengthMeters
+                val segmentStart = resolveLocation(OperationalRouteLocation(segment.railId, abStart), topology)!!
+                val segmentEnd = resolveLocation(OperationalRouteLocation(segment.railId, abEnd), topology)!!
+                segmentStart.edgeId == location.edgeId &&
+                    (blocker.direction == null || blocker.direction == segmentStart.edgeDirection(segment.facing)) &&
+                    location.edgeDistanceMeters >= minOf(segmentStart.edgeDistanceMeters, segmentEnd.edgeDistanceMeters) - POSITION_EPSILON &&
+                    location.edgeDistanceMeters <= maxOf(segmentStart.edgeDistanceMeters, segmentEnd.edgeDistanceMeters) + POSITION_EPSILON
+            }
+        } }
 
         fun isForbidden(point: OrientedPoint): Boolean =
             restrictions.forbidden[DirectedEdge(point.edgeId, point.direction)].orEmpty()
@@ -619,6 +815,9 @@ object TopologyRoutePlanner {
 
     private fun OrientedPoint.unoriented() = UnorientedPoint(edgeId, distanceMeters)
 
+    private fun ResolvedLocation.samePhysicalPosition(other: ResolvedLocation): Boolean =
+        edgeId == other.edgeId && samePosition(edgeDistanceMeters, other.edgeDistanceMeters)
+
     private fun samePosition(first: Double, second: Double): Boolean = abs(first - second) <= POSITION_EPSILON
 
     private fun invalidLocation(location: OperationalRouteLocation) = rejected(
@@ -641,6 +840,8 @@ object TopologyRoutePlanner {
         val edgeId: TrackEdgeId,
         val edgeDistanceMeters: Double
     )
+
+    private data class ResolvedBlocker(val location: ResolvedLocation, val direction: EdgeDirection?)
 
     private data class DirectedEdge(val edgeId: TrackEdgeId, val direction: EdgeDirection)
     private data class UnorientedPoint(val edgeId: TrackEdgeId, val distanceMeters: Double)

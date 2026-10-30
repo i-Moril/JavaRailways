@@ -22,6 +22,7 @@ import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.route.ExpandedRoute
 import work.art1st.javarailways.simpleato.routing.RouteBuildResult
 import work.art1st.javarailways.core.api.physics.World
+import work.art1st.javarailways.core.api.physics.WorldExecutionMode
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.routing.OperationalRoutePlanner
@@ -96,7 +97,6 @@ data class TimetableService(
     val trainSelector: TrainSelector = TrainSelector.AnyTrain,
     val steps: List<TimetableStep> = emptyList(),
     val activation: TimetableServiceActivation = TimetableServiceActivation.Scheduled,
-    val editorRows: List<TimetableServiceEditorRow>? = null,
     /** Actual Basic infrastructure line; never substitute presentation-only diagramLineId. */
     val lineId: LineId? = null,
     val runSegments: List<TimetableRunSegment> = emptyList()
@@ -120,30 +120,7 @@ class LineMaximumSpeedResolver(private val timetable: Timetable) {
     }
 }
 
-enum class TimetableServiceRowType { STATION, SPECIAL_DESTINATION, DEPOT_OPERATION, ACTION_ONLY }
-enum class TimetableServiceStopStatus { ORIGIN, STOP, PASS, TERMINAL, DISABLED }
-enum class TimetableServiceDepotOperation { TAKE_FROM_DEPOT, STORE_AT_DEPOT }
-
-/** Authoring metadata persisted with the runtime timetable; generated steps remain execution-authoritative. */
-data class TimetableServiceEditorRow(
-    val id: String,
-    val type: TimetableServiceRowType,
-    val status: TimetableServiceStopStatus? = null,
-    val stationId: String? = null,
-    val berthId: String? = null,
-    val destinationId: String? = null,
-    val tick: Long? = null,
-    val departureTick: Long? = null,
-    val depotOperation: TimetableServiceDepotOperation? = null,
-    val depotId: String? = null,
-    val actions: List<TimetableAction> = emptyList()
-) {
-    init {
-        require(id.isNotBlank())
-        require(tick == null || tick >= 0L)
-        require(departureTick == null || departureTick >= 0L)
-    }
-}
+enum class TimetableServiceStopStatus { ORIGIN, STOP, PASS, TERMINAL }
 
 sealed class TrainSelector {
     data object AnyTrain : TrainSelector()
@@ -156,19 +133,22 @@ sealed class TimetableStep {
 }
 
 sealed class TimetableAction {
+    data class BeginStationStop(val stopPrograms: StationStopPrograms) : TimetableAction() { init { require(stopPrograms.role == StationStopRole.ORIGIN) { "origin stop requires ORIGIN role" } } }
     class BeginOperationalTrip(val tripId: String, val runId: String, unitSlots: List<Int>) : TimetableAction() {
         val unitSlots = immutableUnitSlots(unitSlots)
         init { require(tripId.isNotBlank() && runId.isNotBlank()) }
         override fun equals(other: Any?) = other is BeginOperationalTrip && tripId == other.tripId && runId == other.runId && unitSlots == other.unitSlots
         override fun hashCode() = java.util.Objects.hash(tripId,runId,unitSlots)
     }
-    class SetDisplay(unitSlots: List<Int>, values: kotlinx.serialization.json.JsonObject, removeKeys: List<String> = emptyList()) : TimetableAction() {
+    class SetDisplay(unitSlots: List<Int>, values: kotlinx.serialization.json.JsonObject, removeKeys: List<String> = emptyList(), trainInfo: Map<String, TrainInfoField> = emptyMap()) : TimetableAction() {
         val unitSlots = immutableUnitSlots(unitSlots)
         val values = immutableDisplayValues(values)
+        val trainInfo = immutableTrainInfo(trainInfo)
+        init { require(trainInfo.isEmpty() || values.isEmpty()) { "trainInfo replaces literal values" } }
         val removeKeys: List<String> = java.util.List.copyOf(removeKeys)
         init { require(removeKeys.distinct().size == removeKeys.size && removeKeys.all { it.isNotBlank() }) }
-        override fun equals(other: Any?) = other is SetDisplay && unitSlots == other.unitSlots && values == other.values && removeKeys == other.removeKeys
-        override fun hashCode() = java.util.Objects.hash(unitSlots, values, removeKeys)
+        override fun equals(other: Any?) = other is SetDisplay && unitSlots == other.unitSlots && values == other.values && removeKeys == other.removeKeys && trainInfo == other.trainInfo
+        override fun hashCode() = java.util.Objects.hash(unitSlots, values, removeKeys, trainInfo)
     }
     class ResetDisplay(unitSlots: List<Int>) : TimetableAction() {
         val unitSlots = immutableUnitSlots(unitSlots)
@@ -210,7 +190,12 @@ sealed class TimetableAction {
     data class Stop(val ticks: Long) : TimetableAction()
 
     /** Execute one plugin-supplied action through the world's timetable extension registry. */
-    data class Extension(val call: TimetableExtensionCall) : TimetableAction()
+    class Extension(val call: TimetableExtensionCall, trainInfo: Map<String, TrainInfoField> = emptyMap()) : TimetableAction() {
+        val trainInfo = immutableTrainInfo(trainInfo)
+        init { require(trainInfo.isEmpty() || call.parameters.isEmpty()) { "trainInfo replaces literal parameters" } }
+        override fun equals(other: Any?) = other is Extension && call == other.call && trainInfo == other.trainInfo
+        override fun hashCode() = java.util.Objects.hash(call, trainInfo)
+    }
 
     /**
      * Evaluate once at its At tick and execute the selected timed branch.
@@ -235,43 +220,57 @@ sealed class TimetableAction {
     }
 
     /** Hold at the acquired/checked position until the enclosing At.tick, then continue. */
+    data class TaskStart(val taskId: String) : TimetableAction() { init { require(taskId.isNotBlank() && taskId.length <= 128) } }
+    data class TaskEnd(val taskId: String) : TimetableAction() { init { require(taskId.isNotBlank() && taskId.length <= 128) } }
     data object WaitUntil : TimetableAction()
     data object Halt : TimetableAction()
     data object Reverse : TimetableAction()
-    data class DestinationOptions(
+    class DestinationOptions(
         val destinationId: String,
         val minimumDwellTicks: Long? = null,
         val stoppingOffsetMetersBefore: Double? = null,
-        val doorSide: DoorSide? = null
+        val doorSide: DoorSide? = null,
+        val stopPrograms: StationStopPrograms? = null
     ) : TimetableAction() {
         init {
+            require(stopPrograms?.role != StationStopRole.ORIGIN) { "incoming stop cannot have ORIGIN role" }
             require(destinationId.isNotBlank() && destinationId == destinationId.trim())
             require(minimumDwellTicks == null || minimumDwellTicks >= 0L)
             require(stoppingOffsetMetersBefore == null ||
                 stoppingOffsetMetersBefore.isFinite() && stoppingOffsetMetersBefore >= 0.0)
         }
+        override fun equals(other: Any?) = other is DestinationOptions &&
+            destinationId == other.destinationId && minimumDwellTicks == other.minimumDwellTicks && stoppingOffsetMetersBefore == other.stoppingOffsetMetersBefore && doorSide == other.doorSide && stopPrograms == other.stopPrograms
+        override fun hashCode() = java.util.Objects.hash(destinationId, minimumDwellTicks, stoppingOffsetMetersBefore, doorSide, stopPrograms)
     }
     /** One selected station movement; successor state is the actual chosen stopping marker. */
-    data class SelectStop(
+    class SelectStop(
         val selection: StationStopSelection,
         val minimumDwellTicks: Long? = null,
         val stoppingOffsetMetersBefore: Double? = null,
-        val doorSideOverride: DoorSide? = null
+        val doorSideOverride: DoorSide? = null,
+        val stopPrograms: StationStopPrograms? = null
     ) : TimetableAction() {
         init {
+            require(stopPrograms?.role != StationStopRole.ORIGIN) { "incoming stop cannot have ORIGIN role" }
             require(minimumDwellTicks == null || minimumDwellTicks >= 0L)
             require(stoppingOffsetMetersBefore == null || stoppingOffsetMetersBefore.isFinite() && stoppingOffsetMetersBefore >= 0.0)
         }
+        override fun equals(other: Any?) = other is SelectStop &&
+            selection == other.selection && minimumDwellTicks == other.minimumDwellTicks && stoppingOffsetMetersBefore == other.stoppingOffsetMetersBefore && doorSideOverride == other.doorSideOverride && stopPrograms == other.stopPrograms
+        override fun hashCode() = java.util.Objects.hash(selection, minimumDwellTicks, stoppingOffsetMetersBefore, doorSideOverride, stopPrograms)
     }
 
-    data class CallStation(
+    class CallStation(
         val stationId: String,
         val berthId: String,
         val minimumDwellTicks: Long? = null,
         val stoppingOffsetMetersBefore: Double? = null,
-        val doorSideOverride: DoorSide? = null
+        val doorSideOverride: DoorSide? = null,
+        val stopPrograms: StationStopPrograms? = null
     ) : TimetableAction() {
         init {
+            require(stopPrograms?.role != StationStopRole.ORIGIN) { "incoming stop cannot have ORIGIN role" }
             require(stationId.isNotBlank() && berthId.isNotBlank())
             require(minimumDwellTicks == null || minimumDwellTicks >= 0L)
             require(stoppingOffsetMetersBefore == null ||
@@ -280,6 +279,9 @@ sealed class TimetableAction {
 
         val berthRef: StationBerthRef
             get() = StationBerthRef(StationId(stationId), berthId)
+        override fun equals(other: Any?) = other is CallStation &&
+            stationId == other.stationId && berthId == other.berthId && minimumDwellTicks == other.minimumDwellTicks && stoppingOffsetMetersBefore == other.stoppingOffsetMetersBefore && doorSideOverride == other.doorSideOverride && stopPrograms == other.stopPrograms
+        override fun hashCode() = java.util.Objects.hash(stationId, berthId, minimumDwellTicks, stoppingOffsetMetersBefore, doorSideOverride, stopPrograms)
     }
 
     private fun isRuntimeProgramAction(): Boolean = when (this) {
@@ -348,7 +350,15 @@ data class TimetableValidationResult private constructor(
     val isSuccess: Boolean get() = errors.isEmpty()
 }
 
-class TimetableValidator(private val world: World) {
+class TimetableValidator(
+    private val world: World,
+    private val standaloneSimulationServiceIds: Set<String> = emptySet()
+) {
+    init {
+        require(standaloneSimulationServiceIds.isEmpty() || world.executionMode == WorldExecutionMode.SIMULATION) {
+            "standalone simulation validation cannot be used in a live world"
+        }
+    }
     private val routePlanner = OperationalRoutePlanner(world)
 
     fun validate(timetable: Timetable): TimetableValidationResult = validateDefinition(timetable, timetable)
@@ -389,6 +399,8 @@ class TimetableValidator(private val world: World) {
         }
         val serviceIds = mutableSetOf<String>()
         for (service in timetable.services) {
+            if (!serviceIds.add(service.id)) errors.add("重复 service id: ${service.id}")
+            if (service.activation is TimetableServiceActivation.Conditional) errors += "[${timetable.id}/${service.id}] runtime service activation conditions are not editable-plan deterministic"
             val program = TimetableServiceTraversal(service)
             val branchErrors = TimetableBranchGuard.validate(program,
                 conditionalActivation = service.activation is TimetableServiceActivation.Conditional)
@@ -397,9 +409,43 @@ class TimetableValidator(private val world: World) {
             errors += TimetableProgramSchedule.validate(program, periodTicks).map {
                 "[${timetable.id}/${service.id}] ${it.address} ${it.code}: ${it.detail}"
             }
+            var unsupportedRuntimeCondition = service.activation is TimetableServiceActivation.Conditional
+            fun validateArrivals(steps: List<TimetableStep>, parent: TimetableStepAddress? = null, arm: TimetableBranchArm? = null) {
+                steps.forEachIndexed { index, step ->
+                    val address = parent?.child(checkNotNull(arm), index) ?: TimetableStepAddress(index)
+                    val action = (step as? TimetableStep.At)?.action ?: return@forEachIndexed
+                    val stopPrograms = when (action) {
+                        is TimetableAction.BeginStationStop -> action.stopPrograms
+                        is TimetableAction.DestinationOptions -> action.stopPrograms
+                        is TimetableAction.CallStation -> action.stopPrograms
+                        is TimetableAction.SelectStop -> action.stopPrograms
+                        else -> null
+                    }
+                    if (stopPrograms != null) {
+                        if (stopPrograms.plannedDepartureTick?.let { it >= periodTicks } == true) errors += "[$timetable/${service.id}] $address station departure outside timetable period"
+                        fun validateStationActions(actions: List<StationProgramAction>) {
+                            for (instruction in actions) when (instruction) {
+                                is StationProgramAction.WaitUntil -> if (instruction.tick >= periodTicks) errors += "[${timetable.id}/${service.id}] $address station wait outside timetable period"
+                                is StationProgramAction.Async -> validateStationActions(instruction.steps)
+                                is StationProgramAction.Extension -> validateExtensionAction("[${timetable.id}/${service.id}]", address, TimetableAction.Extension(instruction.call, instruction.trainInfo), errors)
+                                else -> Unit
+                            }
+                        }
+                        validateStationActions(stopPrograms.arrival)
+                        validateStationActions(stopPrograms.departurePreparation)
+                    }
+                    if (action is TimetableAction.Conditional) {
+                        unsupportedRuntimeCondition = true
+                        errors += "[${timetable.id}/${service.id}] $address runtime conditions are not editable-plan deterministic; compile planned branches first"
+                        validateArrivals(action.thenSteps, address, TimetableBranchArm.THEN)
+                        validateArrivals(action.elseSteps, address, TimetableBranchArm.ELSE)
+                    }
+                }
+            }
+            validateArrivals(service.steps)
+            if (unsupportedRuntimeCondition) continue
             validateServiceLine(timetable, service, errors)
             validateService(timetable.id, periodTicks, service, errors, routes, routeStoppingOffsets, retainedRoutes, retainedSelections)
-            if (!serviceIds.add(service.id)) errors.add("重复 service id: ${service.id}")
         }
         val structural = if (timetable.formationEvents.isEmpty() || formationErrors.isNotEmpty()) StructuralTimetableValidation()
         else try {
@@ -447,6 +493,18 @@ class TimetableValidator(private val world: World) {
         retainedSelections: MutableSet<ValidatedStationSelectionKey>
     ) {
         val prefix = "[$timetableId/${service.id}]"
+        val standaloneSimulation = service.id in standaloneSimulationServiceIds
+        var initialSimulationDirection: ViewDirection? = null
+        if (standaloneSimulation) {
+            val take = (service.steps.firstOrNull() as? TimetableStep.At)?.action as? TimetableAction.TakeFromWaypoint
+            val point = take?.wayPointIds?.singleOrNull()?.let { world.basicWorldData.wayPoints[it] }
+            initialSimulationDirection = point?.let {
+                world.simpleAtoWorldData.destinations[it.id]?.approachDirection
+                    ?: world.basicWorldData.operatingDirections[it.railId]
+            }
+            if (point == null || world.getRail(point.railId) == null || initialSimulationDirection == null)
+                errors += "$prefix simulation initial waypoint must have an explicit waypoint or rail direction"
+        }
         if (service.id.isBlank()) errors.add("$prefix service id 不能为空")
         when (val activation = service.activation) {
             TimetableServiceActivation.Scheduled,
@@ -548,7 +606,7 @@ class TimetableValidator(private val world: World) {
                     }
                     previousAtTick = step.tick
                     when (step.action) {
-                        is TimetableAction.BeginOperationalTrip, is TimetableAction.SetDisplay, is TimetableAction.ResetDisplay -> {
+                        is TimetableAction.BeginStationStop, is TimetableAction.BeginOperationalTrip, is TimetableAction.SetDisplay, is TimetableAction.ResetDisplay -> {
                             if (currentWayPointId == null && takeActionCount == 0 && !hasFormationOrigin && !(service.trainSelector is TrainSelector.TrainId && service.steps.any { it is TimetableStep.Check })) errors += "$prefix display action requires an acquired or checked train"
                             if (pendingStationCall != null || pendingDestinationOptions != null) errors += "$prefix display action cannot interrupt destination options"
                         }
@@ -591,7 +649,7 @@ class TimetableValidator(private val world: World) {
                                     "$prefix step#$index storeAtDepot 前必须有且仅有一次取车"
                                 )
                             }
-                            if (index != service.steps.lastIndex) {
+                            if (service.steps.drop(index + 1).any { (it as? TimetableStep.At)?.action !is TimetableAction.TaskEnd }) {
                                 errors.add("$prefix step#$index storeAtDepot 必须是 service 的最后一步")
                             }
                             if (pendingStationCall != null || pendingDestinationOptions != null) {
@@ -635,14 +693,15 @@ class TimetableValidator(private val world: World) {
                             }
                         }
                         TimetableAction.Halt -> {
-                            if (!hasMovement) errors.add("$prefix step#$index halt 前必须至少有一个 destination")
-                            if (index != service.steps.lastIndex) {
+                            if (!hasMovement && !standaloneSimulation) errors.add("$prefix step#$index halt 前必须至少有一个 destination")
+                            if (service.steps.drop(index + 1).any { (it as? TimetableStep.At)?.action !is TimetableAction.TaskEnd }) {
                                 errors.add("$prefix step#$index halt 必须是 service 的最后一步")
                             }
                             if (pendingStationCall != null || pendingDestinationOptions != null) {
                                 errors.add("$prefix step#$index destination options 后必须先完成导航")
                             }
                         }
+                        is TimetableAction.TaskStart, is TimetableAction.TaskEnd -> Unit
                         TimetableAction.WaitUntil -> {
                             if (currentWayPointId == null && takeActionCount == 0 && !hasFormationOrigin) {
                                 errors.add("$prefix step#$index waitUntil 前必须先通过 check/take 确定列车位置")
@@ -743,6 +802,7 @@ class TimetableValidator(private val world: World) {
                         if (!accepted) errors += rejected.distinct()
                     }
                     currentWayPointId = successor
+                    val stationProgram = if (movement) pendingDestinationOptions?.second?.stopPrograms ?: pendingStationCall?.second?.stopPrograms else (step.action as? TimetableAction.BeginStationStop)?.stopPrograms
                     if (movement) { pendingStationCall = null; pendingDestinationOptions = null }
                     requiredStartDirections = when (step.action) {
                         TimetableAction.Reverse -> requiredStartDirections.map { direction ->
@@ -753,9 +813,12 @@ class TimetableValidator(private val world: World) {
                         is TimetableAction.TakeFromDepot,
                         is TimetableAction.TakeFromFormationOutput,
                         is TimetableAction.Couple,
-                        is TimetableAction.Split,
-                        is TimetableAction.TakeFromWaypoint -> setOf(null)
+                        is TimetableAction.Split -> setOf(null)
+                        is TimetableAction.TakeFromWaypoint -> setOf(initialSimulationDirection)
                         else -> requiredStartDirections
+                    }
+                    if (stationProgram != null && stationProgram.reverseParity() != 0) {
+                        requiredStartDirections = requiredStartDirections.map { direction -> (direction ?: currentWayPointId?.let(::destinationDirection))?.opposite() }.toSet()
                     }
                     when (val action = step.action) {
                         is TimetableAction.TakeFromDepot -> {
@@ -788,7 +851,7 @@ class TimetableValidator(private val world: World) {
             }
             if (service.trainSelector == TrainSelector.AnyTrain && outcome.takeActionCount == 0)
                 sink.errors += "$prefix AnyTrain service 必须以 takeFromDepot 或 takeFromWaypoint 开始"
-            if (!outcome.hasMovement && service.steps.none { it is TimetableStep.At &&
+            if (!outcome.hasMovement && !standaloneSimulation && service.steps.none { it is TimetableStep.At &&
                     (it.action is TimetableAction.Couple || it.action is TimetableAction.Split ||
                         outcome.hasFormationOrigin && it.action is TimetableAction.StoreAtDepot) })
                 sink.errors += "$prefix service 至少需要一个 destination"
@@ -913,7 +976,7 @@ class TimetableValidator(private val world: World) {
                 val provider = world.simpleAtoWorldData.timetableExtensions.action(call.typeId, call.version)
                 if (provider == null) {
                     errors.add("$prefix $address action provider is not registered: ${call.typeId}@${call.version}")
-                } else {
+                } else if (action.trainInfo.isEmpty()) {
                     runCatching { provider.validate(call.parameters) }
                         .getOrElse { listOf("provider validation failed: ${it.message}") }
                         .forEach { errors.add("$prefix $address action ${call.typeId}: $it") }
@@ -1029,6 +1092,8 @@ class TimetableValidator(private val world: World) {
                         ?.takeIf(::wayPointExists) ?: currentWayPointId
                 }
             }
+            is TimetableAction.TaskStart,
+            is TimetableAction.TaskEnd,
             TimetableAction.WaitUntil,
             TimetableAction.Halt,
             TimetableAction.Reverse,
@@ -1087,6 +1152,11 @@ class TimetableValidator(private val world: World) {
                     }
                     cursor
                 }
+            }
+            is TimetableAction.BeginStationStop -> {
+                if (action.stopPrograms.role != StationStopRole.ORIGIN) errors += "$prefix origin stop requires ORIGIN role"
+                if (action.stopPrograms.destinationId != null && currentWayPointId != null && action.stopPrograms.destinationId != currentWayPointId) errors += "$prefix origin stop does not match acquired/checked waypoint"
+                currentWayPointId
             }
             is TimetableAction.DestinationOptions -> currentWayPointId
             is TimetableAction.CallStation -> {
@@ -1163,7 +1233,9 @@ class TimetableValidator(private val world: World) {
             toWayPointId,
             requiredGoalDirection = destinationDirection(toWayPointId),
             requiredStartDirection = requiredStartDirection
-                ?: destinationDirection(fromWayPointId)
+                ?: destinationDirection(fromWayPointId),
+            requireUniquePath = true,
+            pruneNonTargetWaypoints = true
         )) {
             is RouteBuildResult.Success -> {
                 routes.add(result.route)

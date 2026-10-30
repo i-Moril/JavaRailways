@@ -14,6 +14,26 @@ class StationProgramScriptTest {
       {id:'store',type:'STORE_AT_DEPOT',depotId:{value:'other-depot'},stablingPointIds:{value:[]}}
     ]}"""
 
+    @Test fun `task boundaries retain empty calls and selected program source provenance`() {
+        val result = compile("""
+          timetable.service('s','train',t=>{t.check('A');t.origin('duty:s/element:1', scoped=>{
+            scoped.task('1',20, task=>task.program('p',{parameters:[],steps:[
+              {id:'w',type:'WAIT_UNTIL',tick:{value:40}},
+              {id:'d',type:'WAIT_DURATION',durationTicks:{value:7}}]},{}));
+          });t.task('2',50,empty=>{});});
+        """)
+        val steps = result.services.single().steps.drop(1)
+        assertEquals(listOf(SavedTimetableActionTypeV1.TASK_START, SavedTimetableActionTypeV1.WAIT_UNTIL,
+            SavedTimetableActionTypeV1.STOP, SavedTimetableActionTypeV1.TASK_END,
+            SavedTimetableActionTypeV1.TASK_START, SavedTimetableActionTypeV1.TASK_END), steps.map { it.action!!.type })
+        assertEquals(listOf(20L,40L,40L,40L,50L,50L), steps.map { it.tick })
+        assertEquals("1", steps.first().action!!.taskId)
+        assertTrue(result.compilationTrace.any { it.origin == "duty:s/element:1/program:p/step:d" })
+        assertThrows(Throwable::class.java) { compile("timetable.service('s','train',t=>{t.task('x',10,c=>{});t.task('x',20,c=>{});});") }
+        assertThrows(Throwable::class.java) { compile("timetable.service('s','train',t=>t.task('x',10,c=>c.task('y',10,d=>{})));") }
+        assertThrows(Throwable::class.java) { compile("timetable.service('s','train',t=>{t.task('x',30,c=>c.waitUntil(50));t.task('y',40,c=>{});});") }
+    }
+
     @Test fun `display program compiles parameterized slots and values into native timed actions`() {
         val result = compile("""
           timetable.service('s','train',t=>{t.check('A');t.at(20).program('display',{
@@ -30,25 +50,21 @@ class StationProgramScriptTest {
         }
     }
 
-    @Test fun `program branches keep independent times and full nested source addresses`() {
+    @Test fun `planned program branches fold and retain selected source addresses`() {
         val result = compile("""
           timetable.service('s','train',t=>{t.check('start');t.at(10).program('branch',{
-            parameters:[],steps:[{id:'choose',type:'BRANCH',typeId:'demo:condition',version:1,parameters:{value:{}},
+            parameters:[],steps:[{id:'choose',type:'BRANCH',typeId:'javarailways:plan_duty_id',version:1,parameters:{value:{values:['s']}},
               thenSteps:[{id:'later',type:'WAIT_UNTIL',tick:{value:80}},{id:'yes',type:'EXTENSION',typeId:'demo:action',version:1,parameters:{value:{}}}],
               elseSteps:[{id:'earlier',type:'WAIT_UNTIL',tick:{value:40}}]},
-              {id:'after',type:'EXTENSION',typeId:'demo:action',version:1,parameters:{value:{}}}]},{});});
+              {id:'after',type:'EXTENSION',typeId:'demo:action',version:1,parameters:{value:{}}}]},{},{dutyId:'s'});});
         """)
         val steps = result.services.single().steps
-        assertEquals(10L, steps[1].tick)
-        assertEquals(listOf(80L, 80L), steps[1].action!!.thenSteps.map { it.tick })
-        assertEquals(40L, steps[1].action!!.elseSteps.single().tick)
-        assertEquals(80L, steps[2].tick)
+        assertEquals(listOf(80L,80L,80L), steps.drop(1).map { it.tick })
+        assertTrue(steps.none { it.action?.type == SavedTimetableActionTypeV1.CONDITIONAL })
         val child = result.compilationTrace.single { it.origin.endsWith("step:yes") }
-        assertEquals(1, child.stepIndex)
-        assertEquals(listOf(SavedTimetableBranchPathEntryV1(SavedTimetableBranchArmV1.THEN, 1)), child.branchPath)
-        for (fixed in listOf("{id:'fixed',type:'SPLIT',eventId:{value:'event'}}",
-            "{id:'fixed',type:'COUPLE',eventId:{value:'event'}}",
-            "{id:'fixed',type:'STORE_AT_DEPOT',depotId:{value:'depot'},stablingPointIds:{value:[]}}")) {
+        assertEquals(2, child.stepIndex)
+        assertTrue(child.branchPath.isEmpty())
+        for (fixed in listOf("{id:'fixed',type:'STORE_AT_DEPOT',depotId:{value:'depot'},stablingPointIds:{value:[]}}")) {
             assertThrows(Throwable::class.java) { compile("""
               timetable.service('s','train',t=>{t.check('start');t.program('p',{parameters:[],steps:[
                 {id:'branch',type:'BRANCH',typeId:'demo:condition',version:1,parameters:{value:{}},thenSteps:[$fixed],elseSteps:[]}]},{});});
@@ -79,23 +95,17 @@ class StationProgramScriptTest {
         }
     }
 
-    @Test fun `fixed formation references expand from typed static parameters with step provenance`() {
-        val result = compile("""
-          timetable.service('s','train',t=>{t.check('start');t.at(30).program('formation',{
-            parameters:[{id:'join',type:'FORMATION_EVENT'}],steps:[
-              {id:'join-step',type:'COUPLE',eventId:{parameterId:'join'}},
-              {id:'split-step',type:'SPLIT',eventId:{value:'divide'}}]}, {join:'meeting'});});
-        """)
-        val actions = result.services.single().steps.drop(1)
-        assertEquals(listOf(SavedTimetableActionTypeV1.COUPLE, SavedTimetableActionTypeV1.SPLIT), actions.map { it.action!!.type })
-        assertEquals(listOf("meeting", "divide"), actions.map { it.action!!.eventId })
-        assertTrue(actions.all { it.tick == 30L })
-        for (expression in listOf("{value:'event',parameterId:null}", "{value:''}", "{parameterId:'wrong'}")) {
+    @Test fun `formation operations are not reusable program instructions or parameter types`() {
+        for (type in listOf("SPLIT", "COUPLE")) {
             assertThrows(Throwable::class.java) { compile("""
-                timetable.service('s','train',t=>{t.check('start');t.program('p',{
-                    parameters:[{id:'wrong',type:'STRING'}],steps:[{id:'split',type:'SPLIT',eventId:$expression}]},{wrong:'event'});});
+              timetable.service('s','train',t=>t.program('p',{
+                parameters:[],steps:[{id:'op',type:'$type',eventId:{value:'event'}}]},{}));
             """) }
         }
+        assertThrows(Throwable::class.java) { compile("""
+          timetable.service('s','train',t=>t.program('p',{
+            parameters:[{id:'event',type:'FORMATION_EVENT'}],steps:[]},{event:'event'}));
+        """) }
     }
 
     @Test fun `embedded sequential program expands exact actions and traces each stable step`() {
@@ -170,9 +180,9 @@ class StationProgramScriptTest {
         val failure = assertThrows(Throwable::class.java) { compile("""
           timetable.service('s','train',t=>{t.check('start');
             t.origin('duty:s/element:e/call:c',s=>s.program('p',{parameters:[],steps:[
-              {id:'parent',type:'BRANCH',typeId:'demo:condition',version:1,parameters:{value:{}},
+              {id:'parent',type:'BRANCH',typeId:'javarailways:plan_duty_id',version:1,parameters:{value:{values:['s']}},
                 thenSteps:[{id:'child',type:'WAIT_DURATION',durationTicks:{value:0}}],elseSteps:[]}
-            ]},{}));});
+            ]},{},{dutyId:'s'}));});
         """) }
         assertTrue(failure.message.orEmpty().contains("duty:s/element:e/call:c/program:p/step:child"), failure.message)
         assertFalse(failure.message.orEmpty().contains("program:p/step:parent"), failure.message)
@@ -195,6 +205,7 @@ class StationProgramScriptTest {
           });
         """)
         assertFalse(caught.services.single().steps.any { it.action?.type == SavedTimetableActionTypeV1.REVERSE })
-        assertThrows(Throwable::class.java) { compile("timetable.service('s','train', t => {t.check('start');t.at(100).program('p',{parameters:[],steps:[{id:'x',type:'WAIT_UNTIL',tick:{value:90}}]},{});});") }
+        val elapsed = compile("timetable.service('s','train', t => {t.check('start');t.at(100).program('p',{parameters:[],steps:[{id:'x',type:'WAIT_UNTIL',tick:{value:50}},{id:'r',type:'REVERSE'}]},{});});")
+        assertEquals(listOf(100L,100L), elapsed.services.single().steps.drop(1).map { it.tick })
     }
 }

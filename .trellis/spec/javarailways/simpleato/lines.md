@@ -14,7 +14,8 @@ data class Line private constructor(
     val displayName: String,
     val upStationIds: List<StationId>,
     val downStationIds: List<StationId>,
-    val color: String? = null
+    val color: String? = null,
+    val maximumSpeedMetersPerSecond: Double? = null
 )
 ```
 
@@ -27,6 +28,7 @@ SimpleATO共用`OperationalRoutePlanner`。该seam在同一个immutable `Topolog
 - `LineId`world-local stable、trimmed、no control char。
 - UP/DOWN独立有序，各2..128 stations、无duplicate、defensive copy。
 - color nullable或严格`#[0-9a-fA-F]{6}`。
+- `maximumSpeedMetersPerSecond` 是线路设置，单位 m/s；允许 null 表示尚未配置，非空必须有限且严格正数。线路保存、HTTP 和基础设施快照必须保留它。WebUI 以 km/h 编辑，只在边界换算。
 - `LineStoreSnapshot(revision:Long,lines:List<Line>)`稳定按ID排序。
 - `put(line,expectedRevision): Long`；`remove(id,expectedRevision): Pair<Line?,Long>`；mismatch抛`LineRevisionConflict(expected,actual)`且不mutation。
 - persistence `restore(values,savedRevision)`只允许fresh store，duplicate fail并恢复该edit revision。它不是schemaVersion。
@@ -79,3 +81,13 @@ private fun checkRevision(expected: Long) {
 ```bash
 ./gradlew :SimpleATO:test --tests '*LineStoreTest' --tests '*LinePlannerTest' --tests '*LineMaximumSpeedResolverTest'
 ```
+
+## 线路限速的编辑归属
+
+CURRENT：最高速度在 Lines 页面编辑，run 只引用线路，不再持有限速编辑入口。结构化编辑文档不独立维护线路速度；生成 JS、前端校验和单 run Reset 从当前线路集合读取上限。缺少线路或未配置速度时明确阻止依赖该速度的操作，不沿用旧文档中的速度，不猜默认值。线路变化必须使先前编译与模拟结果失效。
+
+已编译 Timetable 的 `lineSpeedLimits` 是运行快照，仍由现有 resolver 按实际运行段使用。修改线路并不会就地重写已发布时刻表；重新生成、编译和发布才更新其快照。例如 Lines 中将 72 km/h 改为 90 km/h 后，下次生成使用 25 m/s，已发布的 20 m/s 快照保持原值。
+
+持久化新增 nullable 字段使用缺省 null，不提升开发格式版本。已有开发线路需要在 Lines 中明确设置速度；本次不自动把任意时刻表文档的速度合并进线路，因为不同文档可能冲突。部署前应补齐所需线路配置，不新增永久旧格式兼容路径。
+
+回归验证覆盖线路速度的非法值和快照往返、HTTP 输入输出、km/h 转换、run 无编辑入口、生成/Reset 使用当前线路及缺省错误。

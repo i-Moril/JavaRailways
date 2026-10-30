@@ -12,7 +12,15 @@ import org.junit.jupiter.api.Test
 
 class LineSimulationMaximumSpeedTest {
     @Test
-    fun `absent and null inline caps preserve uncapped authoring requests`() {
+    fun `direct simulation uses configured line cap and rejects overrides and missing caps`() {
+        assertEquals(20.0, resolveInfrastructureLineMaximumSpeed(20.0, null))
+        assertEquals(20.0, resolveInfrastructureLineMaximumSpeed(20.0, 20.0))
+        assertEquals(400, assertThrows(HttpFailure::class.java) { resolveInfrastructureLineMaximumSpeed(20.0, 30.0) }.status)
+        assertEquals(422, assertThrows(HttpFailure::class.java) { resolveInfrastructureLineMaximumSpeed(null, 30.0) }.status)
+    }
+
+    @Test
+    fun `absent and null inline caps defer to infrastructure settings`() {
         listOf("{}", """{"maximumSpeedMetersPerSecond":null}""").forEach { body ->
             assertNull(resolveLineSimulationMaximumSpeed(Json.parseToJsonElement(body).jsonObject) { _, _, _ ->
                 error("must not read stored timetables")

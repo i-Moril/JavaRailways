@@ -17,7 +17,7 @@ class TimetableSnapshotTest {
     @Test
     fun `presentation metadata survives JSON but is not restored into runtime`() {
         val saved = SavedTimetableV1(
-            "rows", 1, listOf(SavedTimetableServiceV1(
+            "presentation", 1, listOf(SavedTimetableServiceV1(
                 id = "S1", selectorType = SavedTrainSelectorTypeV1.TRAIN_ID, trainId = "T1",
                 steps = listOf(SavedTimetableStepV1(
                     SavedTimetableStepTypeV1.AT, tick = 20,
@@ -26,12 +26,7 @@ class TimetableSnapshotTest {
                         stationId = "central", berthId = "two", arrivalTick = 100
                     )
                 )),
-                diagramLineId = "metro", lineDirection = SavedDiagramDirectionV1.DOWN,
-                rows = listOf(SavedServiceEditorRowV1(
-                    id = "station-1", type = SavedServiceRowTypeV1.STATION,
-                    status = SavedServiceStopStatusV1.STOP, stationId = "central", berthId = "two",
-                    arrivalTick = 100, departureTick = 140
-                ))
+                diagramLineId = "metro", lineDirection = SavedDiagramDirectionV1.DOWN
             )),
             diagramLines = listOf(SavedDiagramLineV1("metro", listOf("central"), listOf("central"))),
             compilationTrace = listOf(SavedCompilationTraceV1("S1", 0, "duty:S1/run:up-01"))
@@ -45,8 +40,6 @@ class TimetableSnapshotTest {
         assertNull(recaptured.services.single().steps.single().action?.arrivalTick)
         assertEquals(emptyList<SavedDiagramLineV1>(), recaptured.diagramLines)
         assertEquals(emptyList<SavedCompilationTraceV1>(), recaptured.compilationTrace)
-        assertNull(recaptured.services.single().rows?.single()?.arrivalTick)
-        assertEquals(140, recaptured.services.single().rows?.single()?.departureTick)
     }
 
     @Test
@@ -81,7 +74,9 @@ class TimetableSnapshotTest {
                         TimetableStep.At(50L, TimetableAction.TakeFromWaypoint(
                             listOf("platform@one", "siding")
                         )),
+                        TimetableStep.At(70L, TimetableAction.TaskStart("wait")),
                         TimetableStep.At(75L, TimetableAction.WaitUntil),
+                        TimetableStep.At(80L, TimetableAction.TaskEnd("wait")),
                         TimetableStep.At(100L, TimetableAction.GoVia(listOf("via", "central@one"))),
                         TimetableStep.At(200L, TimetableAction.CallStation(
                             "central", "one", 40L, 1.5, DoorSide.LEFT

@@ -1,0 +1,6 @@
+.unit-slots-input { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 8px; min-width: 0; max-width: 560px; }
+.unit-slots-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.unit-slots-chips .ant-tag { display: inline-flex; align-items: center; gap: 4px; margin: 0; }
+.unit-slots-chips .ant-btn { font-size: 18px; }
+.unit-slots-add { display: flex; align-items: center; gap: 8px; }
+.unit-slots-add .ant-input { max-width: 150px; }

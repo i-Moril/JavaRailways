@@ -10,7 +10,13 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.operation.DoorSide
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
+import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.basic.api.route.planning.DirectedRailSpan
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictionSource
@@ -43,6 +49,51 @@ class OperationalRoutePlannerTest {
     }
 
 
+
+    @Test
+    fun `waypoint pruning is opt in and ordered mission via points restore the route`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        val points = listOf(WayPoint("from", "From", rail.id, 10.0), WayPoint("via", "Via", rail.id, 50.0), WayPoint("to", "To", rail.id, 90.0))
+        points.forEach(world.basicWorldData.wayPoints::add)
+        val planner = OperationalRoutePlanner(world)
+        assertTrue(planner.buildRoute("from", "to") is RouteBuildResult.Success)
+        assertTrue(planner.buildRoute("from", "to", requireUniquePath = true, pruneNonTargetWaypoints = true) is RouteBuildResult.Failure)
+        val request = work.art1st.javarailways.simpleato.api.mission.AtoMissionRequest("via-mission", 1L,
+            work.art1st.javarailways.simpleato.api.mission.WayPointRef("from"), listOf(
+                work.art1st.javarailways.simpleato.api.mission.AtoMissionPoint.Via(work.art1st.javarailways.simpleato.api.mission.WayPointRef("via")),
+                work.art1st.javarailways.simpleato.api.mission.AtoMissionPoint.Stop(work.art1st.javarailways.simpleato.api.mission.WayPointRef("to"))
+            ), requiredStartDirection = ViewDirection.AB, requireUniquePath = true, pruneNonTargetWaypoints = true)
+        val resolved = work.art1st.javarailways.simpleato.api.mission.AtoMissionResolver(world).resolve(request)
+            as work.art1st.javarailways.simpleato.api.mission.AtoMissionResolutionResult.Success
+        assertEquals(listOf("via", "to"), resolved.mission.legs.map { it.point.target.id })
+        assertEquals(80.0, resolved.mission.legs.sumOf { it.plannedRoute.expandedRoute.totalLength }, 1e-6)
+    }
+
+    @Test
+    fun `same station alternative berths do not prune but unrelated directed destinations do`() {
+        for (otherDirection in listOf(ViewDirection.AB, ViewDirection.BA, null)) {
+            val world = TestWorldFixture.create().also(worldFixtures::add).world
+            TestSimpleATOWorldDataRegistry.getOrCreate(world)
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+            val destinations = OperationalDestinationService(world)
+            fun add(station: String, berth: String, arc: Double, direction: ViewDirection?) {
+                destinations.register(OperationalDestination("$station@$berth", "$station $berth", rail.id, arc, direction,
+                    DestinationRole.StationBerthRole(StationId(station), berthId = berth, doorSide = DoorSide.NONE)))
+            }
+            add("origin", "selected", 10.0, ViewDirection.AB)
+            add("origin", "alternative", 20.0, null)
+            add("goal", "alternative", 80.0, ViewDirection.AB)
+            add("goal", "selected", 90.0, ViewDirection.AB)
+            val planner = OperationalRoutePlanner(world)
+            fun query() = planner.buildRoute("origin@selected", "goal@selected", requiredStartDirection = ViewDirection.AB,
+                requireUniquePath = true, pruneNonTargetWaypoints = true)
+            assertTrue(query() is RouteBuildResult.Success)
+            add("unrelated", "middle", 50.0, otherDirection)
+            assertEquals(otherDirection == ViewDirection.BA, query() is RouteBuildResult.Success)
+        }
+    }
 
     @Test
     fun `adapts topology markers to positive expanded segments and preserves endpoint directions`() {

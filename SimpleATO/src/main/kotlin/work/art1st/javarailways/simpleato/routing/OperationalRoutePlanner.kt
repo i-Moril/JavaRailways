@@ -4,6 +4,8 @@ import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.route.planning.OperatingDirectionOverlay
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.route.ExpandedRoute
+import work.art1st.javarailways.basic.route.OperationalRouteBlocker
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.basic.route.OperationalRouteLocation
 import work.art1st.javarailways.basic.api.route.RailViewRef
 import work.art1st.javarailways.simpleato.routing.RouteBuildResult
@@ -30,24 +32,29 @@ class OperationalRoutePlanner(private val world: World) {
         fromWayPointId: String,
         toWayPointId: String,
         requiredGoalDirection: ViewDirection? = null,
-        requiredStartDirection: ViewDirection? = null
+        requiredStartDirection: ViewDirection? = null,
+        requireUniquePath: Boolean = false,
+        pruneNonTargetWaypoints: Boolean = false
     ): RouteBuildResult {
         val wayPoints = world.basicWorldData.wayPoints
         val from = wayPoints[fromWayPointId]
             ?: return RouteBuildResult.Failure("路径点不存在: $fromWayPointId")
         val to = wayPoints[toWayPointId]
             ?: return RouteBuildResult.Failure("路径点不存在: $toWayPointId")
-        return buildRoute(from, to, requiredGoalDirection, requiredStartDirection)
+        return buildRoute(from, to, requiredGoalDirection, requiredStartDirection, requireUniquePath, pruneNonTargetWaypoints)
     }
 
     fun buildRoute(
         from: WayPoint,
         to: WayPoint,
         requiredGoalDirection: ViewDirection? = null,
-        requiredStartDirection: ViewDirection? = null
+        requiredStartDirection: ViewDirection? = null,
+        requireUniquePath: Boolean = false,
+        pruneNonTargetWaypoints: Boolean = false
     ): RouteBuildResult {
         val topology = world.topologyState
         val simpleAto = world.simpleAtoWorldData
+        val blockers = if (pruneNonTargetWaypoints) waypointBlockers(from.id, to.id) else emptyList()
         return when (val result = plan(
             topology = topology,
             operatingDirections = world.basicWorldData.operatingDirections.overlay(topology),
@@ -57,7 +64,9 @@ class OperationalRoutePlanner(private val world: World) {
             routeId = "operational-query:${from.id}->${to.id}",
             routeRevision = 0L,
             startFacing = requiredStartDirection,
-            endFacing = requiredGoalDirection
+            endFacing = requiredGoalDirection,
+            requireUniquePath = requireUniquePath,
+            blockedLocations = blockers
         )) {
             is TopologyRoutePlanningResult.Planned -> {
                 val segments = result.route.segments.filter { segment ->
@@ -79,7 +88,22 @@ class OperationalRoutePlanner(private val world: World) {
                 ))
             }
 
-            is TopologyRoutePlanningResult.Rejected -> RouteBuildResult.Failure(result.detail)
+            is TopologyRoutePlanningResult.Rejected -> RouteBuildResult.Failure(result.detail, result.reason)
+        }
+    }
+
+    /** Station semantics stay here; Basic receives only rail positions and local facing. */
+    internal fun waypointBlockers(fromId: String?, toId: String): List<OperationalRouteBlocker> {
+        val simpleAto = world.simpleAtoWorldData
+        val endpointStations = listOfNotNull(fromId, toId).mapNotNull {
+            (simpleAto.destinations[it]?.role as? DestinationRole.StationBerthRole)?.stationId
+        }.toSet()
+        return world.basicWorldData.wayPoints.all().mapNotNull { waypoint ->
+            val destination = simpleAto.destinations[waypoint.id]
+            val station = (destination?.role as? DestinationRole.StationBerthRole)?.stationId
+            if (station != null && station in endpointStations) null else OperationalRouteBlocker(
+                OperationalRouteLocation(waypoint.railId, waypoint.arcLength), destination?.approachDirection
+            )
         }
     }
 
@@ -96,7 +120,9 @@ class OperationalRoutePlanner(private val world: World) {
             routeId: String,
             routeRevision: Long,
             startFacing: ViewDirection? = null,
-            endFacing: ViewDirection? = null
+            endFacing: ViewDirection? = null,
+            requireUniquePath: Boolean = false,
+            blockedLocations: List<OperationalRouteBlocker> = emptyList()
         ): TopologyRoutePlanningResult {
             val restrictions = try {
                 planningRestrictions.compile(topology, operatingDirections)
@@ -115,7 +141,9 @@ class OperationalRoutePlanner(private val world: World) {
                     routeId = routeId,
                     routeRevision = routeRevision,
                     startFacing = startFacing,
-                    endFacing = endFacing
+                    endFacing = endFacing,
+                    requireUniquePath = requireUniquePath,
+                    blockedLocations = blockedLocations
                 )
             )
         }

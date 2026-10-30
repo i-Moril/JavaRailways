@@ -28,10 +28,10 @@ class StructuralTimetableValidationTest {
     private fun definition() = TimetableFormationEvent.Split("divide", "source", 1, output("first", "source"), output("rest", "branch"))
     private fun timetable(sourceId: String = "physical", sourceSteps: List<TimetableStep> = listOf(TimetableStep.Check("origin"),
         at(TimetableAction.Split("divide")), at(TimetableAction.GoTo("end"))),
-        branchTarget: String = "back") = Timetable("structural", services = listOf(
+        branchTarget: String = "back", branchVia: List<String> = emptyList()) = Timetable("structural", services = listOf(
         TimetableService("source", TrainSelector.TrainId(sourceId), sourceSteps),
         TimetableService("branch", steps = listOf(at(TimetableAction.TakeFromFormationOutput("divide", "rest")),
-            at(TimetableAction.Reverse), at(TimetableAction.GoTo(branchTarget))))
+            at(TimetableAction.Reverse), at(if (branchVia.isEmpty()) TimetableAction.GoTo(branchTarget) else TimetableAction.GoVia(branchVia + branchTarget))))
     ), formationEvents = TimetableFormationCatalog(listOf(definition())))
 
     @ParameterizedTest
@@ -79,7 +79,7 @@ class StructuralTimetableValidationTest {
     }
 
     @Test fun `entire retained incoming route reaches full eligibility bound before split`() {
-        fixture { world, _, _ ->
+        fixture(points = setOf("stop")) { world, _, _ ->
             val steps = listOf(TimetableStep.Check("origin"), at(TimetableAction.GoTo("stop")),
                 at(TimetableAction.Split("divide")), at(TimetableAction.GoTo("end")))
             val result = TimetableValidator(world).validate(timetable(sourceSteps = steps))
@@ -94,7 +94,7 @@ class StructuralTimetableValidationTest {
     }
 
     @Test fun `producer output proof propagates through new duty movement and a later split`() {
-        fixture(8, 140.0) { world, rail, train ->
+        fixture(8, 140.0, points = setOf("later")) { world, rail, train ->
             val first = TimetableFormationEvent.Split("one", "a", 1, output("first"), output("rest", "b"))
             val second = TimetableFormationEvent.Split("two", "b", 1, output("first"), output("rest", "c"))
             val plan = Timetable("chain", services = listOf(
@@ -124,10 +124,10 @@ class StructuralTimetableValidationTest {
     }
 
     @Test fun `common outbound and return route uses certified stopped body instead of historical origin`() {
-        fixture { world, rail, train ->
-            val steps = listOf(TimetableStep.Check("origin"), at(TimetableAction.GoTo("later")),
+        fixture(points = setOf("stop", "later")) { world, rail, train ->
+            val steps = listOf(TimetableStep.Check("origin"), at(TimetableAction.GoVia(listOf("stop", "later"))),
                 at(TimetableAction.Split("divide")), at(TimetableAction.GoTo("end")))
-            val result = TimetableValidator(world).validate(timetable(sourceSteps = steps, branchTarget = "origin"))
+            val result = TimetableValidator(world).validate(timetable(sourceSteps = steps, branchTarget = "origin", branchVia = listOf("stop")))
             assertTrue(result.isSuccess, result.errors.toString())
             val ingress = result.structural.sources.values.single()
             assertTrue(ingress.envelope.retainedPath.segments.first().startArcLengthMeters > 100.0)
@@ -144,7 +144,7 @@ class StructuralTimetableValidationTest {
     }
 
     @Test fun `missing finite origin witness and target inside uncertainty reject explicitly`() {
-        fixture { world, _, _ ->
+        fixture(points = setOf("inside")) { world, _, _ ->
             val missing = TimetableValidator(world).validate(timetable(sourceId = "missing"))
             assertFalse(missing.isSuccess)
             assertTrue(missing.errors.any { it.contains("initial source frame is missing") })
@@ -158,7 +158,7 @@ class StructuralTimetableValidationTest {
         fixture { world, rail, train ->
             world.basicWorldData.wayPoints.add(WayPoint("other", "Other", rail.id, 120.0))
             fun plan(ids: List<String>) = Timetable("origins", services = listOf(TimetableService("source", steps = listOf(
-                at(TimetableAction.TakeFromWaypoint(ids)), at(TimetableAction.Split("divide")), at(TimetableAction.GoTo("end"))))),
+                at(TimetableAction.TakeFromWaypoint(ids)), at(TimetableAction.Split("divide")), at(TimetableAction.GoVia(listOf("other", "end")))))),
                 formationEvents = TimetableFormationCatalog(listOf(TimetableFormationEvent.Split("divide", "source", 1,
                     output("first", "source"), output("rest")))))
             val complete = TimetableValidator(world).validate(plan(listOf("origin")))
@@ -208,9 +208,10 @@ class StructuralTimetableValidationTest {
     }
 
     @Test fun `output storage proves every compatible finite target including currently occupied alternatives`() {
-        fixture { world, _, train ->
+        fixture { world, rail, train ->
             registerSource(world, train)
             val end = storagePoint(world, "end", "end")
+            world.basicWorldData.wayPoints.add(WayPoint("later", "Later", rail.id, 200.0))
             val later = storagePoint(world, "later", "later")
             world.simpleAtoWorldData.depots.registerRollingStock(RollingStockRecord("parked", DepotId("storage"),
                 "metro/model", setOf("metro"), 2, 20.0, 22.0, emptySet()), later)
@@ -235,7 +236,7 @@ class StructuralTimetableValidationTest {
     }
 
     @Test fun `output storage filters actual output length and classification before proving all admissible points`() {
-        fixture { world, _, train ->
+        fixture(points = setOf("inside")) { world, _, train ->
             registerSource(world, train)
             val eligible = storagePoint(world, "fits", "end", 20.0)
             storagePoint(world, "short", "inside", 19.99)
@@ -250,7 +251,7 @@ class StructuralTimetableValidationTest {
     }
 
     @Test fun `one unsafe compatible storage alternative rejects the entire finite candidate set`() {
-        fixture { world, _, train ->
+        fixture(points = setOf("inside")) { world, _, train ->
             registerSource(world, train)
             storagePoint(world, "safe", "end")
             storagePoint(world, "unsafe", "inside")
@@ -349,8 +350,16 @@ class StructuralTimetableValidationTest {
                         val futureB = if (stationaryReversed) 107.0 else 160.5
                         listOf("future-a" to futureA, "future-b" to futureB).forEach { (id, arc) ->
                             world.basicWorldData.wayPoints.add(WayPoint(id, id, rail.id, arc)) }
+                        fun explicitMovement(origin: String, target: String): TimetableAction {
+                            val start = world.basicWorldData.wayPoints[origin]!!.arcLength
+                            val end = world.basicWorldData.wayPoints[target]!!.arcLength
+                            val via = world.basicWorldData.wayPoints.all().filter { point ->
+                                point.railId == rail.id && point.arcLength > minOf(start,end) + 1e-7 && point.arcLength < maxOf(start,end) - 1e-7
+                            }.sortedBy { if (end >= start) it.arcLength else -it.arcLength }.map { it.id }
+                            return if (via.isEmpty()) TimetableAction.GoTo(target) else TimetableAction.GoVia(via + target)
+                        }
                         val future = plan.copy(services = plan.services.map { service -> service.copy(steps =
-                            listOf(service.steps.first(), at(TimetableAction.GoTo(if (service.id == "a") "future-a" else "future-b")),
+                            listOf(service.steps.first(), at(explicitMovement((service.steps.first() as TimetableStep.Check).wayPointId, if (service.id == "a") "future-a" else "future-b")),
                                 service.steps.last())) }, formationEvents = TimetableFormationCatalog(listOf(event.copy(
                                     rendezvous = FormationRendezvous("future-a", "future-b")))))
                         val futureResult = TimetableValidator(world).validate(future)
@@ -358,8 +367,8 @@ class StructuralTimetableValidationTest {
                         val futurePair = futureResult.structural.couplings.values.single()
                         val unsafeArc = if (stationaryReversed) 106.4 else 149.9
                         world.basicWorldData.wayPoints.add(WayPoint("unsafe-a", "unsafe-a", rail.id, unsafeArc))
-                        val unsafe = future.copy(services = future.services.map { service -> if (service.id != "a") service
-                            else service.copy(steps = listOf(service.steps.first(), at(TimetableAction.GoTo("unsafe-a")), service.steps.last())) },
+                        val unsafe = future.copy(services = future.services.map { service -> service.copy(steps = listOf(service.steps.first(),
+                            at(explicitMovement((service.steps.first() as TimetableStep.Check).wayPointId, if(service.id == "a") "unsafe-a" else "future-b")), service.steps.last())) },
                             formationEvents = TimetableFormationCatalog(listOf(event.copy(rendezvous = FormationRendezvous("unsafe-a", "future-b")))))
                         val unsafeResult = TimetableValidator(world).validate(unsafe)
                         assertFalse(unsafeResult.isSuccess)
@@ -379,44 +388,20 @@ class StructuralTimetableValidationTest {
 
     @ParameterizedTest
     @ValueSource(booleans = [false, true])
-    fun `branch-selected source retains exact split lineage and both actual output routes`(takeThen: Boolean) {
-        fixture { world, rail, train ->
-            world.simpleAtoWorldData.timetableExtensions.registerCondition(object : TimetableConditionProvider {
-                override val typeId = "test:choice"
-                override val version = 1
-                override val descriptor = TimetableExtensionDescriptor("Choice", "Structural branches")
-                override fun validate(parameters: JsonObject) = emptyList<String>()
-                override fun evaluate(parameters: JsonObject, context: TimetableRuntimeContext) = TimetableConditionResult.False
-            })
+    fun `runtime conditional structural sources require planned branch compilation`(takeThen: Boolean) {
+        fixture(points = setOf("stop", "later")) { world, _, _ ->
             val choice = TimetableAction.Conditional(TimetableCondition.Predicate(TimetableExtensionCall("test:choice")),
-                listOf(at(TimetableAction.GoTo("stop"))), listOf(at(TimetableAction.GoTo("later"))))
-            val plan = timetable(sourceSteps = listOf(TimetableStep.Check("origin"), at(choice),
-                at(TimetableAction.Split("divide")), at(TimetableAction.GoTo("end"))))
-            val result = TimetableValidator(world).validate(plan)
-            assertTrue(result.isSuccess, result.errors.toString())
-            assertEquals(2, result.structural.sources.size)
-            assertEquals(4, result.structural.routes.size)
-            val arm = if (takeThen) TimetableBranchArm.THEN else TimetableBranchArm.ELSE
-            val trace = StructuralBranchTrace.EMPTY.record("source", TimetableStepAddress(1), arm)
-            val ingress = result.structural.sources.entries.single { it.key.branchTrace == trace }.value
-            world.onOwnerForTest { train.setLocation(rail.viewAB.getRailLocationAt(if (takeThen) 100.0 else 180.0)); train.commit() }
-            ingress.envelope.requireContains(train.publishedFrame, world.topologyState, ingress.sourceCarIds, ingress.expectedReversed)
-            val other = result.structural.sources.entries.single { it.key.branchTrace != trace }.value
-            assertThrows(IllegalArgumentException::class.java) {
-                other.envelope.requireContains(train.publishedFrame, world.topologyState, other.sourceCarIds, other.expectedReversed)
-            }
-            val child = split(world, train, "car-2", "branch-child")
-            world.onOwnerForTest { child.reverse() }
-            for ((key, evidence) in result.structural.routes.filterKeys { it.branchTrace == trace }) {
-                assertEquals(ingress.outputCandidateKeys.getValue(key.outputId), key.sourceCandidate)
-                val frame = if (key.outputId == "first") train.publishedFrame else child.publishedFrame
-                assertDoesNotThrow { evidence.proof.resolve(frame, world.topologyState, evidence.outputCarIds, evidence.expectedReversed) }
-            }
+                listOf(at(TimetableAction.GoTo(if(takeThen) "stop" else "later"))), emptyList())
+            val result = TimetableValidator(world).validate(timetable(sourceSteps = listOf(TimetableStep.Check("origin"), at(choice),
+                at(TimetableAction.Split("divide")), at(TimetableAction.GoTo("end")))))
+            assertFalse(result.isSuccess)
+            assertTrue(result.errors.any { "editable-plan deterministic" in it })
+            assertTrue(result.retainedRoutes.isEmpty())
         }
     }
 
     @Test fun `structural via markers preserve ordered occurrences on one resolved physical route`() {
-        fixture { world, _, train ->
+        fixture(points = setOf("stop", "later")) { world, _, train ->
             val result = TimetableValidator(world).validate(timetable(sourceSteps = listOf(TimetableStep.Check("origin"),
                 at(TimetableAction.Split("divide")), at(TimetableAction.GoVia(listOf("stop", "later", "end"))))))
             assertTrue(result.isSuccess, result.errors.toString())
@@ -435,7 +420,7 @@ class StructuralTimetableValidationTest {
     fun `selected berth history qualifies structural source and output continuation`(beforeSplit: Boolean) {
         fixture { world, rail, train ->
             val station = StationId("choice")
-            for ((id, arc) in listOf("near" to 100.0, "far" to 140.0)) {
+            for ((id, arc) in listOf("near" to 100.0, "far" to 100.0)) {
                 OperationalDestinationService(world).register(OperationalDestination("choice@$id", id, rail.id, arc,
                     ViewDirection.AB, DestinationRole.StationBerthRole(station, berthId = id,
                         doorSide = DoorSide.NONE, usableLengthMeters = 80.0)))
@@ -448,18 +433,18 @@ class StructuralTimetableValidationTest {
             val result = TimetableValidator(world).validate(timetable(sourceSteps =
                 listOf(TimetableStep.Check("origin")) + sequence + at(TimetableAction.GoTo("end"))))
             assertTrue(result.isSuccess, result.errors.toString())
-            val trace = StructuralBranchTrace.EMPTY.recordStop("source", TimetableStepAddress(if (beforeSplit) 1 else 2), "far")
+            val trace = StructuralBranchTrace.EMPTY.recordStop("source", TimetableStepAddress(if (beforeSplit) 1 else 2), "near")
             if (beforeSplit) {
                 assertEquals(2, result.structural.sources.size)
-                world.onOwnerForTest { train.setLocation(rail.viewAB.getRailLocationAt(140.0)); train.commit() }
+                world.onOwnerForTest { train.setLocation(rail.viewAB.getRailLocationAt(100.0)); train.commit() }
                 val source = result.structural.sources.entries.single { it.key.branchTrace == trace }.value
                 source.envelope.requireContains(train.publishedFrame, world.topologyState, source.sourceCarIds, source.expectedReversed)
             }
             split(world, train, "car-2", "selected-child")
             if (!beforeSplit) {
-                val incoming = result.structural.routes.entries.single { it.key.branchTrace == trace && it.key.targetId == "choice@far" }.value
+                val incoming = result.structural.routes.entries.single { it.key.branchTrace == trace && it.key.targetId == "choice@near" }.value
                 assertDoesNotThrow { incoming.proof.resolve(train.publishedFrame, world.topologyState, incoming.outputCarIds, incoming.expectedReversed) }
-                world.onOwnerForTest { train.setLocation(rail.viewAB.getRailLocationAt(140.0)); train.commit() }
+                world.onOwnerForTest { train.setLocation(rail.viewAB.getRailLocationAt(100.0)); train.commit() }
             }
             val onward = result.structural.routes.entries.single { it.key.branchTrace == trace && it.key.targetId == "end" }.value
             assertDoesNotThrow { onward.proof.resolve(train.publishedFrame, world.topologyState, onward.outputCarIds, onward.expectedReversed) }
@@ -467,7 +452,7 @@ class StructuralTimetableValidationTest {
     }
 
     @Test fun `interior structural station call proves its own stop without changing the final destination offset`() {
-        fixture { world, rail, train ->
+        fixture(points = setOf("stop", "later")) { world, rail, train ->
             val station = StationId("interior")
             for ((id, arc) in listOf("middle" to 130.0, "behind" to 75.0)) {
                 OperationalDestinationService(world).register(OperationalDestination("interior@$id", id, rail.id, arc,
@@ -476,12 +461,12 @@ class StructuralTimetableValidationTest {
             }
             fun plan(berth: String) = timetable(sourceSteps = listOf(TimetableStep.Check("origin"),
                 at(TimetableAction.Split("divide")), at(TimetableAction.CallStation("interior", berth)),
-                at(TimetableAction.GoVia(listOf("stop", "later", "end")))))
+                at(TimetableAction.GoVia(listOf("stop", "interior@middle", "later", "end")))))
             val valid = TimetableValidator(world).validate(plan("middle"))
             assertTrue(valid.isSuccess, valid.errors.toString())
             val (key, evidence) = valid.structural.routes.entries.single { it.key.outputId == "first" }
             assertEquals(0.0, key.stoppingOffsetMeters)
-            assertEquals(listOf("stop", "later"), evidence.intermediateMarkers.map { it.targetId })
+            assertEquals(listOf("stop", "interior@middle", "later"), evidence.intermediateMarkers.map { it.targetId })
             val invalid = TimetableValidator(world).validate(plan("behind"))
             assertFalse(invalid.isSuccess)
             assertTrue(invalid.errors.any { it.contains("station stopping window is not beyond") }, invalid.errors.toString())
@@ -491,7 +476,7 @@ class StructuralTimetableValidationTest {
     }
 
     @Test fun `retained structural endpoint and station bindings reject metadata drift without topology changes`() {
-        fixture { world, rail, _ ->
+        fixture(points = setOf("stop", "later")) { world, rail, _ ->
             val plan = timetable(sourceSteps = listOf(TimetableStep.Check("origin"), at(TimetableAction.Split("divide")),
                 at(TimetableAction.GoVia(listOf("stop", "later", "end")))))
             val result = TimetableValidator(world).validate(plan)
@@ -515,7 +500,7 @@ class StructuralTimetableValidationTest {
                     usableLengthMeters = 80.0))
             service.register(destination)
             val stationPlan = timetable(sourceSteps = listOf(TimetableStep.Check("origin"), at(TimetableAction.Split("divide")),
-                at(TimetableAction.CallStation("binding", "one")), at(TimetableAction.GoTo("end"))))
+                at(TimetableAction.CallStation("binding", "one")), at(TimetableAction.GoVia(listOf("stop", "binding@one", "later", "end")))))
             val stationResult = TimetableValidator(world).validate(stationPlan)
             assertTrue(stationResult.isSuccess, stationResult.errors.toString())
             val stationRoute = stationResult.structural.routes.entries.single { it.key.outputId == "first" }.value
@@ -532,7 +517,7 @@ class StructuralTimetableValidationTest {
         world.onOwnerForTest { world.physicsCoordinator.drainBetweenFramesOperations() }
         return future.get(5, TimeUnit.SECONDS) as CoreTrain
     }
-    private fun fixture(cars: Int = 4, head: Double = 80.0, body: (CoreWorld, CoreRail, CoreTrain) -> Unit) {
+    private fun fixture(cars: Int = 4, head: Double = 80.0, points: Set<String> = emptySet(), body: (CoreWorld, CoreRail, CoreTrain) -> Unit) {
         TestWorldFixture.create().use { fixture ->
             val world = fixture.world
             TestSimpleATOWorldDataRegistry.getOrCreate(world)
@@ -541,7 +526,7 @@ class StructuralTimetableValidationTest {
                 val train = createTrainWithConfig("physical", rail, world, List(cars) { 10.0 }, connectorLength = 0.25)
                 world.onOwnerForTest { train.setLocation(rail.viewAB.getRailLocationAt(head)); train.commit() }
                 listOf("origin" to head, "stop" to 100.0, "end" to 200.0, "later" to 180.0,
-                    "back" to 20.0, "inside" to 60.0).forEach { (id, arc) -> world.basicWorldData.wayPoints.add(WayPoint(id,id,rail.id,arc)) }
+                    "back" to 20.0, "inside" to 60.0).filter { it.first in setOf("origin", "end", "back") + points }.forEach { (id, arc) -> world.basicWorldData.wayPoints.add(WayPoint(id,id,rail.id,arc)) }
                 val home = DepotId("home")
                 val store = world.simpleAtoWorldData.depots
                 store.addStablingPoint(home, "Home", DepotStablingPoint(StablingPointRef(home,"point"), "origin"))

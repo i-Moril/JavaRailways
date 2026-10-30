@@ -9,11 +9,24 @@ import java.util.Set;
 
 /** Strict authoring structure. World references and executable continuity remain runtime validation. */
 final class StationProgramValidator {
-    private static final Set<String> PARAMETER_TYPES = Set.of("TICK", "DURATION", "DESTINATION", "STATION", "DEPOT", "FORMATION_EVENT", "STRING", "ID_LIST", "JSON_OBJECT", "UNIT_SLOTS");
+    private static final Set<String> PARAMETER_TYPES = Set.of("TICK", "DURATION", "DESTINATION", "STATION", "DEPOT", "STRING", "ID_LIST", "JSON_OBJECT", "UNIT_SLOTS");
     private static final long MAX_SAFE_INTEGER = 9_007_199_254_740_991L;
     private StationProgramValidator() {}
 
     static void validate(JsonNode definition) {
+        validateDefinition(definition);
+        validateLibrarySteps(definition.path("steps"));
+    }
+
+    private static void validateLibrarySteps(JsonNode steps) {
+        for (JsonNode step : steps) {
+            String type = step.path("type").asText();
+            if (Set.of("OPEN_DOORS", "CLOSE_DOORS", "END", "ASYNC", "AWAIT", "SELECT_STOP").contains(type)) fail("action is unavailable in duty/library program: " + type);
+            if (type.equals("BRANCH")) { validateLibrarySteps(step.path("thenSteps")); validateLibrarySteps(step.path("elseSteps")); }
+        }
+    }
+
+    private static void validateDefinition(JsonNode definition) {
         fields(definition, Set.of("parameters", "steps"), "program definition");
         array(definition.path("parameters"), 64, "parameters");
         array(definition.path("steps"), 256, "steps");
@@ -28,6 +41,48 @@ final class StationProgramValidator {
         validateSteps(definition.path("steps"), parameters, new HashSet<>(), 0);
     }
 
+    static void validateArrival(JsonNode definition) {
+        validate(definition);
+        if (!definition.path("parameters").isEmpty()) fail("arrival program cannot declare parameters");
+        validateArrivalSteps(definition.path("steps"));
+    }
+
+    static void validateStation(JsonNode definition) {
+        validateDefinition(definition);
+        if (!definition.path("parameters").isEmpty()) fail("shared station programs cannot declare parameters");
+        validateStationSteps(definition.path("steps"), false);
+    }
+
+    private static void validateStationSteps(JsonNode steps, boolean asynchronous) {
+        boolean ends = false;
+        for (JsonNode step : steps) {
+            String type = step.path("type").asText();
+            if (ends) fail("unreachable station instruction after END");
+            if (!Set.of("SET_DISPLAY", "RESET_DISPLAY", "WAIT_UNTIL", "WAIT_EVENT", "WAIT_DURATION", "EXTENSION", "BRANCH", "REVERSE", "OPEN_DOORS", "CLOSE_DOORS", "END", "ASYNC", "AWAIT").contains(type)) fail("action is not allowed in station program: " + type);
+            if (type.equals("END")) { if (asynchronous) fail("END cannot occur in ASYNC"); ends = true; }
+            if (type.equals("ASYNC")) validateStationSteps(step.path("steps"), true);
+            if (type.equals("BRANCH")) {
+                String provider = step.path("typeId").asText();
+                if (!Set.of("javarailways:plan_run_type", "javarailways:plan_line_direction", "javarailways:plan_station_id", "javarailways:plan_run_id", "javarailways:plan_line_id", "javarailways:plan_call_status", "javarailways:plan_duty_id").contains(provider)) fail("station condition must be editable-plan deterministic");
+                // Branch END reachability is checked after planned branches are folded per occurrence.
+                validateStationSteps(step.path("thenSteps"), asynchronous);
+                validateStationSteps(step.path("elseSteps"), asynchronous);
+            }
+        }
+    }
+
+    private static void validateArrivalSteps(JsonNode steps) {
+        for (JsonNode step : steps) {
+            String type = step.path("type").asText();
+            if (!Set.of("SET_DISPLAY", "RESET_DISPLAY", "WAIT_UNTIL", "WAIT_DURATION", "EXTENSION", "BRANCH").contains(type))
+                fail("action is not allowed in arrival program: " + step.path("id").asText());
+            if (type.equals("BRANCH")) {
+                validateArrivalSteps(step.path("thenSteps"));
+                validateArrivalSteps(step.path("elseSteps"));
+            }
+        }
+    }
+
     private static void validateSteps(JsonNode values, Map<String, String> parameters, Set<String> steps, int depth) {
         if (depth > 16) fail("program exceeds branch depth16");
         array(values, 256, "steps");
@@ -36,12 +91,12 @@ final class StationProgramValidator {
             if (!steps.add(id)) fail("duplicate step id: " + id);
             if (steps.size() > 256) fail("program exceeds256 total steps");
             String type = text(step.path("type"), "step type");
-            if (depth > 0 && Set.of("COUPLE", "SPLIT", "STORE_AT_DEPOT").contains(type)) fail("fixed operations cannot be conditional: " + id);
+            if (depth > 0 && type.equals("STORE_AT_DEPOT")) fail("fixed operations cannot be conditional: " + id);
             switch (type) {
                 case "SET_DISPLAY" -> {
                     fields(step, step.has("removeKeys") ? Set.of("id", "type", "unitSlots", "values", "removeKeys") : Set.of("id", "type", "unitSlots", "values"), "SET_DISPLAY step");
                     value(step.path("unitSlots"), "UNIT_SLOTS", parameters, false);
-                    value(step.path("values"), "JSON_OBJECT", parameters, false);
+                    dataValue(step.path("values"), parameters);
                     if (step.path("values").has("value")) displayValues(step.path("values").path("value"));
                     if (step.has("removeKeys")) {
                         value(step.path("removeKeys"), "ID_LIST", parameters, false);
@@ -64,6 +119,7 @@ final class StationProgramValidator {
                     fields(step, Set.of("id", "type", "typeId", "version", "parameters", "thenSteps", "elseSteps"), "BRANCH step");
                     String typeId = text(step.path("typeId"), "condition typeId");
                     if (!typeId.matches("[a-z0-9_.-]+:[a-z0-9_./-]+")) fail("condition typeId must be namespaced");
+                    if (!Set.of("javarailways:plan_run_type", "javarailways:plan_line_direction", "javarailways:plan_station_id", "javarailways:plan_run_id", "javarailways:plan_line_id", "javarailways:plan_call_status", "javarailways:plan_duty_id").contains(typeId)) fail("condition must be editable-plan deterministic");
                     if (!step.path("version").isIntegralNumber() || !step.path("version").canConvertToInt() || step.path("version").asInt() < 1) fail("condition version must be a positive integer");
                     value(step.path("parameters"), "JSON_OBJECT", parameters, false);
                     validateSteps(step.path("thenSteps"), parameters, steps, depth + 1);
@@ -74,13 +130,24 @@ final class StationProgramValidator {
                     String typeId = text(step.path("typeId"), "extension typeId");
                     if (!typeId.matches("[a-z0-9_.-]+:[a-z0-9_./-]+")) fail("extension typeId must be namespaced");
                     if (!step.path("version").isIntegralNumber() || !step.path("version").canConvertToInt() || step.path("version").asInt() < 1) fail("extension version must be a positive integer");
-                    value(step.path("parameters"), "JSON_OBJECT", parameters, false);
+                    dataValue(step.path("parameters"), parameters);
                 }
-                case "COUPLE", "SPLIT" -> {
-                    fields(step, Set.of("id", "type", "eventId"), type + " step");
-                    value(step.path("eventId"), "FORMATION_EVENT", parameters, false);
+                case "REVERSE", "OPEN_DOORS", "CLOSE_DOORS", "END" -> fields(step, Set.of("id", "type"), type + " step");
+                case "WAIT_EVENT" -> {
+                    fields(step, Set.of("id", "type", "eventId", "offsetTicks"), "WAIT_EVENT step");
+                    id(step.path("eventId"), "time event id");
+                    JsonNode offset = step.path("offsetTicks");
+                    if (!offset.isIntegralNumber() || !offset.canConvertToLong() || Math.abs((double) offset.asLong()) > MAX_SAFE_INTEGER) fail("event offset must be a signed safe integer");
                 }
-                case "REVERSE" -> fields(step, Set.of("id", "type"), "REVERSE step");
+                case "ASYNC" -> {
+                    fields(step, Set.of("id", "type", "taskId", "steps"), "ASYNC step");
+                    id(step.path("taskId"), "task id");
+                    validateSteps(step.path("steps"), parameters, steps, depth + 1);
+                }
+                case "AWAIT" -> {
+                    fields(step, Set.of("id", "type", "taskId"), "AWAIT step");
+                    id(step.path("taskId"), "task id");
+                }
                 case "MOVE" -> {
                     fields(step, Set.of("id", "type", "destinationId", "viaIds"), "MOVE step");
                     value(step.path("destinationId"), "DESTINATION", parameters, false);
@@ -122,6 +189,7 @@ final class StationProgramValidator {
                 validateStepArguments(step.path("thenSteps"), arguments);
                 validateStepArguments(step.path("elseSteps"), arguments);
             }
+            if (step.path("type").asText().equals("ASYNC")) validateStepArguments(step.path("steps"), arguments);
             if (step.path("type").asText().equals("SET_DISPLAY") && step.path("removeKeys").has("parameterId")) {
                 displayRemovalKeys(arguments.path(step.path("removeKeys").path("parameterId").asText()));
             }
@@ -142,6 +210,17 @@ final class StationProgramValidator {
         Set<String> ids = new HashSet<>();
         if (value.isEmpty()) fail("station selection requires distinct nonempty berth IDs");
         for (JsonNode item : value) if (!ids.add(text(item, "berth ID"))) fail("station selection requires distinct nonempty berth IDs");
+    }
+
+    private static void dataValue(JsonNode node, Map<String, String> parameters) {
+        if (node.isObject() && node.size() == 1 && node.has("trainInfo")) {
+            JsonNode bindings = node.path("trainInfo");
+            if (!bindings.isObject() || bindings.size() < 1 || bindings.size() > 64) fail("trainInfo requires1 to64 bindings");
+            bindings.fields().forEachRemaining(entry -> {
+                if (entry.getKey().isBlank() || entry.getKey().length() > 256) fail("trainInfo key must be nonblank and at most256 characters");
+                if (!entry.getValue().isTextual() || !Set.of("NAME", "CAR_COUNT", "UNIT_COUNT", "DIRECTION").contains(entry.getValue().asText())) fail("unknown trainInfo field");
+            });
+        } else value(node, "JSON_OBJECT", parameters, false);
     }
 
     private static void value(JsonNode node, String type, Map<String, String> parameters, boolean positive) {

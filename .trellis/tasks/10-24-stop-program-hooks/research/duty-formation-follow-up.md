@@ -1,0 +1,31 @@
+# Duty formation follow-up: confirmed scope and source inventory
+
+The user approved implementation after iterating the inline demo, then corrected an erroneous request to create another task. The existing `stop-program-hooks` task is still in_progress in `/tmp/javarailways-blockly-deploy`; its session task pointer is active there. The primary checkout's missing task pointer does not imply this task was finished. Continue this task and do not archive it.
+
+## Confirmed behavior
+
+One duty uses a single horizontal timeline. Formation work belongs to duty tasks, not reusable player program instructions. Only direct participants/results of a selected operation are expanded; navigate to related duties rather than recursively expanding a network. Players manually create receiver duties and select those existing duties as destinations. Split partition rules use complete operational units, not specific vehicle identities or fixed total car counts. One part may continue the source duty; the other has an explicit recipient. Receiver source must link back to the source task/output rather than independently acquiring another train. Known planned task intervals may not overlap; unknown measurements remain unknown, and runtime sequencing still waits for actual completion.
+
+## Current source inventory
+
+- `WebUI/frontend/src/DutyTimeline.tsx` renders one `.duty-timeline-row` per task, forces interval width with `Math.max(20, ...)`, and uses a 14px marker for points/unknowns. `DutyTimeline.css` styles these rows at 72px. Batch A replaces task rows with one track, separates visual span from interaction affordance, and preserves existing controlled handlers and inspector.
+- `WebUI/frontend/src/dutyTimeline.ts` projects RUN terminal dwell/departure, timed operation manual/point/simulated spans, task sorting, and overlap diagnostics. Unknown durations do not imply zero occupancy. The single-lane presentation does not change these execution/data contracts.
+- `formationAuthoring.ts` currently declares SPLIT with a HEAD complete-unit count and FIRST/REST outputs; COUPLE declares participants, connecting end, rendezvous destinations, speed and one output. It validates invocations by scanning adopted program snapshots for COUPLE/SPLIT steps. That invocation mechanism must move to the duty model.
+- `DutyManagement.tsx` includes `TAKE_FROM_FORMATION_OUTPUT(eventId,outputId,tick)` acquisition and an advanced `FormationEventsEditor`. The editor exposes event/output IDs and independently edits participant/output definitions. Replace this user flow with duty-task-based configuration and clear source/output labels, retaining stable internal references.
+- `authoring.ts` generates `formationEvent` and `takeFromFormationOutput` using current DSL. `types.ts` and station program validators still expose formation actions in player program definitions. Removing that editor capability must be synchronized through definition validators/generation; it must not remove the internal executor actions needed by duty formation tasks.
+- `WebUI/src/main/java/work/art1st/javarailways/webui/FormationAuthoringValidator.java` accepts only HEAD partitions. Current editor repository/recovery validators must change in the same model batch.
+- `SimpleATO/.../timetable/FormationEvent.kt` owns formation declarations and validation, and `persistence/TimetableSnapshot.kt` owns saved declarations and action kinds. `TimetableDispatcher.kt` already executes fixed split/couple and `FixedFormationOutputHandoff.kt` handles outputs. Reuse their physical ownership and completion behavior.
+- HEAD partition projection is repeated by `FixedUnitSplitPlan.kt`, `StructuralTimetableValidation.kt`, `TimetableUnitCirculation.kt` and `TimetableRunMetadata.kt`. TAIL support must agree across all four and persistence, using the actual operating orientation without requiring the author to know the total composition.
+
+## Scope and verification boundaries
+
+Batch A only changes the production frontend timeline presentation/tests. It does not claim to implement formation task modeling, recipient linkage, overlap write gates, physical split support or migration. Subsequent batches remain on the same task. Existing development formats are not a release baseline; retain current version and avoid runtime compatibility readers. No deployment or archival is implicit. Browser checks use the actual React app with the explicit frontend-demo fixture and do not prove live game behavior.
+
+## Batch A verification
+
+- Full frontend suite: 254 tests in 42 files passed. TypeScript/Vite build passed; existing deprecation/chunk-size warnings only. `git diff --check` passed. Independent reviewer found no production-code blocker and verified the final resize geometry.
+- Actual app frontend-demo: AP101 and AP102 share identical vertical position; selecting the second task switches the existing inspector to AP102. Browser uncaught-error list empty. The explicit demo library remains unavailable as designed; this check does not simulate program acquisition from a real server.
+- Real DutyTimeline component with explicit transient test fixtures: six tasks share y=192; a one-tick interval renders 0.6875px while its transparent hit target is 24px. Short-task center selection works after moving the resize hit area below the bar. Program drag changes start300 to320; resize changes duration200 to220. RUN/PROGRAM/EVENT double-clicks reach their actual navigation callbacks. Mouse context menu removes a point-task reference without deleting its event document. Unknown-duration drag preview/commit remains SIMULATED with no fabricated endTick. At8x zoom a220-tick span measures1222.22px and horizontal scrolling reaches7400px.
+- Final geometry: task bars at20–68px within one100px lane; resize hit areas at72–96px retain exact ending-time alignment and no longer cover short-task selection. Compact labels stay separately selectable.
+- Mobile fixture labels fit their container, but full-page horizontal width was observed and not isolated from existing inspector/global layout. Do not claim full mobile-page acceptance. Actual in-game formation/runtime behavior is outside this layout batch.
+- No commit, push, deployment or task archival performed. Batch B–D and integration remain open.

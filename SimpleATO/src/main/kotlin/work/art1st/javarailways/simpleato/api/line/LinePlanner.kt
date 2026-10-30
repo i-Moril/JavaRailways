@@ -45,8 +45,14 @@ class LinePlanner(private val world: World) {
         line: Line,
         stationIds: List<StationId>,
         destinationIds: List<String>,
-        originDirections: Collection<ViewDirection> = ViewDirection.entries
+        originDirections: Collection<ViewDirection> = ViewDirection.entries,
+        viaIds: List<List<String>> = List(stationIds.size) { emptyList() },
+        requireUniquePath: Boolean = false,
+        pruneNonTargetWaypoints: Boolean = false
     ): List<CompiledLineResetCandidate> {
+        require(viaIds.size == stationIds.size && viaIds.firstOrNull().orEmpty().isEmpty()) { "viaIds must match station count and the origin must have no incoming via points" }
+        require(viaIds.flatten().all { it.isNotBlank() }) { "via waypoint IDs must not be blank" }
+        viaIds.flatten().forEach { id -> require(world.basicWorldData.wayPoints[id] != null) { "Unknown via waypoint: $id" } }
         require(stationIds.size >= 2) { "A line section requires at least two stations" }
         require(destinationIds.size == stationIds.size) { "Selected berth count must match station count" }
         val destinationService = world.simpleAtoWorldData.destinations
@@ -69,15 +75,23 @@ class LinePlanner(private val world: World) {
         stationIds.zipWithNext().forEachIndexed { index, (fromStation, toStation) ->
             val start = destinations[index]
             val goal = destinations[index + 1]
-            val goalDirections = goal.approachDirection?.let(::listOf) ?: ViewDirection.entries
+            val goalDirections: List<ViewDirection?> = if (requireUniquePath) listOf(goal.approachDirection)
+                else goal.approachDirection?.let(::listOf) ?: ViewDirection.entries
+            var lastFailure: RouteBuildResult.Failure? = null
             candidates = candidates.flatMap { candidate ->
                 goalDirections.mapNotNull { goalDirection ->
-                    val result = routePlanner.buildRoute(
-                        from = start.toWayPoint(),
-                        to = goal.toWayPoint(),
-                        requiredGoalDirection = goalDirection,
-                        requiredStartDirection = candidate.currentDirection
-                    ) as? RouteBuildResult.Success ?: return@mapNotNull null
+                    val planned = buildViaRoute(
+                        from = start.toWayPoint(), to = goal.toWayPoint(), viaIds = viaIds[index + 1],
+                        requiredGoalDirection = goalDirection, requiredStartDirection = candidate.currentDirection,
+                        requireUniquePath = requireUniquePath, pruneNonTargetWaypoints = pruneNonTargetWaypoints
+                    )
+                    if (planned is RouteBuildResult.Failure) {
+                        lastFailure = planned
+                        if (requireUniquePath && planned.planningRejection != work.art1st.javarailways.basic.route.TopologyRoutePlanningRejection.UNREACHABLE) {
+                            throw IllegalArgumentException("Line leg $index: ${planned.reason}")
+                        }
+                    }
+                    val result = planned as? RouteBuildResult.Success ?: return@mapNotNull null
                     val actualEndDirection = result.route.segments.last().railViewRef.direction
                     val leg = CompiledLineLeg(
                         fromStation.value,
@@ -93,14 +107,49 @@ class LinePlanner(private val world: World) {
                         candidate.totalLength + result.route.totalLength
                     )
                 }
-            }.groupBy { it.originDirection to it.currentDirection }
-                .values.map { alternatives -> alternatives.minBy(Candidate::totalLength) }
-            if (candidates.isEmpty()) return emptyList()
+            }.let { alternatives ->
+                if (requireUniquePath) alternatives else alternatives.groupBy { it.originDirection to it.currentDirection }
+                    .values.map { choices -> choices.minBy(Candidate::totalLength) }
+            }
+            if (candidates.isEmpty()) {
+                if (requireUniquePath) lastFailure?.let { throw IllegalArgumentException("Line leg $index: ${it.reason}") }
+                return emptyList()
+            }
         }
         return candidates.groupBy(Candidate::originDirection).map { (originDirection, alternatives) ->
+            if (requireUniquePath && alternatives.size > 1) throw IllegalArgumentException("Multiple legal physical routes complete the selected line section")
             val best = alternatives.minBy(Candidate::totalLength)
             CompiledLineResetCandidate(originDirection, LineCompileResult.Success(line, best.legs))
         }
+    }
+
+    private fun buildViaRoute(
+        from: work.art1st.javarailways.basic.WayPoint,
+        to: work.art1st.javarailways.basic.WayPoint,
+        viaIds: List<String>,
+        requiredGoalDirection: ViewDirection?,
+        requiredStartDirection: ViewDirection?,
+        requireUniquePath: Boolean,
+        pruneNonTargetWaypoints: Boolean
+    ): RouteBuildResult {
+        val via = viaIds.map { id -> world.basicWorldData.wayPoints[id]
+            ?: return RouteBuildResult.Failure("Unknown via waypoint: $id") }
+        var previous = from
+        var facing = requiredStartDirection
+        val segments = ArrayList<work.art1st.javarailways.basic.api.route.RouteSegment>()
+        for ((index, target) in (via + to).withIndex()) {
+            val result = routePlanner.buildRoute(previous, target,
+                requiredGoalDirection = if (index == via.size) requiredGoalDirection
+                    else world.simpleAtoWorldData.destinations[target.id]?.approachDirection,
+                requiredStartDirection = facing,
+                requireUniquePath = requireUniquePath, pruneNonTargetWaypoints = pruneNonTargetWaypoints)
+            if (result is RouteBuildResult.Failure) return result
+            result as RouteBuildResult.Success
+            segments += result.route.segments
+            facing = result.route.segments.last().railViewRef.direction
+            previous = target
+        }
+        return RouteBuildResult.Success(ExpandedRoute(from.id, to.id, segments))
     }
 
     /** Compiles an ordered section, optionally pinning every station to an exact berth destination. */

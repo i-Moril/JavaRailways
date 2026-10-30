@@ -20,13 +20,13 @@ data class Timetable(
 
 来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/Timetable.kt`。
 
-`periodDays>0`；一天固定`24_000` Tick；`periodTicks=Math.multiplyExact(periodDays,24000)`。`TimetableService.steps`是runtime authority；`editorRows`、diagram line/arrival/compiler trace只presentation/authoring。分段 service 使用当前 `runSegments.lineId`，无分段时使用 `service.lineId` 作为 infrastructure identity。新增运行段、运营车次及显示动作契约见[停车跨线与单元显示](./through-running-and-unit-displays.md)。
+`periodDays>0`；一天固定`24_000` Tick；`periodTicks=Math.multiplyExact(periodDays,24000)`。`TimetableService.steps`是runtime authority；diagram line/arrival/compiler trace只presentation/authoring；旧 editorRows 模型已移除。分段 service 使用当前 `runSegments.lineId`，无分段时使用 `service.lineId` 作为 infrastructure identity。新增运行段、运营车次及显示动作契约见[停车跨线与单元显示](./through-running-and-unit-displays.md)。
 
 Step token：`Check(wayPointId)`、`At(tick,action)`。Action包括TakeFromDepot/Waypoint、StoreAtDepot、GoTo/GoVia、Stop、Extension/Conditional、Halt、Reverse、DestinationOptions、CallStation。`At.tick`为timetable-relative action/departure tick，nonnegative且period内、非降序。
 
 ## 时刻表值的所有权（CURRENT，ATO-06 用户决策）
 
-`Timetable` 是内部值模型，不是可原地编辑的对象树。producer 在 validation、交给 Store/Dispatcher 或保存 capture 前冻结完整可达对象图，包括 services/steps/GoVia.wayPointIds、condition列表、editorRows及扩展 JSON 的底层嵌套map/list；之后任何保留的 mutable alias 都不得再修改。Store返回值、运行中service、capture DTO可以共享这些已冻结值。编辑必须构造新对象，通过已有显式替换/重置流程生效；data class copy 不会自动复制未改的嵌套值。
+`Timetable` 是内部值模型，不是可原地编辑的对象树。producer 在 validation、交给 Store/Dispatcher 或保存 capture 前冻结完整可达对象图，包括 services/steps/GoVia.wayPointIds、condition列表及扩展 JSON 的底层嵌套map/list；之后任何保留的 mutable alias 都不得再修改。Store返回值、运行中service、capture DTO可以共享这些已冻结值。编辑必须构造新对象，通过已有显式替换/重置流程生效；data class copy 不会自动复制未改的嵌套值。
 
 Kotlin List/Set/Map 和 JsonObject 的只读接口不自动保证底层不可变；约束由生产者及provider遵守，不增加所有构造器/getter/运行步骤的防御复制。provider只读参数，不修改其底层map。保存capture不是任意可变输入的深复制边界；入队异步编码以后源值和DTO均保持不变。本次只补合同，未声称当前平台caller已经原地修改或存档已经损坏，不新增可变编辑API和兼容路径。
 
@@ -64,7 +64,7 @@ val periodTicks = runCatching { timetable.periodTicks }.getOrElse {
 
 ## 禁止实现
 
-- editorRows/diagram metadata直接执行；
+- diagram metadata直接执行；
 - adapter重复或放宽SimpleATO validation；
 - invalid timetable先安装controller/run再报错；
 - validation failure Stall world；
@@ -154,3 +154,7 @@ rail topology未变化不代表waypoint或berth未变化。绑定防御保存所
 后继证明集合合并按`ValidatedTimetableRouteKey`保留关联，再成对追加route/offset；不能只按几何去重，
 因为两个动态起点可共享同一后半段而仍有不同关联键。局部ProofSink的成员访问显式使用`this`，
 避免与外层validateService同名的routes/errors参数发生词法捕获，破坏候选隔离或数组对齐。
+
+## 共享停站程序的定义与地址
+
+停站动作仅携带 current `stopPrograms`；其 arrival／departurePreparation 由 StationStopProgramRuntime 执行，与普通 THEN/ELSE 游标分开。旧 arrivalSteps 子树、ARRIVAL cursor arm 及 per-call arrivalProgram DSL 已删除，不能从旧字段回退执行。当前编译来源中的 arrival:<callId> 是共享程序来源定位，不是旧字段别名。完整执行与等待门禁见 [Dispatcher 共享停站程序](./dispatcher-runtime.md#共享停站程序与两个执行入口current)。

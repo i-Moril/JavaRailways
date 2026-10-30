@@ -243,8 +243,11 @@ class StoppedReturnToDepotIntegrationTest {
                 // The timetable's explicit Reverse actions determine the final arrival facing.
                 destinations.register(OperationalDestination("${arrivalDepot.value}@return-home", "Home", rail.id, depotPosition,
                     null, DestinationRole.DepotStablingPointRole(arrivalDepot.value, home.pointId, usableLengthMeters = 20.0)))
-                basic.wayPoints.add(WayPoint("inside", "Inside block", rail.id, firstStop))
-                if (mixedDirections) basic.wayPoints.add(WayPoint("return-platform", "Return platform", rail.id, 40.0))
+                // The return passes this outbound marker in BA after an explicit Reverse.
+                destinations.register(OperationalDestination("inside", "Inside block", rail.id, firstStop,
+                    ViewDirection.AB, DestinationRole.Regular))
+                if (mixedDirections) destinations.register(OperationalDestination("return-platform", "Return platform", rail.id, 40.0,
+                    ViewDirection.BA, DestinationRole.Regular))
                 secondStop?.let { basic.wayPoints.add(WayPoint("second", "Second block stop", rail.id, it)) }
                 data.depots.registerRollingStock(RollingStockRecord(train.id, depot, "test/train", emptySet(),
                     1, 10.0, profile.maxSpeed, emptySet()), out)
@@ -261,6 +264,8 @@ class StoppedReturnToDepotIntegrationTest {
                         add(TimetableStep.At(0, TimetableAction.GoTo("return-platform")))
                         add(TimetableStep.At(0, TimetableAction.Stop(5)))
                         add(TimetableStep.At(0, TimetableAction.Reverse))
+                        // The current planner requires every same-facing marker in order.
+                        add(TimetableStep.At(0, TimetableAction.GoTo("inside")))
                     }
                     add(TimetableStep.At(0, TimetableAction.StoreAtDepot(arrivalDepot, setOf(home.pointId))))
                 }

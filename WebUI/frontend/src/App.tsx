@@ -40,6 +40,7 @@ export default function App() {
   const [worlds, setWorlds] = useState<WorldSummary[]>([]);
   const [world, setWorld] = useState('');
   const [worldResources,setWorldResources]=useState<WorldResources>(emptyWorldResources);
+  const [programLibraryRevision,setProgramLibraryRevision]=useState(0);
   const [programFocus,setProgramFocus]=useState<{world:string;programId:string;stepId?:string}>();
   const [view, setView] = useState<View>(DEFAULT_VIEW);
   const [authenticated,setAuthenticated]=useState<boolean|null>(null);
@@ -159,8 +160,8 @@ export default function App() {
       {error && <div className="error" role="alert">{error}</div>}
     </section>
 
-    {authenticated&&<section className="persistent-graph-view" hidden={!['graph','duties','validation'].includes(view)}><DutyEditor onOpenProgramLibrary={(programId,stepId)=>{setProgramFocus({world,programId,stepId});setView('programs');}} onCommandState={setAuthoringState} page={view==='duties'?'duties':view==='validation'?'validation':'graph'} onPageChange={setView} world={world} recoveryOwner={authenticatedPlayer} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>}
-    {authenticated&&view === 'programs'&&<StationProgramLibrary key={world} world={world} extensions={metadata.extensions?.actions} conditions={metadata.extensions?.conditions} focus={programFocus?.world===world?programFocus:undefined}/> }
+    {authenticated&&<section className="persistent-graph-view" hidden={!['graph','duties','validation'].includes(view)}><DutyEditor programLibraryRevision={programLibraryRevision} key={JSON.stringify([authenticatedPlayer,world])} onOpenProgramLibrary={(programId,stepId)=>{setProgramFocus({world,programId,stepId});setView('programs');}} onCommandState={setAuthoringState} page={view==='duties'?'duties':view==='validation'?'validation':'graph'} onPageChange={setView} world={world} recoveryOwner={authenticatedPlayer} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>}
+    {authenticated&&view === 'programs'&&<StationProgramLibrary metadata={metadata} onLibraryChange={()=>setProgramLibraryRevision((revision)=>revision+1)} key={`${authenticatedPlayer}::${world}`} world={world} recoveryOwner={authenticatedPlayer} extensions={metadata.extensions?.actions} conditions={metadata.extensions?.conditions} focus={programFocus?.world===world?programFocus:undefined}/> }
     {authenticated&&view === 'logs' && <LogsPage />}
     {authenticated&&view === 'issues' && <IssuesPage key={world} world={world} />}
     {view === 'map' && <RailMap key={world} world={world} onError={setError} />}

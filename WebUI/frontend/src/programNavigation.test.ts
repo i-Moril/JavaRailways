@@ -3,11 +3,11 @@ import {resolveProgramSourceTarget} from './programNavigation';
 import {emptyAuthoringDocument} from './authoring';
 import type {TimetableAuthoringDocumentV1} from './authoring';
 import type {SavedTimetableV1} from './types';
-const document=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),id:'tt',boundPrograms:[{programId:'p',revision:1,contentIdentity:'sha256:one',definition:{parameters:[],steps:[{id:'reverse',type:'REVERSE'}]}}],duties:[{id:'duty',selector:{type:'TRAIN_NAME',name:'T'},elements:[{id:'element',type:'PROGRAM',call:{id:'call',programId:'p',tick:0,arguments:{}}}]}]});
-const origin='duty:duty/element:element/call:call/program:p/step:reverse';
+const document=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),id:'tt',boundPrograms:[{programId:'p',revision:1,contentIdentity:'sha256:one',definition:{parameters:[],steps:[{id:'reverse',type:'REVERSE'}]}}],duties:[{id:'duty',selector:{type:'TRAIN_NAME',name:'T'},elements:[{id:'element',type:'PROGRAM',tick:0,program:{programId:'p',arguments:{}}}]}]});
+const origin='duty:duty/element:element/call:element/program:p/step:reverse';
 describe('visual program source navigation',()=>{
   it('resolves a current stable call and readonly bound step from compiler context or local issue path',()=>{
-    const value=document();expect(resolveProgramSourceTarget(value,`Error ${origin}: invalid`,'input')).toEqual({dutyId:'duty',elementId:'element',callId:'call',programId:'p',revision:1,contentIdentity:'sha256:one',stepId:'reverse'});
+    const value=document();expect(resolveProgramSourceTarget(value,`Error ${origin}: invalid`,'input')).toEqual({dutyId:'duty',elementId:'element',callId:'element',programId:'p',revision:1,contentIdentity:'sha256:one',stepId:'reverse'});
     expect(resolveProgramSourceTarget(value,'duties[0].elements[0].call.tick','input')?.elementId).toBe('element');
   });
   it('uses exact service/step trace only when the compiled input still matches current document',()=>{
@@ -26,7 +26,7 @@ describe('visual program source navigation',()=>{
   });
   it('refuses removed steps, different call identities and prefix collisions',()=>{
     const value=document();expect(resolveProgramSourceTarget(value,origin.replace('step:reverse','step:removed'),'current')).toBeUndefined();
-    expect(resolveProgramSourceTarget(value,origin.replace('call:call','call:other'),'current')).toBeUndefined();
+    expect(resolveProgramSourceTarget(value,origin.replace('call:element','call:other'),'current')).toBeUndefined();
     expect(resolveProgramSourceTarget(value,origin.replace('/program:p/','/program:prefix/'),'current')).toBeUndefined();
     value.duties[0].elements=[];expect(resolveProgramSourceTarget(value,origin,'current')).toBeUndefined();
   });

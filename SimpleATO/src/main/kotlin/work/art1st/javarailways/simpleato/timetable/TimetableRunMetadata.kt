@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.basic.basicWorldData
+
 import kotlinx.serialization.json.*
 import work.art1st.javarailways.simpleato.api.line.LineId
 import work.art1st.javarailways.simpleato.api.line.LineDirection
@@ -29,10 +31,12 @@ class TimetableRunSegment(val runId: String, val lineId: LineId, val startStepIn
 }
 
 data class TimetableRunCall(val id: String, val stationId: String, val destinationId: String,
-    val status: TimetableServiceStopStatus, val arrivalTick: Long? = null, val departureTick: Long? = null) {
+    val status: TimetableServiceStopStatus, val arrivalTick: Long? = null, val departureTick: Long? = null,
+    val viaIds: List<String> = emptyList()) {
     init {
         require(id.isNotBlank() && stationId.isNotBlank() && destinationId.isNotBlank())
-        require(status != TimetableServiceStopStatus.DISABLED)
+        require(viaIds.size <= 256 && viaIds.all { it.isNotBlank() && it == it.trim() }) { "viaIds must be ordered nonblank waypoint IDs (at most256)" }
+        require(status != TimetableServiceStopStatus.ORIGIN || viaIds.isEmpty()) { "origin cannot have incoming via waypoints" }
         require(arrivalTick == null || arrivalTick >= 0)
         require(departureTick == null || departureTick >= 0)
         require(arrivalTick == null || departureTick == null || departureTick >= arrivalTick)
@@ -197,12 +201,13 @@ internal object TimetableMetadataValidator {
         }
         service.steps.subList(segment.startStepIndex,segment.endStepIndexExclusive).filterIsInstance<TimetableStep.At>().forEach { movement(it.action) }
         if (ambiguous) add("$prefix fixed planned call facts cannot describe an ambiguous movement scope")
-        val stationTargets = expected.filter { world.simpleAtoWorldData.destinations[it.first]?.role is DestinationRole.StationBerthRole }
-        val facts = segment.calls.drop(1)
-        if (stationTargets.map { it.first } != facts.map { it.destinationId }) add("$prefix planned calls do not match scoped compiled movement occurrences")
-        facts.zip(stationTargets).forEach { (call,target) ->
-            if ((call.status == TimetableServiceStopStatus.PASS) != target.second) add("$prefix call ${call.id} PASS/STOP disagrees with compiled movement")
+        val authored = segment.calls.drop(1).flatMap { call ->
+            call.viaIds.map { it to true } + (call.destinationId to (call.status == TimetableServiceStopStatus.PASS))
         }
+        if (expected != authored) add("$prefix planned calls and ordered via waypoints do not match scoped compiled movement occurrences/PASS/STOP status")
+        segment.calls.forEach { call -> call.viaIds.forEach { waypoint ->
+            if (world.basicWorldData.wayPoints[waypoint] == null) add("$prefix call ${call.id} via waypoint is missing: $waypoint")
+        } }
         var origin: String? = null
         for (step in service.steps.take(segment.startStepIndex)) {
             when(step) {

@@ -1,14 +1,16 @@
 import {describe,expect,it} from 'vitest';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {DutyGraphEditor} from './DutyGraphEditor';
+import {RunDisplayPlansEditor} from './RunDisplayPlansEditor';
 import {I18nProvider} from './i18n';
-import {buildDutyGraph} from './dutyGraph';
 import {filterTimetableForDiagramLine,layoutGraph} from './graph';
-import {deleteRunFromDocument,editRunConnection,generateTimetableSource,moveRunToDuty,renameAuthoringRun,validateAuthoringDocument,type TimetableAuthoringDocumentV1} from './authoring';
+import {deleteRunFromDocument,editRunConnection,generateTimetableSource as generateWithLines,moveRunToDuty,renameAuthoringRun,validateAuthoringDocument as validateWithLines,type TimetableAuthoringDocumentV1} from './authoring';
 import {createDocumentHistory,updateDocumentHistory,undoDocumentHistory,redoDocumentHistory} from './documentHistory';
 import {displayValuesError,validateStationProgram} from './stationPrograms';
 import type {SavedTimetableV1,TimetableServiceV1} from './types';
-const document=():TimetableAuthoringDocumentV1=>({formatVersion:1,id:'through',periodDays:1,arrivalOverrides:[],diagramLines:[{id:'main',upStationIds:['A','B','C','D'],downStationIds:['D','C','B','A']},{id:'branch',upStationIds:['C','E'],downStationIds:['E','C']}],lineSpeedLimits:[{lineId:'main',maximumSpeedMetersPerSecond:20},{lineId:'branch',maximumSpeedMetersPerSecond:10}],runs:[
+const infrastructureLines=[{"id": "main", "displayName": "main", "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 20}, {"id": "branch", "displayName": "branch", "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 10}];
+const generateTimetableSource=(document:TimetableAuthoringDocumentV1)=>generateWithLines(document,infrastructureLines);
+const validateAuthoringDocument=(document:TimetableAuthoringDocumentV1)=>validateWithLines(document,infrastructureLines);
+const document=():TimetableAuthoringDocumentV1=>({formatVersion:1,id:'through',periodDays:1,arrivalOverrides:[],diagramLines:[{id:'main',upStationIds:['A','B','C','D'],downStationIds:['D','C','B','A']},{id:'branch',upStationIds:['C','E'],downStationIds:['E','C']}],runs:[
  {id:'M01',lineId:'main',diagramLineId:'main',lineDirection:'UP',type:'PASSENGER',calls:[{id:'a',stationId:'A',status:'ORIGIN',targetId:'A@1',departureTick:100},{id:'b',stationId:'B',status:'PASS',targetId:'B@1',arrivalTick:200},{id:'c',stationId:'C',status:'TERMINAL',targetId:'C@1',arrivalTick:300,minimumDwellTicks:20,doorSide:'LEFT'}]},
  {id:'B01',lineId:'branch',diagramLineId:'branch',lineDirection:'UP',type:'PASSENGER',calls:[{id:'c2',stationId:'C',status:'ORIGIN',targetId:'C@1',departureTick:350},{id:'e',stationId:'E',status:'TERMINAL',targetId:'E@1',arrivalTick:500}]},
 ],duties:[{id:'duty',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'m',type:'RUN',runId:'M01'},{id:'b',type:'RUN',runId:'B01'}]}],operationalTrips:[{id:'to-E',defaults:{destination:'E'},segments:[{serviceId:'duty',runId:'M01',unitSlots:[1]},{serviceId:'duty',runId:'B01',unitSlots:[1]}]},{id:'to-D',defaults:{destination:'D'},segments:[{serviceId:'duty',runId:'M01',unitSlots:[2]}]}]});
@@ -17,13 +19,13 @@ describe('one-document through running and unit trips',()=>{
  it('generates one executor with exact segment scopes, one origin check and one shared C destination',()=>{
   const d=document(),generated=generateTimetableSource(d);expect(generated.issues).toEqual([]);
   const segments:{options:Record<string,unknown>;start:number;end:number}[]=[],actions:string[]=[],trips:string[]=[];
-  const timed={pass:(_:string)=>timed,destination:(id:string,options:unknown)=>{actions.push(`destination:${id}:${JSON.stringify(options)}`);return timed;}};
-  const scope={origin:(_:string,cb:(scope:unknown)=>void)=>cb(scope),check:(id:string)=>actions.push(`check:${id}`),at:(tick:number)=>{actions.push(`at:${tick}`);return timed;},runSegment:(options:Record<string,unknown>,cb:(scope:unknown)=>void)=>{const start=actions.length;cb(scope);segments.push({options,start,end:actions.length});}};
+  const timed={beginStationStop:()=>timed,pass:(_:string)=>timed,destination:(id:string,options:unknown)=>{actions.push(`destination:${id}:${JSON.stringify(options)}`);return timed;}};
+  const scope={beginStationStop:()=>scope,origin:(_:string,cb:(scope:unknown)=>void)=>cb(scope),check:(id:string)=>actions.push(`check:${id}`),at:(tick:number)=>{actions.push(`at:${tick}`);return timed;},runSegment:(options:Record<string,unknown>,cb:(scope:unknown)=>void)=>{const start=actions.length;cb(scope);segments.push({options,start,end:actions.length});}};
   let executors=0;const host={setPeriodDays:()=>{},diagramLine:()=>{},lineSpeedLimit:()=>{},operationalTrip:(id:string)=>trips.push(id),service:(_:string,__:string,options:unknown,cb?:(scope:unknown)=>void)=>{executors++;(cb??options as (scope:unknown)=>void)(scope);}};
   new Function('timetable',generated.source+'\nmain(timetable)')(host);
   expect(executors).toBe(1);expect(segments.map((s)=>s.options.runId)).toEqual(['M01','B01']);expect(segments[0].end).toBe(segments[1].start);
   expect(actions.filter((a)=>a.startsWith('check:'))).toEqual(['check:A@1']);expect(actions.filter((a)=>a.startsWith('destination:C@1:'))).toHaveLength(1);
-  expect(actions).toContain('destination:C@1:{"arrivalTick":300,"minimumDwellTicks":20,"doorSide":"LEFT"}');expect(actions).toContain('at:350');
+  const destination=JSON.parse(actions.find((action)=>action.startsWith('destination:C@1:'))!.slice('destination:C@1:'.length));expect(destination).toMatchObject({arrivalTick:300,minimumDwellTicks:20,doorSide:'LEFT',callRole:'TERMINAL',stationId:'C'});expect(actions).toContain('at:350');
   expect((segments[1].options.calls as {destinationId:string}[])[0].destinationId).toBe('C@1');expect(trips).toEqual(['to-E','to-D']);
  });
  it('rejects unsafe direct C offset, time, missing line and overlapping unit claims',()=>{
@@ -35,7 +37,7 @@ describe('one-document through running and unit trips',()=>{
  it('establishes a named train origin before its initial display program without a second run check',()=>{
   const d=document();
   d.boundPrograms=[{programId:'display',revision:1,contentIdentity:'sha256:'+'a'.repeat(64),definition:{parameters:[],steps:[{id:'set',type:'SET_DISPLAY',unitSlots:{value:[1]},values:{value:{destination:'E'}}}]}}];
-  d.duties[0].elements.unshift({id:'initial-display',type:'PROGRAM',call:{id:'initial-display-call',programId:'display',tick:50,arguments:{}}});
+  d.duties[0].elements.unshift({id:'initial-display',type:'PROGRAM',tick:50,program:{programId:'display',arguments:{}}});
   const generated=generateTimetableSource(d);
   expect(generated.issues).toEqual([]);
   expect(generated.source.match(/\.check\(/g)).toHaveLength(1);
@@ -62,18 +64,10 @@ describe('one-document through running and unit trips',()=>{
   expect(moved.operationalTrips?.[0].segments[0]).toEqual({serviceId:'other',runId:'new-M',unitSlots:[1]});
   const deleted=deleteRunFromDocument(moved,'new-M');expect(deleted.operationalTrips?.[0].segments.map((s)=>s.runId)).toEqual(['B01']);expect(deleted.operationalTrips?.[1].segments).toEqual([]);
  });
- it('builds one edge per physical run and joins the shared ordinary boundary',()=>{
-  const d=document(),graph=buildDutyGraph(d);expect(graph.edges).toHaveLength(2);expect(graph.edges[0].to).toBe(graph.edges[1].from);
-  const html=renderToStaticMarkup(<I18nProvider><DutyGraphEditor document={d} onChange={()=>{}} onViewRun={()=>{}} onSelectDuty={()=>{}} fieldScope="test"/></I18nProvider>);
-  expect(html).toContain('<svg');expect(html).toContain('Formation duty graph');expect(html).toContain('Run boundary');expect(html).toContain('to-E');expect(html).toContain('to-D');expect(html).toContain('U2');expect(html).toContain('tabindex="0"');
- });
- it('shares split graph node across continuation duties without duplicating a common run',()=>{
-  const d=document();d.formationEvents=[{id:'split',kind:'SPLIT',coordinatorDutyId:'duty',partition:{from:'HEAD',firstUnitCount:1},outputs:[{id:'first',group:'FIRST',disposition:{type:'DUTY',dutyId:'duty'}},{id:'rest',group:'REST',disposition:{type:'DUTY',dutyId:'child'}}]}];
-  d.boundPrograms=[{programId:'split-program',revision:1,contentIdentity:'sha256:'+ 'a'.repeat(64),definition:{parameters:[],steps:[{id:'split-step',type:'SPLIT',eventId:{value:'split'}}]}}];
-  d.duties[0].elements.splice(1,0,{id:'split',type:'PROGRAM',call:{id:'split-call',programId:'split-program',tick:320,arguments:{}}});
-  d.duties.push({id:'child',selector:{type:'TAKE_FROM_FORMATION_OUTPUT',eventId:'split',outputId:'rest',tick:330},elements:[{id:'child-run',type:'RUN',runId:'child-run'}]});d.runs.push({...d.runs[1],id:'child-run'});
-  const graph=buildDutyGraph(d),split=graph.nodes.find((n)=>n.id==='event:split')!;
-  expect(split.kind).toBe('SPLIT');expect(split.incoming).toHaveLength(1);expect(split.outgoing).toHaveLength(2);expect(graph.edges).toHaveLength(3);
+ it('edits continuous display plans from a real assigned run',()=>{
+  const d=document();
+  const html=renderToStaticMarkup(<I18nProvider><RunDisplayPlansEditor document={d} serviceId="duty" runId="M01" onChange={()=>{}} onViewRun={()=>{}} fieldScope="test"/></I18nProvider>);
+  expect(html).toContain('Continuous display plans');expect(html).toContain('to-E');expect(html).toContain('to-D');expect(html).toContain('Unit 2');expect(html).not.toContain('Formation duty graph');
  });
  it('projects compiled segments on each diagram while retaining physical service and step addresses',()=>{
   const d=document(),service:TimetableServiceV1={id:'duty',selectorType:'ANY',activation:{type:'SCHEDULED'},steps:[{type:'CHECK',wayPointId:'A@1'},{type:'AT',tick:100,action:{type:'DESTINATION',wayPointIds:['C@1'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenSteps:[],elseSteps:[]}},{type:'AT',tick:350,action:{type:'DESTINATION',wayPointIds:['E@1'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenSteps:[],elseSteps:[]}}],runSegments:d.runs.map((r,i)=>({runId:r.id,lineId:r.lineId!,diagramLineId:r.diagramLineId,startStepIndex:i?2:0,endStepIndexExclusive:i?3:2,calls:r.calls.map((c)=>({...c,destinationId:c.targetId}))}))};

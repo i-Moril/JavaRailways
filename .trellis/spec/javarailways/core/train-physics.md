@@ -203,6 +203,8 @@ Core没有能撤销任意插件外部副作用的通用协议，因此`TrainExte
 
 ## 三维刚体约束与局部距离求解
 
+新建模拟列车的唯一放置准备、候选计数和一次安装契约见[train placement](./train-placement.md)。
+
 CoreCar 拥有车内和车间几何求解。正常运行时 controller 先移动首节车的前转向架，CoreCar 固定这个新位置，求后转向架，再按运营顺序逐车满足车钩约束；后车纠偏不能反推或重建领车目标。显式摆位与恢复采用同一车体中心规则。
 
 车内约束使用连接点 `location.position + location.normal * floorHeight` 的三维直线距离，等于 `bogieAOffset - bogieBOffset`；不能用轨道弧长代替。车体中心统一从运营前转向架连接点，沿后→前的连接点弦方向减去相应前端配置偏移。正反向仅选择不同端点和偏移，不改变配置距离的意义。车间约束为两个车体端点的三维距离等于两端 connector length 之和，纵向投影仅用于辨认正确侧。

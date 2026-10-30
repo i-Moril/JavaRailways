@@ -37,6 +37,16 @@ editor document 在 create/save 前必须通过 `EditorDocumentValidator`，不�
 
 Draft/editor document 是独立持久化边界；shape breaking 时升级其最小 `formatVersion`。开发期 local recovery 可丢弃，不为任意旧草稿积累永久 runtime reader。
 
+## 程序库删除
+
+`DELETE /api/v1/worlds/{world}/station-programs/{program}` 使用有效 session 和严格 JSON `{expectedRevision}`；成功真实删除库文件并返回 `{removed:true}`。缺失404、revision冲突409、无效输入400，不能用归档标记替代删除。检查 revision 与文件删除由同步 repository 方法统一拥有。删除不扫描或改写 editor documents／已发布 runtime 的嵌入快照。当前库记录字段为 formatVersion、id、name、revision、definition、contentIdentity；字段集合只描述当前模型；未知字段通过通用校验报错，不建立旧字段黑名单或专项迁移提示。开发期保持 formatVersion1，旧记录必须在停服后用 ai_tasks/migrations/remove_program_library_archived.py 做有 hash 计划和恢复备份的一次性转换，运行时不提供兼容读取。
+
+## 独立函数耗时模拟
+
+`POST /api/v1/worlds/{world}/programs/simulate` 需要 session，sidecar 验证请求后转发 bridge；复用既有模拟队列和超时，不进入 public map allowlist。请求包含 `programId/definition/arguments/startTick/periodDays/profile/initialPosition/maximumDurationTicks`，可选真实 `plannedContext`；`initialPosition={wayPointId,reverseTrain:boolean}` 必须明确布尔值，无默认或旧 facing 兼容。metadata 的 `programSimulationWayPoints` 只列路径点自身或轨道已声明方向的点，含 direction/directionSource；bridge 捕获时重新验证。
+
+响应 `status` 为 COMPLETED/FAILED/LIMIT_REACHED，含 simulatedTicks 和实际初始点/方向/是否反转；只有完成才有 durationTicks/startTick/endTick。失败保留 reason/failedProgramStepId，不以最大tick或下一任务开始伪造完成。该请求/响应是临时运行边界，不改变 editor document、程序库或持久化版本。后端不得重新按 programId 读取库内容替换请求的 exact definition：来源可以是未保存的有效画布或已绑定且来源删除的固定快照。
+
 ## SSE 与 backpressure
 
 train stream 每 500 ms poll；per-world poll 同时最多一个，busy 时 skip 而不排 stale request。每 client 只有 latest payload slot，delivery worker 拒绝时关闭 client。保持 global/per-world caps、bounded poll queue 与 app stop shutdown。共享 stream worker 不因单次 bridge/runtime failure 退出。
@@ -67,3 +77,7 @@ WebUI IO与未预期Exception出口将原Throwable及method/path写入本地Plug
 ## 跨线与单元显示 wire
 
 EditorDocumentValidator 校验可选 operationalTrips（唯一 id、受限 defaults、service/run/unitSlots 引用）；共享程序校验 SET_DISPLAY/RESET_DISPLAY 与 UNIT_SLOTS。Bukkit bridge 的单线模拟在使用已存时刻表时接收 runId，要求它属于所选 service/line；没有段且明确 service.lineId 的服务保留原能力。模拟状态投影 currentRunId/currentLineId 与完整 unitDisplays（包括 active/unresolvedRuns），不能把未知后续单元绑定表现为完整停站表。领域定义与原子显示更新见 [SimpleATO 契约](../../javarailways/simpleato/through-running-and-unit-displays.md)。
+
+## 统一定时作业 editor-document 边界
+
+events与交路PROGRAM共用时刻、可选stationId/label/duration/program结构，program为{programId,arguments}；交路PROGRAM的program必需，EVENT元素仅{id,type,eventId}引用图所属作业。Java复用同一当前结构验证，不读取旧PROGRAM.call，未发布格式继续1。持久化层允许保存缺失事件引用，由authoring内容校验显示问题；不把内容issue升级为无法保存草稿。程序参数继续按已绑定快照验证。旧开发数据只由一次性dry-run/hash校验/恢复点迁移工具转换，不在HTTP或业务层upcast。

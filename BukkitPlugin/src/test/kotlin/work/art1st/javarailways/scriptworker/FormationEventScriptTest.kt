@@ -38,13 +38,31 @@ class FormationEventScriptTest {
         assertEquals("duty:source/element:split", compiled.compilationTrace.single().origin)
     }
 
+    @Test fun `duty formation task uses native split and persists task boundary and handoff`() {
+        val compiled = compile("""
+          timetable.formationEvent('divide',$split);
+          timetable.service('source',timetable.takeFromWaypoint('origin',0),t=>{
+            t.origin('duty:source/element:split',s=>s.task('split',100,task=>task.split('divide')));
+            t.at(200).destination('end');
+          });
+          timetable.service('branch',timetable.takeFromFormationOutput('divide','tail',100),t=>t.at(200).destination('branch-end'));
+        """)
+        val actions = compiled.services.first().steps.drop(1).take(3)
+        assertEquals(listOf(SavedTimetableActionTypeV1.TASK_START, SavedTimetableActionTypeV1.SPLIT,
+            SavedTimetableActionTypeV1.TASK_END), actions.map { it.action!!.type })
+        assertTrue(actions.all { it.tick == 100L })
+        assertEquals("divide", actions[1].action!!.eventId)
+        assertTrue(FormationEventValidator.validate(restore(compiled)).isEmpty())
+        assertTrue(compiled.compilationTrace.all { it.origin == "duty:source/element:split" })
+    }
+
     @Test fun `couple declaration supports two reciprocal duties and explicit hold`() {
         val compiled = compile("""
           timetable.formationEvent('join',{kind:'COUPLE',coordinatorDutyId:'a',approachingDutyId:'a',stationaryDutyId:'b',
             stationaryEnd:'TAIL',rendezvous:{approachDestinationId:'approach',stationaryDestinationId:'standing'},
             maximumApproachSpeedMetersPerSecond:0.5,output:{id:'combined',disposition:{type:'HOLD'}}});
-          timetable.service('a',timetable.takeFromWaypoint('approach',0),t=>t.at(100).couple('join'));
-          timetable.service('b',timetable.takeFromWaypoint('standing',0),t=>t.at(100).couple('join'));
+          timetable.service('a',timetable.takeFromWaypoint('approach',0),t=>t.task('join',100,task=>task.couple('join')));
+          timetable.service('b',timetable.takeFromWaypoint('standing',0),t=>t.task('join',100,task=>task.couple('join')));
         """)
         assertTrue(FormationEventValidator.validate(restore(compiled)).isEmpty())
         assertEquals(SavedFormationEventKind.COUPLE, compiled.formationEvents.single().kind)

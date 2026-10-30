@@ -743,6 +743,17 @@ Committed station programs and fixed EMU operations, preserved deployed signal i
 - Observe real game/client behavior before further fixes; no automatic replay or additional feature changes.
 
 
+## Session 24: Shared Blockly editor and arrival programs
+<!-- trellis-session: v=2 fp=ab4a539caee8d762 -->
+
+**Date**: 2026-10-24
+**Task**: Shared Blockly editor and arrival programs
+**Package**: javarailways
+**Branch**: `feat/station-program-blocks`
+
+### Summary
+
+Implemented Blockly 13.4.0/Zelos shared program library and arrival editor; integrated actual stopped/doors-open arrival execution, snapshot validation, source navigation and protected workspace drafts. Passed 192 frontend and 692 backend tests, production build and real WebUI disk save/reopen browser checks. User approved commit and task archive. No push, deployment or live Paper/Folia client acceptance.
 ## Session 23: Disk error logs in WebUI and current world issues
 <!-- trellis-session: v=2 fp=60f44971b5bf1af9 -->
 
@@ -759,6 +770,7 @@ Implemented independent authenticated disk log page, module/Throwable/context lo
 
 | Hash | Message |
 |------|---------|
+| `ec00c91c` | feat(webui): add shared Blockly editor and arrival programs |
 | `64129b79` | feat(diagnostics): expose disk logs in WebUI and clarify world issues |
 
 ### Testing
@@ -773,3 +785,175 @@ Implemented independent authenticated disk log page, module/Throwable/context lo
 ### Next Steps
 
 - Review or merge feat/error-log-webui; live Paper/Folia acceptance remains separate
+
+
+## Session 25: Rewrite duty editor as a timed task timeline and deploy
+<!-- trellis-session: v=2 fp=3eb40e71203c8b4d -->
+
+**Date**: 2026-10-27
+**Task**: Rewrite duty editor as a timed task timeline and deploy
+**Package**: webui
+**Branch**: `codex/timetable-station-programs`
+
+### Summary
+
+Implemented RUN intervals and program point/manual/simulated durations; true dispatcher task timing; offline migration and verified developer-server deployment. Task remains unarchived for player acceptance.
+
+### Main Changes
+
+- Replaced duty Scratch editor with controlled timeline; drag/resize, current schema and task timing metadata.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8ae62d56` | Replace duty block editor with a task timeline and measured durations |
+| `38f8bb54` | Respect independent document storage identity during timeline migration |
+| `39ea6890` | Identify JVM executables accurately in offline migration guard |
+
+### Testing
+
+- [OK] Frontend217/backend1309/migration14 tests pass; real browser save/restart and public17assets verified.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Player verification of timeline UI and live program scheduling; keep existing task in_progress.
+
+
+## Session 26: Fix waypoint pruning station and direction semantics
+<!-- trellis-session: v=2 fp=dec7f8e23fd19ece -->
+
+**Date**: 2026-10-27
+**Task**: Fix waypoint pruning station and direction semantics
+**Package**: webui
+**Branch**: `codex/timetable-station-programs`
+
+### Summary
+
+Corrected same-station and direction-aware waypoint pruning; baseline-verified fixture corrections; deployed and reproduced original UP2U/4U Reset success.
+
+### Main Changes
+
+- SimpleATO owns canonical station exceptions; Basic evaluates optional blocker facing on actual local rail traversal; structural queries share semantics.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a277f64c` | fix(routing): respect station and traversal direction when pruning waypoints |
+
+### Testing
+
+- [OK] 2401 backend tests pass. Original UP2U/4U and DOWN Reset HTTP200. All7editor/libraryfiles unchanged,17servedassets match.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Player game verification; keep current task in_progress and unarchived.
+
+
+## Session 27: Feedback round3: numeric IDs and formation-unit picker
+<!-- trellis-session: v=2 fp=a80e50d43a0fa0e7 -->
+
+**Date**: 2026-10-27
+**Task**: Feedback round3: numeric IDs and formation-unit picker
+**Package**: webui
+**Branch**: `codex/timetable-station-programs`
+
+### Summary
+
+Implemented feedback8/15; browser and tests pass. Deployment upload blocked by auto-review, awaiting explicit payload/target authorization; live unchanged. Task remains unarchived.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cae124d9` | fix(webui): simplify authoring IDs and formation unit selection |
+
+### Testing
+
+- [OK] Frontend234; WebUI36; production build; browser history, invalid raw repair and restart persistence
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- After explicit approval deploy cae124d9 with backup; retain task for game acceptance
+
+
+## Session 28: Deploy feedback round3
+<!-- trellis-session: v=2 fp=602eec30c30c2b18 -->
+
+**Date**: 2026-10-27
+**Task**: Deploy feedback round3
+**Package**: webui
+**Branch**: `codex/timetable-station-programs`
+
+### Summary
+
+User explicitly authorized upload/deploy. Deployed numeric authoring IDs and formation-unit picker with recovery6kmrt8zt. Data and other plugins unchanged; bridge healthy,17 public/local assets match,ATO RUNNING. Keep task unarchived for game acceptance.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cae124d9` | fix(webui): simplify authoring IDs and formation unit selection |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 29: Feedback round4: explicit time points and object actions
+<!-- trellis-session: v=2 fp=cf4e22c20d4c63e3 -->
+
+**Date**: 2026-10-27
+**Task**: Feedback round4: explicit time points and object actions
+**Package**: webui
+**Branch**: `codex/timetable-station-programs`
+
+### Summary
+
+Fixed feedback12/13 with explicit time-point creation, shared dialog and real object menus; stale/reference guards and numeric IDs preserved. Frontend236/WebUI36 pass, real browser acceptance and restart checked. Deployed with recoveryekuh0eth;17assets match,bridge healthy,ATO RUNNING. Keep task unarchived.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ceea884e` | fix(webui): expose time point creation and object actions |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 30: Unify graph and duty timed operations
+<!-- trellis-session: v=2 fp=45ec2d5b2bcc00d2 -->
+
+**Date**: 2026-10-27
+**Task**: Unify graph and duty timed operations
+**Package**: webui
+**Branch**: `codex/timetable-station-programs`
+
+### Summary
+
+Unified model/shared fields, graph reference and duty projection ownership, generation/hash/navigation/persistence. Frontend250/WebUI40/migration9 tests pass; actual browser checks and restart recovery pass. Deployment upload blocked by automatic review; requested explicit payload/target authorization; live unchanged.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a824bc2e` | feat(webui): unify graph and duty timed operations |
+
+### Status
+
+[OK] **Completed**

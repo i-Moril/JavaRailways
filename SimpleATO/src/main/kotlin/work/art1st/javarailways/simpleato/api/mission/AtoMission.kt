@@ -66,7 +66,9 @@ data class AtoMissionRequest private constructor(
     val origin: WayPointRef,
     val points: List<AtoMissionPoint>,
     val requiredStartDirection: ViewDirection?,
-    val requiredGoalDirections: List<ViewDirection?>
+    val requiredGoalDirections: List<ViewDirection?>,
+    val requireUniquePath: Boolean,
+    val pruneNonTargetWaypoints: Boolean
 ) {
     constructor(
         id: String,
@@ -74,14 +76,18 @@ data class AtoMissionRequest private constructor(
         origin: WayPointRef,
         points: Collection<AtoMissionPoint>,
         requiredStartDirection: ViewDirection? = null,
-        requiredGoalDirections: Collection<ViewDirection?> = List(points.size) { null }
+        requiredGoalDirections: Collection<ViewDirection?> = List(points.size) { null },
+        requireUniquePath: Boolean = false,
+        pruneNonTargetWaypoints: Boolean = false
     ) : this(
         id,
         revision,
         origin,
         immutableCopy(points),
         requiredStartDirection,
-        immutableDirections(requiredGoalDirections)
+        immutableDirections(requiredGoalDirections),
+        requireUniquePath,
+        pruneNonTargetWaypoints
     )
 
     init {
@@ -198,7 +204,9 @@ class AtoMissionResolver(private val world: World) {
                 fromWayPoint,
                 toWayPoint,
                 requiredGoalDirection = request.requiredGoalDirections[index],
-                requiredStartDirection = currentDirection
+                requiredStartDirection = currentDirection,
+                requireUniquePath = request.requireUniquePath,
+                pruneNonTargetWaypoints = request.pruneNonTargetWaypoints
             )) {
                 is RouteBuildResult.Success -> result.route
                 is RouteBuildResult.Failure -> return AtoMissionResolutionResult.RouteUnavailable(

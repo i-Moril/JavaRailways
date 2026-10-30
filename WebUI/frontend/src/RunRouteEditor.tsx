@@ -1,25 +1,33 @@
 import { useEffect,useMemo,useState,type ReactNode } from 'react';
-import { Button,Flex,Segmented,Select,Space,Table,Tabs,Tag,Typography } from 'antd';
+import { Button,Flex,Modal,Segmented,Select,Space,Table,Tabs,Tag,Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { ArrowLeftOutlined,CheckCircleOutlined,DeleteOutlined,PlayCircleOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined,CheckCircleOutlined,DeleteOutlined } from '@ant-design/icons';
 import { resizeRunRoute,type AuthoringIssue,type AuthoringRunCallV1,type AuthoringRunV1 } from './authoring';
+import {StationStopProgramEditor} from './StationStopProgramEditor';
+import {defaultStationStopProgram} from './stationPlans';
 import { RunTitleEditor } from './RunTitleEditor';
 import { CommittedNumberInput } from './CommittedNumberInput';
 import { useI18n } from './i18n';
 import { formatTimetableTick } from './timetableTime';
-import type { LineDirection,LineV1,WorldMetadata } from './types';
+import type { StationStopProgram,TimetableEventPoint,LineDirection,LineV1,WorldMetadata } from './types';
 
 const uid=(prefix:string)=>`${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`;
 const stationIds=(line:LineV1,direction:LineDirection)=>direction==='UP'?line.upStationIds:line.downStationIds;
 
 interface RunRouteEditorProps {
   tools?:ReactNode;
+  stationPrograms?:StationStopProgram[];
+  events?:TimetableEventPoint[];
+  onStationProgramChange?:(program:StationStopProgram)=>void;
   onRename?:(id:string)=>void;
-  lineSpeedLimitMetersPerSecond?:number;
-  onLineSpeedLimitChange?:(kmh:number|null)=>void;
   fieldScope?:string;
+  programDraftScope?:string;
   issues?:AuthoringIssue[];
   focusedCallId?:string;
+  focusedArrivalStep?:string;
+  onArrivalValidityChange?:(runId:string,callId:string,valid:boolean)=>void;
+  onUndo?:()=>void;
+  onRedo?:()=>void;
   run:AuthoringRunV1;
   lines:LineV1[];
   metadata:WorldMetadata;
@@ -29,11 +37,13 @@ interface RunRouteEditorProps {
   onDelete:()=>void;
 }
 
-export function RunRouteEditor({run,lines,metadata,busy,onError,onChange,onDelete,tools,issues=[],focusedCallId,fieldScope='',onRename,lineSpeedLimitMetersPerSecond,onLineSpeedLimitChange}:RunRouteEditorProps) {
+export function RunRouteEditor({events=[],stationPrograms=[],onStationProgramChange,run,lines,metadata,busy,onError,onChange,onDelete,tools,issues=[],focusedCallId,fieldScope='',onRename,onArrivalValidityChange,focusedArrivalStep,onUndo,onRedo,programDraftScope=fieldScope}:RunRouteEditorProps) {
   const {locale,t}=useI18n();
   const [inspectorTab,setInspectorTab]=useState<'calls'|'options'|'issues'>('calls');
-  const [selectedCallId,setSelectedCallId]=useState('');
+  const [selectedCallId,setSelectedCallId]=useState(focusedCallId??'');
   useEffect(()=>{setSelectedCallId(focusedCallId??'');},[run.id,focusedCallId]);
+  const [arrivalOpen,setArrivalOpen]=useState(false);
+  useEffect(()=>{setArrivalOpen(Boolean(focusedArrivalStep));},[run.id,selectedCallId,focusedArrivalStep]);
   const [timeDisplay,setTimeDisplay]=useState<'tick'|'both'>('both');
   const line=lines.find((candidate)=>candidate.id===run.diagramLineId);
   const direction=run.lineDirection??'UP';
@@ -67,7 +77,7 @@ export function RunRouteEditor({run,lines,metadata,busy,onError,onChange,onDelet
     {title:t('editor.callType'),key:'status',width:92,render:(_,call)=>call.status==='ORIGIN'||call.status==='TERMINAL'?<Typography.Text>{t(call.status==='ORIGIN'?'status.origin':'status.terminal')}</Typography.Text>:<Select variant="borderless" value={call.status} onChange={(status)=>changeStatus(call,status as 'STOP'|'PASS')} options={[{value:'STOP',label:t('status.stop')},{value:'PASS',label:t('status.pass')}]}/>},
     {title:t('editor.berth'),key:'berth',width:88,render:(_,call)=><Select variant="borderless" value={call.berthId||undefined} placeholder="—" onChange={(berthId)=>changeBerth(call,berthId)} options={berthsFor(call.stationId).map((berth)=>({value:berth.berthId,label:berth.berthId}))}/>},
     {title:t('editor.arrivalTime'),key:'arrival',width:96,render:(_,call)=>call.status==='ORIGIN'?<Typography.Text type="secondary">—</Typography.Text>:<span className="editable-tick"><CommittedNumberInput aria-label={`${labelStation(call.stationId)} · ${t('editor.arrivalTime')}`} fieldKey={`${fieldScope}/${run.id}/${call.id}/arrival`} variant="borderless" controls={false} min={0} precision={0} value={call.arrivalTick} onCommit={(arrivalTick)=>patchCall(call.id,{arrivalTick})}/>{timeDisplay==='both'&&<small>{call.arrivalTick==null?'—':formatTimetableTick(call.arrivalTick,locale)}</small>}</span>},
-    {title:t('editor.departureTime'),key:'departure',width:96,render:(_,call)=>call.status==='PASS'||call.status==='TERMINAL'?<Typography.Text type="secondary">—</Typography.Text>:<span className="editable-tick"><CommittedNumberInput aria-label={`${labelStation(call.stationId)} · ${t('editor.departureTime')}`} fieldKey={`${fieldScope}/${run.id}/${call.id}/departure`} variant="borderless" controls={false} min={0} precision={0} value={call.departureTick} onCommit={(departureTick)=>patchCall(call.id,{departureTick})}/>{timeDisplay==='both'&&<small>{call.departureTick==null?'—':formatTimetableTick(call.departureTick,locale)}</small>}</span>},
+    {title:t('editor.departureTime'),key:'departure',width:96,render:(_,call)=>call.status==='PASS'?<Typography.Text type="secondary">—</Typography.Text>:<span className="editable-tick"><CommittedNumberInput aria-label={`${labelStation(call.stationId)} · ${t('editor.departureTime')}`} fieldKey={`${fieldScope}/${run.id}/${call.id}/departure`} variant="borderless" controls={false} min={0} precision={0} value={call.departureTick} onCommit={(departureTick)=>patchCall(call.id,{departureTick})}/>{timeDisplay==='both'&&<small>{call.departureTick==null?'—':formatTimetableTick(call.departureTick,locale)}</small>}</span>},
   ];
 
   if(!line)return <p className="empty">{t('editor.selectLineForSchedule')}</p>;
@@ -75,15 +85,14 @@ export function RunRouteEditor({run,lines,metadata,busy,onError,onChange,onDelet
     <Flex className="subpage-head" align="center" justify="space-between"><Button type="text" icon={<ArrowLeftOutlined/>} onClick={()=>setSelectedCallId('')}>{t('editor.backToCalls')}</Button><Tag>{run.id}</Tag></Flex>
     <div className="subpage-title"><Typography.Text type="secondary">{t('editor.stationDetails')}</Typography.Text><Typography.Title level={4}>{labelStation(selectedCall.stationId)}</Typography.Title></div>
     <div className="call-detail-form"><label>{t('editor.minimumDwell')}<CommittedNumberInput fieldKey={`${fieldScope}/${run.id}/${selectedCall.id}/dwell`} min={0} precision={0} disabled={selectedCall.status==='PASS'||selectedCall.status==='ORIGIN'} value={selectedCall.minimumDwellTicks} onCommit={(minimumDwellTicks)=>patchCall(selectedCall.id,{minimumDwellTicks})}/></label><label>{t('editor.doorSide')}<Select value={selectedCall.doorSide||'NONE'} disabled={selectedCall.status==='PASS'||selectedCall.status==='ORIGIN'} onChange={(doorSide)=>patchCall(selectedCall.id,{doorSide:doorSide as typeof selectedCall.doorSide})} options={['NONE','LEFT','RIGHT','BOTH'].map((value)=>({value,label:value}))}/></label></div>
-    <div className="station-actions-reserved"><PlayCircleOutlined/><Typography.Title level={5}>{t('editor.stationActions')}</Typography.Title><Typography.Text type="secondary">{t('editor.stationActionsReserved')}</Typography.Text></div>
+    <label>{t('editor.via')}<Select aria-label={t('editor.via')} mode="multiple" disabled={selectedCall.status==='ORIGIN'} value={selectedCall.viaIds??[]} options={(metadata.wayPoints??[]).map((id)=>({value:id,label:id}))} onChange={(viaIds)=>patchCall(selectedCall.id,{viaIds})}/></label>
+    {selectedCall.status!=='PASS'&&<section className="station-arrival-actions"><Typography.Title level={5}>{t('stationPrograms.title')}</Typography.Title><Typography.Paragraph type="secondary">{t('stationPrograms.hint')}</Typography.Paragraph><Button disabled={busy||!onStationProgramChange} onClick={()=>setArrivalOpen(true)}>{t('programs.editArrival')}</Button><Modal title={`${t('stationPrograms.title')} · ${labelStation(selectedCall.stationId)}`} width={1120} open={arrivalOpen} onCancel={()=>setArrivalOpen(false)} footer={null} destroyOnHidden><StationStopProgramEditor events={events} value={stationPrograms.find((program)=>program.stationId===selectedCall.stationId)??defaultStationStopProgram(selectedCall.stationId)} scope={`${programDraftScope}/station/${selectedCall.stationId}`} onValidityChange={(valid)=>onArrivalValidityChange?.(selectedCall.stationId,selectedCall.id,valid)} extensions={metadata.extensions?.actions} onChange={(program)=>onStationProgramChange?.(program)}/></Modal></section>}
+
   </section>;
 
   const calls=<div className="calls-page"><Flex className="time-mode" align="center" justify="space-between"><Typography.Text type="secondary">{t('editor.stationCallsHint')}</Typography.Text><Segmented size="small" value={timeDisplay} onChange={(value)=>setTimeDisplay(value as 'tick'|'both')} options={[{value:'tick',label:t('editor.tick')},{value:'both',label:t('editor.bothTimes')}]}/></Flex><Table<AuthoringRunCallV1> className="calls-table" size="small" pagination={false} tableLayout="fixed" rowKey="id" columns={callColumns} dataSource={run.calls}/></div>;
   const options=<div className="run-options-page">
-    <section className="option-section"><Typography.Title level={5}>{t('ui.lineCap')}</Typography.Title><div className="run-option-grid">
-      <label>{t('duties.infrastructureLine')}<Select aria-label={t('duties.infrastructureLine')} value={run.lineId||undefined} allowClear options={lines.map((item)=>({value:item.id,label:item.displayName}))} onChange={(lineId)=>onChange({...run,lineId:lineId??null})}/></label>
-      <label>{t('ui.lineCap')}<CommittedNumberInput fieldKey={`${fieldScope}/${run.id}/${run.lineId??''}/line-cap`} aria-label={t('ui.lineCap')} min={Number.MIN_VALUE} disabled={busy||!run.lineId||!lines.some((item)=>item.id===run.lineId)||!onLineSpeedLimitChange} value={lineSpeedLimitMetersPerSecond==null?null:lineSpeedLimitMetersPerSecond*3.6} onCommit={(kmh)=>onLineSpeedLimitChange?.(kmh)} addonAfter="km/h"/></label>
-    </div><Typography.Text type="secondary">{!run.lineId||!lines.some((item)=>item.id===run.lineId)?t('ui.chooseInfrastructure'):t('ui.lineCapHint')}</Typography.Text></section>
+
     {tools}
     <section className="option-section"><Typography.Title level={5}>{t('editor.runEndpoints')}</Typography.Title><Typography.Text type="secondary">{t('editor.runEndpointsHint')}</Typography.Text><div className="endpoint-options"><label>{t('status.origin')}<Select value={run.calls[0]?.stationId} onChange={(station)=>resize(station,run.calls.at(-1)!.stationId)} options={routeStations.map((station,index)=>({value:station,label:labelStation(station),disabled:index>=terminalIndex}))}/></label><label>{t('status.terminal')}<Select value={run.calls.at(-1)?.stationId} onChange={(station)=>resize(run.calls[0].stationId,station)} options={routeStations.map((station,index)=>({value:station,label:labelStation(station),disabled:index<=originIndex}))}/></label></div></section>
     <section className="option-section danger-zone"><div><Typography.Title level={5}>{t('editor.deleteRun')}</Typography.Title><Typography.Text type="secondary">{t('editor.deleteRunHint')}</Typography.Text></div><Button danger type="primary" icon={<DeleteOutlined/>} disabled={busy} onClick={onDelete}>{t('editor.deleteRun')}</Button></section>

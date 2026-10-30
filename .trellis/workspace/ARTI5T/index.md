@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 23
-- **Last Active**: 2026-10-23
+- **Total Sessions**: 30
+- **Last Active**: 2026-10-27
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~775 | Active |
+| `journal-1.md` | ~959 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,13 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 30 | 2026-10-27 | Unify graph and duty timed operations | `a824bc2e` | `codex/timetable-station-programs` |
+| 29 | 2026-10-27 | Feedback round4: explicit time points and object actions | `ceea884e` | `codex/timetable-station-programs` |
+| 28 | 2026-10-27 | Deploy feedback round3 | `cae124d9` | `codex/timetable-station-programs` |
+| 27 | 2026-10-27 | Feedback round3: numeric IDs and formation-unit picker | `cae124d9` | `codex/timetable-station-programs` |
+| 26 | 2026-10-27 | Fix waypoint pruning station and direction semantics | `a277f64c` | `codex/timetable-station-programs` |
+| 25 | 2026-10-27 | Rewrite duty editor as a timed task timeline and deploy | `8ae62d56`, `38f8bb54`, `39ea6890` | `codex/timetable-station-programs` |
+| 24 | 2026-10-24 | Shared Blockly editor and arrival programs | `ec00c91c` | `feat/station-program-blocks` |
 | 23 | 2026-10-23 | Disk error logs in WebUI and current world issues | `64129b79` | `feat/error-log-webui` |
 | 22 | 2026-10-22 | Commit and deploy station operation programming | `e38c67a5`, `3b09e17b`, `290aa909` | `codex/station-operation-programming` |
 | 21 | 2026-10-20 | Commit isolated simulation runtime and final acceptance | `207807eb`, `3e53b3d7` | `codex/simulation-world-alignment` |

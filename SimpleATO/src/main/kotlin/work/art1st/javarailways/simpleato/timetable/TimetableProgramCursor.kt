@@ -25,7 +25,7 @@ class TimetableStepAddress(val topLevelIndex: Int, branchPath: Collection<Timeta
 internal interface TimetableProgramTraversal {
     val rootSize: Int
     fun stepAt(address: TimetableStepAddress): TimetableStep
-    /** Valid only for Conditional nodes. */
+    /** Conditional arms share addressed children. */
     fun branchSize(address: TimetableStepAddress, arm: TimetableBranchArm): Int
 }
 
@@ -41,7 +41,7 @@ internal class TimetableProgramCursor private constructor(
     fun enter(arm: TimetableBranchArm): TimetableProgramCursor {
         val current = checkNotNull(address) { "Cannot enter a completed program" }
         check((program.stepAt(current) as? TimetableStep.At)?.action is TimetableAction.Conditional) {
-            "Only a conditional step has branch children: $current"
+            "Only a conditional step has THEN/ELSE children: $current"
         }
         val count = program.branchSize(current, arm)
         require(count >= 0) { "Negative branch size at $current" }
@@ -80,17 +80,16 @@ internal class TimetableServiceTraversal(service: TimetableService) : TimetableP
     override fun stepAt(address: TimetableStepAddress): TimetableStep {
         var step = roots[address.topLevelIndex]
         for (entry in address.branchPath) {
-            val conditional = (step as? TimetableStep.At)?.action as? TimetableAction.Conditional
-                ?: error("Branch path enters a non-conditional step: $address")
-            step = children(conditional, entry.arm)[entry.index]
+            step = children((step as? TimetableStep.At)?.action ?: error("Branch path enters Check: $address"), entry.arm)[entry.index]
         }
         return step
     }
-    override fun branchSize(address: TimetableStepAddress, arm: TimetableBranchArm): Int {
-        val conditional = (stepAt(address) as? TimetableStep.At)?.action as? TimetableAction.Conditional
-            ?: error("Step has no conditional children: $address")
-        return children(conditional, arm).size
+    override fun branchSize(address: TimetableStepAddress, arm: TimetableBranchArm): Int =
+        children((stepAt(address) as? TimetableStep.At)?.action ?: error("Step has no children: $address"), arm).size
+
+    private fun children(action: TimetableAction, arm: TimetableBranchArm): List<TimetableStep.At> = when (arm) {
+        TimetableBranchArm.THEN -> (action as TimetableAction.Conditional).thenSteps
+        TimetableBranchArm.ELSE -> (action as TimetableAction.Conditional).elseSteps
     }
-    private fun children(action: TimetableAction.Conditional, arm: TimetableBranchArm) =
-        if (arm == TimetableBranchArm.THEN) action.thenSteps else action.elseSteps
+
 }

@@ -1,5 +1,5 @@
 import {formationEventShape} from './formationAuthoring';
-import { displayValuesError,validateStationProgram } from './stationPrograms';
+import { displayValuesError,validateArrivalProgram,validateStationProgram } from './stationPrograms';
 import type { TimetableAuthoringDocumentV1 } from './authoring';
 
 export interface AuthoringRecoveryState {
@@ -7,6 +7,7 @@ export interface AuthoringRecoveryState {
   owner:string;
   world:string;
   documentId:string;
+  blockDraftKey?:string;
   formalScriptName:string;
   persistedFormalScriptName:string;
   document:TimetableAuthoringDocumentV1;
@@ -32,12 +33,21 @@ export function parseAuthoringRecovery(serialized:string|null,owner:string,world
     if(value.document.boundPrograms!==undefined){
       if(!Array.isArray(value.document.boundPrograms)||value.document.boundPrograms.some((snapshot)=>!snapshot||typeof snapshot.programId!=='string'||!Number.isSafeInteger(snapshot.revision)||snapshot.revision<1||typeof snapshot.contentIdentity!=='string'||validateStationProgram(snapshot.definition).length>0))return undefined;
     }
-    for(const duty of value.document.duties??[])for(const element of duty.elements??[])if(element.type==='PROGRAM'){
-      if(!element.call||typeof element.call.id!=='string'||typeof element.call.programId!=='string'||typeof element.call.tick!=='number'||!element.call.arguments||typeof element.call.arguments!=='object'||Array.isArray(element.call.arguments))return undefined;
+    for(const program of value.document.stationPrograms??[])if(validateArrivalProgram(program.arrival).length||validateArrivalProgram(program.departurePreparation).length)return undefined;
+    for(const duty of value.document.duties??[]){
+      if(duty.initialPosition!==undefined&&typeof duty.initialPosition!=='string')return undefined;
+      for(const element of duty.elements??[]){
+        if(element.type==='RUN'){if(typeof element.runId!=='string')return undefined;}
+        else if(element.type==='PROGRAM'){
+          if(!element.program||typeof element.program.programId!=='string'||!Number.isSafeInteger(element.tick)||!element.program.arguments||typeof element.program.arguments!=='object'||Array.isArray(element.program.arguments))return undefined;
+          if(element.duration&&(element.duration.type==='MANUAL'?(!Number.isSafeInteger(element.duration.ticks)||element.duration.ticks<0):element.duration.type!=='SIMULATED'))return undefined;
+        }else if(element.type==='EVENT'||element.type==='FORMATION'){if(typeof element.eventId!=='string')return undefined;}else return undefined;
+      }
     }
     if(typeof value.documentId!=='string'||typeof value.formalScriptName!=='string'||typeof value.persistedFormalScriptName!=='string')return undefined;
     return {
       version:1,owner,world,documentId:value.documentId,formalScriptName:value.formalScriptName,persistedFormalScriptName:value.persistedFormalScriptName,
+      blockDraftKey:typeof value.blockDraftKey==='string'?value.blockDraftKey:undefined,
       document:value.document as TimetableAuthoringDocumentV1,savedDocumentJson:value.savedDocumentJson,
       selectedRun:typeof value.selectedRun==='string'?value.selectedRun:'',selectedDuty:typeof value.selectedDuty==='string'?value.selectedDuty:'',
       sidebarTab:value.sidebarTab==='duties'?'duties':'runs',graphLineId:typeof value.graphLineId==='string'?value.graphLineId:'',

@@ -1,12 +1,15 @@
 import { describe,expect,it } from 'vitest';
 import {
-  authoringGraphTimetable,authoringSelectorKey,copyRunShifted,createRunFromLine,deleteRunFromDocument,generateTimetableSource,moveRunToDuty,
-  authoringResetProfile,renameAuthoringRun,resolveAuthoringRunSelection,setAuthoringLineSpeedLimit,lineSimulationRoute,moveRunFromCall,resetRunTimings,resizeRunRoute,shiftRunFromDeparture,validateAuthoringDocument,type TimetableAuthoringDocumentV1,
+  authoringDocumentForSave,authoringGraphTimetable,authoringSelectorKey,copyRunShifted,createRunFromLine,deleteRunFromDocument,generateTimetableSource as generateWithLines,moveRunToDuty,
+  authoringResetProfile,renameAuthoringRun,resolveAuthoringRunSelection,lineSimulationRoute,moveRunFromCall,resetRunTimings,resizeRunRoute,shiftRunFromDeparture,validateAuthoringDocument as validateWithLines,type TimetableAuthoringDocumentV1,
 } from './authoring';
 import {createDocumentHistory,redoDocumentHistory,undoDocumentHistory,updateDocumentHistory} from './documentHistory';
 import {layoutGraph} from './graph';
 import type { LineSimulationResult,LineV1,WorldMetadata } from './types';
 
+const infrastructureLines=[{"id": "line-1", "displayName": "line-1", "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 20}];
+const generateTimetableSource=(document:TimetableAuthoringDocumentV1)=>generateWithLines(document,infrastructureLines);
+const validateAuthoringDocument=(document:TimetableAuthoringDocumentV1)=>validateWithLines(document,infrastructureLines);
 const metadata:WorldMetadata={stations:[
   {stationId:'a',berthId:'1',destinationId:'a@1'},
   {stationId:'b',berthId:'1',destinationId:'b@1'},
@@ -17,7 +20,7 @@ const line:LineV1={id:'line-1',displayName:'Line 1',upStationIds:['a','b','c','d
 
 const valid=():TimetableAuthoringDocumentV1=>({
   formatVersion:1,id:'l1',periodDays:1,
-  lineSpeedLimits:[{lineId:'line-1',maximumSpeedMetersPerSecond:20}],diagramLines:[{id:'line-1',upStationIds:['a','b'],downStationIds:['b','a']}],arrivalOverrides:[],
+  diagramLines:[{id:'line-1',upStationIds:['a','b'],downStationIds:['b','a']}],arrivalOverrides:[],
   runs:[
     {id:'up-01',type:'PASSENGER',lineId:'line-1',diagramLineId:'line-1',lineDirection:'UP',calls:[
       {id:'up-a',stationId:'a',berthId:'1',status:'ORIGIN',targetId:'a@1',departureTick:100},
@@ -28,10 +31,8 @@ const valid=():TimetableAuthoringDocumentV1=>({
       {id:'down-a',stationId:'a',berthId:'2',status:'TERMINAL',targetId:'a@2',arrivalTick:1800,doorSide:'NONE'},
     ]},
   ],
-  duties:[{id:'duty-a',selector:{type:'TRAIN_NAME',name:'train-1'},elements:[
-    {id:'initial',type:'FUNCTION',call:{id:'initial-call',type:'PLACE_INITIAL',trainName:'train-1',wayPointId:'a@1'}},
+  duties:[{id:'duty-a',selector:{type:'TRAIN_NAME',name:'train-1'},initialPosition:'a@1',elements:[
     {id:'up-element',type:'RUN',runId:'up-01'},
-    {id:'reverse',type:'FUNCTION',call:{id:'reverse-call',type:'REVERSE',tick:900}},
     {id:'down-element',type:'RUN',runId:'down-01'},
   ]}],
 });
@@ -71,32 +72,18 @@ describe('timetable editor document',()=>{
     expect(resolveAuthoringRunSelection([differentPrefix,document.runs[1]],'second-service',renamed.runs[1])?.id).toBe('down-01');
   });
 
-  it('stores kmh caps in mps once per actual line without changing authored times',()=>{
-    const document=valid();document.runs=document.runs.map((run)=>({...run,lineId:'infrastructure-a'}));
-    document.lineSpeedLimits=[{lineId:'infrastructure-other',maximumSpeedMetersPerSecond:30}];
-    const capped=setAuthoringLineSpeedLimit(document,'infrastructure-a',72);
-    expect(capped.lineSpeedLimits).toEqual([{lineId:'infrastructure-other',maximumSpeedMetersPerSecond:30},{lineId:'infrastructure-a',maximumSpeedMetersPerSecond:20}]);
-    expect(capped.runs).toBe(document.runs);expect(capped.arrivalOverrides).toBe(document.arrivalOverrides);
-    expect(setAuthoringLineSpeedLimit(capped,'infrastructure-a',72)).toBe(capped);
-    const source=generateTimetableSource(capped);expect(source.issues).toEqual([]);expect(source.source).toContain('timetable.lineSpeedLimit("infrastructure-a", 20)');
+  it('uses current line settings for generation and reset, ignoring stale document caps',()=>{
+    const document={...valid(),lineSpeedLimits:[{lineId:'line-1',maximumSpeedMetersPerSecond:99}]};
+    expect(authoringDocumentForSave(document)).not.toHaveProperty('lineSpeedLimits');
     const profile={profileType:'TRAIN_TEMPLATE' as const,profileId:'vehicle'};
-    expect(authoringResetProfile(capped,capped.runs[0],profile).maximumSpeedMetersPerSecond).toBe(20);
-    expect(authoringResetProfile(capped,capped.runs[1],profile).maximumSpeedMetersPerSecond).toBe(20);
-    const cleared=setAuthoringLineSpeedLimit(capped,'infrastructure-a',null);
-    expect(cleared.lineSpeedLimits).toEqual(document.lineSpeedLimits);expect(cleared.runs).toBe(document.runs);
-    expect(authoringResetProfile(cleared,cleared.runs[0],profile).maximumSpeedMetersPerSecond).toBeUndefined();
-  });
-
-  it('uses actual infrastructure IDs and refuses invalid caps without diagram-line fallback',()=>{
-    const document=valid();document.runs[0].lineId=undefined;document.lineSpeedLimits=[{lineId:'line-1',maximumSpeedMetersPerSecond:20}];
-    const profile={profileType:'WORLD_TRAIN' as const,profileId:'train'};
-    expect(authoringResetProfile(document,document.runs[0],profile).maximumSpeedMetersPerSecond).toBeUndefined();
-    const before=JSON.stringify(document);
-    for(const speed of [0,-1,NaN,Infinity,Number.MIN_VALUE])expect(()=>setAuthoringLineSpeedLimit(document,'line-1',speed)).toThrow();
-    expect(()=>setAuthoringLineSpeedLimit(document,'',72)).toThrow();expect(JSON.stringify(document)).toBe(before);
-    const next=setAuthoringLineSpeedLimit(document,'actual-line',90);const selected={...document.runs[0],lineId:'actual-line'};
-    expect(authoringResetProfile(next,selected,profile).maximumSpeedMetersPerSecond).toBe(25);
-    expect(authoringResetProfile(next,selected,profile).timetableId).toBeUndefined();expect(authoringResetProfile(next,selected,profile).serviceId).toBeUndefined();
+    const changed=infrastructureLines.map((line)=>({...line,maximumSpeedMetersPerSecond:25}));
+    expect(generateWithLines(document,changed).source).toContain('timetable.lineSpeedLimit("line-1", 25)');
+    expect(generateWithLines(document,changed).source).not.toContain('99');
+    expect(generateWithLines(document,changed).documentHashInput).not.toBe(generateWithLines(document,infrastructureLines).documentHashInput);
+    expect(authoringResetProfile(changed,document.runs[0],profile).maximumSpeedMetersPerSecond).toBe(25);
+    expect(()=>authoringResetProfile([],document.runs[0],profile)).toThrow('No maximum speed');
+    expect(validateWithLines(document,[]).some((issue)=>issue.message.includes('No maximum speed'))).toBe(true);
+    expect(()=>authoringResetProfile(changed,{...document.runs[0],lineId:'missing'},profile)).toThrow('No maximum speed');
   });
 
   it('requires every run to have one unique duty owner',()=>{
@@ -129,11 +116,9 @@ describe('timetable editor document',()=>{
     expect(validateAuthoringDocument(moved).some((item)=>item.message.includes('already assigned'))).toBe(false);
   });
 
-  it('requires initial placement at the matching named duty start',()=>{
-    const document=valid();
-    const initial=document.duties[0].elements.shift()!;
-    document.duties[0].elements.push(initial);
-    expect(validateAuthoringDocument(document).map((item)=>item.message)).toContain('Initial placement must be the first duty element');
+  it('requires named train selection for initial placement',()=>{
+    const document=valid();document.duties[0].selector={type:'TAKE_FROM_WAYPOINT',wayPointIds:['a@1'],tick:0};
+    expect(validateAuthoringDocument(document).map((item)=>item.message)).toContain('Initial placement requires a named-train selector');
   });
 
   it('deterministically generates one service per duty with origin trace scopes',()=>{
@@ -144,19 +129,18 @@ describe('timetable editor document',()=>{
     expect(first.source).toContain('timetable.setInitialPosition(timetable.named("train-1"), timetable.named("a@1"))');
     expect(first.source).toContain('timetable.service("duty-a", "train-1", { diagramLineId: "line-1", lineId: "line-1" }, t => {');
     expect(first.source).toContain('t.origin("duty:duty-a/element:up-element/run:up-01", scoped => {');
-    expect(first.source).toContain('runScope.at(100).destination("b@1", { arrivalTick: 800 })');
-    expect(first.source).toContain('runScope.at(1000).destination("a@2", { arrivalTick: 1800, doorSide: "NONE" })');
+    expect(first.source).toContain('runScope.at(100).destination("b@1", JSON.parse(');
+    expect(first.source).toContain('runScope.at(1000).destination("a@2", JSON.parse(');
   });
 
   it('generates infrastructure line context and its all-train maximum speed separately',()=>{
     const document=valid();
-    document.lineSpeedLimits=[{lineId:'line-1',maximumSpeedMetersPerSecond:22}];
     document.runs=document.runs.map((run)=>({...run,lineId:'line-1'}));
 
     const result=generateTimetableSource(document);
 
     expect(result.issues).toEqual([]);
-    expect(result.source).toContain('timetable.lineSpeedLimit("line-1", 22)');
+    expect(result.source).toContain('timetable.lineSpeedLimit("line-1", 20)');
     expect(result.source).toContain('{ diagramLineId: "line-1", lineId: "line-1" }');
   });
 
@@ -164,17 +148,7 @@ describe('timetable editor document',()=>{
     const document=valid();
     document.arrivalOverrides=[{runId:'up-01',callId:'up-b',tick:760}];
     const result=generateTimetableSource(document);
-    expect(result.source).toContain('runScope.at(100).destination("b@1", { arrivalTick: 760 })');
-  });
-
-  it('rejects duty functions that violate element order or cross the period',()=>{
-    const document=valid();
-    document.duties[0].elements.splice(2,0,{id:'store-early',type:'FUNCTION',call:{id:'store-call',type:'STORE_AT_DEPOT',tick:850,depotId:'north',stablingPointIds:[]}});
-    document.duties[0].elements.push({id:'wait-late',type:'FUNCTION',call:{id:'wait-call',type:'WAIT',tick:23_990,durationTicks:20}});
-    const messages=validateAuthoringDocument(document).map((item)=>item.message);
-
-    expect(messages).toContain('Store at depot must be the last duty element');
-    expect(messages).toContain('Wait crosses the timetable period');
+    expect(result.source).toContain('runScope.at(100).destination("b@1", JSON.parse(');
   });
 
   it('rejects stale duplicate and out-of-period arrival overrides',()=>{
@@ -200,9 +174,7 @@ describe('timetable editor document',()=>{
 
   it('validates function targets and stable IDs',()=>{
     const document=valid();
-    const initial=document.duties[0].elements[0];
-    if(initial.type!=='FUNCTION'||initial.call.type!=='PLACE_INITIAL') throw new Error('invalid fixture');
-    initial.call.wayPointId='';
+    document.duties[0].initialPosition='';
     document.runs[0].calls[1].id=document.runs[0].calls[0].id;
     const messages=validateAuthoringDocument(document).map((item)=>item.message);
     expect(messages).toContain('Initial placement waypoint is required');
@@ -217,7 +189,7 @@ describe('timetable editor document',()=>{
   it('generates sorted tag selectors for depot acquisition',()=>{
     const document=valid();
     document.duties[0].selector={type:'TAKE_FROM_DEPOT',depotId:'north',tick:20,tags:['z','metro']};
-    document.duties[0].elements.shift();
+    delete document.duties[0].initialPosition;
     const result=generateTimetableSource(document);
     expect(result.issues).toEqual([]);
     expect(result.source).toContain('timetable.takeFromDepot("north", { tags: ["metro", "z"] }, 20)');
@@ -243,7 +215,7 @@ describe('timetable editor document',()=>{
     run.calls[1]={...run.calls[1],berthId:'express',targetId:'b@express',status:'PASS'};
     expect(lineSimulationRoute(run)).toEqual({
       originStationId:'a',terminalStationId:'d',stopStationIds:['c','d'],
-      destinationIds:['a@1','b@express','c@1','d@1'],originDepartureMode:'AUTO',
+      destinationIds:['a@1','b@express','c@1','d@1'],viaIds:[[],[],[],[]],originDepartureMode:'AUTO',
     });
     run.originDepartureMode='REVERSE';
     expect(lineSimulationRoute(run).originDepartureMode).toBe('REVERSE');
@@ -365,11 +337,11 @@ describe('timetable editor document',()=>{
     run.calls[2].departureTick=400;
     run.calls[3].arrivalTick=500;
     document.runs=[run];
-    document.duties[0].elements=document.duties[0].elements.filter((element)=>element.type==='FUNCTION'&&element.call.type==='PLACE_INITIAL');
+    document.duties[0].elements=[];
     document.duties[0].elements.push({id:'express-element',type:'RUN',runId:'express'});
     const result=generateTimetableSource(document);
     expect(result.issues).toEqual([]);
-    expect(result.source).toContain('runScope.at(100).pass("b@1").destination("c@1", { arrivalTick: 300');
-    expect(result.source).toContain('runScope.at(400).destination("d@1", { arrivalTick: 500');
+    expect(result.source).toContain('runScope.at(100).pass("b@1").destination("c@1", JSON.parse(');
+    expect(result.source).toContain('runScope.at(400).destination("d@1", JSON.parse(');
   });
 });

@@ -114,14 +114,16 @@ data class SavedLineV1(
     val displayName: String,
     val upStationIds: List<String>,
     val downStationIds: List<String>,
-    val color: String? = null
+    val color: String? = null,
+    val maximumSpeedMetersPerSecond: Double? = null
 ) {
     fun restore(): Line = Line(
         LineId(id),
         displayName,
         upStationIds.map(::StationId),
         downStationIds.map(::StationId),
-        color
+        color,
+        maximumSpeedMetersPerSecond
     )
 
     companion object {
@@ -130,7 +132,8 @@ data class SavedLineV1(
             displayName = value.displayName,
             upStationIds = value.upStationIds.map { it.value },
             downStationIds = value.downStationIds.map { it.value },
-            color = value.color
+            color = value.color,
+            maximumSpeedMetersPerSecond = value.maximumSpeedMetersPerSecond
         )
     }
 }

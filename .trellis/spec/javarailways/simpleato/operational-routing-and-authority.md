@@ -100,6 +100,12 @@ Dispatcher在安装inspection binding或向Basic提交准入前，把完整exact
 拥有释放权。只有旧binding和Basic admission生命周期结束后才删除依赖，任何set/remove失败均保留较安全旧状态并stall。
 时刻表应用时的静态selected-route dependency仍使用另一owner及独立生命周期。
 
+### 非目标 waypoint 剪枝例外
+
+时刻表与 Reset 使用的 `pruneNonTargetWaypoints` 仍要求实际途经的其他站点／普通 waypoint 被显式指定。组装剪枝候选时，SimpleATO 通过 canonical destination 的 `StationBerthRole.stationId` 排除起点与终点所属车站的其他停车位置；不解析名称前缀。候选的 approachDirection 为 null 时双向生效，非空时由 Basic 按候选所在 rail 上的实际 traversal facing 判断，反向经过不剪枝。standalone WayPoint 没有方向，保持双向剪枝。
+
+这修正了同站 U/D 停车点自动派生为 WayPoint 后互相阻塞的问题，例如到八丁堀 2U 前经过 2D。例外只作用于 waypoint 剪枝，不放宽轨道运行方向、保护路径不可拆分或物理路径唯一性。无持久化格式变更。
+
 ### 3.2 冻结路线与准入客户端
 
 轨道方向约束由 SimpleATO 使用 Basic 公共配置计算，不由闭塞单双向属性决定。冻结选择进入准入前必须具有匹配世界和精确路径的内部 `RouteOperatingDirectionLimit`；它在保护后缀上记录第一个禁行边界。实际运营／车身和停车余量须在该边界内，而更远物理后缀仍可用于完整闭塞保护。计算、数值及定向失效由[实际运行方向限制](operating-direction-enforcement.md)唯一拥有。
@@ -517,3 +523,13 @@ Correct: Core owns TopologyState; SimpleATO owns disposable revision-bound overl
 ### Structural output physical-origin continuation
 
 A later mission of a structural output may start at the exact published head slightly before or after the nominal previous stop. `FrozenMissionRouteAssembler.append` locates that physical origin on the existing directed route occurrence near its recorded operational endpoint, retains the entire committed segment prefix, and compares the remaining overlap exactly. Its progress mapping starts at the actual origin coordinate. The ordinary named-waypoint path remains nominal. A physical origin outside the committed stopping neighborhood rejects; no topology search, widened overlap tolerance, or replacement of admitted geometry is allowed. The assembler regression covers both directions and early/late stops; actual storage continuation also requires the terminal stop offset when calculating the storage envelope.
+
+## 时刻表的唯一路径与中间 waypoint 剪枝（CURRENT）
+
+`OperationalRoutePlanner.buildRoute` 的 `requireUniquePath` 和 `pruneNonTargetWaypoints` 均默认 false，保持其他调用方的最短路线语义。时刻表验证、固定编组输出 onward 证明、LinePlanner 与精确 Reset 查询显式开启两项。每对相邻命名 waypoint 单独解算；run call 的 `viaIds` 按顺序放在前一站和本站之间。遇到非本段起终点的已登记 waypoint 即剪枝，不能把隐藏中间 waypoint 当成可自动穿过的节点。同一物理位置的起终点 alias 不互相阻断。
+
+SimpleATO 在一次 topology root 上收集 waypoint 物理位置，交给 Basic 的 `TopologyRoutePlanningInput.blockedLocations`，而不是自己选择另一条候选路线。Basic 对普通边切点以及保护区域 path replacement 的内部 rail slices 都检查禁止位置，不能只检查保护区域入口/出口。
+
+Basic 的物理简单路径定义、查询工作预算及宏弧检查机制由 [Basic route planning](../basic/route-planning.md#显式唯一路径证明与禁止经过的位置current) 唯一维护。
+
+分叉后两条走廊汇合，即使一条更长也必须让作者添加 via；保护区域内部的两种合法路径同样如此。另一插件查询若未打开这两个选项，仍返回普通最短路线。测试 `TopologyRouteUniquenessTest`、`OperationalRoutePlannerTest`、`StructuralOnwardRoutingTest` 覆盖不同长度、宏路径内部、endpoint alias、中途 waypoint、工作预算及结构输出后续路线，结果失败时不得生成准入请求。

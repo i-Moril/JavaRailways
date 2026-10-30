@@ -996,3 +996,30 @@ Removed independent fixed-block direction permissions; ATO validates actual move
 ### Next Steps
 
 - Manual game-client driving and visual acceptance remain separate; retain recovery archive and preserve unrelated dirty files.
+
+
+## Session 32: Boundary naming mode and test-server deployment
+<!-- trellis-session: v=2 fp=6e8fa62966d785cb -->
+
+**Date**: 2026-10-30
+**Task**: Boundary naming mode and test-server deployment
+**Package**: simple-signals
+**Branch**: `dev/signal-system`
+
+### Summary
+
+Implemented create -> name -> delete section-tool modes and named route labels; 660 tests and module checks passed. Deployed only SimpleSignals to JavaRailwaysTest with normal stop, verified recovery archive, matching artifact hash, ATO RUNNING, signals installed and HTTP checks. Unrelated files preserved; no push.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5bd00387` | feat(signals): add persistent boundary naming mode |
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Verify F cycling, boundary naming input and labels in the game client.

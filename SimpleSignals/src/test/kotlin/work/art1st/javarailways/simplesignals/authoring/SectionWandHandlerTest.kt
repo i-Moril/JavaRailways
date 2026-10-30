@@ -201,6 +201,41 @@ class SectionWandHandlerTest {
         }
     }
 
+    @Test fun `unavailable region repair requires confirmation and consumes callback once`() {
+        val f = Fixture()
+        f.prepareRepair = true
+        f.handler.click(f.player, SectionWandTool.CREATE, true)
+        f.completeTarget(); f.drainOwner(); f.drainWorkers(); f.drainOwner()
+        assertEquals(0, f.repairs)
+        assertEquals(0, f.performs)
+        val cancel = f.dialog.last().second
+        val oldConfirm = f.dialog.first().second
+        cancel(); f.drainOwner()
+        oldConfirm(); f.drainOwner(); f.drainWorkers()
+        assertEquals(0, f.repairs)
+        f.target = CompletableFuture()
+        f.handler.click(f.player, SectionWandTool.CREATE, true)
+        f.completeTarget(); f.drainOwner(); f.drainWorkers(); f.drainOwner()
+        val confirm = f.dialog.first().second
+        confirm(); confirm(); f.drainOwner(); f.drainWorkers(); f.drainOwner()
+        assertEquals(1, f.repairs)
+    }
+
+    @Test fun `repair owner and stale capture guards reject late confirmation`() {
+        for (invalidate in listOf<(Fixture) -> Unit>(
+            { it.handler.switchMode(it.player) }, { it.worldId = UUID.randomUUID() },
+            { it.permitted = false }, { it.current = false }, { it.online = false })) {
+            val f = Fixture()
+            f.prepareRepair = true
+            f.handler.click(f.player, SectionWandTool.CREATE, true)
+            f.completeTarget(); f.drainOwner(); f.drainWorkers(); f.drainOwner()
+            val confirm = f.dialog.first().second
+            invalidate(f)
+            confirm(); f.drainOwner(); f.drainWorkers(); f.drainOwner()
+            assertEquals(0, f.repairs)
+        }
+    }
+
     @Test fun `body deletion requires confirmation and cancelled or stale callbacks never commit`() {
         val f = Fixture()
         f.tool = SectionWandTool.DELETE
@@ -361,7 +396,7 @@ class SectionWandHandlerTest {
     }
 
     private inner class Fixture {
-        val worldId = UUID(0, 1)
+        var worldId = UUID(0, 1)
         val playerId = UUID(0, 2)
         val railId get() = rail.id
         var permitted = true
@@ -377,6 +412,8 @@ class SectionWandHandlerTest {
         var nameSubmit: ((String?) -> Unit)? = null
         var nameHit = true
         val renames = mutableListOf<String>()
+        var prepareRepair = false
+        var repairs = 0
         var prepareDeletion = false
         var deletions = 0
         var target = CompletableFuture<Optional<RailTarget>>()
@@ -451,6 +488,17 @@ class SectionWandHandlerTest {
                 check(!ownerThread)
                 assertTrue(active())
                 performs++
+                return nextOutcome
+            }
+            override fun prepareRepair(capture: SectionWandCapture, point: RailCutPosition): SectionWandRepair? {
+                check(!ownerThread)
+                return if (prepareRepair) object : SectionWandRepair {
+                    override val text = WandText.diagnostic("repair summary")
+                } else null
+            }
+            override fun repair(selection: SectionWandRepair, active: () -> Boolean): SectionWandOutcome {
+                check(!ownerThread && active() && current)
+                repairs++
                 return nextOutcome
             }
             override fun prepareDeletion(capture: SectionWandCapture, point: RailCutPosition, retainDevices: Boolean): SectionWandDeletion? {

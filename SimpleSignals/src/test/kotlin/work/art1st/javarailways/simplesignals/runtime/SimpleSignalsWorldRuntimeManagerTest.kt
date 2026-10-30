@@ -421,9 +421,10 @@ class SimpleSignalsWorldRuntimeManagerTest {
         } finally { unprotect() }
     }
 
-    @Test fun `region repair keeps manually selected route rather than regenerating shortest paths`() {
+    @Test fun `region repair retains manually selected route and adds only missing endpoint pairs`() {
         val f = Fixture()
         val r = RecordingFixture(f, tables = listOf(f.table(1, f.lowerRoute())))
+        r.infrastructure.operatingDirectionOverride = r.topology.railProjection.keys.associateWith { null }
         val backend = RuntimeSectionWandBackend(r.manager, r.infrastructure.service, 1000.0)
         val retained = f.region.boundaries.last().position.cutPosition()
         val naming = backend.naming(backend.capture(f.worldId)!!, retained)!!
@@ -438,9 +439,150 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertNull(r.runtime.currentDefinitions().regions.single().boundaryDraft)
         assertEquals(listOf(work.art1st.javarailways.simplesignals.persistence.BoundaryName(retained, "保留出口")),
             r.runtime.currentDefinitions().boundaryNames)
-        assertTrue(repaired.text.render(java.util.Locale.US).contains("Revalidated"), repaired.text.render(java.util.Locale.US))
-        assertEquals(before, r.runtime.currentDefinitions().routeTables)
-        assertEquals(f.lowerRoute().traversals, r.runtime.currentDefinitions().routeTables.single().routes.single().traversals)
+        assertTrue(repaired.text.render(java.util.Locale.US).contains("repaired"), repaired.text.render(java.util.Locale.US))
+        val table = r.runtime.currentDefinitions().routeTables.single()
+        assertEquals(before.single().tableId, table.tableId)
+        assertEquals(before.single().revision + 1, table.revision)
+        assertEquals(listOf(f.lowerRoute()), table.routes.filter { it.entryBoundaryId == "test:entry" })
+        assertTrue(table.routes.any { it.entryBoundaryId == "test:exit" && it.exitBoundaryId == "test:entry" })
+        assertTrue(r.runtime.authoringPublication().routeTables.unavailableRegionIds().isEmpty())
+    }
+
+    @Test fun `repair preserves multiple authored variants and all valid device identities`() {
+        val f = Fixture()
+        val routes = listOf(f.upperRoute(), f.lowerRoute())
+        val table = ProtectionRouteTableDefinition("test:variants", 1, f.region.regionId, f.region.revision, routes)
+        val model = DeviceModelDefinition("demo_signals:home", ModelPlacement.Ground(ModelPose.IDENTITY))
+        val fixed = ProtectionSignalDefinition("test:fixed", 2, ProtectionSignalKind.FIXED_ROUTE,
+            f.lowerRoute().routeId, 0.0, "automatic:block", model.placement)
+        val current = fixed.copy(signalId = "test:current", kind = ProtectionSignalKind.CURRENT_ENTRY,
+            bindingId = "test:entry")
+        val indicator = RouteIndicatorDefinition("test:indicator", 3, "test:entry", "stop",
+            mapOf("test:upper" to "proceed", "test:lower" to "stop"), model)
+        val attached = AttachedSignalDefinition("test:repeat", 4, fixed.signalId, model)
+        val initial = SimpleSignalsWorldDefinitions(f.worldId, 1, listOf(f.region), listOf(table),
+            protectionSignals = listOf(fixed, current), routeIndicators = listOf(indicator), attachedSignals = listOf(attached))
+        val store = store().also { it.save(f.worldId, initial) }
+        val infrastructure = MutableTopologyService(f.currentTopology)
+        val models = RecordingModels()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), store,
+            CapturingSignalEpochSourceService(), modelPresentation = models)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+        val runtime = manager.authoringRuntime(f.worldId)!!
+        val handles = models.handles.toList()
+        val backend = RuntimeSectionWandBackend(manager, infrastructure.service, 1000.0)
+        val boundary = f.region.boundaries.first().position.cutPosition()
+        val deleted = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.DELETE, false, boundary, true) { true }
+        assertNotNull(runtime.currentDefinitions().regions.single().boundaryDraft, deleted.text.render(java.util.Locale.US))
+        val result = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.CREATE, false, boundary, true) { true }
+        assertTrue(result.text.render(java.util.Locale.US).contains("repaired"), result.text.render(java.util.Locale.US))
+        val saved = runtime.currentDefinitions()
+        assertEquals(routes, saved.routeTables.single().routes)
+        assertEquals(initial.protectionSignals.sortedBy { it.signalId }, saved.protectionSignals)
+        assertEquals(initial.routeIndicators, saved.routeIndicators)
+        assertEquals(initial.attachedSignals, saved.attachedSignals)
+        assertEquals(handles.size, models.handles.size)
+        handles.zip(models.handles).forEach { (before, after) -> assertSame(before, after); assertEquals(0, before.closeCalls) }
+        assertTrue(runtime.authoringPublication().routeTables.unavailableRegionIds().isEmpty())
+        assertEquals(saved, (store.load(f.worldId) as work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
+    }
+
+    @Test fun `re enclosing moved boundary removes invalid route unbinds devices and regenerates usable coverage`() {
+        val f = Fixture()
+        val r = RecordingFixture(f, tables = listOf(f.table(1, f.lowerRoute())))
+        val initial = r.runtime.currentDefinitions()
+        val fixed = ProtectionSignalDefinition("test:fixed", 0, ProtectionSignalKind.FIXED_ROUTE, "test:lower", 0.0, "automatic:block")
+        val current = ProtectionSignalDefinition("test:current", 0, ProtectionSignalKind.CURRENT_ENTRY, "test:entry", 0.0, "automatic:block")
+        val indicator = RouteIndicatorDefinition("test:indicator", 0, "test:entry", "none", mapOf("test:lower" to "go"))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, r.manager.applyDefinitionPatch(f.worldId,
+            initial.definitionRevision, SimpleSignalsDefinitionPatch(upsertProtectionSignals = listOf(fixed, current),
+                upsertRouteIndicators = listOf(indicator))).status)
+        val backend = RuntimeSectionWandBackend(r.manager, r.infrastructure.service, 1000.0)
+        backend.perform(backend.capture(f.worldId)!!, SectionWandTool.DELETE, false,
+            f.region.boundaries.first().position.cutPosition(), true) { true }
+        // Beyond boundary snapping range: this is a genuinely new endpoint with a new ID.
+        val outcome = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.CREATE, false,
+            RailCutPosition(f.entry, 3.0), true) { true }
+        assertTrue(outcome.text.render(java.util.Locale.US).contains("repaired"), outcome.text.render(java.util.Locale.US))
+        val saved = r.runtime.currentDefinitions()
+        assertNull(saved.regions.single().boundaryDraft)
+        assertEquals(f.region.regionId, saved.regions.single().regionId)
+        assertTrue(saved.routeTables.single().routes.isNotEmpty())
+        assertTrue(saved.routeTables.single().routes.none { it.routeId == "test:lower" || it.entryBoundaryId == "test:entry" || it.exitBoundaryId == "test:entry" })
+        assertTrue(saved.protectionSignals.all { it.bindingId == null && it.revision == 1L })
+        assertNull(saved.routeIndicators.single().entryBoundaryId)
+        assertTrue(saved.routeIndicators.single().modelVariantsByRouteId.isEmpty())
+        assertTrue(r.runtime.authoringPublication().routeTables.unavailableRegionIds().isEmpty())
+        val overlay = RuntimeSectionOverlayBackend(r.manager::authoringRuntime, r.infrastructure.service, fixtureRailTargets())
+        val drawing = overlay.prepare(overlay.capture(f.worldId)!!)
+        assertTrue(drawing.labels.any { it.id().startsWith("region/${f.region.regionId}/0/") },
+            "Repaired saved paths must produce internal coverage again")
+        assertEquals(saved, (r.store.load(f.worldId) as work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
+    }
+
+    @Test fun `formal stale routes need explicit repair and never reuse a removed route identity`() {
+        val f = Fixture()
+        val r = RecordingFixture(f)
+        val discovered = ProtectionRouteDiscovery.discover(r.topology, f.region,
+            r.runtime.protectionRegionSnapshot().regionsById.getValue(f.region.regionId).interior,
+            listOf(f.entry, f.upperIn, f.lowerIn, f.upperOut, f.lowerOut, f.exit).associateWith { null })
+        val generated = discovered.routes.first()
+        val broken = ProtectionRouteDefinition(generated.routeId, generated.entryBoundaryId, generated.exitBoundaryId,
+            f.discontinuousRoute().traversals)
+        // Historical table targets an earlier region revision, as occurs after old boundary repair.
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, r.manager.applyDefinitionPatch(f.worldId, 1,
+            SimpleSignalsDefinitionPatch(upsertRouteTables = listOf(ProtectionRouteTableDefinition("test:old", 0,
+                f.region.regionId, 0, listOf(broken))))).status)
+        val backend = RuntimeSectionWandBackend(r.manager, r.infrastructure.service, 1000.0)
+        val before = r.runtime.authoringPublication()
+        val disk = Files.readString(r.store.primaryFile(f.worldId))
+        val selection = backend.prepareRepair(backend.capture(f.worldId)!!, RailCutPosition(f.upperIn, 5.0))!!
+        assertSame(before, r.runtime.authoringPublication())
+        assertEquals(disk, Files.readString(r.store.primaryFile(f.worldId)))
+        assertTrue(selection.text.render(java.util.Locale.US).contains("remove 1 invalid routes"))
+        assertFalse(selection.text.render(java.util.Locale.US).contains("{0}"))
+        val repaired = backend.repair(selection) { true }
+        assertTrue(repaired.text.render(java.util.Locale.US).contains("repaired"), repaired.text.render(java.util.Locale.US))
+        val saved = r.runtime.currentDefinitions()
+        assertTrue(saved.routeTables.single().routes.none { it.routeId == generated.routeId })
+        assertTrue(r.runtime.authoringPublication().routeTables.unavailableRegionIds().isEmpty())
+        assertNull(backend.prepareRepair(backend.capture(f.worldId)!!, RailCutPosition(f.upperIn, 5.0)))
+        assertThrows(IllegalArgumentException::class.java) { backend.repair(selection) { true } }
+    }
+
+    @Test fun `prepared repair failures retain exact publication disk and host sources`() {
+        val r = RecordingFixture()
+        val backend = RuntimeSectionWandBackend(r.manager, r.infrastructure.service, 1000.0)
+        val selected = backend.prepareRepair(backend.capture(r.f.worldId)!!, RailCutPosition(r.f.upperIn, 5.0))!!
+        val before = r.runtime.authoringPublication()
+        val disk = Files.readString(r.store.primaryFile(r.f.worldId))
+        r.infrastructure.nextEditDecision = TopologyEditDecision(TopologyEditStatus.CONFLICT, emptyList(), "blocked")
+        assertTrue(backend.repair(selected) { true }.text.render(java.util.Locale.US).contains("EDIT_BLOCKED"))
+        assertSame(before, r.runtime.authoringPublication())
+        assertEquals(disk, Files.readString(r.store.primaryFile(r.f.worldId)))
+        r.infrastructure.nextEditDecision = TopologyEditDecision(TopologyEditStatus.GRANTED)
+        r.sources.nextPrevalidationFailure = IllegalArgumentException("source rejected")
+        assertTrue(backend.repair(selected) { true }.text.render(java.util.Locale.US).contains("VALIDATION_REJECTED"))
+        assertSame(before, r.runtime.authoringPublication())
+        assertEquals(disk, Files.readString(r.store.primaryFile(r.f.worldId)))
+        var active = true
+        r.sources.beforeCommitAction = { active = false }
+        assertTrue(backend.repair(selected) { active }.text.render(java.util.Locale.US).contains("WORLD_UNAVAILABLE"))
+        assertSame(before, r.runtime.authoringPublication())
+        assertEquals(disk, Files.readString(r.store.primaryFile(r.f.worldId)))
+        r.sources.beforeCommitAction = {}
+        r.manager.remove(r.f.worldId)
+        val failing = SimpleSignalsWorldDefinitionStore(directory.toFile()) { throw java.io.IOException("injected repair save failure") }
+        val manager = runtimeManager(plugin(), r.infrastructure.service, r.routes, failing, r.sources)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(r.f.worldId).status)
+        val restarted = RuntimeSectionWandBackend(manager, r.infrastructure.service, 1000.0)
+        val retained = manager.authoringRuntime(r.f.worldId)!!.authoringPublication()
+        val repair = restarted.prepareRepair(restarted.capture(r.f.worldId)!!, RailCutPosition(r.f.upperIn, 5.0))!!
+        assertTrue(restarted.repair(repair) { true }.text.render(java.util.Locale.US).contains("PERSISTENCE_FAILED"))
+        assertSame(retained, manager.authoringRuntime(r.f.worldId)!!.authoringPublication())
+        assertEquals(disk, Files.readString(r.store.primaryFile(r.f.worldId)))
+        // The denied first request increments attempts but never returns an owned permit.
+        assertEquals(r.infrastructure.permitAcquisitionCount - 1, r.infrastructure.permitCloseCount)
     }
 
     @Test fun `existing multi row pair exact path remains no op and different path refuses arbitrary deletion`() {

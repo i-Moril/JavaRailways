@@ -152,6 +152,16 @@ internal class SectionWandHandler(
                                 }
                                 return@worker
                             }
+                            if (tool == SectionWandTool.CREATE && leftClick) {
+                                val repair = backend.prepareRepair(captured, point)
+                                if (repair != null) {
+                                    entity(player) {
+                                        session.busy.set(false)
+                                        if (ownerCurrent()) confirmRepair(player, state, session, repair)
+                                    }
+                                    return@worker
+                                }
+                            }
                             if (tool == SectionWandTool.DELETE && !leftClick) {
                                 val deletion = backend.prepareDeletion(captured, point, state.retainDevices)
                                 if (deletion != null) {
@@ -273,6 +283,22 @@ internal class SectionWandHandler(
 
     private fun confirmDeletion(player: Player, state: SectionWandState, session: SectionWandSessions.Session,
         selection: SectionWandDeletion) {
+        confirmEdit(player, state, session, "section.delete.cancelled", "section.delete.accept",
+            WandText.key("section.delete.confirm", selection.text,
+                WandText.key(if (selection.retainDevices) "section.retain.on" else "section.retain.off"))) {
+            active -> backend.delete(selection, active)
+        }
+    }
+
+    private fun confirmRepair(player: Player, state: SectionWandState, session: SectionWandSessions.Session,
+        selection: SectionWandRepair) {
+        confirmEdit(player, state, session, "region.repair.cancelled", "region.repair.accept",
+            WandText.key("region.repair.confirm", selection.text)) { active -> backend.repair(selection, active) }
+    }
+
+    private fun confirmEdit(player: Player, state: SectionWandState, session: SectionWandSessions.Session,
+        cancelledKey: String, acceptKey: String, description: WandText,
+        submit: (() -> Boolean) -> SectionWandOutcome) {
         val locale = player.locale()
         val playerId = player.uniqueId
         val token = Any()
@@ -285,14 +311,14 @@ internal class SectionWandHandler(
             if (!ownerCurrent() || !used.compareAndSet(false, true)) return@entity
             if (!confirm) {
                 sessions.invalidate(playerId, session)
-                player.sendMessage(Component.text(WandI18n.format(locale, "section.delete.cancelled")))
+                player.sendMessage(Component.text(WandI18n.format(locale, cancelledKey)))
                 return@entity
             }
             if (!session.busy.compareAndSet(false, true)) return@entity
             try { worker {
                 try {
                     if (!active()) return@worker
-                    val result = backend.delete(selection, ::active)
+                    val result = submit(::active)
                     entity(player) {
                         if (ownerCurrent()) {
                             session.kind = result.kind
@@ -312,9 +338,8 @@ internal class SectionWandHandler(
                 player.sendMessage(Component.text(WandI18n.format(locale, "rail.failed", failure.message)))
             }
         }
-        showDialog(player, WandI18n.format(locale, "section.delete.confirm", selection.text,
-            WandI18n.format(locale, if (selection.retainDevices) "section.retain.on" else "section.retain.off")), listOf(
-            WandI18n.format(locale, "section.delete.accept") to { complete(true) },
+        showDialog(player, description.render(locale), listOf(
+            WandI18n.format(locale, acceptKey) to { complete(true) },
             WandI18n.format(locale, "cancel") to { complete(false) }))
     }
 

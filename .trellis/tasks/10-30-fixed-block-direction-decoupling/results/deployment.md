@@ -8,7 +8,7 @@
 - `220e705e`：合入开发服实际源 `4c19f7f4`，保留原分支尚未包含的程序编辑、路径点剪枝、列车放置和函数仿真功能。两个测试冲突适配了现有任务计时与明确方向／路径点规则，生产代码自动合并后复核。
 - 当前 `dev/signal-system` 已快进至该集成版本。相对于实际部署基线 `4c19f7f4`，Basic、Core、WebUI 和 Bukkit 生产目录没有差异；本次生产改动仍限 SimpleATO／SimpleSignals。
 
-隔离构建工作树为 `.worktree/fixed-block-direction-deploy`。1309 项源文件和构建输入的 SHA256 在门禁期间固定并于结束后逐项复验，无差异，见 [deployment-source-contract.json](deployment-source-contract.json)。部署清单绑定最终提交、旧／新工件、source／candidate sidecar 及安装脚本 hash，见 [deployment-manifest.json](deployment-manifest.json)。
+隔离构建工作树为 `.worktree/fixed-block-direction-deploy`；部署完成后清理该临时工作树，两个最终JAR另存 `/tmp/jr-fixed-block-direction-release-20261030` 并校验hash。永久恢复证据以服务端外部归档和Git提交为准，不能依赖临时目录。1309 项源文件和构建输入的 SHA256 在门禁期间固定并于结束后逐项复验，无差异，见 [deployment-source-contract.json](deployment-source-contract.json)。部署清单绑定最终提交、旧／新工件、source／candidate sidecar 及安装脚本 hash，见 [deployment-manifest.json](deployment-manifest.json)。
 
 ## 最终验证
 
@@ -36,7 +36,7 @@ GRADLE_USER_HOME=/workspace/minecraft/JavaRailways/.gradle-user-home \
   -x :WebUI:installFrontend --console=plain
 ```
 
-归档后 init-script 位于本文同目录的 [deployment-test-process.gradle](deployment-test-process.gradle)，重跑时使用其当前绝对路径。原始完整日志见 [deployment-integrated-final-validation.log](deployment-integrated-final-validation.log)，计数见 [deployment-final-test-results.json](deployment-final-test-results.json)。
+归档后 init-script 位于本文同目录的 [deployment-test-process.gradle](deployment-test-process.gradle)，重跑时使用其当前绝对路径。完整日志见 [deployment-integrated-final-validation.log](deployment-integrated-final-validation.log)，计数见 [deployment-final-test-results.json](deployment-final-test-results.json)。
 
 ### 测试进程内存对照
 
@@ -86,3 +86,5 @@ GRADLE_USER_HOME=/workspace/minecraft/JavaRailways/.gradle-user-home \
 回退前先正常停服并为回退时的最新数据另建恢复点，核对上述归档hash后恢复匹配的旧JAR与旧sidecar；不能向新插件只恢复旧字段，也不能把停服恢复档覆盖到运行中的服务器。若用户后来编辑过世界，应先保存并审阅差异，不能直接丢弃。
 
 原五项无关未跟踪文件保留，本轮没有推送或扩大到其他任务归档。迁移工具不参与插件启动，不新增运行时兼容路径或schema代际。
+
+捕获的前端日志仅整理行尾空白和多余EOF空行，内容与测试结果未改；其余审计hash仍绑定原始业务文件和实际工件。

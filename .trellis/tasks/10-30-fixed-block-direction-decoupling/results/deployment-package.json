@@ -3,12 +3,14 @@
     "JavaRailways.jar": {
       "path": "/workspace/minecraft/JavaRailways/.worktree/fixed-block-direction-deploy/BukkitPlugin/build/libs/JavaRailways-1.0-SNAPSHOT-all.jar",
       "sha256": "efd212fbe1b4b68c871f24010c523692a3ab19f3f2988f08e78ff367988dd0b3",
-      "size": 67055558
+      "size": 67055558,
+      "retainedArtifactPath": "/tmp/jr-fixed-block-direction-release-20261030/JavaRailways.jar"
     },
     "SimpleSignals.jar": {
       "path": "/workspace/minecraft/JavaRailways/.worktree/fixed-block-direction-deploy/SimpleSignals/build/libs/SimpleSignals-1.0-SNAPSHOT.jar",
       "sha256": "4951ea121c979b42213b108de2d9d1df4d810ffa43e2d6f78a234ebe1903ef99",
-      "size": 1924707
+      "size": 1924707,
+      "retainedArtifactPath": "/tmp/jr-fixed-block-direction-release-20261030/SimpleSignals.jar"
     }
   },
   "webuiSha256": "f4cd3ba53c9003ccfc867ec5508e8b7720019b270779f0050cdba11e7696ae81",

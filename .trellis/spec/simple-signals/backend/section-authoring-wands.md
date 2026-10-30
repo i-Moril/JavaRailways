@@ -52,12 +52,12 @@ controller 制动／反应／安全距离与 `maxSpeed * leadTime` 的最大值�
 
 正常流程是玩家owner捕获locale，工具选择/编辑在worker中返回消息键及参数，回到玩家owner后渲染为Adventure文字；异步编辑器需要locale时只传捕获的Locale值，worker不得调用Player.locale。item名称/lore、设置/选择页、状态栏和操作结果使用同一catalog。区间几何缓存保留独立说明消息，呈现附近标签时才按viewer语言生成文字，不为翻译重新查图、采样曲线或另建几何缓存。资源每次启用加载一次，普通文字解析只是常数次键查询及按参数长度格式化。
 
-统一区间工具按F切换创建/删除，类型自动判断，不循环四种旧组合；切模式保留物品的设备保留偏好，Shift+右键改为打开设置，潜行左键仍清理本地接续。信号工具仍按F切换放置/删除，沿用设置页状态更新，递增原有stateRevision并清除失效binding；进路和测距工具没有新增模式。输入调用宿主[公共Wand helper](../../bukkit-plugin/backend/interaction-render-persistence.md#共用wand按f切换模式current)，只响应当前主手且取消真实换手。消费者验证权限、撤销旧警告/异步接续，再保存物品状态；区间模式与最近判型通过原overlay刷新在状态栏呈现，仅查物品/会话，不搜索拓扑。清理本地接续不删除已保存的待定边界，删除须明确执行。普通物品仍正常换手，切模式不改世界定义。
+统一区间工具按F以创建→命名→删除→创建循环切换，类型自动判断，不循环四种旧组合；切模式保留物品的设备保留偏好，Shift+右键改为打开设置，潜行左键仍清理本地接续。信号工具仍按F切换放置/删除，沿用设置页状态更新，递增原有stateRevision并清除失效binding；进路和测距工具没有新增模式。输入调用宿主[公共Wand helper](../../bukkit-plugin/backend/interaction-render-persistence.md#共用wand按f切换模式current)，只响应当前主手且取消真实换手。消费者验证权限、撤销旧警告/异步接续，再保存物品状态；区间模式与最近判型通过原overlay刷新在状态栏呈现，仅查物品/会话，不搜索拓扑。清理本地接续不删除已保存的待定边界，删除须明确执行。普通物品仍正常换手，切模式不改世界定义。
 
 例如保存首个待定边界后，中文玩家收到“已保存边界，继续围合”的提示，英文玩家收到对应英文提示，两者复用相同消息身份；这不是旧的firstPoint临时选点。自动生成的UUID继续隐藏，作者自定义名称原样插入。语言资源丢失属于打包错误，首次加载catalog时明确失败，不静默使用空catalog；未知底层异常保留原诊断内容，但玩家提示外层按locale显示。既有工具物品在重新生成/更新文案时使用当前玩家语言，不修改PDC字段或增加旧数据迁移/版本号。必要检查为中英键/参数、直接模式切换与旧编辑失效，不复制整个UI流程作大型测试矩阵；真实按键与客户端显示另验。
 
 有向轨道位置使用 `RailPositionSnapshot`：rail UUID、canonical AB 米数、朝向；正式保护边界朝向指向内部。统一区间工具的输入及几何切口使用SimpleSignals私有`RailCutPosition(railId, arcLengthInAbMeters)`，只有canonical AB米数，不携带朝向。`ProtectionBoundaryCut(boundaryId, position)`为具稳定身份的无向切口，位置有限且非负、ID符合既有namespaced规则；pending和修复草稿使用它，正式`ProtectionBoundaryDefinition`不变。它们不是Core公开API，也不新增一套拓扑。
-命令为 `/simplesignals wand section [create|delete]`，默认create，权限`simplesignals.admin`。旧block/region分开的命令与四种工具状态不再保留；开发中的旧物品重新领取，不增加兼容reader。
+命令为 `/simplesignals wand section [create|name|delete]`，默认create，权限`simplesignals.admin`。旧block/region分开的命令与四种工具状态不再保留；开发中的旧物品重新领取，不增加兼容reader。
 删除沿用明确的左右键行为：左键闭塞边界删除相邻闭塞，设备按物品保留偏好处理，保护边界保留；右键闭塞/保护区域内部确认删除整个选中对象，否则按位置处理保护/待定边界。唯一目标删除不依赖视线；同位置属于多个保护区域时明确拒绝“不能唯一确定删除目标”，本批不提供歧义区域选择会话，不能按定义列表顺序删任意一侧。创建、删除及区域警告查询均不要求沿轨道向内观察。删除保护边界保留原区域、进路和设备并进入不可用草稿；共用闭塞/保护边界须先删除相邻闭塞，再单独删除保护边界。
 信号工具命令固定为 `/simplesignals wand signal`，只在 catalog 已就绪且非空时发放一个通用 Signal Wand。
 新物品的内部创建接续从排序catalog取得有效类型，但`blockDefaultType`初始为null，不意味着替玩家选择区间默认。命令不接受类型参数。Shift+右键打开Paper原生设置草稿：首页两个按钮分别进入区间默认类型菜单和直接循环轨道预设，下一行应用/取消并排；清除默认只在类型子菜单中。F仍只切换放置/删除，不增加操作设置专页或全局控制对象选择。
@@ -259,7 +259,7 @@ JS 输出或模型 handle。PDC 中即使仍有格式合法但已删除的 `sign
 
 ### 区间Wand设置与整体删除
 
-新物品默认`retainDevices=true`。Shift+右键复用原生Wand设置页，修改是否保留设备；偏好保存在该物品而非玩家全局状态，F切换创建/删除保留偏好。完整状态带独立itemId和单调stateRevision，所有确认和异步接续核对精确状态；开关、切模式、换物品或旧回调不能提交先前意图。直接修正未发布PDC，不读旧的仅模式token，不为世界schema升版，旧工具须重新领取。
+新物品默认`retainDevices=true`。Shift+右键复用原生Wand设置页，修改是否保留设备；偏好保存在该物品而非玩家全局状态，F切换创建→命名→删除保留偏好。完整状态带独立itemId和单调stateRevision，所有确认和异步接续核对精确状态；开关、切模式、换物品或旧回调不能提交先前意图。直接修正未发布PDC，不读旧的仅模式token，不为世界schema升版，旧工具须重新领取。
 
 删除模式右键闭塞/保护区域内部，先在worker捕获唯一对象和原publication/topology，再由玩家确认。保护区域按已编译rail索引及保留的认可内部选中，`boundaryDraft=[]`的零边界草稿仍可删除，不依赖可视中心线或当前有效进路。歧义拒绝，确认不重新按位置猜选目标。删除整区域在同一patch移除区域及其全部进路表；删除单个边界仍是修复操作，不隐式删除整个咽喉。共享切口和闭塞边界的原删除顺序不变。
 
@@ -366,7 +366,7 @@ exact catalog/runtime、定义 revision 及所选轨道实际依赖，通过唯�
 
 ## 边界命名
 
-区间工具设置中的一次命名流程、共享物理边界的名称同步、文本输入和进路标签由[边界名称合同](boundary-names.md)统一定义。名称只作展示，创建/删除默认手势保持原有语义。
+区间工具独立命名模式（F按创建→命名→删除循环，设置页也可切入）、共享物理边界的名称同步、文本输入和进路标签由[边界名称合同](boundary-names.md)统一定义。名称只作展示；命名模式普通左/右键均编辑已有边界，保存或取消输入后保持命名模式。创建/删除模式点击保持原有语义。
 
 作者 capture 的 publication 与 topology 必须同源；后续请求校验定义值和已选 rail 的实例、连接、平交关系，
 不因远处拓扑发布单独使选择失效。最终 patch 依赖及竞争重准备遵循[定义编辑影响合同](definition-edit-impact.md)。

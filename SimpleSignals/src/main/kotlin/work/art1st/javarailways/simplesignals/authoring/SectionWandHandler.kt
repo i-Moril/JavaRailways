@@ -72,6 +72,7 @@ internal class SectionWandHandler(
             giveTool(sender, tool)
             sender.sendMessage(Component.text(when (tool) {
                 SectionWandTool.CREATE -> WandI18n.format(sender, "section.create")
+                SectionWandTool.NAME -> WandI18n.format(sender, "section.naming")
                 SectionWandTool.DELETE -> WandI18n.format(sender, "section.delete")
             }))
         } catch (failure: Exception) { sender.sendMessage(Component.text(failure.message ?: WandI18n.format(sender, "section.create.failed"))) }
@@ -140,13 +141,13 @@ internal class SectionWandHandler(
                                 return@worker
                             }
                             val point = RailCutPosition(selected.rail().id, selected.arcLength())
-                            if (session.naming) {
+                            if (tool == SectionWandTool.NAME) {
                                 val naming = backend.naming(captured, point)
                                 entity(player) {
                                     session.busy.set(false)
                                     if (ownerCurrent()) {
                                         if (naming == null) player.sendMessage(Component.text(WandI18n.format(locale, "boundary.select")))
-                                        else { session.naming = false; editName(player, state, session, naming) }
+                                        else editName(player, state, session, naming)
                                     }
                                 }
                                 return@worker
@@ -224,7 +225,10 @@ internal class SectionWandHandler(
             WandI18n.format(locale, "boundary.edit") to { entity(player) {
                 if (sessions.current(playerId, session) && session.dialogToken === token && enabled() && player.isOnline &&
                     player.world.uid == worldId && player.hasPermission(PERMISSION) && stateInHand(player) == expected && used.compareAndSet(false, true)) {
-                    session.dialogToken = null; session.naming = true
+                    sessions.invalidate(playerId, session)
+                    saveState(player, expected.changed(tool = SectionWandTool.NAME))
+                    showStatus(player)
+                    checkOverlay(player)
                     player.sendMessage(Component.text(WandI18n.format(locale, "boundary.select")))
                 }
             } }, WandI18n.format(locale, "cancel") to { entity(player) {
@@ -318,7 +322,11 @@ internal class SectionWandHandler(
         sessions.invalidate(player.uniqueId)
         if (!enabled() || !player.hasPermission(PERMISSION)) return
         val state = stateInHand(player) ?: return
-        val next = if (state.tool == SectionWandTool.CREATE) SectionWandTool.DELETE else SectionWandTool.CREATE
+        val next = when (state.tool) {
+            SectionWandTool.CREATE -> SectionWandTool.NAME
+            SectionWandTool.NAME -> SectionWandTool.DELETE
+            SectionWandTool.DELETE -> SectionWandTool.CREATE
+        }
         saveState(player, state.changed(tool = next))
         showStatus(player)
         checkOverlay(player)
@@ -349,7 +357,7 @@ internal class SectionWandHandler(
 
     companion object {
         const val PERMISSION = "simplesignals.admin"
-        const val USAGE = "/simplesignals wand section [create|delete], or /simplesignals wand signal|route|measure"
+        const val USAGE = "/simplesignals wand section [create|name|delete], or /simplesignals wand signal|route|measure"
         private fun key(plugin: Plugin) = NamespacedKey(plugin, "section_wand")
         internal fun readTool(plugin: Plugin, stack: ItemStack): SectionWandTool? {
             return readState(plugin, stack)?.tool

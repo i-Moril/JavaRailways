@@ -45,12 +45,15 @@ class SectionWandHandlerTest {
         assertTrue(f.messages.isNotEmpty())
     }
 
-    @Test fun `command supplies distinct create and delete tools without a naming or confirm step`() {
+    @Test fun `command supplies naming and deletion tools directly`() {
         val f = Fixture()
         f.handler.onCommand(f.player, command, "simplesignals", arrayOf("wand", "section", "delete"))
         assertEquals(SectionWandTool.DELETE, f.lastGiven)
         assertEquals(1, f.given)
         assertEquals(0, f.targetCalls)
+        f.handler.onCommand(f.player, command, "simplesignals", arrayOf("wand", "section", "name"))
+        assertEquals(SectionWandTool.NAME, f.lastGiven)
+        assertEquals(2, f.given)
     }
 
     @Test fun `duplicate clicks coalesce and edits and geometry run only on worker then reply on owner`() {
@@ -178,10 +181,24 @@ class SectionWandHandlerTest {
         val beforeF = f.dialog
         f.handler.switchMode(f.player)
         beforeF.first().second(); beforeF.last().second(); f.drainOwner()
-        assertEquals(SectionWandTool.DELETE, f.tool)
+        assertEquals(SectionWandTool.NAME, f.tool)
         assertFalse(f.state!!.retainDevices)
         assertEquals(initial.itemId, f.state!!.itemId)
         assertEquals(2, f.state!!.stateRevision)
+    }
+
+    @Test fun `F cycles create name delete and keeps item identity and preference`() {
+        val f = Fixture()
+        f.state = f.state!!.changed(retainDevices = false)
+        val initial = f.state!!
+        listOf(SectionWandTool.NAME, SectionWandTool.DELETE, SectionWandTool.CREATE).forEachIndexed { i, mode ->
+            f.handler.switchMode(f.player)
+            assertEquals(mode, f.tool)
+            assertEquals(initial.itemId, f.state!!.itemId)
+            assertEquals(initial.stateRevision + i + 1, f.state!!.stateRevision)
+            assertFalse(f.state!!.retainDevices)
+            assertEquals(f.state, SectionWandStateCodec.decode(SectionWandStateCodec.encode(f.state!!)))
+        }
     }
 
     @Test fun `body deletion requires confirmation and cancelled or stale callbacks never commit`() {
@@ -198,6 +215,7 @@ class SectionWandHandlerTest {
         f.handler.switchMode(f.player)
         obsolete(); f.drainOwner(); f.drainWorkers()
         assertEquals(0, f.deletions)
+        f.handler.switchMode(f.player)
         f.handler.switchMode(f.player)
         f.clickAndDrain()
         val confirm = f.dialog.first().second
@@ -264,18 +282,26 @@ class SectionWandHandlerTest {
         assertEquals(1, f.closedRefresh)
     }
 
-    @Test fun `naming mode consumes clicks saves once and exits without creating geometry`() {
+    @Test fun `naming mode saves once per selection and stays selected for consecutive left and right clicks`() {
         val f = Fixture()
-        f.handler.openSettings(f.player, f.state!!)
+        val initial = f.state!!
+        f.handler.openSettings(f.player, initial)
         f.dialog.single { it.first == "Name boundary" }.second(); f.drainOwner()
+        assertEquals(initial.itemId, f.state!!.itemId)
+        assertEquals(initial.stateRevision + 1, f.state!!.stateRevision)
+        assertEquals(initial.retainDevices, f.state!!.retainDevices)
         f.clickAndDrain()
         assertEquals(0, f.performs)
         val submit = f.nameSubmit!!
         submit(" 西端 "); submit("other")
         f.drainOwner(); f.drainWorkers(); f.drainOwner()
         assertEquals(listOf(" 西端 "), f.renames)
-        f.clickAndDrain()
-        assertEquals(1, f.performs)
+        assertEquals(SectionWandTool.NAME, f.tool)
+        f.clickAndDrain(leftClick = true)
+        f.nameSubmit!!("East"); f.drainOwner(); f.drainWorkers(); f.drainOwner()
+        assertEquals(listOf(" 西端 ", "East"), f.renames)
+        assertEquals(SectionWandTool.NAME, f.tool)
+        assertEquals(0, f.performs)
     }
 
     @Test fun `naming cancellation validation and permission expiry never save`() {
@@ -288,6 +314,10 @@ class SectionWandHandlerTest {
         assertTrue(f.renames.isEmpty())
         f.nameSubmit!!(null); f.drainOwner(); f.drainWorkers()
         assertTrue(f.renames.isEmpty())
+        assertEquals(SectionWandTool.NAME, f.tool)
+        f.nameSubmit = null
+        f.clickAndDrain()
+        assertNotNull(f.nameSubmit)
         select(); f.permitted = false; f.nameSubmit!!("West"); f.drainOwner(); f.drainWorkers()
         assertTrue(f.renames.isEmpty())
     }
@@ -301,6 +331,33 @@ class SectionWandHandlerTest {
         f.nameHit = true; f.clickAndDrain()
         f.current = false; f.nameSubmit!!(""); f.drainOwner(); f.drainWorkers(); f.drainOwner()
         assertTrue(f.renames.isEmpty()); assertEquals(0, f.performs)
+    }
+
+    @Test fun `naming callbacks expire on new selection mode item permission and world changes`() {
+        val changes: List<(Fixture) -> Unit> = listOf(
+            { it.clickAndDrain() },
+            { it.handler.switchMode(it.player) },
+            { it.state = SectionWandState.create(SectionWandTool.NAME) },
+            { it.permitted = false },
+            { it.handler.onWorldChange(PlayerChangedWorldEvent(it.player, it.world)) }
+        )
+        changes.forEach { change ->
+            val f = Fixture()
+            f.tool = SectionWandTool.NAME
+            f.clickAndDrain()
+            val old = f.nameSubmit!!
+            change(f)
+            old("obsolete"); f.drainOwner(); f.drainWorkers(); f.drainOwner()
+            assertTrue(f.renames.isEmpty())
+            assertEquals(0, f.performs)
+        }
+        val f = Fixture()
+        f.tool = SectionWandTool.NAME
+        f.clickAndDrain()
+        f.nameSubmit!!("queued"); f.drainOwner()
+        f.handler.switchMode(f.player)
+        f.drainWorkers(); f.drainOwner()
+        assertTrue(f.renames.isEmpty())
     }
 
     private inner class Fixture {
@@ -431,9 +488,9 @@ class SectionWandHandlerTest {
             ownerThread = false
             try { while (workers.isNotEmpty()) workers.removeFirst().invoke() } finally { ownerThread = true }
         }
-        fun clickAndDrain() {
+        fun clickAndDrain(leftClick: Boolean = false) {
             target = CompletableFuture()
-            handler.click(player, tool!!, false)
+            handler.click(player, tool!!, leftClick)
             completeTarget(); drainOwner(); drainWorkers(); drainOwner()
         }
 

@@ -1832,7 +1832,11 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val existing = ProtectionSignalDefinition("test:fixed-existing", 6, ProtectionSignalKind.FIXED_ROUTE,
             upper.routeId, 11.0, "automatic:block")
         val definitions = store().also { it.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
-            listOf(fixture.region), listOf(table), protectionSignals = listOf(existing))) }
+            listOf(fixture.region), listOf(table), protectionSignals = listOf(existing),
+                boundaryNames = fixture.region.boundaries.map { boundary ->
+                    work.art1st.javarailways.simplesignals.persistence.BoundaryName(boundary.position.cutPosition(),
+                        if (boundary.boundaryId == upper.entryBoundaryId) "西端" else "出口")
+                })) }
         val infrastructure = MutableTopologyService(fixture.currentTopology)
         val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
             CapturingSignalEpochSourceService(), loadDefaultSignalCatalog = false)
@@ -1846,6 +1850,11 @@ class SimpleSignalsWorldRuntimeManagerTest {
             SignalWandMode.PLACEMENT, entrance)
         assertEquals(listOf(lower.routeId, upper.routeId), choices.take(2).map {
             (it.binding as ProtectionFixedRouteSignalWandBinding).routeId })
+        choices.forEach { choice ->
+            val label = choice.label.render(java.util.Locale.SIMPLIFIED_CHINESE)
+            assertTrue(label.contains("西端"), label)
+            assertTrue(label.contains("出口"), label)
+        }
         backend.place(capture, choices.first {
             (it.binding as ProtectionFixedRouteSignalWandBinding).routeId == lower.routeId
         }.binding, placement) { true }

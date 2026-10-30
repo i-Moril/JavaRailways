@@ -12,7 +12,7 @@ import work.art1st.javarailways.simplesignals.region.*
 import java.util.UUID
 
 internal enum class SectionWandTool(val key: String) {
-    CREATE("create"), DELETE("delete")
+    CREATE("create"), NAME("name"), DELETE("delete")
 }
 
 internal enum class SectionWandKind { PENDING, BLOCK, REGION }
@@ -163,6 +163,7 @@ internal class RuntimeSectionWandBackend(
             }
         }
         val edit = when (tool) {
+            SectionWandTool.NAME -> error("Naming requires a boundary selection")
             SectionWandTool.DELETE -> SectionAuthoringActions.deleteSection(definitions, point, leftClick, topology, retainDevices)
             SectionWandTool.CREATE -> {
                 val interiors = publication.regions.compilationSnapshot()!!.regionsById.mapValues { it.value.interior }

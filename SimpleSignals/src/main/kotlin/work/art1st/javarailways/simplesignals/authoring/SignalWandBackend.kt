@@ -807,10 +807,11 @@ internal class RuntimeSignalWandBackend(
                     .forEach { route -> choices += SignalWandChoice(
                         ProtectionFixedRouteSignalWandBinding(captured.worldId, entryId, route.routeId,
                             NewProtectionSignal),
-                        WandText.key("choice.route.new", authoringName(route.routeId, "name.route"), boundaryLabel(captured, route.exitBoundaryId))) }
+                        WandText.key("choice.route.new", boundaryLabel(captured, route.entryBoundaryId), boundaryLabel(captured, route.exitBoundaryId))) }
                 else -> Unit
             }
         }
+        val routesById = authoredRoutes.associateBy { it.routeId }
         existing.forEach { signal ->
             val identity = ExistingProtectionSignal(signal.signalId, signal.revision)
             val binding = when (controlKind) {
@@ -828,8 +829,10 @@ internal class RuntimeSignalWandBackend(
                     }
             }
             val logical = if (controlKind == SignalWandControlKind.PROTECTION_FIXED_ROUTE) {
-                WandText.key("choice.route", signal.bindingId?.let { authoringName(it, "name.route") } ?: WandText.key("none"))
-            } else WandText.key("choice.entry", signal.bindingId?.let { authoringName(it, "name.entrance") } ?: WandText.key("none"))
+                val route = routesById.getValue(checkNotNull(signal.bindingId))
+                WandText.key("choice.route", WandText.key("boundary.route",
+                    boundaryLabel(captured, route.entryBoundaryId), boundaryLabel(captured, route.exitBoundaryId)))
+            } else WandText.key("choice.entry", boundaryLabel(captured, entryId))
             choices += SignalWandChoice(binding,
                 WandText.key("choice.existing", authoringName(signal.signalId, "name.signal"), logical, WandText.key(if (available) "overlay.available" else "overlay.unavailable")))
         }

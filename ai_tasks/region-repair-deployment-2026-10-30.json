@@ -1,0 +1,93 @@
+{
+  "recovery": {
+    "path": "/opt/mcsmanager/backups/javarailways/region-repair-20261030-silfi5xh",
+    "archiveSha256": "dc58fa8bfabc433720e4235594f58e5a8419bc55c2da70942b02b30f000f93fb",
+    "hashVerified": true,
+    "fileCount": 142
+  },
+  "install": {
+    "installedAt": "2026-10-30T17:26:58.139120+00:00",
+    "sourceCommit": "e45aef7c39960a10534a84ed479a7ac0ed1edd6f",
+    "pluginDataUnchanged": true,
+    "otherPluginJarsUnchanged": true,
+    "jars": {
+      "Chunky-Bukkit-1.4.40.jar": "2a5477fc80f71012e15ade1ce34dbeb836e17623b28db112492c0f1443c09721",
+      "JavaRailways.jar": "efd212fbe1b4b68c871f24010c523692a3ab19f3f2988f08e78ff367988dd0b3",
+      "SimpleSignals.jar": "ab16d0ebcdb189038ed1c8753ee0ec163697f99ad52864410e05678cff89ecb7",
+      "Terra-bukkit-7.0.0-BETA+47d430776-shaded.jar": "91aa93352444fb87105b33cf0ec36ad0ea554cc4b1c272aead4b6ee8b4e41867",
+      "TunnelBridgeBuilder.jar": "831a0c25179c9c98f2a7135256080c9f402713b18215781976ab2eb5fce3d722",
+      "ViaVersion-5.12.0-SNAPSHOT.jar": "cc23a414b2bded80a72646a5fe43cc6b2ba97df516147a3630f402d9695e945b",
+      "voxy-server-side-paper.jar": "696db9a0fb4e24f79383b4093b4212380c69513814e198033abc4f252d067b01",
+      "worldedit-bukkit-7.4.4.jar": "44c97ee6c1df9afa127df3c5a2c6a7108f826fb44ab7b255a7ec4250feb89b9d"
+    }
+  },
+  "definitionsUnchangedThroughStartup": true,
+  "errorLogChanges": {
+    "plugins/JavaRailways/logs/errors.log": {
+      "addedBytes": 1109,
+      "newLines": [
+        "[2026-10-30T17:27:45.569521447Z] WARNING module=Bukkit logger=JavaRailways source=work.art1st.javarailways.bukkit.http.TimetableWebUiSidecar thread=Server thread",
+        "Timetable WebUI is listening on non-loopback address '0.0.0.0'; login and session traffic may be exposed without HTTPS",
+        "",
+        "[2026-10-30T17:27:45.573432833Z] WARNING module=Bukkit logger=JavaRailways source=work.art1st.javarailways.bukkit.http.TimetableWebUiSidecar thread=Server thread",
+        "Timetable WebUI public URL uses plaintext HTTP: http://mc.art1st.work:29002",
+        "",
+        "[2026-10-30T17:27:47.588225597Z] WARNING module=Core logger=work.art1st.javarailways.core.physics.tick.PhysicsCoordinator source=work.art1st.javarailways.core.physics.tick.PhysicsCoordinator thread=JavaRailways-PhysicsCoordinator-1",
+        "Physics epoch overload: 388.988813ms (1/3 in 10000ms)",
+        "",
+        "[2026-10-30T17:27:47.593266331Z] WARNING module=Core logger=work.art1st.javarailways.core.physics.tick.PhysicsCoordinator source=work.art1st.javarailways.core.physics.tick.PhysicsCoordinator thread=JavaRailways-PhysicsCoordinator-1",
+        "Physics delta clamped in epoch 37: raw=393.282647ms applied=200.0ms",
+        ""
+      ]
+    },
+    "plugins/JavaRailways/webui/logs/errors.log": {
+      "addedBytes": 0,
+      "newLines": []
+    },
+    "plugins/SimpleSignals/logs/errors.log": {
+      "addedBytes": 0,
+      "newLines": []
+    }
+  },
+  "runtimeMessages": [
+    "[17:27:46] [Server thread/INFO]: Done (28.622s)! For help, type \"help\"",
+    "[17:27:54] [Folia Region Scheduler Thread #0/INFO]: ATO world: RUNNING",
+    "[17:27:54] [Folia Region Scheduler Thread #0/INFO]: SimpleSignals 2952ad2c-41ce-40bc-b83b-1b578ae7af12: installed, definitionRevision=106, topologyRevision=1; regions=5, tables=5, blocks=14, fixedBlockSignals=8, protectionSignals=5, routeIndicators=0, attachedSignals=0"
+  ],
+  "target": {
+    "host": "192.168.1.230",
+    "instance": "836082a48c4f48fcb1fea4e83c57dc96",
+    "name": "JavaRailwaysTest"
+  },
+  "normalShutdown": {
+    "savedAllWorldsAndPlayersAt": "2026-10-30T17:26:19Z",
+    "managerStatus": 0,
+    "oldPid": 761916
+  },
+  "running": {
+    "managerStatus": 3,
+    "pid": 763679,
+    "startedAt": "2026-10-30T17:27:46Z"
+  },
+  "http": {
+    "bridgeHealth": true,
+    "bridgePort": 8765,
+    "webPort": 29002,
+    "matchedSidecar": "/opt/mcsmanager/daemon/data/InstanceData/836082a48c4f48fcb1fea4e83c57dc96/plugins/JavaRailways/webui/JavaRailways-WebUI.jar",
+    "webuiSha256": "f4cd3ba53c9003ccfc867ec5508e8b7720019b270779f0050cdba11e7696ae81",
+    "servedAssetsMatched": 17,
+    "mainJarSha256": "efd212fbe1b4b68c871f24010c523692a3ab19f3f2988f08e78ff367988dd0b3"
+  },
+  "checks": {
+    "suites": 59,
+    "tests": 666,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "command": "./gradlew :SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries --offline --console=plain",
+    "commitTreeCheck": "BUILD SUCCESSFUL in 2s; 40 tasks; 2 executed, 38 up-to-date",
+    "independentReview": "passed"
+  },
+  "rollback": "Normal stop and fresh backup before restoring old SimpleSignals.jar from recovery archive; do not overwrite any later user edits.",
+  "scope": "User explicitly authorized commit and deployment, without creating a Trellis task. Only SimpleSignals updated; no automatic region repair or data migration. No push. Client repair confirmation and visual acceptance remain unverified."
+}

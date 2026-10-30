@@ -1,0 +1,15 @@
+{
+  "suites": 59,
+  "tests": 660,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "command": "./gradlew :SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries --offline --console=plain",
+  "exitCode": 0,
+  "duration": "10s",
+  "tasks": 40,
+  "executed": 2,
+  "upToDate": 38,
+  "formatCheck": "passed",
+  "independentReview": "passed"
+}

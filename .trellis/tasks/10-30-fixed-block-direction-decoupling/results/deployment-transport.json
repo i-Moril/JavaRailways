@@ -1,0 +1,7 @@
+{
+  "host": "192.168.1.230",
+  "instance": "836082a48c4f48fcb1fea4e83c57dc96",
+  "stage": "/tmp/jr-fixed-block-direction-20261030-AyWkDPqi",
+  "sshAgent": "/run/host-ssh-agent/agent.sock",
+  "oldPid": 753535
+}

@@ -1,0 +1,77 @@
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.11' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+
+> Configure project :WebUI
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.12' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+
+> Task :Basic:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :ConfigLib:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :ConfigLib:compileKotlin UP-TO-DATE
+> Task :ConfigLib:compileJava NO-SOURCE
+> Task :ConfigLib:processResources NO-SOURCE
+> Task :ConfigLib:classes UP-TO-DATE
+> Task :ConfigLib:jar UP-TO-DATE
+> Task :Core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :Core:compileKotlin UP-TO-DATE
+> Task :Core:compileJava NO-SOURCE
+> Task :Core:processResources NO-SOURCE
+> Task :Core:classes UP-TO-DATE
+> Task :Core:jar UP-TO-DATE
+> Task :Basic:compileKotlin UP-TO-DATE
+> Task :Basic:compileJava NO-SOURCE
+> Task :Basic:processResources NO-SOURCE
+> Task :Basic:classes UP-TO-DATE
+> Task :Basic:jar UP-TO-DATE
+> Task :BukkitPlugin:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :BukkitPlugin:paperweightUserdevSetup UP-TO-DATE
+> Task :Diagnostics:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :Diagnostics:compileKotlin UP-TO-DATE
+> Task :Diagnostics:compileJava UP-TO-DATE
+> Task :SimpleATO:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :SimpleATO:compileKotlin UP-TO-DATE
+> Task :SimpleATO:compileJava NO-SOURCE
+> Task :SimpleATO:processResources NO-SOURCE
+> Task :SimpleATO:classes UP-TO-DATE
+> Task :SimpleATO:jar UP-TO-DATE
+> Task :SimpleATOBukkit:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :SimpleATOBukkit:compileKotlin UP-TO-DATE
+> Task :SimpleATOBukkit:compileJava NO-SOURCE
+> Task :BukkitPlugin:compileKotlin UP-TO-DATE
+> Task :BukkitPlugin:compileJava UP-TO-DATE
+> Task :BukkitPlugin:mainResourceFactory UP-TO-DATE
+> Task :Diagnostics:processResources NO-SOURCE
+> Task :Diagnostics:classes UP-TO-DATE
+> Task :Diagnostics:jar UP-TO-DATE
+> Task :WebUI:compileJava UP-TO-DATE
+> Task :WebUI:buildFrontend UP-TO-DATE
+> Task :WebUI:processResources UP-TO-DATE
+> Task :WebUI:classes UP-TO-DATE
+> Task :WebUI:shadowJar UP-TO-DATE
+> Task :BukkitPlugin:processResources UP-TO-DATE
+> Task :BukkitPlugin:classes UP-TO-DATE
+> Task :SimpleATOBukkit:processResources NO-SOURCE
+> Task :SimpleATOBukkit:classes UP-TO-DATE
+> Task :SimpleATOBukkit:jar UP-TO-DATE
+> Task :BukkitPlugin:shadowJar UP-TO-DATE
+> Task :BukkitPlugin:jar UP-TO-DATE
+> Task :SimpleSignals:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :SimpleSignals:compileKotlin UP-TO-DATE
+> Task :SimpleSignals:compileJava UP-TO-DATE
+> Task :SimpleSignals:mainResourceFactory UP-TO-DATE
+> Task :SimpleSignals:processResources UP-TO-DATE
+> Task :SimpleSignals:classes UP-TO-DATE
+> Task :SimpleSignals:jar UP-TO-DATE
+> Task :SimpleSignals:verifyPluginJar
+> Task :BukkitPlugin:compileSignalApiConsumerKotlin NO-SOURCE
+> Task :BukkitPlugin:compileSignalApiConsumerJava UP-TO-DATE
+> Task :verifySignalModuleBoundaries
+
+[Incubating] Problems report is available at: file:///workspace/minecraft/JavaRailways/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.0.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 2s
+32 actionable tasks: 2 executed, 30 up-to-date

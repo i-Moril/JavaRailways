@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="work.art1st.javarailways.simpleato.timetable.TimetableStationCallDispatcherTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-10-30T11:49:27.366Z" hostname="dev" time="0.904">
+  <properties/>
+  <testcase name="terminal station navigation completes while remaining berthed()" classname="work.art1st.javarailways.simpleato.timetable.TimetableStationCallDispatcherTest" time="0.904"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -82,6 +82,7 @@ Basic 的实际物理授权边界如实保留，ATO 另有更严格的方向边�
 手动驾驶不新增方向强制、自动制动或 ATS。单线多闭塞之间的方向协调仍为独立 TODO。
 
 当前 sidecar schema 保持 1，不增加旧开发格式 reader。需要保留旧文件时，在部署前使用带 dry-run 和恢复点的一次性转换。
+转换工具与停服要求见[一次性开发数据转换](../scripts/fixed-block-direction-migration/README.md)。
 详细机制见[闭塞两端入口契约](../.trellis/spec/simple-signals/backend/bidirectional-fixed-block.md)和[ATO 方向限制](../.trellis/spec/javarailways/simpleato/operating-direction-enforcement.md)。
 
 ### 设备模型与摆放

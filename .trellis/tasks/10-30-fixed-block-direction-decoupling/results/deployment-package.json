@@ -1,0 +1,26 @@
+{
+  "artifacts": {
+    "JavaRailways.jar": {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/fixed-block-direction-deploy/BukkitPlugin/build/libs/JavaRailways-1.0-SNAPSHOT-all.jar",
+      "sha256": "efd212fbe1b4b68c871f24010c523692a3ab19f3f2988f08e78ff367988dd0b3",
+      "size": 67055558
+    },
+    "SimpleSignals.jar": {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/fixed-block-direction-deploy/SimpleSignals/build/libs/SimpleSignals-1.0-SNAPSHOT.jar",
+      "sha256": "4951ea121c979b42213b108de2d9d1df4d810ffa43e2d6f78a234ebe1903ef99",
+      "size": 1924707
+    }
+  },
+  "webuiSha256": "f4cd3ba53c9003ccfc867ec5508e8b7720019b270779f0050cdba11e7696ae81",
+  "publicAssets": {
+    "index.html": "410055827d0f602feea8f1b58d862c63b2cf352a349fc898504d134f2f6e0395",
+    "assets/index-DLbd-GXK.js": "dabb101a8011aa3a2967fc0126c7bc01d346810534dbffd6352bb37f8e6ad559",
+    "assets/index-CdCGfk_W.css": "6f855e9ed9e96f061a701c2decaadfa5f302951f2799bbf899e3815f715383dd"
+  },
+  "preservedDeployedFeatures": [
+    "UniqueTrainPlacementKt",
+    "ProgramSimulationKt",
+    "ProgramSimulationValidator"
+  ],
+  "moduleIsolationVerified": true
+}

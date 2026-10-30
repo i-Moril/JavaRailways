@@ -1,0 +1,29 @@
+{
+  "sourceCommit": "220e705e5975a2705895695fd1388cb489927d5c",
+  "deployedBase": "4c19f7f4eacd755ebd7f1132dfb625b641901789",
+  "oldPid": 753535,
+  "artifacts": {
+    "JavaRailways.jar": {
+      "candidateSha256": "efd212fbe1b4b68c871f24010c523692a3ab19f3f2988f08e78ff367988dd0b3",
+      "installedSha256": "876ee4dcfe89471447b886381a44ccc604834c751f9b2799304403b979df4728"
+    },
+    "SimpleSignals.jar": {
+      "candidateSha256": "4951ea121c979b42213b108de2d9d1df4d810ffa43e2d6f78a234ebe1903ef99",
+      "installedSha256": "a968a036d39067a2327f8e53d99faf63d794ad1385e5672344c4e8f3274c6d0a"
+    }
+  },
+  "sidecars": {
+    "2952ad2c-41ce-40bc-b83b-1b578ae7af12-definitions.json": {
+      "sourceSha256": "2a83abb7987352aec373225963d86a258365bdaf451651d8508b28c7ff01dcd4",
+      "candidateSha256": "640f1fa3bc8fd84497c0c120a3b3a781b71fd0ce3c029813b6bedadbee9b48cb",
+      "removedFields": 13
+    },
+    "2952ad2c-41ce-40bc-b83b-1b578ae7af12-definitions.json.bak": {
+      "sourceSha256": "933fd41c2cf74e36c6cb4718ce3a164726eff0a4375efd89537d29512a44404f",
+      "candidateSha256": "1761ffe64b26ddac1a71bd1616204a19c30f5d784936c5dafc2540f5101c3940",
+      "removedFields": 12
+    }
+  },
+  "installerSha256": "1cf2ade8f092fcfcdcb21304b819abd5d0963bbfdbca823c366afaec5c5c2c41",
+  "sourceContractSha256": "f31bd188e8a748ef9c8cfbc23588975339624149a520ba816ecf868b51df3588"
+}

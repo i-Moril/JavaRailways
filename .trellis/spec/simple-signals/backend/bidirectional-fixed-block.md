@@ -74,6 +74,8 @@ A 仅向右，B 允许双向，两者普通连接组成一个闭塞。列车整�
 
 SimpleSignals 为未发布 sidecar schema 1。本次直接修正当前模型与 fixture，删除闭塞权限字段，保持版本 1；不添加开发代际、runtime alias、unknown-key 放行或旧 reader。版本决定先遵守[发布基线门槛](../../javarailways/shared/versioning.md)。须保留的旧开发文件在部署前使用有 dry-run、明确 diff 和不可覆盖恢复点的一次性转换，不能自动重建闭塞或交换两端信号。
 
+一次性工具见 [fixed-block-direction-migration](../../../../scripts/fixed-block-direction-migration/README.md)：从正常停服的完整恢复归档提取 primary／backup，独立候选必须经过实际 current Kotlin codec；只删 Boolean 旧成员，保留其他原始字节。它不参与插件启动或运行时读取。
+
 应避免：把方向交集重新保存为一个权限开关，或因补全到闭塞出口就允许逆行。
 正确做法：几何闭塞共享一个资源，方向由实际自动路线及其控制限制判断。
 

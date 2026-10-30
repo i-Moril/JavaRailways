@@ -1,0 +1,137 @@
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.11' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+
+> Configure project :WebUI
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.12' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+
+> Task :Basic:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :ConfigLib:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :ConfigLib:compileKotlin UP-TO-DATE
+> Task :ConfigLib:compileJava NO-SOURCE
+> Task :ConfigLib:processResources NO-SOURCE
+> Task :ConfigLib:classes UP-TO-DATE
+> Task :ConfigLib:jar UP-TO-DATE
+> Task :Core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :Core:compileKotlin UP-TO-DATE
+> Task :Core:compileJava NO-SOURCE
+> Task :Core:processResources NO-SOURCE
+> Task :Core:classes UP-TO-DATE
+> Task :Core:jar UP-TO-DATE
+> Task :Basic:compileKotlin UP-TO-DATE
+> Task :Basic:compileJava NO-SOURCE
+> Task :Basic:processResources NO-SOURCE
+> Task :Basic:classes UP-TO-DATE
+> Task :Basic:jar UP-TO-DATE
+> Task :SimpleATO:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :SimpleATO:compileKotlin UP-TO-DATE
+> Task :SimpleATO:compileJava NO-SOURCE
+> Task :SimpleATO:processResources NO-SOURCE
+> Task :SimpleATO:classes UP-TO-DATE
+> Task :SimpleATO:jar UP-TO-DATE
+> Task :Basic:compileTestFixturesKotlin UP-TO-DATE
+> Task :Basic:compileTestFixturesJava NO-SOURCE
+> Task :Basic:processTestFixturesResources NO-SOURCE
+> Task :Basic:testFixturesClasses UP-TO-DATE
+> Task :Basic:testFixturesJar UP-TO-DATE
+> Task :Core:compileTestFixturesKotlin UP-TO-DATE
+> Task :Core:compileTestFixturesJava NO-SOURCE
+> Task :Core:processTestFixturesResources NO-SOURCE
+> Task :Core:testFixturesClasses UP-TO-DATE
+> Task :Core:testFixturesJar UP-TO-DATE
+> Task :SimpleATO:compileTestKotlin UP-TO-DATE
+> Task :SimpleATO:compileTestJava NO-SOURCE
+> Task :SimpleATO:processTestResources NO-SOURCE
+> Task :SimpleATO:testClasses UP-TO-DATE
+
+> Task :SimpleATO:test
+
+TimetableStationCallDispatcherTest > interior station stop does not replace final operating anchor stopping margin() STARTED
+
+TimetableStationCallDispatcherTest > door tickets gate station dwell and departure hold release() STARTED
+
+TimetableStationCallDispatcherTest > canonical marker edits and aliases cannot bypass a held stopping area() STARTED
+
+TimetableStationCallDispatcherTest > waypoint progress observer reports actual stop time() STARTED
+
+TimetableStationCallDispatcherTest > shared terminal absolute wait gates completion without a second execution cursor() STARTED
+
+TimetableStationCallDispatcherTest > terminal station navigation starts the following queued movement after dwell() STARTED
+
+TimetableStationCallDispatcherTest > origin station program honors its containing scheduled action tick() STARTED
+
+TimetableStationCallDispatcherTest > terminal station reverse awaits physical publication and retained body rebase() STARTED
+
+TimetableStationCallDispatcherTest > conflicting explicit berth keeps the later service held without stalling() STARTED
+
+TimetableStationCallDispatcherTest > timetable station action schedules the call with its following movement() STARTED
+
+TimetableStationCallDispatcherTest > origin program runs preparation without waiting for a phantom arrival() STARTED
+
+TimetableStationCallDispatcherTest > manual transfer may abandon a failed door operation before dispatcher poll() STARTED
+
+TimetableStationCallDispatcherTest > dwell may depart after the conflicting turnout resource tail releases() STARTED
+
+TimetableStationCallDispatcherTest > failed close ticket never grants departure() STARTED
+
+TimetableStationCallDispatcherTest > operation shutdown cancels pending station task door tickets() STARTED
+
+TimetableStationCallDispatcherTest > shared destination program opens on actual arrival prepares early and awaits planned release() STARTED
+
+TimetableStationCallDispatcherTest > actual authority breach prevents queued station arrival and ordinary destination door operations() STARTED
+
+TimetableStationCallDispatcherTest > berth ownership survives mission replacement until the old tail clears() STARTED
+
+TimetableStationCallDispatcherTest > manual transfer cancels door ticket but preserves berth ownership() STARTED
+
+TimetableStationCallDispatcherTest > door operation timeout stalls world and keeps departure hold() STARTED
+
+TimetableStationCallDispatcherTest > halt closes doors before executing model power off action() STARTED
+
+TimetableStationCallDispatcherTest > destination keeps doors open until minimum dwell and next at() STARTED
+
+TimetableStationCallDispatcherTest > dispatcher dwells grants departure and releases berth behind the tail() STARTED
+
+TimetableStationCallDispatcherTest > station program failure leaves departure hold and cancels every live operation() STARTED
+
+TimetableStationCallDispatcherTest > unexpected door ticket cancellation stalls the world() STARTED
+
+TimetableStationCallDispatcherTest > terminal station reverse rebases the retained route grant before completing() STARTED
+
+TimetableStationCallDispatcherTest > ordinary waypoint destination options run doors and minimum dwell() STARTED
+
+TimetableStationCallDispatcherTest > station train information reads each published direction and validates before start() STARTED
+
+TimetableStationCallDispatcherTest > ato reset refuses to discard a failed run while Basic resources remain active() STARTED
+
+TimetableStationCallDispatcherTest > door operation timeout reports cancellation failure() STARTED
+
+TimetableStationCallDispatcherTest > manual transfer is rejected when a pending door operation cannot be cancelled() STARTED
+
+TimetableStationCallDispatcherTest > manual transfer rejects cancellation confirmation with a changed ticket identity() STARTED
+
+TimetableStationCallDispatcherTest > destination tick is the route departure time() STARTED
+
+TimetableStationCallDispatcherTest > terminal station navigation completes while remaining berthed() STARTED
+
+TimetableStationCallDispatcherTest > missing shared station provider is rejected before runtime installation() STARTED
+
+TimetableStationCallDispatcherTest > manual transfer is rejected when the operation ticket cannot be inspected() STARTED
+
+TimetableStationCallDispatcherTest > terminal open doors cannot be bypassed by a store at depot suffix() STARTED
+
+TimetableStationCallDispatcherTest > operation gateway failure logs original cause while preserving failed run state() STARTED
+
+TimetableStationCallDispatcherTest > shared terminal program has no preparation and optional departure only delays duty handoff() STARTED
+
+TimetableStationCallDispatcherTest > reverse closes open doors then rebases the retained route grant() STARTED
+
+[Incubating] Problems report is available at: file:///workspace/minecraft/JavaRailways/.worktree/fixed-block-direction-deploy/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.0.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 6s
+14 actionable tasks: 1 executed, 13 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.0.0/userguide/configuration_cache_enabling.html

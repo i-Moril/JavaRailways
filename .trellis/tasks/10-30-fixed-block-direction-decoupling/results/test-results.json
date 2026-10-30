@@ -1,0 +1,42 @@
+{
+  "modules": {
+    "Basic": {
+      "suites": 62,
+      "tests": 427,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "SimpleATO": {
+      "suites": 71,
+      "tests": 613,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "SimpleATOBukkit": {
+      "suites": 2,
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "SimpleSignals": {
+      "suites": 59,
+      "tests": 657,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "BukkitPlugin": {
+      "suites": 137,
+      "tests": 631,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "sourceFilesVerified": 335,
+  "head": "a59606ba6de0df9a134ff37fe9559bf64b6de680",
+  "sourceChangesDuringGate": []
+}

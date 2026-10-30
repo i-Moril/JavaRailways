@@ -1,0 +1,39 @@
+Starting a Gradle Daemon, 5 incompatible Daemons could not be reused, use --status for details
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.11' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+
+> Configure project :WebUI
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.12' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+
+> Task :WebUI:buildFrontend
+
+> javarailways-timetable-editor@0.1.0 build
+> tsc -b && vite build
+
+vite v8.1.5 building client environment for production...
+[2Ktransforming...✓ 3133 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                     0.35 kB │ gzip:   0.26 kB
+dist/assets/index-BVELlF4x.css     22.94 kB │ gzip:   4.93 kB
+dist/assets/index-CQNjCo6_.js   1,266.08 kB │ gzip: 396.62 kB
+[33m[PLUGIN_TIMINGS] [0mYour build spent significant time in plugin `rolldown:vite-resolve`. See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+
+✓ built in 4.25s
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+[Incubating] Problems report is available at: file:///workspace/minecraft/JavaRailways/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.0.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 21s
+1 actionable task: 1 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.0.0/userguide/configuration_cache_enabling.html

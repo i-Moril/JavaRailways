@@ -1,5 +1,7 @@
 # Implementation plan
 
+2026-10-31用户授权提交部署：产品0cadbe8f已部署JavaRailwaysTest，新PID782079，主JAR及S100两个源文件更新；follow-package策略确认无需快照/世界迁移。正常保存、154文件外部恢复包、精准3文件替换、ATO/信号、双网络17资源及SSE检查通过；原实例关闭清理异常另行记录，新安装后插件错误0。详见research/deployment-2026-10-31-simulation-ui.md。任务继续进行中，未归档，用户游戏验收待办。
+
 2026-10-31用户纠正模拟超时必须由界面设置：撤回刚新增的simulation配置项及环境变量；三个模拟请求必填executionTimeoutMillis，界面秒数转换整数毫秒，worker与HTTPdeadline从同请求值推导。前端351/Bukkit679/WebUI54及构建通过，真实UI1.001秒→1001毫秒/非法禁用/交路可见验证及独立复审通过。见research/simulation-errors-2026-10-31.md最后记录；未提交、部署或归档。
 
 2026-10-31超时与周期跟进：统一simulation-timeout-millis，managed/external网页从同预算加普通请求超时推导模拟deadline；移除独立函数模拟periodDays/UI，派生内部安全运行范围，跨日/参数绝对等待/真实LIMIT回归通过。最终前端347、Bukkit680、WebUI55及构建、真实页面跨日请求和独立复审通过，见research/simulation-errors-2026-10-31.md后续记录。未提交/部署/归档。

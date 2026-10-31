@@ -1,0 +1,8 @@
+{
+  "streamStatus": 200,
+  "events": [
+    "event: trains",
+    "data: [{\"id\":\"95eb78b9-858c-489b-90d6-298a3e4820e6\",\"name\":\"s100-1\",\"revision\":1585,\"speedMetersPerSecond\":0.0,\"derailed\":false,\"reversed\":false,\"railId\":\"c1876"
+  ],
+  "publicPageStatus": 200
+}

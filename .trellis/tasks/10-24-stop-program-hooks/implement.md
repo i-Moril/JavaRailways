@@ -1,3 +1,5 @@
+2026-10-31停车授权修复已按用户要求提交并部署：d57b899f；取消未经授权的5cm目标提前量，车站授权覆盖停点后0.3m。最终101+39回归和部署/恢复校验通过，ATO RUNNING，Signals正常，任务保持进行中、不归档。见research/deployment-2026-10-31-station-authority.md。
+
 # Implementation plan
 
 2026-10-31函数计划UI反馈三项本地完成：模拟不再要求开始tick；库/绑定可选estimatedDurationTicks与PROGRAM计划耗时、未知/0/显式更新独立性；页顶超时改为单次设置弹窗，取消保留结果。最终前端366/WebUI56测试及构建、真实页面预计200→400保存/显式采用跨度与取消零请求、独立审查和边界回归通过。见research/function-planning-ui-2026-10-31.md。未提交或部署，线上0cadbe8f，任务仍进行中。

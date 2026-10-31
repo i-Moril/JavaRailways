@@ -1,0 +1,77 @@
+{
+  "sourceCommit": "86f1e682",
+  "mainJarSha256": "789404c767a91d1c4e08796b064d857da4de8e492c137bffdfebbfc290a06486",
+  "webuiSha256": "0e2445fa4466a5c37362012674b4166f78d5e979f36b8ee935921e30a993cade",
+  "replacementCount": 1,
+  "preservedInstallFiles": 153,
+  "checkedLocalAndPublicAssets": 17,
+  "assets": [
+    "/",
+    "/assets/index-CdCGfk_W.css",
+    "/assets/index-til1-TgS.js",
+    "/blockly-media/1x1.gif",
+    "/blockly-media/LICENSE",
+    "/blockly-media/README.txt",
+    "/blockly-media/delete-icon.svg",
+    "/blockly-media/dropdown-arrow.svg",
+    "/blockly-media/foldout-icon.svg",
+    "/blockly-media/handclosed.cur",
+    "/blockly-media/handdelete.cur",
+    "/blockly-media/handopen.cur",
+    "/blockly-media/pilcrow.png",
+    "/blockly-media/quote0.png",
+    "/blockly-media/quote1.png",
+    "/blockly-media/resize-handle.svg",
+    "/blockly-media/sprites.svg"
+  ],
+  "publicUrl": "http://mc.art1st.work:29002",
+  "uiTimeoutContractInDeployedBundle": true,
+  "preservedDraftSignalAndOtherJarFiles": 23,
+  "mapMarkers": 31,
+  "guestSimulationStatus": 401,
+  "guestErrorStructured": true,
+  "runtimeMarkers": [
+    "[14:53:09] [Server thread/INFO]: Done (27.424s)! For help, type \"help\"",
+    "[14:53:09] [Folia Region Scheduler Thread #0/INFO]: ATO world: RUNNING",
+    "[14:53:09] [Folia Region Scheduler Thread #0/INFO]: SimpleSignals 2952ad2c-41ce-40bc-b83b-1b578ae7af12: installed, definitionRevision=117, topologyRevision=1; regions=5, tables=5, blocks=14, fixedBlockSignals=8, protectionSignals=4, routeIndicators=1, attachedSignals=0"
+  ],
+  "incrementalErrors": {
+    "plugins/JavaRailways/logs/errors.log": {
+      "preInstallShutdownErrors": 13,
+      "postInstallErrors": 0,
+      "newWarnings": 4
+    },
+    "plugins/JavaRailways/logs/webui.log": {
+      "preInstallShutdownErrors": 0,
+      "postInstallErrors": 0,
+      "newWarnings": 0
+    },
+    "plugins/JavaRailways/webui/logs/errors.log": {
+      "preInstallShutdownErrors": 0,
+      "postInstallErrors": 0,
+      "newWarnings": 1
+    },
+    "plugins/SimpleSignals/logs/errors.log": {
+      "preInstallShutdownErrors": 1,
+      "postInstallErrors": 0,
+      "newWarnings": 0
+    }
+  },
+  "knownTerraTheUnsafeStartupErrorCount": 1,
+  "recoveryDirectory": "/opt/mcsmanager/backups/javarailways/string-types-20261031-3bx43qyq",
+  "archiveSha256": "e27d11c4058d9d8973cc72b05754df8fbb4bbda0f222c6025ba0426fde3f28e1",
+  "publicTrainStream": {
+    "event": "trains",
+    "count": 1,
+    "publicUrl": "http://mc.art1st.work:29002/api/v1/worlds/world/rail-map/trains"
+  },
+  "migration": {
+    "files": 14,
+    "changedParameters": 1,
+    "rewrittenFiles": [
+      "library/world/43678141787292951110305815093458768576.json"
+    ],
+    "unchangedDocuments": 8
+  },
+  "newJvmPid": 792039
+}

@@ -7,8 +7,9 @@ final class ProgramJsonValidator {
     private ProgramJsonValidator() {}
     static void object(JsonNode value) {
         if (!value.isObject()) throw new IllegalArgumentException("JSON_OBJECT must be a JSON object");
-        walk(value, 0, new int[]{0});
+        value(value);
     }
+    static void value(JsonNode value) { walk(value, 0, new int[]{0}); }
     private static void walk(JsonNode value, int depth, int[] nodes) {
         if (depth > 16 || ++nodes[0] > 4096) fail("JSON_OBJECT exceeds depth16 or4096 values");
         if (value.isObject()) {

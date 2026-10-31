@@ -1,11 +1,14 @@
+import {evaluateProgramExpression,validateProgramExpression} from './programExpressions';
 import {trainInfoError} from './trainInfo';
 import type { TimetableAuthoringDocumentV1 } from './authoring';
 import type { BoundStationProgram,StationProgramCall,StationProgramDefinition,StationProgramLiteral,StationProgramParameterType,StationProgramRecord,StationProgramStep,StationProgramValue } from './types';
 
 const clone=<T,>(value:T):T=>JSON.parse(JSON.stringify(value)) as T;
 const validId=(value:string)=>/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value);
-const types:StationProgramParameterType[]=['TICK','DURATION','DESTINATION','STATION','DEPOT','STRING','ID_LIST','JSON_OBJECT','UNIT_SLOTS'];
+const types:StationProgramParameterType[]=['NUMBER','TICK','DURATION','DESTINATION','STATION','DEPOT','STRING','ID_LIST','JSON_OBJECT','UNIT_SLOTS'];
 export function stationProgramLiteralValid(value:unknown,type:StationProgramParameterType):boolean {
+  if(type==='NUMBER')return typeof value==='number'&&Number.isFinite(value)&&(!Number.isInteger(value)||Number.isSafeInteger(value));
+  if(type==='STRING')return typeof value==='string'&&value.length<=8192;
   if(type==='UNIT_SLOTS')return Array.isArray(value)&&value.length>0&&value.length<=128&&value.every((slot)=>Number.isSafeInteger(slot)&&slot>0&&slot<=2147483647)&&new Set(value).size===value.length;
   if(type==='JSON_OBJECT')return programJsonObjectError(value)==='';
   if(type==='TICK'||type==='DURATION')return Number.isSafeInteger(value)&&Number(value)>=0;
@@ -28,10 +31,8 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
   const check=(value:StationProgramValue<StationProgramLiteral>,type:StationProgramParameterType,positive=false,allowTrainInfo=false)=>{
     if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==1){errors.push('Program value requires exactly value or parameterId');return;}
     if('trainInfo' in value){if(!allowTrainInfo)errors.push('Train information is unavailable in this input');else {const error=trainInfoError(value.trainInfo);if(error)errors.push(error);}return;}
-    if('parameterId' in value){
-      if(parameters.get(value.parameterId)!==type)errors.push(`Unknown or incompatible parameter: ${value.parameterId}`);
-      else if(args&&positive&&Number(args[value.parameterId])<=0)errors.push('Wait duration must be positive');
-    }else if(!('value' in value)||!stationProgramLiteralValid(value.value,type)||positive&&Number(value.value)<=0)errors.push(`Invalid ${type} value`);
+    try{validateProgramExpression(value,type,parameters,stationProgramLiteralValid,args);}catch{errors.push('Invalid program expression (incompatible input or invalid value)');return;}
+    if(positive){try{if(Number(resolveProgramValue(value,args??{}))<=0)errors.push('Wait duration must be positive');}catch{/* Unbound parameter expressions are evaluated when invoked. */}}
   };
   const ids=new Set<string>();
   let count=0;
@@ -46,9 +47,9 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
     switch(step.type){
       case 'SET_DISPLAY':{
         check(step.unitSlots,'UNIT_SLOTS');check(step.values as StationProgramValue<StationProgramLiteral>,'JSON_OBJECT',false,true);if(step.removeKeys)check(step.removeKeys,'ID_LIST');
-        const values=step.values&&('value' in step.values?step.values.value:'parameterId' in step.values?args?.[step.values.parameterId]:undefined);
+        let values:unknown;try{if(step.values&&!('trainInfo' in step.values))values=resolveProgramValue(step.values,args??{});}catch{/* Unbound parameters are checked when invoked. */}
         if(values!==undefined){const error=displayValuesError(values);if(error)errors.push(error);}
-        const keys=step.removeKeys&&('value' in step.removeKeys?step.removeKeys.value:args?.[step.removeKeys.parameterId]);
+        const keys=step.removeKeys&&('value' in step.removeKeys?step.removeKeys.value:'parameterId' in step.removeKeys?args?.[step.removeKeys.parameterId]:undefined);
         if(Array.isArray(keys)&&new Set<unknown>(keys).size!==keys.length)errors.push('Display removal keys must be unique');
         break;
       }
@@ -71,7 +72,7 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
       case 'SELECT_STOP':
         check(step.stationId,'STATION');check(step.berthIds,'ID_LIST');
         if(!['FIXED_PREFERENCE','AVAILABLE_PRIORITY'].includes(step.selectionPolicy))errors.push('Invalid station selection policy');
-        {const expression=step.berthIds;const ids=expression&&('value' in expression?expression.value:args?.[expression.parameterId]);
+        {const expression=step.berthIds;const ids=expression&&('value' in expression?expression.value:'parameterId' in expression?args?.[expression.parameterId]:undefined);
         if(Array.isArray(ids)&&(!ids.length||ids.length>64||new Set<unknown>(ids).size!==ids.length))errors.push('Station selection requires distinct nonempty berth IDs (at most64)');}
         break;
       case 'STORE_AT_DEPOT':check(step.depotId,'DEPOT');check(step.stablingPointIds,'ID_LIST');break;
@@ -82,7 +83,7 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
   visit(definition.steps,0);
   return errors;
 }
-export const resolveProgramValue=<T extends StationProgramLiteral>(value:StationProgramValue<T>,args:Record<string,StationProgramLiteral>):T=>('parameterId' in value?args[value.parameterId]:value.value) as T;
+export const resolveProgramValue=<T extends StationProgramLiteral>(value:StationProgramValue<T>,args:Record<string,StationProgramLiteral>):T=>evaluateProgramExpression(value,args) as T;
 
 export function validateStationProgramCall(snapshot:BoundStationProgram,call:StationProgramCall,periodTicks:number):string[] {
   if(!call||typeof call.arguments!=='object'||!call.arguments||Array.isArray(call.arguments))return ['Invalid program call arguments'];

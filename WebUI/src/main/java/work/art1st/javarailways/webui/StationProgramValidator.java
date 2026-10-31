@@ -9,7 +9,7 @@ import java.util.Set;
 
 /** Strict authoring structure. World references and executable continuity remain runtime validation. */
 final class StationProgramValidator {
-    private static final Set<String> PARAMETER_TYPES = Set.of("TICK", "DURATION", "DESTINATION", "STATION", "DEPOT", "STRING", "ID_LIST", "JSON_OBJECT", "UNIT_SLOTS");
+    private static final Set<String> PARAMETER_TYPES = Set.of("NUMBER", "TICK", "DURATION", "DESTINATION", "STATION", "DEPOT", "STRING", "ID_LIST", "JSON_OBJECT", "UNIT_SLOTS");
     private static final long MAX_SAFE_INTEGER = 9_007_199_254_740_991L;
     private StationProgramValidator() {}
 
@@ -97,7 +97,10 @@ final class StationProgramValidator {
                     fields(step, step.has("removeKeys") ? Set.of("id", "type", "unitSlots", "values", "removeKeys") : Set.of("id", "type", "unitSlots", "values"), "SET_DISPLAY step");
                     value(step.path("unitSlots"), "UNIT_SLOTS", parameters, false);
                     dataValue(step.path("values"), parameters);
-                    if (step.path("values").has("value")) displayValues(step.path("values").path("value"));
+                    if (!step.path("values").has("trainInfo")) {
+                        JsonNode display = ProgramExpressionValidator.validate(step.path("values"), "JSON_OBJECT", parameters, null);
+                        if (display != null) displayValues(display);
+                    }
                     if (step.has("removeKeys")) {
                         value(step.path("removeKeys"), "ID_LIST", parameters, false);
                         if (step.path("removeKeys").has("value")) displayRemovalKeys(step.path("removeKeys").path("value"));
@@ -180,28 +183,38 @@ final class StationProgramValidator {
             literal(arguments.path(id), parameter.path("type").asText(), false);
         }
         arguments.fieldNames().forEachRemaining(name -> { if (!names.contains(name)) fail("unknown program argument: " + name); });
-        validateStepArguments(definition.path("steps"), arguments);
+        Map<String, String> parameters = new HashMap<>();
+        definition.path("parameters").forEach(parameter -> parameters.put(parameter.path("id").asText(), parameter.path("type").asText()));
+        validateStepArguments(definition.path("steps"), parameters, arguments);
     }
 
-    private static void validateStepArguments(JsonNode steps, JsonNode arguments) {
+    private static void validateStepArguments(JsonNode steps, Map<String, String> parameters, JsonNode arguments) {
         for (JsonNode step : steps) {
-            if (step.path("type").asText().equals("BRANCH")) {
-                validateStepArguments(step.path("thenSteps"), arguments);
-                validateStepArguments(step.path("elseSteps"), arguments);
+            String type = step.path("type").asText();
+            if (type.equals("BRANCH")) {
+                validateStepArguments(step.path("thenSteps"), parameters, arguments);
+                validateStepArguments(step.path("elseSteps"), parameters, arguments);
             }
-            if (step.path("type").asText().equals("ASYNC")) validateStepArguments(step.path("steps"), arguments);
-            if (step.path("type").asText().equals("SET_DISPLAY") && step.path("removeKeys").has("parameterId")) {
-                displayRemovalKeys(arguments.path(step.path("removeKeys").path("parameterId").asText()));
-            }
-            if (step.path("type").asText().equals("SET_DISPLAY") && step.path("values").has("parameterId")) {
-                displayValues(arguments.path(step.path("values").path("parameterId").asText()));
-            }
-            if (step.path("type").asText().equals("SELECT_STOP") && step.path("berthIds").has("parameterId")) {
-                berthIds(arguments.path(step.path("berthIds").path("parameterId").asText()));
-            }
-            if (step.path("type").asText().equals("WAIT_DURATION") && step.path("durationTicks").has("parameterId")) {
-                literal(arguments.path(step.path("durationTicks").path("parameterId").asText()), "DURATION", true);
-            }
+            if (type.equals("ASYNC")) validateStepArguments(step.path("steps"), parameters, arguments);
+            Map<String, String> sinks = switch (type) {
+                case "SET_DISPLAY" -> Map.of("unitSlots", "UNIT_SLOTS", "values", "JSON_OBJECT", "removeKeys", "ID_LIST");
+                case "RESET_DISPLAY" -> Map.of("unitSlots", "UNIT_SLOTS");
+                case "WAIT_UNTIL" -> Map.of("tick", "TICK");
+                case "WAIT_DURATION" -> Map.of("durationTicks", "DURATION");
+                case "BRANCH", "EXTENSION" -> Map.of("parameters", "JSON_OBJECT");
+                case "MOVE" -> Map.of("destinationId", "DESTINATION", "viaIds", "ID_LIST");
+                case "SELECT_STOP" -> Map.of("stationId", "STATION", "berthIds", "ID_LIST");
+                case "STORE_AT_DEPOT" -> Map.of("depotId", "DEPOT", "stablingPointIds", "ID_LIST");
+                default -> Map.of();
+            };
+            sinks.forEach((field, expected) -> {
+                if (!step.has(field) || step.path(field).has("trainInfo")) return;
+                JsonNode evaluated = ProgramExpressionValidator.validate(step.path(field), expected, parameters, arguments);
+                literal(evaluated, expected, type.equals("WAIT_DURATION"));
+                if (field.equals("values")) displayValues(evaluated);
+                if (field.equals("removeKeys")) displayRemovalKeys(evaluated);
+                if (field.equals("berthIds")) berthIds(evaluated);
+            });
         }
     }
 
@@ -224,24 +237,27 @@ final class StationProgramValidator {
     }
 
     private static void value(JsonNode node, String type, Map<String, String> parameters, boolean positive) {
-        if (!node.isObject() || node.size() != 1) fail("program value must contain exactly value or parameterId");
-        if (node.has("parameterId")) {
-            String id = text(node.path("parameterId"), "parameter reference");
-            if (!type.equals(parameters.get(id))) fail("unknown or incompatible parameter: " + id);
-        } else if (node.has("value")) literal(node.path("value"), type, positive);
-        else fail("program value must contain value or parameterId");
+        JsonNode evaluated = ProgramExpressionValidator.validate(node, type, parameters, null);
+        if (evaluated != null) literal(evaluated, type, positive);
     }
 
     private static void literal(JsonNode value, String type, boolean positive) {
         switch (type) {
             case "TICK", "DURATION" -> {
-                if (!value.isIntegralNumber() || !value.canConvertToLong() || value.asLong() < (positive ? 1 : 0) || value.asLong() > MAX_SAFE_INTEGER) fail(type + " must be a " + (positive ? "positive" : "nonnegative") + " safe integer");
+                double number = value.doubleValue();
+                if (!value.isNumber() || !Double.isFinite(number) || Math.rint(number) != number || number < (positive ? 1 : 0) || number > MAX_SAFE_INTEGER) fail(type + " must be a " + (positive ? "positive" : "nonnegative") + " safe integer");
             }
             case "UNIT_SLOTS" -> unitSlots(value);
             case "JSON_OBJECT" -> ProgramJsonValidator.object(value);
             case "ID_LIST" -> {
                 array(value, 256, "ID_LIST");
                 for (JsonNode item : value) text(item, "ID_LIST item");
+            }
+            case "NUMBER" -> {
+                if (!value.isNumber() || !Double.isFinite(value.doubleValue()) || Math.rint(value.doubleValue()) == value.doubleValue() && Math.abs(value.doubleValue()) > MAX_SAFE_INTEGER) fail("NUMBER must be finite and integral values must be safe integers");
+            }
+            case "STRING" -> {
+                if (!value.isTextual() || value.textValue().length() > 8192) fail("STRING must be a string of at most8192 characters");
             }
             default -> text(value, type);
         }

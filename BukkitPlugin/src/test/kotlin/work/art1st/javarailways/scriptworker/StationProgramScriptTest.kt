@@ -130,7 +130,7 @@ class StationProgramScriptTest {
     @Test fun `program refuses missing acquisition wrong parameter type and unsupported structure`() {
         assertThrows(Throwable::class.java) { compile("timetable.service('s','train', t => t.program('p',$definition,{target:'end'}));") }
         assertThrows(Throwable::class.java) { compile("timetable.service('s','train', t => {t.check('start');t.program('p',$definition,{target:12});});") }
-        val mistyped = definition.replace("type:'DESTINATION'", "type:'STRING'")
+        val mistyped = definition.replace("type:'DESTINATION'", "type:'NUMBER'")
         assertThrows(Throwable::class.java) { compile("timetable.service('s','train', t => {t.check('start');t.program('p',$mistyped,{target:'end'});});") }
         for (bad in listOf("{parameters:[],steps:[{id:'x',type:'ACQUIRE'}]}", "{parameters:[],steps:[],unknown:true}", "{parameters:[],steps:[{id:'x',type:'WAIT_DURATION',durationTicks:{value:0}}]}")) {
             assertThrows(Throwable::class.java) { compile("timetable.service('s','train', t => {t.check('start');t.program('p',$bad,{});});") }

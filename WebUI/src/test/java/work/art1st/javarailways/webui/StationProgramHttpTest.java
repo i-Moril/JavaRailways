@@ -126,9 +126,9 @@ class StationProgramHttpTest {
         StationProgramValidator.validate(mapper.readTree("{\"parameters\":[],\"steps\":[{\"id\":\"move\",\"type\":\"MOVE\",\"destinationId\":{\"value\":\"x\"},\"viaIds\":{\"value\":[]}}]}"));
         for(String invalid:java.util.List.of(
             "{\"parameters\":[],\"steps\":[{\"id\":\"wait\",\"type\":\"WAIT_DURATION\",\"durationTicks\":{\"value\":0}}]}",
-            "{\"parameters\":[],\"steps\":[{\"id\":\"wait\",\"type\":\"WAIT_UNTIL\",\"tick\":{\"value\":1.0}}]}",
+            "{\"parameters\":[],\"steps\":[{\"id\":\"wait\",\"type\":\"WAIT_UNTIL\",\"tick\":{\"value\":1.5}}]}",
             "{\"parameters\":[],\"steps\":[{\"id\":\"acquire\",\"type\":\"ACQUIRE\"}]}",
-            "{\"parameters\":[{\"id\":\"p\",\"type\":\"STRING\"}],\"steps\":[{\"id\":\"move\",\"type\":\"MOVE\",\"destinationId\":{\"parameterId\":\"p\"},\"viaIds\":{\"value\":[]}}]}",
+            "{\"parameters\":[{\"id\":\"p\",\"type\":\"NUMBER\"}],\"steps\":[{\"id\":\"move\",\"type\":\"MOVE\",\"destinationId\":{\"parameterId\":\"p\"},\"viaIds\":{\"value\":[]}}]}",
             "{\"parameters\":[],\"steps\":[],\"extra\":true}"
         ))assertThrows(IllegalArgumentException.class,()->StationProgramValidator.validate(mapper.readTree(invalid)));
     }

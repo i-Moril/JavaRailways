@@ -1,6 +1,8 @@
 package work.art1st.javarailways.bukkit.http
 
 import kotlinx.serialization.json.*
+import work.art1st.javarailways.scriptworker.ProgramExpressions
+import work.art1st.javarailways.scriptworker.StationProgramValue
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -64,11 +66,13 @@ internal data class ProgramSimulationRequest(
                 val step = raw.jsonObject
                 when (step["type"]?.jsonPrimitive?.content) {
                     "WAIT_UNTIL" -> {
-                        val expression = step["tick"] as? JsonObject
-                        val value = expression?.get("value") ?: expression?.get("parameterId")
-                            ?.jsonPrimitive?.content?.let(arguments::get)
-                        val tick = (value as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
-                        if (tick != null) {
+                        val parameterTypes = definition.getValue("parameters").jsonArray.associate {
+                            it.jsonObject.getValue("id").jsonPrimitive.content to it.jsonObject.getValue("type").jsonPrimitive.content
+                        }
+                        ProgramExpressions.validateShape(step.getValue("tick"))
+                        val expression = Json.decodeFromJsonElement<StationProgramValue>(step.getValue("tick"))
+                        val tick = ProgramExpressions.evaluate(expression, "TICK", parameterTypes, arguments).jsonPrimitive.long
+                        run {
                             require(tick in 0L..MAX_SIMULATION_TICK) { "wait tick is outside the safe simulation range" }
                             latestTick = maxOf(latestTick, tick)
                         }

@@ -8,7 +8,7 @@ export interface DutyTimelineTask {
  durationMode:'RUN'|'POINT'|'MANUAL'|'SIMULATED'|'PROGRAM';measured?:boolean;overlaps:string[];
 }
 export function defaultDutyProgramArguments(parameters:StationProgramDefinition['parameters']):Record<string,StationProgramLiteral> {
- return Object.fromEntries(parameters.map((parameter)=>[parameter.id,parameter.type==='JSON_OBJECT'?{}:parameter.type==='UNIT_SLOTS'?[1]:parameter.type==='ID_LIST'?[]:parameter.type==='DURATION'?1:parameter.type==='TICK'?0:'']));
+ return Object.fromEntries(parameters.map((parameter)=>[parameter.id,parameter.type==='JSON_OBJECT'?{}:parameter.type==='UNIT_SLOTS'?[1]:parameter.type==='ID_LIST'?[]:parameter.type==='DURATION'?1:parameter.type==='TICK'||parameter.type==='NUMBER'?0:'']));
 }
 /** Run occupancy includes effective terminal arrival, dwell and optional terminal departure. */
 export function dutyTaskStart(document:TimetableAuthoringDocumentV1,element:AuthoringDutyElementV1):number {

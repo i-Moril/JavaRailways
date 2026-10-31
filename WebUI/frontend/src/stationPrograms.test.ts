@@ -34,7 +34,7 @@ describe('shared station program bindings',()=>{
     const selection:StationProgramDefinition={parameters:[{id:'station',type:'STATION'},{id:'berths',type:'ID_LIST'}],steps:[{id:'stop',type:'SELECT_STOP',stationId:{parameterId:'station'},berthIds:{parameterId:'berths'},selectionPolicy:'AVAILABLE_PRIORITY'}]};
     expect(validateStationProgram(selection,{station:'central',berths:['long','short']})).toEqual([]);
     for(const berths of [[],['long','long']])expect(validateStationProgram(selection,{station:'central',berths}).join(' ')).toContain('distinct nonempty');
-    expect(validateStationProgram({...selection,parameters:[{id:'station',type:'DESTINATION'},{id:'berths',type:'ID_LIST'}]}).join(' ')).toContain('incompatible');
+    expect(validateStationProgram({...selection,parameters:[{id:'station',type:'NUMBER'},{id:'berths',type:'ID_LIST'}]}).join(' ')).toContain('incompatible');
     const doc=document();doc.boundPrograms=[{...snapshot,definition:selection}];doc.duties[0].elements[1]={id:'program',type:'PROGRAM',tick:call.tick,program:{programId:call.programId,arguments:{station:'central',berths:['long','short']}}};
     const before=JSON.stringify(doc);expect(generateTimetableSource(doc).source).toContain('AVAILABLE_PRIORITY');expect(JSON.stringify(doc)).toBe(before);
   });
@@ -86,7 +86,7 @@ describe('shared station program bindings',()=>{
   });
   it('rejects mismatched typed arguments, invalid waits and schedules without mutating inputs',()=>{
     const before=JSON.stringify(snapshot);expect(validateStationProgramCall(snapshot,{...call,arguments:{target:12}},24000).length).toBeGreaterThan(0);
-    expect(validateStationProgram({...definition,parameters:[{id:'target',type:'STRING'}]}).join(' ')).toContain('incompatible');
+    expect(validateStationProgram({...definition,parameters:[{id:'target',type:'NUMBER'}]}).join(' ')).toContain('incompatible');
     const waiting={...snapshot,definition:{parameters:[],steps:[{id:'wait',type:'WAIT_DURATION' as const,durationTicks:{value:10}},{id:'until',type:'WAIT_UNTIL' as const,tick:{value:24000}}]}};
     expect(validateStationProgramCall(waiting,{...call,arguments:{}},24000).join(' ')).toContain('schedule');
     expect(validateStationProgram({parameters:[],steps:[{id:'wait',type:'WAIT_DURATION',durationTicks:{value:0}}]}).length).toBeGreaterThan(0);

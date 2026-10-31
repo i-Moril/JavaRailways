@@ -69,3 +69,8 @@ Each canvas must set Blockly's full locale before `inject`, including the duty c
 UNIT_SLOTS 常量在积木侧栏和调用参数中复用 UnitSlotsInput，协议仍为 number[]／Blockly VALUE JSON。以当前实际运行车头起从1编号的完整编组单元选择，单元可能包含多节车厢，换向后重新按运行车头编号；不得暗示编号是车厢号或伪造实际编组清单。接受1至Int32上限的互异整数，非空且最多128项。候选编号仅在添加或回车后提交一次既有历史，切换字段/积木/世界丢弃候选；重复和非法候选禁用添加。无效积木原始JSON必须保留、可修复且继续阻止保存，参数引用不转换成常量。
 
 Blockly焦点转到侧栏控件产生的空选择，不应卸载正在编辑的侧栏；新积木选择和权威外部加载仍更新选择。多控件参数行使用div与显式文字，不用单个label包裹多个输入。输入框回车/Esc不冒泡至弹窗。
+
+
+## 数字与字符串表达式
+
+程序值支持递归纯运算和逐项对象构造；类型、格式、求值与预算遵守[表达式合同](../program-expressions.md)。浏览器、Java保存校验和Kotlin编译必须保持一致，原trainInfo动态绑定范围不扩张。

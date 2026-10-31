@@ -1,6 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import {emptyAuthoringDocument,generateTimetableSource,type TimetableAuthoringDocumentV1} from './authoring';
-import {projectDutyTimeline,sortDutyTasks} from './dutyTimeline';
+import {defaultDutyProgramArguments,projectDutyTimeline,sortDutyTasks} from './dutyTimeline';
 import type {TimetableSimulationResult} from './types';
 const fixture=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),id:'test',runs:[{id:'R',type:'PASSENGER',lineDirection:'UP',calls:[{id:'a',stationId:'a',targetId:'a',status:'ORIGIN',departureTick:100},{id:'b',stationId:'b',targetId:'b',status:'TERMINAL',arrivalTick:200,departureTick:220,minimumDwellTicks:10}]}],boundPrograms:[{programId:'1',revision:1,contentIdentity:`sha256:${'a'.repeat(64)}`,definition:{parameters:[],steps:[]}}],duties:[{id:'D',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'r',type:'RUN',runId:'R'},{id:'p',type:'PROGRAM',tick:230,program:{programId:'1',arguments:{}}}]}]});
 describe('duty timeline projection',()=>{
@@ -47,4 +47,8 @@ it('orders tasks after run time edits in one transaction and preserves equal-tim
  const edited={...d,runs:[{...d.runs[0],calls:[{...d.runs[0].calls[0],departureTick:10}]}]};
  const ordered=orderDutyTimeline(edited);expect(ordered.duties[0].elements.map(e=>e.id)).toEqual(['r','p']);expect(edited.duties[0].elements.map(e=>e.id)).toEqual(['p','r']);
  const tied={...edited,runs:[{...edited.runs[0],calls:[{...edited.runs[0].calls[0],departureTick:30}]}]};expect(orderDutyTimeline(tied)).toBe(tied);
+});
+
+it('initializes numeric program and simulation arguments with valid numeric defaults',()=>{
+ expect(defaultDutyProgramArguments([{id:'number',type:'NUMBER'},{id:'duration',type:'DURATION'},{id:'tick',type:'TICK'},{id:'text',type:'STRING'}])).toEqual({number:0,duration:1,tick:0,text:''});
 });

@@ -6,7 +6,7 @@ import kotlinx.serialization.json.*
 
 /** Visual authoring DTOs are expanded at compile time, never evaluated as runtime JavaScript. */
 @Serializable internal data class StationProgramParameter(val id: String, val type: String)
-@Serializable internal data class StationProgramValue(val value: JsonElement? = null, val parameterId: String? = null, val trainInfo: Map<String, SavedTrainInfoField>? = null)
+@Serializable internal data class StationProgramValue(val value: JsonElement? = null, val parameterId: String? = null, val trainInfo: Map<String, SavedTrainInfoField>? = null, val operation: StationProgramOperation? = null, val `object`: Map<String, StationProgramValue>? = null)
 @Serializable internal data class StationProgramDefinition(val parameters: List<StationProgramParameter>, val steps: List<StationProgramStep>)
 @Serializable internal sealed class StationProgramStep {
     abstract val id: String
@@ -32,14 +32,7 @@ internal data class ExpandedStationProgram(val steps: List<SavedTimetableStepV1>
 
 internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: JsonElement, initialTick: Long, plannedContext: Map<String, JsonElement> = emptyMap()): ExpandedStationProgram {
     require(initialTick in 0L..9_007_199_254_740_991L) { "program start tick must be a nonnegative safe integer" }
-    fun expressionShape(value: JsonElement, allowTrainInfo: Boolean = false) {
-        val fields = value as? JsonObject ?: error("program value must be an object")
-        if (allowTrainInfo && fields.keys == setOf("trainInfo")) {
-            parseTrainInfo(fields.getValue("trainInfo"))
-            return
-        }
-        require(fields.keys == setOf("value") || fields.keys == setOf("parameterId")) { "program value requires exactly value or parameterId" }
-    }
+    fun expressionShape(value: JsonElement, allowTrainInfo: Boolean = false) = ProgramExpressions.validateShape(value, allowTrainInfo)
     var count = 0
     val stepIds = mutableSetOf<String>()
     fun checkSteps(steps: JsonArray, depth: Int) {
@@ -77,22 +70,45 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
     require(definition.parameters.size <= 64 && definition.steps.size <= 256) { "program exceeds parameter/step limits" }
     val parameters = definition.parameters.associate { parameter ->
         requireProgramId(parameter.id)
-        require(parameter.type in setOf("TICK", "DURATION", "DESTINATION", "STATION", "DEPOT", "STRING", "ID_LIST", "JSON_OBJECT", "UNIT_SLOTS")) { "unknown parameter type: ${parameter.type}" }
+        require(parameter.type in setOf("NUMBER", "TICK", "DURATION", "DESTINATION", "STATION", "DEPOT", "STRING", "ID_LIST", "JSON_OBJECT", "UNIT_SLOTS")) { "unknown parameter type: ${parameter.type}" }
         parameter.id to parameter.type
     }
     require(parameters.size == definition.parameters.size) { "duplicate program parameter id" }
     require(arguments.keys == parameters.keys) { "program arguments must match declared parameters" }
     parameters.forEach { (id, type) -> validateProgramLiteral(arguments.getValue(id), type) }
     require(definition.steps.map { it.id }.distinct().size == definition.steps.size) { "duplicate program step id" }
-    fun value(expression: StationProgramValue, type: String): JsonElement {
-        require(expression.trainInfo == null && (expression.value != null) != (expression.parameterId != null)) { "program value requires exactly value or parameterId" }
-        val literal = expression.parameterId?.let { id ->
-            require(parameters[id] == type) { "unknown or incompatible parameter: $id" }
-            arguments.getValue(id)
-        } ?: requireNotNull(expression.value)
-        validateProgramLiteral(literal, type)
-        return literal
+    fun value(expression: StationProgramValue, type: String): JsonElement =
+        ProgramExpressions.evaluate(expression, type, parameters, arguments)
+    fun validateBoundSteps(steps: JsonArray) {
+        steps.forEach { raw ->
+            val step = raw.jsonObject
+            val id = step.getValue("id").jsonPrimitive.content
+            try {
+                val sinks = when (step.getValue("type").jsonPrimitive.content) {
+                    "SET_DISPLAY" -> mapOf("unitSlots" to "UNIT_SLOTS", "values" to "JSON_OBJECT", "removeKeys" to "ID_LIST")
+                    "RESET_DISPLAY" -> mapOf("unitSlots" to "UNIT_SLOTS")
+                    "BRANCH", "EXTENSION" -> mapOf("parameters" to "JSON_OBJECT")
+                    "WAIT_UNTIL" -> mapOf("tick" to "TICK")
+                    "WAIT_DURATION" -> mapOf("durationTicks" to "DURATION")
+                    "MOVE" -> mapOf("destinationId" to "DESTINATION", "viaIds" to "ID_LIST")
+                    "SELECT_STOP" -> mapOf("stationId" to "STATION", "berthIds" to "ID_LIST")
+                    "STORE_AT_DEPOT" -> mapOf("depotId" to "DEPOT", "stablingPointIds" to "ID_LIST")
+                    else -> emptyMap()
+                }
+                sinks.forEach { (name, type) -> step[name]?.let { expression ->
+                    if (expression.jsonObject.keys != setOf("trainInfo")) {
+                        val resolved = value(Json.decodeFromJsonElement(expression), type)
+                        if (name == "durationTicks") require(resolved.jsonPrimitive.long > 0) { "wait duration must be positive" }
+                    }
+                } }
+                if (step["type"]?.jsonPrimitive?.content == "BRANCH") {
+                    validateBoundSteps(step.getValue("thenSteps").jsonArray)
+                    validateBoundSteps(step.getValue("elseSteps").jsonArray)
+                }
+            } catch (failure: RuntimeException) { throw if (failure is ProgramStepFailure) failure else ProgramStepFailure(id, failure) }
+        }
     }
+    validateBoundSteps(definitionJson.jsonObject.getValue("steps").jsonArray)
     fun expand(steps: List<StationProgramStep>, startTick: Long): Pair<ExpandedStationProgram, Long> {
     var tick = startTick
     val result = mutableListOf<SavedTimetableStepV1>()
@@ -172,12 +188,17 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
 }
 
 private fun requireProgramId(id: String) { require(id.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,127}"))) { "invalid program parameter/step id: $id" } }
-private fun validateProgramLiteral(value: JsonElement, type: String) {
+internal fun validateProgramLiteral(value: JsonElement, type: String) {
     when (type) {
+        "NUMBER" -> {
+            val number = (value as? JsonPrimitive)?.takeUnless { it.isString }?.doubleOrNull
+            require(number != null && number.isFinite() && !(kotlin.math.floor(number) == number && kotlin.math.abs(number) > 9_007_199_254_740_991.0)) { "NUMBER must be finite and integral values must be safe integers" }
+        }
+        "STRING" -> require(value is JsonPrimitive && value.isString && value.content.length <= 8192) { "STRING must contain at most8192 characters" }
         "TICK", "DURATION" -> {
             val primitive = value as? JsonPrimitive
-            val number = primitive?.takeUnless { it.isString }?.longOrNull
-            require(number != null && number in 0L..9_007_199_254_740_991L) { "$type must be a nonnegative safe integer" }
+            val number = primitive?.takeUnless { it.isString }?.doubleOrNull
+            require(number != null && number.isFinite() && number == kotlin.math.floor(number) && number in 0.0..9_007_199_254_740_991.0) { "$type must be a nonnegative safe integer" }
         }
         "UNIT_SLOTS" -> {
             require(value is JsonArray) { "UNIT_SLOTS must be an array" }
@@ -186,7 +207,7 @@ private fun validateProgramLiteral(value: JsonElement, type: String) {
         "JSON_OBJECT" -> validateProgramJsonObject(value)
         "ID_LIST" -> {
             require(value is JsonArray && value.size <= 256) { "ID_LIST must be an array with at most256 entries" }
-            value.forEach { validateProgramLiteral(it, "STRING") }
+            value.forEach { validateProgramLiteral(it, "DESTINATION") }
         }
         else -> require(value is JsonPrimitive && value.isString && value.content.isNotBlank() && value.content.length <= 256) { "$type must be a nonblank string of at most256 characters" }
     }

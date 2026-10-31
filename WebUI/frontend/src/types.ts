@@ -115,11 +115,13 @@ export interface ServerLogPage {
 }
 export interface ServerLogQuery { source:string; query?:string; cursor?:string }
 // Shared library records are authoring inputs; runtime uses bound embedded definitions.
-export type StationProgramParameterType='TICK'|'DURATION'|'DESTINATION'|'STATION'|'DEPOT'|'STRING'|'ID_LIST'|'JSON_OBJECT'|'UNIT_SLOTS';
+export type StationProgramParameterType='NUMBER'|'TICK'|'DURATION'|'DESTINATION'|'STATION'|'DEPOT'|'STRING'|'ID_LIST'|'JSON_OBJECT'|'UNIT_SLOTS';
 export type ProgramJsonValue=null|boolean|number|string|ProgramJsonValue[]|ProgramJsonObject;
 export interface ProgramJsonObject {[key:string]:ProgramJsonValue}
-export type StationProgramLiteral=number|string|string[]|number[]|ProgramJsonObject;
-export type StationProgramValue<T>={value:T}|{parameterId:string};
+export type StationProgramLiteral=ProgramJsonValue;
+export type StationProgramOperation='ADD'|'SUBTRACT'|'MULTIPLY'|'DIVIDE'|'MODULO'|'MIN'|'MAX'|'ROUND'|'FLOOR'|'CEIL'|'CONCAT'|'SUBSTRING'|'REPLACE'|'TEXT_LENGTH'|'TO_STRING'|'TO_NUMBER';
+export type StationProgramExpression={operation:{type:StationProgramOperation;operands:StationProgramValue<StationProgramLiteral>[]}}|{object:Record<string,StationProgramValue<StationProgramLiteral>>};
+export type StationProgramValue<T>={value:T}|{parameterId:string}|StationProgramExpression;
 export type StationProgramJsonValue=StationProgramValue<ProgramJsonObject>|{trainInfo:TrainInfoBindings};
 export type StationProgramStep=
  | {id:string;type:'SET_DISPLAY';unitSlots:StationProgramValue<number[]>;values:StationProgramJsonValue;removeKeys?:StationProgramValue<string[]>}

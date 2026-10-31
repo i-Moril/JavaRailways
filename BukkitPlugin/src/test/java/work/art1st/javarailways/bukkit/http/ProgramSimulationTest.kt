@@ -64,6 +64,21 @@ class ProgramSimulationTest {
         assertTrue(boundary.periodDays * 24_000L <= 9_007_199_254_740_991L)
     }
 
+    @Test fun `expression absolute wait extends simulation period with the same compiled value`() {
+        val input = request {
+            JsonObject(this + mapOf("definition" to Json.parseToJsonElement("""
+                {"parameters":[{"id":"days","type":"NUMBER"}],"steps":[{"id":"wait","type":"WAIT_UNTIL",
+                  "tick":{"operation":{"type":"MULTIPLY","operands":[{"parameterId":"days"},{"value":24000}]}}}]}
+            """), "arguments" to buildJsonObject { put("days", 5) }))
+        }
+        assertEquals(6L, input.periodDays)
+        TimetableScriptSandbox(directory).use { sandbox ->
+            val compiled = sandbox.compileSource(input.source(), "function-simulation")
+            assertEquals(6L, compiled.periodDays)
+            assertTrue(compiled.services.single().steps.any { it.tick == 120_000L })
+        }
+    }
+
     @Test fun `execution deadline is an explicit safe wall clock budget independent of ticks`() {
         for (value in listOf(JsonPrimitive(0), JsonPrimitive(3_600_001), JsonPrimitive(1.5), JsonPrimitive("1000"), JsonNull)) {
             assertThrows(IllegalArgumentException::class.java) { request { JsonObject(this + ("executionTimeoutMillis" to value)) } }

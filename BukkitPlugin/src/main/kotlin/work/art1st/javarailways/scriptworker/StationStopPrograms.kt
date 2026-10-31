@@ -49,16 +49,21 @@ internal fun compileStationStopPrograms(target: String, options: JsonObject): Sa
                 else -> emptyList()
             }
             for (name in expressions) {
-                val expression = step.getValue(name) as? JsonObject ?: error("step:$id: expression must be an object")
-                if (expression.keys == setOf("trainInfo") && ((type == "SET_DISPLAY" && name == "values") || type == "EXTENSION")) {
-                    try { parseTrainInfo(expression.getValue("trainInfo")) }
+                try { ProgramExpressions.validateShape(step.getValue(name), (type == "SET_DISPLAY" && name == "values") || type == "EXTENSION") }
+                catch (failure: RuntimeException) { throw IllegalArgumentException("step:$id: ${failure.message}", failure) }
+                if (step.getValue(name).jsonObject.keys != setOf("trainInfo")) {
+                    val sink = when (name) { "tick" -> "TICK"; "durationTicks" -> "DURATION"; "unitSlots" -> "UNIT_SLOTS"; "removeKeys" -> "ID_LIST"; else -> "JSON_OBJECT" }
+                    try {
+                        val resolved = ProgramExpressions.evaluate(Json.decodeFromJsonElement<StationProgramValue>(step.getValue(name)), sink)
+                        if (name == "durationTicks") require(resolved.jsonPrimitive.long > 0) { "wait duration must be positive" }
+                    }
                     catch (failure: RuntimeException) { throw IllegalArgumentException("step:$id: ${failure.message}", failure) }
-                } else require(expression.keys == setOf("value")) { "step:$id: shared station expressions must be literal" }
+                }
             }
             if (type == "BRANCH") {
                 val parameters = step.getValue("parameters").jsonObject
-                require(parameters.keys == setOf("value")) { "station conditions require literal parameters" }
-                evaluatePlannedCondition(step.getValue("typeId").jsonPrimitive.content, step.getValue("version").jsonPrimitive.int, parameters.getValue("value").jsonObject, context)
+                evaluatePlannedCondition(step.getValue("typeId").jsonPrimitive.content, step.getValue("version").jsonPrimitive.int,
+                    ProgramExpressions.evaluate(Json.decodeFromJsonElement<StationProgramValue>(parameters), "JSON_OBJECT").jsonObject, context)
                 validateSource(step.getValue("thenSteps"), depth + 1); validateSource(step.getValue("elseSteps"), depth + 1)
             }
             if (type == "ASYNC") validateSource(step.getValue("steps"), depth + 1)
@@ -75,10 +80,14 @@ internal fun compileStationStopPrograms(target: String, options: JsonObject): Sa
         val steps = raw as? JsonArray ?: error("station steps must be an array")
         val result = mutableListOf<SavedStationProgramAction>()
         fun expression(step: JsonObject, name: String): JsonElement {
-            val value = step.getValue(name).jsonObject
-            if (value.keys == setOf("trainInfo") && name in setOf("values", "parameters")) return JsonObject(emptyMap())
-            require(value.keys == setOf("value")) { "shared station expressions must be literal" }
-            return value.getValue("value")
+            val raw = step.getValue(name).jsonObject
+            if (raw.keys == setOf("trainInfo") && name in setOf("values", "parameters")) return JsonObject(emptyMap())
+            val expected = when (name) {
+                "tick" -> "TICK"; "durationTicks" -> "DURATION"; "unitSlots" -> "UNIT_SLOTS"; "removeKeys" -> "ID_LIST"
+                else -> "JSON_OBJECT"
+            }
+            return try { ProgramExpressions.evaluate(Json.decodeFromJsonElement<StationProgramValue>(raw), expected) }
+            catch (failure: RuntimeException) { throw IllegalArgumentException("step:${step["id"]?.jsonPrimitive?.content}: ${failure.message}", failure) }
         }
         for ((index, value) in steps.withIndex()) {
             require(++count <= 512) { "station definition exceeds512 steps" }

@@ -97,3 +97,8 @@ EditorDocumentValidator 校验可选 operationalTrips（唯一 id、受限 defau
 events与交路PROGRAM共用时刻、可选stationId/label/duration/program结构，program为{programId,arguments}；交路PROGRAM的program必需，EVENT元素仅{id,type,eventId}引用图所属作业。Java复用同一当前结构验证，不读取旧PROGRAM.call，未发布格式继续1。持久化层允许保存缺失事件引用，由authoring内容校验显示问题；不把内容issue升级为无法保存草稿。程序参数继续按已绑定快照验证。旧开发数据只由一次性dry-run/hash校验/恢复点迁移工具转换，不在HTTP或业务层upcast。
 
 作业duration的PROGRAM类型表示采用bound snapshot估计，MANUAL采用显式ticks，SIMULATED只采用完整真实测量，省略仍是既有POINT。PROGRAM无估计则未知，不能伪造成0或测量值。前端图/交路共用operationDuration解析；首次图事件选择程序的预览与保存共用候选绑定，估计跨周期在确定前拒绝。该计划类型不扩展编组事件的耗时能力。
+
+
+## 数字与字符串表达式
+
+程序值支持递归纯运算和逐项对象构造；类型、格式、求值与预算遵守[表达式合同](../program-expressions.md)。浏览器、Java保存校验和Kotlin编译必须保持一致，原trainInfo动态绑定范围不扩张。

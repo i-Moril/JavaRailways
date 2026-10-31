@@ -56,12 +56,12 @@ describe('rail program Blockly mapping',()=>{
  });
  it('does not parse plain railway ids as JSON strings or add quotes',()=>{
   const state=definitionToBlocks({parameters:[],steps:[{id:'move',type:'MOVE',destinationId:{value:'a"b'},viaIds:{value:[]}}]});
-  expect(first(state).inputs!.destinationId.block!.fields!.VALUE).toBe('a"b');
+  expect(first(state).inputs!.destinationId.shadow!.fields!.VALUE).toBe('a"b');
   expect((blocksToDefinition(state,[]).steps[0] as Extract<StationProgramStep,{type:'MOVE'}>).destinationId).toEqual({value:'a"b'});
  });
  it('rejects missing, malformed, mismatched and disabled inputs without silently executing them',()=>{
   const source=definitionToBlocks({parameters:[],steps:[{id:'pause',type:'WAIT_DURATION',durationTicks:{value:1}}]});
-  const mutations:((block:ProgramBlockState)=>void)[]=[(b)=>{delete b.inputs!.durationTicks;},(b)=>{b.inputs!.durationTicks.block!.fields!.VALUE='-';},(b)=>{b.inputs!.durationTicks.block!.type='rail_literal_STRING';},(b)=>{b.enabled=false;},(b)=>{b.disabledReasons=['MANUALLY_DISABLED'];},(b)=>{b.inputs!.durationTicks.block!.disabledReasons=['MANUALLY_DISABLED'];},(b)=>{b.inputs!.surprise={block:{type:'rail_REVERSE',id:'unexpected'}};}];
+  const mutations:((block:ProgramBlockState)=>void)[]=[(b)=>{delete b.inputs!.durationTicks;},(b)=>{b.inputs!.durationTicks.shadow!.fields!.VALUE='-';},(b)=>{b.inputs!.durationTicks.shadow!.type='rail_literal_STRING';},(b)=>{b.enabled=false;},(b)=>{b.disabledReasons=['MANUALLY_DISABLED'];},(b)=>{b.inputs!.durationTicks.shadow!.disabledReasons=['MANUALLY_DISABLED'];},(b)=>{b.inputs!.surprise={block:{type:'rail_REVERSE',id:'unexpected'}};}];
   for(const mutation of mutations){const state=clone(source);mutation(first(state));expect(()=>blocksToDefinition(state,[])).toThrow();}
  });
  it('rejects duplicate block ids and over-deep graphs',()=>{

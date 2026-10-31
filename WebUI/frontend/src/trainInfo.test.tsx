@@ -19,7 +19,7 @@ describe('explicit current train information sources',()=>{
  });
  it('does not interpret literal objects resembling the explicit source',()=>{
   const definition:StationProgramDefinition={parameters:[],steps:[{id:'literal',type:'SET_DISPLAY',unitSlots:{value:[1]},values:{value:{trainInfo:{name:'NAME'}}}}]};
-  const blocks=definitionToBlocks(definition);expect(blocks.blocks!.blocks[0].next!.block.inputs!.values.block!.type).toBe('rail_literal_JSON_OBJECT');expect(blocksToDefinition(blocks,[])).toEqual(definition);
+  const blocks=definitionToBlocks(definition);expect(blocks.blocks!.blocks[0].next!.block.inputs!.values.shadow!.type).toBe('rail_literal_JSON_OBJECT');expect(blocksToDefinition(blocks,[])).toEqual(definition);
  });
  it('rejects sources in condition, routing, waits and other action fields',()=>{
   for(const step of [

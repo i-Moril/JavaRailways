@@ -47,6 +47,39 @@ describe('real Blockly expression sockets and serialization',()=>{
  it('supports actual connection and disconnect events without widening action availability',()=>{
   const workspace=new Blockly.Workspace();try{const pause=workspace.newBlock('rail_WAIT_DURATION'),multiply=workspace.newBlock('rail_operation_MULTIPLY'),number=workspace.newBlock('rail_literal_NUMBER'),entry=workspace.newBlock('rail_entry');number.setFieldValue('20','VALUE');pause.getInput('durationTicks')!.connection!.connect(multiply.outputConnection!);multiply.getInput('ARG0')!.connection!.connect(number.outputConnection!);entry.nextConnection!.connect(pause.previousConnection!);expect(pause.getInputTargetBlock('durationTicks')).toBe(multiply);const saved=Blockly.serialization.workspaces.save(workspace) as ProgramWorkspaceState;expect(()=>blocksToDefinition(saved,[])).toThrow('Invalid program expression');const other=workspace.newBlock('rail_literal_TICK');other.setFieldValue('2','VALUE');multiply.getInput('ARG1')!.connection!.connect(other.outputConnection!);const complete=blocksToDefinition(Blockly.serialization.workspaces.save(workspace) as ProgramWorkspaceState,[]);expect(validateStationProgram(complete)).toEqual([]);expect(stationProgramSchedule(complete.steps,{},0,100).earliest).toBe(40);other.unplug();expect(()=>blocksToDefinition(Blockly.serialization.workspaces.save(workspace) as ProgramWorkspaceState,[])).toThrow();}finally{workspace.dispose();}
  });
+ it.each([['rail_operation_SUBSTRING','ARG0'],['rail_operation_REPLACE','ARG0'],['rail_MOVE','destinationId']])('connects joined text to %s %s, including replacing a literal',(type,input)=>{
+  const workspace=new Blockly.Workspace();try{const parent=workspace.newBlock(type),original=workspace.newBlock('rail_literal_STRING'),join=workspace.newBlock('rail_operation_CONCAT');parent.getInput(input)!.connection!.connect(original.outputConnection!);parent.getInput(input)!.connection!.connect(join.outputConnection!);expect(parent.getInputTargetBlock(input)).toBe(join);expect(original.getParent()).toBeNull();}finally{workspace.dispose();}
+ });
+ it('replaces a saved destination with joined text without leaving a loose literal and restores the original when unplugged',()=>{
+  const definition:StationProgramDefinition={parameters:[],steps:[{id:'move',type:'MOVE',destinationId:{value:'original@1'},viaIds:{value:[]}}]};
+  const workspace=new Blockly.Workspace(),reloaded=new Blockly.Workspace();try{
+   Blockly.serialization.workspaces.load(definitionToBlocks(definition),workspace);const move=workspace.getBlockById('$rail-step/move')!,original=move.getInputTargetBlock('destinationId')!;expect(original.isShadow()).toBe(true);
+   const joined=op('CONCAT',text('central@'),text('1'));const joinedDefinition={...definition,steps:[{...definition.steps[0],destinationId:joined}]} as StationProgramDefinition;
+   const joinedState=definitionToBlocks(joinedDefinition).blocks!.blocks[0].next!.block.inputs!.destinationId.block!;
+   const join=Blockly.serialization.blocks.append(joinedState,workspace);move.getInput('destinationId')!.connection!.connect(join.outputConnection!);
+   expect(workspace.getTopBlocks(false).map(block=>block.type)).toEqual(['rail_entry']);
+   const saved=Blockly.serialization.workspaces.save(workspace) as ProgramWorkspaceState;expect(blocksToDefinition(saved,[])).toEqual(joinedDefinition);
+   Blockly.serialization.workspaces.load(saved,reloaded);expect(blocksToDefinition(Blockly.serialization.workspaces.save(reloaded) as ProgramWorkspaceState,[])).toEqual(joinedDefinition);
+   reloaded.getBlockById(join.id)!.dispose(false);expect(reloaded.getBlockById('$rail-step/move')!.getInputTargetBlock('destinationId')!.getFieldValue('VALUE')).toBe('original@1');expect(blocksToDefinition(Blockly.serialization.workspaces.save(reloaded) as ProgramWorkspaceState,[])).toEqual(definition);
+  }finally{workspace.dispose();reloaded.dispose();}
+ });
+ it('keeps sidebar literal and parameter switches replaceable without retaining stale shadow values',()=>{
+  const definition:StationProgramDefinition={parameters:[{id:'target',type:'DESTINATION'}],steps:[{id:'move',type:'MOVE',destinationId:{value:'old@1'},viaIds:{value:[]}}]};const workspace=new Blockly.Workspace();try{
+   Blockly.serialization.workspaces.load(definitionToBlocks(definition),workspace);const move=workspace.getBlockById('$rail-step/move')!,connection=move.getInput('destinationId')!.connection!;
+   move.getInputTargetBlock('destinationId')!.dispose(false);const parameter=workspace.newBlock('rail_parameter_DESTINATION');parameter.setFieldValue('target','VALUE');connection.connect(parameter.outputConnection!);expect(blocksToDefinition(Blockly.serialization.workspaces.save(workspace) as ProgramWorkspaceState,definition.parameters).steps[0]).toMatchObject({destinationId:{parameterId:'target'}});
+   parameter.dispose(false);const literal=workspace.newBlock('rail_literal_DESTINATION');literal.setShadow(true);literal.setFieldValue('new@2','VALUE');connection.connect(literal.outputConnection!);
+   const join=workspace.newBlock('rail_operation_CONCAT');connection.connect(join.outputConnection!);expect(workspace.getTopBlocks(false).map(block=>block.type)).toEqual(['rail_entry']);join.dispose(false);expect(move.getInputTargetBlock('destinationId')!.getFieldValue('VALUE')).toBe('new@2');
+   const realLiteral=workspace.newBlock('rail_literal_DESTINATION');realLiteral.setFieldValue('authored@3','VALUE');connection.connect(realLiteral.outputConnection!);const secondJoin=workspace.newBlock('rail_operation_CONCAT');connection.connect(secondJoin.outputConnection!);expect(realLiteral.getParent()).toBeNull();expect(workspace.getBlockById(realLiteral.id)).toBe(realLiteral);expect(()=>blocksToDefinition(Blockly.serialization.workspaces.save(workspace) as ProgramWorkspaceState,definition.parameters)).toThrow('Connect all blocks');
+  }finally{workspace.dispose();}
+ });
+ it.each(['zh-CN','en-US'] as const)('labels operands by their meaning in %s without changing socket names',(locale)=>{
+  defineBlocks(key=>translate(locale,key));const workspace=new Blockly.Workspace();try{
+   const substring=workspace.newBlock('rail_operation_SUBSTRING'),replace=workspace.newBlock('rail_operation_REPLACE');
+   expect(['ARG0','ARG1','ARG2'].map(name=>substring.getInput(name)!.fieldRow[0].getValue())).toEqual(locale==='zh-CN'?['原文本','起始位置（从 0 开始，含）','结束位置（不含）']:['Original text','Start index (zero-based, inclusive)','End index (exclusive)']);
+   expect(['ARG0','ARG1','ARG2'].map(name=>replace.getInput(name)!.fieldRow[0].getValue())).toEqual(locale==='zh-CN'?['原文本','查找文本','替换为']:['Original text','Search text','Replacement text']);
+   for(const [type,spec] of Object.entries(operationTypes)){const block=workspace.newBlock(`rail_operation_${type}`);spec.inputs.forEach((_,index)=>expect(block.getInput(`ARG${index}`)!.fieldRow[0].getValue()).not.toMatch(/^programs\.|^Input [123]$|^输入 [123]$/));}
+  }finally{workspace.dispose();defineBlocks(t);}
+ });
  it('retains invalid duplicate and blank keys in workspace rather than dropping entries',()=>{const state=definitionToBlocks({parameters:[],steps:[{id:'show',type:'SET_DISPLAY',unitSlots:{value:[1]},values:{object:{one:lit('a'),two:lit('b')}}}]});const builder=state.blocks!.blocks[0].next!.block.inputs!.values.block!;for(const key of ['one','']){builder.fields!.KEY1=key;expect(()=>blocksToDefinition(state,[])).toThrow('Invalid program expression');expect(builder.extraState!.count).toBe(2);}});
  it('provides every documented operation as a real block definition',()=>{for(const type of Object.keys(operationTypes))expect(Blockly.Blocks[`rail_operation_${type}`]).toBeDefined();});
 });

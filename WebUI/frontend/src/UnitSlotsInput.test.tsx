@@ -38,7 +38,7 @@ describe('formation unit selection',()=>{
     const definition:StationProgramDefinition={parameters:[{id:'units',type:'UNIT_SLOTS'}],steps:[{id:'display',type:'RESET_DISPLAY',unitSlots:{value:[3,1]}},{id:'param',type:'RESET_DISPLAY',unitSlots:{parameterId:'units'}}]};
     const state=definitionToBlocks(definition);
     expect(blocksToDefinition(state,definition.parameters)).toEqual(definition);
-    const literal=state.blocks!.blocks[0].next!.block!.inputs!.unitSlots.block!;
+    const literal=state.blocks!.blocks[0].next!.block!.inputs!.unitSlots.shadow!;
     literal.fields!.VALUE='[1,1]';
     expect(validateStationProgram(blocksToDefinition(state,definition.parameters)).length).toBeGreaterThan(0);
     expect(literal.fields!.VALUE).toBe('[1,1]');

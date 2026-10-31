@@ -31,7 +31,7 @@ export function parseAuthoringRecovery(serialized:string|null,owner:string,world
     if(value.document.operationalTrips!==undefined&&(!Array.isArray(value.document.operationalTrips)||value.document.operationalTrips.some((trip)=>!trip||typeof trip.id!=='string'||displayValuesError(trip.defaults)||!Array.isArray(trip.segments)||trip.segments.some((segment)=>!segment||typeof segment.serviceId!=='string'||typeof segment.runId!=='string'||!Array.isArray(segment.unitSlots)||!segment.unitSlots.length||segment.unitSlots.length>128||new Set(segment.unitSlots).size!==segment.unitSlots.length||segment.unitSlots.some((slot)=>!Number.isSafeInteger(slot)||slot<1||slot>2147483647)))))return undefined;
     if(value.document.formationEvents!==undefined&&(!Array.isArray(value.document.formationEvents)||!value.document.formationEvents.every(formationEventShape)))return undefined;
     if(value.document.boundPrograms!==undefined){
-      if(!Array.isArray(value.document.boundPrograms)||value.document.boundPrograms.some((snapshot)=>!snapshot||typeof snapshot.programId!=='string'||!Number.isSafeInteger(snapshot.revision)||snapshot.revision<1||typeof snapshot.contentIdentity!=='string'||validateStationProgram(snapshot.definition).length>0))return undefined;
+      if(!Array.isArray(value.document.boundPrograms)||value.document.boundPrograms.some((snapshot)=>!snapshot||typeof snapshot.programId!=='string'||!Number.isSafeInteger(snapshot.revision)||snapshot.revision<1||typeof snapshot.contentIdentity!=='string'||validateStationProgram(snapshot.definition).length>0||snapshot.estimatedDurationTicks!==undefined&&(!Number.isSafeInteger(snapshot.estimatedDurationTicks)||snapshot.estimatedDurationTicks<0)))return undefined;
     }
     for(const program of value.document.stationPrograms??[])if(validateArrivalProgram(program.arrival).length||validateArrivalProgram(program.departurePreparation).length)return undefined;
     for(const duty of value.document.duties??[]){
@@ -40,7 +40,7 @@ export function parseAuthoringRecovery(serialized:string|null,owner:string,world
         if(element.type==='RUN'){if(typeof element.runId!=='string')return undefined;}
         else if(element.type==='PROGRAM'){
           if(!element.program||typeof element.program.programId!=='string'||!Number.isSafeInteger(element.tick)||!element.program.arguments||typeof element.program.arguments!=='object'||Array.isArray(element.program.arguments))return undefined;
-          if(element.duration&&(element.duration.type==='MANUAL'?(!Number.isSafeInteger(element.duration.ticks)||element.duration.ticks<0):element.duration.type!=='SIMULATED'))return undefined;
+          if(element.duration&&(element.duration.type==='MANUAL'?(!Number.isSafeInteger(element.duration.ticks)||element.duration.ticks<0):!['SIMULATED','PROGRAM'].includes(element.duration.type)))return undefined;
         }else if(element.type==='EVENT'||element.type==='FORMATION'){if(typeof element.eventId!=='string')return undefined;}else return undefined;
       }
     }

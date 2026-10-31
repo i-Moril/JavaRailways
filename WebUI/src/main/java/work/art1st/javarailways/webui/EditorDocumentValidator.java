@@ -40,12 +40,13 @@ final class EditorDocumentValidator {
         if (document.has("boundPrograms")) {
             requireObjectArray(document, "boundPrograms");
             for (JsonNode snapshot : document.path("boundPrograms")) {
-                StationProgramValidator.fields(snapshot, java.util.Set.of("programId", "revision", "contentIdentity", "definition"), "bound program");
+                StationProgramValidator.fields(snapshot, java.util.Set.of("programId", "revision", "contentIdentity", "definition"), java.util.Set.of("estimatedDurationTicks"), "bound program");
                 String id = StationProgramValidator.text(snapshot.path("programId"), "bound program id");
                 if (!id.matches("[A-Za-z0-9][A-Za-z0-9_-]{0,127}")) fail("invalid bound program id");
                 if (programs.put(id, snapshot) != null) fail("duplicate bound program");
                 StationProgramValidator.revision(snapshot.path("revision"));
                 StationProgramValidator.validate(snapshot.path("definition"));
+                VisualProgramRepository.validateEstimatedDuration(snapshot.get("estimatedDurationTicks"));
                 if (!ProgramContentIdentity.of(snapshot.path("definition")).equals(snapshot.path("contentIdentity").asText())) fail("bound program content identity mismatch");
             }
         }
@@ -222,7 +223,10 @@ final class EditorDocumentValidator {
                 StationProgramValidator.fields(duration, java.util.Set.of("type", "ticks"), "operation duration");
                 requireSafeNonnegative(duration.path("ticks"), "operation duration");
             }
-            case "SIMULATED" -> StationProgramValidator.fields(duration, java.util.Set.of("type"), "operation duration");
+            case "SIMULATED", "PROGRAM" -> {
+                StationProgramValidator.fields(duration, java.util.Set.of("type"), "operation duration");
+                if (duration.path("type").asText().equals("PROGRAM") && !operation.has("program")) fail("program duration requires a program");
+            }
             default -> fail("unknown operation duration type");
         }
     }

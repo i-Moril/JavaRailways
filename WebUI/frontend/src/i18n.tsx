@@ -3,6 +3,10 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from 're
 export type Locale = 'zh-CN' | 'en-US';
 
 const zh = {
+  'programs.estimatedDuration':'函数预计耗时（tick，可留空）',
+  'programs.estimatedDurationHint':'用于时间轴计划展示，不会令列车额外等待。留空表示未知，0 表示时间点；模拟测量可填入此处，保存后生效。已绑定的交路需主动更新快照。',
+  'timeline.defaultDuration':'函数预计耗时',
+  'timeline.defaultDurationHint':'采用已绑定函数快照的预计耗时',
   'errors.bridgeTimeout':'等待服务器桥接响应超时。',
   'errors.bridgeUnavailable':'无法连接服务器桥接服务。',
   'errors.bridgeInvalidResponse':'服务器桥接返回了无法读取的响应。',
@@ -30,6 +34,8 @@ const zh = {
   'errors.simulationLimit':'已达到模拟推进上限。',
 
   'programSimulation.cancel':'取消',
+  'simulation.setup':'模拟设置',
+  'simulation.lineSetup':'运行线模拟设置',
   'simulation.timeout':'模拟执行超时（真实秒）',
   'simulation.timeoutHint':'限制服务器实际计算的等待时间，与模拟推进的 tick 数不同；仅用于本次模拟，不保存到时刻表。',
   'programSimulation.title':'模拟函数耗时',
@@ -38,7 +44,6 @@ const zh = {
   'programSimulation.adopt':'采用为计划耗时',
   'programSimulation.scenarioHint':'在隔离环境中运行这一次函数调用。参考车辆只提供车型与运行参数，不复制真实列车的当前位置或运行状态。',
   'programSimulation.waypoint':'模拟起点',
-  'programSimulation.start':'开始时刻（tick）',
   'programSimulation.limit':'模拟推进上限（tick）',
   'programSimulation.noProfiles':'当前没有可用的参考车辆。',
   'programSimulation.noPoints':'当前没有指定方向的路径点。请为路径点或其所在轨道配置方向。',
@@ -744,6 +749,10 @@ const zh = {
 
 type TranslationKey = keyof typeof zh;
 const en: Record<TranslationKey, string> = {
+  'programs.estimatedDuration':'Estimated function duration (ticks, optional)',
+  'programs.estimatedDurationHint':'Used for timeline planning only; it adds no execution wait. Blank means unknown and 0 means a point. Adopt a simulation measurement here, then save. Existing duties need an explicit snapshot update.',
+  'timeline.defaultDuration':'Function estimate',
+  'timeline.defaultDurationHint':'Uses the estimate in the bound function snapshot',
   'errors.bridgeTimeout':'Timed out waiting for the server bridge.',
   'errors.bridgeUnavailable':'Cannot connect to the server bridge.',
   'errors.bridgeInvalidResponse':'The server bridge returned an unreadable response.',
@@ -771,6 +780,8 @@ const en: Record<TranslationKey, string> = {
   'errors.simulationLimit':'The simulation advance limit was reached.',
 
   'programSimulation.cancel':'Cancel',
+  'simulation.setup':'Simulation setup',
+  'simulation.lineSetup':'Line simulation setup',
   'simulation.timeout':'Simulation timeout (real seconds)',
   'simulation.timeoutHint':'Limits real computation time, separately from simulated ticks. Used for this simulation only; not saved in the timetable.',
   'programSimulation.title':'Simulate function duration',
@@ -779,7 +790,6 @@ const en: Record<TranslationKey, string> = {
   'programSimulation.adopt':'Use as planned duration',
   'programSimulation.scenarioHint':'Run this invocation in isolation. The reference vehicle supplies its model and operating parameters; its live position and runtime state are not copied.',
   'programSimulation.waypoint':'Starting waypoint',
-  'programSimulation.start':'Start tick',
   'programSimulation.limit':'Simulation advance limit (ticks)',
   'programSimulation.noProfiles':'No reference vehicles are available.',
   'programSimulation.noPoints':'No directed waypoints are available. Configure a direction on a waypoint or its rail.',

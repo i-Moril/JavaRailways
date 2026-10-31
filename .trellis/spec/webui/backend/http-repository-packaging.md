@@ -45,11 +45,15 @@ Draft/editor document 是独立持久化边界；shape breaking 时升级其最�
 
 `DELETE /api/v1/worlds/{world}/station-programs/{program}` 使用有效 session 和严格 JSON `{expectedRevision}`；成功真实删除库文件并返回 `{removed:true}`。缺失404、revision冲突409、无效输入400，不能用归档标记替代删除。检查 revision 与文件删除由同步 repository 方法统一拥有。删除不扫描或改写 editor documents／已发布 runtime 的嵌入快照。当前库记录字段为 formatVersion、id、name、revision、definition、contentIdentity；字段集合只描述当前模型；未知字段通过通用校验报错，不建立旧字段黑名单或专项迁移提示。开发期保持 formatVersion1，旧记录必须在停服后用 ai_tasks/migrations/remove_program_library_archived.py 做有 hash 计划和恢复备份的一次性转换，运行时不提供兼容读取。
 
+库记录、create/update请求及bound snapshot另有可选`estimatedDurationTicks`，省略表示未知，0表示计划时间点，值必须为非负JS安全整数；JSON null、字符串、浮点和越界均拒绝。update为完整替换，省略即清除；rename发送已有server baseline值，不覆盖未保存本地编辑。修改估计仍递增revision，但contentIdentity只对definition计算。预计耗时不进入runtime程序定义；绑定更新明确复制元数据，库删除不修改已有绑定。新增可选字段保持现有formatVersion1，无运行时迁移。`StationProgramValidator.fields(required,optional)`显式区分必填/可选，普通三参数调用保留所有字段必填；不能为可选字段给固定缺字段fixture补值来掩盖校验错误。
+
 ## 独立函数耗时模拟
 
 `POST /api/v1/worlds/{world}/programs/simulate` 需要 session，sidecar 验证请求后转发 bridge；复用既有模拟队列和超时，不进入 public map allowlist。请求包含 `programId/definition/arguments/startTick/profile/initialPosition/maximumDurationTicks/executionTimeoutMillis`，可选真实 `plannedContext`；`initialPosition={wayPointId,reverseTrain:boolean}` 必须明确布尔值，无默认或旧 facing 兼容。metadata 的 `programSimulationWayPoints` 只列路径点自身或轨道已声明方向的点，含 direction/directionSource；bridge 捕获时重新验证。
 
 独立函数模拟不要求周期输入。`startTick+maximumDurationTicks`决定推进截止，后端仅为原dispatcher编译派生内部periodDays，覆盖截止及所有分支的绝对WAIT_UNTIL目标（含参数），保证超出推进预算的等待可以返回LIMIT_REACHED，不被人工周期拒绝。事件引用在前端按真实tick解析，不默默取模或复制其他周期。最大tick限制为可安全表示的完整天数边界，起点、预算之和、等待目标和内部周期均须保持JS安全整数。该临时wire不改变持久化schema。
+
+开始tick也不是函数模拟的用户输入：独立程序库调用内部使用0，图/交路调用保留真实计划调用tick供绝对等待求值。该内部字段仍在模拟wire中，不为去掉输入而另建执行器或改变绝对时间语义。
 
 响应 `status` 为 COMPLETED/FAILED/LIMIT_REACHED，含 simulatedTicks 和实际初始点/方向/是否反转；只有完成才有 durationTicks/startTick/endTick。失败保留 reason/failedProgramStepId，不以最大tick或下一任务开始伪造完成。该请求/响应是临时运行边界，不改变 editor document、程序库或持久化版本。后端不得重新按 programId 读取库内容替换请求的 exact definition：来源可以是未保存的有效画布或已绑定且来源删除的固定快照。
 
@@ -91,3 +95,5 @@ EditorDocumentValidator 校验可选 operationalTrips（唯一 id、受限 defau
 ## 统一定时作业 editor-document 边界
 
 events与交路PROGRAM共用时刻、可选stationId/label/duration/program结构，program为{programId,arguments}；交路PROGRAM的program必需，EVENT元素仅{id,type,eventId}引用图所属作业。Java复用同一当前结构验证，不读取旧PROGRAM.call，未发布格式继续1。持久化层允许保存缺失事件引用，由authoring内容校验显示问题；不把内容issue升级为无法保存草稿。程序参数继续按已绑定快照验证。旧开发数据只由一次性dry-run/hash校验/恢复点迁移工具转换，不在HTTP或业务层upcast。
+
+作业duration的PROGRAM类型表示采用bound snapshot估计，MANUAL采用显式ticks，SIMULATED只采用完整真实测量，省略仍是既有POINT。PROGRAM无估计则未知，不能伪造成0或测量值。前端图/交路共用operationDuration解析；首次图事件选择程序的预览与保存共用候选绑定，估计跨周期在确定前拒绝。该计划类型不扩展编组事件的耗时能力。

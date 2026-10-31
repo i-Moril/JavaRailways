@@ -526,18 +526,18 @@ public final class WebUiApplication {
 
     private void createStationProgram(Context context) throws IOException {
         JsonNode request = requestJson(context);
-        StationProgramValidator.fields(request, java.util.Set.of("id", "name", "definition"), "create program request");
+        StationProgramValidator.fields(request, java.util.Set.of("id", "name", "definition"), java.util.Set.of("estimatedDurationTicks"), "create program request");
         context.status(201).json(stationPrograms.create(context.pathParam("world"),
             StationProgramValidator.text(request.path("id"), "program id"),
-            StationProgramValidator.text(request.path("name"), "program name"), request.path("definition")));
+            StationProgramValidator.text(request.path("name"), "program name"), request.path("definition"), request.get("estimatedDurationTicks")));
     }
 
     private void updateStationProgram(Context context) throws IOException {
         JsonNode request = requestJson(context);
-        StationProgramValidator.fields(request, java.util.Set.of("expectedRevision", "name", "definition"), "update program request");
+        StationProgramValidator.fields(request, java.util.Set.of("expectedRevision", "name", "definition"), java.util.Set.of("estimatedDurationTicks"), "update program request");
         stationPrograms.update(context.pathParam("world"), context.pathParam("program"),
             StationProgramValidator.revision(request.path("expectedRevision")),
-            StationProgramValidator.text(request.path("name"), "program name"), request.path("definition"))
+            StationProgramValidator.text(request.path("name"), "program name"), request.path("definition"), request.get("estimatedDurationTicks"))
             .ifPresentOrElse(context::json, () -> error(context, 404, "program not found"));
     }
 

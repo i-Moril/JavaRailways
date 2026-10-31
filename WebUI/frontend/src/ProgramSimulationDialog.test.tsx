@@ -58,6 +58,17 @@ describe('mounted standalone invocation scenario',()=>{
   expect(api.simulateProgram).toHaveBeenCalledExactlyOnceWith('world',expect.objectContaining({startTick:23900,maximumDurationTicks:48000}));
   expect(vi.mocked(api.simulateProgram).mock.calls[0][1]).not.toHaveProperty('periodDays');
  });
+ it('starts a library measurement internally at zero without exposing a start-time input',async()=>{
+  vi.mocked(api.simulateProgram).mockResolvedValue(complete);await render({startTick:undefined,editableArguments:true});await ready();
+  expect(container.querySelector('input[aria-label="Start tick"]')).toBeNull();
+  expect(container.textContent).not.toContain('Start tick');await click('Start simulation');
+  expect(api.simulateProgram).toHaveBeenCalledExactlyOnceWith('world',expect.objectContaining({startTick:0}));
+ });
+ it('keeps an operation caller exact start time without asking the player to edit it',async()=>{
+  vi.mocked(api.simulateProgram).mockResolvedValue(complete);await render({startTick:123456});await ready();
+  expect(container.querySelector('input[aria-label="Start tick"]')).toBeNull();await click('Start simulation');
+  expect(api.simulateProgram).toHaveBeenCalledExactlyOnceWith('world',expect.objectContaining({startTick:123456}));
+ });
  it('submits an editable real-time budget in exact milliseconds',async()=>{
   vi.mocked(api.simulateProgram).mockResolvedValue(complete);await render();await ready();
   await input('Simulation timeout (real seconds)','1.001');

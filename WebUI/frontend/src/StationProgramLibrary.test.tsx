@@ -23,6 +23,12 @@ describe('program library file management',()=>{
   expect(libraryHasChanges(record('1'),{parameters:[],steps:[{id:'wait',type:'WAIT_DURATION',durationTicks:{value:1}}]},true)).toBe(true);
   expect(libraryHasChanges(undefined,definition,false)).toBe(false);
  });
+ it('treats estimate edits, zero and clearing as unsaved metadata',()=>{
+  const estimated={...record('1'),estimatedDurationTicks:20};
+  expect(libraryHasChanges(estimated,definition,true,20)).toBe(false);
+  expect(libraryHasChanges(estimated,definition,true,0)).toBe(true);
+  expect(libraryHasChanges(estimated,definition,true,undefined)).toBe(true);
+ });
  it('remounts all editor and request state for each owner/world pair',()=>{
   expect(StationProgramLibrary({world:'a',recoveryOwner:'player'}).key).not.toBe(StationProgramLibrary({world:'b',recoveryOwner:'player'}).key);
   expect(StationProgramLibrary({world:'a',recoveryOwner:'player'}).key).not.toBe(StationProgramLibrary({world:'a',recoveryOwner:'other'}).key);

@@ -19,6 +19,17 @@ const document=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),bo
 ],duties:[{id:'duty',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'up',type:'RUN',runId:'up'},{id:'program',type:'PROGRAM',tick:call.tick,program:{programId:call.programId,arguments:call.arguments}},{id:'down',type:'RUN',runId:'down'}]}]});
 afterEach(()=>vi.unstubAllGlobals());
 describe('shared station program bindings',()=>{
+  it('adopts estimate-only revisions explicitly with independent snapshots and one undo transaction',()=>{
+    const library={...record(),estimatedDurationTicks:20};const first=adoptStationProgram(emptyAuthoringDocument(),library);
+    library.revision=2;library.estimatedDurationTicks=80;
+    expect(first.boundPrograms![0].estimatedDurationTicks).toBe(20);
+    const adopted=adoptStationProgram(first,library);expect(adopted.boundPrograms![0].estimatedDurationTicks).toBe(80);
+    expect(adopted.boundPrograms![0].contentIdentity).toBe(first.boundPrograms![0].contentIdentity);
+    const history=updateDocumentHistory(createDocumentHistory(first),adopted);
+    expect(undoDocumentHistory(history).present.boundPrograms![0].estimatedDurationTicks).toBe(20);
+    expect(redoDocumentHistory(undoDocumentHistory(history)).present.boundPrograms![0].estimatedDurationTicks).toBe(80);
+    for(const estimatedDurationTicks of [-1,1.5,Number.MAX_SAFE_INTEGER+1])expect(()=>adoptStationProgram(first,{...library,estimatedDurationTicks})).toThrow('Invalid program estimated duration');
+  });
   it('keeps ordered dynamic stop candidates typed and rejects empty or duplicate bound choices',()=>{
     const selection:StationProgramDefinition={parameters:[{id:'station',type:'STATION'},{id:'berths',type:'ID_LIST'}],steps:[{id:'stop',type:'SELECT_STOP',stationId:{parameterId:'station'},berthIds:{parameterId:'berths'},selectionPolicy:'AVAILABLE_PRIORITY'}]};
     expect(validateStationProgram(selection,{station:'central',berths:['long','short']})).toEqual([]);

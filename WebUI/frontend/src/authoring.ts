@@ -458,7 +458,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
         const operation=resolveDutyTimedOperation(document,element);
         if(!operation?.program){issues.push(issue(elementPath,`Missing program operation: ${element.type==='EVENT'?element.eventId:element.id}`));return;}
         const call=timedOperationCall(operation,element.id);
-        for(const message of validateTimedOperation(operation,periodTicks))issues.push(issue(elementPath,message));
+        for(const message of validateTimedOperation(operation,periodTicks,document.boundPrograms))issues.push(issue(elementPath,message));
         const snapshot=document.boundPrograms?.find((item)=>item.programId===call.programId);
         if(!snapshot)issues.push(issue(elementPath,`Missing bound program: ${call.programId}`));
         else {
@@ -490,7 +490,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
   }
   const eventIds=new Set<string>();
   for(const [index,event] of (document.events??[]).entries()){
-    if(!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(event.id)||eventIds.has(event.id)||validateTimedOperation(event,periodTicks).length>0)issues.push(issue(`events[${index}]`,'Invalid or duplicate timed event'));
+    if(!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(event.id)||eventIds.has(event.id)||validateTimedOperation(event,periodTicks,document.boundPrograms).length>0)issues.push(issue(`events[${index}]`,'Invalid or duplicate timed event'));
     eventIds.add(event.id);
     if(event.program){
       const snapshot=document.boundPrograms?.find((item)=>item.programId===event.program!.programId);
@@ -501,6 +501,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
   for(const [index,snapshot] of (document.boundPrograms??[]).entries()){
     if(programIds.has(snapshot.programId))issues.push(issue(`boundPrograms[${index}]`,'Duplicate bound program'));
     programIds.add(snapshot.programId);
+    if(snapshot.estimatedDurationTicks!==undefined&&(!Number.isSafeInteger(snapshot.estimatedDurationTicks)||snapshot.estimatedDurationTicks<0))issues.push(issue(`boundPrograms[${index}]`,'Invalid program estimated duration'));
     for(const message of validateStationProgram(snapshot.definition))issues.push(issue(`boundPrograms[${index}]`,message));
     try{resolveEventWaits(snapshot.definition,document.events??[],periodTicks);}catch(error){issues.push(issue(`boundPrograms[${index}]`,String(error)));}
   }

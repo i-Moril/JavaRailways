@@ -8,11 +8,11 @@ import {api} from './api';
 import type {StationProgramRecord} from './types';
 vi.mock('./api',()=>({api:{stationPrograms:vi.fn(),createStationProgram:vi.fn(),saveStationProgram:vi.fn(),deleteStationProgram:vi.fn()}}));
 vi.mock('./ProgramFields',()=>({ProgramDefinitionEditor:({onChange,onValidityChange}:{onChange:(value:unknown)=>void;onValidityChange:(valid:boolean)=>void})=><><button onClick={()=>onChange({parameters:[],steps:[{id:'reverse',type:'REVERSE'}]})}>Edit test definition</button><button onClick={()=>onValidityChange(false)}>Invalid canvas</button></>}));
-vi.mock('./ProgramSimulationDialog',()=>({ProgramSimulationDialog:(p:{definition:unknown;valid:boolean})=><div data-simulation-valid={p.valid} data-simulation-definition={JSON.stringify(p.definition)}/> }));
+vi.mock('./ProgramSimulationDialog',()=>({ProgramSimulationDialog:(p:{definition:unknown;valid:boolean;onAdoptDuration?:(ticks:number)=>void;onClose:()=>void})=><div data-simulation-valid={p.valid} data-simulation-definition={JSON.stringify(p.definition)}><button onClick={()=>{p.onAdoptDuration?.(123);p.onClose();}}>Adopt simulation estimate</button></div> }));
 // Thin public control boundary: production Ant/Blockly behavior is covered separately.
 vi.mock('antd',()=>{
  const Box=({children}:{children:React.ReactNode})=><div>{children}</div>;
- return {Alert:({title}:{title:string})=><p role="alert">{title}</p>,Button:({children,onClick,disabled,...p}:{children:React.ReactNode;onClick?:()=>void;disabled?:boolean;'aria-label'?:string})=><button disabled={disabled} aria-label={p['aria-label']} onClick={onClick}>{children}</button>,Flex:Box,Space:Box,Typography:{Title:Box,Text:Box,Paragraph:Box},Input:({value,onChange}:{value:string;onChange:React.ChangeEventHandler<HTMLInputElement>})=><input value={value} onChange={onChange}/>,Modal:({open,children,onOk,onCancel}:{open:boolean;children:React.ReactNode;onOk:()=>void;onCancel:()=>void})=>open?<section role="dialog">{children}<button onClick={onOk}>Confirm</button><button onClick={onCancel}>Cancel</button></section>:null};
+ return {InputNumber:({onInput,onChange:_,onKeyDownCapture,onKeyDown,onBlur,value,changeOnBlur:__,stringMode:___,status:____,precision:_____,...props}:any)=><input {...props} value={value??''} onInput={event=>onInput(event.currentTarget.value)} onChange={()=>{}} onKeyDownCapture={onKeyDownCapture} onKeyDown={onKeyDown} onBlur={onBlur}/>,Alert:({title}:{title:string})=><p role="alert">{title}</p>,Button:({children,onClick,disabled,...p}:{children:React.ReactNode;onClick?:()=>void;disabled?:boolean;'aria-label'?:string})=><button disabled={disabled} aria-label={p['aria-label']} onClick={onClick}>{children}</button>,Flex:Box,Space:Box,Typography:{Title:Box,Text:Box,Paragraph:Box},Input:({value,onChange}:{value:string;onChange:React.ChangeEventHandler<HTMLInputElement>})=><input value={value} onChange={onChange}/>,Modal:({open,children,onOk,onCancel}:{open:boolean;children:React.ReactNode;onOk:()=>void;onCancel:()=>void})=>open?<section role="dialog">{children}<button onClick={onOk}>Confirm</button><button onClick={onCancel}>Cancel</button></section>:null};
 });
 const initial:StationProgramRecord={formatVersion:1,id:'123',name:'1',revision:1,contentIdentity:'sha256:'+'a'.repeat(64),definition:{parameters:[],steps:[]}};
 let root:Root,container:HTMLDivElement;
@@ -20,8 +20,36 @@ const changed=vi.fn();
 async function click(text:string){const button=[...container.querySelectorAll('button')].find((node)=>node.textContent===text||node.getAttribute('aria-label')===text);expect(button,`button ${text}`).toBeDefined();await act(async()=>button!.click());}
 beforeEach(async()=>{vi.clearAllMocks();Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});vi.mocked(api.stationPrograms).mockResolvedValue([structuredClone(initial)]);vi.mocked(api.createStationProgram).mockResolvedValue({...initial,id:'456',name:'2'});vi.mocked(api.saveStationProgram).mockResolvedValue({...initial,revision:2});vi.mocked(api.deleteStationProgram).mockResolvedValue({removed:true});container=document.createElement('div');document.body.append(container);root=createRoot(container);await act(async()=>root.render(<I18nProvider><StationProgramLibrary world="a" recoveryOwner="player" onLibraryChange={changed}/></I18nProvider>));});
 afterEach(async()=>{await act(async()=>root.render(null));container.remove();});
+const estimate=async(value:string)=>{const input=container.querySelector<HTMLInputElement>('input[aria-label="Estimated function duration (ticks, optional)"]')!;await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}));});await act(async()=>input.dispatchEvent(new FocusEvent('focusout',{bubbles:true})));};
 describe('successful library writes notify the retained studio owner',()=>{
- it('notifies create',async()=>{await click('New program');expect(api.createStationProgram).toHaveBeenCalled();expect(changed).toHaveBeenCalledTimes(1);});
+ it('saves a local estimate without changing the accepted program definition',async()=>{
+  await click('1');await estimate('80');expect(api.saveStationProgram).not.toHaveBeenCalled();await click('Save draft');
+  expect(api.saveStationProgram).toHaveBeenCalledWith('a','123','1',initial.definition,1,80);
+ });
+ it('adopts a simulated duration into the local estimate only until saved',async()=>{
+  await click('1');await estimate('-');expect([...container.querySelectorAll('button')].find(button=>button.textContent==='Save draft')!.disabled).toBe(true);await click('Simulate function');await click('Adopt simulation estimate');expect(api.saveStationProgram).not.toHaveBeenCalled();
+  expect(container.querySelector<HTMLInputElement>('input[aria-label="Estimated function duration (ticks, optional)"]')!.value).toBe('123');
+  await click('Save draft');expect(api.saveStationProgram).toHaveBeenCalledWith('a','123','1',initial.definition,1,123);
+ });
+ it('replaces an invalid numeric draft when adopting the same already committed estimate',async()=>{
+  await click('1');await estimate('123');await click('Edit test definition');await estimate('-');
+  expect(container.querySelector<HTMLInputElement>('input[aria-label="Estimated function duration (ticks, optional)"]')!.value).toBe('-');
+  expect([...container.querySelectorAll('button')].find(button=>button.textContent==='Save draft')!.disabled).toBe(true);
+  await click('Simulate function');await click('Adopt simulation estimate');
+  expect(container.querySelector<HTMLInputElement>('input[aria-label="Estimated function duration (ticks, optional)"]')!.value).toBe('123');
+  expect([...container.querySelectorAll('button')].find(button=>button.textContent==='Save draft')!.disabled).toBe(false);
+  await click('Save draft');expect(api.saveStationProgram).toHaveBeenCalledWith('a','123','1',{parameters:[],steps:[{id:'reverse',type:'REVERSE'}]},1,123);
+ });
+ it('keeps an unsaved estimate through rename while renaming only the server baseline',async()=>{
+  await click('1');await estimate('80');await click('Rename 1');await click('Confirm');
+  expect(api.saveStationProgram).toHaveBeenLastCalledWith('a','123','1',initial.definition,1,undefined);
+  expect(container.querySelector<HTMLInputElement>('input[aria-label="Estimated function duration (ticks, optional)"]')!.value).toBe('80');
+  await click('Save draft');expect(api.saveStationProgram).toHaveBeenLastCalledWith('a','123','1',initial.definition,2,80);
+ });
+ it('deletion discards the selected estimate and selecting another record loads its own metadata',async()=>{
+  await click('1');await estimate('80');await click('Delete 1');await click('Confirm');expect(container.querySelector('input[aria-label="Estimated function duration (ticks, optional)"]')).toBeNull();
+ });
+ it('notifies create' ,async()=>{await click('New program');expect(api.createStationProgram).toHaveBeenCalled();expect(changed).toHaveBeenCalledTimes(1);});
  it('notifies rename',async()=>{await click('Rename 1');await click('Confirm');expect(api.saveStationProgram).toHaveBeenCalled();expect(changed).toHaveBeenCalledTimes(1);});
  it('notifies a saved definition',async()=>{await click('1');await click('Edit test definition');await click('Save draft');expect(api.saveStationProgram).toHaveBeenCalled();expect(changed).toHaveBeenCalledTimes(1);});
  it('notifies deletion and removes the actual library row',async()=>{await click('Delete 1');await click('Confirm');expect(api.deleteStationProgram).toHaveBeenCalledWith('a','123',1);expect(changed).toHaveBeenCalledTimes(1);expect(container.querySelector('[role="list"]')!.textContent).toBe('');});

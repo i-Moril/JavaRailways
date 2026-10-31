@@ -29,7 +29,7 @@ export function ProgramSimulationDialog(p:Props){
 function SimulationDialog(p:Props){
  const {t,locale}=useI18n();
  const [args,setArgs]=useState(()=>structuredClone(p.arguments??defaultDutyProgramArguments(p.definition.parameters)));
- const [startTick,setStartTick]=useState(p.startTick??0);
+ const startTick=p.startTick??0;
  const [profile,setProfile]=useState(p.profile),[wayPointId,setWayPointId]=useState<string>(),[reverseTrain,setReverseTrain]=useState<boolean>();
  const [executionTimeoutMillis,setExecutionTimeoutMillis]=useState(DEFAULT_SIMULATION_TIMEOUT_MILLIS);
  const [maximumDurationTicks,setMaximumDurationTicks]=useState(24000);
@@ -66,7 +66,6 @@ function SimulationDialog(p:Props){
    <div className="program-simulation-grid">
     <label>{t('duties.reference')}<Select aria-label={t('duties.reference')} placeholder={t('duties.reference')} value={profile?`${profile.type}:${profile.id}`:undefined} options={profiles.map(value=>({value:`${value.type}:${value.id}`,label:value.displayName}))} onChange={value=>{invalidate();const selected=profiles.find(profile=>`${profile.type}:${profile.id}`===value);setProfile(selected?{type:selected.type,id:selected.id}:undefined);}}/></label>
     <label>{t('programSimulation.waypoint')}<EditableIdSelect fieldKey={`${p.owner}/simulation/waypoint`} aria-label={t('programSimulation.waypoint')} placeholder={t('programSimulation.waypoint')} value={wayPointId} options={directedWaypointOptions(p.metadata)} onEditingChange={editing=>validity('waypoint',!editing)} onCommit={value=>{invalidate();setWayPointId(value);setReverseTrain(undefined);}}/></label>
-    <label>{t('programSimulation.start')}<CommittedNumberInput aria-label={t('programSimulation.start')} fieldKey={`${p.owner}/simulation/start`} disabled={p.startTick!==undefined} value={startTick} allowEmpty={false} min={0} max={MAX_PROGRAM_SIMULATION_TICK-1} precision={0} onValidityChange={value=>validity('start',value)} onCommit={value=>{invalidate();setStartTick(value??0);}}/></label>
     <label>{t('programSimulation.limit')}<CommittedNumberInput aria-label={t('programSimulation.limit')} fieldKey={`${p.owner}/simulation/limit`} value={maximumDurationTicks} allowEmpty={false} min={1} max={MAX_PROGRAM_SIMULATION_TICK-startTick} precision={0} onValidityChange={value=>validity('limit',value)} onCommit={value=>{invalidate();setMaximumDurationTicks(value??1);}}/></label>
     <SimulationTimeoutInput fieldKey={`${p.owner}/simulation/timeout`} value={executionTimeoutMillis} onValidityChange={value=>validity('timeout',value)} onChange={value=>{invalidate();setExecutionTimeoutMillis(value);}}/>
    </div>

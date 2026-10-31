@@ -54,14 +54,14 @@ class VisualProgramRepositoryTest {
 
     @Test void revisionCheckedDeletionSurvivesReloadWithoutMutatingBoundValues() throws Exception {
         VisualProgramRepository repository = repository();
-        JsonNode bound = repository.create("world", "turnback", "Turnback", definition());
-        JsonNode updated = repository.update("world", "turnback", 1, "New name", definition()).orElseThrow();
+        JsonNode bound = repository.create("world", "turnback", "Turnback", definition(), null);
+        JsonNode updated = repository.update("world", "turnback", 1, "New name", definition(), null).orElseThrow();
         assertEquals(2, updated.path("revision").asInt());
         assertEquals("Turnback", bound.path("name").asText());
         assertEquals(1, bound.path("revision").asInt());
         assertTrue(repository.list("other").isEmpty());
-        assertThrows(VisualProgramRepository.Conflict.class, () -> repository.update("world", "turnback", 1, "Stale", definition()));
-        assertThrows(VisualProgramRepository.Conflict.class, () -> repository.create("world", "turnback", "Duplicate", definition()));
+        assertThrows(VisualProgramRepository.Conflict.class, () -> repository.update("world", "turnback", 1, "Stale", definition(), null));
+        assertThrows(VisualProgramRepository.Conflict.class, () -> repository.create("world", "turnback", "Duplicate", definition(), null));
         byte[] beforeStaleDelete = Files.readAllBytes(directory.resolve("world/turnback.json"));
         assertThrows(VisualProgramRepository.Conflict.class, () -> repository.delete("world", "turnback", 1));
         assertArrayEquals(beforeStaleDelete, Files.readAllBytes(directory.resolve("world/turnback.json")));
@@ -75,6 +75,37 @@ class VisualProgramRepositoryTest {
         assertEquals(1, bound.path("revision").asInt());
     }
 
+    @Test void fixedRecordWithoutOptionalEstimateLoadsAndCanBeUpdatedAndCleared() throws Exception {
+        Files.createDirectories(directory.resolve("world"));
+        Files.writeString(directory.resolve("world/plain.json"), """
+            {"formatVersion":1,"id":"plain","name":"Plain","revision":1,
+             "contentIdentity":"sha256:358c449f2f98a213bf02d367456a91eebb7611aeadf618c32a1e75e6e1e131c5",
+             "definition":{"parameters":[],"steps":[]}}
+            """);
+        VisualProgramRepository repository = repository();
+        assertFalse(repository.find("world", "plain").orElseThrow().has("estimatedDurationTicks"));
+        assertEquals(10, repository.update("world", "plain", 1, "Plain", definition(), mapper.readTree("10")).orElseThrow().path("estimatedDurationTicks").asInt());
+        repository.update("world", "plain", 2, "Plain", definition(), null).orElseThrow();
+        assertFalse(repository().find("world", "plain").orElseThrow().has("estimatedDurationTicks"));
+    }
+
+    @Test void estimateMetadataPersistsWithoutChangingExecutableIdentityAndCanBeCleared() throws Exception {
+        VisualProgramRepository repository = repository();
+        JsonNode baseline = repository.create("world", "estimate", "Estimate", definition(), null);
+        assertFalse(baseline.has("estimatedDurationTicks"));
+        JsonNode estimated = repository.update("world", "estimate", 1, "Estimate", definition(), mapper.readTree("120")).orElseThrow();
+        assertEquals(120, repository().find("world", "estimate").orElseThrow().path("estimatedDurationTicks").asInt());
+        assertEquals(baseline.path("contentIdentity"), estimated.path("contentIdentity"));
+        assertEquals(2, estimated.path("revision").asInt());
+        JsonNode zero = repository.update("world", "estimate", 2, "Estimate", definition(), mapper.readTree("0")).orElseThrow();
+        assertEquals(0, zero.path("estimatedDurationTicks").asInt());
+        assertFalse(repository.update("world", "estimate", 3, "Estimate", definition(), null).orElseThrow().has("estimatedDurationTicks"));
+        for (String invalid : java.util.List.of("-1", "1.5", "9007199254740992", "null", "\"20\"")) {
+            assertThrows(IllegalArgumentException.class, () -> repository.update("world", "estimate", 4, "Estimate", definition(), mapper.readTree(invalid)));
+        }
+        assertEquals(4, repository.find("world", "estimate").orElseThrow().path("revision").asInt());
+    }
+
     @Test void contentIdentityIgnoresObjectOrderButPreservesStepOrderAndValues() throws Exception {
         assertEquals(ProgramContentIdentity.of(mapper.readTree("{\"a\":1,\"b\":[{\"x\":2,\"y\":3}]}")),
             ProgramContentIdentity.of(mapper.readTree("{\"b\":[{\"y\":3,\"x\":2}],\"a\":1}")));
@@ -84,9 +115,9 @@ class VisualProgramRepositoryTest {
 
     @Test void concurrentExpectedRevisionAllowsExactlyOneWinner() throws Exception {
         VisualProgramRepository repository = repository();
-        repository.create("world", "turnback", "Initial", definition());
+        repository.create("world", "turnback", "Initial", definition(), null);
         Callable<Boolean> write = () -> {
-            try { repository.update("world", "turnback", 1, "Winner", definition()); return true; }
+            try { repository.update("world", "turnback", 1, "Winner", definition(), null); return true; }
             catch (VisualProgramRepository.Conflict conflict) { return false; }
         };
         var pool = Executors.newFixedThreadPool(2);
@@ -99,14 +130,14 @@ class VisualProgramRepositoryTest {
 
     @Test void rejectedWritesLeavePreviousFileAndNoTemporaryFiles() throws Exception {
         VisualProgramRepository repository = repository();
-        repository.create("world", "turnback", "Initial", definition());
-        assertThrows(IllegalArgumentException.class, () -> repository.create("../outside", "x", "Name", definition()));
-        assertThrows(IllegalArgumentException.class, () -> repository.create("world", "../outside", "Name", definition()));
+        repository.create("world", "turnback", "Initial", definition(), null);
+        assertThrows(IllegalArgumentException.class, () -> repository.create("../outside", "x", "Name", definition(), null));
+        assertThrows(IllegalArgumentException.class, () -> repository.create("world", "../outside", "Name", definition(), null));
         assertThrows(IllegalArgumentException.class, () -> repository.delete("../outside", "turnback", 1));
         assertThrows(IllegalArgumentException.class, () -> repository.delete("world", "../outside", 1));
-        assertThrows(IllegalArgumentException.class, () -> repository.update("world", "turnback", 1, "", definition()));
-        assertThrows(IllegalArgumentException.class, () -> repository.update("world", "turnback", 1, "Invalid", mapper.createArrayNode()));
-        assertTrue(repository.update("world", "missing", 1, "Missing", definition()).isEmpty());
+        assertThrows(IllegalArgumentException.class, () -> repository.update("world", "turnback", 1, "", definition(), null));
+        assertThrows(IllegalArgumentException.class, () -> repository.update("world", "turnback", 1, "Invalid", mapper.createArrayNode(), null));
+        assertTrue(repository.update("world", "missing", 1, "Missing", definition(), null).isEmpty());
         assertEquals("Initial", repository.find("world", "turnback").orElseThrow().path("name").asText());
         try (var paths = Files.walk(directory)) { assertFalse(paths.anyMatch(path -> path.toString().endsWith(".tmp"))); }
     }

@@ -1,5 +1,6 @@
+import {adoptStationProgram} from './stationPrograms';
 import {validateTimedOperation} from './timedOperations';
-import type {TimetableEventPoint,StationProgramStep} from './types';
+import type {BoundStationProgram,StationProgramRecord,TimetableEventPoint,StationProgramStep} from './types';
 import type {TimetableAuthoringDocumentV1} from './authoring';
 
 export interface GraphEventContext {
@@ -12,10 +13,19 @@ export function timetableEventUnchanged(events:readonly TimetableEventPoint[],or
   return !!current&&JSON.stringify(current)===JSON.stringify(original);
 }
 
+/** Preview and save use the same exact binding, including the first library selection. */
+export function withTimetableEventProgram(document:TimetableAuthoringDocumentV1,operation:TimetableEventPoint,library:readonly StationProgramRecord[]):TimetableAuthoringDocumentV1 {
+ const id=operation.program?.programId;
+ if(!id||document.boundPrograms?.some(binding=>binding.programId===id))return document;
+ const record=library.find(record=>record.id===id);
+ if(!record)throw new Error('Missing bound program');
+ return adoptStationProgram(document,record);
+}
+
 /** Validate before a single document/history transaction, preserving all references. */
-export function saveTimetableEvent(events:TimetableEventPoint[],draft:TimetableEventPoint,periodTicks:number,stationIds:readonly string[],original?:TimetableEventPoint,reservedIds:readonly string[]=[]):TimetableEventPoint[] {
+export function saveTimetableEvent(events:TimetableEventPoint[],draft:TimetableEventPoint,periodTicks:number,stationIds:readonly string[],original?:TimetableEventPoint,reservedIds:readonly string[]=[],bindings:readonly BoundStationProgram[]=[]):TimetableEventPoint[] {
   if(original&&!timetableEventUnchanged(events,original))throw new Error('Event changed');
-  if(draft.stationId!==undefined&&!stationIds.includes(draft.stationId)||validateTimedOperation(draft,periodTicks).length>0)throw new Error('Invalid event');
+  if(draft.stationId!==undefined&&!stationIds.includes(draft.stationId)||validateTimedOperation(draft,periodTicks,bindings).length>0)throw new Error('Invalid event');
   const event={...draft,id:original?.id??nextTimetableEventId(events,reservedIds)};
   return original?events.map((item)=>item.id===original.id?event:item):[...events,event];
 }

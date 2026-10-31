@@ -5,7 +5,7 @@ import type {StationProgramDefinition,StationProgramLiteral,TimetableSimulationR
 
 export interface DutyTimelineTask {
  id:string;type:'RUN'|'PROGRAM'|'EVENT'|'FORMATION';label:string;startTick:number;endTick?:number;
- durationMode:'RUN'|'POINT'|'MANUAL'|'SIMULATED';measured?:boolean;overlaps:string[];
+ durationMode:'RUN'|'POINT'|'MANUAL'|'SIMULATED'|'PROGRAM';measured?:boolean;overlaps:string[];
 }
 export function defaultDutyProgramArguments(parameters:StationProgramDefinition['parameters']):Record<string,StationProgramLiteral> {
  return Object.fromEntries(parameters.map((parameter)=>[parameter.id,parameter.type==='JSON_OBJECT'?{}:parameter.type==='UNIT_SLOTS'?[1]:parameter.type==='ID_LIST'?[]:parameter.type==='DURATION'?1:parameter.type==='TICK'?0:'']));
@@ -48,7 +48,7 @@ export function projectDutyTimeline(document:TimetableAuthoringDocumentV1,duty:A
   const mode=operation?.duration?.type??'POINT';
   const measurement=measuredOperationDuration(simulation,duty.id,element.id);
   const measured=mode==='SIMULATED'&&measurement!==undefined;
-  const duration=operation?operationDuration(operation,measurement):undefined;
+  const duration=operation?operationDuration(operation,measurement,document.boundPrograms):undefined;
   return {id:element.id,type:element.type,label:operation?.label??operation?.program?.programId??(element.type==='EVENT'?element.eventId:element.id),startTick,endTick:duration===undefined?undefined:startTick+duration,durationMode:mode,measured:measured||undefined,overlaps:[]};
  });
  for(let i=0;i<tasks.length;i++)for(let j=i+1;j<tasks.length;j++){

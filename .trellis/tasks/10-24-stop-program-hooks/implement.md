@@ -1,5 +1,7 @@
 # Implementation plan
 
+2026-10-31函数计划UI反馈三项本地完成：模拟不再要求开始tick；库/绑定可选estimatedDurationTicks与PROGRAM计划耗时、未知/0/显式更新独立性；页顶超时改为单次设置弹窗，取消保留结果。最终前端366/WebUI56测试及构建、真实页面预计200→400保存/显式采用跨度与取消零请求、独立审查和边界回归通过。见research/function-planning-ui-2026-10-31.md。未提交或部署，线上0cadbe8f，任务仍进行中。
+
 2026-10-31用户授权提交部署：产品0cadbe8f已部署JavaRailwaysTest，新PID782079，主JAR及S100两个源文件更新；follow-package策略确认无需快照/世界迁移。正常保存、154文件外部恢复包、精准3文件替换、ATO/信号、双网络17资源及SSE检查通过；原实例关闭清理异常另行记录，新安装后插件错误0。详见research/deployment-2026-10-31-simulation-ui.md。任务继续进行中，未归档，用户游戏验收待办。
 
 2026-10-31用户纠正模拟超时必须由界面设置：撤回刚新增的simulation配置项及环境变量；三个模拟请求必填executionTimeoutMillis，界面秒数转换整数毫秒，worker与HTTPdeadline从同请求值推导。前端351/Bukkit679/WebUI54及构建通过，真实UI1.001秒→1001毫秒/非法禁用/交路可见验证及独立复审通过。见research/simulation-errors-2026-10-31.md最后记录；未提交、部署或归档。

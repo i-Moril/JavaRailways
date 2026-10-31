@@ -271,9 +271,13 @@ final class StationProgramValidator {
     }
 
     static void fields(JsonNode node, Set<String> fields, String label) {
+        fields(node, fields, Set.of(), label);
+    }
+
+    static void fields(JsonNode node, Set<String> required, Set<String> optional, String label) {
         if (node == null || !node.isObject()) fail(label + " must be an object");
-        node.fieldNames().forEachRemaining(name -> { if (!fields.contains(name)) fail("unknown " + label + " field: " + name); });
-        for (String field : fields) if (!node.has(field)) fail(label + " requires " + field);
+        node.fieldNames().forEachRemaining(name -> { if (!required.contains(name) && !optional.contains(name)) fail("unknown " + label + " field: " + name); });
+        for (String field : required) if (!node.has(field)) fail(label + " requires " + field);
     }
 
     static long revision(JsonNode node) {

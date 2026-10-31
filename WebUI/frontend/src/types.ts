@@ -136,7 +136,7 @@ export type StationProgramStep=
  | {id:string;type:'MOVE';destinationId:StationProgramValue<string>;viaIds:StationProgramValue<string[]>}
  | {id:string;type:'STORE_AT_DEPOT';depotId:StationProgramValue<string>;stablingPointIds:StationProgramValue<string[]>};
 export interface StationStopProgram {stationId:string;arrival:StationProgramDefinition;departurePreparation:StationProgramDefinition;preparationLeadTicks:number}
-export type TimedOperationDuration={type:'MANUAL';ticks:number}|{type:'SIMULATED'};
+export type TimedOperationDuration={type:'MANUAL';ticks:number}|{type:'SIMULATED'}|{type:'PROGRAM'};
 export interface TimedOperationProgram {programId:string;arguments:Record<string,StationProgramLiteral>}
 export interface TimedOperation {id:string;tick:number;stationId?:string;label?:string;duration?:TimedOperationDuration;program?:TimedOperationProgram}
 export type TimetableEventPoint=TimedOperation;
@@ -154,10 +154,10 @@ export interface ProgramSimulationResult {
  initialPosition:{wayPointId:string;direction:'AB'|'BA';directionSource:'WAYPOINT'|'RAIL';reverseTrain:boolean};
 }
 export interface StationProgramRecord {
- formatVersion:1;id:string;name:string;revision:number;contentIdentity:string;definition:StationProgramDefinition;
+ formatVersion:1;id:string;name:string;revision:number;contentIdentity:string;definition:StationProgramDefinition;estimatedDurationTicks?:number;
 }
 export interface BoundStationProgram {
- programId:string;revision:number;contentIdentity:string;definition:StationProgramDefinition;
+ programId:string;revision:number;contentIdentity:string;definition:StationProgramDefinition;estimatedDurationTicks?:number;
 }
 export interface StationProgramCall {
  id:string;programId:string;tick:number;arguments:Record<string,StationProgramLiteral>;

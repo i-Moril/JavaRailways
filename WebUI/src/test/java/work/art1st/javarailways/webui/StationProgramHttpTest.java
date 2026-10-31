@@ -56,13 +56,15 @@ class StationProgramHttpTest {
             var sourceStep = ((ObjectNode)definition).withArray("steps").addObject().put("id", "info").put("type", "SET_DISPLAY");
             sourceStep.putObject("unitSlots").putArray("value").add(1);
             sourceStep.putObject("values").putObject("trainInfo").put("name", "NAME").put("cars", "CAR_COUNT").put("units", "UNIT_COUNT").put("direction", "DIRECTION");
-            ObjectNode create=mapper.createObjectNode().put("id","turnback").put("name","Turnback");create.set("definition",definition);
+            ObjectNode create=mapper.createObjectNode().put("id","turnback").put("name","Turnback").put("estimatedDurationTicks",80);create.set("definition",definition);
             var created=send(client,root,base,"POST",create.toString(),cookie);assertEquals(201,created.statusCode());
             JsonNode first=mapper.readTree(created.body());
             assertEquals(1,first.path("revision").asInt());
+            assertEquals(80,first.path("estimatedDurationTicks").asInt());
             assertEquals(409,send(client,root,base,"POST",create.toString(),cookie).statusCode());
             assertEquals("[]",send(client,root,"/api/v1/worlds/other/station-programs","GET",null,cookie).body());
             ObjectNode snapshot=mapper.createObjectNode().put("programId","turnback").put("revision",1).put("contentIdentity",first.path("contentIdentity").asText());// Browser JSON parses1.0 and-0.0 then writes1 and0. The server identity must survive.
+            snapshot.put("estimatedDurationTicks",80);
             snapshot.set("definition",mapper.readTree(definition.toString().replace(":1.0", ":1").replace(":-0.0", ":0")));
             ObjectNode document=(ObjectNode)mapper.readTree("{\"formatVersion\":1,\"id\":\"weekday\",\"periodDays\":1,\"runs\":[],\"duties\":[],\"diagramLines\":[],\"arrivalOverrides\":[]}");document.putArray("boundPrograms").add(snapshot);
             String documents="/api/v1/worlds/world/editor-documents";
@@ -70,8 +72,9 @@ class StationProgramHttpTest {
             document.put("id","weekend");
             assertEquals(201,send(client,root,documents,"POST",document.toString(),cookie).statusCode());
             document.put("id","weekday");
-            ObjectNode update=mapper.createObjectNode().put("expectedRevision",1).put("name","Updated");update.set("definition",mapper.readTree("{\"parameters\":[],\"steps\":[]}"));
+            ObjectNode update=mapper.createObjectNode().put("expectedRevision",1).put("name","Updated").put("estimatedDurationTicks",140);update.set("definition",mapper.readTree("{\"parameters\":[],\"steps\":[]}"));
             assertEquals(200,send(client,root,base+"/turnback","PUT",update.toString(),cookie).statusCode());
+            assertEquals(140,mapper.readTree(send(client,root,base+"/turnback","GET",null,cookie).body()).path("estimatedDurationTicks").asInt());
             assertEquals(409,send(client,root,base+"/turnback","PUT",update.toString(),cookie).statusCode());
             assertEquals(401,send(client,root,base+"/turnback","DELETE","{\"expectedRevision\":2}",null).statusCode());
             assertEquals(409,send(client,root,base+"/turnback","DELETE","{\"expectedRevision\":1}",cookie).statusCode());

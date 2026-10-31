@@ -118,11 +118,12 @@ export function stationProgramSchedule(steps:StationProgramStep[],args:Record<st
 }
 export function adoptStationProgram(document:TimetableAuthoringDocumentV1,record:StationProgramRecord):TimetableAuthoringDocumentV1 {
   if(!validId(record.id)||!Number.isSafeInteger(record.revision)||record.revision<1||!/^sha256:[a-f0-9]{64}$/.test(record.contentIdentity))throw new Error('Invalid program library record');
+  if(record.estimatedDurationTicks!==undefined&&(!Number.isSafeInteger(record.estimatedDurationTicks)||record.estimatedDurationTicks<0))throw new Error('Invalid program estimated duration');
   const errors=validateStationProgram(record.definition);
   if(errors.length)throw new Error(errors.join('; '));
   const existing=document.boundPrograms?.find((item)=>item.programId===record.id);
   if(existing?.revision===record.revision&&existing.contentIdentity===record.contentIdentity)return document;
-  const snapshot:BoundStationProgram={programId:record.id,revision:record.revision,contentIdentity:record.contentIdentity,definition:clone(record.definition)};
+  const snapshot:BoundStationProgram={programId:record.id,revision:record.revision,contentIdentity:record.contentIdentity,definition:clone(record.definition),...(record.estimatedDurationTicks!==undefined?{estimatedDurationTicks:record.estimatedDurationTicks}:{})};
   return {...document,boundPrograms:[...(document.boundPrograms??[]).filter((item)=>item.programId!==record.id),snapshot]};
 }
 

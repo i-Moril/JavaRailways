@@ -1,0 +1,27 @@
+# Function planning duration and simulation setup
+
+Continue the existing unarchived task after deployed0cadbe8f/d2383ffb. User feedback: function simulation should not ask for a starting tick; players need to assign function duration for duty display; timeout controls should not occupy Duties/Validation page headers. No automatic commit/deployment/archive in this follow-up.
+
+## Boundary
+
+- ProgramSimulationDialog removes its editable starting-tick control/state. Standalone invocation uses internal0; a call from the graph/duty retains its known invocation tick to preserve absolute wait semantics, without requiring manual entry. Keep existing dispatcher and transient simulation protocol.
+- Replace global DutyEditor timeout controls with a per-request setup modal for full timetable and line reset simulation. Clicking a simulation entrypoint opens setup; execution/compilation starts only after confirmation. Cancellation is side-effect free. Keep explicit timeout units, validation and async ownership.
+- Add optional estimatedDurationTicks to library records and bound snapshot authoring metadata; absent means unknown, zero means planned point. Definition content identity stays definition-only. Save increments revision; explicit binding/update copies metadata. Existing records/snapshots with absent optional metadata remain valid, schema version unchanged. No runtime compatibility path.
+- Preserve absent operation duration as existing explicit POINT. Add stable PROGRAM duration kind for inheriting bound function estimate. MANUAL remains explicit plan override; SIMULATED remains actual measurement (missing result stays unknown); PROGRAM uses bound estimate (missing stays unknown). New function calls default to PROGRAM; existing calls retain their meaning. Planned duration does not force runtime waits or alter actual execution tickets.
+- Shared graph/duty projection and authoring validation resolve these semantics in one owner. Metadata is not injected into runtime program code. Library changes/deletion never silently mutate bound definitions/estimates.
+
+## Ownership and validation
+
+UI implementer owns ProgramSimulationDialog and DutyEditor setup modal; duration implementer owns library/backend metadata, bindings, duration resolution and tests. Coordinate shared i18n/DutyEditor changes explicitly. Root owns integration, specs and checks.
+
+Required coverage: no initial-tick input; automatic real caller tick; no page-top timeout; setup confirmation/cancel/invalid/changed owner/late result; library estimate manual/simulation adoption and save/restart/rename/revision; explicit binding/update and library deletion independence; point/manual/simulated/program precedence and unknown/zero; graph/duty interval and collision validation; current persisted fixture roundtrip. Final frontend/affected backend gates plus real browser and independent check.
+
+## Completed local verification
+
+- Final frontend59 files/366 tests passed, TypeScript/Vite build passed; final WebUI56 tests passed, no failures/errors/skips. Logs `/tmp/jr-function-planning-frontend-final.log`, `/tmp/jr-function-planning-build-final.log`, `/tmp/jr-function-planning-webui-final.log`. Only WebUI code/data validators changed; no Bukkit/Core runtime changes requiring repeated unrelated suites.
+- Initial Java gate caught that the existing fields helper treats all named fields as required. Fixed helper with explicit required/optional sets and applied to four boundaries; fixed current-format missing-estimate fixture reads, sets, clears, reopens with no migration. Original fixtures were not bulk-filled with the new field to mask this issue.
+- Real repository/HTTP/restart tests cover optional metadata, zero, clear, invalid values and unchanged executable identity; bound estimate persists after library deletion. Frontend covers explicit adopt as one history transaction and source ignoring estimate metadata.
+- Independent review found and closed setup cancellation clearing results/invalid owner-change lockout, and first graph-event binding estimate omitted from pre-save period checks. Setup now owns draft state; request functions accept confirmed budget and guard generation/scenario/docRevision/ownerEpoch. Graph preview and save share the same candidate-binding helper.
+- Last review found same-value simulation adoption could retain invalid number text. An independent estimate input epoch now resets that input alone; regression with actual CommittedNumberInput verifies123→invalid '-'→adopt123 leaves displayed123, Save enabled and unsaved REVERSE program edit intact.
+- Actual production UI with an explicitly local HTTP fixture: selected a document through native document settings; duty function at100 with estimate200 displayed100–300. Library edit/save400 left bound span unchanged until clicking Adopt r2, then100–500. Saved HTTP body contained400. No Start tick in function simulation modal; no timeout control on Duties/Validation page. Opening full simulation settings, changing1.001 seconds and cancelling issued zero compile/sim requests; reopening was valid. Screenshots and request trace under `/tmp/jr-function-planning-browser/`. This is UI/wire evidence, not a live simulator/physics or server acceptance run. Last same-value-input fix is covered separately by the final full frontend gate.
+- Browser and local fixture stopped. No commit, deployment, server data access/change, version bump or task archive. Online baseline remains0cadbe8f. Existing task stays in_progress.

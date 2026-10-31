@@ -37,25 +37,31 @@ public final class VisualProgramRepository {
         return record;
     }
 
-    public synchronized JsonNode create(String world, String id, String name, JsonNode definition) throws IOException {
+    public synchronized JsonNode create(String world, String id, String name, JsonNode definition, JsonNode estimatedDurationTicks) throws IOException {
         validateInput(name, definition);
+        validateEstimatedDuration(estimatedDurationTicks);
         if (find(world, id).isPresent()) throw new Conflict("program ID already exists");
         ObjectNode record = mapper.createObjectNode();
         record.put("formatVersion", 1).put("id", id).put("name", name).put("revision", 1);
         record.set("definition", definition.deepCopy());
+        if (estimatedDurationTicks == null) record.remove("estimatedDurationTicks");
+        else record.set("estimatedDurationTicks", estimatedDurationTicks.deepCopy());
         record.put("contentIdentity", ProgramContentIdentity.of(definition));
         storage.save(world, id, record);
         return record.deepCopy();
     }
 
-    public synchronized Optional<JsonNode> update(String world, String id, long expectedRevision, String name, JsonNode definition) throws IOException {
+    public synchronized Optional<JsonNode> update(String world, String id, long expectedRevision, String name, JsonNode definition, JsonNode estimatedDurationTicks) throws IOException {
         validateInput(name, definition);
+        validateEstimatedDuration(estimatedDurationTicks);
         Optional<JsonNode> previous = find(world, id);
         if (previous.isEmpty()) return Optional.empty();
         checkRevision(previous.get(), expectedRevision);
         ObjectNode record = previous.get().deepCopy();
         record.put("name", name).put("revision", nextRevision(expectedRevision));
         record.set("definition", definition.deepCopy());
+        if (estimatedDurationTicks == null) record.remove("estimatedDurationTicks");
+        else record.set("estimatedDurationTicks", estimatedDurationTicks.deepCopy());
         record.put("contentIdentity", ProgramContentIdentity.of(definition));
         storage.save(world, id, record);
         return Optional.of(record.deepCopy());
@@ -69,14 +75,19 @@ public final class VisualProgramRepository {
     }
 
     private void validateRecord(JsonNode record, String id) {
-        StationProgramValidator.fields(record, java.util.Set.of("formatVersion", "id", "name", "revision", "definition", "contentIdentity"), "program library record");
+        StationProgramValidator.fields(record, java.util.Set.of("formatVersion", "id", "name", "revision", "definition", "contentIdentity"), java.util.Set.of("estimatedDurationTicks"), "program library record");
         if (!record.isObject() || !record.path("formatVersion").isIntegralNumber() || record.path("formatVersion").asLong() != 1
             || !record.path("id").isTextual() || !id.equals(record.path("id").asText())
             || !record.path("revision").isIntegralNumber() || !record.path("revision").canConvertToLong() || record.path("revision").asLong() < 1 || record.path("revision").asLong() > 9_007_199_254_740_991L) throw new IllegalArgumentException("invalid program library record");
         validateInput(record.path("name").isTextual() ? record.path("name").asText() : null, record.path("definition"));
+        validateEstimatedDuration(record.get("estimatedDurationTicks"));
         if (!ProgramContentIdentity.of(record.path("definition")).equals(record.path("contentIdentity").asText())) {
             throw new IllegalArgumentException("program content identity mismatch");
         }
+    }
+
+    static void validateEstimatedDuration(JsonNode value) {
+        if (value != null) EditorDocumentValidator.requireSafeNonnegative(value, "program estimated duration");
     }
 
     private void validateInput(String name, JsonNode definition) {

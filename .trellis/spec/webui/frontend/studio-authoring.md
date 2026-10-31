@@ -80,6 +80,8 @@ Reset 仅重生选中运行线的时刻，始发 Tick 来自该运行线原有�
 
 时刻表通过可选 `boundPrograms`（缺省空）保存 `{programId,revision,contentIdentity,definition}`，一个程序一个不可变快照。首次选择复制定义；后续调用沿用绑定版本，库刷新不写文档。采用更新是显式按钮且只产生一次现有 document/history 事务，参数变化需重新校验，旧编译/模拟结果因输入变化失效。既有绑定即使库删除仍可生成。无新 editor/recovery schema version 或任意 JS 反向解析。
 
+绑定另复制可选estimatedDurationTicks：缺省未知、0为点；它不是definition内容identity的一部分，estimate-only修改仍有新revision和显式采用入口。新函数调用默认duration PROGRAM使用绑定估计；既有省略duration的点事件保持原样。MANUAL和SIMULATED分别保留手动计划及真实测量语义。图和交路共用耗时解析和区间投影；预计耗时仅用于计划跨度/冲突与周期检查，不产生额外运行等待。runtime生成只序列化snapshot.definition；editor和本地恢复保持当前格式版本，通用校验允许该可选字段及稳定PROGRAM类型，不新增旧数据兼容路径。
+
 `PROGRAM` duty element 的 call 为 `{id,programId,tick,arguments}`。参数类型为 TICK/DURATION/DESTINATION/DEPOT/STRING/ID_LIST；引用的声明类型必须精确匹配字段，不能用 STRING 参数替代目的地/车库。有限顺序步骤为 WAIT_UNTIL、WAIT_DURATION、REVERSE、MOVE、STORE_AT_DEPOT；表达式只接受 `{value}` 或 `{parameterId}`。数值为安全整数，时长严格正数。生成只读 JS 时每个已用绑定定义声明一次，现有 origin scope 加上 call/program/step 身份。完整展开先校验，再一次性追加到 ScriptWorker builder，拒绝错误后不能留下部分动作。
 
 绝对等待是实际 WAIT_UNTIL gate，不是只改变编译游标；其他动作继承当前 schedule cursor。出库仍由既有交路 acquisition selector 唯一拥有；程序要求此前 CHECK/acquisition，不暴露伪造的 callback 出库。分支、动态选站、重联/解编和库内 acquisition 尚不属于此顺序子集。具体接口与测试证据在活动任务 research/library-transport-contract-2026-10-22.md、b2-sequential-library-validation-2026-10-22.md；不能把局部132项前端测试当作完整五批功能或游戏验收。

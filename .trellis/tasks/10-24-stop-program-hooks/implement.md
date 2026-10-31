@@ -109,3 +109,8 @@ User correction2026-10-30: all actual simulation seeding proves unique whole-tra
 验证完成：完整前端335/57+build、独立窄复核、真实App后缀选择/本站解析/单步撤销与via名称筛选/手输/失焦通过。见research/waypoint-suffix-correction-2026-10-31.md。未提交/部署，在线976f4eac，任务保持进行中。
 
 用户随后明确提交部署：6563e4f9已上线，源/候选JAR逻辑差异仅嵌入WebUI，WebUI49/打包、正常保存/恢复/安装、ATO/信号/17资源及公开SSE真实帧通过。见research/deployment-2026-10-31-suffix.md。任务继续进行中，未归档。
+
+
+## 2026-10-31 函数预计耗时与模拟设置：已提交部署
+
+用户明确授权提交部署。功能提交d6229f8d；前端366/WebUI56及构建通过，正常保存/154文件恢复备份/仅替换主JAR完成。公网17资源、ATO/信号、SSE通过；新版本启动后项目错误0。见research/deployment-2026-10-31-function-planning.md及验证JSON。游戏验收待用户，任务保持in_progress，不归档。

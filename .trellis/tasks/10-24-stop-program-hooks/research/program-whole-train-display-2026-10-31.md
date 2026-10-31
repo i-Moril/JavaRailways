@@ -17,3 +17,5 @@
 最终`./gradlew :SimpleATO:test :BukkitPlugin:test :WebUI:test :BukkitPlugin:shadowJar --offline --no-daemon -I /tmp/jr-wholetrain-tests.gradle`通过；初次SimpleATO默认小堆测试OOM，最终仅通过临时init给SimpleATO/Bukkit测试worker2GiB，不修改产品配置。各模块最终XML统计：{"SimpleATO": {"tests": 665, "failures": 0, "errors": 0, "skipped": 0}, "BukkitPlugin": {"tests": 699, "failures": 0, "errors": 0, "skipped": 1}, "WebUI": {"tests": 65, "failures": 0, "errors": 0, "skipped": 0}}。测试夹具由当前PROGRAM+boundPrograms及真实前端生成器重建，JVM断言显式验证任务起止、显示动作、精确trace与运行段边界；没有给生产代码补旧INLINE支持。
 
 两个离线工具套件各12测试通过（真实候选JAR，包括一次性选择器转换与既有字符串类型转换回归）。`git diff --check`通过。浏览器证据`/tmp/jr-wholetrain-browser`；最终JVM日志`/tmp/jr-wholetrain-final-gate.log`。未提交、部署、归档或访问在线存档；已有无关heap dump保留。
+
+用户随后另行授权提交部署，已完成，见 [部署记录](deployment-2026-10-31-wholetrain.md)。

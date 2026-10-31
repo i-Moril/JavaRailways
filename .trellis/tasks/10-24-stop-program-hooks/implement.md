@@ -82,3 +82,5 @@ User correction2026-10-30: all actual simulation seeding proves unique whole-tra
 - [x] 更新spec及验证记录。无自动提交、部署或归档。
 
 最终验证：前端335/57文件+build、Bukkit667/WebUI49、真实App浏览器筛选/输入/单步历史/窄屏和独立复审通过。详见research/waypoint-input-validation.md。线上认证metadata响应及部署后游戏验收未验证；本批未提交/部署，父任务继续in_progress。
+
+2026-10-31用户明确授权本批提交部署：功能574975bf、线上整合bc7d6db1、仅测试方向预期修正976f4eac；最终3029后端/335前端和构建、正常保存/恢复点/安装/ATO与信号/17网页资源核验通过。见research/deployment-2026-10-31.md。任务继续in_progress，游戏验收待用户，不归档。

@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import {matchesIdOption} from './EditableIdSelect';
-import {waypointOptions,directedWaypointOptions,berthOptions,stablingPointOptions} from './idOptions';
+import {waypointOptions,directedWaypointOptions} from './idOptions';
 import type {WorldMetadata} from './types';
 const metadata:WorldMetadata={wayPoints:['kasaidpt@1','中央@1','undirected'],
  destinations:[{id:'undirected',displayName:'进库检查点'}],
@@ -20,9 +20,5 @@ describe('editable ID candidates keep their actual domain',()=>{
   const choices=directedWaypointOptions(metadata);expect(choices).toEqual([{value:'kasaidpt@1',label:'第一存车线 · 葛西车辆段 · 1 · kasaidpt@1'}]);
   for(const search of ['kasaidpt@1','葛西车辆段','第一存车线'])expect(choices.filter(choice=>matchesIdOption(search,choice))).toHaveLength(1);
   expect(choices.some(choice=>choice.value==='undirected')).toBe(false);
- });
- it('keeps local berth and stabling point values scoped and never submits a destination ID instead',()=>{
-  expect(berthOptions(metadata,'中央')).toEqual([{value:'1',label:'中央站 · 1'}]);expect(berthOptions(metadata,'other')).toEqual([]);
-  expect(stablingPointOptions(metadata,'kasaidpt')).toEqual([{value:'1',label:'1 · kasaidpt@1'}]);expect(stablingPointOptions(metadata,'other')).toEqual([]);
  });
 });

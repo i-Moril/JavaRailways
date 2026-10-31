@@ -9,8 +9,8 @@ import {useI18n} from './i18n';
 import {validateStationProgram} from './stationPrograms';
 import {arrivalStepTypes,libraryStepTypes,blockStepId,blocksToDefinition,defaultProgramStep,definitionToBlocks,expressionFields,programStepTypes,type ProgramWorkspaceState} from './programBlocks';
 import type {StationProgramDefinition,StationProgramParameterType,StationProgramStep,TimetableEventPoint,TimetableExtensionDescriptor,WorldMetadata} from './types';
-import {EditableIdSelect,EditableIdList,type IdOption} from './EditableIdSelect';
-import {waypointOptions,berthOptions,stablingPointOptions} from './idOptions';
+import {EditableIdSelect,EditableIdList} from './EditableIdSelect';
+import {waypointOptions} from './idOptions';
 import {readProgramBlockDraft,storeProgramBlockDraft,clearProgramBlockDraft,reconcileProgramEntryLead,type ProgramBlockSnapshot as Snapshot} from './programBlockDrafts';
 export {clearProgramBlockDraft,getProgramBlockDraftValidity} from './programBlockDrafts';
 import './ProgramBlockEditor.css';
@@ -127,12 +127,8 @@ export function ProgramBlockEditor(props:ProgramBlockEditorProps){
   if(!reference&&type==='UNIT_SLOTS')return <div key={block.id}><Typography.Text>{t('programs.unitSlots')}</Typography.Text><UnitSlotsInput fieldKey={`${fieldScope}/${block.id}`} rawValue={raw} onRawChange={(text)=>changeField(block,'VALUE',text)} onChange={(slots)=>changeField(block,'VALUE',JSON.stringify(slots))}/></div>;
   if(!reference&&type==='DESTINATION')return <label key={block.id}>{t('programs.param.DESTINATION')}<EditableIdSelect fieldKey={`${fieldScope}/${block.id}`} aria-label={t('programs.param.DESTINATION')} value={raw} options={waypointOptions(props.metadata??{})} onEditingChange={editing=>{if(editing)latest.current.onValidityChange?.(false);else sync.current();}} onCommit={text=>changeField(block,'VALUE',text)}/></label>;
   if(!reference&&type==='ID_LIST'){
-   const parent=block.getParent(),metadata=props.metadata??{};
-   const literal=(name:string,valueType:string)=>{const sibling=parent?.getInputTargetBlock(name);return sibling?.type===`rail_literal_${valueType}`?String(sibling.getFieldValue('VALUE')??''):'';};
-   let options:IdOption[]|undefined;
-   if(parent?.type==='rail_MOVE'&&parent.getInputTargetBlock('viaIds')===block)options=waypointOptions(metadata);
-   if(parent?.type==='rail_SELECT_STOP'&&parent.getInputTargetBlock('berthIds')===block)options=berthOptions(metadata,literal('stationId','STATION'));
-   if(parent?.type==='rail_STORE_AT_DEPOT'&&parent.getInputTargetBlock('stablingPointIds')===block)options=stablingPointOptions(metadata,literal('depotId','DEPOT'));
+   const parent=block.getParent();
+   const options=parent?.type==='rail_MOVE'&&parent.getInputTargetBlock('viaIds')===block?waypointOptions(props.metadata??{}):undefined;
    let ids:string[]|undefined;try{const value:unknown=JSON.parse(raw);if(Array.isArray(value)&&value.every(id=>typeof id==='string'&&id.trim())&&new Set(value).size===value.length)ids=value;}catch{/* Preserve the raw invalid workspace below. */}
    if(options&&ids)return <label key={block.id}>{t('programs.param.ID_LIST')}<EditableIdList fieldKey={`${fieldScope}/${block.id}`} aria-label={t('programs.param.ID_LIST')} value={ids} options={options} onChange={ids=>changeField(block,'VALUE',JSON.stringify(ids))}/></label>;
   }

@@ -84,3 +84,12 @@ User correction2026-10-30: all actual simulation seeding proves unique whole-tra
 最终验证：前端335/57文件+build、Bukkit667/WebUI49、真实App浏览器筛选/输入/单步历史/窄屏和独立复审通过。详见research/waypoint-input-validation.md。线上认证metadata响应及部署后游戏验收未验证；本批未提交/部署，父任务继续in_progress。
 
 2026-10-31用户明确授权本批提交部署：功能574975bf、线上整合bc7d6db1、仅测试方向预期修正976f4eac；最终3029后端/335前端和构建、正常保存/恢复点/安装/ATO与信号/17网页资源核验通过。见research/deployment-2026-10-31.md。任务继续in_progress，游戏验收待用户，不归档。
+
+## 2026-10-31 停车站后缀范围纠正
+
+用户纠正：完整路径点手输/筛选不能扩到停车站局部后缀。本批撤回RunRouteEditor泊位控件及程序局部berth/stabling列表的新控件扩展，保留真正完整路径点功能。边界/所有权见research/waypoint-suffix-correction-2026-10-31.md；仅前端检查，不自动提交/部署/归档。
+
+- [x] 恢复站内后缀Select及局部程序列表原输入，清理无用helper/错误预期测试。
+- [x] 完整前端test/build及窄范围差异复核；记录实际未部署状态。
+
+验证完成：完整前端335/57+build、独立窄复核、真实App后缀选择/本站解析/单步撤销与via名称筛选/手输/失焦通过。见research/waypoint-suffix-correction-2026-10-31.md。未提交/部署，在线976f4eac，任务保持进行中。

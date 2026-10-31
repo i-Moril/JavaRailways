@@ -1,5 +1,5 @@
-import {EditableIdSelect,EditableIdList} from './EditableIdSelect';
-import {berthOptions,waypointOptions} from './idOptions';
+import {EditableIdList} from './EditableIdSelect';
+import {waypointOptions} from './idOptions';
 import { useEffect,useMemo,useState,type ReactNode } from 'react';
 import { Button,Flex,Modal,Segmented,Select,Space,Table,Tabs,Tag,Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -77,7 +77,7 @@ export function RunRouteEditor({events=[],stationPrograms=[],onStationProgramCha
   const callColumns:TableColumnsType<AuthoringRunCallV1>=[
     {title:t('editor.station'),key:'station',width:132,ellipsis:true,render:(_,call)=><Button type="link" className="station-link" onClick={()=>setSelectedCallId(call.id)}>{labelStation(call.stationId)}</Button>},
     {title:t('editor.callType'),key:'status',width:92,render:(_,call)=>call.status==='ORIGIN'||call.status==='TERMINAL'?<Typography.Text>{t(call.status==='ORIGIN'?'status.origin':'status.terminal')}</Typography.Text>:<Select variant="borderless" value={call.status} onChange={(status)=>changeStatus(call,status as 'STOP'|'PASS')} options={[{value:'STOP',label:t('status.stop')},{value:'PASS',label:t('status.pass')}]}/>},
-    {title:t('editor.berth'),key:'berth',width:88,render:(_,call)=><EditableIdSelect fieldKey={`${fieldScope}/${run.id}/${call.id}/berth`} aria-label={`${labelStation(call.stationId)} · ${t('editor.berth')}`} value={call.berthId??''} placeholder="—" onCommit={(berthId)=>changeBerth(call,berthId)} options={berthOptions(metadata,call.stationId)}/>},
+    {title:t('editor.berth'),key:'berth',width:88,render:(_,call)=><Select variant="borderless" value={call.berthId||undefined} placeholder="—" onChange={(berthId)=>changeBerth(call,berthId)} options={berthsFor(call.stationId).map((berth)=>({value:berth.berthId,label:berth.berthId}))}/>},
     {title:t('editor.arrivalTime'),key:'arrival',width:96,render:(_,call)=>call.status==='ORIGIN'?<Typography.Text type="secondary">—</Typography.Text>:<span className="editable-tick"><CommittedNumberInput aria-label={`${labelStation(call.stationId)} · ${t('editor.arrivalTime')}`} fieldKey={`${fieldScope}/${run.id}/${call.id}/arrival`} variant="borderless" controls={false} min={0} precision={0} value={call.arrivalTick} onCommit={(arrivalTick)=>patchCall(call.id,{arrivalTick})}/>{timeDisplay==='both'&&<small>{call.arrivalTick==null?'—':formatTimetableTick(call.arrivalTick,locale)}</small>}</span>},
     {title:t('editor.departureTime'),key:'departure',width:96,render:(_,call)=>call.status==='PASS'?<Typography.Text type="secondary">—</Typography.Text>:<span className="editable-tick"><CommittedNumberInput aria-label={`${labelStation(call.stationId)} · ${t('editor.departureTime')}`} fieldKey={`${fieldScope}/${run.id}/${call.id}/departure`} variant="borderless" controls={false} min={0} precision={0} value={call.departureTick} onCommit={(departureTick)=>patchCall(call.id,{departureTick})}/>{timeDisplay==='both'&&<small>{call.departureTick==null?'—':formatTimetableTick(call.departureTick,locale)}</small>}</span>},
   ];

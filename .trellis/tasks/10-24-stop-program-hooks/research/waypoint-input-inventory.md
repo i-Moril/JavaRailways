@@ -1,5 +1,7 @@
 # Editable waypoint inputs — inventory and proposed contract (2026-10-30)
 
+> 2026-10-31用户纠正：本文关于扩展局部berth/stabling后缀控件的提议/实现仅是前批历史，已撤回。完整路径点要求不适用于这些局部字段；当前合同见waypoint-suffix-correction-2026-10-31.md。
+
 Worktree `/tmp/javarailways-blockly-deploy`, baseline `5e674d12`. Existing task stays in progress. This inventory precedes implementation; no backend, storage, schema, deployment or archive change.
 
 ## Actual waypoint/destination inputs

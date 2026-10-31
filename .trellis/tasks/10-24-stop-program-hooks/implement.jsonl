@@ -17,3 +17,5 @@
 {"file": ".trellis/tasks/10-24-stop-program-hooks/research/depot-simulation-start.md", "reason": "Existing directed depot eligibility and actual restore/execution proof"}
 {"file": ".trellis/tasks/10-24-stop-program-hooks/research/waypoint-input-review.md", "reason": "Independent review and real Ant tags regression fixes"}
 {"file": ".trellis/tasks/10-24-stop-program-hooks/research/waypoint-input-validation.md", "reason": "Final automated and real browser evidence, review closure and live verification limits"}
+{"file": ".trellis/tasks/10-24-stop-program-hooks/research/waypoint-suffix-correction-2026-10-31.md", "reason": "User correction: full waypoint inputs exclude existing station/depot suffix fields"}
+{"file": ".trellis/tasks/10-24-stop-program-hooks/research/waypoint-suffix-review-2026-10-31.md", "reason": "Bounded independent review confirms suffix controls restored and full waypoint inputs retained"}

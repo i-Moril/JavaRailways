@@ -1,0 +1,58 @@
+{
+  "sourceCommit": "2b1e4d776b105e6afd6e686ac6076295c4492e34",
+  "mainJarSha256": "7d5f2e9f3117632b4b52197c2d5ad49c2fbd38e00f4d4d06a3ddb4f9fd3c9d59",
+  "webuiSha256": "8928e11671685ca86443672b8f4945b9d5c1dd6784bdac0e9359c3bacbfef46f",
+  "replacementCount": 1,
+  "preservedInstallFiles": 152,
+  "checkedLocalAndPublicAssets": 17,
+  "assets": [
+    "/",
+    "/assets/index-CYKRQMnZ.js",
+    "/assets/index-CdCGfk_W.css",
+    "/blockly-media/1x1.gif",
+    "/blockly-media/LICENSE",
+    "/blockly-media/README.txt",
+    "/blockly-media/delete-icon.svg",
+    "/blockly-media/dropdown-arrow.svg",
+    "/blockly-media/foldout-icon.svg",
+    "/blockly-media/handclosed.cur",
+    "/blockly-media/handdelete.cur",
+    "/blockly-media/handopen.cur",
+    "/blockly-media/pilcrow.png",
+    "/blockly-media/quote0.png",
+    "/blockly-media/quote1.png",
+    "/blockly-media/resize-handle.svg",
+    "/blockly-media/sprites.svg"
+  ],
+  "publicUrl": "http://mc.art1st.work:29002",
+  "uiTimeoutContractInDeployedBundle": true,
+  "preservedDraftSignalAndOtherJarFiles": 22,
+  "mapMarkers": 31,
+  "guestSimulationStatus": 401,
+  "guestErrorStructured": true,
+  "runtimeMarkers": [
+    "[14:19:43] [Server thread/INFO]: Done (26.966s)! For help, type \"help\"",
+    "[14:20:00] [Folia Region Scheduler Thread #0/INFO]: ATO world: RUNNING",
+    "[14:20:00] [Folia Region Scheduler Thread #0/INFO]: SimpleSignals 2952ad2c-41ce-40bc-b83b-1b578ae7af12: installed, definitionRevision=117, topologyRevision=1; regions=5, tables=5, blocks=14, fixedBlockSignals=8, protectionSignals=4, routeIndicators=1, attachedSignals=0"
+  ],
+  "incrementalErrors": {
+    "plugins/JavaRailways/logs/errors.log": {
+      "preInstallShutdownErrors": 13,
+      "postInstallErrors": 0,
+      "newWarnings": 4
+    },
+    "plugins/JavaRailways/webui/logs/errors.log": {
+      "preInstallShutdownErrors": 0,
+      "postInstallErrors": 0,
+      "newWarnings": 1
+    },
+    "plugins/SimpleSignals/logs/errors.log": {
+      "preInstallShutdownErrors": 1,
+      "postInstallErrors": 0,
+      "newWarnings": 0
+    }
+  },
+  "knownTerraTheUnsafeStartupErrorCount": 1,
+  "recoveryDirectory": "/opt/mcsmanager/backups/javarailways/expression-inputs-20261031-11folwvz",
+  "archiveSha256": "b80e9d42a3e3f133722c8718db8bf54215437c9494541be8b7293d53cde64e93"
+}

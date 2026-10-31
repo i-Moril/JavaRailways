@@ -103,6 +103,12 @@ sealed interface TrainOperationExecutionResult {
 fun interface TrainOperationGateway {
     @MainThread
     fun execute(request: TrainOperationRequest): TrainOperationExecutionResult
+
+    /** Read-only planning query for this actual train; it must never start door effects. */
+    @MainThread
+    fun estimateDoorCloseDurationTicks(trainId: String, side: DoorSide): java.util.concurrent.CompletableFuture<Long> =
+        if (side == DoorSide.NONE) java.util.concurrent.CompletableFuture.completedFuture(0L)
+        else java.util.concurrent.CompletableFuture.failedFuture(IllegalStateException("door duration gateway is not configured"))
 }
 
 /** Default used outside a platform adapter. Doorless station calls never invoke it. */

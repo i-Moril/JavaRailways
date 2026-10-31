@@ -8,6 +8,28 @@ import work.art1st.javarailways.bukkit.render.model.CompactTransform
 
 class AnimationTest {
     @Test
+    fun `completion distinguishes final owner commit from cancellation`() {
+        val animation = doorAnimation()
+        val active = animation.activateToScene("open", "closed", onDestroy = {})
+        active.tick(1300.0)
+        assertTrue(!active.completion.isDone)
+        active.commit()
+        assertTrue(active.completion.isDone && !active.completion.isCompletedExceptionally)
+        val interrupted = animation.activateToScene("closed", "open", onDestroy = {})
+        interrupted.tick(100.0)
+        interrupted.destroy().toCompletableFuture().join()
+        assertTrue(interrupted.completion.isCompletedExceptionally)
+        val computedButUncommitted = animation.activateToScene("open", "closed", onDestroy = {})
+        computedButUncommitted.tick(1300.0)
+        computedButUncommitted.destroy().toCompletableFuture().join()
+        assertTrue(computedButUncommitted.completion.isCompletedExceptionally)
+        val failedCommit = animation.activateToScene("open", "closed", onDestroy = {}, onCommit = { error("projection failed") })
+        failedCommit.tick(1300.0)
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException::class.java) { failedCommit.commit() }
+        assertTrue(failedCommit.completion.isCompletedExceptionally)
+    }
+
+    @Test
     fun `display overrides change only when playback reaches a keyframe`() {
         val stone = AnimationDisplayState(itemType = "stone", brightnessBlock = 2, brightnessSky = 3)
         val gold = AnimationDisplayState(itemType = "gold_block", brightnessBlock = 12, brightnessSky = 15)

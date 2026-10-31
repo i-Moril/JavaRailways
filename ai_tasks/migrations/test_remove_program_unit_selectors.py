@@ -52,7 +52,7 @@ def document(bridge):
                 duties=[dict(id='duty', selector={'type': 'TRAIN_NAME', 'name': 'train'}, elements=[
                     dict(id='task', type='PROGRAM', tick=20, program=invocation()),
                     dict(id='ref', type='EVENT', eventId='event')])],
-                stationPrograms=[dict(stationId='station', preparationLeadTicks=20,
+                stationPrograms=[dict(stationId='station', preparationLead={'value': 20},
                     arrival=dict(parameters=[], steps=[dict(id='a', type='SET_DISPLAY', unitSlots={'value': [1]},
                         values={'trainInfo': {'count': 'UNIT_COUNT'}}), dict(id='end', type='END')]),
                     departurePreparation=dict(parameters=[], steps=[dict(id='end', type='END')]))])

@@ -33,6 +33,7 @@ import work.art1st.javarailways.bukkit.behavior.CarBehavior
 import work.art1st.javarailways.bukkit.behavior.CapturedCarBehavior
 import work.art1st.javarailways.bukkit.behavior.carBehaviorActions
 import work.art1st.javarailways.bukkit.behavior.captureAnimationCapabilities
+import work.art1st.javarailways.bukkit.behavior.captureAnimationParts
 import work.art1st.javarailways.bukkit.behavior.supportsAnimation
 import work.art1st.javarailways.bukkit.behavior.TrainBehaviorActionDefinition
 import work.art1st.javarailways.bukkit.config.model.SavedTrainPackageSnapshot
@@ -43,10 +44,6 @@ import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueInput
 import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueKind
 import work.art1st.javarailways.bukkit.persistence.TrainPackageSnapshotStore
 import work.art1st.javarailways.basic.api.operation.DoorSide
-import work.art1st.javarailways.core.api.util.tick.TickingObject
-import work.art1st.javarailways.core.api.util.tick.Synchronizable
-import work.art1st.javarailways.core.api.util.Destroyable
-import work.art1st.javarailways.bukkit.util.PlatformCommitAffinity
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -70,16 +67,27 @@ class CarExtension : TrainComponentExtension<Car>() {
     var resourceType: String? = null
         private set
     private var behaviorClosed = false
+    private val behaviorClockDelegate = lazy {
+        work.art1st.javarailways.bukkit.behavior.CarBehaviorClock(self.world.tickManager, this, ::behaviorLocation)
+    }
+    private val behaviorClock by behaviorClockDelegate
+    private val playback by lazy {
+        work.art1st.javarailways.bukkit.behavior.CarAnimationPlayback(
+            { animationParts() },
+            { active -> behaviorClock.register(active) },
+            { pendingHeldScenes }, ::projectBehaviorFrame)
+    }
     private val behavior by lazy {
         CarBehavior(::resolveBehavior, ::resolveActions,
-            { name, scene -> ensureBehaviorOwned(); if (scene == null) applyAnimation(name) else applyAnimation(name, scene) },
+            { name, scene -> ensureBehaviorOwned(); playBehaviorAnimation(name, scene) },
             { key, volume, pitch ->
                 val location = behaviorLocation()
                 BukkitThreadOwnership.ensureLocation(location, "CarExtension.sound")
                 location.world!!.playSound(location, key, volume.toFloat(), pitch.toFloat())
-            }, ::scheduleBehaviorEffect,
-            { BukkitPlugin.INSTANCE.logger.info("[CarBehavior:${self.id}] $it") }, ::stopTrainForScriptFailure, ::hasAnimation)
+            }, { delay, action -> behaviorClock.schedule(delay, action) },
+            { BukkitPlugin.INSTANCE.logger.info("[CarBehavior:${self.id}] $it") }, ::stopTrainForScriptFailure, ::hasAnimation, playback::closeDurationTicks, { resolveModelSnapshot() to resolveActions() })
     }
+    private var behaviorModelNodes: List<work.art1st.javarailways.bukkit.render.model.AbstractModel> = emptyList()
     private var bodyModel: CompositeModel? = null
     private var bogieModels: List<CompositeModel> = emptyList()
     private var platformModels: List<PlatformModel> = emptyList()
@@ -95,6 +103,7 @@ class CarExtension : TrainComponentExtension<Car>() {
 
     override fun initialize(host: Car, savedExtensionData: Map<String, SerializableExtensionData>) {
         super.initialize(host, savedExtensionData)
+        behaviorClock.start()
         val savedState = savedExtensionData[BukkitPlugin.EXTENSION_ID] as? SavedCarRenderState
         if (savedState != null) {
             carModelName = savedState.carModelName
@@ -231,15 +240,24 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     @Synchronized
+    internal fun estimateDoorCloseDurationTicks(side: DoorSide, tail: Boolean): Long {
+        ensureBehaviorOwned()
+        return behavior.estimateDoorCloseDurationTicks(side, tail)
+    }
+
+    @Synchronized
     internal fun executeAction(name: String, tail: Boolean, done: (Result<Unit>) -> Unit): TrainModelOperationResult {
         ensureBehaviorOwned()
         return behavior.action(name, tail, done)
     }
 
     @Synchronized
-    internal fun executeAnimation(name: String, scene: String?): Boolean {
+    internal fun executeAnimation(name: String, scene: String?): Boolean = !executeAnimationTracked(name, scene).isCompletedExceptionally
+
+    @Synchronized
+    internal fun executeAnimationTracked(name: String, scene: String?): CompletableFuture<Unit> {
         ensureBehaviorOwned()
-        return if (scene == null) applyAnimation(name) else applyAnimation(name, scene)
+        return playBehaviorAnimation(name, scene)
     }
 
     @Synchronized
@@ -269,33 +287,7 @@ class CarExtension : TrainComponentExtension<Car>() {
         if (behaviorClosed) return
         behaviorClosed = true
         // Accessing lazy here does not initialize a JS Context; close also covers never-used cars.
-        behavior.close()
-    }
-
-    private fun scheduleBehaviorEffect(delay: Double, action: () -> Unit): AutoCloseable {
-        val effect = object : TickingObject, Synchronizable, Destroyable, PlatformCommitAffinity {
-            private var elapsed = 0.0
-            private var destroyed = false
-            override fun tick(deltaT: Double) = synchronized(this@CarExtension) {
-                if (!destroyed) elapsed += deltaT.coerceAtLeast(0.0) / 1000.0
-            }
-            override fun commitLocation() = behaviorLocation()
-            override fun commit() = synchronized(this@CarExtension) {
-                if (!destroyed && elapsed >= delay) {
-                    try { action() } finally { destroy().toCompletableFuture().getNow(null) }
-                }
-            }
-            private val destruction = Destruction()
-            override fun destroy(): CompletionStage<Void> = destruction.run {
-                synchronized(this@CarExtension) {
-                    destroyed = true
-                    self.world.tickManager.unregister(this)
-                }
-                CompletableFuture.completedFuture(null)
-            }
-        }
-        self.world.tickManager.register(effect)
-        return AutoCloseable { effect.destroy().toCompletableFuture().getNow(null) }
+        try { behavior.close() } finally { try { playback.close() } finally { if (behaviorClockDelegate.isInitialized()) behaviorClock.close() } }
     }
 
     /** Synchronous commit entry point used by explicit Core command paths. */
@@ -386,6 +378,30 @@ class CarExtension : TrainComponentExtension<Car>() {
         }
     }
 
+    private var playbackModel: SavedCarModelTree? = null
+    private var playbackParts: List<Map<String, work.art1st.javarailways.bukkit.render.Animation>> = emptyList()
+    private fun animationParts(): List<Map<String, work.art1st.javarailways.bukkit.render.Animation>> {
+        val source = resolveModelSnapshot()
+        if (playbackModel !== source) {
+            if (playbackModel != null) playback.resetForSourceChange()
+            playbackParts = source.captureAnimationParts()
+            playbackModel = source
+        }
+        return playbackParts
+    }
+
+    private fun projectBehaviorFrame(index: Int, frame: work.art1st.javarailways.bukkit.behavior.CarAnimationPlayback.Frame) {
+        if (bodyModel != null || bogieModels.isNotEmpty())
+            behaviorModelNodes.getOrNull(index)?.projectAnimationFrame(frame.name, frame.scene, frame.transform, frame.display)
+        if (frame.name != null && frame.scene != null) pendingHeldScenes = pendingHeldScenes + (frame.name to frame.scene)
+    }
+
+    private fun playBehaviorAnimation(name: String, scene: String?): CompletableFuture<Unit> {
+        val future = playback.play(name, scene)
+        if (!future.isCompletedExceptionally && scene != null) pendingHeldScenes = pendingHeldScenes + (name to scene)
+        return future
+    }
+
     private fun hasAnimation(name: String, scene: String?): Boolean {
         val snapshot = resolveModelSnapshot()
         if (capabilityModel !== snapshot) {
@@ -396,6 +412,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     private fun buildPreparedModel() {
+        animationParts() // Settle old model-slot playback before publishing another tree's node ordering.
         val modelManager = BukkitPlugin.INSTANCE.modelManager
         val modelGeneration = modelManager.generation
         val snapshot = resolveModelSnapshot()
@@ -425,6 +442,11 @@ class CarExtension : TrainComponentExtension<Car>() {
             bogieModels = bogies
             platformModels = platforms
             seatModels = seats
+            behaviorModelNodes = buildList {
+                body.forEachModelRecursive { if (it.animation.isNotEmpty()) add(it) }
+                bogies.forEach { model -> model.forEachModelRecursive { if (it.animation.isNotEmpty()) add(it) } }
+            }
+            playback.projectCurrentFrames()
         }
         builtModelGeneration = modelGeneration
     }
@@ -530,6 +552,7 @@ class CarExtension : TrainComponentExtension<Car>() {
         steps.action { snapshotHeldScenesForReload() }
         bodyModel?.let { model -> steps.await { model.destroy() } }
         bogieModels.forEach { model -> steps.await { model.destroy() } }
+        behaviorModelNodes = emptyList()
         bodyModel = null
         bogieModels = emptyList()
         platformModels = emptyList()
@@ -544,29 +567,13 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     override fun applyAnimation(name: String): Boolean {
-        var applied = bodyModel?.applyAnimation(name) ?: false
-        bogieModels.forEach { model ->
-            applied = model.applyAnimation(name) || applied
-        }
-        return applied
+        ensureBehaviorOwned()
+        return !playBehaviorAnimation(name, null).isCompletedExceptionally
     }
 
     override fun applyAnimation(name: String, sceneName: String): Boolean {
-        if (bodyModel == null && bogieModels.isEmpty()) {
-            // A held scene is semantic vehicle state, not merely an update to currently spawned
-            // display entities. Keep the latest target so reverse/lights/doors remain correct when
-            // the model is outside every player's render distance and is rebuilt later.
-            pendingHeldScenes = pendingHeldScenes + (name to sceneName)
-            return true
-        }
-        var applied = bodyModel?.applyAnimation(name, sceneName) ?: false
-        bogieModels.forEach { model ->
-            applied = model.applyAnimation(name, sceneName) || applied
-        }
-        if (applied) {
-            pendingHeldScenes = pendingHeldScenes - name
-        }
-        return applied
+        ensureBehaviorOwned()
+        return !playBehaviorAnimation(name, sceneName).isCompletedExceptionally
     }
 
     private fun snapshotHeldScenesForReload() {
@@ -695,5 +702,5 @@ internal fun captureCarBehavior(source: SavedTrainPackageSnapshot, model: SavedC
         source.actions.mapValues { (_, action) -> action.copy(
             animations = action.animations.toList(), sounds = action.sounds.toList()
         ) },
-        model.captureAnimationCapabilities()
+        model.captureAnimationParts()
     )

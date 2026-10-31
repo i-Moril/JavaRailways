@@ -15,8 +15,8 @@ export function StationStopProgramEditor({value,onChange,scope,onValidityChange,
    key:phase,label:t(phase==='arrival'?'stationPrograms.arrival':'stationPrograms.preparation'),forceRender:true,
    children:<ProgramBlockEditor events={events} context="arrival" extensions={extensions}
     entryLabel={t(phase==='arrival'?'stationPrograms.arrival':'stationPrograms.preparation')}
-    preparationLeadTicks={phase==='departurePreparation'?value.preparationLeadTicks:undefined}
-    onEntryChange={phase==='departurePreparation'?(definition,preparationLeadTicks)=>update({departurePreparation:definition,preparationLeadTicks}):undefined}
+    preparationLead={phase==='departurePreparation'?value.preparationLead:undefined}
+    onEntryChange={phase==='departurePreparation'?(definition,preparationLead)=>update({departurePreparation:definition,preparationLead}):undefined}
     draftScope={`${scope}/${phase}`} fieldScope={`${scope}/${phase}`} value={value[phase]}
     onValidityChange={(valid)=>report(phase,valid)} onChange={(definition)=>update({[phase]:definition})}/>,
   }))}/>

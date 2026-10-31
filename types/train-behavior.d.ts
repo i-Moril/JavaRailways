@@ -36,3 +36,7 @@ declare function defineAction(
   options: JavaRailwaysBehaviorActionOptions,
   handler: JavaRailwaysBehaviorHandler,
 ): void;
+
+/** Pure declarative door planner. No action/sound/log effects; returns current YAML action names.
+ * Evaluated in an isolated context for both execution and duration queries. */
+declare function door(side: "left" | "right" | "both", scene: "open" | "closed"): string[];

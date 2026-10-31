@@ -52,7 +52,7 @@ status.updateAndGet { current ->
 }
 ```
 
-来源：BukkitPlugin内部`operation/ModelOperationTicket.kt`，两种效果adapter共同消费，Basic公共request/result/state不变。成功必须对应本次固定车厢集合全部已接受effects启动，非动画播放结束。SIM真实行为owner由目标world资源栈关闭，不能只删完成回调。
+来源：BukkitPlugin内部`operation/ModelOperationTicket.kt`，两种效果adapter共同消费，Basic公共request/result/state不变。门/模型动画操作成功必须对应本次固定车厢集合全部已接受动画播放完成；声音仍在发出时结束其effect。可见投影需确认最终frame提交，隐藏/模拟继续真实逻辑播放时钟，不能因无实体立即成功。SIM真实行为owner由目标world资源栈关闭，不能只删完成回调。
 
 ## 禁止实现
 
@@ -74,3 +74,7 @@ status.updateAndGet { current ->
 ./gradlew :BukkitPlugin:test --tests '*SimulationTrainOperationGatewayTest'
 ./gradlew :BukkitPlugin:test --tests '*BukkitTrainOperationGatewayTest'
 ```
+
+## 只读关门耗时
+
+TrainOperationGateway 保留execute的SAM接口，并提供 estimateDoorCloseDurationTicks(trainId,side):CompletableFuture<Long>。它在simulation边界捕获当前实际车厢及相对门侧，平台owner只读同一门动作计划/动画时间数据；并行各车取最大值，启动延迟和播放时长分别按20tick/s向上取整再相加，避免把0.06秒延迟加0.06秒播放误估为3tick（实际需4tick）。NONE为0。缺失配置/计划/动画明确失败，不能猜测20tick；查询不接受/播放任何效果，不改变persistent JS状态。时刻表消费者负责有界等待和取消；耗时只决定提前何时准备，不能代替实际关门ticket。

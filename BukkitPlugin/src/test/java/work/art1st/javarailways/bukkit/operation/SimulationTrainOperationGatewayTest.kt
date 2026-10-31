@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.operation.*
 import work.art1st.javarailways.bukkit.behavior.CapturedCarBehavior
+import work.art1st.javarailways.bukkit.behavior.captureAnimationParts
 import work.art1st.javarailways.bukkit.config.model.*
 import work.art1st.javarailways.core.api.physics.WorldExecutionMode
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
@@ -165,12 +166,9 @@ class SimulationTrainOperationGatewayTest {
             TrainActionConfig(name, animations = listOf(TrainActionAnimationConfig(name, at = 0.2)))
         }
         val script = """
-            let openings = 0;
             function door(side, scene) {
-                openings++;
                 const physical = operatingEnd() === 'tail' ? (side === 'left' ? 'right' : 'left') : side;
-                action('door-' + physical + '-open');
-                return action(openings === 1 ? 'first' : 'later');
+                return ['door-' + physical + '-open', 'first'];
             }
         """.trimIndent()
         val source = definition(script, actions + listOf(action("first"), action("later")))
@@ -193,7 +191,7 @@ class SimulationTrainOperationGatewayTest {
             f.advance(0)
             f.advance(201)
             assertSucceeded(next)
-            assertEquals(listOf("first", "door-left-open", "later", "door-right-open"), f.animations(1))
+            assertEquals(listOf("first", "door-left-open", "first", "door-right-open"), f.animations(1))
             assertEquals(listOf("first", "door-left-open"), f.animations(0))
         }
     }
@@ -205,7 +203,7 @@ class SimulationTrainOperationGatewayTest {
             "function __javaRailwaysListActions() { throw new Error('bad declarations'); }",
             "function door() { throw new Error('bad door'); }"
         )
-        val healthy = definition("function door() { return action('open'); }", listOf(action("open")))
+        val healthy = definition("function door() { return ['open']; }", listOf(action("open")))
         broken.forEach { script ->
             fixture(listOf(definition(script, emptyList()))).use { failed ->
                 fixture(listOf(healthy)).use { other ->
@@ -379,6 +377,75 @@ class SimulationTrainOperationGatewayTest {
         }
     }
 
+    @Test
+    fun `real S100 whole-train door query is read only and ticket waits full delayed playback`() {
+        val loaded = requireNotNull(PackageLoader(java.io.File("../models/s100")).loadTrainPackage())
+        val definitions = loaded.cars.values.map { model -> CapturedCarBehavior(loaded.behavior, loaded.actions,
+            SavedCarModelTree.build(model, loaded.partRegistry).captureAnimationParts()) }
+        fixture(definitions).use { f ->
+            f.advance(0)
+            assertEquals(38L, f.world.onOwnerForTest {
+                f.gateway.estimateDoorCloseDurationTicks(f.train.id, DoorSide.BOTH).join()
+            })
+            assertTrue(f.effectSnapshots().all { it.isEmpty() })
+            val open = f.execute(TrainOperation.OpenDoors(DoorSide.BOTH))
+            assertEquals(TrainOperationTicketState.PENDING, open.snapshot().state)
+            f.advance(1299); assertEquals(TrainOperationTicketState.PENDING, open.snapshot().state)
+            f.advance(1); assertSucceeded(open)
+            val close = f.execute(TrainOperation.CloseDoors(DoorSide.BOTH))
+            f.advance(600)
+            assertEquals(TrainOperationTicketState.PENDING, close.snapshot().state)
+            f.advance(1299); assertEquals(TrainOperationTicketState.PENDING, close.snapshot().state)
+            f.advance(1, commit = false)
+            assertEquals(TrainOperationTicketState.PENDING, close.snapshot().state)
+            f.world.onOwnerForTest { f.commit() }
+            assertSucceeded(close)
+        }
+    }
+
+    @Test
+    fun `estimate includes separate launch and playback tick quantization`() {
+        val animation = work.art1st.javarailways.bukkit.render.Animation(listOf(
+            work.art1st.javarailways.bukkit.render.Animation.AnimationCommand(
+                work.art1st.javarailways.bukkit.render.model.CompactTransform(), 0.0, "closed"),
+            work.art1st.javarailways.bukkit.render.Animation.AnimationCommand(
+                work.art1st.javarailways.bukkit.render.model.CompactTransform(), 0.06, "open")))
+        val definition = CapturedCarBehavior(TrainBehaviorScript("doors.js",
+            "function door(side,scene) { return [scene === 'open' ? 'rise' : 'lower']; }"), mapOf(
+            "rise" to TrainActionConfig("rise", animations = listOf(TrainActionAnimationConfig("motion", "open"))),
+            "lower" to TrainActionConfig("lower", animations = listOf(TrainActionAnimationConfig("motion", "closed", at = 0.06)))),
+            listOf(mapOf("motion" to animation)))
+        fixture(listOf(definition)).use { f ->
+            f.advance(0)
+            assertEquals(4L, f.world.onOwnerForTest { f.gateway.estimateDoorCloseDurationTicks(f.train.id, DoorSide.LEFT).join() })
+            val open = f.execute(TrainOperation.OpenDoors(DoorSide.LEFT))
+            f.advance(50); assertEquals(TrainOperationTicketState.PENDING, open.snapshot().state)
+            f.advance(50); assertSucceeded(open)
+            val close = f.execute(TrainOperation.CloseDoors(DoorSide.LEFT))
+            repeat(3) { f.advance(50); assertEquals(TrainOperationTicketState.PENDING, close.snapshot().state) }
+            f.advance(50); assertSucceeded(close)
+        }
+    }
+
+    @Test
+    fun `origin first close uses real clock without needing any preceding open operation`() {
+        val loaded = requireNotNull(PackageLoader(java.io.File("../models/s100")).loadTrainPackage())
+        val model = requireNotNull(loaded.cars["head"])
+        val source = CapturedCarBehavior(loaded.behavior, loaded.actions,
+            SavedCarModelTree.build(model, loaded.partRegistry).captureAnimationParts())
+        fixture(listOf(source)).use { f ->
+            f.advance(0) // Initialize the existing generic clock, not an animation or behavior call.
+            assertEquals(38L, f.world.onOwnerForTest { f.gateway.estimateDoorCloseDurationTicks(f.train.id, DoorSide.LEFT).join() })
+            assertTrue(f.effects(0).isEmpty())
+            val close = f.execute(TrainOperation.CloseDoors(DoorSide.LEFT))
+            f.advance(600)
+            assertTrue(f.effects(0).filterIsInstance<SimulationBehaviorEffect.SoundStarted>().any { it.key == "minecraft:block.iron_door.close" })
+            assertEquals(TrainOperationTicketState.PENDING, close.snapshot().state, "warning animation still playing")
+            f.advance(699); assertEquals(TrainOperationTicketState.PENDING, close.snapshot().state)
+            f.advance(1); assertSucceeded(close)
+        }
+    }
+
     private fun assertSucceeded(ticket: TrainOperationTicket) = assertEquals(TrainOperationTicketState.SUCCEEDED, ticket.snapshot().state)
 
     private fun fixture(definitions: List<CapturedCarBehavior>): Fixture = Fixture(definitions)
@@ -433,6 +500,11 @@ class SimulationTrainOperationGatewayTest {
         private fun request(train: String, operation: TrainOperation) = TrainOperationRequest("r", "service", "call", train, 1L, operation)
         private fun action(name: String) = TrainActionConfig(name, animations = listOf(TrainActionAnimationConfig(name)))
         private fun definition(script: String?, actions: List<TrainActionConfig>, animations: Map<String, Set<String>> = actions.flatMap { it.animations }.associate { it.name to emptySet<String>() }) =
-            CapturedCarBehavior(script?.let { TrainBehaviorScript("behavior.js", it) }, actions.associateBy { it.name }, animations)
+            CapturedCarBehavior(script?.let { TrainBehaviorScript("behavior.js", it) }, actions.associateBy { it.name }, animations.map { (name, scenes) ->
+                mapOf(name to work.art1st.javarailways.bukkit.render.Animation(
+                    if (scenes.isEmpty()) listOf(work.art1st.javarailways.bukkit.render.Animation.AnimationCommand.INITIAL_STATE)
+                    else scenes.map { work.art1st.javarailways.bukkit.render.Animation.AnimationCommand(
+                        work.art1st.javarailways.bukkit.render.model.CompactTransform(), 0.0, it) }))
+            })
     }
 }

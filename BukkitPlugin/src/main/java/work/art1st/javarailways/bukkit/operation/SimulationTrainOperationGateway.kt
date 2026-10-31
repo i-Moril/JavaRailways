@@ -34,6 +34,19 @@ internal class SimulationTrainOperationGateway(private val world: World) : Train
         }
     })
 
+    override fun estimateDoorCloseDurationTicks(trainId: String, side: work.art1st.javarailways.basic.api.operation.DoorSide): CompletableFuture<Long> {
+        ThreadGuard.ensureMainThread("SimulationTrainOperationGateway.estimateDoorCloseDurationTicks")
+        if (closed) return CompletableFuture.failedFuture(IllegalStateException("simulation behavior owner is closed"))
+        if (side == work.art1st.javarailways.basic.api.operation.DoorSide.NONE) return CompletableFuture.completedFuture(0L)
+        return try {
+            val train = requireNotNull(world.getTrain(trainId)) { "train not found: $trainId" }
+            val captured = train.cars.map { car ->
+                requireNotNull(car.simulationBehaviorOrNull) to train.behaviorRelativeTail(car, train.isReversed)
+            }
+            CompletableFuture.completedFuture(captured.maxOfOrNull { (car, tail) -> car.estimateDoorCloseDurationTicks(side, tail) } ?: 0L)
+        } catch (failure: Exception) { CompletableFuture.failedFuture(failure) }
+    }
+
     override fun execute(request: TrainOperationRequest): TrainOperationExecutionResult {
         ThreadGuard.ensureMainThread("SimulationTrainOperationGateway.execute")
         if (closed) return TrainOperationExecutionResult.Rejected("simulation behavior owner is closed")

@@ -11,14 +11,19 @@ private class ModelEffectRejectedException(message: String) : RuntimeException(m
 internal class CarBehavior(
     private val script: () -> TrainBehaviorScript?,
     private val actions: () -> Map<String, TrainActionConfig>,
-    private val animate: (String, String?) -> Boolean,
+    private val animate: (String, String?) -> java.util.concurrent.CompletableFuture<Unit>,
     private val sound: (String, Double, Double) -> Unit,
     private val schedule: (Double, () -> Unit) -> AutoCloseable,
     private val log: (String) -> Unit,
     private val scriptFailed: (TrainBehaviorScriptException) -> Unit,
-    private val hasAnimation: (String, String?) -> Boolean
+    private val hasAnimation: (String, String?) -> Boolean,
+    private val closeDuration: (List<String>, List<String>, Map<String, TrainActionConfig>) -> Long,
+    private val planningEnvironment: () -> Any
 ) : AutoCloseable {
     private var runtime: TrainBehaviorRuntime? = null
+    private var planSource: TrainBehaviorScript? = null
+    private var planEnvironment: Any? = null
+    private val doorPlans = mutableMapOf<Triple<DoorSide, Boolean, Boolean>, List<String>>()
     private var loadedScript: TrainBehaviorScript? = null
     private var relativeTail = false
     private var closed = false
@@ -45,17 +50,66 @@ internal class CarBehavior(
     fun door(side: DoorSide, opening: Boolean, tail: Boolean, done: (Result<Unit>) -> Unit): TrainModelOperationResult =
         execute(tail, done, requireEffects = true) {
             require(side != DoorSide.NONE) { "door side is NONE" }
-            val js = ensureRuntime()
-            if (js != null) js.call("door", listOf(side.name.lowercase(), if (opening) "open" else "closed"))
-            else {
-                val sides = if (side == DoorSide.BOTH) listOf("left", "right") else listOf(side.name.lowercase())
-                val success = sides.map { semantic ->
-                    val physical = if (!tail) semantic else if (semantic == "left") "right" else "left"
-                    action("door-$physical-${if (opening) "open" else "close"}")
-                }.all { it }
-                TrainBehaviorCallResult.Success("door", success)
+            val success = doorPlan(side, opening, tail).map(::action).all { it }
+            TrainBehaviorCallResult.Success("door", success)
+        }
+
+    /** Isolated declarative planning cannot observe or perturb the persistent behavior Context. */
+    fun estimateDoorCloseDurationTicks(side: DoorSide, tail: Boolean): Long {
+        check(!closed) { "car behavior is closed" }
+        if (side == DoorSide.NONE) return 0L
+        return closeDuration(doorPlan(side, true, tail), doorPlan(side, false, tail), actions())
+    }
+
+    private fun doorPlan(side: DoorSide, opening: Boolean, tail: Boolean): List<String> {
+        val source = script()
+        val environment = planningEnvironment()
+        if (source != planSource || environment != planEnvironment) {
+            doorPlans.clear()
+            planSource = source
+            planEnvironment = environment
+        }
+        val key = Triple(side, opening, tail)
+        doorPlans[key]?.let { return it }
+        val names = if (source == null) {
+            val sides = if (side == DoorSide.BOTH) listOf("left", "right") else listOf(side.name.lowercase())
+            sides.map { semantic ->
+                val physical = if (!tail) semantic else if (semantic == "left") "right" else "left"
+                "door-$physical-${if (opening) "open" else "close"}"
+            }
+        } else {
+            val bindings = object : TrainBehaviorBindings {
+                private fun prohibited(): Nothing = throw TrainBehaviorScriptException("door planning cannot produce host effects")
+                override fun action(name: String): Boolean = prohibited()
+                override fun sound(key: String, volume: Double, pitch: Double): Boolean = prohibited()
+                override fun log(message: String) = prohibited()
+                override fun operatingEnd() = if (tail) "tail" else "head"
+                override fun hasAnimation(name: String, scene: String?) = this@CarBehavior.hasAnimation(name, scene)
+            }
+            TrainBehaviorRuntime(source, bindings).use { planner ->
+                val result = planner.call("door", listOf(side.name.lowercase(), if (opening) "open" else "closed"))
+                val values = (result as? TrainBehaviorCallResult.Success)?.returnValue as? List<*>
+                    ?: throw TrainBehaviorScriptException("door must return an action-name array")
+                if (values.any { it !is String }) throw TrainBehaviorScriptException("door action names must be strings")
+                values.map { it as String }
             }
         }
+        if (names.isEmpty() || names.size > 128 || names.any { it.isBlank() || it.length > 256 })
+            throw TrainBehaviorScriptException("door plan must contain 1 to 128 action names")
+        names.forEach { name ->
+            val config = actions()[name] ?: throw TrainBehaviorScriptException("door action unavailable: $name")
+            if (config.animations.isEmpty() && config.sounds.isEmpty())
+                throw TrainBehaviorScriptException("door action has no effects: $name")
+            config.animations.forEach { animation ->
+                if (!animation.at.isFinite() || animation.at < 0 || !hasAnimation(animation.name, animation.scene))
+                    throw TrainBehaviorScriptException("door animation unavailable: ${animation.name}")
+            }
+            if (config.sounds.any { !it.at.isFinite() || it.at < 0 })
+                throw TrainBehaviorScriptException("door sound has invalid delay")
+        }
+        doorPlans[key] = names
+        return names
+    }
 
     fun action(name: String, tail: Boolean, done: (Result<Unit>) -> Unit): TrainModelOperationResult =
         execute(tail, done, requireEffects = true) {
@@ -111,16 +165,19 @@ internal class CarBehavior(
         var applied = false
         config.animations.forEach { animation ->
             applied = effect(animation.at) {
-                if (!animate(animation.name, animation.scene)) throw ModelEffectRejectedException("animation unavailable: ${animation.name}")
+                animate(animation.name, animation.scene)
             } || applied
         }
         config.sounds.forEach { value ->
-            applied = effect(value.at) { sound(value.key, value.volume, value.pitch) } || applied
+            applied = effect(value.at) {
+                sound(value.key, value.volume, value.pitch)
+                java.util.concurrent.CompletableFuture.completedFuture(Unit)
+            } || applied
         }
         return applied
     }
 
-    private fun effect(delay: Double, apply: () -> Unit): Boolean {
+    private fun effect(delay: Double, apply: () -> java.util.concurrent.CompletableFuture<Unit>): Boolean {
         if (initializing) throw TrainBehaviorScriptException("model effects are not allowed during behavior initialization")
         val owner = collecting ?: throw TrainBehaviorScriptException("model effects are not allowed while reading action metadata")
         owner.accept()
@@ -128,8 +185,10 @@ internal class CarBehavior(
             if (closed) {
                 owner.fail(IllegalStateException("car behavior is closed"))
             } else try {
-                apply()
-                owner.finish()
+                apply().whenComplete { _, failure ->
+                    if (failure == null) owner.finish()
+                    else owner.fail(ModelEffectRejectedException(failure.cause?.message ?: failure.message ?: "model effect failed"))
+                }
             } catch (failure: ModelEffectRejectedException) {
                 owner.fail(failure)
             } catch (failure: Exception) {
@@ -177,7 +236,10 @@ internal class CarBehavior(
         try {
             val created = TrainBehaviorRuntime(source, object : TrainBehaviorBindings {
                 override fun action(name: String) = this@CarBehavior.action(name)
-                override fun sound(key: String, volume: Double, pitch: Double) = effect(0.0) { this@CarBehavior.sound(key, volume, pitch) }
+                override fun sound(key: String, volume: Double, pitch: Double) = effect(0.0) {
+                    this@CarBehavior.sound(key, volume, pitch)
+                    java.util.concurrent.CompletableFuture.completedFuture(Unit)
+                }
                 override fun log(message: String) = this@CarBehavior.log(message)
                 override fun hasAnimation(name: String, scene: String?) = this@CarBehavior.hasAnimation(name, scene)
                 override fun operatingEnd() = if (relativeTail) "tail" else "head"

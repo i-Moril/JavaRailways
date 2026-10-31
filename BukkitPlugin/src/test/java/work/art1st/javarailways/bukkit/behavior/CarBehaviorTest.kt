@@ -67,7 +67,7 @@ class CarBehaviorTest {
         val source = TrainBehaviorScript("behavior.js", """
             function door(side, scene) {
               const physical = operatingEnd() === 'tail' ? (side === 'left' ? 'right' : 'left') : side;
-              return action('door-'+physical+'-open');
+              return ['door-'+physical+'-open'];
             }
         """.trimIndent())
         val actions = mapOf("door-right-open" to TrainActionConfig("door-right-open", animations = listOf(
@@ -138,6 +138,38 @@ class CarBehaviorTest {
         }
     }
 
+    @Test
+    fun `door planner is isolated read only and identical for estimate and execution with arbitrary action names`() {
+        val fixture = Fixture(TrainBehaviorScript("planner.js", """
+            let calls = 0;
+            function door() { calls++; return [calls === 1 ? 'custom-door' : 'wrong']; }
+            function state() { sound('state'+calls); }
+        """.trimIndent()), mapOf("custom-door" to TrainActionConfig("custom-door", sounds = listOf(TrainActionSoundConfig("door")))))
+        fixture.use {
+            assertEquals(0L, it.behavior.estimateDoorCloseDurationTicks(DoorSide.LEFT, false))
+            assertTrue(it.sounds.isEmpty())
+            it.behavior.door(DoorSide.LEFT, true, false, it.completions::add)
+            it.call("state")
+            assertEquals(listOf("door", "state0"), it.sounds)
+            assertTrue(it.completions.all { result -> result.isSuccess })
+        }
+    }
+
+    @Test
+    fun `door plan cannot produce effects or return non string unbounded arrays`() {
+        listOf("action('bell'); return ['bell'];", "sound('bell'); return ['bell'];", "log('side effect'); return ['bell'];",
+            "return null;", "return [];", "return [1];", "return Array(129).fill('bell');").forEach { body ->
+            Fixture(TrainBehaviorScript("invalid.js", "function door(){ $body }"),
+                mapOf("bell" to TrainActionConfig("bell", sounds = listOf(TrainActionSoundConfig("bell"))))).use { fixture ->
+                assertThrows(TrainBehaviorScriptException::class.java) {
+                    fixture.behavior.estimateDoorCloseDurationTicks(DoorSide.LEFT, false)
+                }
+                assertTrue(fixture.sounds.isEmpty())
+                assertTrue(fixture.animations.isEmpty())
+            }
+        }
+    }
+
     private class Fixture(script: TrainBehaviorScript?, actions: Map<String, TrainActionConfig> = emptyMap()) : AutoCloseable {
         var currentScript = script
         val sounds = mutableListOf<String>()
@@ -145,10 +177,12 @@ class CarBehaviorTest {
         val completions = mutableListOf<Result<Unit>>()
         val delayed = mutableListOf<Delayed>()
         val behavior = CarBehavior({ currentScript }, { actions }, { name, scene ->
-            animations.add("$name:$scene"); name != "missing"
+            animations.add("$name:$scene")
+            if (name != "missing") java.util.concurrent.CompletableFuture.completedFuture(Unit)
+            else java.util.concurrent.CompletableFuture.failedFuture(IllegalStateException("animation unavailable"))
         }, { key, _, _ -> sounds.add(key) }, { _, effect ->
             Delayed(effect).also { delayed.add(it) }
-        }, {}, {}, { name, _ -> name != "missing" })
+        }, {}, {}, { name, _ -> name != "missing" }, { _, _, _ -> 0L }, { actions })
         fun call(method: String) = behavior.call(method, emptyList(), false, completions::add)
         override fun close() = behavior.close()
     }

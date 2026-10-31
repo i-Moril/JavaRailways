@@ -4038,7 +4038,7 @@ class TimetableDispatcher(
         execution.runtime = StationStopProgramRuntime(programs, dispatcherTick, programs.minimumDwellTicks ?: minimumDwellTicks,
             effectiveSide == DoorSide.NONE, operationTimeoutTicks, StationProgramActionHost { action, taskId, instruction ->
                 startStationProgramAction(world, run, execution, action, taskId, instruction)
-            })
+            }, { operationGateway.estimateDoorCloseDurationTicks(run.train.id, effectiveSide) })
         run.ato.setSpeedLimit(stationProgramHoldKey(run), 0.0)
         run.state = TimetableServiceRunState.DWELLING
         run.message = "station ${programs.stationId}/${programs.callId} ${programs.role.name.lowercase()} tasks"

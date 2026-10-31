@@ -12,7 +12,7 @@ class StationStopProgramRuntimeTest {
     }
     private fun definition(role: StationStopRole = StationStopRole.STOP,
         arrival: List<StationProgramAction> = listOf(end), preparation: List<StationProgramAction> = listOf(end),
-        lead: Long = 0, departure: Long? = 100) = StationStopPrograms("central","call",role,arrival,preparation,lead,departure)
+        lead: Long = 0, departure: Long? = 100) = StationStopPrograms("central","call",role,arrival,preparation,StationPreparationLead.constant(lead),departure)
 
     @Test fun `preparation waits arrival main but overlaps descendants and final joins every descendant`() {
         val starts = mutableListOf<String>()
@@ -176,4 +176,85 @@ class StationStopProgramRuntimeTest {
         assertTrue(runtime.finalGateSatisfied(100,100))
         assertEquals(0,starts)
     }
+    private fun dynamicDefinition(role: StationStopRole = StationStopRole.ORIGIN,
+        arrival: List<StationProgramAction> = listOf(end)) = StationStopPrograms("central", "call", role,
+            arrival, listOf(StationProgramAction.CloseDoors, end),
+            StationPreparationLead(kotlinx.serialization.json.Json.parseToJsonElement("""{"doorCloseTicks":true}""")), 100)
+
+    @Test fun `delayed planning query waits without door effects and long closing cannot depart early`() {
+        val duration = java.util.concurrent.CompletableFuture<Long>()
+        val closed = Ticket()
+        var requests = 0
+        val starts = mutableListOf<Long>()
+        var tick = 0L
+        val runtime = StationStopProgramRuntime(dynamicDefinition(), 0, 0, false, 1000,
+            StationProgramActionHost { _, _, _ -> starts += tick; closed }, { requests++; duration })
+        runtime.tick(0, 0)
+        tick = 50; runtime.tick(tick, tick)
+        assertEquals(1, requests)
+        assertTrue(starts.isEmpty())
+        duration.complete(120)
+        tick = 51; runtime.tick(tick, tick)
+        assertEquals(listOf(51L), starts)
+        tick = 100; runtime.tick(tick, tick)
+        assertFalse(runtime.finalGateSatisfied(tick, tick))
+        tick = 170; runtime.tick(tick, tick)
+        assertFalse(runtime.finalGateSatisfied(tick, tick))
+        closed.result = StationProgramTicketResult.Succeeded
+        tick = 171; runtime.tick(tick, tick)
+        assertTrue(runtime.finalGateSatisfied(tick, tick))
+    }
+
+    @Test fun `dynamic lead starts at computed deadline but arrival main still gates preparation`() {
+        val opened = Ticket()
+        var closes = 0
+        val runtime = StationStopProgramRuntime(dynamicDefinition(StationStopRole.STOP, listOf(StationProgramAction.OpenDoors, end)),
+            0, 0, false, 1000, StationProgramActionHost { action, _, _ ->
+                if (action == StationProgramAction.OpenDoors) opened else { closes++; null }
+            }, { java.util.concurrent.CompletableFuture.completedFuture(80L) })
+        runtime.tick(0, 0)
+        runtime.tick(20, 20)
+        assertEquals(0, closes)
+        opened.result = StationProgramTicketResult.Succeeded
+        runtime.tick(30, 30)
+        assertEquals(1, closes)
+        assertFalse(runtime.finalGateSatisfied(99, 99))
+        assertTrue(runtime.finalGateSatisfied(100, 100))
+    }
+
+    @Test fun `terminal doorless and fixed timing never request model duration`() {
+        for ((definition, doorless) in listOf(dynamicDefinition(StationStopRole.TERMINAL) to false,
+            dynamicDefinition() to true, definition(StationStopRole.ORIGIN, preparation = listOf(StationProgramAction.CloseDoors, end)) to false)) {
+            val runtime = StationStopProgramRuntime(definition, 0, 0, doorless, 1000,
+                StationProgramActionHost { _, _, _ -> null }, { fail("unexpected duration query") })
+            runtime.tick(0, 0); runtime.tick(100, 100)
+            assertNull(runtime.failure)
+            assertTrue(runtime.finalGateSatisfied(100, 100))
+        }
+    }
+
+    @Test fun `query failure invalid duration timeout and cancellation preserve departure hold`() {
+        for (duration in listOf(java.util.concurrent.CompletableFuture.failedFuture<Long>(IllegalStateException("model failed")),
+            java.util.concurrent.CompletableFuture.completedFuture(-1L), java.util.concurrent.CompletableFuture<Long>().also { it.cancel(true) })) {
+            val runtime = StationStopProgramRuntime(dynamicDefinition(), 0, 0, false, 10,
+                StationProgramActionHost { _, _, _ -> fail("must not close") }, { duration })
+            runtime.tick(0, 0)
+            assertNotNull(runtime.failure)
+            assertFalse(runtime.finalGateSatisfied(100, 100))
+        }
+        val pending = java.util.concurrent.CompletableFuture<Long>()
+        val runtime = StationStopProgramRuntime(dynamicDefinition(), 0, 0, false, 10,
+            StationProgramActionHost { _, _, _ -> fail("must not close") }, { pending })
+        runtime.tick(0, 0); runtime.tick(10, 10)
+        assertNotNull(runtime.failure)
+        assertTrue(pending.isCancelled)
+        assertFalse(runtime.finalGateSatisfied(100, 100))
+        val cancelled = java.util.concurrent.CompletableFuture<Long>()
+        val stopped = StationStopProgramRuntime(dynamicDefinition(), 0, 0, false, 10,
+            StationProgramActionHost { _, _, _ -> null }, { cancelled })
+        stopped.tick(0, 0)
+        assertNull(stopped.cancelOutstanding())
+        assertTrue(cancelled.isCancelled)
+    }
+
 }

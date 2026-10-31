@@ -47,7 +47,7 @@ class StationStopPrograms(
     val role: StationStopRole,
     arrival: List<StationProgramAction>,
     departurePreparation: List<StationProgramAction>,
-    val preparationLeadTicks: Long,
+    val preparationLead: StationPreparationLead,
     val plannedDepartureTick: Long?,
     val destinationId: String? = null,
     val doorSide: DoorSide? = null,
@@ -55,12 +55,12 @@ class StationStopPrograms(
 ) {
     val arrival: List<StationProgramAction> = java.util.List.copyOf(arrival)
     val departurePreparation: List<StationProgramAction> = java.util.List.copyOf(departurePreparation)
-    override fun equals(other: Any?) = other is StationStopPrograms && stationId == other.stationId && callId == other.callId && role == other.role && arrival == other.arrival && departurePreparation == other.departurePreparation && preparationLeadTicks == other.preparationLeadTicks && plannedDepartureTick == other.plannedDepartureTick && destinationId == other.destinationId && doorSide == other.doorSide && minimumDwellTicks == other.minimumDwellTicks
-    override fun hashCode() = java.util.Objects.hash(stationId, callId, role, arrival, departurePreparation, preparationLeadTicks, plannedDepartureTick, destinationId, doorSide, minimumDwellTicks)
+    override fun equals(other: Any?) = other is StationStopPrograms && stationId == other.stationId && callId == other.callId && role == other.role && arrival == other.arrival && departurePreparation == other.departurePreparation && preparationLead == other.preparationLead && plannedDepartureTick == other.plannedDepartureTick && destinationId == other.destinationId && doorSide == other.doorSide && minimumDwellTicks == other.minimumDwellTicks
+    override fun hashCode() = java.util.Objects.hash(stationId, callId, role, arrival, departurePreparation, preparationLead, plannedDepartureTick, destinationId, doorSide, minimumDwellTicks)
     init {
         require(stationId.isNotBlank() && callId.isNotBlank())
         require(minimumDwellTicks == null || minimumDwellTicks >= 0L)
-        require(preparationLeadTicks >= 0L && (plannedDepartureTick == null || plannedDepartureTick >= 0L))
+        require(plannedDepartureTick == null || plannedDepartureTick >= 0L)
         require(destinationId == null || destinationId.isNotBlank())
         require(role == StationStopRole.TERMINAL || plannedDepartureTick != null) { "nonterminal stop requires a planned departure tick" }
         validateStationEntry(arrival, "arrival")

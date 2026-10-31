@@ -48,7 +48,8 @@ function onStation(time, door_side) {
 function door(side, scene) {
   const normalizedScene = String(scene || "open").toLowerCase()
   const suffix = normalizedScene === "closed" || normalizedScene === "close" ? "close" : "open"
-  runDoorAction(side, suffix)
+  const sides = String(side).toLowerCase() === "both" ? ["left", "right"] : [side]
+  return sides.map(function(doorSide) { return `door-${physicalDoorSide(doorSide)}-${suffix}` })
 }
 
 function hasEndLights() {

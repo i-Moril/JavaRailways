@@ -60,6 +60,22 @@ class TrainExtension : CoreTrainExtension {
     fun executeDoorOperation(side: DoorSide, opening: Boolean, isPending: () -> Boolean = { true }): CompletableFuture<Unit> =
         broadcast(isPending = isPending) { target, done -> target.renderer.executeDoor(side, opening, target.tail, done) }
 
+    fun estimateDoorCloseDurationTicks(side: DoorSide): CompletableFuture<Long> {
+        if (side == DoorSide.NONE) return CompletableFuture.completedFuture(0L)
+        val captured = capture()
+        val future = self.world.bukkitWorldData.trackModelOperation(CompletableFuture<Long>())
+        if (future.isDone) return future
+        val dispatcher = RegionTrainOperationDispatcher(BukkitPlugin.INSTANCE)
+        val calls = captured.map { target -> dispatcher.dispatch(target.renderer) {
+            target.renderer.estimateDoorCloseDurationTicks(side, target.tail)
+        } }
+        CompletableFuture.allOf(*calls.toTypedArray()).whenComplete { _, failure ->
+            if (failure != null) future.completeExceptionally(failure)
+            else future.complete(calls.maxOfOrNull { it.join() } ?: 0L)
+        }
+        return future
+    }
+
     fun executeModelAction(name: String, isPending: () -> Boolean = { true }, hasControl: Boolean = true): CompletableFuture<Unit> =
         broadcast(isPending = isPending, customName = name, hasControl = hasControl) { target, done -> target.renderer.executeAction(name, target.tail, done) }
 
@@ -67,9 +83,10 @@ class TrainExtension : CoreTrainExtension {
         broadcast { target, done -> target.renderer.executeBehavior(method, args, target.tail, done, optional) }
 
     fun applyAnimation(name: String, scene: String? = null): CompletableFuture<Unit> = broadcast { target, done ->
-        val applied = target.renderer.executeAnimation(name, scene)
-        if (applied) { done(Result.success(Unit)); TrainModelOperationResult.Accepted }
-        else TrainModelOperationResult.Rejected("car animation is unavailable: $name")
+        val playback = target.renderer.executeAnimationTracked(name, scene)
+        playback.whenComplete { _, failure -> done(if (failure == null) Result.success(Unit) else Result.failure(failure)) }
+        if (playback.isCompletedExceptionally) TrainModelOperationResult.Rejected("car animation is unavailable: $name")
+        else TrainModelOperationResult.Accepted
     }
 
     private fun broadcast(

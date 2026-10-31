@@ -13,7 +13,7 @@ class TrainInfoCompilerTest {
     private fun display(expression: String) = """{"id":"display","type":"SET_DISPLAY","values":$expression}"""
     private fun station(steps: String) = compileStationStopPrograms("A", Json.parseToJsonElement("""
       {"stationId":"s","callId":"c","callRole":"STOP","departureTick":100,"plannedContext":{"dutyId":"d"},
-       "stationProgram":{"preparationLeadTicks":10,"arrival":{"parameters":[],"steps":[$steps,{"id":"end","type":"END"}]},
+       "stationProgram":{"preparationLead":{"value":10},"arrival":{"parameters":[],"steps":[$steps,{"id":"end","type":"END"}]},
        "departurePreparation":{"parameters":[],"steps":[${extension("""{"trainInfo":$bindings}""")},{"id":"end","type":"END"}]}}}
     """).jsonObject)!!
 

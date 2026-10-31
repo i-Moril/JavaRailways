@@ -10,11 +10,11 @@ class StationStopProgramSnapshotTest {
         val arrival = mutableListOf<StationProgramAction>(StationProgramAction.OpenDoors,
             StationProgramAction.Async("announcement", listOf(StationProgramAction.WaitDuration(8))), StationProgramAction.End)
         val programs = StationStopPrograms("central", "call-b", StationStopRole.STOP, arrival,
-            listOf(StationProgramAction.Await("announcement"), StationProgramAction.Reverse, StationProgramAction.CloseDoors, StationProgramAction.End), 10, 100, "B")
+            listOf(StationProgramAction.Await("announcement"), StationProgramAction.Reverse, StationProgramAction.CloseDoors, StationProgramAction.End), StationPreparationLead.constant(10), 100, "B")
         arrival.clear()
         assertEquals(3, programs.arrival.size)
         assertThrows(UnsupportedOperationException::class.java) { (programs.arrival as MutableList).clear() }
-        val origin = StationStopPrograms("central", "call-a", StationStopRole.ORIGIN, listOf(StationProgramAction.End), listOf(StationProgramAction.CloseDoors, StationProgramAction.End), 10, 100, "A")
+        val origin = StationStopPrograms("central", "call-a", StationStopRole.ORIGIN, listOf(StationProgramAction.End), listOf(StationProgramAction.CloseDoors, StationProgramAction.End), StationPreparationLead.constant(10), 100, "A")
         val selection = work.art1st.javarailways.simpleato.api.station.StationStopSelection(
             work.art1st.javarailways.simpleato.api.station.StationId("central"),
             listOf(work.art1st.javarailways.simpleato.api.station.StationStopCandidate("one", 0)),
@@ -29,9 +29,20 @@ class StationStopProgramSnapshotTest {
 
     @Test fun `invalid task graphs and termination cannot enter current model`() {
         fun create(actions: List<StationProgramAction>) = StationStopPrograms("s", "c", StationStopRole.STOP,
-            actions, listOf(StationProgramAction.End), 0, 10)
+            actions, listOf(StationProgramAction.End), StationPreparationLead.constant(0), 10)
         assertThrows(IllegalArgumentException::class.java) { create(emptyList()) }
         assertThrows(IllegalArgumentException::class.java) { create(listOf(StationProgramAction.Await("future"), StationProgramAction.End)) }
         assertThrows(IllegalArgumentException::class.java) { create(listOf(StationProgramAction.Async("a", listOf(StationProgramAction.End)), StationProgramAction.End)) }
     }
+    @Test fun `actual train preparation duration expression survives snapshot round trip`() {
+        val lead = StationPreparationLead(Json.parseToJsonElement("""{"operation":{"type":"ADD","operands":[{"doorCloseTicks":true},{"value":5}]}}"""))
+        val programs = StationStopPrograms("s", "c", StationStopRole.ORIGIN, listOf(StationProgramAction.End),
+            listOf(StationProgramAction.CloseDoors, StationProgramAction.End), lead, 100)
+        val captured = SavedStationStopPrograms.capture(programs)
+        val restored = Json.decodeFromString<SavedStationStopPrograms>(Json.encodeToString(SavedStationStopPrograms.serializer(), captured)).restore()
+        assertEquals(programs, restored)
+        assertEquals(85L, restored.preparationLead.evaluate(80))
+        assertTrue(restored.preparationLead.requiresDoorCloseDuration)
+    }
+
 }

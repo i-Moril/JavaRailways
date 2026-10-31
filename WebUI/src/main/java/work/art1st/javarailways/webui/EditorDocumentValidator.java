@@ -28,12 +28,12 @@ final class EditorDocumentValidator {
             requireObjectArray(document, "stationPrograms");
             java.util.Set<String> stations = new java.util.HashSet<>();
             for (JsonNode record : document.path("stationPrograms")) {
-                StationProgramValidator.fields(record, java.util.Set.of("stationId", "arrival", "departurePreparation", "preparationLeadTicks"), "shared station program");
+                StationProgramValidator.fields(record, java.util.Set.of("stationId", "arrival", "departurePreparation", "preparationLead"), "shared station program");
                 String station = StationProgramValidator.text(record.path("stationId"), "station id");
                 if (!stations.add(station)) fail("duplicate shared station program");
                 StationProgramValidator.validateStation(record.path("arrival"));
                 StationProgramValidator.validateStation(record.path("departurePreparation"));
-                if (!record.path("preparationLeadTicks").isIntegralNumber() || !record.path("preparationLeadTicks").canConvertToLong() || record.path("preparationLeadTicks").asLong() < 0 || record.path("preparationLeadTicks").asLong() > 9_007_199_254_740_991L) fail("invalid preparation lead ticks");
+                StationPreparationLeadValidator.validate(record.path("preparationLead"));
             }
         }
         java.util.Map<String, JsonNode> programs = new java.util.HashMap<>();

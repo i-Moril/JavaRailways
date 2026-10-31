@@ -47,7 +47,7 @@ class EditorDocumentRestartTest {
              "diagramLines":[],"arrivalOverrides":[],
              "boundPrograms":[{"programId":"estimate","revision":1,"contentIdentity":"IDENTITY","estimatedDurationTicks":80,"definition":{"parameters":[],"steps":[]}}],
              "events":[{"id":"estimate-event","tick":100,"program":{"programId":"estimate","arguments":{}},"duration":{"type":"PROGRAM"}}],
-             "stationPrograms":[{"stationId":"central","preparationLeadTicks":0,
+             "stationPrograms":[{"stationId":"central","preparationLead":{"value":0},
                "arrival":{"parameters":[],"steps":[{"id":"info","type":"SET_DISPLAY","values":{"trainInfo":{"name":"NAME","cars":"CAR_COUNT","direction":"DIRECTION"}}},{"id":"wait","type":"WAIT_DURATION","durationTicks":{"value":20}},{"id":"end","type":"END"}]},
                "departurePreparation":{"parameters":[],"steps":[{"id":"end","type":"END"}]}}]}
             """.replace("IDENTITY", ProgramContentIdentity.of(mapper.readTree("{\"parameters\":[],\"steps\":[]}")));

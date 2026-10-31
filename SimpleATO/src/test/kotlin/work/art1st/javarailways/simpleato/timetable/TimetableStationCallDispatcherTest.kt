@@ -81,7 +81,7 @@ class TimetableStationCallDispatcherTest {
         arrival: List<StationProgramAction> = listOf(StationProgramAction.OpenDoors, StationProgramAction.End),
         preparation: List<StationProgramAction> = listOf(StationProgramAction.CloseDoors, StationProgramAction.End),
         lead: Long = 40L, destination: String? = "C") = StationStopPrograms("central","stop-call",role,
-            arrival,preparation,lead,departure,destination)
+            arrival,preparation,StationPreparationLead.constant(lead),departure,destination)
 
     @Test fun `shared destination program opens on actual arrival prepares early and awaits planned release`() {
         val gateway=ControllableOperationGateway()
@@ -108,6 +108,35 @@ class TimetableStationCallDispatcherTest {
         assertEquals(2,gateway.requests.size)
         assertEquals(TimetableServiceRunState.COMPLETED,fixture.dispatcher.status(id)!!.state)
         assertEquals(fixture.targetArc,fixture.train.head.location.arcLengthIn(ViewDirection.AB),0.4)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
+    @Test fun `actual train duration query schedules origin close and real ticket still prevents early movement`() {
+        val gateway = ControllableOperationGateway().also { it.duration = java.util.concurrent.CompletableFuture() }
+        val origin = StationStopPrograms("central", "origin", StationStopRole.ORIGIN,
+            listOf(StationProgramAction.End), listOf(StationProgramAction.CloseDoors, StationProgramAction.End),
+            StationPreparationLead(kotlinx.serialization.json.Json.parseToJsonElement("""{"doorCloseTicks":true}""")),
+            100L, "A", DoorSide.LEFT)
+        val fixture = fixture(originPrograms = origin, operationGateway = gateway, operationTimeoutTicks = 200L)
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        repeat(30) { fixture.tick(); assertTrue(gateway.requests.isEmpty()) }
+        assertEquals(listOf(fixture.train.id to DoorSide.LEFT), gateway.durationRequests)
+        gateway.duration!!.complete(40L)
+        var closeTick: Long? = null
+        repeat(80) {
+            fixture.tick()
+            val status = fixture.dispatcher.status(id)!!
+            if (gateway.requests.isNotEmpty() && closeTick == null) closeTick = status.timetableElapsedTicks
+            assertEquals(0.0, fixture.train.speed, 1e-8)
+            assertFalse(status.state == TimetableServiceRunState.COMPLETED)
+        }
+        assertEquals(60L, closeTick)
+        assertEquals(1, gateway.requests.size)
+        assertTrue(gateway.requests.single().operation is TrainOperation.CloseDoors)
+        gateway.tickets.single().succeed()
+        repeat(1500) { if (fixture.dispatcher.status(id)!!.state != TimetableServiceRunState.COMPLETED) fixture.tick() }
+        assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)!!.state)
         assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
@@ -1740,6 +1769,12 @@ class TimetableStationCallDispatcherTest {
     private class ControllableOperationGateway : TrainOperationGateway {
         val requests = ArrayList<TrainOperationRequest>()
         val tickets = ArrayList<ControllableOperationTicket>()
+        val durationRequests = ArrayList<Pair<String, DoorSide>>()
+        var duration: java.util.concurrent.CompletableFuture<Long>? = null
+        override fun estimateDoorCloseDurationTicks(trainId: String, side: DoorSide): java.util.concurrent.CompletableFuture<Long> {
+            durationRequests += trainId to side
+            return duration ?: java.util.concurrent.CompletableFuture.failedFuture(IllegalStateException("duration not configured in test"))
+        }
 
         override fun execute(request: TrainOperationRequest): TrainOperationExecutionResult {
             requests += request

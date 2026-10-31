@@ -214,5 +214,9 @@ private fun Value.toKotlinValue(): Any? {
     if (fitsInLong()) return asLong()
     if (fitsInDouble()) return asDouble()
     if (isString) return asString()
+    if (hasArrayElements()) {
+        if (arraySize > 128) throw TrainBehaviorScriptException("door plan contains too many actions")
+        return (0 until arraySize).map { getArrayElement(it).toKotlinValue() }
+    }
     return toString()
 }

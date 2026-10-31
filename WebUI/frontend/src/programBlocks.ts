@@ -1,6 +1,7 @@
+import {validatePreparationLead} from './stationPreparationLead';
 import {operationTypes,compatibleProgramType} from './programExpressions';
 import {trainInfoFromRows} from './trainInfo';
-import type {StationProgramDefinition,StationProgramParameterType,StationProgramStep,StationProgramValue,StationProgramLiteral,StationProgramOperation} from './types';
+import type {StationProgramDefinition,StationProgramParameterType,StationProgramStep,StationProgramValue,StationProgramLiteral,StationProgramOperation,StationPreparationLead} from './types';
 
 export const programStepTypes:StationProgramStep['type'][]=['SET_DISPLAY','RESET_DISPLAY','WAIT_UNTIL','WAIT_EVENT','WAIT_DURATION','REVERSE','MOVE','SELECT_STOP','STORE_AT_DEPOT','EXTENSION','BRANCH','OPEN_DOORS','CLOSE_DOORS','END','ASYNC','AWAIT'];
 export const libraryStepTypes:StationProgramStep['type'][]=['SET_DISPLAY','RESET_DISPLAY','WAIT_UNTIL','WAIT_EVENT','WAIT_DURATION','REVERSE','MOVE','STORE_AT_DEPOT','EXTENSION','BRANCH'];
@@ -8,7 +9,7 @@ export const arrivalStepTypes:StationProgramStep['type'][]=['SET_DISPLAY','RESET
 export const expressionFields:Partial<Record<StationProgramStep['type'],Record<string,StationProgramParameterType>>>={
  SET_DISPLAY:{values:'JSON_OBJECT',removeKeys:'ID_LIST'},RESET_DISPLAY:{},WAIT_UNTIL:{tick:'TICK'},WAIT_DURATION:{durationTicks:'DURATION'},MOVE:{destinationId:'STRING',viaIds:'ID_LIST'},SELECT_STOP:{stationId:'STRING',berthIds:'ID_LIST'},STORE_AT_DEPOT:{depotId:'STRING',stablingPointIds:'ID_LIST'},EXTENSION:{parameters:'JSON_OBJECT'},BRANCH:{parameters:'JSON_OBJECT'},
 };
-export interface ProgramBlockState {type:string;id?:string;fields?:Record<string,string|number>;inputs?:Record<string,{block?:ProgramBlockState;shadow?:ProgramBlockState}>;next?:{block:ProgramBlockState};x?:number;y?:number;enabled?:boolean;disabledReasons?:string[];extraState?:{count:number}}
+export interface ProgramBlockState {type:string;id?:string;fields?:Record<string,string|number>;inputs?:Record<string,{block?:ProgramBlockState;shadow?:ProgramBlockState}>;next?:{block:ProgramBlockState};x?:number;y?:number;enabled?:boolean;disabledReasons?:string[];extraState?:{count?:number;preparationLead?:boolean}}
 export interface ProgramWorkspaceState {blocks?:{languageVersion:number;blocks:ProgramBlockState[]}}
 const expressionInputState=(block:ProgramBlockState)=>block.type.startsWith('rail_literal_')?{shadow:block}:{block};
 const inputExpression=(input:{block?:ProgramBlockState;shadow?:ProgramBlockState}|undefined)=>input?.block??input?.shadow;
@@ -20,7 +21,7 @@ export function expressionToBlock(expression:StationProgramValue<StationProgramL
  if('object' in expression){const entries=Object.entries(expression.object);return {type:'rail_object',id,extraState:{count:entries.length},fields:Object.fromEntries(entries.map(([key],i)=>[`KEY${i}`,key])),inputs:Object.fromEntries(entries.map(([,child],i)=>[`ITEM${i}`,expressionInputState(expressionToBlock(child,'value' in child?(typeof child.value==='number'?'NUMBER':typeof child.value==='string'?'STRING':'JSON_OBJECT'):'operation' in child?operationTypes[child.operation.type].output:'JSON_OBJECT',`${id}_${i}`,parameters))]))};}
  return {type:`rail_${'parameterId' in expression?'parameter':'literal'}_${type}`,id,fields:{VALUE:'parameterId' in expression?expression.parameterId:['NUMBER','TICK','DURATION','ID_LIST','JSON_OBJECT'].includes(type)?JSON.stringify(expression.value):String(expression.value)}};
 }
-export function definitionToBlocks(definition:StationProgramDefinition):ProgramWorkspaceState {
+export function definitionToBlocks(definition:StationProgramDefinition,preparationLead?:StationPreparationLead):ProgramWorkspaceState {
  const chain=(steps:StationProgramStep[]):ProgramBlockState|undefined=>{
   let next:ProgramBlockState|undefined;
   for(const step of [...steps].reverse()){
@@ -38,15 +39,17 @@ export function definitionToBlocks(definition:StationProgramDefinition):ProgramW
   return next;
  };
  const first=chain(definition.steps);
- return {blocks:{languageVersion:0,blocks:[{type:'rail_entry',id:'$rail-entry',x:40,y:35,...(first?{next:{block:first}}:{})}]}};
+ return {blocks:{languageVersion:0,blocks:[{type:'rail_entry',id:'$rail-entry',x:40,y:35,...(preparationLead?{extraState:{preparationLead:true},inputs:{PREPARATION_LEAD:expressionInputState(preparationLeadToBlock(preparationLead))}}:{}),...(first?{next:{block:first}}:{})}]}};
 }
 /** Strict structure reader: every workspace block must belong to the single entry tree. */
-export function blocksToDefinition(state:ProgramWorkspaceState,parameters:StationProgramDefinition['parameters'],context:'library'|'arrival'|'duty'='library'):StationProgramDefinition {
+export function blocksToDefinition(state:ProgramWorkspaceState,parameters:StationProgramDefinition['parameters'],context:'library'|'arrival'|'duty'='library',preparation=false):StationProgramDefinition {
  const top=state.blocks?.blocks;
  if(!Array.isArray(top)||top.length!==1||top[0].type!=='rail_entry')throw new Error('Connect all blocks to the program entry');
  const visited=new Set<string>();let count=0;
  const mark=(block:ProgramBlockState)=>{if(block.enabled===false||block.disabledReasons?.length)throw new Error('Disabled blocks cannot be saved');if(!block.id||visited.has(block.id))throw new Error('Missing or duplicate block identity');visited.add(block.id);};
  mark(top[0]);
+ if(Object.keys(top[0].inputs??{}).some(name=>name!=='PREPARATION_LEAD')||top[0].inputs?.PREPARATION_LEAD&&!preparation)throw new Error('Unexpected entry input');
+ if(preparation)blocksToPreparationLead(state);
  let expressionNodes=0;
  const readExpression=(expression:ProgramBlockState,expected:StationProgramParameterType|undefined,depth:number,allowTrainInfo=false):unknown=>{
   mark(expression);if(depth>16||++expressionNodes>4096||expression.next)throw new Error('Invalid program expression');
@@ -100,4 +103,25 @@ export function defaultProgramStep(type:StationProgramStep['type'],provider?:{ty
  if(type==='ASYNC'||type==='AWAIT')step.taskId='task';
  if(type==='ASYNC')step.steps=[];
  return step as unknown as StationProgramStep;
+}
+
+export function preparationLeadToBlock(value:StationPreparationLead,id='$rail-preparation-lead'):ProgramBlockState {
+ if('doorCloseTicks' in value)return {type:'rail_door_close_ticks',id};
+ if('value' in value)return {type:'rail_literal_NUMBER',id,fields:{VALUE:JSON.stringify(value.value)}};
+ return {type:`rail_operation_${value.operation.type}`,id,inputs:Object.fromEntries(value.operation.operands.map((child,index)=>[`ARG${index}`,expressionInputState(preparationLeadToBlock(child,`${id}_${index}`))]))};
+}
+export function blocksToPreparationLead(state:ProgramWorkspaceState):StationPreparationLead {
+ const root=state.blocks?.blocks.find(block=>block.type==='rail_entry');
+ const ids=new Set<string>();let nodes=0;
+ const read=(block:ProgramBlockState|undefined,depth:number):StationPreparationLead=>{
+  if(!block||!block.id||ids.has(block.id)||block.enabled===false||block.disabledReasons?.length||block.next||depth>16||++nodes>4096)throw new Error('Invalid preparation lead');
+  ids.add(block.id);
+  if(block.type==='rail_door_close_ticks'&&!Object.keys(block.inputs??{}).length)return {doorCloseTicks:true};
+  if(['rail_literal_NUMBER','rail_literal_TICK','rail_literal_DURATION'].includes(block.type)&&!Object.keys(block.inputs??{}).length){const raw=block.fields?.VALUE;if(typeof raw!=='string')throw new Error('Invalid preparation lead');return {value:JSON.parse(raw)};}
+  const type=block.type.slice(15) as Extract<StationPreparationLead,{operation:unknown}>['operation']['type'];
+  const spec=block.type.startsWith('rail_operation_')?operationTypes[type]:undefined;
+  if(!spec||spec.output!=='NUMBER'||Object.keys(block.inputs??{}).some(name=>!spec.inputs.some((_,i)=>name===`ARG${i}`)))throw new Error('Invalid preparation lead');
+  return {operation:{type,operands:spec.inputs.map((_,index)=>read(inputExpression(block.inputs?.[`ARG${index}`]),depth+1))}};
+ };
+ const result=read(inputExpression(root?.inputs?.PREPARATION_LEAD),0);validatePreparationLead(result);return result;
 }

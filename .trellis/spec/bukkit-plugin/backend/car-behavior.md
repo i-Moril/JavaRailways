@@ -35,11 +35,11 @@ BukkitPlugin拥有车辆模型行为；Core只拥有车厢、编组结构及物�
 - 脚本的模型action和sound绑定当前车厢，不在执行延迟闭包时重新遍历某列`train.cars`。声音也使用车厢位置，不绑定旧列车车头。
 - 需要查询所属编组的操作在调用时取得当前关联；Core已提供`Car.train: Train?`（CURRENT），读取唯一原子owner，构造成功绑定前/退休后为null，结构转移后返回新train。它只允许跨线程身份查询，不授权region遍历live train状态；JS调用所需cars/方向仍由simulation捕获。不能在CarExtension.initialize缓存train，也不能把split准备host当已转移owner。
 - 接受命令时把运营左右换算为每车固定物理左右，包含混合安装方向；延迟执行不得因途中换向/反向接入重新解释门侧。物理侧不由简单的train head/tail布尔值代替。
-- 一次列车操作的完成条件固定为本次捕获的每车结果集合；每车结果覆盖该车本次全部已接受效果，不能在首个延迟效果执行后就报告整车完成。完成时点沿用既有动作合同（当前追踪到最晚声明效果的启动时点，不等同于动画播放结束），失败也必须有终态。联结/解编不能扩大集合、丢失完成通知，或把旧完成通知解释为新编组的全部车门已完成。消费者只能据该operation结果更新对应目标，不能重新查当前cars冒充原目标。
+- 一次列车操作的完成条件固定为本次捕获的每车结果集合；每车结果覆盖该车本次全部已接受效果，不能在首个延迟效果执行后就报告整车完成。完成时点覆盖最晚动画的完整播放及最终owner提交，声音effect在发出时完成，失败也必须有终态。联结/解编不能扩大集合、丢失完成通知，或把旧完成通知解释为新编组的全部车门已完成。消费者只能据该operation结果更新对应目标，不能重新查当前cars冒充原目标。
 
 ## 接口与伪代码
 
-列车层的`executeDoorOperation(side, opening)`、`executeModelAction(name)`、`callBehavior(method, args)`及`applyAnimation(name, scene)`返回`CompletableFuture<Unit>`。调用入口要求simulation owner；future成功表示本次所有目标的已接受效果已到达执行启动点，不表示动画播放结束。控制面板和命令必须等待实际结果，再调度到玩家owner反馈，不能把排队成功作为动作完成。
+列车层的`executeDoorOperation(side, opening)`、`executeModelAction(name)`、`callBehavior(method, args)`及`applyAnimation(name, scene)`返回`CompletableFuture<Unit>`。调用入口要求simulation owner；future成功表示本次所有目标的已接受动画播放完成、声音已发出；不能把启动排队当作关门完成。控制面板和命令必须等待实际结果，再调度到玩家owner反馈，不能把排队成功作为动作完成。
 
 `loadBehaviorActions()`逐车查询并返回声明并集的future；JS与YAML同名时使用该车JS声明。同名声明的`requiresControl`取OR，`executable`取AND。自定义动作在任何执行副作用前完成全部目标的声明查询及权限检查，再固定支持者集合；菜单本身不作为执行授权。
 
@@ -130,3 +130,11 @@ Graal guest脚本加载、声明扫描或调用错误转换为`TrainBehaviorScri
 ## 隔离模拟consumer
 
 现SIM通过同模块无显示car extension与operation gateway复用本页真实CarBehavior/Batch/Graal，不再用配置最大时长替代执行。逐源detached捕获、安装方向、目标事件/onReverse、结构后控制profiles、generic时间/owner effects及真终止后close由[隔离模拟逐车行为](simulation-car-behavior.md)定义；本页LIVE region/held-scene语义保持不变，平台视距差异不等同领域脚本差异。
+
+## 门动作计划与播放完成
+
+behavior.js 的 door(side,scene) 返回1至128个YAML动作名，不直接调用action/sound；实际执行与耗时读取均使用同一隔离只读规划入口，不能用实时persistent Context试执行探测，也不硬编码JS模型动作名。只读绑定不允许效果/log；门侧及hasAnimation取本次实际车厢输入。按不可变来源与能力发布边界缓存计划，reload不能复用旧计划。无脚本模型仍按其现有语义门动作映射。
+
+关门时长包含动作启动延迟及相应动画源/目标场景的完整跨度，先按开门计划的完成场景推算正常关门，整列取并行最大值。实际效果完成仍由同一每车播放时序确认，不能仅等待估算时长。隐藏、重新可见、模拟共用转换后的动画时间数据；替换、取消、销毁与卸载必须结清原操作，不得迟到成功。门计划契约的源代码变更需随模型包发布，旧快照/服务器模型包在部署前单独盘点，运行时不加旧door效果式协议的兼容分支。
+
+延迟效果和逐part播放由每车一个 CarBehaviorClock 在现有 TickManager 内推进，initialize幂等注册一次，空闲不运行JS；owner commit先提交已计算动画帧，再启动同一时刻到期的效果，新动画下一tick推进。这样没有每个延迟动画重新注册造成的额外phase间隔。动画reset/close先脱离槽位再销毁，逻辑关闭及source切换不投影旧模型，避免world.executionOwner清理越过Folia位置owner。可见性重建保持同一来源的播放进度，模型来源变化则取消旧槽位；两者不可混为一类。随仓库提供的S100压缩包必须同步行为脚本及其所依赖动作声明。

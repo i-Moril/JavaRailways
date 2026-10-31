@@ -1414,7 +1414,7 @@ class IsolatedTimetableSimulationFactoryTest {
             id,
             TrainControlConfig(maxSpeed = 10.0),
             listOf(carControl),
-            listOf(SimulationCarBlueprint(10.0, 0.0, 0.0, 0.0, 3.5, -3.5, carControl, CapturedCarBehavior(null, emptyMap(), emptyMap())))
+            listOf(SimulationCarBlueprint(10.0, 0.0, 0.0, 0.0, 3.5, -3.5, carControl, CapturedCarBehavior(null, emptyMap(), emptyList())))
         )
     }
 

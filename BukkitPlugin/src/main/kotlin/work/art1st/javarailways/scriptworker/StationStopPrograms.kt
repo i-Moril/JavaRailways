@@ -5,15 +5,15 @@ import kotlinx.serialization.json.*
 /** Compile planned station definitions into a stationary instruction tree, never runtime JS. */
 internal fun compileStationStopPrograms(target: String, options: JsonObject): SavedStationStopPrograms? {
     val record = options["stationProgram"] as? JsonObject ?: return null
-    require(record.keys == setOf("arrival", "departurePreparation", "preparationLeadTicks")) { "stationProgram requires arrival, departurePreparation and preparationLeadTicks" }
+    require(record.keys == setOf("arrival", "departurePreparation", "preparationLead")) { "stationProgram requires arrival, departurePreparation and preparationLead" }
     val stationId = options.getValue("stationId").jsonPrimitive.content
     val callId = options.getValue("callId").jsonPrimitive.content
     val role = options.getValue("callRole").jsonPrimitive.content
     require(role in setOf("ORIGIN", "STOP", "TERMINAL")) { "invalid callRole" }
     require(stationId.isNotBlank() && callId.isNotBlank()) { "stationId and callId are required" }
-    val lead = record.getValue("preparationLeadTicks").jsonPrimitive.long
+    val lead = work.art1st.javarailways.simpleato.timetable.StationPreparationLead(record.getValue("preparationLead")).expression
     val departure = options["departureTick"]?.takeUnless { it is JsonNull }?.jsonPrimitive?.long
-    require(lead in 0..9_007_199_254_740_991L && (departure == null || departure in 0..9_007_199_254_740_991L)) { "invalid station preparation/departure tick" }
+    require(departure == null || departure in 0..9_007_199_254_740_991L) { "invalid station preparation/departure tick" }
     if (role != "TERMINAL") require(departure != null) { "origin and stopping calls require departureTick" }
     val context = (options["plannedContext"] as? JsonObject).orEmpty()
     val sourceIds = mutableSetOf<String>()

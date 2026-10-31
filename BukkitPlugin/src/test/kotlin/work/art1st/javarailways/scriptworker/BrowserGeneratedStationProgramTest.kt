@@ -49,7 +49,7 @@ class BrowserGeneratedStationProgramTest {
         assertEquals(listOf(100L,300L,600L), programs.map { it.plannedDepartureTick })
         assertEquals(0L, originStep.tick, "untimed origin scope retains prior schedule; preparation has its own planned deadline")
         for (program in programs) {
-            assertEquals(20L, program.preparationLeadTicks)
+            assertEquals(20L, program.preparationLead.evaluate())
             assertEquals(listOf(StationProgramAction.OpenDoors, StationProgramAction.End), program.arrival)
             assertEquals(listOf(StationProgramAction.CloseDoors, StationProgramAction.End), program.departurePreparation)
         }

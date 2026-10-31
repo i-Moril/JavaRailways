@@ -250,7 +250,9 @@ A branch selected against a published child can reverse a still-held body before
 
 同一时刻表每站一份作者定义，经 ScriptWorker 用当前运行线的静态计划上下文展开为 `StationStopPrograms`。ORIGIN 以 `BeginStationStop` 建立边界；STOP/TERMINAL 随目标动作携带 stopPrograms。实际寻路、接近及停车继续由运行线负责，车站程序不执行到达运动。旧 arrivalSteps/arrivalProgram 执行链与 ARRIVAL 分支游标已删除；编辑／DSL／snapshot 只按当前模型做通用校验，不保留旧输入专项识别或回退执行。
 
-`StationStopPrograms` 包含 stationId、callId、role、arrival、departurePreparation、preparationLeadTicks、plannedDepartureTick、destinationId、doorSide、minimumDwellTicks。时间为 timetable tick，1 day=24000 tick。正常停车确认后启动 arrival；ORIGIN 不执行 arrival，PASS 不建立停站程序。STOP 与 ORIGIN 的准备入口在计划发车时刻减 lead 到达后，且 arrival **主序列**完成时开始，不等待 arrival 的非阻塞子任务，也不额外等最小停站。TERMINAL 永不启动准备入口，缺省保持开门。
+`StationStopPrograms` 包含 stationId、callId、role、arrival、departurePreparation、preparationLead、plannedDepartureTick、destinationId、doorSide、minimumDwellTicks。时间为 timetable tick，1 day=24000 tick。正常停车确认后启动 arrival；ORIGIN 不执行 arrival，PASS 不建立停站程序。STOP 与 ORIGIN 的准备入口在计划发车时刻减 lead 到达后，且 arrival **主序列**完成时开始，不等待 arrival 的非阻塞子任务，也不额外等最小停站。TERMINAL 永不启动准备入口，缺省保持开门。
+
+`preparationLead` 是有界数字表达式：`{value:N}`、既有数字 operation，或 `{doorCloseTicks:true}`。缺省使用实际列车关门耗时，允许 ADD 等组合额外准备时间；不是按参考车辆或统一20tick冻结。`StationPreparationLead` 只解析数值时序，不开放动态动作、条件或一般JS。动态叶子通过现有 TrainOperationGateway 只读查询当前列车及实际门侧，同车并行动画、整列各车均取最长完成时间，绝不在查询时关门。每站查询一次，pending有界超时，失败/非法值保持停车，停止取消查询；普通固定表达式、无门停站、终到不查询。准备仍等待 arrival主分支，最终发车仍等真实操作ticket及所有既有门禁。编辑/编译/运行快照均写当前表达式字段；旧数值仅在离线工具中保留为字面量，不能把所有手填20猜成自动值。
 
 `StationStopProgramRuntime` 对每个任务持有独立程序计数器、计时 gate、operation/extension ticket。普通动作等待真实完成；ASYNC 当 Tick 创建并推进子任务，父继续执行；AWAIT 等待指定任务及其全部后代。主序列必须 END；子任务不能逃逸到下一站。开放/关闭门与换向竞争同一物理操作所有权，不允许多个任务同时启动互斥物理操作。相对等待从任务实际执行 Tick 开始，绝对等待过期则立即通过；等待不中断停车保持。
 

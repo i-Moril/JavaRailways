@@ -29,7 +29,10 @@ internal class StationStopProgramRuntime(
     private val minimumDwellTicks: Long,
     private val doorless: Boolean,
     private val operationTimeoutTicks: Long,
-    private val host: StationProgramActionHost
+    private val host: StationProgramActionHost,
+    private val queryDoorCloseDuration: () -> java.util.concurrent.CompletableFuture<Long> = {
+        java.util.concurrent.CompletableFuture.failedFuture(IllegalStateException("door duration gateway is not configured"))
+    }
 ) {
     private class Task(val id: String, val steps: List<StationProgramAction>, val main: Boolean) {
         var index = 0
@@ -45,6 +48,8 @@ internal class StationStopProgramRuntime(
     private val symbols = linkedMapOf<String, Task>()
     private var physicalOperationOwner: String? = null
     private var preparationStarted = false
+    private var preparationLeadTicks: Long? = null
+    private var durationQuery: java.util.concurrent.CompletableFuture<Long>? = null
     private var dwellDeadline = Math.addExact(stoppedAtDispatcherTick, minimumDwellTicks)
     private var lastTick = stoppedAtDispatcherTick
     var doorsSecured: Boolean = doorless
@@ -73,9 +78,10 @@ internal class StationStopProgramRuntime(
         lastTick = dispatcherTick
         var executingTask: Task? = null
         try {
+            resolvePreparationLead(dispatcherTick)
             fun startPreparationIfEligible(): Task? {
                 if (!preparationStarted && definition.role != StationStopRole.TERMINAL && arrivalMainComplete &&
-                    elapsedTimetableTick >= preparationDueTick()) {
+                    preparationLeadTicks != null && elapsedTimetableTick >= preparationDueTick()) {
                     preparationStarted = true
                     return Task(PREPARATION, definition.departurePreparation, true).also { tasks[PREPARATION] = it }
                 }
@@ -181,9 +187,24 @@ internal class StationStopProgramRuntime(
 
     private fun taskTreeComplete(task: Task): Boolean = task.completed && task.children.all(::taskTreeComplete)
 
+    private fun resolvePreparationLead(dispatcherTick: Long) {
+        if (definition.role == StationStopRole.TERMINAL || preparationLeadTicks != null) return
+        if (doorless || !definition.preparationLead.requiresDoorCloseDuration) {
+            preparationLeadTicks = definition.preparationLead.evaluate(0)
+            return
+        }
+        val future = durationQuery ?: queryDoorCloseDuration().also { durationQuery = it }
+        if (!future.isDone) {
+            check(dispatcherTick - stoppedAtDispatcherTick < operationTimeoutTicks) { "door duration query timed out" }
+            return
+        }
+        preparationLeadTicks = definition.preparationLead.evaluate(future.join())
+        durationQuery = null
+    }
+
     private fun preparationDueTick(): Long {
         val departure = requireNotNull(definition.plannedDepartureTick) { "origin/intermediate stop needs a planned departure tick" }
-        return (departure - definition.preparationLeadTicks).coerceAtLeast(0L)
+        return (departure - checkNotNull(preparationLeadTicks)).coerceAtLeast(0L)
     }
 
     private fun completedAction(task: Task, dispatcherTick: Long) {
@@ -201,6 +222,11 @@ internal class StationStopProgramRuntime(
 
     fun cancelOutstanding(): String? {
         val errors = mutableListOf<String>()
+        durationQuery?.let { future ->
+            future.cancel(true)
+            if (!future.isDone) errors += "door duration query cancellation was not confirmed"
+        }
+        durationQuery = null
         tasks.values.forEach { task ->
             task.ticket?.let { ticket ->
                 try {

@@ -18,7 +18,7 @@
 
 程序库使用完整声明参数与类型匹配的参数插槽。共享停站程序、交路内联程序均为零声明参数；内联不暴露参数引用。铁路模型仍由 `StationProgramDefinition` 定义，不接受任意 JavaScript。
 
-当前编辑文档以 `stationPrograms?: StationStopProgram[]` 按 stationId 共享定义，每站含 `arrival`、`departurePreparation` 和非负 `preparationLeadTicks`。同一时刻表经过同一站的所有运行线使用同一定义；缺省为到达开门/结束、准备关门/结束。选中 ORIGIN、STOP、TERMINAL 均可打开共享站点弹窗，两页签编辑独立定义，PASS 无触发。合法性缓存按站点而非 call 分配；关闭弹窗不清除无效工作区的保存阻塞。
+当前编辑文档以 `stationPrograms?: StationStopProgram[]` 按 stationId 共享定义，每站含 `arrival`、`departurePreparation` 和 `preparationLead` 数字表达式。同一时刻表经过同一站的所有运行线使用同一定义；缺省为到达开门/结束、准备关门/结束。选中 ORIGIN、STOP、TERMINAL 均可打开共享站点弹窗，两页签编辑独立定义，PASS 无触发。合法性缓存按站点而非 call 分配；关闭弹窗不清除无效工作区的保存阻塞。
 
 停站程序允许门操作、换向、显示、等待、静态条件、扩展，以及 `ASYNC {taskId,steps}`、`AWAIT {taskId}`、`END`。每个入口主序列必须显式结束，结束后不能接可执行动作；添加动作插在已有 END 前。任务默认阻塞，ASYNC 立即启动子任务；等待指定任务时包含它的后代。换向保留真实门/物理授权检查；移动、出入库、编组和动态选站不能借停站画布执行。运行时语义由 [Dispatcher 契约](../../javarailways/simpleato/dispatcher-runtime.md) 定义。
 
@@ -86,3 +86,9 @@ Blockly焦点转到侧栏控件产生的空选择，不应卸载正在编辑的�
 
 
 所有标量ID输入的值类型统一为STRING；工具箱和参数类型不再区分目的地/车站/车库。用途仍通过动作插槽标签和上下文路径点候选表达，ID约束只在具体动作的输入边界校验，不能给通用字符串常量加ID规则。
+
+## 发车准备的实际关门耗时
+
+准备入口的 PREPARATION_LEAD 为数值连接口，默认接【本列车关门耗时】；允许用已有数字运算积木加准备时间。该叶子只出现在准备上下文，不变成普通动作的动态参数或时刻表条件。作者字段为 preparationLead，值为 {value:N}、数字 operation 或 {doorCloseTicks:true}，最多16层/4096节点，最终结果须为非负安全整数。静态子树在编辑/编译阶段校验，动态值由现有停站运行器从实际列车读取。
+
+草稿 acceptedPreparationLead 按内容比较，输入变化、未完成连接、游离块、撤销/重做及语言切换不得丢掉表达式。断开入口输入继续保留可修复工作区并阻止保存；入口不再通过外部数值框编辑。旧数值提前量只由离线转换工具包成字面量，不能在编辑器或运行时识别旧字段并回退。

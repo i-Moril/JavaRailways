@@ -1,14 +1,14 @@
-import {blocksToDefinition,type ProgramWorkspaceState} from './programBlocks';
+import {blocksToDefinition,blocksToPreparationLead,preparationLeadToBlock,type ProgramWorkspaceState} from './programBlocks';
 import {validateStationProgram} from './stationPrograms';
-import type {StationProgramDefinition} from './types';
+import type {StationProgramDefinition,StationPreparationLead} from './types';
 
-export interface ProgramBlockSnapshot {workspace:ProgramWorkspaceState;parameters:StationProgramDefinition['parameters'];acceptedPreparationLeadTicks?:number}
+export interface ProgramBlockSnapshot {workspace:ProgramWorkspaceState;parameters:StationProgramDefinition['parameters'];acceptedPreparationLead?:StationPreparationLead}
 /** Reconcile a recovered canvas with the accepted document lead without discarding loose blocks. */
-export function reconcileProgramEntryLead(snapshot:ProgramBlockSnapshot,current:number|undefined):ProgramBlockSnapshot {
- if(current===undefined||snapshot.acceptedPreparationLeadTicks===current)return snapshot;
+export function reconcileProgramEntryLead(snapshot:ProgramBlockSnapshot,current:StationPreparationLead|undefined):ProgramBlockSnapshot {
+ if(current===undefined||JSON.stringify(snapshot.acceptedPreparationLead)===JSON.stringify(current))return snapshot;
  const blocks=snapshot.workspace.blocks;
  if(!blocks)return snapshot;
- return {...snapshot,acceptedPreparationLeadTicks:current,workspace:{...snapshot.workspace,blocks:{...blocks,blocks:blocks.blocks.map((block)=>block.type==='rail_entry'?{...block,fields:{...block.fields,PREPARATION_LEAD:current}}:block)}}};
+ return {...snapshot,acceptedPreparationLead:current,workspace:{...snapshot.workspace,blocks:{...blocks,blocks:blocks.blocks.map((block)=>block.type==='rail_entry'?{...block,extraState:{...block.extraState,preparationLead:true},inputs:{...block.inputs,PREPARATION_LEAD:{block:preparationLeadToBlock(current)}}}:block)}}};
 }
 interface ProgramBlockDraft {baseline:string;accepted:string;snapshot:ProgramBlockSnapshot}
 const storageKey=(scope:string)=>`javarailways.program-blocks/${encodeURIComponent(scope)}`;
@@ -29,5 +29,5 @@ export function clearProgramBlockDraft(scope:string){try{localStorage.removeItem
 export function getProgramBlockDraftValidity(scope:string,value:StationProgramDefinition,context:'library'|'arrival'|'duty'='arrival'):boolean {
  const draft=readProgramBlockDraft(scope,JSON.stringify(value));if(!draft)return true;
  const {snapshot}=draft;
- try{return !validateStationProgram(blocksToDefinition(snapshot.workspace,snapshot.parameters,context)).length;}catch{return false;}
+ try{if(snapshot.acceptedPreparationLead!==undefined)blocksToPreparationLead(snapshot.workspace);return !validateStationProgram(blocksToDefinition(snapshot.workspace,snapshot.parameters,context,snapshot.acceptedPreparationLead!==undefined)).length;}catch{return false;}
 }

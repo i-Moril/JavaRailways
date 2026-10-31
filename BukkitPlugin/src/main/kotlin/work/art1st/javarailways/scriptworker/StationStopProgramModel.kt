@@ -21,7 +21,7 @@ import kotlinx.serialization.json.JsonObject
     val role: String,
     val arrival: List<SavedStationProgramAction>,
     val departurePreparation: List<SavedStationProgramAction>,
-    val preparationLeadTicks: Long,
+    val preparationLead: kotlinx.serialization.json.JsonElement,
     val plannedDepartureTick: Long? = null,
     val destinationId: String? = null,
     val doorSide: String? = null,

@@ -13,10 +13,7 @@ import work.art1st.javarailways.bukkit.render.Animation
 import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.core.api.render.RenderableExtension
 import work.art1st.javarailways.core.api.util.Destruction
-import work.art1st.javarailways.core.api.util.Destroyable
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
-import work.art1st.javarailways.core.api.util.tick.Synchronizable
-import work.art1st.javarailways.core.api.util.tick.TickingObject
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import java.util.concurrent.CompletableFuture
@@ -39,7 +36,7 @@ internal sealed interface SimulationBehaviorEffect {
     data class SoundStarted(val key: String, val volume: Double, val pitch: Double) : SimulationBehaviorEffect
 }
 
-/** Exact-car state survives structural transfer; display/audio outlets validate starts without playback. */
+/** Exact-car state survives structural transfer; real animation timing runs without display or audio outlets. */
 internal class SimulationCarBehaviorExtension(
     val definition: CapturedCarBehavior,
     val carProfile: TrainDynamics.CarProfile,
@@ -47,27 +44,34 @@ internal class SimulationCarBehaviorExtension(
 ) : RenderableExtension<Car>, AutoCloseable {
     private lateinit var self: Car
     private var closed = false
+    private val clock by lazy { work.art1st.javarailways.bukkit.behavior.CarBehaviorClock(self.world.tickManager, this) }
+    private val playback = work.art1st.javarailways.bukkit.behavior.CarAnimationPlayback(
+        { definition.animationParts },
+        { active -> clock.register(active) },
+        { emptyMap() }, { _, _ -> })
     private val behavior = CarBehavior(
         script = { definition.script },
         actions = { definition.actions },
         animate = { name, scene ->
-            if (!definition.animations.supportsAnimation(name, scene)) false
+            if (!definition.animations.supportsAnimation(name, scene)) CompletableFuture.failedFuture(IllegalStateException("animation unavailable: $name"))
             else {
                 effectObserver?.invoke(self, SimulationBehaviorEffect.AnimationStarted(name, Animation.normalizeSceneName(scene)))
-                true
+                playback.play(name, scene)
             }
         },
         sound = { key, volume, pitch ->
             effectObserver?.invoke(self, SimulationBehaviorEffect.SoundStarted(key, volume, pitch))
             Unit
         },
-        schedule = ::schedule,
+        schedule = { delay, action -> clock.schedule(delay, action) },
         log = { message -> LOGGER.log(System.Logger.Level.INFO, "[simulation ${(self.world as CoreWorld).runtimeId} car ${self.id}] $message") },
         scriptFailed = ::stopTrainForScriptFailure,
-        hasAnimation = { name, scene -> definition.animations.supportsAnimation(name, scene) }
+        hasAnimation = { name, scene -> definition.animations.supportsAnimation(name, scene) },
+        closeDuration = playback::closeDurationTicks,
+        planningEnvironment = { definition }
     )
 
-    override fun initialize(host: Car, savedExtensionData: Map<String, SerializableExtensionData>) { self = host }
+    override fun initialize(host: Car, savedExtensionData: Map<String, SerializableExtensionData>) { self = host; clock.start() }
     override fun save(): Pair<String, SerializableExtensionData>? = null
     override fun commit() = Unit
 
@@ -81,6 +85,12 @@ internal class SimulationCarBehaviorExtension(
     fun door(side: DoorSide, opening: Boolean, tail: Boolean, done: (Result<Unit>) -> Unit): TrainModelOperationResult =
         if (closed) TrainModelOperationResult.Rejected("car behavior is closed")
         else behavior.door(side, opening, tail, done)
+
+    @Synchronized
+    fun estimateDoorCloseDurationTicks(side: DoorSide, tail: Boolean): Long {
+        check(!closed) { "car behavior is closed" }
+        return behavior.estimateDoorCloseDurationTicks(side, tail)
+    }
 
     @Synchronized
     fun action(name: String, tail: Boolean, done: (Result<Unit>) -> Unit): TrainModelOperationResult =
@@ -103,38 +113,12 @@ internal class SimulationCarBehaviorExtension(
         }
     }
 
-    /** Generic workers advance elapsed time only; the existing owner commit runs the effect. */
-    private fun schedule(delay: Double, action: () -> Unit): AutoCloseable {
-        val effect = object : TickingObject, Synchronizable, Destroyable {
-            private var elapsed = 0.0
-            private var destroyed = false
-            override fun tick(deltaT: Double) = synchronized(this@SimulationCarBehaviorExtension) {
-                if (!destroyed) elapsed += deltaT.coerceAtLeast(0.0) / 1000.0
-            }
-            override fun commit() = synchronized(this@SimulationCarBehaviorExtension) {
-                if (!destroyed && elapsed >= delay) {
-                    try { action() } finally { destroy().toCompletableFuture().getNow(null) }
-                }
-            }
-            private val destruction = Destruction()
-            override fun destroy(): CompletionStage<Void> = destruction.run {
-                synchronized(this@SimulationCarBehaviorExtension) {
-                    destroyed = true
-                    self.world.tickManager.unregister(this)
-                }
-                CompletableFuture.completedFuture(null)
-            }
-        }
-        self.world.tickManager.register(effect)
-        return AutoCloseable { effect.destroy().toCompletableFuture().getNow(null) }
-    }
-
     private val destruction = Destruction()
 
     override fun destroy(): CompletionStage<Void> = destruction.run {
         synchronized(this) {
             closed = true
-            behavior.close()
+            try { behavior.close() } finally { try { playback.close() } finally { clock.close() } }
         }
         CompletableFuture.completedFuture(null)
     }

@@ -1,8 +1,9 @@
+import {validatePreparationLead} from './stationPreparationLead';
 import type {StationProgramDefinition,StationProgramStep,StationStopProgram,TimetableEventPoint,TimetableExtensionDescriptor} from './types';
 import {validateArrivalProgram} from './stationPrograms';
 
 export const plannedConditions:TimetableExtensionDescriptor[]=['run_type','line_direction','station_id','run_id','line_id','call_status','duty_id'].map((field)=>({typeId:`javarailways:plan_${field}`,version:1,title:field,description:'Matches planned values known when compiling this timetable.',parameterSchema:{type:'object',properties:{values:{type:'array',items:{type:'string'}}},required:['values'],additionalProperties:false}}));
-export function defaultStationStopProgram(stationId:string):StationStopProgram{return {stationId,preparationLeadTicks:20,arrival:{parameters:[],steps:[{id:'open',type:'OPEN_DOORS'},{id:'arrival-end',type:'END'}]},departurePreparation:{parameters:[],steps:[{id:'close',type:'CLOSE_DOORS'},{id:'preparation-end',type:'END'}]}};}
+export function defaultStationStopProgram(stationId:string):StationStopProgram{return {stationId,preparationLead:{doorCloseTicks:true},arrival:{parameters:[],steps:[{id:'open',type:'OPEN_DOORS'},{id:'arrival-end',type:'END'}]},departurePreparation:{parameters:[],steps:[{id:'close',type:'CLOSE_DOORS'},{id:'preparation-end',type:'END'}]}};}
 export function resolveEventWaits(definition:StationProgramDefinition,events:TimetableEventPoint[],periodTicks:number):StationProgramDefinition{
  const visit=(steps:StationProgramStep[]):StationProgramStep[]=>steps.map((step)=>{
   if(step.type==='WAIT_EVENT'){
@@ -17,7 +18,8 @@ export function resolveEventWaits(definition:StationProgramDefinition,events:Tim
 }
 export function validateStopProgram(program:StationStopProgram,events:TimetableEventPoint[],periodTicks:number):string[]{
  const errors:string[]=[];
- if(!program.stationId.trim()||!Number.isSafeInteger(program.preparationLeadTicks)||program.preparationLeadTicks<0||program.preparationLeadTicks>=periodTicks)errors.push('Invalid station or preparation lead');
+ if(!program.stationId.trim())errors.push('Invalid station');
+ try{validatePreparationLead(program.preparationLead);}catch{errors.push('Invalid preparation lead');}
  const tasks=new Set<string>();const awaits:string[]=[];
  for(const definition of [program.arrival,program.departurePreparation]){
   errors.push(...validateArrivalProgram(definition));

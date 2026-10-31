@@ -56,7 +56,7 @@ import work.art1st.javarailways.simpleato.timetable.*
     val role: String,
     val arrival: List<SavedStationProgramAction>,
     val departurePreparation: List<SavedStationProgramAction>,
-    val preparationLeadTicks: Long,
+    val preparationLead: kotlinx.serialization.json.JsonElement,
     val plannedDepartureTick: Long? = null,
     val destinationId: String? = null,
     val doorSide: DoorSide? = null,
@@ -64,10 +64,10 @@ import work.art1st.javarailways.simpleato.timetable.*
 ) {
     fun restore() = StationStopPrograms(stationId, callId, StationStopRole.valueOf(role),
         java.util.List.copyOf(arrival.map { it.restore() }), java.util.List.copyOf(departurePreparation.map { it.restore() }),
-        preparationLeadTicks, plannedDepartureTick, destinationId, doorSide, minimumDwellTicks)
+        StationPreparationLead(preparationLead), plannedDepartureTick, destinationId, doorSide, minimumDwellTicks)
     companion object {
         fun capture(value: StationStopPrograms) = SavedStationStopPrograms(value.stationId, value.callId, value.role.name,
             value.arrival.map(SavedStationProgramAction::capture), value.departurePreparation.map(SavedStationProgramAction::capture),
-            value.preparationLeadTicks, value.plannedDepartureTick, value.destinationId, value.doorSide, value.minimumDwellTicks)
+            value.preparationLead.expression, value.plannedDepartureTick, value.destinationId, value.doorSide, value.minimumDwellTicks)
     }
 }

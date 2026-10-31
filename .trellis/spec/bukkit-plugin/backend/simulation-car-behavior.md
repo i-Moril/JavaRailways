@@ -10,7 +10,7 @@ BukkitPlugin既有`CarBehavior`、`CarOperationBatch`和`TrainBehaviorRuntime`�
 
 旧SIM仅按`modelActionDurationTicks`最大值倒计时并成功，不执行JS、门侧、拒绝或全部effects。该执行路径及只有此用途的duration resolver/gateway/字段已删除。`TrainExtension.resolveActions`还有命令能力推断consumer，不能误删。
 
-每exact car持一个惰性persistent Context，独立globals与声明；同car入口/延迟效果/close保持monitor串行。LIVE继续CarExtension+region效果，SIM是无显示`SimulationCarBehaviorExtension`：复用原CarBehavior，动画/声音只执行已接受效果的启动语义，默认不记录历史，generic tick仅累计毫秒换算秒，既有owner commit执行闭包。不开每车JS tick，不调用Bukkit scheduler/model/entity，也不把每次调用改为fresh Context。
+每exact car持一个惰性persistent Context，独立globals与声明；同car入口/延迟效果/close保持monitor串行。LIVE继续CarExtension+region效果，SIM是无显示`SimulationCarBehaviorExtension`：复用原CarBehavior，动画推进与LIVE相同的每车逻辑播放时间，声音只执行已接受效果的启动语义，默认不记录历史，generic tick推进毫秒换算后的延迟与动画帧，既有owner commit执行闭包。不开每车JS tick，不调用Bukkit scheduler/model/entity，也不把每次调用改为fresh Context。
 
 ## 捕获值与producer→consumer
 
@@ -68,3 +68,7 @@ Core真实车厢销毁关闭其扩展；联结/解编保留转移车厢。网关
 ## 持久化与回滚
 
 仅运行态detached输入和目标资源接线；原包JS、actions、SavedCarModelTree、world/extension payload形状和版本不变。无旧开发reader/alias或无依据升版。工作区继承未提交信号候选，最终验证要重跑当前联合源并区分历史指纹，不回退前批/UI/坐标改动。
+
+## 门动画的完整时序
+
+CapturedCarBehavior 捕获真实模型转换后的逐part Animation时间轴，而不是只有scene名。SIM 与 LIVE 共用 CarBehavior、门动作只读计划和每车播放owner，动画effect要等完整播放结束，计划延迟和源/目标scene都参与耗时。默认发车准备通过同一Gateway查询真实编组的最长关门时间，不使用伪造最大配置时长替代运行，也不新建模拟执行器。可见平台仅投影，隔离模拟不得构建Bukkit显示实体。

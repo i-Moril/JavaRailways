@@ -8,7 +8,7 @@ class StationStopProgramsTest {
     private fun options(arrival: String, preparation: String = """[{"id":"endPrep","type":"END"}]""", role: String = "STOP"): JsonObject = Json.parseToJsonElement("""
         {"stationId":"central","callId":"call-b","callRole":"$role","departureTick":100,
          "plannedContext":{"runType":"PASSENGER","stationId":"central"},
-         "stationProgram":{"preparationLeadTicks":10,"arrival":{"parameters":[],"steps":$arrival},
+         "stationProgram":{"preparationLead":{"value":10},"arrival":{"parameters":[],"steps":$arrival},
            "departurePreparation":{"parameters":[],"steps":$preparation}}}
     """).jsonObject
 
@@ -17,7 +17,7 @@ class StationStopProgramsTest {
             function main(timetable) {
               timetable.setPeriodDays(1);
               const stationProgram = {arrival:{parameters:[],steps:[{id:'open',type:'OPEN_DOORS'},{id:'endArrival',type:'END'}]},
-                departurePreparation:{parameters:[],steps:[{id:'close',type:'CLOSE_DOORS'},{id:'endPrep',type:'END'}]},preparationLeadTicks:10};
+                departurePreparation:{parameters:[],steps:[{id:'close',type:'CLOSE_DOORS'},{id:'endPrep',type:'END'}]},preparationLead:{value:10}};
               timetable.service('duty','train',t => {
                 t.check('A');
                 t.beginStationStop('A',{stationId:'s1',callId:'origin',callRole:'ORIGIN',departureTick:100,stationProgram,plannedContext:{dutyId:'duty'}});
@@ -43,7 +43,7 @@ class StationStopProgramsTest {
             function main(timetable) {
               timetable.setPeriodDays(1);
               const stationProgram = {arrival:{parameters:[],steps:[{id:'ea',type:'END'}]},
-                departurePreparation:{parameters:[],steps:[{id:'ep',type:'END'}]},preparationLeadTicks:150};
+                departurePreparation:{parameters:[],steps:[{id:'ep',type:'END'}]},preparationLead:{value:150}};
               timetable.service('duty','train',t => {
                 t.check('A');t.at(100).destination('B');
                 t.beginStationStop('B',{stationId:'s',callId:'origin2',callRole:'ORIGIN',departureTick:220,stationProgram});
@@ -55,7 +55,7 @@ class StationStopProgramsTest {
         val origin = compiled.services.single().steps.single { it.action?.type == SavedTimetableActionTypeV1.BEGIN_STATION_STOP }
         assertEquals(100L, origin.tick)
         assertEquals(220L, origin.action!!.stopPrograms!!.plannedDepartureTick)
-        assertEquals(150L, origin.action!!.stopPrograms!!.preparationLeadTicks)
+        assertEquals(150L, origin.action!!.stopPrograms!!.preparationLead.jsonObject.getValue("value").jsonPrimitive.double.toLong())
     }
 
     @Test fun `station branches fold from planned properties and retain async order`() {
@@ -96,4 +96,19 @@ class StationStopProgramsTest {
                 """[{"id":"wait","type":"AWAIT","taskId":"arrivalTask"},{"id":"ep","type":"END"}]""", "ORIGIN"))
         }
     }
+    @Test fun `preparation timing compiles numeric tree and preserves actual train duration source`() {
+        val base = options("""[{"id":"end","type":"END"}]""")
+        val numeric = Json.parseToJsonElement("""{"operation":{"type":"ADD","operands":[{"doorCloseTicks":true},{"operation":{"type":"MULTIPLY","operands":[{"value":2},{"value":5}]}}]}}""")
+        val input = JsonObject(base + ("stationProgram" to JsonObject(base.getValue("stationProgram").jsonObject + ("preparationLead" to numeric))))
+        val compiled = compileStationStopPrograms("central@1", input)!!
+        val domain = work.art1st.javarailways.simpleato.timetable.StationPreparationLead(compiled.preparationLead)
+        assertTrue(domain.requiresDoorCloseDuration)
+        assertEquals(90L, domain.evaluate(80))
+        assertEquals(Json.parseToJsonElement("""{"operation":{"type":"ADD","operands":[{"doorCloseTicks":true},{"value":10}]}}"""), compiled.preparationLead)
+        for (invalid in listOf("{\"parameterId\":\"x\"}", "{\"trainInfo\":{}}", "{\"value\":-1}", "{\"value\":0.3}")) {
+            val changed = JsonObject(base + ("stationProgram" to JsonObject(base.getValue("stationProgram").jsonObject + ("preparationLead" to Json.parseToJsonElement(invalid)))))
+            assertThrows(RuntimeException::class.java) { compileStationStopPrograms("central@1", changed) }
+        }
+    }
+
 }

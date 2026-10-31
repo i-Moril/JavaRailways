@@ -42,3 +42,7 @@ Blockly递归映射覆盖表达式、对象键和操作数。运算积木不改�
 ## 整列车显示
 
 程序参数及表达式不再提供 UNIT_SLOTS；SET_DISPLAY 和 RESET_DISPLAY 的当前定义不包含 unitSlots 字段，动作作用于当时实际列车的全部运营单元。列车信息仅包含 NAME、CAR_COUNT、DIRECTION。底层交路编组与连续显示身份不因此删除。旧开发程序和冻结快照在部署前通过独立离线工具转换，业务代码不识别旧标签；文档调用参数按各自绑定快照清理，不能按最新库定义重写旧快照。
+
+## 发车准备数字时序
+
+preparationLead 使用独立的数值时序 AST，复用 ADD/SUBTRACT/MULTIPLY/DIVIDE/MODULO/MIN/MAX/ROUND/FLOOR/CEIL 的既有数字语义；不复用一般动作参数/字符串/JSON/列车条件。唯一运行期叶子 doorCloseTicks 来自真实列车关门计划，默认使用该叶子。最终必须是非负安全整数，深度/节点预算16/4096，静态子树同样校验。运行期求值由现有 StationStopProgramRuntime 完成，不引入第二执行器。

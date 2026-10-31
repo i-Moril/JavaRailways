@@ -3,6 +3,7 @@ import {describe,expect,it} from 'vitest';
 import {ProgramBlockEditor} from './ProgramBlockEditor';
 import {StationStopProgramEditor} from './StationStopProgramEditor';
 import {I18nProvider,translate} from './i18n';
+import {blocksToPreparationLead,preparationLeadToBlock} from './programBlocks';
 import {defaultStationStopProgram} from './stationPlans';
 import {reconcileProgramEntryLead,type ProgramBlockSnapshot} from './programBlockDrafts';
 const noop=()=>undefined;
@@ -30,17 +31,17 @@ describe('program editor controls',()=>{
 });
 
 describe('preparation entry draft recovery',()=>{
- const draft:ProgramBlockSnapshot={acceptedPreparationLeadTicks:20,parameters:[],workspace:{blocks:{languageVersion:0,blocks:[{type:'rail_entry',id:'$rail-entry',fields:{PREPARATION_LEAD:35},next:{block:{type:'rail_END',id:'end'}}},{type:'rail_WAIT_DURATION',id:'loose'}]}}};
+ const draft:ProgramBlockSnapshot={acceptedPreparationLead:{value:20},parameters:[],workspace:{blocks:{languageVersion:0,blocks:[{type:'rail_entry',id:'$rail-entry',inputs:{PREPARATION_LEAD:{block:preparationLeadToBlock({value:35})}},next:{block:{type:'rail_END',id:'end'}}},{type:'rail_WAIT_DURATION',id:'loose'}]}}};
  it('retains unaccepted lead and loose steps when the accepted document is unchanged',()=>{
-  expect(reconcileProgramEntryLead(draft,20)).toBe(draft);
-  expect(draft.workspace.blocks!.blocks[0].fields!.PREPARATION_LEAD).toBe(35);
+  expect(reconcileProgramEntryLead(draft,{value:20})).toBe(draft);
+  expect(blocksToPreparationLead({...draft.workspace,blocks:{...draft.workspace.blocks!,blocks:[draft.workspace.blocks!.blocks[0]]}})).toEqual({value:35});
  });
  it('uses externally changed document lead without dropping an incomplete step draft',()=>{
-  const recovered=reconcileProgramEntryLead(draft,10);
-  expect(recovered.workspace.blocks!.blocks[0].fields!.PREPARATION_LEAD).toBe(10);
+  const recovered=reconcileProgramEntryLead(draft,{value:10});
+  expect(blocksToPreparationLead({...recovered.workspace,blocks:{...recovered.workspace.blocks!,blocks:[recovered.workspace.blocks!.blocks[0]]}})).toEqual({value:10});
   expect(recovered.workspace.blocks!.blocks[0].next).toEqual(draft.workspace.blocks!.blocks[0].next);
   expect(recovered.workspace.blocks!.blocks[1]).toBe(draft.workspace.blocks!.blocks[1]);
-  expect(recovered.acceptedPreparationLeadTicks).toBe(10);
-  expect(draft.workspace.blocks!.blocks[0].fields!.PREPARATION_LEAD).toBe(35);
+  expect(recovered.acceptedPreparationLead).toEqual({value:10});
+  expect(blocksToPreparationLead({...draft.workspace,blocks:{...draft.workspace.blocks!,blocks:[draft.workspace.blocks!.blocks[0]]}})).toEqual({value:35});
  });
 });

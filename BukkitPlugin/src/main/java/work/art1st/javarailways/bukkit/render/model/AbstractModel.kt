@@ -75,8 +75,8 @@ abstract class AbstractModel(
         var applied = false
         animation[animationName]?.let { animationPrototype ->
             if (animationPrototype.hasScene(sceneName)) {
-                val currentScene = if (heldAnimationName == animationName) heldAnimationScene else null
-                val currentTransform = if (heldAnimationName == animationName) heldAnimationTransform else null
+                val currentScene = if (heldAnimationName == animationName && activeAnimation == null) heldAnimationScene else null
+                val currentTransform = if (heldAnimationName == animationName) activeAnimation?.currentTransform ?: heldAnimationTransform else null
                 startAnimation(
                     animationName,
                     animationPrototype.activateToScene(
@@ -97,6 +97,20 @@ abstract class AbstractModel(
         return applied
     }
 
+    /** Car-owned playback projects one committed frame; this renderer owns no second clock. */
+    internal fun projectAnimationFrame(name: String?, scene: String?, transform: CompactTransform?, display: AnimationDisplayState?) {
+        activeAnimation?.let { it.destroy().toCompletableFuture().getNow(null) }
+        activeAnimation = null
+        heldAnimationName = name
+        heldAnimationScene = scene
+        heldAnimationTransform = transform?.let(::CompactTransform)
+        heldAnimationDisplayState = display
+        val parent = lastParentRelativeTransform ?: return
+        val root = lastRootTransform ?: return
+        val velocity = lastRootVelocity ?: return
+        updateState(parent, root, velocity, transformDirty = true)
+    }
+
     fun collectHeldAnimationScenes(target: MutableMap<String, String> = linkedMapOf()): Map<String, String> {
         val animationName = heldAnimationName
         val sceneName = heldAnimationScene
@@ -110,7 +124,7 @@ abstract class AbstractModel(
     fun setAnimationScene(animationName: String, sceneName: String): Boolean {
         var applied = false
         animation[animationName]?.stateAtScene(sceneName)?.let { (sceneTransform, sceneDisplayState) ->
-            activeAnimation?.let { world.tickManager.unregister(it) }
+            activeAnimation?.let { it.destroy().toCompletableFuture().getNow(null) }
             activeAnimation = null
             heldAnimationName = animationName
             heldAnimationScene = Animation.normalizeSceneName(sceneName)
@@ -130,7 +144,7 @@ abstract class AbstractModel(
     }
 
     private fun startAnimation(animationName: String, active: Animation.ActiveAnimation) {
-        activeAnimation?.let { world.tickManager.unregister(it) }
+        activeAnimation?.let { it.destroy().toCompletableFuture().getNow(null) }
         heldAnimationName = animationName
         activeAnimation = active
         world.tickManager.register(active)
@@ -152,7 +166,7 @@ abstract class AbstractModel(
     private fun onAnimationFinished(animation: Animation.ActiveAnimation) {
         world.tickManager.unregister(animation)
         if (activeAnimation === animation) {
-            if (animation.keepFinalState) {
+            if (animation.keepFinalState && animation.completedNormally) {
                 heldAnimationTransform = CompactTransform(animation.finalTransform)
                 heldAnimationDisplayState = animation.finalDisplayState
                 heldAnimationScene = animation.targetScene
@@ -183,7 +197,7 @@ abstract class AbstractModel(
      * the held target scene from the normal held-animation snapshot path.
      */
     fun prepareForUnload() {
-        activeAnimation?.destroy()?.toCompletableFuture()?.getNow(null)
+        activeAnimation?.finishForUnload()?.toCompletableFuture()?.getNow(null)
         attachedModels.forEach { it.prepareForUnload() }
     }
 

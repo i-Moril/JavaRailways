@@ -42,6 +42,13 @@ class BukkitTrainOperationGateway(
         }
     }
 ) : TrainOperationGateway {
+    override fun estimateDoorCloseDurationTicks(trainId: String, side: work.art1st.javarailways.basic.api.operation.DoorSide): CompletableFuture<Long> {
+        ThreadGuard.ensureMainThread("BukkitTrainOperationGateway.estimateDoorCloseDurationTicks")
+        if (side == work.art1st.javarailways.basic.api.operation.DoorSide.NONE) return CompletableFuture.completedFuture(0L)
+        val train = world.getTrain(trainId) ?: return CompletableFuture.failedFuture(IllegalArgumentException("train not found: $trainId"))
+        return train.renderer.estimateDoorCloseDurationTicks(side)
+    }
+
     override fun execute(request: TrainOperationRequest): TrainOperationExecutionResult {
         ThreadGuard.ensureMainThread("BukkitTrainOperationGateway.execute")
         val operation = request.operation

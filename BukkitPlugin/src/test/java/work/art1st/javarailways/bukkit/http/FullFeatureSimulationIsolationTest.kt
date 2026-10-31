@@ -15,7 +15,7 @@ import work.art1st.javarailways.basic.rail.SpeedLimitEntry
 import work.art1st.javarailways.basic.rail.SpeedLimitMetadata
 import work.art1st.javarailways.basic.rail.SpeedLimitType
 import work.art1st.javarailways.bukkit.behavior.CapturedCarBehavior
-import work.art1st.javarailways.bukkit.behavior.captureAnimationCapabilities
+import work.art1st.javarailways.bukkit.behavior.captureAnimationParts
 import work.art1st.javarailways.bukkit.config.model.*
 import work.art1st.javarailways.bukkit.operation.SimulationBehaviorEffect
 import work.art1st.javarailways.bukkit.operation.SimulationBehaviorEffectCollector
@@ -241,6 +241,8 @@ class FullFeatureSimulationIsolationTest {
                 assertFalse(pending.isDone)
                 advanceGeneric(world, 0)
                 advanceGeneric(world, 650)
+                assertFalse(pending.isDone, "effect launch must not finish the warning animation")
+                advanceGeneric(world, 1300)
                 pending.get(5, TimeUnit.SECONDS)
                 assertTrue(effects.snapshot(exactIncoming).isEmpty(), "new cars cannot join an already accepted operation")
                 assertTrue(effects.snapshot(exactLead).any {
@@ -248,8 +250,9 @@ class FullFeatureSimulationIsolationTest {
                 })
                 val later = CompletableFuture<Unit>()
                 world.onOwnerForTest { leadBehavior.action("continuity", false) { later.completeFrom(it) } }
-                advanceGeneric(world, 650)
-                advanceGeneric(world, 1300)
+                advanceGeneric(world, 1950)
+                assertFalse(later.isDone, "the same car must retain complete playback semantics after coupling")
+                advanceGeneric(world, 2600)
                 later.get(5, TimeUnit.SECONDS)
                 assertTrue(effects.snapshot(exactLead).any {
                     it is SimulationBehaviorEffect.AnimationStarted && it.name == "doors_r" && it.scene == "closed"
@@ -262,8 +265,8 @@ class FullFeatureSimulationIsolationTest {
         result.fold({ complete(Unit) }, { completeExceptionally(it) })
     }
 
-    private fun advanceGeneric(world: CoreWorld, millis: Long) = world.onOwnerForTest {
-        world.tickManager.preTick(millis)
+    private fun advanceGeneric(world: CoreWorld, currentTimeMillis: Long) = world.onOwnerForTest {
+        world.tickManager.preTick(currentTimeMillis)
         world.tickManager.postTick()
         world.tickManager.drainPendingCommits().forEach { it.commit() }
     }
@@ -317,7 +320,7 @@ class FullFeatureSimulationIsolationTest {
         val loaded = requireNotNull(PackageLoader(File("../models/s100")).loadTrainPackage())
         val car = requireNotNull(loaded.cars["head"])
         val behavior = CapturedCarBehavior(loaded.behavior, loaded.actions,
-            SavedCarModelTree.build(car, loaded.partRegistry).captureAnimationCapabilities())
+            SavedCarModelTree.build(car, loaded.partRegistry).captureAnimationParts())
         val control = CarControlConfig(motor = MotorControlConfig(enabled = true, maxForce = 80_000.0, maxPower = 800_000.0))
         val cars = List(carCount) { index -> SimulationCarBlueprint(10.0, 0.0, 0.0, 0.0, 3.5, -3.5,
             control, behavior, installedReversed = index == 1) }

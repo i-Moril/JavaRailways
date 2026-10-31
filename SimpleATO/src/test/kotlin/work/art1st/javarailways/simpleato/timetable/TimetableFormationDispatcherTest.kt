@@ -461,7 +461,7 @@ class TimetableFormationDispatcherTest {
                 val program = StationStopPrograms("origin-station", "origin-call", StationStopRole.ORIGIN,
                     listOf(StationProgramAction.End), listOf(
                         StationProgramAction.SetDisplay(kotlinx.serialization.json.buildJsonObject { put("destination", kotlinx.serialization.json.JsonPrimitive("All")) }),
-                        read, StationProgramAction.ResetDisplay, read, StationProgramAction.End), 0, 0, "origin")
+                        read, StationProgramAction.ResetDisplay, read, StationProgramAction.End), StationPreparationLead.constant(0), 0, "origin")
                 val steps = listOf(source.steps[0], TimetableStep.At(0, TimetableAction.BeginStationStop(program))) + source.steps.drop(1)
                 val line = checkNotNull(source.lineId)
                 val updated = source.copy(steps = steps, runSegments = listOf(

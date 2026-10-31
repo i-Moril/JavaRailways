@@ -49,11 +49,11 @@ class CapturedCarBehaviorTest {
             CarBehavior({ loaded.behavior }, { loaded.actions }, { name, scene ->
                 if (capabilities.supportsAnimation(name, scene)) {
                     effects.add(name to scene)
-                    true
-                } else false
+                    java.util.concurrent.CompletableFuture.completedFuture(Unit)
+                } else java.util.concurrent.CompletableFuture.failedFuture(IllegalStateException("animation unavailable"))
             }, { _, _, _ -> fail<Unit>("light actions must not play sound") },
                 { _, _ -> error("light actions must not schedule delayed effects") }, {},
-                { throw it }, capabilities::supportsAnimation).use { behavior ->
+                { throw it }, capabilities::supportsAnimation, { _, _, _ -> 0L }, { capabilities }).use { behavior ->
                 val lightNames = capabilities.keys.filter { it.endsWith("_end_light") }.toSet()
                 val metadata = behavior.metadata(false)
                 assertTrue(effects.isEmpty(), "metadata must not start effects: $modelName")

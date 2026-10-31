@@ -80,7 +80,7 @@ class ProgramExpressionsTest {
 
     @Test fun `shared station program compiles nested wait and display expressions`() {
         val options = Json.parseToJsonElement("""{"stationId":"s","callId":"c","callRole":"STOP","departureTick":100,"stationProgram":{
-          "preparationLeadTicks":10,"arrival":{"parameters":[],"steps":[
+          "preparationLead":{"value":10},"arrival":{"parameters":[],"steps":[
             {"id":"wait","type":"WAIT_DURATION","durationTicks":${op("MULTIPLY", literal(2), literal(20))}},
             {"id":"display","type":"SET_DISPLAY","values":{"object":{"text":${op("CONCAT",literal("A"),literal("B"))}}}},
             {"id":"end","type":"END"}]},"departurePreparation":{"parameters":[],"steps":[{"id":"end","type":"END"}]}}}""").jsonObject

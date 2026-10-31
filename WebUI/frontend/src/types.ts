@@ -14,7 +14,7 @@ export interface StationProgramActionSnapshot {
 export interface StationStopProgramsSnapshot {
   stationId:string; callId:string; role:'ORIGIN'|'STOP'|'TERMINAL';
   arrival:StationProgramActionSnapshot[]; departurePreparation:StationProgramActionSnapshot[];
-  preparationLeadTicks:number; plannedDepartureTick?:number|null; destinationId?:string|null;
+  preparationLead:StationPreparationLead; plannedDepartureTick?:number|null; destinationId?:string|null;
   doorSide?:'NONE'|'LEFT'|'RIGHT'|'BOTH'|null; minimumDwellTicks?:number|null;
 }
 export interface TimetableActionV1 { trainInfo?:TrainInfoBindings; type: ActionType; operationalTripId?:string|null; runId?:string|null; unitSlots?:number[]; displayValues?:ProgramJsonObject; removeDisplayKeys?:string[]; eventId?:string|null; outputId?:string|null; depotId?: string|null; arrivalTick?:number|null; requiredTags: string[]; minimumCars?: number|null; maximumCars?: number|null; minimumSpeedMetersPerSecond?: number|null; requiredCapabilities: string[]; stablingPointIds: string[]; wayPointIds: string[]; stopTicks?: number|null; stationId?: string|null; berthId?: string|null; berthCandidates?:{berthId:string;priority:number}[]; selectionPolicy?:'FIXED_PREFERENCE'|'AVAILABLE_PRIORITY'|null; minimumDwellTicks?: number|null; stoppingOffsetMetersBefore?: number|null; doorSideOverride?: 'NONE'|'LEFT'|'RIGHT'|'BOTH'|null; extensionCall?: ExtensionCallV1|null; condition?: TimetableConditionV1|null; stopPrograms?:StationStopProgramsSnapshot|null; thenSteps: TimetableStepV1[]; elseSteps: TimetableStepV1[] }
@@ -120,6 +120,7 @@ export type ProgramJsonValue=null|boolean|number|string|ProgramJsonValue[]|Progr
 export interface ProgramJsonObject {[key:string]:ProgramJsonValue}
 export type StationProgramLiteral=ProgramJsonValue;
 export type StationProgramOperation='ADD'|'SUBTRACT'|'MULTIPLY'|'DIVIDE'|'MODULO'|'MIN'|'MAX'|'ROUND'|'FLOOR'|'CEIL'|'CONCAT'|'SUBSTRING'|'REPLACE'|'TEXT_LENGTH'|'TO_STRING'|'TO_NUMBER';
+export type StationPreparationLead={value:number}|{doorCloseTicks:true}|{operation:{type:'ADD'|'SUBTRACT'|'MULTIPLY'|'DIVIDE'|'MODULO'|'MIN'|'MAX'|'ROUND'|'FLOOR'|'CEIL';operands:StationPreparationLead[]}};
 export type StationProgramExpression={operation:{type:StationProgramOperation;operands:StationProgramValue<StationProgramLiteral>[]}}|{object:Record<string,StationProgramValue<StationProgramLiteral>>};
 export type StationProgramValue<T>={value:T}|{parameterId:string}|StationProgramExpression;
 export type StationProgramJsonValue=StationProgramValue<ProgramJsonObject>|{trainInfo:TrainInfoBindings};
@@ -137,7 +138,7 @@ export type StationProgramStep=
  | {id:string;type:'AWAIT';taskId:string}
  | {id:string;type:'MOVE';destinationId:StationProgramValue<string>;viaIds:StationProgramValue<string[]>}
  | {id:string;type:'STORE_AT_DEPOT';depotId:StationProgramValue<string>;stablingPointIds:StationProgramValue<string[]>};
-export interface StationStopProgram {stationId:string;arrival:StationProgramDefinition;departurePreparation:StationProgramDefinition;preparationLeadTicks:number}
+export interface StationStopProgram {stationId:string;arrival:StationProgramDefinition;departurePreparation:StationProgramDefinition;preparationLead:StationPreparationLead}
 export type TimedOperationDuration={type:'MANUAL';ticks:number}|{type:'SIMULATED'}|{type:'PROGRAM'};
 export interface TimedOperationProgram {programId:string;arguments:Record<string,StationProgramLiteral>}
 export interface TimedOperation {id:string;tick:number;stationId?:string;label?:string;duration?:TimedOperationDuration;program?:TimedOperationProgram}

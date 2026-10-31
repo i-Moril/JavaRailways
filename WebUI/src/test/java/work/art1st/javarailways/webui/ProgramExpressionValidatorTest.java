@@ -123,6 +123,51 @@ class ProgramExpressionValidatorTest {
         assertEquals(ProgramContentIdentity.of(definition), loaded.path("contentIdentity").asText());
     }
 
+    @Test void oneStringParameterFeedsIdentifiersAndTextAndPersists(@TempDir Path directory) throws Exception {
+        JsonNode definition = mapper.readTree("""
+            {"parameters":[{"id":"place","type":"STRING"}],"steps":[
+              {"id":"move","type":"MOVE","destinationId":{"parameterId":"place"},"viaIds":{"value":[]}},
+              {"id":"display","type":"SET_DISPLAY","unitSlots":{"value":[1]},"values":{"object":{
+                "title":{"operation":{"type":"CONCAT","operands":[{"value":"Next: "},{"parameterId":"place"}]}},
+                "id":{"parameterId":"place"}}}},
+              {"id":"store","type":"STORE_AT_DEPOT","depotId":{"parameterId":"place"},"stablingPointIds":{"value":[]}}]}
+            """);
+        assertDoesNotThrow(() -> StationProgramValidator.validateArguments(definition, mapper.createObjectNode().put("place", "central")));
+        var repository = new VisualProgramRepository(directory, mapper, StationProgramValidator::validate);
+        var created = repository.create("world", "2", "2", definition, null);
+        var loaded = new VisualProgramRepository(directory, mapper, StationProgramValidator::validate).find("world", "2").orElseThrow();
+        assertEquals(created, loaded);
+        assertEquals("STRING", loaded.path("definition").path("parameters").get(0).path("type").asText());
+        StationProgramValidator.validateArguments(loaded.path("definition"), mapper.createObjectNode().put("place", "central"));
+    }
+
+    @Test void genericStringsRemainEmptyOrLongUntilUsedAsIdentifiers() throws Exception {
+        JsonNode definition = mapper.readTree("""
+            {"parameters":[{"id":"text","type":"STRING"}],"steps":[
+              {"id":"display","type":"SET_DISPLAY","unitSlots":{"value":[1]},"values":{"object":{"title":{"parameterId":"text"}}}}]}
+            """);
+        for (String text : new String[]{"", "   ", "x".repeat(8192)}) {
+            assertEquals(text, evaluate(literal(text), "STRING").asText());
+            assertDoesNotThrow(() -> StationProgramValidator.validateArguments(definition, mapper.createObjectNode().put("text", text)));
+        }
+        assertThrows(IllegalArgumentException.class, () -> evaluate(literal("x".repeat(8193)), "STRING"));
+        for (String action : new String[]{"MOVE", "STORE_AT_DEPOT"}) {
+            String field = action.equals("MOVE") ? "destinationId" : "depotId";
+            String list = action.equals("MOVE") ? "viaIds" : "stablingPointIds";
+            ObjectNode step = mapper.createObjectNode().put("id", "action").put("type", action);
+            step.putObject(field).put("parameterId", "text");
+            step.putObject(list).putArray("value").add("berth");
+            ObjectNode bound = definition.deepCopy(); bound.withArray("steps").removeAll().add(step);
+            for (String invalid : new String[]{"", "   ", "x".repeat(257)}) {
+                assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateArguments(bound, mapper.createObjectNode().put("text", invalid)));
+                ObjectNode literalDefinition = bound.deepCopy();
+                ((ObjectNode) literalDefinition.path("steps").get(0)).set(field, operation("CONCAT", literal(invalid), literal("")));
+                assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(literalDefinition));
+            }
+            assertDoesNotThrow(() -> StationProgramValidator.validateArguments(bound, mapper.createObjectNode().put("text", "x".repeat(256))));
+        }
+    }
+
     @Test void objectExpressionsPreserveDataAndRejectNestedRuntimeBindings() throws Exception {
         var object = mapper.createObjectNode();
         object.set("title", operation("CONCAT", literal("platform "), operation("TO_STRING", literal(3))));

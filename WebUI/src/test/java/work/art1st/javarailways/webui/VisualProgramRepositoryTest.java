@@ -24,7 +24,7 @@ class VisualProgramRepositoryTest {
 
     @Test void dynamicStopIsNotAnAuthoredTimetableProgramAction() throws Exception {
         JsonNode selection = mapper.readTree("""
-            {"parameters":[{"id":"station","type":"STATION"},{"id":"berths","type":"ID_LIST"}],"steps":[
+            {"parameters":[{"id":"station","type":"STRING"},{"id":"berths","type":"ID_LIST"}],"steps":[
               {"id":"choose","type":"SELECT_STOP","stationId":{"parameterId":"station"},"berthIds":{"parameterId":"berths"},"selectionPolicy":"AVAILABLE_PRIORITY"}]}
             """);
         assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateArguments(selection, mapper.readTree("{\"station\":\"central\",\"berths\":[\"long\",\"short\"]}")));
@@ -32,7 +32,6 @@ class VisualProgramRepositoryTest {
             assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateArguments(selection,
                 mapper.readTree("{\"station\":\"central\",\"berths\":" + ids + "}")));
         }
-        assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(mapper.readTree(selection.toString().replace("STATION", "DESTINATION"))));
         assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(mapper.readTree(selection.toString().replace("AVAILABLE_PRIORITY", "RANDOM"))));
     }
 

@@ -70,7 +70,7 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
     require(definition.parameters.size <= 64 && definition.steps.size <= 256) { "program exceeds parameter/step limits" }
     val parameters = definition.parameters.associate { parameter ->
         requireProgramId(parameter.id)
-        require(parameter.type in setOf("NUMBER", "TICK", "DURATION", "DESTINATION", "STATION", "DEPOT", "STRING", "ID_LIST", "JSON_OBJECT", "UNIT_SLOTS")) { "unknown parameter type: ${parameter.type}" }
+        require(parameter.type in setOf("NUMBER", "TICK", "DURATION", "STRING", "ID_LIST", "JSON_OBJECT", "UNIT_SLOTS")) { "unknown parameter type: ${parameter.type}" }
         parameter.id to parameter.type
     }
     require(parameters.size == definition.parameters.size) { "duplicate program parameter id" }
@@ -90,14 +90,15 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
                     "BRANCH", "EXTENSION" -> mapOf("parameters" to "JSON_OBJECT")
                     "WAIT_UNTIL" -> mapOf("tick" to "TICK")
                     "WAIT_DURATION" -> mapOf("durationTicks" to "DURATION")
-                    "MOVE" -> mapOf("destinationId" to "DESTINATION", "viaIds" to "ID_LIST")
-                    "SELECT_STOP" -> mapOf("stationId" to "STATION", "berthIds" to "ID_LIST")
-                    "STORE_AT_DEPOT" -> mapOf("depotId" to "DEPOT", "stablingPointIds" to "ID_LIST")
+                    "MOVE" -> mapOf("destinationId" to "STRING", "viaIds" to "ID_LIST")
+                    "SELECT_STOP" -> mapOf("stationId" to "STRING", "berthIds" to "ID_LIST")
+                    "STORE_AT_DEPOT" -> mapOf("depotId" to "STRING", "stablingPointIds" to "ID_LIST")
                     else -> emptyMap()
                 }
                 sinks.forEach { (name, type) -> step[name]?.let { expression ->
                     if (expression.jsonObject.keys != setOf("trainInfo")) {
                         val resolved = value(Json.decodeFromJsonElement(expression), type)
+                        if (name in setOf("destinationId", "stationId", "depotId")) validateProgramIdentifier(resolved)
                         if (name == "durationTicks") require(resolved.jsonPrimitive.long > 0) { "wait duration must be positive" }
                     }
                 } }
@@ -159,7 +160,7 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
             }
             is StationProgramStep.Reverse -> append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.REVERSE))
             is StationProgramStep.Move -> {
-                val destination = value(step.destinationId, "DESTINATION").jsonPrimitive.content
+                val destination = value(step.destinationId, "STRING").also(::validateProgramIdentifier).jsonPrimitive.content
                 val via = value(step.viaIds, "ID_LIST").jsonArray.map { it.jsonPrimitive.content }
                 append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.DESTINATION_OPTIONS, wayPointIds = listOf(destination)))
                 append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.DESTINATION, wayPointIds = via + destination))
@@ -168,13 +169,13 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
                 val ids = value(step.berthIds, "ID_LIST").jsonArray.map { it.jsonPrimitive.content }
                 require(ids.size in 1..64 && ids.distinct().size == ids.size) { "station selection requires distinct nonempty berth IDs (at most64)" }
                 append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.SELECT_STOP,
-                    stationId = value(step.stationId, "STATION").jsonPrimitive.content,
+                    stationId = value(step.stationId, "STRING").also(::validateProgramIdentifier).jsonPrimitive.content,
                     berthCandidates = ids.mapIndexed { index, id -> SavedStationStopCandidateV1(id, index) },
                     selectionPolicy = step.selectionPolicy))
             }
             is StationProgramStep.Store -> append(step.id, SavedTimetableActionV1(
                 SavedTimetableActionTypeV1.STORE_AT_DEPOT,
-                depotId = value(step.depotId, "DEPOT").jsonPrimitive.content,
+                depotId = value(step.depotId, "STRING").also(::validateProgramIdentifier).jsonPrimitive.content,
                 stablingPointIds = value(step.stablingPointIds, "ID_LIST").jsonArray.map { it.jsonPrimitive.content }.toSet()
             ))
         }
@@ -207,9 +208,16 @@ internal fun validateProgramLiteral(value: JsonElement, type: String) {
         "JSON_OBJECT" -> validateProgramJsonObject(value)
         "ID_LIST" -> {
             require(value is JsonArray && value.size <= 256) { "ID_LIST must be an array with at most256 entries" }
-            value.forEach { validateProgramLiteral(it, "DESTINATION") }
+            value.forEach(::validateProgramIdentifier)
         }
-        else -> require(value is JsonPrimitive && value.isString && value.content.isNotBlank() && value.content.length <= 256) { "$type must be a nonblank string of at most256 characters" }
+        else -> error("unknown parameter type: $type")
+    }
+}
+
+/** Domain identifier constraints apply only where a string is consumed as an ID. */
+internal fun validateProgramIdentifier(value: JsonElement) {
+    require(value is JsonPrimitive && value.isString && value.content.isNotBlank() && value.content.length <= 256) {
+        "identifier must be a nonblank string of at most256 characters"
     }
 }
 

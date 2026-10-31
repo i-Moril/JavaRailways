@@ -4,7 +4,7 @@ import {getProgramBlockDraftValidity,clearProgramBlockDraft,readProgramBlockDraf
 import type {StationProgramDefinition,StationProgramStep} from './types';
 const clone=<T,>(value:T):T=>JSON.parse(JSON.stringify(value));
 const first=(state:ProgramWorkspaceState)=>state.blocks!.blocks[0].next!.block;
-const definition:StationProgramDefinition={parameters:[{id:'duration',type:'DURATION'},{id:'station',type:'STATION'}],steps:[
+const definition:StationProgramDefinition={parameters:[{id:'duration',type:'DURATION'},{id:'station',type:'STRING'}],steps:[
 {id:'display',type:'SET_DISPLAY',unitSlots:{value:[1,2]},values:{value:{destination:'Central',nested:{a:[1,true,null]}}}},
 {id:'display-remove',type:'SET_DISPLAY',unitSlots:{value:[1]},values:{value:{}},removeKeys:{value:['destination']}},
 {id:'reset',type:'RESET_DISPLAY',unitSlots:{value:[2]}},

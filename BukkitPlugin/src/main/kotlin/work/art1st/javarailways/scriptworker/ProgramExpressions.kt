@@ -12,7 +12,6 @@ import kotlin.math.*
 /** Pure, bounded authoring expressions. Values are resolved before the dispatcher runs. */
 internal object ProgramExpressions {
     private val numericTypes = setOf("NUMBER", "TICK", "DURATION")
-    private val stringTypes = setOf("STRING", "DESTINATION", "STATION", "DEPOT")
     private val decimal = Regex("[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
     private val inputs = mapOf(
         "ADD" to listOf("NUMBER", "NUMBER"), "SUBTRACT" to listOf("NUMBER", "NUMBER"),
@@ -71,7 +70,7 @@ internal object ProgramExpressions {
     fun evaluate(expression: StationProgramValue, type: String, parameters: Map<String, String> = emptyMap(), arguments: JsonObject = JsonObject(emptyMap())): JsonElement {
         validateShape(Json.encodeToJsonElement(expression))
         fun compatible(actual: String, expected: String): Boolean = actual == expected ||
-            (actual in numericTypes && expected in numericTypes) || (actual in stringTypes && expected in stringTypes)
+            (actual in numericTypes && expected in numericTypes)
         fun resolve(expression: StationProgramValue, expected: String): JsonElement {
             val result = when {
                 expression.value != null -> expression.value

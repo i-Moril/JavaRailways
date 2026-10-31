@@ -18,7 +18,6 @@ import java.util.regex.Pattern;
 final class ProgramExpressionValidator {
     private static final JsonNodeFactory JSON = JsonNodeFactory.instance;
     private static final Set<String> NUMERIC = Set.of("NUMBER", "TICK", "DURATION");
-    private static final Set<String> STRING = Set.of("STRING", "DESTINATION", "STATION", "DEPOT");
     private static final Pattern DECIMAL = Pattern.compile("[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?");
     private record Result(String type, JsonNode value) {}
     private ProgramExpressionValidator() {}
@@ -86,8 +85,7 @@ final class ProgramExpressionValidator {
     }
 
     private static boolean compatible(String actual, String expected) {
-        return expected.equals(actual) || NUMERIC.contains(expected) && actual != null && NUMERIC.contains(actual)
-            || STRING.contains(expected) && actual != null && STRING.contains(actual);
+        return expected.equals(actual) || NUMERIC.contains(expected) && actual != null && NUMERIC.contains(actual);
     }
 
     private static JsonNode calculate(String type, List<JsonNode> values) {

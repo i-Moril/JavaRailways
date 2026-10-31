@@ -5,7 +5,7 @@ import type { BoundStationProgram,StationProgramCall,StationProgramDefinition,St
 
 const clone=<T,>(value:T):T=>JSON.parse(JSON.stringify(value)) as T;
 const validId=(value:string)=>/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value);
-const types:StationProgramParameterType[]=['NUMBER','TICK','DURATION','DESTINATION','STATION','DEPOT','STRING','ID_LIST','JSON_OBJECT','UNIT_SLOTS'];
+const types:StationProgramParameterType[]=['NUMBER','TICK','DURATION','STRING','ID_LIST','JSON_OBJECT','UNIT_SLOTS'];
 export function stationProgramLiteralValid(value:unknown,type:StationProgramParameterType):boolean {
   if(type==='NUMBER')return typeof value==='number'&&Number.isFinite(value)&&(!Number.isInteger(value)||Number.isSafeInteger(value));
   if(type==='STRING')return typeof value==='string'&&value.length<=8192;
@@ -13,7 +13,7 @@ export function stationProgramLiteralValid(value:unknown,type:StationProgramPara
   if(type==='JSON_OBJECT')return programJsonObjectError(value)==='';
   if(type==='TICK'||type==='DURATION')return Number.isSafeInteger(value)&&Number(value)>=0;
   if(type==='ID_LIST')return Array.isArray(value)&&value.length<=256&&value.every((item)=>typeof item==='string'&&!!item.trim()&&item.length<=256);
-  return typeof value==='string'&&!!value.trim()&&value.length<=256;
+  return false;
 }
 export function validateStationProgram(definition:StationProgramDefinition,args?:Record<string,StationProgramLiteral>):string[] {
   const errors:string[]=[];
@@ -33,6 +33,12 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
     if('trainInfo' in value){if(!allowTrainInfo)errors.push('Train information is unavailable in this input');else {const error=trainInfoError(value.trainInfo);if(error)errors.push(error);}return;}
     try{validateProgramExpression(value,type,parameters,stationProgramLiteralValid,args);}catch{errors.push('Invalid program expression (incompatible input or invalid value)');return;}
     if(positive){try{if(Number(resolveProgramValue(value,args??{}))<=0)errors.push('Wait duration must be positive');}catch{/* Unbound parameter expressions are evaluated when invoked. */}}
+  };
+  const checkId=(value:StationProgramValue<string>)=>{
+    check(value,'STRING');
+    let resolved:unknown;
+    try{resolved=resolveProgramValue(value,args??{});}catch{return; /* Unbound expressions are checked when invoked. */}
+    if(typeof resolved!=='string'||!resolved.trim()||resolved.length>256)errors.push('Action ID must be nonblank and at most256 characters');
   };
   const ids=new Set<string>();
   let count=0;
@@ -68,14 +74,14 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
       case 'REVERSE':case 'OPEN_DOORS':case 'CLOSE_DOORS':case 'END':break;
       case 'ASYNC':if(!validId(step.taskId))errors.push('Invalid task ID');visit(step.steps,depth+1);break;
       case 'AWAIT':if(!validId(step.taskId))errors.push('Invalid task ID');break;
-      case 'MOVE':check(step.destinationId,'DESTINATION');check(step.viaIds,'ID_LIST');break;
+      case 'MOVE':checkId(step.destinationId);check(step.viaIds,'ID_LIST');break;
       case 'SELECT_STOP':
-        check(step.stationId,'STATION');check(step.berthIds,'ID_LIST');
+        checkId(step.stationId);check(step.berthIds,'ID_LIST');
         if(!['FIXED_PREFERENCE','AVAILABLE_PRIORITY'].includes(step.selectionPolicy))errors.push('Invalid station selection policy');
         {const expression=step.berthIds;const ids=expression&&('value' in expression?expression.value:'parameterId' in expression?args?.[expression.parameterId]:undefined);
         if(Array.isArray(ids)&&(!ids.length||ids.length>64||new Set<unknown>(ids).size!==ids.length))errors.push('Station selection requires distinct nonempty berth IDs (at most64)');}
         break;
-      case 'STORE_AT_DEPOT':check(step.depotId,'DEPOT');check(step.stablingPointIds,'ID_LIST');break;
+      case 'STORE_AT_DEPOT':checkId(step.depotId);check(step.stablingPointIds,'ID_LIST');break;
       default:errors.push('Unsupported program step');
     }
   }

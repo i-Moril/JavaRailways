@@ -45,11 +45,11 @@ class ProgramExpressionsTest {
         assertEquals(30L, expanded.steps[1].action!!.stopTicks)
     }
 
-    @Test fun `numeric and string parameter families retain sink validation`() {
+    @Test fun `numeric parameters retain numeric sink validation and strings allow empty values`() {
         assertEquals(20L, ProgramExpressions.evaluate(expr("""{"parameterId":"n"}"""), "DURATION", mapOf("n" to "NUMBER"), buildJsonObject { put("n",20.0) }).jsonPrimitive.long)
-        assertEquals("central@1", ProgramExpressions.evaluate(expr("""{"parameterId":"name"}"""), "DESTINATION", mapOf("name" to "STRING"), buildJsonObject { put("name","central@1") }).jsonPrimitive.content)
+        assertEquals("central@1", ProgramExpressions.evaluate(expr("""{"parameterId":"name"}"""), "STRING", mapOf("name" to "STRING"), buildJsonObject { put("name","central@1") }).jsonPrimitive.content)
         assertEquals(0L, evaluate(literal(0), "DURATION").jsonPrimitive.long)
-        assertThrows(RuntimeException::class.java) { ProgramExpressions.evaluate(expr("""{"parameterId":"name"}"""), "DESTINATION", mapOf("name" to "STRING"), buildJsonObject { put("name","") }) }
+        assertEquals("", ProgramExpressions.evaluate(expr("""{"parameterId":"name"}"""), "STRING", mapOf("name" to "STRING"), buildJsonObject { put("name","") }).jsonPrimitive.content)
     }
 
     @Test fun `zero duration parameter is valid for arithmetic but not a final wait even in unselected branches`() {
@@ -97,6 +97,46 @@ class ProgramExpressionsTest {
         assertTrue(failure.message!!.contains("step:invalidWait"))
     }
 
+    @Test fun `one string parameter composes into destination station depot and display fields`() {
+        val reference = """{"parameterId":"id"}"""
+        val destination = op("CONCAT", reference, literal("@1"))
+        val definition = Json.parseToJsonElement("""{"parameters":[{"id":"id","type":"STRING"}],"steps":[
+          {"id":"display","type":"SET_DISPLAY","unitSlots":{"value":[1]},"values":{"object":{"text":$reference}}},
+          {"id":"move","type":"MOVE","destinationId":$destination,"viaIds":{"value":[]}},
+          {"id":"select","type":"SELECT_STOP","stationId":$reference,"berthIds":{"value":["berth"]},"selectionPolicy":"FIXED_PREFERENCE"},
+          {"id":"store","type":"STORE_AT_DEPOT","depotId":$reference,"stablingPointIds":{"value":[]}}
+        ]}""")
+        val actions = expandStationProgram(definition, buildJsonObject { put("id", "central") }, 0).steps.map { it.action!! }
+        assertEquals("central", actions[0].displayValues.getValue("text").jsonPrimitive.content)
+        assertEquals(listOf("central@1"), actions[2].wayPointIds)
+        assertEquals("central", actions[3].stationId)
+        assertEquals("central", actions[4].depotId)
+        for (text in listOf("", " ", "x".repeat(8192))) {
+            assertEquals(text, ProgramExpressions.evaluate(expr(reference), "STRING", mapOf("id" to "STRING"), buildJsonObject { put("id", text) }).jsonPrimitive.content)
+        }
+    }
+
+    @Test fun `string identifiers are checked at each action including unselected branch sinks`() {
+        val operations = listOf(
+            """{"id":"bad","type":"MOVE","destinationId":{"parameterId":"id"},"viaIds":{"value":[]}}""",
+            """{"id":"bad","type":"SELECT_STOP","stationId":{"parameterId":"id"},"berthIds":{"value":["berth"]},"selectionPolicy":"FIXED_PREFERENCE"}""",
+            """{"id":"bad","type":"STORE_AT_DEPOT","depotId":{"parameterId":"id"},"stablingPointIds":{"value":[]}}""")
+        for (step in operations) for (text in listOf("", " ", "x".repeat(257))) {
+            for (branched in if (step.contains("STORE_AT_DEPOT")) listOf(false) else listOf(false, true)) {
+                val body = if (!branched) step else """{"id":"parent","type":"BRANCH","typeId":"javarailways:plan_duty_id","version":1,"parameters":{"value":{"values":["duty"]}},"thenSteps":[],"elseSteps":[$step]}"""
+                val definition = Json.parseToJsonElement("""{"parameters":[{"id":"id","type":"STRING"}],"steps":[$body]}""")
+                val failure = assertThrows(RuntimeException::class.java) {
+                    expandStationProgram(definition, buildJsonObject { put("id", text) }, 0, mapOf("dutyId" to JsonPrimitive("duty")))
+                }
+                assertTrue(failure.message.orEmpty().contains("step:bad"), failure.message)
+            }
+        }
+        for (text in listOf("", "x".repeat(257))) assertThrows(RuntimeException::class.java) {
+            validateProgramLiteral(JsonArray(listOf(JsonPrimitive(text))), "ID_LIST")
+        }
+        assertDoesNotThrow { validateProgramLiteral(JsonArray(listOf(JsonPrimitive("x".repeat(256)))), "ID_LIST") }
+    }
+
     @Test fun `invalid numbers shapes arity budgets and types fail before execution`() {
         val bad = listOf(op("DIVIDE", literal(1), literal(0)), op("MODULO", literal(1), literal(0)),
             op("MULTIPLY", literal(9_007_199_254_740_991L), literal(2)), op("ADD", literal(1)),
@@ -107,7 +147,7 @@ class ProgramExpressionsTest {
         assertThrows(RuntimeException::class.java) { evaluate(op("REPLACE", literal("ab"), literal(""), literal("x")), "STRING") }
         assertThrows(RuntimeException::class.java) { evaluate(op("CONCAT",literal("a".repeat(8192)),literal("b")), "STRING") }
         assertThrows(RuntimeException::class.java) { evaluate(op("ADD", literal(0.5), literal(1)), "TICK") }
-        assertThrows(RuntimeException::class.java) { evaluate(op("CONCAT", literal(""), literal("")), "DESTINATION") }
+        assertEquals("", evaluate(op("CONCAT", literal(""), literal("")), "STRING").jsonPrimitive.content)
         assertThrows(RuntimeException::class.java) { evaluate("""{"object":{"x":{"trainInfo":{"name":"MODEL"}}}}""", "JSON_OBJECT") }
         var nested = literal(1)
         repeat(17) { nested = op("FLOOR", nested) }

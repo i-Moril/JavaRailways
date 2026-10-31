@@ -9,7 +9,7 @@ import type {BoundStationProgram,StationProgramDefinition,StationProgramRecord} 
 const infrastructureLines=[{"id": "line", "displayName": "line", "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 20}];
 const generateTimetableSource=(document:TimetableAuthoringDocumentV1)=>generateWithLines(document,infrastructureLines);
 const validateAuthoringDocument=(document:TimetableAuthoringDocumentV1)=>validateWithLines(document,infrastructureLines);
-const definition:StationProgramDefinition={parameters:[{id:'target',type:'DESTINATION'}],steps:[{id:'reverse',type:'REVERSE'},{id:'move',type:'MOVE',destinationId:{parameterId:'target'},viaIds:{value:[]}}]};
+const definition:StationProgramDefinition={parameters:[{id:'target',type:'STRING'}],steps:[{id:'reverse',type:'REVERSE'},{id:'move',type:'MOVE',destinationId:{parameterId:'target'},viaIds:{value:[]}}]};
 const record=(revision=1):StationProgramRecord=>({formatVersion:1,id:'turnback',name:'Turnback',revision,contentIdentity:`sha256:${String(revision).repeat(64)}`,definition:JSON.parse(JSON.stringify(definition))});
 const snapshot:BoundStationProgram={programId:'turnback',revision:1,contentIdentity:`sha256:${'1'.repeat(64)}`,definition};
 const call={id:'call-1',programId:'turnback',tick:900,arguments:{target:'b@1'}};
@@ -31,7 +31,7 @@ describe('shared station program bindings',()=>{
     for(const estimatedDurationTicks of [-1,1.5,Number.MAX_SAFE_INTEGER+1])expect(()=>adoptStationProgram(first,{...library,estimatedDurationTicks})).toThrow('Invalid program estimated duration');
   });
   it('keeps ordered dynamic stop candidates typed and rejects empty or duplicate bound choices',()=>{
-    const selection:StationProgramDefinition={parameters:[{id:'station',type:'STATION'},{id:'berths',type:'ID_LIST'}],steps:[{id:'stop',type:'SELECT_STOP',stationId:{parameterId:'station'},berthIds:{parameterId:'berths'},selectionPolicy:'AVAILABLE_PRIORITY'}]};
+    const selection:StationProgramDefinition={parameters:[{id:'station',type:'STRING'},{id:'berths',type:'ID_LIST'}],steps:[{id:'stop',type:'SELECT_STOP',stationId:{parameterId:'station'},berthIds:{parameterId:'berths'},selectionPolicy:'AVAILABLE_PRIORITY'}]};
     expect(validateStationProgram(selection,{station:'central',berths:['long','short']})).toEqual([]);
     for(const berths of [[],['long','long']])expect(validateStationProgram(selection,{station:'central',berths}).join(' ')).toContain('distinct nonempty');
     expect(validateStationProgram({...selection,parameters:[{id:'station',type:'NUMBER'},{id:'berths',type:'ID_LIST'}]}).join(' ')).toContain('incompatible');

@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test
 
 class StationProgramScriptTest {
     private fun compile(body: String): SavedTimetableV1 = Json.decodeFromString(executeScript("function main(timetable) { timetable.setPeriodDays(1); $body }", "program-test"))
-    private val definition = """{parameters:[{id:'target',type:'DESTINATION'}],steps:[
+    private val definition = """{parameters:[{id:'target',type:'STRING'}],steps:[
       {id:'until',type:'WAIT_UNTIL',tick:{value:100}},
       {id:'reverse',type:'REVERSE'},
       {id:'move',type:'MOVE',destinationId:{parameterId:'target'},viaIds:{value:['via']}},
@@ -75,7 +75,7 @@ class StationProgramScriptTest {
     @Test fun `visual station selection emits one timed action with ordered candidates and source trace`() {
         val result = compile("""
           timetable.service('s','train',t=>{t.check('start');t.at(20).program('platform',{
-            parameters:[{id:'station',type:'STATION'},{id:'berths',type:'ID_LIST'}],steps:[
+            parameters:[{id:'station',type:'STRING'},{id:'berths',type:'ID_LIST'}],steps:[
               {id:'choose',type:'SELECT_STOP',stationId:{parameterId:'station'},berthIds:{parameterId:'berths'},selectionPolicy:'AVAILABLE_PRIORITY'}]},
             {station:'central',berths:['long','short']});});
         """)
@@ -130,7 +130,7 @@ class StationProgramScriptTest {
     @Test fun `program refuses missing acquisition wrong parameter type and unsupported structure`() {
         assertThrows(Throwable::class.java) { compile("timetable.service('s','train', t => t.program('p',$definition,{target:'end'}));") }
         assertThrows(Throwable::class.java) { compile("timetable.service('s','train', t => {t.check('start');t.program('p',$definition,{target:12});});") }
-        val mistyped = definition.replace("type:'DESTINATION'", "type:'NUMBER'")
+        val mistyped = definition.replace("type:'STRING'", "type:'NUMBER'")
         assertThrows(Throwable::class.java) { compile("timetable.service('s','train', t => {t.check('start');t.program('p',$mistyped,{target:'end'});});") }
         for (bad in listOf("{parameters:[],steps:[{id:'x',type:'ACQUIRE'}]}", "{parameters:[],steps:[],unknown:true}", "{parameters:[],steps:[{id:'x',type:'WAIT_DURATION',durationTicks:{value:0}}]}")) {
             assertThrows(Throwable::class.java) { compile("timetable.service('s','train', t => {t.check('start');t.program('p',$bad,{});});") }

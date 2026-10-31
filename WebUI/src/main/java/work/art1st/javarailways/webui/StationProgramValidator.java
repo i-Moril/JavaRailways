@@ -9,7 +9,7 @@ import java.util.Set;
 
 /** Strict authoring structure. World references and executable continuity remain runtime validation. */
 final class StationProgramValidator {
-    private static final Set<String> PARAMETER_TYPES = Set.of("NUMBER", "TICK", "DURATION", "DESTINATION", "STATION", "DEPOT", "STRING", "ID_LIST", "JSON_OBJECT", "UNIT_SLOTS");
+    private static final Set<String> PARAMETER_TYPES = Set.of("NUMBER", "TICK", "DURATION", "STRING", "ID_LIST", "JSON_OBJECT", "UNIT_SLOTS");
     private static final long MAX_SAFE_INTEGER = 9_007_199_254_740_991L;
     private StationProgramValidator() {}
 
@@ -153,19 +153,19 @@ final class StationProgramValidator {
                 }
                 case "MOVE" -> {
                     fields(step, Set.of("id", "type", "destinationId", "viaIds"), "MOVE step");
-                    value(step.path("destinationId"), "DESTINATION", parameters, false);
+                    identifierValue(step.path("destinationId"), parameters, "destinationId");
                     value(step.path("viaIds"), "ID_LIST", parameters, false);
                 }
                 case "SELECT_STOP" -> {
                     fields(step, Set.of("id", "type", "stationId", "berthIds", "selectionPolicy"), "SELECT_STOP step");
-                    value(step.path("stationId"), "STATION", parameters, false);
+                    identifierValue(step.path("stationId"), parameters, "stationId");
                     value(step.path("berthIds"), "ID_LIST", parameters, false);
                     if (!Set.of("FIXED_PREFERENCE", "AVAILABLE_PRIORITY").contains(text(step.path("selectionPolicy"), "selection policy"))) fail("invalid station selection policy");
                     if (step.path("berthIds").has("value")) berthIds(step.path("berthIds").path("value"));
                 }
                 case "STORE_AT_DEPOT" -> {
                     fields(step, Set.of("id", "type", "depotId", "stablingPointIds"), "STORE_AT_DEPOT step");
-                    value(step.path("depotId"), "DEPOT", parameters, false);
+                    identifierValue(step.path("depotId"), parameters, "depotId");
                     value(step.path("stablingPointIds"), "ID_LIST", parameters, false);
                 }
                 default -> fail("unsupported sequential program step: " + type);
@@ -202,15 +202,16 @@ final class StationProgramValidator {
                 case "WAIT_UNTIL" -> Map.of("tick", "TICK");
                 case "WAIT_DURATION" -> Map.of("durationTicks", "DURATION");
                 case "BRANCH", "EXTENSION" -> Map.of("parameters", "JSON_OBJECT");
-                case "MOVE" -> Map.of("destinationId", "DESTINATION", "viaIds", "ID_LIST");
-                case "SELECT_STOP" -> Map.of("stationId", "STATION", "berthIds", "ID_LIST");
-                case "STORE_AT_DEPOT" -> Map.of("depotId", "DEPOT", "stablingPointIds", "ID_LIST");
+                case "MOVE" -> Map.of("destinationId", "STRING", "viaIds", "ID_LIST");
+                case "SELECT_STOP" -> Map.of("stationId", "STRING", "berthIds", "ID_LIST");
+                case "STORE_AT_DEPOT" -> Map.of("depotId", "STRING", "stablingPointIds", "ID_LIST");
                 default -> Map.of();
             };
             sinks.forEach((field, expected) -> {
                 if (!step.has(field) || step.path(field).has("trainInfo")) return;
                 JsonNode evaluated = ProgramExpressionValidator.validate(step.path(field), expected, parameters, arguments);
                 literal(evaluated, expected, type.equals("WAIT_DURATION"));
+                if (Set.of("destinationId", "stationId", "depotId").contains(field)) text(evaluated, field);
                 if (field.equals("values")) displayValues(evaluated);
                 if (field.equals("removeKeys")) displayRemovalKeys(evaluated);
                 if (field.equals("berthIds")) berthIds(evaluated);
@@ -234,6 +235,11 @@ final class StationProgramValidator {
                 if (!entry.getValue().isTextual() || !Set.of("NAME", "CAR_COUNT", "UNIT_COUNT", "DIRECTION").contains(entry.getValue().asText())) fail("unknown trainInfo field");
             });
         } else value(node, "JSON_OBJECT", parameters, false);
+    }
+
+    private static void identifierValue(JsonNode node, Map<String, String> parameters, String label) {
+        JsonNode evaluated = ProgramExpressionValidator.validate(node, "STRING", parameters, null);
+        if (evaluated != null) text(evaluated, label);
     }
 
     private static void value(JsonNode node, String type, Map<String, String> parameters, boolean positive) {

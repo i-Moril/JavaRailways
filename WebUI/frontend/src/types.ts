@@ -115,7 +115,7 @@ export interface ServerLogPage {
 }
 export interface ServerLogQuery { source:string; query?:string; cursor?:string }
 // Shared library records are authoring inputs; runtime uses bound embedded definitions.
-export type StationProgramParameterType='NUMBER'|'TICK'|'DURATION'|'DESTINATION'|'STATION'|'DEPOT'|'STRING'|'ID_LIST'|'JSON_OBJECT'|'UNIT_SLOTS';
+export type StationProgramParameterType='NUMBER'|'TICK'|'DURATION'|'STRING'|'ID_LIST'|'JSON_OBJECT'|'UNIT_SLOTS';
 export type ProgramJsonValue=null|boolean|number|string|ProgramJsonValue[]|ProgramJsonObject;
 export interface ProgramJsonObject {[key:string]:ProgramJsonValue}
 export type StationProgramLiteral=ProgramJsonValue;

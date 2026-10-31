@@ -205,14 +205,18 @@ class IsolatedTimetableSimulationFactoryTest {
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
-    fun `depot stabling points with own or rail direction are real standalone simulation starts`(reverseTrain: Boolean) {
+    fun `depot stabling starts resolve direction and explicit reversal obeys rail restrictions`(reverseTrain: Boolean) {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
-            source.basicWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
+            val unrestrictedRail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+            val restrictedRail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+            source.basicWorldData.operatingDirections.put(restrictedRail.id, ViewDirection.AB)
             val service = OperationalDestinationService(source)
-            for ((pointId, ownDirection) in listOf("own" to ViewDirection.BA, "rail" to null)) {
+            for ((pointId, rail, ownDirection) in listOf(
+                Triple("own", unrestrictedRail, ViewDirection.BA),
+                Triple("rail", restrictedRail, null)
+            )) {
                 val id = "home@$pointId"
                 service.register(OperationalDestination(id, "Depot track $pointId", rail.id,
                     if (pointId == "own") 100.0 else 200.0, ownDirection,
@@ -222,10 +226,15 @@ class IsolatedTimetableSimulationFactoryTest {
                 val sourceStock = source.simpleAtoWorldData.depots.allRollingStock()
                 assertEquals(id, source.basicWorldData.wayPoints[id]!!.id)
                 assertTrue(sourcePoints.any { it.point.destinationId == id })
+                // Point direction wins for seeding; it does not override permission to reverse.
+                if (ownDirection != null) source.basicWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
                 val resolved = resolveProgramSimulationWayPoint(source, id)
                 assertEquals(ownDirection ?: ViewDirection.AB, resolved.direction)
                 assertEquals(if (ownDirection == null) "RAIL" else "WAYPOINT", resolved.directionSource)
                 assertEquals(id, resolved.json()["id"]!!.jsonPrimitive.content)
+                // Match the development depot: an own-BA point on a rail permitting both directions.
+                if (ownDirection != null) source.basicWorldData.operatingDirections.put(rail.id, null)
+                val sourceDirections = source.basicWorldData.operatingDirections.entries()
                 val timetable = standaloneCall(listOf(TimetableAction.Stop(7)), startTick = 17,
                     wayPointId = id, reverseTrain = reverseTrain)
                 val factory = testSimulationFactory()
@@ -235,19 +244,35 @@ class IsolatedTimetableSimulationFactoryTest {
                     val initial = train.publishedFrame
                     assertEquals(resolved.direction, initial.head.facing)
                     assertEquals(original, simulation.world.simpleAtoWorldData.destinations[id])
+                    assertEquals(sourceDirections, simulation.world.basicWorldData.operatingDirections.entries())
                     val result = simulation.simulate(IsolatedTimetableSimulationRequest(timetable, maximumSimulationTicks = 100))
-                    assertTrue(result is IsolatedTimetableSimulationResult.Completed) { result.toString() }
                     val run = result.runs.single()
                     assertEquals(id, run.currentWayPointId)
-                    val timing = run.taskTimings.single()
-                    assertEquals(7L, timing.endTick!! - timing.startTick)
-                    assertEquals(reverseTrain, train.publishedFrame.reversed)
+                    if (ownDirection == null && reverseTrain) {
+                        assertTrue(result is IsolatedTimetableSimulationResult.Failed) { result.toString() }
+                        val failure = result as IsolatedTimetableSimulationResult.Failed
+                        assertTrue(failure.reason.startsWith("OperatingDirectionViolation:")) { failure.reason }
+                        assertTrue(failure.reason.contains("reversed train body violates operating directions")) { failure.reason }
+                        assertTrue(run.taskTimings.isEmpty())
+                        assertFalse(train.publishedFrame.reversed)
+                        assertEquals(initial.head, train.publishedFrame.head)
+                        assertEquals(initial.tail, train.publishedFrame.tail)
+                        assertEquals(0.0, train.publishedFrame.speedMetersPerSecond)
+                    } else {
+                        assertTrue(result is IsolatedTimetableSimulationResult.Completed) { result.toString() }
+                        val timing = run.taskTimings.single()
+                        assertTrue(timing.startTick >= 17L)
+                        assertEquals(7L, timing.endTick!! - timing.startTick)
+                        assertEquals(reverseTrain, train.publishedFrame.reversed)
+                        assertEquals(if (reverseTrain) ViewDirection.AB else resolved.direction, train.publishedFrame.head.facing)
+                    }
                     assertEquals(initial.occupiedIntervals.toSet(), train.publishedFrame.occupiedIntervals.toSet())
                 }
                 assertTrue(source.allTrains.isEmpty())
                 assertSame(original, source.simpleAtoWorldData.destinations[id])
                 assertEquals(sourcePoints, source.simpleAtoWorldData.depots.stablingPoints(DepotId("home")))
                 assertEquals(sourceStock, source.simpleAtoWorldData.depots.allRollingStock())
+                assertEquals(sourceDirections, source.basicWorldData.operatingDirections.entries())
             }
         } finally {
             source.physicsCoordinator.close()

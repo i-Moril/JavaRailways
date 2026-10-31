@@ -56,3 +56,23 @@
 - Lint：无配置的独立 lint；本轮 diff whitespace 检查通过。
 - TypeCheck：上一轮最终 TypeScript build 通过的执行记录；本轮未重跑。
 - Tests：既有 Bukkit667/WebUI49 XML 和前端57文件缓存全部通过；前端335用例数来自最终验证记录。本轮未执行测试。
+
+## 2026-10-31 合并后的窄范围整合复核
+
+本批已独立提交为 `574975bfc959e3b43ac60f7aa65373ab70846d5d`，随后合入 `dev/signal-system@6a6db6145eea6be5a5df02bb1adff48be9fcb40e`，整合 HEAD 为 `bc7d6db1195343ae545a79beb7c3b53f78f7c583`。本轮独立读取 merge parents，确认两个准确父提交；`574975bf`、`6a6db614`、线上源 `32d1c413` 均为此 HEAD 的祖先。
+
+- 完整 `git diff dev/signal-system HEAD` 除 `.trellis/` 文档外，产品/测试差异恰为原批次 19 文件，没有其他产品或构建配置差异。
+- 这 19 文件的工作区内容逐一等于 HEAD blob，按前述算法计算的联合 SHA256 仍为 `ddd70090f1c027323eb87f178afffdbdff963fb11c11d7acd814b15f2555af5e`，完全匹配独立复核的冻结批次。
+- `BukkitPlugin/src/main`、`SimpleATO/src/main`、`SimpleATOBukkit/src/main`、`SimpleSignals/src/main`、`Core/src/main`、`Basic/src/main`、`WebUI/src/main` 在整合 HEAD 与 `6a6db614` 间均无差异。最新线上修复的后端生产逻辑完整保留；WebUI 前端仅叠加本批已核指纹的改动。
+- 主会话独立核实 installed JAR hash 前缀 `8aac93d7` 对应 source `32d1c413`，并确认 `6a6db614` 与该 source 产品相同。本 agent 只核 Git 整合，不将该线上核实归为自己的远端观察。
+- `git diff --check` 再次通过；未发现整合阻断项。主会话正在执行串行最终 Gradle 门禁（Core/Basic/SimpleATO/SimpleATOBukkit/SimpleSignals check/Bukkit/WebUI/Java consumers/边界/shadowJar）及前端完整测试/构建；这些整合候选结果在追加时尚未完成，不在此提前标记通过。
+
+本轮仅追加本报告，没有运行额外 Gradle/npm、改动生产或测试文件、提交或部署；hprof 继续原样保留。
+
+## 2026-10-31 depot 方向测试整合修正复核
+
+仅复核本轮 FactoryTest diff 与 `depot-direction-integration-2026-10-31.md`，未发现阻断项。原测试错误地要求在 AB-only 轨道上反转为 BA 后成功；修正保留两布尔参数、四次真实模拟：自有 BA 点在无限向轨道上 false/true 均须完成且精确耗时 7 tick，轨道回落 AB 点 false 须完成、true 须真实 Failed 并包含明确 OperatingDirectionViolation。拒绝路径继续断言函数 task 未启动、未换向、head/tail 和占用不变及零速，成功路径新增 task 起始时刻和真实 head 朝向断言。
+
+自有 BA 优先于冲突轨道 AB 的 resolver 独立断言仍在；它验证初始方向选择，随后恢复为无限向轨道再执行，不把方向选择解释为反转许可。目标捕获/恢复的方向表与源一致，源目标身份、库存、无源列车及源方向隔离均保留。这是使测试符合已合入线上 beginReverse 全车身方向规则，没有改生产规则，也没有删除负例。前述 19 文件联合指纹仅描述修正前候选，本测试改动后的候选应以主会话最终门禁为准。
+
+主会话报告此前 Core538/Basic435/SimpleATO657/SimpleATOBukkit2/SimpleSignals675 通过，Bukkit673 仅本例失败；这些结果由主会话提供，本 agent 未重跑或据此宣称修正后通过。Bukkit/WebUI/Java consumer/边界/打包剩余门禁仍由主会话串行执行。本轮仅追加报告，未执行任何测试或额外检查，未改测试/生产、提交或部署。

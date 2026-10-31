@@ -1,0 +1,17 @@
+# Program expressions deployment — 2026-10-31
+
+User explicitly requested commit and deployment after direct implementation without creating a Trellis task. Product commit `6ee1c0c9e1b995ae26b8aa085189cb12d7be5ea9`;27task-owned files. No new task, task lifecycle change, archive or push. Unrelated java_pid454886.hprof remains untouched.
+
+Feature: composable pure numeric/string operations, conversions, NUMBER parameters and object expression construction. Existing library/shared-station compiler performs evaluation before dispatch. No new executor, runtime train-dependent timetable conditions, schema bump or compatibility code.
+
+Final local verification: frontend404tests/60files and TypeScript/Vite build pass; Bukkit697entries (696pass/1expected opt-in experiment skip), WebUI63pass. Total759 backend passes. Targeted checks cover zeroDURATION argument plus arithmetic, final positive waits in both branch arms, numeric20.0acceptance at numeric expression sinks, subnormal decimal formatting, invalid constants beside unbound parameters, special object keys and simulation absolute-wait expression period. Independent review issues fixed. Real localHTTP App tested field edits, undo/redo, actual mouse disconnect/reconnect, duplicate-key draft rejection, saved nested PUT payload, reload and Chinese language restoration. This storage fixture has no compiler/physics, so separate backend tests provide compilation evidence. Final shadowJar packaging passed. Four deployment guard/recovery/rollback tests passed.
+
+Baseline mainSHA256 `47e2ab7029a3c8e0d4aa86514d9326df80af5f548a050f124c57b8e89b772a3e`, originalPID785446. Normal MCS stop/save13:47:32UTC confirmed Saved all worlds/status0/PID0, dead oldJVM and closed listeners beforebackup. Recovery154files: `/opt/mcsmanager/backups/javarailways/program-expressions-20261031-fghti3o3`; archiveSHA256 `72748630cd76a51022ecbdb154797e9fe848e76a0ca8fbe622c96a0eddb77d56`. Existing sudo privileges used for root-private model snapshots without changing permissions.
+
+Only mainJAR atomically replaced13:48:03.042619UTC;153other files byte-identical at cutover. Candidate mainSHA256 `a7ec6e269d658466b99d5dfcde7516a30ccbb1d00a321c9dd217dc5cae94d868`. Embedded/managedWebUI SHA256 `d1ce45a746416a366651a096d4dd49f55e929891eb6246e5b39fdfd57d29e90f`, mainJS `/assets/index-CUF49kzK.js`. Signals remains `0346443a02bfd0a7a14a11cd6b3893e4c321005e732fc7db5e427a336f35ac39`. No save/config/data migration.
+
+NewPID786557, Done13:48:41UTC. ATO RUNNING; Signals installed definitionRevision117/topology1. Bridgehealth good;17local+public assets byte-match embedded; new expression operation tokens verified in actual bundle;23draft/signal/otherjar files unchanged after startup;31map markers; unauthorizedsimulate401 retains code/requestId. Workspace independently obtained publicHTML/newJS HTTP200 and actualtrains SSEframe. No authenticated live authored-program simulation or game acceptance performed.
+
+Project incremental errors after install0. Prior version normal shutdown still emits knownJR13/Signals1cleanup errors; third-partyTerra theUnsafe startup error remains1. Startup physics overload/clamp warnings observed; no claim these existing issues fixed.
+
+Local/remote stage `/tmp/jr-deploy-20261031-program-expressions`; sanitized machine evidence adjacent. Rollback requires normal save/stop, a new recovery point preserving any subsequent edits, and restoring matching old mainJAR from checked archive; never overwrite newer player save changes.

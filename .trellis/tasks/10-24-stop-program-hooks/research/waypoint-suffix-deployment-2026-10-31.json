@@ -1,0 +1,116 @@
+{
+  "sourceCommit": "6563e4f989a6e0a01f06cbd0432d443ac7183089",
+  "artifacts": {
+    "JavaRailways.jar": {
+      "candidateSha256": "73f95e3b6dd4c4cf1aff8db54d0c0ab137026b9306d47f71e9f9183a86990eb8",
+      "installedSha256": "fb928ce1083b07c2c3c3a272587305b0c3815157859f75a39e244b5706675a16"
+    }
+  },
+  "webuiSha256": "866f8b5c6749fcba11b09aaeb32f73e64194cca1c495965ac31d88c61f8193d8",
+  "recovery": {
+    "recovery": "/opt/mcsmanager/backups/javarailways/waypoint-suffix-20261031-nqs2r3xl",
+    "archiveSha256": "f0725450de8179fe0bb3d98c6de0c483feb25ad7fa5370cd56abca7de60d694c",
+    "fileCount": 145
+  },
+  "install": {
+    "installedAt": "2026-10-31T08:12:08.315330+00:00",
+    "sourceCommit": "6563e4f989a6e0a01f06cbd0432d443ac7183089",
+    "pluginDataUnchanged": true,
+    "otherPluginJarsUnchanged": true,
+    "jars": {
+      "Chunky-Bukkit-1.4.40.jar": "2a5477fc80f71012e15ade1ce34dbeb836e17623b28db112492c0f1443c09721",
+      "JavaRailways.jar": "73f95e3b6dd4c4cf1aff8db54d0c0ab137026b9306d47f71e9f9183a86990eb8",
+      "SimpleSignals.jar": "0346443a02bfd0a7a14a11cd6b3893e4c321005e732fc7db5e427a336f35ac39",
+      "Terra-bukkit-7.0.0-BETA+47d430776-shaded.jar": "91aa93352444fb87105b33cf0ec36ad0ea554cc4b1c272aead4b6ee8b4e41867",
+      "TunnelBridgeBuilder.jar": "831a0c25179c9c98f2a7135256080c9f402713b18215781976ab2eb5fce3d722",
+      "ViaVersion-5.12.0-SNAPSHOT.jar": "cc23a414b2bded80a72646a5fe43cc6b2ba97df516147a3630f402d9695e945b",
+      "voxy-server-side-paper.jar": "696db9a0fb4e24f79383b4093b4212380c69513814e198033abc4f252d067b01",
+      "worldedit-bukkit-7.4.4.jar": "44c97ee6c1df9afa127df3c5a2c6a7108f826fb44ab7b255a7ec4250feb89b9d"
+    }
+  },
+  "running": {
+    "instanceUuid": "836082a48c4f48fcb1fea4e83c57dc96",
+    "status": 3,
+    "processInfo": {
+      "cpu": 0,
+      "memory": 3870400512,
+      "ctime": 164380,
+      "elapsed": 39110,
+      "timestamp": 1793434375660,
+      "pid": 777019,
+      "ppid": 777014
+    }
+  },
+  "runtime": {
+    "runtimeMarkers": [
+      "[08:12:46] [Server thread/INFO]: Done (27.970s)! For help, type \"help\"",
+      "[08:13:26] [Folia Region Scheduler Thread #0/INFO]: ATO world: RUNNING",
+      "[08:13:29] [Folia Region Scheduler Thread #0/INFO]: SimpleSignals 2952ad2c-41ce-40bc-b83b-1b578ae7af12: installed, definitionRevision=117, topologyRevision=1; regions=5, tables=5, blocks=14, fixedBlockSignals=8, protectionSignals=4, routeIndicators=1, attachedSignals=0"
+    ],
+    "signalDefinitionsUnchanged": true,
+    "retainedPluginsUnchanged": true,
+    "pluginStartupErrors": [],
+    "incrementalErrorLogs": {
+      "plugins/JavaRailways/logs/errors.log": {
+        "newBytes": 1109,
+        "errorEntries": 0,
+        "warningEntries": 4
+      },
+      "plugins/JavaRailways/webui/logs/errors.log": {
+        "newBytes": 262,
+        "errorEntries": 0,
+        "warningEntries": 1
+      },
+      "plugins/SimpleSignals/logs/errors.log": {
+        "newBytes": 0,
+        "errorEntries": 0,
+        "warningEntries": 0
+      }
+    },
+    "guestSimulationStatus": 401
+  },
+  "packaging": {
+    "changedEntries": [
+      "webui/JavaRailways-WebUI.jar"
+    ],
+    "publicResources": 17,
+    "webuiTests": {
+      "tests": 49,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "frontendSourceFingerprintsMatched": 5
+  },
+  "http": {
+    "bridgeHealth": true,
+    "bridgePort": 8765,
+    "webPort": 29002,
+    "matchedSidecar": "/opt/mcsmanager/daemon/data/InstanceData/836082a48c4f48fcb1fea4e83c57dc96/plugins/JavaRailways/webui/JavaRailways-WebUI.jar",
+    "webuiSha256": "866f8b5c6749fcba11b09aaeb32f73e64194cca1c495965ac31d88c61f8193d8",
+    "servedAssetsMatched": 17,
+    "mainJarSha256": "73f95e3b6dd4c4cf1aff8db54d0c0ab137026b9306d47f71e9f9183a86990eb8"
+  },
+  "workspacePublic": {
+    "matchedPublicAssetsFromWorkspace": 17
+  },
+  "publicTrainStream": {
+    "healthyTrainFrame": true,
+    "events": [
+      "trains"
+    ],
+    "httpStatus": 200,
+    "contentType": "text/event-stream;charset=utf-8",
+    "trainCount": 1
+  },
+  "shutdown": [
+    "[08:11:01] [Region shutdown thread/INFO]: [RegionShutdownThread] Saved all worlds"
+  ],
+  "frontendGate": {
+    "tests": 335,
+    "files": 57,
+    "build": "passed on unchanged frozen inputs"
+  },
+  "taskStatus": "in_progress",
+  "archive": false
+}

@@ -93,3 +93,5 @@ User correction2026-10-30: all actual simulation seeding proves unique whole-tra
 - [x] 完整前端test/build及窄范围差异复核；记录实际未部署状态。
 
 验证完成：完整前端335/57+build、独立窄复核、真实App后缀选择/本站解析/单步撤销与via名称筛选/手输/失焦通过。见research/waypoint-suffix-correction-2026-10-31.md。未提交/部署，在线976f4eac，任务保持进行中。
+
+用户随后明确提交部署：6563e4f9已上线，源/候选JAR逻辑差异仅嵌入WebUI，WebUI49/打包、正常保存/恢复/安装、ATO/信号/17资源及公开SSE真实帧通过。见research/deployment-2026-10-31-suffix.md。任务继续进行中，未归档。

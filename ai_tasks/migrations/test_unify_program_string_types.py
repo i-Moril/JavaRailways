@@ -76,6 +76,28 @@ class MigrationTests(unittest.TestCase):
         self.assertNotEqual(source['contentIdentity'], original['contentIdentity'])
         self.assertEqual(migration.convert_snapshot(source, self.bridge), 0)
 
+    def test_document_storage_key_is_independent_of_internal_id(self):
+        original_path = self.docs / 'world/doc.json'
+        path = self.docs / 'world/doc-5.json'
+        original_path.rename(path)
+        original = path.read_bytes()
+        plan, _, outputs = self.inspect()
+        converted = decode(outputs['documents']['world/doc-5.json'])
+        self.assertEqual(converted['id'], 'doc')
+        self.assertEqual(converted['boundPrograms'][0]['definition']['parameters'][0]['type'], 'STRING')
+        self.apply(plan)
+        self.assertEqual(decode(path.read_bytes()), converted)
+        self.assertFalse(original_path.exists())
+        self.assertEqual((self.base / 'backup/documents/world/doc-5.json').read_bytes(), original)
+        self.assertEqual(self.inspect()[0]['changedParameters'], 0)
+
+    def test_library_record_id_must_still_match_storage_key(self):
+        (self.library / 'world/1.json').rename(self.library / 'world/2.json')
+        before = self.snapshot()
+        with self.assertRaisesRegex(ValueError, 'record ID differs from filename'):
+            self.inspect()
+        self.assertEqual(self.snapshot(), before)
+
     def test_bad_source_identity_refused_without_mutation(self):
         source = record(self.bridge); source['contentIdentity'] = 'invalid'
         with self.assertRaisesRegex(ValueError, 'source program content identity'):
@@ -150,15 +172,18 @@ class RealJavaTests(unittest.TestCase):
             root = Path(directory); instance = root / 'instance'; instance.mkdir()
             docs = instance / 'documents'; docs.mkdir(); library = instance / 'library'; library.mkdir()
             for folder in (docs, library): (folder / 'world').mkdir()
-            (docs / 'world/doc.json').write_bytes(output_json(document(self.bridge)))
+            (docs / 'world/doc-5.json').write_bytes(output_json(document(self.bridge)))
             (library / 'world/1.json').write_bytes(output_json(record(self.bridge)))
             plan, originals, _ = migration.inspect(docs, library, self.bridge)
             migration.apply(docs, library, plan, root / 'recovery', self.bridge, instance)
             self.assertEqual(migration.inspect(docs, library, self.bridge)[0]['changedParameters'], 0)
-            bound = decode((docs / 'world/doc.json').read_bytes())['boundPrograms'][0]
+            migrated_document = decode((docs / 'world/doc-5.json').read_bytes())
+            self.assertEqual(migrated_document['id'], 'doc')
+            self.assertFalse((docs / 'world/doc.json').exists())
+            bound = migrated_document['boundPrograms'][0]
             self.assertEqual(bound['revision'], 3); self.assertEqual(bound['programId'], 'deleted')
             self.assertEqual(bound['definition']['parameters'][0]['type'], 'STRING')
-            self.assertEqual((root / 'recovery/documents/world/doc.json').read_bytes(), originals['documents']['world/doc.json'])
+            self.assertEqual((root / 'recovery/documents/world/doc-5.json').read_bytes(), originals['documents']['world/doc-5.json'])
 
 
 if __name__ == '__main__': unittest.main()

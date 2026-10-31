@@ -87,9 +87,9 @@ def inspect(documents_root, library_root, bridge):
         for relative, raw in records.items():
             value = copy.deepcopy(decode(raw))
             if not isinstance(value, dict): raise ValueError('record must be an object')
-            if value.get('id') != Path(relative).stem: raise ValueError('record ID differs from filename')
             count = 0
             if storage == 'library':
+                if value.get('id') != Path(relative).stem: raise ValueError('record ID differs from filename')
                 count = convert_snapshot(value, bridge)
                 bridge('validate-record', value)
             else:

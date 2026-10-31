@@ -12,7 +12,7 @@ Current function library supports its existing synchronous actions (wait/reverse
 
 ## Wire contract (transient, no schema version)
 
-GET metadata adds `programSimulationWayPoints: {id,displayName,railId,direction:'AB'|'BA',directionSource:'WAYPOINT'|'RAIL'}[]` (empty array if none).
+GET metadata provides `programSimulationWayPoints: {id,railId,direction:'AB'|'BA',directionSource:'WAYPOINT'|'RAIL'}[]` (empty array if none). The 2026-10-31 identity-only requirement uses the actual waypoint ID for display and filtering; see waypoint-identity-only.md.
 
 POST `/api/v1/worlds/{world}/programs/simulate` (sidecar and bridge):
 

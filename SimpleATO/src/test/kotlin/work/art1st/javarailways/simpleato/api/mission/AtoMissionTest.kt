@@ -42,8 +42,8 @@ class AtoMissionTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        data.wayPoints.add(WayPoint("A", "A", rail.id, 80.0))
-        data.wayPoints.add(WayPoint("B", "B", rail.id, 20.0))
+        data.wayPoints.add(WayPoint("A", rail.id, 80.0))
+        data.wayPoints.add(WayPoint("B", rail.id, 20.0))
         val request = AtoMissionRequest(
             "direction-policy",
             1L,
@@ -67,9 +67,9 @@ class AtoMissionTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        data.wayPoints.add(WayPoint("A", "A", rail.id, 10.0))
-        data.wayPoints.add(WayPoint("B", "B", rail.id, 40.0))
-        data.wayPoints.add(WayPoint("C", "C", rail.id, 80.0))
+        data.wayPoints.add(WayPoint("A", rail.id, 10.0))
+        data.wayPoints.add(WayPoint("B", rail.id, 40.0))
+        data.wayPoints.add(WayPoint("C", rail.id, 80.0))
         val sourcePoints = mutableListOf<AtoMissionPoint>(
             AtoMissionPoint.Via(WayPointRef("B")),
             AtoMissionPoint.Stop(WayPointRef("C"), offsetMetersBefore = 1.5)
@@ -101,7 +101,7 @@ class AtoMissionTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        data.wayPoints.add(WayPoint("A", "A", rail.id, 10.0))
+        data.wayPoints.add(WayPoint("A", rail.id, 10.0))
         val request = AtoMissionRequest(
             "service-1",
             1L,
@@ -130,8 +130,8 @@ class AtoMissionTest {
             world,
             PrimeCurveGenerator.buildStraight(50.0, segmentCount = 1)
         )
-        data.wayPoints.add(WayPoint("A", "A", first.id, 10.0))
-        data.wayPoints.add(WayPoint("B", "B", second.id, 30.0))
+        data.wayPoints.add(WayPoint("A", first.id, 10.0))
+        data.wayPoints.add(WayPoint("B", second.id, 30.0))
         val request = AtoMissionRequest(
             "service-1",
             1L,
@@ -156,9 +156,9 @@ class AtoMissionTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        data.wayPoints.add(WayPoint("A", "A", rail.id, 80.0))
-        data.wayPoints.add(WayPoint("B", "B", rail.id, 40.0))
-        data.wayPoints.add(WayPoint("C", "C", rail.id, 60.0))
+        data.wayPoints.add(WayPoint("A", rail.id, 80.0))
+        data.wayPoints.add(WayPoint("B", rail.id, 40.0))
+        data.wayPoints.add(WayPoint("C", rail.id, 60.0))
 
         val result = AtoMissionResolver(world).resolve(
             AtoMissionRequest(

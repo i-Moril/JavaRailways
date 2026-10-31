@@ -123,11 +123,11 @@ class TimetableBranchValidationTest {
             try {
                 val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
                 listOf("A" to 20.0, "B" to 60.0, "C" to 80.0, "D" to 120.0).forEach { (id, arc) ->
-                    world.basicWorldData.wayPoints.add(WayPoint(id, id, rail.id, arc)) }
+                    world.basicWorldData.wayPoints.add(WayPoint(id, rail.id, arc)) }
                 val station = StationId("central")
                 listOf("early" to 70.0, "late" to 150.0).forEach { (id, arc) ->
                     OperationalDestinationService(world).register(OperationalDestination(
-                        OperationalDestinationIds.stationBerth(station, id), id, rail.id, arc, ViewDirection.AB,
+                        OperationalDestinationIds.stationBerth(station, id), rail.id, arc, ViewDirection.AB,
                         DestinationRole.StationBerthRole(station, berthId = id, doorSide = DoorSide.NONE,
                             usableLengthMeters = 40.0)))
                 }

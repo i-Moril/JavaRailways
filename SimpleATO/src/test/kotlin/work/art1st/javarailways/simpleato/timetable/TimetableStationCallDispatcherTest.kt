@@ -348,7 +348,7 @@ class TimetableStationCallDispatcherTest {
             stationId = fixture.station.id, stationDisplayName = "Central", berthId = "one", doorSide = DoorSide.NONE, stoppingAreaId = "platform-one"
         )
         val destination = work.art1st.javarailways.simpleato.api.destination.OperationalDestination(
-            "central@one", "Central", fixture.berth.location.rail.id,
+            "central@one", fixture.berth.location.rail.id,
             fixture.berth.location.arcLengthIn(ViewDirection.AB), ViewDirection.AB, role
         )
         world.simpleAtoWorldData.stations.removeBerth(fixture.berth.berthRef)
@@ -1335,11 +1335,11 @@ class TimetableStationCallDispatcherTest {
             blockingTrain.setLocation(mainTrain.head.location.forward(60.0)!!)
             blockingTrain.commit()
         }
-        data.wayPoints.add(WayPoint("M0", "M0", approach.id, mainTrain.head.location.arcLengthIn(ViewDirection.AB)))
-        data.wayPoints.add(WayPoint("P", "P", approach.id, 70.0))
-        data.wayPoints.add(WayPoint("M1", "M1", mainBranch.id, 20.0))
-        data.wayPoints.add(WayPoint("B0", "B0", approach.id, blockingTrain.head.location.arcLengthIn(ViewDirection.AB)))
-        data.wayPoints.add(WayPoint("B1", "B1", blockingBranch.id, 20.0))
+        data.wayPoints.add(WayPoint("M0", approach.id, mainTrain.head.location.arcLengthIn(ViewDirection.AB)))
+        data.wayPoints.add(WayPoint("P", approach.id, 70.0))
+        data.wayPoints.add(WayPoint("M1", mainBranch.id, 20.0))
+        data.wayPoints.add(WayPoint("B0", approach.id, blockingTrain.head.location.arcLengthIn(ViewDirection.AB)))
+        data.wayPoints.add(WayPoint("B1", blockingBranch.id, 20.0))
         world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt",
@@ -1439,9 +1439,9 @@ class TimetableStationCallDispatcherTest {
             secondTrain.setLocation(firstTrain.head.location.forward(20.0)!!)
             secondTrain.commit()
         }
-        data.wayPoints.add(WayPoint("A1", "A1", rail.id, firstTrain.head.location.arcLengthIn(ViewDirection.AB)))
-        data.wayPoints.add(WayPoint("A2", "A2", rail.id, secondTrain.head.location.arcLengthIn(ViewDirection.AB)))
-        data.wayPoints.add(WayPoint("C", "C", rail.id, 160.0))
+        data.wayPoints.add(WayPoint("A1", rail.id, firstTrain.head.location.arcLengthIn(ViewDirection.AB)))
+        data.wayPoints.add(WayPoint("A2", rail.id, secondTrain.head.location.arcLengthIn(ViewDirection.AB)))
+        data.wayPoints.add(WayPoint("C", rail.id, 160.0))
         world.simpleAtoWorldData.timetables.add(
             Timetable(
                 id = "tt",
@@ -1581,10 +1581,10 @@ class TimetableStationCallDispatcherTest {
         val originArc = train.head.location.arcLength
         val firstTargetArc = originArc + firstTargetOffsetMeters
         val targetArc = originArc + (nextTargetOffsetMeters ?: firstTargetOffsetMeters)
-        data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
-        data.wayPoints.add(WayPoint("C", "C", rail.id, firstTargetArc))
+        data.wayPoints.add(WayPoint("A", rail.id, originArc))
+        data.wayPoints.add(WayPoint("C", rail.id, firstTargetArc))
         if (nextTargetOffsetMeters != null) {
-            data.wayPoints.add(WayPoint("D", "D", rail.id, targetArc))
+            data.wayPoints.add(WayPoint("D", rail.id, targetArc))
         }
         world.simpleAtoWorldData.timetables.add(
             Timetable(
@@ -1650,7 +1650,7 @@ class TimetableStationCallDispatcherTest {
         world.simpleAtoWorldData.stations.register(station, listOf(berth))
         if (storeAfterDestination) {
             work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService(world).register(
-                work.art1st.javarailways.simpleato.api.destination.OperationalDestination("storage@one", "Storage",rail.id,
+                work.art1st.javarailways.simpleato.api.destination.OperationalDestination("storage@one",rail.id,
                     originArc+150.0, ViewDirection.AB,
                     work.art1st.javarailways.simpleato.api.destination.DestinationRole.DepotStablingPointRole("storage","one",usableLengthMeters=30.0)))
         }

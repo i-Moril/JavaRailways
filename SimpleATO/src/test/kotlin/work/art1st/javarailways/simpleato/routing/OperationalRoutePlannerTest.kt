@@ -55,7 +55,7 @@ class OperationalRoutePlannerTest {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
-        val points = listOf(WayPoint("from", "From", rail.id, 10.0), WayPoint("via", "Via", rail.id, 50.0), WayPoint("to", "To", rail.id, 90.0))
+        val points = listOf(WayPoint("from", rail.id, 10.0), WayPoint("via", rail.id, 50.0), WayPoint("to", rail.id, 90.0))
         points.forEach(world.basicWorldData.wayPoints::add)
         val planner = OperationalRoutePlanner(world)
         assertTrue(planner.buildRoute("from", "to") is RouteBuildResult.Success)
@@ -79,7 +79,7 @@ class OperationalRoutePlannerTest {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
             val destinations = OperationalDestinationService(world)
             fun add(station: String, berth: String, arc: Double, direction: ViewDirection?) {
-                destinations.register(OperationalDestination("$station@$berth", "$station $berth", rail.id, arc, direction,
+                destinations.register(OperationalDestination("$station@$berth", rail.id, arc, direction,
                     DestinationRole.StationBerthRole(StationId(station), berthId = berth, doorSide = DoorSide.NONE)))
             }
             add("origin", "selected", 10.0, ViewDirection.AB)
@@ -105,8 +105,8 @@ class OperationalRoutePlannerTest {
         val planner = OperationalRoutePlanner(world)
 
         val result = planner.buildRoute(
-            from = WayPoint("from", "From", first.id, 10.0),
-            to = WayPoint("to", "To", second.id, 5.0),
+            from = WayPoint("from", first.id, 10.0),
+            to = WayPoint("to", second.id, 5.0),
             requiredGoalDirection = ViewDirection.AB,
             requiredStartDirection = ViewDirection.AB
         )
@@ -118,8 +118,8 @@ class OperationalRoutePlannerTest {
         assertEquals(ViewDirection.AB, planned.route.segments.single().railViewRef.direction)
         assertTrue(
             planner.buildRoute(
-                from = WayPoint("from", "From", first.id, 10.0),
-                to = WayPoint("to", "To", second.id, 5.0),
+                from = WayPoint("from", first.id, 10.0),
+                to = WayPoint("to", second.id, 5.0),
                 requiredGoalDirection = ViewDirection.BA,
                 requiredStartDirection = ViewDirection.AB
             ) is RouteBuildResult.Failure
@@ -150,8 +150,8 @@ class OperationalRoutePlannerTest {
         )
 
         val result = OperationalRoutePlanner(world).buildRoute(
-            WayPoint("from", "From", rail.id, 10.0),
-            WayPoint("to", "To", rail.id, 90.0)
+            WayPoint("from", rail.id, 10.0),
+            WayPoint("to", rail.id, 90.0)
         )
 
         assertTrue(result is RouteBuildResult.Failure)

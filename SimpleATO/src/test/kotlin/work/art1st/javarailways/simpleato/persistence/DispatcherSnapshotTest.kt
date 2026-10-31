@@ -197,8 +197,8 @@ class DispatcherSnapshotTest {
             world,
             PrimeCurveGenerator.buildStraight(20.0, segmentCount = 1)
         )
-        data.wayPoints.add(WayPoint("central@one", "Central", rail.id, 0.0))
-        data.wayPoints.add(WayPoint("terminal@one", "Terminal", rail.id, 10.0))
+        data.wayPoints.add(WayPoint("central@one", rail.id, 0.0))
+        data.wayPoints.add(WayPoint("terminal@one", rail.id, 10.0))
         world.simpleAtoWorldData.timetables.add(Timetable(
             "weekday",
             services = listOf(TimetableService(

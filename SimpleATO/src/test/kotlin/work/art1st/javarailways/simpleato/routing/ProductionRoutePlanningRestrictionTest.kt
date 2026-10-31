@@ -156,7 +156,6 @@ class ProductionRoutePlanningRestrictionTest {
         arcLengthMeters: Double
     ) = OperationalDestination(
         id = "$station@one",
-        displayName = station,
         railId = railId,
         arcLengthInAbMeters = arcLengthMeters,
         approachDirection = ViewDirection.AB,

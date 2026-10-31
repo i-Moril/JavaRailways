@@ -29,7 +29,6 @@ class RailObjectDestinationEditTest {
         )
         val original = OperationalDestination(
             id = "central@one",
-            displayName = "Central platform one",
             railId = railId,
             arcLengthInAbMeters = 42.0,
             approachDirection = ViewDirection.AB,
@@ -45,14 +44,13 @@ class RailObjectDestinationEditTest {
         )
 
         val updated = applyRailObjectDestinationEdit(
-            WayPoint(original.id, original.displayName, railId, original.arcLengthInAbMeters),
+            WayPoint(original.id, railId, original.arcLengthInAbMeters),
             original,
             edit
         )
         val role = updated.role as DestinationRole.StationBerthRole
 
         assertEquals("central@one", updated.id)
-        assertEquals("Central platform one", updated.displayName)
         assertEquals("Central Station", role.stationDisplayName)
         assertEquals(2.5, role.stoppingOffsetMetersBefore)
         assertEquals(0.4, role.positionToleranceMeters)
@@ -68,14 +66,13 @@ class RailObjectDestinationEditTest {
         val railId = UUID.randomUUID()
         val original = OperationalDestination(
             id = "regular",
-            displayName = "Regular",
             railId = railId,
             arcLengthInAbMeters = 10.0,
             approachDirection = ViewDirection.AB
         )
 
         val updated = applyRailObjectDestinationEdit(
-            WayPoint(original.id, original.displayName, railId, original.arcLengthInAbMeters),
+            WayPoint(original.id, railId, original.arcLengthInAbMeters),
             original,
             RailObjectDestinationEdit(
                 id = original.id,
@@ -88,11 +85,10 @@ class RailObjectDestinationEditTest {
     }
 
     @Test
-    fun `editing a depot destination preserves its display name`() {
+    fun `editing a depot destination preserves its depot name`() {
         val railId = UUID.randomUUID()
         val original = OperationalDestination(
             id = "north@one",
-            displayName = "North depot road one",
             railId = railId,
             arcLengthInAbMeters = 30.0,
             approachDirection = ViewDirection.AB,
@@ -115,14 +111,13 @@ class RailObjectDestinationEditTest {
         )
 
         val updated = applyRailObjectDestinationEdit(
-            WayPoint(original.id, original.displayName, railId, original.arcLengthInAbMeters),
+            WayPoint(original.id, railId, original.arcLengthInAbMeters),
             original,
             edit
         )
         val role = updated.role as DestinationRole.DepotStablingPointRole
 
         assertEquals("north@one", updated.id)
-        assertEquals("North depot road one", updated.displayName)
         assertEquals("North Depot", role.depotDisplayName)
         assertEquals(90.0, role.usableLengthMeters)
         assertEquals(setOf("metro", "express"), role.allowedTags)

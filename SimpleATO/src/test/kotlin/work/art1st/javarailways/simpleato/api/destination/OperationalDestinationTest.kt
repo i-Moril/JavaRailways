@@ -104,7 +104,6 @@ class OperationalDestinationTest {
         )
         val destination = OperationalDestination(
             id = "unrestricted",
-            displayName = "Unrestricted",
             railId = rail.id,
             arcLengthInAbMeters = 50.0
         )
@@ -119,7 +118,6 @@ class OperationalDestinationTest {
         service.register(
             OperationalDestination(
                 id = "unrestricted-station@platform",
-                displayName = "Unrestricted platform",
                 railId = rail.id,
                 arcLengthInAbMeters = 60.0,
                 role = stationRole
@@ -152,7 +150,6 @@ class OperationalDestinationTest {
         service.register(
             OperationalDestination(
                 id = "no-door-station@platform",
-                displayName = "No-door platform",
                 railId = rail.id,
                 arcLengthInAbMeters = 50.0,
                 approachDirection = ViewDirection.AB,
@@ -188,7 +185,6 @@ class OperationalDestinationTest {
         service.register(
             OperationalDestination(
                 "central@one-up",
-                "Central up",
                 rail.id,
                 40.0,
                 ViewDirection.AB,
@@ -198,7 +194,6 @@ class OperationalDestinationTest {
         service.register(
             OperationalDestination(
                 "central@one-down",
-                "Central down",
                 rail.id,
                 80.0,
                 ViewDirection.BA,
@@ -239,7 +234,6 @@ class OperationalDestinationTest {
         service.register(
             OperationalDestination(
                 "north@one",
-                "North one",
                 rail.id,
                 30.0,
                 ViewDirection.AB,
@@ -270,7 +264,6 @@ class OperationalDestinationTest {
         service.register(
             OperationalDestination(
                 "station@platform",
-                "Platform",
                 rail.id,
                 40.0,
                 ViewDirection.AB,
@@ -278,7 +271,7 @@ class OperationalDestinationTest {
             )
         )
         service.register(destination("regular", rail.id, 60.0, ViewDirection.BA))
-        world.basicWorldData.wayPoints.add(WayPoint("legacy", "Legacy", rail.id, 70.0))
+        world.basicWorldData.wayPoints.add(WayPoint("legacy", rail.id, 70.0))
 
         assertEquals(
             setOf("station@platform", "regular"),
@@ -309,14 +302,13 @@ class OperationalDestinationTest {
         service.register(
             OperationalDestination(
                 "station@platform",
-                "Platform",
                 oldRail.id,
                 25.0,
                 ViewDirection.AB,
                 role
             )
         )
-        world.basicWorldData.wayPoints.add(WayPoint("legacy", "Legacy", oldRail.id, 20.0))
+        world.basicWorldData.wayPoints.add(WayPoint("legacy", oldRail.id, 20.0))
 
         val migrated = service.migrateAllOnRail(oldRail.id, replacement.id)
 
@@ -343,7 +335,7 @@ class OperationalDestinationTest {
         val service = OperationalDestinationService(world)
         service.register(destination("before", original.id, 25.0, ViewDirection.AB))
         service.register(destination("after", original.id, 75.0, ViewDirection.BA))
-        world.basicWorldData.wayPoints.add(WayPoint("legacy", "Legacy", original.id, 75.0))
+        world.basicWorldData.wayPoints.add(WayPoint("legacy", original.id, 75.0))
         val splitCurves = original.curve.splitAt(50.0)
         IsolatedSimulationThreadMarker.run { world.removeRail(original) }
         val beforeRail = world.createRailForTest(splitCurves.first)
@@ -391,7 +383,6 @@ class OperationalDestinationTest {
             "old",
             OperationalDestination(
                 "station@platform",
-                "New station",
                 rail.id,
                 30.0,
                 ViewDirection.AB,
@@ -410,5 +401,5 @@ class OperationalDestinationTest {
         railId: java.util.UUID,
         arc: Double,
         direction: ViewDirection
-    ) = OperationalDestination(id, id, railId, arc, direction, DestinationRole.Regular)
+    ) = OperationalDestination(id, railId, arc, direction, DestinationRole.Regular)
 }

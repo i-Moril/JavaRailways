@@ -6866,8 +6866,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
             val baselineSignal = liveSignal.sectionSignalSnapshot()!!
             assertEquals(source.latestWorldFrame().physicsEpoch, baselineSignal.stamp.physicsEpoch)
             source.onOwnerForTest {
-                domain.basicData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("live-origin", "Origin", sourceRail.id, 1000.0))
-                domain.basicData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("live-target", "Target", sourceRail.id, 1300.0))
+                domain.basicData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("live-origin", sourceRail.id, 1000.0))
+                domain.basicData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("live-target", sourceRail.id, 1300.0))
                 domain.data.timetables.add(Timetable("live-preservation", services = listOf(TimetableService("service",
                     TrainSelector.TrainId("actual"), listOf(TimetableStep.Check("live-origin"),
                         TimetableStep.At(1000, TimetableAction.GoTo("live-target")))))))
@@ -7124,8 +7124,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val source = actualSignalWorld()
         val id = UUID.fromString(source.runtimeId)
         val rail = source.allRails.single()
-        source.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("origin", "Origin", rail.id, 480.0))
-        source.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("target", "Target", rail.id, 1100.0))
+        source.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("origin", rail.id, 480.0))
+        source.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("target", rail.id, 1100.0))
         val region = ProtectionRegionDefinition("test:actual-region", 1, listOf(
             ProtectionBoundaryDefinition("test:actual-entry", RailPositionSnapshot(rail.id, ViewDirection.AB, 500.0)),
             ProtectionBoundaryDefinition("test:actual-exit", RailPositionSnapshot(rail.id, ViewDirection.BA, 800.0))))

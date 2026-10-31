@@ -41,7 +41,7 @@ class StructuralTimetableValidationTest {
             if (reversed) world.onOwnerForTest { train.reverse() }
             val initial = train.publishedFrame
             val origin = if (reversed) "reverse-origin" else "origin"
-            if (reversed) world.basicWorldData.wayPoints.add(WayPoint(origin, origin, rail.id, initial.head.arcLengthInAbMeters))
+            if (reversed) world.basicWorldData.wayPoints.add(WayPoint(origin, rail.id, initial.head.arcLengthInAbMeters))
             val sourceSteps = listOf(TimetableStep.Check(origin), at(TimetableAction.Split("divide")),
                 at(TimetableAction.GoTo(if (reversed) "back" else "end")))
             val result = TimetableValidator(world).validate(timetable(sourceSteps = sourceSteps,
@@ -156,7 +156,7 @@ class StructuralTimetableValidationTest {
 
     @Test fun `every finite acquisition origin must have a full body witness`() {
         fixture { world, rail, train ->
-            world.basicWorldData.wayPoints.add(WayPoint("other", "Other", rail.id, 120.0))
+            world.basicWorldData.wayPoints.add(WayPoint("other", rail.id, 120.0))
             fun plan(ids: List<String>) = Timetable("origins", services = listOf(TimetableService("source", steps = listOf(
                 at(TimetableAction.TakeFromWaypoint(ids)), at(TimetableAction.Split("divide")), at(TimetableAction.GoVia(listOf("other", "end")))))),
                 formationEvents = TimetableFormationCatalog(listOf(TimetableFormationEvent.Split("divide", "source", 1,
@@ -211,7 +211,7 @@ class StructuralTimetableValidationTest {
         fixture { world, rail, train ->
             registerSource(world, train)
             val end = storagePoint(world, "end", "end")
-            world.basicWorldData.wayPoints.add(WayPoint("later", "Later", rail.id, 200.0))
+            world.basicWorldData.wayPoints.add(WayPoint("later", rail.id, 200.0))
             val later = storagePoint(world, "later", "later")
             world.simpleAtoWorldData.depots.registerRollingStock(RollingStockRecord("parked", DepotId("storage"),
                 "metro/model", setOf("metro"), 2, 20.0, 22.0, emptySet()), later)
@@ -316,7 +316,7 @@ class StructuralTimetableValidationTest {
                 val store = world.simpleAtoWorldData.depots
                 store.addStablingPoint(home, "Home", DepotStablingPoint(StablingPointRef(home,"p"), "approach"))
                 listOf(moving to "approach", stationary to "meeting").forEach { (train, point) ->
-                    world.basicWorldData.wayPoints.add(WayPoint(point, point, rail.id, train.publishedFrame.head.arcLengthInAbMeters))
+                    world.basicWorldData.wayPoints.add(WayPoint(point, rail.id, train.publishedFrame.head.arcLengthInAbMeters))
                     val ids = train.cars.map { it.id }
                     store.registerFixedUnit(FixedEmuUnit("unit-${train.id}", home, ids, "emu"), ids)
                 }
@@ -349,7 +349,7 @@ class StructuralTimetableValidationTest {
                         val futureA = if (stationaryReversed) 102.0 else 140.0
                         val futureB = if (stationaryReversed) 107.0 else 160.5
                         listOf("future-a" to futureA, "future-b" to futureB).forEach { (id, arc) ->
-                            world.basicWorldData.wayPoints.add(WayPoint(id, id, rail.id, arc)) }
+                            world.basicWorldData.wayPoints.add(WayPoint(id, rail.id, arc)) }
                         fun explicitMovement(origin: String, target: String): TimetableAction {
                             val start = world.basicWorldData.wayPoints[origin]!!.arcLength
                             val end = world.basicWorldData.wayPoints[target]!!.arcLength
@@ -366,7 +366,7 @@ class StructuralTimetableValidationTest {
                         assertTrue(futureResult.isSuccess, futureResult.errors.toString())
                         val futurePair = futureResult.structural.couplings.values.single()
                         val unsafeArc = if (stationaryReversed) 106.4 else 149.9
-                        world.basicWorldData.wayPoints.add(WayPoint("unsafe-a", "unsafe-a", rail.id, unsafeArc))
+                        world.basicWorldData.wayPoints.add(WayPoint("unsafe-a", rail.id, unsafeArc))
                         val unsafe = future.copy(services = future.services.map { service -> service.copy(steps = listOf(service.steps.first(),
                             at(explicitMovement((service.steps.first() as TimetableStep.Check).wayPointId, if(service.id == "a") "unsafe-a" else "future-b")), service.steps.last())) },
                             formationEvents = TimetableFormationCatalog(listOf(event.copy(rendezvous = FormationRendezvous("unsafe-a", "future-b")))))
@@ -421,7 +421,7 @@ class StructuralTimetableValidationTest {
         fixture { world, rail, train ->
             val station = StationId("choice")
             for ((id, arc) in listOf("near" to 100.0, "far" to 100.0)) {
-                OperationalDestinationService(world).register(OperationalDestination("choice@$id", id, rail.id, arc,
+                OperationalDestinationService(world).register(OperationalDestination("choice@$id", rail.id, arc,
                     ViewDirection.AB, DestinationRole.StationBerthRole(station, berthId = id,
                         doorSide = DoorSide.NONE, usableLengthMeters = 80.0)))
             }
@@ -455,7 +455,7 @@ class StructuralTimetableValidationTest {
         fixture(points = setOf("stop", "later")) { world, rail, train ->
             val station = StationId("interior")
             for ((id, arc) in listOf("middle" to 130.0, "behind" to 75.0)) {
-                OperationalDestinationService(world).register(OperationalDestination("interior@$id", id, rail.id, arc,
+                OperationalDestinationService(world).register(OperationalDestination("interior@$id", rail.id, arc,
                     ViewDirection.AB, DestinationRole.StationBerthRole(station, berthId = id,
                         doorSide = DoorSide.NONE, usableLengthMeters = 80.0, stoppingOffsetMetersBefore = 2.0)))
             }
@@ -486,16 +486,16 @@ class StructuralTimetableValidationTest {
             assertDoesNotThrow { route.requireCurrent(world) }
             for ((target, oldArc) in listOf("stop" to 100.0, "later" to 180.0, "end" to 200.0)) {
                 world.basicWorldData.wayPoints.remove(target)
-                world.basicWorldData.wayPoints.add(WayPoint(target, target, rail.id, oldArc + 0.5))
+                world.basicWorldData.wayPoints.add(WayPoint(target, rail.id, oldArc + 0.5))
                 assertSame(topology, world.topologyState)
                 assertThrows(IllegalArgumentException::class.java) { route.requireCurrent(world) }
                 world.basicWorldData.wayPoints.remove(target)
-                world.basicWorldData.wayPoints.add(WayPoint(target, target, rail.id, oldArc))
+                world.basicWorldData.wayPoints.add(WayPoint(target, rail.id, oldArc))
                 assertDoesNotThrow { route.requireCurrent(world) }
             }
             val station = StationId("binding")
             val service = OperationalDestinationService(world)
-            val destination = OperationalDestination("binding@one", "One", rail.id, 130.0, ViewDirection.AB,
+            val destination = OperationalDestination("binding@one", rail.id, 130.0, ViewDirection.AB,
                 DestinationRole.StationBerthRole(station, berthId = "one", doorSide = DoorSide.NONE,
                     usableLengthMeters = 80.0))
             service.register(destination)
@@ -526,7 +526,7 @@ class StructuralTimetableValidationTest {
                 val train = createTrainWithConfig("physical", rail, world, List(cars) { 10.0 }, connectorLength = 0.25)
                 world.onOwnerForTest { train.setLocation(rail.viewAB.getRailLocationAt(head)); train.commit() }
                 listOf("origin" to head, "stop" to 100.0, "end" to 200.0, "later" to 180.0,
-                    "back" to 20.0, "inside" to 60.0).filter { it.first in setOf("origin", "end", "back") + points }.forEach { (id, arc) -> world.basicWorldData.wayPoints.add(WayPoint(id,id,rail.id,arc)) }
+                    "back" to 20.0, "inside" to 60.0).filter { it.first in setOf("origin", "end", "back") + points }.forEach { (id, arc) -> world.basicWorldData.wayPoints.add(WayPoint(id,rail.id,arc)) }
                 val home = DepotId("home")
                 val store = world.simpleAtoWorldData.depots
                 store.addStablingPoint(home, "Home", DepotStablingPoint(StablingPointRef(home,"point"), "origin"))

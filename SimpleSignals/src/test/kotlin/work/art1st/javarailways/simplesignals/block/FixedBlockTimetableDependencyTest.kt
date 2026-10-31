@@ -138,8 +138,8 @@ class FixedBlockTimetableDependencyTest {
             val atoPlugin = SimpleATOPlugin.instanceOrNull() ?: SimpleATOPlugin(101).also { SimpleATOPlugin.INSTANCE = it }
             world.registerExtensionData(basicPlugin, basic)
             world.registerExtensionData(atoPlugin, ato)
-            basic.wayPoints.add(WayPoint("A", "Origin", entry.id, origin))
-            basic.wayPoints.add(WayPoint("B", "Target", upper.id, 10.0))
+            basic.wayPoints.add(WayPoint("A", entry.id, origin))
+            basic.wayPoints.add(WayPoint("B", upper.id, 10.0))
             ato.timetables.add(Timetable("race", services = listOf(TimetableService("s1", TrainSelector.TrainId(train.id),
                 listOf(TimetableStep.Check("A"), TimetableStep.At(0L, TimetableAction.GoTo("B")))))))
 

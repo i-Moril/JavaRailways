@@ -62,7 +62,6 @@ class TimetableInitialPositioner(private val world: World) {
                             )
                         WayPoint(
                             destination.id,
-                            destination.displayName,
                             destination.railId,
                             destination.arcLengthInAbMeters
                         )

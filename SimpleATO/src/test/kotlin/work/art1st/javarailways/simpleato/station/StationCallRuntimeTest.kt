@@ -212,9 +212,9 @@ class StationCallRuntimeTest {
         )
         val train = createTrainWithConfig("T-$id", rail, world, listOf(10.0))
         val originArc = train.head.location.arcLength
-        data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
-        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 10.0))
-        data.wayPoints.add(WayPoint("C", "C", rail.id, originArc + 55.0))
+        data.wayPoints.add(WayPoint("A", rail.id, originArc))
+        data.wayPoints.add(WayPoint("B", rail.id, originArc + 10.0))
+        data.wayPoints.add(WayPoint("C", rail.id, originArc + 55.0))
         val stationId = StationId("central")
         val berthRef = StationBerthRef(stationId, "one")
         val berth = StationBerth(

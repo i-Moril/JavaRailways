@@ -237,18 +237,18 @@ class StoppedReturnToDepotIntegrationTest {
             val home = StablingPointRef(arrivalDepot, "return-home")
             world.onOwnerForTest {
                 val destinations = OperationalDestinationService(world)
-                destinations.register(OperationalDestination("return-depot@out", "Outbound", rail.id, 20.0,
+                destinations.register(OperationalDestination("return-depot@out", rail.id, 20.0,
                     ViewDirection.AB, DestinationRole.DepotStablingPointRole(depot.value, out.pointId, usableLengthMeters = 20.0)))
                 // This bidirectional stabling point is also a valid future departure origin.
                 // The timetable's explicit Reverse actions determine the final arrival facing.
-                destinations.register(OperationalDestination("${arrivalDepot.value}@return-home", "Home", rail.id, depotPosition,
+                destinations.register(OperationalDestination("${arrivalDepot.value}@return-home", rail.id, depotPosition,
                     null, DestinationRole.DepotStablingPointRole(arrivalDepot.value, home.pointId, usableLengthMeters = 20.0)))
                 // The return passes this outbound marker in BA after an explicit Reverse.
-                destinations.register(OperationalDestination("inside", "Inside block", rail.id, firstStop,
+                destinations.register(OperationalDestination("inside", rail.id, firstStop,
                     ViewDirection.AB, DestinationRole.Regular))
-                if (mixedDirections) destinations.register(OperationalDestination("return-platform", "Return platform", rail.id, 40.0,
+                if (mixedDirections) destinations.register(OperationalDestination("return-platform", rail.id, 40.0,
                     ViewDirection.BA, DestinationRole.Regular))
-                secondStop?.let { basic.wayPoints.add(WayPoint("second", "Second block stop", rail.id, it)) }
+                secondStop?.let { basic.wayPoints.add(WayPoint("second", rail.id, it)) }
                 data.depots.registerRollingStock(RollingStockRecord(train.id, depot, "test/train", emptySet(),
                     1, 10.0, profile.maxSpeed, emptySet()), out)
                 val steps = buildList {

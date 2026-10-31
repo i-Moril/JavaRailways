@@ -7,7 +7,7 @@ vi.mock('antd',()=>({
  AutoComplete:({value,onChange,onSelect,options,filterOption,defaultActiveFirstOption:_,allowClear:__,onClear:___,...props}:any)=><div><input {...props} value={value} onChange={()=>{}} onInput={event=>onChange(event.currentTarget.value)}/>{options.filter((option:any)=>filterOption(value,option)).map((option:any)=><button key={option.value} onClick={()=>{onChange(option.value);onSelect(option.value);}}>{option.label}</button>)}</div>,
  Select:({value,onChange,onSelect,options,showSearch,mode:_,...props}:any)=><div>{value.map((id:string)=><span key={id}>{id}</span>)}<input {...props} value={showSearch.searchValue} onChange={()=>{}} onInput={event=>showSearch.onSearch(event.currentTarget.value)} onBlur={()=>{if(showSearch.searchValue&&!value.includes(showSearch.searchValue))onChange([...value,showSearch.searchValue]);}} onKeyDown={event=>{if(event.key==='Enter'&&showSearch.searchValue&&!value.includes(showSearch.searchValue))onChange([...value,showSearch.searchValue]);props.onKeyDown?.(event);}}/>{options.filter((option:any)=>showSearch.filterOption(showSearch.searchValue,option)).map((option:any)=><button key={option.value} onClick={()=>{onChange([...value,option.value]);onSelect?.(option.value);}}>{option.label}</button>)}</div>
 }));
-const choices:IdOption[]=[{value:'depot@1',label:'Depot track one'},{value:'station@1',label:'Central platform'}];
+const choices:IdOption[]=[{value:'depot@1',label:'depot@1'},{value:'station@1',label:'station@1'}];
 let container:HTMLDivElement,root:Root;
 beforeEach(()=>{Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});container=document.createElement('div');document.body.append(container);root=createRoot(container);});
 afterEach(async()=>{await act(async()=>root.unmount());container.remove();});
@@ -20,11 +20,11 @@ describe('editable ID drafts',()=>{
   expect(container.querySelector('input')!.value).toBe('deleted@1');await input('custom@2');expect(commit).not.toHaveBeenCalled();expect(editing).toHaveBeenLastCalledWith(true);
   await key('Enter');await blur();expect(commit).toHaveBeenCalledExactlyOnceWith('custom@2');expect(editing).toHaveBeenLastCalledWith(false);
  });
- it('filters names and IDs, accepts an option with its ID, and does not duplicate selection on blur',async()=>{
+ it('filters IDs without case sensitivity and commits a selection once across Enter and blur',async()=>{
   const commit=vi.fn();await act(async()=>root.render(<EditableIdSelect fieldKey="a" options={choices} onCommit={commit}/>));
-  await input('Central');expect(container.querySelectorAll('button')).toHaveLength(1);expect(container.textContent).toContain('Central platform');
+  await input('STATION');expect(container.querySelectorAll('button')).toHaveLength(1);expect(container.textContent).toContain('station@1');
   await act(async()=>container.querySelector('button')!.click());await key('Enter');await blur();expect(commit).toHaveBeenCalledExactlyOnceWith('station@1');
-  await input('DEPOT@');expect(container.querySelectorAll('button')).toHaveLength(1);expect(container.textContent).toContain('Depot track one');
+  await input('DEPOT@');expect(container.querySelectorAll('button')).toHaveLength(1);expect(container.textContent).toContain('depot@1');
  });
  it('cancels with Escape and isolates uncommitted text when owner or field changes',async()=>{
   const commit=vi.fn();const render=async(fieldKey:string)=>act(async()=>root.render(<EditableIdSelect fieldKey={fieldKey} value="origin" options={choices} onCommit={commit}/>));
@@ -35,6 +35,6 @@ describe('editable ID drafts',()=>{
   const change=vi.fn();function Harness(){const [value,setValue]=useState(['deleted']);return <EditableIdList fieldKey="world/list" options={choices} value={value} onChange={next=>{change(next);setValue(next);}}/>;}
   await act(async()=>root.render(<Harness/>));await input('new');await key('Enter');expect(change).toHaveBeenLastCalledWith(['deleted','new']);
   await input('cancelled');await key('Escape');expect(container.querySelector('input')!.value).toBe('');expect(change).toHaveBeenCalledTimes(1);
-  await input('Central');expect(container.querySelectorAll('button')).toHaveLength(1);await act(async()=>container.querySelector('button')!.click());expect(change).toHaveBeenLastCalledWith(['deleted','new','station@1']);expect(container.querySelector('input')!.value).toBe('');await blur();expect(change).toHaveBeenCalledTimes(2);expect(container.textContent).not.toContain('cancelled');
+  await input('STATION');expect(container.querySelectorAll('button')).toHaveLength(1);await act(async()=>container.querySelector('button')!.click());expect(change).toHaveBeenLastCalledWith(['deleted','new','station@1']);expect(container.querySelector('input')!.value).toBe('');await blur();expect(change).toHaveBeenCalledTimes(2);expect(container.textContent).not.toContain('cancelled');
  });
 });

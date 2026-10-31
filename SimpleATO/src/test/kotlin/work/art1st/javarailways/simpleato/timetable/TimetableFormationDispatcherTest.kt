@@ -479,8 +479,8 @@ class TimetableFormationDispatcherTest {
             val otherRail=createStraightRailFromSegments(f.world,PrimeCurveGenerator.buildStraight(100.0,1))
             val other=createTrainWithConfig("unregistered",otherRail,f.world,listOf(10.0))
             f.world.onOwnerForTest {
-                f.world.basicWorldData.wayPoints.add(WayPoint("other-origin","Other",otherRail.id,other.publishedFrame.head.arcLengthInAbMeters))
-                f.world.basicWorldData.wayPoints.add(WayPoint("other-end","Other end",otherRail.id,80.0))
+                f.world.basicWorldData.wayPoints.add(WayPoint("other-origin",otherRail.id,other.publishedFrame.head.arcLengthInAbMeters))
+                f.world.basicWorldData.wayPoints.add(WayPoint("other-end",otherRail.id,80.0))
                 val table=checkNotNull(f.world.simpleAtoWorldData.timetables["split"])
                 val source=table.services.single()
                 val line=checkNotNull(source.lineId)
@@ -585,9 +585,9 @@ class TimetableFormationDispatcherTest {
             depots.registerRollingStock(RollingStockRecord(train.id, depot, "emu", emptySet(), 2, 20.0, 2.0, emptySet()), point)
             val allocation = checkNotNull(depots.reservePhysicallySelected(train.id, point, DepotTrainSelector(depot), "source-assignment", cars))
             check(depots.confirmInService(allocation)); check(depots.releaseDeparture(allocation))
-            world.basicWorldData.wayPoints.add(WayPoint("origin", "origin", rail.id, train.publishedFrame.head.arcLengthInAbMeters))
-            world.basicWorldData.wayPoints.add(WayPoint("end", "end", rail.id, if (orientationCase) { if (sourceReversed xor outputReversed) 50.0 else 200.0 } else if (marginCrossesRail) 248.0 else if (newDuty) 180.0 else if (reverseOutputBranch) 2.0 else 120.0))
-            world.basicWorldData.wayPoints.add(WayPoint("branch-end", "branch-end", rail.id, if (orientationCase) { if (sourceReversed xor outputReversed) 2.0 else 248.0 } else if (marginCrossesRail) 248.0 else 120.0))
+            world.basicWorldData.wayPoints.add(WayPoint("origin", rail.id, train.publishedFrame.head.arcLengthInAbMeters))
+            world.basicWorldData.wayPoints.add(WayPoint("end", rail.id, if (orientationCase) { if (sourceReversed xor outputReversed) 50.0 else 200.0 } else if (marginCrossesRail) 248.0 else if (newDuty) 180.0 else if (reverseOutputBranch) 2.0 else 120.0))
+            world.basicWorldData.wayPoints.add(WayPoint("branch-end", rail.id, if (orientationCase) { if (sourceReversed xor outputReversed) 2.0 else 248.0 } else if (marginCrossesRail) 248.0 else 120.0))
             val first = TimetableFormationOutput("first", if (reverseOutputBranch) FormationOutputDisposition.Hold else FormationOutputDisposition.Duty("source"))
             val rest = TimetableFormationOutput("rest", if (reverseOutputBranch) FormationOutputDisposition.Duty("source") else if (newDuty || outputReversed) FormationOutputDisposition.Duty("branch") else FormationOutputDisposition.Hold)
             val sourceSteps = arrayListOf<TimetableStep>(TimetableStep.Check("origin"))
@@ -595,11 +595,11 @@ class TimetableFormationDispatcherTest {
             sourceSteps += TimetableStep.At(0, TimetableAction.Split("divide"))
             if (measureTasks) sourceSteps += TimetableStep.At(0, TimetableAction.TaskEnd("divide-task"))
             if (outputReversed) sourceSteps += TimetableStep.At(0, TimetableAction.Reverse)
-            if (viaOutput) world.basicWorldData.wayPoints.add(WayPoint("mid", "mid", rail.id, 70.0))
+            if (viaOutput) world.basicWorldData.wayPoints.add(WayPoint("mid", rail.id, 70.0))
             if (deferredOutput) {
                 val station = StationId("marker")
                 listOf("short" to 90.0, "long" to 100.0).forEach { (id, arc) ->
-                    OperationalDestinationService(world).register(OperationalDestination("marker@$id", id, rail.id, arc,
+                    OperationalDestinationService(world).register(OperationalDestination("marker@$id", rail.id, arc,
                         work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB,
                         DestinationRole.StationBerthRole(station, berthId = id, doorSide = DoorSide.NONE,
                             usableLengthMeters = 30.0, minimumTrainLengthMeters = if (id == "long") 16.0 else null,
@@ -619,7 +619,7 @@ class TimetableFormationDispatcherTest {
                 })
                 sourceSteps += TimetableStep.At(0, TimetableAction.Extension(TimetableExtensionCall("test:published-output-observation")))
                 if (reverseOutputBranch) {
-                    world.basicWorldData.wayPoints.add(WayPoint("reverse-turn", "reverse-turn", rail.id, 5.0))
+                    world.basicWorldData.wayPoints.add(WayPoint("reverse-turn", rail.id, 5.0))
                     sourceSteps += TimetableStep.At(0, TimetableAction.Reverse)
                     sourceSteps += TimetableStep.At(0, TimetableAction.GoTo("reverse-turn"))
                 } else if (chooseOutputBranch) {
@@ -662,7 +662,7 @@ class TimetableFormationDispatcherTest {
                 depots.registerRollingStock(RollingStockRecord(peer.id, peerHome, "emu", emptySet(), 1, 10.0, 2.0, emptySet()), peerPoint)
                 val peerAllocation = checkNotNull(depots.reservePhysicallySelected(peer.id, peerPoint, DepotTrainSelector(peerHome), "peer-assignment", ids))
                 check(depots.confirmInService(peerAllocation)); check(depots.releaseDeparture(peerAllocation))
-                world.basicWorldData.wayPoints.add(WayPoint("peer-origin", "peer-origin", rail.id, peer.publishedFrame.head.arcLengthInAbMeters))
+                world.basicWorldData.wayPoints.add(WayPoint("peer-origin", rail.id, peer.publishedFrame.head.arcLengthInAbMeters))
                 val joinAction = if (measureTasks) listOf(TimetableStep.At(0, TimetableAction.TaskStart("join-task")),
                     TimetableStep.At(0, TimetableAction.Couple("join")), TimetableStep.At(0, TimetableAction.TaskEnd("join-task")))
                     else listOf(TimetableStep.At(0, TimetableAction.Couple("join")))

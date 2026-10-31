@@ -765,8 +765,8 @@ class IsolatedTimetableSimulationTest {
             val source = fixture.world
             val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1))
             source.registerExtensionData(BasicPlugin.INSTANCE, BasicWorldData())
-            source.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 20.0))
-            source.basicWorldData.wayPoints.add(WayPoint("destination", "Destination", rail.id, 100.0))
+            source.basicWorldData.wayPoints.add(WayPoint("origin", rail.id, 20.0))
+            source.basicWorldData.wayPoints.add(WayPoint("destination", rail.id, 100.0))
             createTrainWithConfig("live-only", rail, source, listOf(10.0))
             configureSource(source)
             val coreSnapshot = source.saveInfrastructure(revision)

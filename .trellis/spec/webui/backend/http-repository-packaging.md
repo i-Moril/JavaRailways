@@ -47,6 +47,8 @@ Draft/editor document 是独立持久化边界；shape breaking 时升级其最�
 
 响应 `status` 为 COMPLETED/FAILED/LIMIT_REACHED，含 simulatedTicks 和实际初始点/方向/是否反转；只有完成才有 durationTicks/startTick/endTick。失败保留 reason/failedProgramStepId，不以最大tick或下一任务开始伪造完成。该请求/响应是临时运行边界，不改变 editor document、程序库或持久化版本。后端不得重新按 programId 读取库内容替换请求的 exact definition：来源可以是未保存的有效画布或已绑定且来源删除的固定快照。
 
+路径点 descriptor 的展示身份统一为 `id`：`programSimulationWayPoints` 返回 `id/railId/direction/directionSource`；`destinations` 返回实际 `id`、空间位置、方向与角色。地图 `markers` 返回 `id/kind/railId/arcLengthMeters/x/y/z`，网页直接用 `id` 绘制文字。车站、车辆段、线路、模拟车辆等对象自身的名称由各自 descriptor 提供。
+
 ## SSE 与 backpressure
 
 train stream 每 500 ms poll；per-world poll 同时最多一个，busy 时 skip 而不排 stale request。每 client 只有 latest payload slot，delivery worker 拒绝时关闭 client。保持 global/per-world caps、bounded poll queue 与 app stop shutdown。共享 stream worker 不因单次 bridge/runtime failure 退出。

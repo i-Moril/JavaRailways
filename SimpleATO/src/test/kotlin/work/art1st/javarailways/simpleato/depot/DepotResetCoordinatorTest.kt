@@ -115,7 +115,6 @@ class DepotResetCoordinatorTest {
         OperationalDestinationService(world).register(
             OperationalDestination(
                 "north@one",
-                "North one",
                 rail.id,
                 originArc,
                 ViewDirection.AB,
@@ -126,7 +125,7 @@ class DepotResetCoordinatorTest {
                 )
             )
         )
-        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 60.0))
+        data.wayPoints.add(WayPoint("B", rail.id, originArc + 60.0))
         world.simpleAtoWorldData.depots.registerRollingStock(
             RollingStockRecord(
                 train.id,
@@ -210,7 +209,6 @@ class DepotResetCoordinatorTest {
         OperationalDestinationService(world).register(
             OperationalDestination(
                 "north@safe",
-                "North safe",
                 rail.id,
                 100.0,
                 ViewDirection.AB,
@@ -225,7 +223,6 @@ class DepotResetCoordinatorTest {
         OperationalDestinationService(world).register(
             OperationalDestination(
                 "north@risky",
-                "North risky",
                 rail.id,
                 6.0,
                 ViewDirection.AB,
@@ -351,7 +348,6 @@ class DepotResetCoordinatorTest {
         destinations.register(
             OperationalDestination(
                 "cross@first",
-                "Cross first",
                 firstRail.id,
                 100.0,
                 ViewDirection.AB,
@@ -366,7 +362,6 @@ class DepotResetCoordinatorTest {
         destinations.register(
             OperationalDestination(
                 "cross@second",
-                "Cross second",
                 secondRail.id,
                 5.0,
                 ViewDirection.AB,
@@ -452,7 +447,7 @@ class DepotResetCoordinatorTest {
         val depotId = DepotId("north")
         OperationalDestinationService(world).register(
             OperationalDestination(
-                "north@one", "One", rail.id, 100.0, ViewDirection.AB,
+                "north@one", rail.id, 100.0, ViewDirection.AB,
                 DestinationRole.DepotStablingPointRole("north", "one", usableLengthMeters = 20.0)
             )
         )
@@ -505,7 +500,6 @@ class DepotResetCoordinatorTest {
         OperationalDestinationService(world).register(
             OperationalDestination(
                 "north@one",
-                "North one",
                 rail.id,
                 40.0,
                 ViewDirection.AB,

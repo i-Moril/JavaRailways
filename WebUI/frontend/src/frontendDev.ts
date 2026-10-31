@@ -62,12 +62,12 @@ const railMapSeed:RailMapFile={
     {id:'airport-main',elevation:64,points:[{arc:0,x:40,y:64,z:300},{arc:700,x:240,y:64,z:250},{arc:1500,x:460,y:64,z:170},{arc:2300,x:680,y:64,z:80},{arc:3200,x:900,y:64,z:40}]},
     {id:'coastal-main',elevation:65,points:[{arc:0,x:180,y:65,z:30},{arc:750,x:350,y:65,z:120},{arc:1450,x:460,y:65,z:170},{arc:2200,x:600,y:65,z:310},{arc:3000,x:820,y:65,z:360}]},
   ],markers:[
-    {id:'harbour',label:'Harbour',kind:'STATION',railId:'airport-main',arcLengthMeters:0,x:40,y:64,z:300},
-    {id:'central',label:'Central',kind:'STATION',railId:'airport-main',arcLengthMeters:1500,x:460,y:64,z:170},
-    {id:'airport-t2',label:'Airport T2',kind:'STATION',railId:'airport-main',arcLengthMeters:3200,x:900,y:64,z:40},
-    {id:'marina',label:'Marina',kind:'STATION',railId:'coastal-main',arcLengthMeters:0,x:180,y:65,z:30},
-    {id:'north-port',label:'North Port',kind:'STATION',railId:'coastal-main',arcLengthMeters:3000,x:820,y:65,z:360},
-    {id:'harbour-depot',label:'Harbour Depot',kind:'DEPOT',railId:'airport-main',arcLengthMeters:120,x:75,y:64,z:290},
+    {id:'harbour-destination',kind:'STATION',railId:'airport-main',arcLengthMeters:0,x:40,y:64,z:300},
+    {id:'central-destination',kind:'STATION',railId:'airport-main',arcLengthMeters:1500,x:460,y:64,z:170},
+    {id:'airport-t2-destination',kind:'STATION',railId:'airport-main',arcLengthMeters:3200,x:900,y:64,z:40},
+    {id:'marina-destination',kind:'STATION',railId:'coastal-main',arcLengthMeters:0,x:180,y:65,z:30},
+    {id:'north-port-destination',kind:'STATION',railId:'coastal-main',arcLengthMeters:3000,x:820,y:65,z:360},
+    {id:'harbour-depot-road-1',kind:'DEPOT',railId:'airport-main',arcLengthMeters:120,x:75,y:64,z:290},
   ],
 };
 export const frontendDemoTrains:RailMapTrain[]=[{id:'demo-express',name:'AP101',revision:1,speedMetersPerSecond:18.5,derailed:false,reversed:false,railId:'airport-main',arcLengthMeters:1850,facing:'AB',cars:Array.from({length:6},(_,index)=>({id:`demo-car-${index+1}`,lengthMeters:20,x:545-index*12,y:64,z:135+index*5,directionX:0.93,directionZ:-0.37}))}];

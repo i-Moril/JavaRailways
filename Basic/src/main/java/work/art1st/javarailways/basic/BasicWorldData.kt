@@ -26,7 +26,6 @@ data class BasicWorldData(
 /** 轨道上的路径点。第一版只保存可持久化引用，不直接持有 Core 内部 location 对象。 */
 data class WayPoint(
     val id: String,
-    val displayName: String,
     val railId: UUID,
     /** 弧长始终以 Rail 的 AB 曲线为基准；路径点本身不带行进方向。 */
     val arcLength: Double
@@ -46,13 +45,13 @@ class WayPointStore {
         wayPoints[wayPoint.id] = wayPoint
     }
 
-    fun rename(oldId: String, newId: String, displayName: String = newId): WayPoint {
+    fun rename(oldId: String, newId: String): WayPoint {
         require(newId.isNotBlank()) { "wayPoint id must not be blank" }
         val current = wayPoints[oldId] ?: throw NoSuchElementException("wayPoint not found: $oldId")
         if (oldId != newId && wayPoints.containsKey(newId)) {
             throw IllegalArgumentException("wayPoint already exists: $newId")
         }
-        val updated = current.copy(id = newId, displayName = displayName)
+        val updated = current.copy(id = newId)
         if (oldId != newId) wayPoints.remove(oldId)
         wayPoints[newId] = updated
         return updated

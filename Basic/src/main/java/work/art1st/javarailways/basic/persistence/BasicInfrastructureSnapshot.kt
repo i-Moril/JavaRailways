@@ -12,13 +12,11 @@ import java.util.UUID
 @Serializable
 data class SavedWayPointV1(
     val id: String,
-    val displayName: String,
     val railId: String,
     val arcLengthInAbMeters: Double
 ) {
     fun restore(): WayPoint = WayPoint(
         id,
-        displayName,
         UUID.fromString(railId),
         arcLengthInAbMeters
     )
@@ -26,7 +24,6 @@ data class SavedWayPointV1(
     companion object {
         fun capture(value: WayPoint): SavedWayPointV1 = SavedWayPointV1(
             value.id,
-            value.displayName,
             value.railId.toString(),
             value.arcLength
         )

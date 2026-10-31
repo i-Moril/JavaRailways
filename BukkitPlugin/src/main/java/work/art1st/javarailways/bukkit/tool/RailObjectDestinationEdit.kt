@@ -87,10 +87,8 @@ internal fun applyRailObjectDestinationEdit(
             role.stablingPointId
         )
     }
-    val displayName = original?.displayName ?: wayPoint.displayName.ifBlank { id }
     return OperationalDestination(
         id = id,
-        displayName = displayName,
         railId = wayPoint.railId,
         arcLengthInAbMeters = wayPoint.arcLength,
         approachDirection = edit.approachDirection,

@@ -46,7 +46,7 @@ export interface WebSessionStatus {
 export interface WorldSummary { id: string; name?: string }
 export interface RailMapPoint { arc:number;x:number;y:number;z:number }
 export interface RailMapRail { id:string;elevation:number;points:RailMapPoint[] }
-export interface RailMapMarker { id:string;label:string;kind:'STATION'|'WAYPOINT'|'DEPOT'|'DESTINATION';railId:string;arcLengthMeters:number;x:number;y:number;z:number }
+export interface RailMapMarker { id:string;kind:'STATION'|'WAYPOINT'|'DEPOT'|'DESTINATION';railId:string;arcLengthMeters:number;x:number;y:number;z:number }
 export interface RailMapFile { formatVersion:number;world:string;runtimeId:string;generatedAtEpochMillis:number;rails:RailMapRail[];markers:RailMapMarker[] }
 export interface RailMapTrainCar { id:string;lengthMeters:number;x:number;y:number;z:number;directionX:number;directionZ:number }
 export interface RailMapTrain { id:string;name:string;revision:number;speedMetersPerSecond:number;derailed:boolean;reversed:boolean;railId:string;arcLengthMeters:number;facing:'AB'|'BA';cars:RailMapTrainCar[] }
@@ -54,9 +54,9 @@ export interface StationBerthMetadata {
   stoppingAreaId?:string;minimumTrainLengthMeters?:number;maximumTrainLengthMeters?:number;usableLengthMeters?:number; stationId:string; stationDisplayName?:string; berthId:string; destinationId:string }
 export interface DepotMetadata { id:string; displayName?:string; stablingPoints:{id:string;destinationId:string}[] }
 export interface SimulationProfileDescriptor { type:'WORLD_TRAIN'|'TRAIN_TEMPLATE'; id:string; displayName:string; carCount:number }
-export interface ProgramSimulationWayPoint {id:string;displayName:string;railId:string;direction:'AB'|'BA';directionSource:'WAYPOINT'|'RAIL'}
+export interface ProgramSimulationWayPoint {id:string;railId:string;direction:'AB'|'BA';directionSource:'WAYPOINT'|'RAIL'}
 export interface TimetableExtensionDescriptor { typeId:string; version:number; title:string; description:string; parameterSchema?:Record<string,unknown> }
-export interface WorldMetadata { wayPoints?: string[]; destinations?:{id:string;displayName:string}[]; programSimulationWayPoints?:ProgramSimulationWayPoint[]; stations?: StationBerthMetadata[]; depots?: string[]; depotDetails?:DepotMetadata[]; trains?: string[]; simulationProfiles?:SimulationProfileDescriptor[]; extensions?:{ actions?:TimetableExtensionDescriptor[]; conditions?:TimetableExtensionDescriptor[] } }
+export interface WorldMetadata { wayPoints?: string[]; programSimulationWayPoints?:ProgramSimulationWayPoint[]; stations?: StationBerthMetadata[]; depots?: string[]; depotDetails?:DepotMetadata[]; trains?: string[]; simulationProfiles?:SimulationProfileDescriptor[]; extensions?:{ actions?:TimetableExtensionDescriptor[]; conditions?:TimetableExtensionDescriptor[] } }
 export interface DraftSummary { id: string; updatedAt?: string; timetable?: SavedTimetableV1 }
 export interface EditorDocumentSummary { id:string; updatedAt?:string }
 export interface ValidationIssue { path?: string; message: string; severity?: string }

@@ -31,8 +31,8 @@ class FormationEventTest {
             TestSimpleATOWorldDataRegistry.getOrCreate(world)
             try {
                 val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(10.0, 1))
-                world.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 2.0))
-                world.basicWorldData.wayPoints.add(WayPoint("end", "End", rail.id, 8.0))
+                world.basicWorldData.wayPoints.add(WayPoint("origin", rail.id, 2.0))
+                world.basicWorldData.wayPoints.add(WayPoint("end", rail.id, 8.0))
                 val timetable = validSplit()
                 assertTrue(FormationEventValidator.validate(timetable).isEmpty())
                 val result = TimetableValidator(world).validate(timetable)

@@ -43,8 +43,8 @@ class AdmittedSpeedPhysicalIntegrationTest {
                         val basic = world.simpleAtoWorldData
                         // Basic WayPoints are the existing movement references, not synthetic controller inputs.
                         val waypoints = world.basicWorldData
-                        waypoints.wayPoints.add(WayPoint("A", "A", rail.id, origin))
-                        waypoints.wayPoints.add(WayPoint("B", "B", rail.id, origin + 20.0))
+                        waypoints.wayPoints.add(WayPoint("A", rail.id, origin))
+                        waypoints.wayPoints.add(WayPoint("B", rail.id, origin + 20.0))
                         basic.timetables.add(Timetable("speed", services = listOf(TimetableService("service",
                             TrainSelector.TrainId(train.id), listOf(TimetableStep.Check("A"),
                                 TimetableStep.At(0L, TimetableAction.GoTo("B")))))))

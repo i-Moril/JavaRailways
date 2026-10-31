@@ -1,5 +1,7 @@
 # Implementation plan
 
+当前追加批次：2026-10-31 路径点仅保留 ID，用户明确授权直接修改。按 research/waypoint-identity-only.md 的模块所有权同步删除模型/存档/API/UI 全部显示名逻辑，集中运行跨层检查；离线数据工具先 dry-run，不自动部署/归档。
+
 1. Establish current shared document/runtime contracts; preserve current schema number and remove runtime old-development compatibility assumptions.
 2. Contracts worker: program actions, station definitions, worker/compiler/snapshot/validation and static condition expansion. Coordinate runtime types with runtime worker.
 3. Runtime worker: station executor and Dispatcher lifecycle integration, gateway operation ownership, arrival/preparation eligibility and final descendant join; regression tests.

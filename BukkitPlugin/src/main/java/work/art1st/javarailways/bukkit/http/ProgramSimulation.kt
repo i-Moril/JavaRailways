@@ -15,13 +15,12 @@ private const val MAX_SAFE_INTEGER = 9_007_199_254_740_991L
 
 internal data class ProgramSimulationWayPoint(
     val id: String,
-    val displayName: String,
     val railId: String,
     val direction: ViewDirection,
     val directionSource: String
 ) {
     fun json(): JsonObject = buildJsonObject {
-        put("id", id); put("displayName", displayName); put("railId", railId)
+        put("id", id); put("railId", railId)
         put("direction", direction.name); put("directionSource", directionSource)
     }
 }
@@ -36,7 +35,7 @@ internal fun resolveProgramSimulationWayPoint(world: World, id: String): Program
     val own = world.simpleAtoWorldData.destinations[id]?.approachDirection
     val direction = own ?: world.basicWorldData.operatingDirections[point.railId]
         ?: throw IllegalArgumentException("simulation waypoint has no configured direction: $id")
-    return ProgramSimulationWayPoint(id, point.displayName, point.railId.toString(), direction,
+    return ProgramSimulationWayPoint(id, point.railId.toString(), direction,
         if (own != null) "WAYPOINT" else "RAIL")
 }
 

@@ -36,7 +36,7 @@ class RailMapPreviewServiceTest {
             world.registerExtensionData(plugin, data)
             val first = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
             val second = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
-            val marker = work.art1st.javarailways.basic.WayPoint("stop", "Stop", first.id, 20.0)
+            val marker = work.art1st.javarailways.basic.WayPoint("stop", first.id, 20.0)
             data.wayPoints.add(marker)
             RailMapPreviewService(directory).use { service ->
                 val before = service.render(service.capture("world", world))
@@ -45,6 +45,7 @@ class RailMapPreviewServiceTest {
                 val after = service.render(service.capture("world", world))
                 org.junit.jupiter.api.Assertions.assertNotEquals(before, after)
                 val moved = Json.parseToJsonElement(after).jsonObject["markers"]!!.jsonArray.single().jsonObject
+                assertEquals("stop", moved["id"]!!.jsonPrimitive.content)
                 assertEquals(second.id.toString(), moved["railId"]!!.jsonPrimitive.content)
                 assertEquals(after, File(directory, "world.json").readText())
             }

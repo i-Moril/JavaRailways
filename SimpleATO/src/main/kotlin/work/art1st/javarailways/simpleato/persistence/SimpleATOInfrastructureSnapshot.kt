@@ -19,7 +19,6 @@ import java.util.UUID
 @Serializable
 data class SavedOperationalDestinationV1(
     val id: String,
-    val displayName: String,
     val railId: String,
     val arcLengthInAbMeters: Double,
     val approachDirection: ViewDirection? = null,
@@ -43,7 +42,6 @@ data class SavedOperationalDestinationV1(
 ) {
     fun restore(): OperationalDestination = OperationalDestination(
         id = id,
-        displayName = displayName,
         railId = UUID.fromString(railId),
         arcLengthInAbMeters = arcLengthInAbMeters,
         approachDirection = approachDirection,
@@ -81,7 +79,6 @@ data class SavedOperationalDestinationV1(
             val depot = value.role as? DestinationRole.DepotStablingPointRole
             return SavedOperationalDestinationV1(
                 id = value.id,
-                displayName = value.displayName,
                 railId = value.railId.toString(),
                 arcLengthInAbMeters = value.arcLengthInAbMeters,
                 approachDirection = value.approachDirection,

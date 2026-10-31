@@ -1,15 +1,14 @@
 import {EditableIdSelect} from './EditableIdSelect';
-import {waypointOptions} from './idOptions';
+import {idOptions} from './idOptions';
 import {useEffect,useRef,useState} from 'react';
 import {Alert,Button,ConfigProvider,Flex,Select,Typography} from 'antd';
 import {CommittedNumberInput} from './CommittedNumberInput';
 import {useI18n} from './i18n';
 import {formationOutputs,type AuthoringFormationEvent,type FormationOutput} from './formationAuthoring';
 import type {TimetableAuthoringDocumentV1} from './authoring';
-import type {WorldMetadata} from './types';
 
 /** A local view of one operation. Identity stays in the catalog, never in editable fields. */
-export function FormationTaskFields(p:{event:AuthoringFormationEvent;dutyId:string;document:TimetableAuthoringDocumentV1;fieldScope:string;destinations:string[];metadata?:WorldMetadata;stationNames:ReadonlyMap<string,string>;stationIds:string[];onChange:(event:AuthoringFormationEvent)=>void;onSelectDuty:(id:string)=>void;onValidityChange?:(valid:boolean)=>void}) {
+export function FormationTaskFields(p:{event:AuthoringFormationEvent;dutyId:string;document:TimetableAuthoringDocumentV1;fieldScope:string;destinations:string[];stationNames:ReadonlyMap<string,string>;stationIds:string[];onChange:(event:AuthoringFormationEvent)=>void;onSelectDuty:(id:string)=>void;onValidityChange?:(valid:boolean)=>void}) {
  const {t}=useI18n(),e=p.event,readOnly=e.coordinatorDutyId!==p.dutyId;
  const [invalid,setInvalid]=useState<Record<string,boolean>>({});
  const callback=useRef(p.onValidityChange);callback.current=p.onValidityChange;
@@ -18,7 +17,7 @@ export function FormationTaskFields(p:{event:AuthoringFormationEvent;dutyId:stri
  useEffect(()=>()=>{callback.current?.(true);},[]);
  const patch=(change:Partial<AuthoringFormationEvent>)=>p.onChange({...e,...change} as AuthoringFormationEvent);
  const options=(ids:string[])=>ids.map(value=>({value,label:value}));
- const destinations=waypointOptions({...p.metadata,wayPoints:p.destinations});
+ const destinations=idOptions(p.destinations);
  const output=(o:FormationOutput,label:string,change:(value:FormationOutput)=>void)=><div className="formation-output" key={o.id}><Typography.Text strong>{label}</Typography.Text><Select aria-label={label} value={o.disposition.type==='DUTY'?o.disposition.dutyId:'__hold'} options={[{value:'__hold',label:t('formation.hold')},...p.document.duties.filter(d=>(d.selector.type!=='TAKE_FROM_FORMATION_OUTPUT'||d.selector.eventId===e.id&&d.selector.outputId===o.id)&&!formationOutputs(e).some(other=>other.id!==o.id&&other.disposition.type==='DUTY'&&other.disposition.dutyId===d.id)).map(d=>({value:d.id,label:d.id===e.coordinatorDutyId?`${d.id} · ${t('formation.continue')}`:d.id}))]} onChange={id=>change({...o,disposition:id==='__hold'?{type:'HOLD'}:{type:'DUTY',dutyId:id}})}/>{o.disposition.type==='DUTY'&&<Button disabled={false} onClick={()=>o.disposition.type==='DUTY'&&p.onSelectDuty(o.disposition.dutyId)}>{t('formation.openDuty')} {o.disposition.dutyId}</Button>}</div>;
  return <div className="formation-task-fields">
   {readOnly&&<Alert type="info" title={t('formation.sharedReadOnly')} action={<Button onClick={()=>p.onSelectDuty(e.coordinatorDutyId)}>{t('formation.openOwner')} {e.coordinatorDutyId}</Button>}/>}

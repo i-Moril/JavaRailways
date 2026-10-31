@@ -1,7 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {buildProgramSimulationRequest,completedProgramDuration,ProgramSimulationRequestOwner} from './programSimulation';
 import type {ProgramSimulationRequest,ProgramSimulationResult,StationProgramLiteral,WorldMetadata} from './types';
-const metadata:WorldMetadata={wayPoints:['undirected'],programSimulationWayPoints:[{id:'point',displayName:'Point',railId:'rail',direction:'BA',directionSource:'WAYPOINT'}],simulationProfiles:[{type:'WORLD_TRAIN',id:'train',displayName:'Train',carCount:2}]};
+const metadata:WorldMetadata={wayPoints:['undirected'],programSimulationWayPoints:[{id:'point',railId:'rail',direction:'BA',directionSource:'WAYPOINT'}],simulationProfiles:[{type:'WORLD_TRAIN',id:'train',displayName:'Train',carCount:2}]};
 const request=():ProgramSimulationRequest=>({programId:'1',definition:{parameters:[{id:'duration',type:'DURATION'}],steps:[{id:'wait',type:'WAIT_DURATION',durationTicks:{parameterId:'duration'}}]},arguments:{duration:100},startTick:1200,periodDays:1,profile:{type:'WORLD_TRAIN',id:'train'},initialPosition:{wayPointId:'point',reverseTrain:false},maximumDurationTicks:2000});
 describe('standalone program simulation contract',()=>{
  it('sends the actual accepted definition and arguments, detached without library lookup or live-state cloning',()=>{

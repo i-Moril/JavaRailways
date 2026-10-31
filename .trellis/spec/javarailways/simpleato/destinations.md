@@ -11,7 +11,6 @@
 ```kotlin
 data class OperationalDestination(
     val id: String,
-    val displayName: String,
     val railId: UUID,
     val arcLengthInAbMeters: Double,
     val approachDirection: ViewDirection? = null,
@@ -25,7 +24,8 @@ data class OperationalDestination(
 - `approachDirection=null`表示destination不额外限制，仍受rail operating direction。
 - role token：`REGULAR/STATION_BERTH/DEPOT_STABLING_POINT`。
 - role-owned ID固定`<owner>@<point>`；component禁止`@`/control char；general destination ID还禁止`/`。只用`OperationalDestinationIds`生成/解析。
-- `toWayPoint()`只派生id/displayName/railId/AB arc；WayPoint本身无direction。
+- `toWayPoint()`只派生id/railId/AB arc；WayPoint本身无direction。
+- 路径点和运营目标均以 `id` 唯一标识和展示；Station/Depot 的名称由各自角色字段拥有，不能作为另一份路径点身份。
 
 `SimpleATOWorldData.destinations`是唯一canonical writable store。`OperationalDestinationService(world)`是mutation的main-thread owner；它原子维护SimpleATO Station投影、SimpleATO Depot投影及Basic通用WayPoint route-anchor投影。Basic WayPoint不是第二个Destination owner。`service[id]`提供只读查询，返回当前不可变`OperationalDestination`值或`null`。
 

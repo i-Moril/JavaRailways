@@ -225,8 +225,8 @@ class ProtectionSignalControllerHandoffTest {
             signalSource.updateHandler.update(input)
         }), signals.protectionRegionInspectionSource) +
             if (extraStop == ExtraStop.DOWNSTREAM || extraStop == ExtraStop.ENTRANCE) listOf(extraSource) else emptyList())
-        basic.wayPoints.add(WayPoint("handoff-origin", "Origin", rail.id, headMeters))
-        basic.wayPoints.add(WayPoint("handoff-target", "Target", rail.id,
+        basic.wayPoints.add(WayPoint("handoff-origin", rail.id, headMeters))
+        basic.wayPoints.add(WayPoint("handoff-target", rail.id,
             if (extraStop == ExtraStop.SHORT_MISSION) exitMeters + 10.0 else entryMeters + 250.0))
         atoData.timetables.add(Timetable("handoff-timetable", services = listOf(TimetableService("handoff-service",
             TrainSelector.TrainId(train.id), listOf(TimetableStep.Check("handoff-origin"),

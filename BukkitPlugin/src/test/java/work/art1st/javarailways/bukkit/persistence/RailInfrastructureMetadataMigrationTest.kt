@@ -155,9 +155,9 @@ class RailInfrastructureMetadataMigrationTest {
 
     private fun legacyBasicWithMetadata(): String = """
         {"formatVersion":1,"infrastructureRevision":7,
-         "destinations":[{"id":"central","displayName":"Central",
+         "destinations":[{"id":"central",
            "railId":"00000000-0000-0000-0000-000000000001","arcLengthInAbMeters":0.0}],
-         "wayPoints":[{"id":"standalone","displayName":"Standalone",
+         "wayPoints":[{"id":"standalone",
            "railId":"00000000-0000-0000-0000-000000000001","arcLengthInAbMeters":0.0}],
          "lines":[{"id":"main","displayName":"Main","upStationIds":[],"downStationIds":[]}],
          "lineRevision":4,

@@ -63,8 +63,8 @@ class TimetableValidatorTest {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
-        world.basicWorldData.wayPoints.add(WayPoint("A", "A", rail.id, 20.0))
-        world.basicWorldData.wayPoints.add(WayPoint("B", "B", rail.id, 50.0))
+        world.basicWorldData.wayPoints.add(WayPoint("A", rail.id, 20.0))
+        world.basicWorldData.wayPoints.add(WayPoint("B", rail.id, 50.0))
         val parameters = kotlinx.serialization.json.Json.parseToJsonElement("""{"nested":{"values":[1,true,null,"ok"]}}""") as kotlinx.serialization.json.JsonObject
         fun timetable(call: work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionCall) = Timetable("extensions",
             services = listOf(TimetableService("s", TrainSelector.TrainId("T"), listOf(TimetableStep.Check("A"),
@@ -101,7 +101,7 @@ class TimetableValidatorTest {
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
         listOf("A" to 20.0, "A2" to 20.0, "via" to 50.0, "B" to 80.0).forEach { (id, arc) ->
-            world.basicWorldData.wayPoints.add(WayPoint(id, id, rail.id, arc))
+            world.basicWorldData.wayPoints.add(WayPoint(id, rail.id, arc))
         }
         val timetable = Timetable("dynamic", services = listOf(TimetableService("s", steps = listOf(
             TimetableStep.At(0L, TimetableAction.TakeFromWaypoint(listOf("A", "A2"))),
@@ -128,8 +128,8 @@ class TimetableValidatorTest {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
-        world.basicWorldData.wayPoints.add(WayPoint("A", "A", rail.id, 20.0))
-        world.basicWorldData.wayPoints.add(WayPoint("B", "B", rail.id, 50.0))
+        world.basicWorldData.wayPoints.add(WayPoint("A", rail.id, 20.0))
+        world.basicWorldData.wayPoints.add(WayPoint("B", rail.id, 50.0))
         val take = TimetableStep.At(0L, TimetableAction.TakeFromWaypoint(listOf("A")))
         val wait = TimetableStep.At(0L, TimetableAction.Stop(5L))
         val move = TimetableStep.At(0L, TimetableAction.GoTo("B"))
@@ -146,8 +146,8 @@ class TimetableValidatorTest {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
-        world.basicWorldData.wayPoints.add(WayPoint("A", "A", rail.id, 20.0))
-        world.basicWorldData.wayPoints.add(WayPoint("B", "B", rail.id, 50.0))
+        world.basicWorldData.wayPoints.add(WayPoint("A", rail.id, 20.0))
+        world.basicWorldData.wayPoints.add(WayPoint("B", rail.id, 50.0))
         fun validate(steps: List<TimetableStep>) = TimetableValidator(world).validate(
             Timetable("wait", services = listOf(TimetableService("s", TrainSelector.TrainId("T"), steps))))
         assertTrue(validate(listOf(TimetableStep.Check("A"), TimetableStep.At(5L, TimetableAction.WaitUntil), TimetableStep.At(5L, TimetableAction.GoTo("B")))).isSuccess)
@@ -164,7 +164,7 @@ class TimetableValidatorTest {
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
         val destinations = OperationalDestinationService(world)
         listOf("A" to 20.0, "B" to 70.0).forEach { (id, arc) ->
-            destinations.register(OperationalDestination("$id@one", id, rail.id, arc, ViewDirection.AB,
+            destinations.register(OperationalDestination("$id@one", rail.id, arc, ViewDirection.AB,
                 DestinationRole.DepotStablingPointRole(id, "one", usableLengthMeters = 20.0)))
         }
         world.simpleAtoWorldData.depots.registerRollingStock(
@@ -174,7 +174,7 @@ class TimetableValidatorTest {
         val store = TimetableStep.At(1L, TimetableAction.StoreAtDepot(DepotId("B")))
         fun validate(steps: List<TimetableStep>) = TimetableValidator(world).validate(
             Timetable("cross", services = listOf(TimetableService("s", steps = steps))))
-        world.basicWorldData.wayPoints.add(WayPoint("via", "Via", rail.id, 40.0))
+        world.basicWorldData.wayPoints.add(WayPoint("via", rail.id, 40.0))
         val move = TimetableStep.At(0L, TimetableAction.GoTo("via"))
         val result = validate(listOf(take, move, store))
         assertTrue(result.isSuccess, result.errors.toString())
@@ -197,8 +197,8 @@ class TimetableValidatorTest {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
-        world.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 10.0))
-        world.basicWorldData.wayPoints.add(WayPoint("end", "End", rail.id, 100.0))
+        world.basicWorldData.wayPoints.add(WayPoint("origin", rail.id, 10.0))
+        world.basicWorldData.wayPoints.add(WayPoint("end", rail.id, 100.0))
         val timetable = Timetable("offset", services = listOf(TimetableService("s", TrainSelector.TrainId("train"), listOf(
             TimetableStep.Check("origin"),
             TimetableStep.At(0L, TimetableAction.DestinationOptions("end", stoppingOffsetMetersBefore = 10.0)),
@@ -219,9 +219,9 @@ class TimetableValidatorTest {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
-        world.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 10.0))
-        world.basicWorldData.wayPoints.add(WayPoint("via", "Via", rail.id, 60.0))
-        OperationalDestinationService(world).register(OperationalDestination("central@one", "Central", rail.id, 100.0,
+        world.basicWorldData.wayPoints.add(WayPoint("origin", rail.id, 10.0))
+        world.basicWorldData.wayPoints.add(WayPoint("via", rail.id, 60.0))
+        OperationalDestinationService(world).register(OperationalDestination("central@one", rail.id, 100.0,
             ViewDirection.AB, DestinationRole.StationBerthRole(StationId("central"), berthId = "one",
                 doorSide = DoorSide.LEFT, stoppingOffsetMetersBefore = 10.0)))
         fun timetable(offset: Double?) = Timetable("station-offset", services = listOf(TimetableService("s",
@@ -234,8 +234,8 @@ class TimetableValidatorTest {
             assertEquals(listOf(null, effective), result.routeStoppingOffsetsMeters)
             assertEquals(listOf(50.0, 40.0), result.routes.map { it.totalLength })
         }
-        world.basicWorldData.wayPoints.add(WayPoint("beyond", "Beyond", rail.id, 100.0))
-        OperationalDestinationService(world).register(OperationalDestination("interior@one", "Interior", rail.id, 80.0,
+        world.basicWorldData.wayPoints.add(WayPoint("beyond", rail.id, 100.0))
+        OperationalDestinationService(world).register(OperationalDestination("interior@one", rail.id, 80.0,
             ViewDirection.AB, DestinationRole.StationBerthRole(StationId("interior"), berthId = "one",
                 doorSide = DoorSide.LEFT, stoppingOffsetMetersBefore = 10.0)))
         val interior = Timetable("interior-call", services = listOf(TimetableService("s", TrainSelector.TrainId("train"), listOf(
@@ -292,8 +292,8 @@ class TimetableValidatorTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        world.basicWorldData.wayPoints.add(WayPoint("A", "A", rail.id, 10.0))
-        world.basicWorldData.wayPoints.add(WayPoint("B", "B", rail.id, 70.0))
+        world.basicWorldData.wayPoints.add(WayPoint("A", rail.id, 10.0))
+        world.basicWorldData.wayPoints.add(WayPoint("B", rail.id, 70.0))
 
         val timetable = Timetable(
             id = "demo",
@@ -325,8 +325,8 @@ class TimetableValidatorTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        world.basicWorldData.wayPoints.add(WayPoint("A", "A", rail.id, 10.0))
-        world.basicWorldData.wayPoints.add(WayPoint("B", "B", rail.id, 70.0))
+        world.basicWorldData.wayPoints.add(WayPoint("A", rail.id, 10.0))
+        world.basicWorldData.wayPoints.add(WayPoint("B", rail.id, 70.0))
         val services = listOf(
             TimetableService(
                 "any-without-depot",
@@ -388,7 +388,6 @@ class TimetableValidatorTest {
         destinations.register(
             OperationalDestination(
                 "north@metro",
-                "North metro",
                 metroRail.id,
                 metroTrain.head.location.arcLength,
                 ViewDirection.AB,
@@ -402,7 +401,6 @@ class TimetableValidatorTest {
         destinations.register(
             OperationalDestination(
                 "north@freight",
-                "North freight",
                 freightRail.id,
                 freightTrain.head.location.arcLength,
                 ViewDirection.AB,
@@ -413,7 +411,7 @@ class TimetableValidatorTest {
                 )
             )
         )
-        data.wayPoints.add(WayPoint("B", "B", metroRail.id, 90.0))
+        data.wayPoints.add(WayPoint("B", metroRail.id, 90.0))
         world.simpleAtoWorldData.depots.registerRollingStock(
             RollingStockRecord(
                 metroTrain.id,
@@ -468,8 +466,8 @@ class TimetableValidatorTest {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
-        world.basicWorldData.wayPoints.add(WayPoint("A", "A", rail.id, 10.0))
-        world.basicWorldData.wayPoints.add(WayPoint("B", "B", rail.id, 70.0))
+        world.basicWorldData.wayPoints.add(WayPoint("A", rail.id, 10.0))
+        world.basicWorldData.wayPoints.add(WayPoint("B", rail.id, 70.0))
         val timetable = Timetable(
             id = "boundary",
             periodDays = 1L,
@@ -547,8 +545,8 @@ class TimetableValidatorTest {
         )
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
         val originArc = train.head.location.arcLength
-        data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
-        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 80.0))
+        data.wayPoints.add(WayPoint("A", rail.id, originArc))
+        data.wayPoints.add(WayPoint("B", rail.id, originArc + 80.0))
         val stationId = StationId("central")
         val berthRef = StationBerthRef(stationId, "wrong-way")
         world.simpleAtoWorldData.stations.register(

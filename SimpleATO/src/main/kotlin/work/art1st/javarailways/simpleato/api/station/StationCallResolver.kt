@@ -100,7 +100,7 @@ class StationCallResolver(private val world: World) {
                     StationCallResolutionFailure.ROUTE_UNAVAILABLE, "physical station origin direction changed"
                 )
                 // Endpoint descriptor only: physical origins are never registered as authored markers.
-                WayPoint(source.id, source.id, source.position.railId, source.position.arcLengthInAbMeters)
+                WayPoint(source.id, source.position.railId, source.position.arcLengthInAbMeters)
             }
         }
         val station = operationalData.stations[request.call.stationId]
@@ -147,7 +147,6 @@ class StationCallResolver(private val world: World) {
 
         val target = WayPoint(
             id = "station-call:${request.call.callId}:${request.call.berthRef}",
-            displayName = request.call.berthRef.toString(),
             railId = berth.location.rail.id,
             arcLength = berth.location.arcLengthIn(
                 work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB

@@ -18,7 +18,6 @@ class TimetableScriptNormalizerTest {
         val destinations = OperationalDestinationStore()
         destinations.add(OperationalDestination(
             id = "central@one",
-            displayName = "Central",
             railId = UUID.randomUUID(),
             arcLengthInAbMeters = 10.0,
             role = DestinationRole.StationBerthRole(

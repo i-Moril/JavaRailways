@@ -28,7 +28,7 @@ class StationStopSelectionTest {
             try {
                 val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(300.0, 1))
                 val train = createTrainWithConfig("physical", rail, world, listOf(length))
-                data.wayPoints.add(WayPoint("start", "start", rail.id, train.head.location.arcLength))
+                data.wayPoints.add(WayPoint("start", rail.id, train.head.location.arcLength))
                 fun berth(id: String, area: String = id, min: Double? = null, max: Double? = null, direction: ViewDirection = ViewDirection.AB) = StationBerth(
                     StationBerthRef(stationId, id), train.head.location.forward(if (id == "p2") 100.0 else 60.0)!!,
                     approachDirection = direction, usableLengthMeters = 100.0, stoppingAreaId = area,

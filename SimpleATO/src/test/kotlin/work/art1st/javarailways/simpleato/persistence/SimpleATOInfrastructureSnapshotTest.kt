@@ -54,7 +54,7 @@ class SimpleATOInfrastructureSnapshotTest {
     fun `fixed marker fixture defaults to independent area and preserves explicit grouping`() {
         val json = kotlinx.serialization.json.Json { encodeDefaults = true }
         val saved = json.decodeFromString(SavedOperationalDestinationV1.serializer(), """
-            {"id":"central@one","displayName":"One","railId":"00000000-0000-0000-0000-000000000001",
+            {"id":"central@one","railId":"00000000-0000-0000-0000-000000000001",
             "arcLengthInAbMeters":20.0,"roleType":"STATION_BERTH","stationId":"central",
             "stationDisplayName":"Central","berthId":"one","doorSide":"NONE"}
         """.trimIndent())
@@ -122,6 +122,10 @@ class SimpleATOInfrastructureSnapshotTest {
             restored.simpleAtoWorldData.stations.all().map { it.id.value }.toSet())
         assertEquals(setOf("central@one", "south@one"),
             restored.basicWorldData.wayPoints.all().map { it.id }.toSet())
+        assertEquals(source.simpleAtoWorldData.destinations.all(), restored.simpleAtoWorldData.destinations.all())
+        assertEquals(source.basicWorldData.wayPoints.all(), restored.basicWorldData.wayPoints.all())
+        assertEquals(source.simpleAtoWorldData.stations.all(), restored.simpleAtoWorldData.stations.all())
+        assertEquals(source.simpleAtoWorldData.lines.snapshot().lines, restoredLines.lines)
         assertNotNull(restored.simpleAtoWorldData.stations.berth(
             (restored.simpleAtoWorldData.destinations["central@one"]!!.role as
                 DestinationRole.StationBerthRole).berthRef
@@ -199,7 +203,6 @@ class SimpleATOInfrastructureSnapshotTest {
 
     private fun berth(stationId: String, arc: Double, railId: java.util.UUID) = OperationalDestination(
         id = "$stationId@one",
-        displayName = "$stationId one",
         railId = railId,
         arcLengthInAbMeters = arc,
         role = DestinationRole.StationBerthRole(

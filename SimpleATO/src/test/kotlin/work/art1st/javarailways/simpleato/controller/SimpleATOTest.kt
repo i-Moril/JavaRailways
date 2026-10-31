@@ -225,8 +225,8 @@ class SimpleATOTest {
         val fixture = fixture("mission-revision")
         val rail = fixture.train.head.location.rail
         val originArc = fixture.train.head.location.arcLength
-        fixture.data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
-        fixture.data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 20.0))
+        fixture.data.wayPoints.add(WayPoint("A", rail.id, originArc))
+        fixture.data.wayPoints.add(WayPoint("B", rail.id, originArc + 20.0))
         fun request(revision: Long) = AtoMissionRequest(
             id = "service-1",
             revision = revision,
@@ -298,9 +298,9 @@ class SimpleATOTest {
             PrimeCurveGenerator.buildStraight(50.0, segmentCount = 1)
         )
         fixture.data.wayPoints.add(
-            WayPoint("A", "A", currentRail.id, fixture.train.head.location.arcLength)
+            WayPoint("A", currentRail.id, fixture.train.head.location.arcLength)
         )
-        fixture.data.wayPoints.add(WayPoint("B", "B", disconnected.id, 20.0))
+        fixture.data.wayPoints.add(WayPoint("B", disconnected.id, 20.0))
 
         val result = fixture.ato.submitMission(
             AtoMissionRequest(
@@ -627,9 +627,8 @@ class SimpleATOTest {
         val originArc = fixture.train.head.location.arcLength
         val originId = "${fixture.train.id}-mission-origin"
         val targetId = "${fixture.train.id}-mission-target"
-        fixture.data.wayPoints.add(WayPoint(originId, originId, rail.id, originArc))
+        fixture.data.wayPoints.add(WayPoint(originId, rail.id, originArc))
         fixture.data.wayPoints.add(WayPoint(
-            targetId,
             targetId,
             rail.id,
             rail.curve.totalArcLength

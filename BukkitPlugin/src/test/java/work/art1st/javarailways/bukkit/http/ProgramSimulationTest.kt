@@ -103,7 +103,7 @@ class ProgramSimulationTest {
     @Test fun `task duration excludes scheduled idle and failures never return completed duration`() {
         TimetableScriptSandbox(directory).use { sandbox ->
             val saved = sandbox.compileSource(request().source(), "function-simulation")
-            val point = ProgramSimulationWayPoint("point", "Point", "rail", ViewDirection.AB, "WAYPOINT")
+            val point = ProgramSimulationWayPoint("point", "rail", ViewDirection.AB, "WAYPOINT")
             fun run(timings: List<TimetableTaskTiming>) = TimetableServiceRunSnapshot(
                 TimetableServiceRunId("function-simulation", PROGRAM_SIMULATION_SERVICE), "train", 1L,
                 TimetableServiceRunState.COMPLETED, false, taskTimings = timings)

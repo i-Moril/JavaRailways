@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
 /** Builds immutable map files off-thread and serves train state only from published frame snapshots. */
 class RailMapPreviewService(private val mapDirectory: File) : AutoCloseable {
     data class RailSource(val id:String,val curve:PrimeCurve)
-    data class MarkerSource(val id:String,val label:String,val kind:String,val railId:String,val arc:Double)
+    data class MarkerSource(val id:String,val kind:String,val railId:String,val arc:Double)
     data class SourceSnapshot(val worldName:String,val runtimeId:String,val signature:String,val rails:List<RailSource>,val markers:List<MarkerSource>)
     private data class CachedMap(val signature:String,val content:String)
 
@@ -37,9 +37,7 @@ class RailMapPreviewService(private val mapDirectory: File) : AutoCloseable {
         val rails=liveRails.map { RailSource(it.id.toString(),it.curve) }
         val destinations=world.simpleAtoWorldDataOrNull?.destinations?.all().orEmpty().map { destination ->
             val role=destination.role
-            // Operational roles own canonical IDs (station@berth / depot@stabling); do not leak the
-            // transient W<n> display name assigned before the role dialog was saved.
-            MarkerSource(boundedText(destination.id),boundedText(destination.id),when(role){
+            MarkerSource(boundedText(destination.id),when(role){
                 is DestinationRole.StationBerthRole->"STATION"
                 is DestinationRole.DepotStablingPointRole->"DEPOT"
                 DestinationRole.Regular->"DESTINATION"
@@ -47,12 +45,12 @@ class RailMapPreviewService(private val mapDirectory: File) : AutoCloseable {
         }
         val destinationIds=destinations.mapTo(HashSet()){it.id}
         val wayPoints=world.basicWorldData.wayPoints.all().filterNot{it.id in destinationIds}.map {
-            MarkerSource(boundedText(it.id),boundedText(it.displayName),"WAYPOINT",it.railId.toString(),it.arcLength)
+            MarkerSource(boundedText(it.id),"WAYPOINT",it.railId.toString(),it.arcLength)
         }
         val markers=destinations+wayPoints
         if(markers.size>MAX_MARKERS) throw HttpFailure(413,"rail map exceeds $MAX_MARKERS markers")
         val railHash=rails.fold(1){hash,rail->31*hash+java.util.Objects.hash(rail.id,System.identityHashCode(rail.curve),rail.curve.totalArcLength)}
-        val markerHash=markers.fold(1){hash,marker->31*hash+java.util.Objects.hash(marker.id,marker.kind,marker.label,marker.railId,marker.arc)}
+        val markerHash=markers.fold(1){hash,marker->31*hash+java.util.Objects.hash(marker.id,marker.kind,marker.railId,marker.arc)}
         val signature="${world.runtimeId}:$railHash:$markerHash"
         return SourceSnapshot(worldName,world.runtimeId,signature,rails,markers)
     }
@@ -149,7 +147,7 @@ class RailMapPreviewService(private val mapDirectory: File) : AutoCloseable {
         }
         val pointCount=sampled.values.sumOf{it.size}
         val estimatedBytes=pointCount*160L+snapshot.rails.size*192L+snapshot.markers.sumOf { marker ->
-            320L+marker.id.length*3L+marker.label.length*3L+marker.kind.length*3L
+            320L+marker.id.length*3L+marker.kind.length*3L
         }
         if(estimatedBytes>MAX_SERIALIZED_BYTES)throw HttpFailure(413,"estimated rail map exceeds $MAX_SERIALIZED_BYTES bytes")
         val railJson=snapshot.rails.mapIndexed { index,source ->
@@ -165,7 +163,7 @@ class RailMapPreviewService(private val mapDirectory: File) : AutoCloseable {
             if(index%256==0) ensureActive()
             val source=railsById[marker.railId] ?: return@mapIndexedNotNull null
             val point=source.curve.getPointAt(marker.arc.coerceIn(0.0,source.curve.totalArcLength)).position
-            buildJsonObject { put("id",marker.id);put("label",marker.label);put("kind",marker.kind);put("railId",marker.railId)
+            buildJsonObject { put("id",marker.id);put("kind",marker.kind);put("railId",marker.railId)
                 put("arcLengthMeters",marker.arc);put("x",point.x());put("y",point.y());put("z",point.z()) }
         }
         ensureActive()

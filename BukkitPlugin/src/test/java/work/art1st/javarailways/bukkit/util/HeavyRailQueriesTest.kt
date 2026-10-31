@@ -53,8 +53,8 @@ class HeavyRailQueriesTest {
         val otherRail = world.createRailForTest(rail.curve)
         val selected = HeavyRailQueries.findNearestWayPoint(
             wayPoints = listOf(
-                WayPoint("other", "other", otherRail.id, match.arcLength),
-                WayPoint("same", "same", rail.id, 8.0)
+                WayPoint("other", otherRail.id, match.arcLength),
+                WayPoint("same", rail.id, 8.0)
             ),
             railsById = mapOf(rail.id to rail, otherRail.id to otherRail),
             targetPosition = match.position,

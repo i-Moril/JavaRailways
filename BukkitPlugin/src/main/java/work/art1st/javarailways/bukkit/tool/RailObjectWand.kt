@@ -388,7 +388,6 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                 val pendingId = "pending:${livePlayer.uniqueId}:${System.nanoTime()}"
                 val wayPoint = WayPoint(
                     id = pendingId,
-                    displayName = "",
                     railId = rail.id,
                     arcLength = pointedRail.arcLength
                 )
@@ -706,7 +705,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
             )
             return
         }
-        if (pending == null) renameMarker(player.world.uid, oldId, updated.id, updated.id)
+        if (pending == null) renameMarker(player.world.uid, oldId, updated.id)
         spawnOrReplaceMarker(player, updated.toWayPoint())
         player.sendMessage(
             RailObjectWandI18n.component(
@@ -758,7 +757,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         val location = Location(world, position.x(), position.y() + 1.0, position.z())
         val playerId = player.uniqueId
         val playerMarkers = markerEntities.computeIfAbsent(playerId) { ConcurrentHashMap() }
-        val handle = MarkerHandle(world.uid, wayPoint.id, wayPoint.id)
+        val handle = MarkerHandle(world.uid, wayPoint.id)
         playerMarkers[wayPoint.id] = handle
 
         plugin.platformDispatcher.runAt(location) markerTask@{
@@ -768,7 +767,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
             entity.isPersistent = false
             entity.isVisibleByDefault = false
             entity.isGlowing = true
-            entity.customName(Component.text(handle.displayName, NamedTextColor.GREEN))
+            entity.customName(Component.text(handle.id, NamedTextColor.GREEN))
             entity.isCustomNameVisible = true
             handle.entity = entity
             plugin.platformDispatcher.runForEntity(
@@ -799,11 +798,11 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         plugin.platformDispatcher.runForEntity(entity, action = { entity.remove() })
     }
 
-    private fun renameMarker(worldId: UUID, oldId: String, newId: String, displayName: String) {
-        renameMarkers(markerEntities.values, worldId, oldId, newId, displayName) { handle ->
+    private fun renameMarker(worldId: UUID, oldId: String, newId: String) {
+        renameMarkers(markerEntities.values, worldId, oldId, newId) { handle ->
             handle.entity?.let { entity ->
                 plugin.platformDispatcher.runForEntity(entity, action = {
-                    entity.customName(Component.text(displayName, NamedTextColor.GREEN))
+                    entity.customName(Component.text(handle.id, NamedTextColor.GREEN))
                 })
             }
         }
@@ -886,7 +885,6 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     internal class MarkerHandle(
         val worldId: UUID,
         @Volatile var id: String,
-        @Volatile var displayName: String,
         @Volatile var material: Material = Material.LIME_CONCRETE,
         @Volatile var entity: ItemDisplay? = null
     )
@@ -926,14 +924,12 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
             worldId: UUID,
             oldId: String,
             newId: String,
-            displayName: String,
             updateEntity: (MarkerHandle) -> Unit
         ) {
             playerMarkers.forEach { markers ->
                 val handle = markers[oldId] ?: return@forEach
                 if (handle.worldId != worldId || !markers.remove(oldId, handle)) return@forEach
                 handle.id = newId
-                handle.displayName = displayName
                 markers[newId] = handle
                 updateEntity(handle)
             }

@@ -409,7 +409,6 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 put("destinations", JsonArray(destinations.map { destination ->
                     buildJsonObject {
                         put("id", destination.id)
-                        put("displayName", destination.displayName)
                         put("railId", destination.railId.toString())
                         put("arcLengthMeters", destination.arcLengthInAbMeters)
                         put("approachDirection", destination.approachDirection?.name ?: "ANY")

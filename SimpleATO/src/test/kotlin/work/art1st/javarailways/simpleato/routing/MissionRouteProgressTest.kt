@@ -56,8 +56,8 @@ class MissionRouteProgressTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        data.wayPoints.add(WayPoint("A", "A", rail.id, 80.0))
-        data.wayPoints.add(WayPoint("B", "B", rail.id, 20.0))
+        data.wayPoints.add(WayPoint("A", rail.id, 80.0))
+        data.wayPoints.add(WayPoint("B", rail.id, 20.0))
         val result = AtoMissionResolver(world).resolve(
             AtoMissionRequest(
                 id = "ba",

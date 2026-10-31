@@ -71,7 +71,7 @@ export function RailMap({world,onError}:{world:string;onError:(message:string)=>
     for(const marker of map.markers){
       const point=project(marker.x,marker.z);context.beginPath();context.arc(point.x,point.y,marker.kind==='STATION'?STATION_MARKER_RADIUS:DESTINATION_MARKER_RADIUS,0,Math.PI*2);
       const markerColor=marker.kind==='STATION'?'#087caf':marker.kind==='DEPOT'?'#d68117':'#7b8fa4';context.fillStyle=markerColor;context.fill();
-      if(viewport.zoom>=1.2||marker.kind==='STATION')labels.push({id:`marker:${marker.id}`,text:marker.label||marker.id,x:point.x,y:point.y,priority:marker.kind==='STATION'?0:marker.kind==='DEPOT'?1:2,color:labelColor});
+      if(viewport.zoom>=1.2||marker.kind==='STATION')labels.push({id:`marker:${marker.id}`,text:marker.id,x:point.x,y:point.y,priority:marker.kind==='STATION'?0:marker.kind==='DEPOT'?1:2,color:labelColor});
     }
     for(const train of trains){
       const carColor=stale?'#8793a5':train.derailed?'#d9364f':'#43a65d';

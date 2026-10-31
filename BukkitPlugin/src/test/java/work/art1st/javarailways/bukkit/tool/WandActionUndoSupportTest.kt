@@ -90,12 +90,12 @@ class WandActionUndoSupportTest {
         val oldRail = UUID.randomUUID()
         val newRail = UUID.randomUUID()
         val unchangedRail = UUID.randomUUID()
-        val currentDestination = OperationalDestination("changed", "Changed", newRail, 4.0)
+        val currentDestination = OperationalDestination("changed", newRail, 4.0)
         val targetDestination = currentDestination.copy(railId = oldRail, arcLengthInAbMeters = 2.0)
-        val unchangedDestination = OperationalDestination("unchanged", "Unchanged", unchangedRail, 1.0)
-        val currentWayPoint = WayPoint("standalone", "Standalone", newRail, 4.0)
+        val unchangedDestination = OperationalDestination("unchanged", unchangedRail, 1.0)
+        val currentWayPoint = WayPoint("standalone", newRail, 4.0)
         val targetWayPoint = currentWayPoint.copy(railId = oldRail, arcLength = 2.0)
-        val unchangedWayPoint = WayPoint("untouched", "Untouched", unchangedRail, 1.0)
+        val unchangedWayPoint = WayPoint("untouched", unchangedRail, 1.0)
 
         val plan = planOperationalInfrastructureRestore(
             currentDestinations = listOf(currentDestination, unchangedDestination),
@@ -123,8 +123,8 @@ class WandActionUndoSupportTest {
     @Test
     fun `prepared world undo materializes complete expected state before owner commit`() {
         val removedRail = UUID.randomUUID()
-        val destination = OperationalDestination("removed", "Removed", removedRail, 3.0)
-        val standAloneWayPoint = WayPoint("standalone", "Standalone", removedRail, 4.0)
+        val destination = OperationalDestination("removed", removedRail, 3.0)
+        val standAloneWayPoint = WayPoint("standalone", removedRail, 4.0)
         val before = RailWorldUndoSnapshot(
             rails = emptyList(),
             renderMetas = emptyList(),

@@ -192,7 +192,7 @@ class TimetableRunMetadataTest {
             try {
                 val rail=createStraightRailFromSegments(world,PrimeCurveGenerator.buildStraight(200.0,1))
                 listOf("A","C","E").forEachIndexed { index,id -> OperationalDestinationService(world).register(
-                    OperationalDestination("$id@1",id,rail.id,20.0+index*60.0,ViewDirection.AB,
+                    OperationalDestination("$id@1",rail.id,20.0+index*60.0,ViewDirection.AB,
                         DestinationRole.StationBerthRole(StationId(id),berthId="1",doorSide=work.art1st.javarailways.basic.api.operation.DoorSide.NONE,usableLengthMeters=30.0))) }
                 fun call(id:String,status:TimetableServiceStopStatus)=TimetableRunCall(id,id,"$id@1",status)
                 val calls=listOf(call("A",TimetableServiceStopStatus.ORIGIN),call("C",TimetableServiceStopStatus.PASS),call("E",TimetableServiceStopStatus.TERMINAL))

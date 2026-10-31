@@ -19,7 +19,7 @@ vi.mock('antd',async()=>{
  Input:Object.assign(({value,onChange,...props}:any)=><input {...props} value={value} onChange={onChange}/>,{TextArea:({status:_,...props}:any)=><textarea {...props}/>})};
 });
 const definition:StationProgramDefinition={parameters:[],steps:[{id:'wait',type:'WAIT_DURATION',durationTicks:{value:100}}]};
-const metadata:WorldMetadata={simulationProfiles:[{type:'TRAIN_TEMPLATE',id:'emu',displayName:'EMU',carCount:2}],wayPoints:['undirected'],programSimulationWayPoints:[{id:'point',displayName:'Point',railId:'rail',direction:'BA',directionSource:'RAIL'}]};
+const metadata:WorldMetadata={simulationProfiles:[{type:'TRAIN_TEMPLATE',id:'emu',displayName:'EMU',carCount:2}],wayPoints:['undirected'],programSimulationWayPoints:[{id:'point',railId:'rail',direction:'BA',directionSource:'RAIL'}]};
 // Scenario setup takes50 ticks after the planned start; only the actual function's100 ticks are adopted.
 const complete:ProgramSimulationResult={status:'COMPLETED',simulatedTicks:250,startTick:150,endTick:250,durationTicks:100,initialPosition:{wayPointId:'point',direction:'BA',directionSource:'RAIL',reverseTrain:true}};
 let container:HTMLDivElement,root:Root;
@@ -49,11 +49,11 @@ describe('mounted standalone invocation scenario',()=>{
  it('blocks incomplete numeric drafts and hides a measurement even when accepted values have not changed',async()=>{
   vi.mocked(api.simulateProgram).mockResolvedValue(complete);await render({onAdoptDuration:vi.fn()});await ready();await click('Start simulation');await input('Simulation advance limit (ticks)','-');expect(button('Start simulation').disabled).toBe(true);expect(button('Use as planned duration').disabled).toBe(true);expect(container.textContent).not.toContain('Actual function duration:');
  });
- it('finds a directed depot origin by its displayed name or canonical ID and submits the ID',async()=>{
-  const depotMetadata:WorldMetadata={...metadata,wayPoints:['kasaidpt@1','undirected'],programSimulationWayPoints:[{id:'kasaidpt@1',displayName:'第一存车线',railId:'r',direction:'BA',directionSource:'WAYPOINT'}],depotDetails:[{id:'kasaidpt',displayName:'葛西车辆段',stablingPoints:[{id:'1',destinationId:'kasaidpt@1'}]}]};
+ it('filters eligible depot origins by ID and submits the selected ID',async()=>{
+  const depotMetadata:WorldMetadata={...metadata,wayPoints:['kasaidpt@1','undirected'],programSimulationWayPoints:[{id:'kasaidpt@1',railId:'r',direction:'BA',directionSource:'WAYPOINT'}],depotDetails:[{id:'kasaidpt',displayName:'葛西车辆段',stablingPoints:[{id:'1',destinationId:'kasaidpt@1'}]}]};
   vi.mocked(api.simulateProgram).mockResolvedValue({...complete,initialPosition:{wayPointId:'kasaidpt@1',direction:'BA',directionSource:'WAYPOINT',reverseTrain:false}});await render({metadata:depotMetadata});await select('Simulation reference vehicle','TRAIN_TEMPLATE:emu');
-  await input('Starting waypoint','第一存车线');expect(button('第一存车线 · 葛西车辆段 · 1 · kasaidpt@1')).toBeDefined();expect(button('Start simulation').disabled).toBe(true);
-  await input('Starting waypoint','kasaidpt@1');await click('第一存车线 · 葛西车辆段 · 1 · kasaidpt@1');expect(container.querySelector<HTMLInputElement>('input[aria-label="Starting waypoint"]')!.value).toBe('kasaidpt@1');expect(button('Start simulation').disabled).toBe(true);await reverse(false);await click('Start simulation');
+  await input('Starting waypoint','KASAIDPT');expect(button('kasaidpt@1')).toBeDefined();expect(button('Start simulation').disabled).toBe(true);
+  await input('Starting waypoint','kasaidpt@1');await click('kasaidpt@1');expect(container.querySelector<HTMLInputElement>('input[aria-label="Starting waypoint"]')!.value).toBe('kasaidpt@1');expect(button('Start simulation').disabled).toBe(true);await reverse(false);await click('Start simulation');
   expect(api.simulateProgram).toHaveBeenCalledExactlyOnceWith('world',expect.objectContaining({initialPosition:{wayPointId:'kasaidpt@1',reverseTrain:false}}));
  });
  it('invalidates an accepted measurement on raw waypoint typing before blur and rejects unknown or undirected IDs',async()=>{

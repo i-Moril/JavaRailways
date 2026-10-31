@@ -19,3 +19,4 @@
 {"file": ".trellis/tasks/10-24-stop-program-hooks/research/waypoint-input-validation.md", "reason": "Final automated and real browser evidence, review closure and live verification limits"}
 {"file": ".trellis/tasks/10-24-stop-program-hooks/research/waypoint-suffix-correction-2026-10-31.md", "reason": "User correction: full waypoint inputs exclude existing station/depot suffix fields"}
 {"file": ".trellis/tasks/10-24-stop-program-hooks/research/waypoint-suffix-review-2026-10-31.md", "reason": "Bounded independent review confirms suffix controls restored and full waypoint inputs retained"}
+{"file": ".trellis/tasks/10-24-stop-program-hooks/research/waypoint-identity-only.md", "reason": "Latest user requirement supersedes waypoint name filtering: delete point names from model/schema/API/UI with offline-only save conversion"}

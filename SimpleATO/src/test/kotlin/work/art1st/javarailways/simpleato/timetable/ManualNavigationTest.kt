@@ -118,12 +118,11 @@ class ManualNavigationTest {
             )
             val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
             val originArc = train.head.location.arcLength
-            data.wayPoints.add(WayPoint("via", "via", rail.id, originArc + 25.0))
-            data.wayPoints.add(WayPoint("stop", "stop", rail.id, originArc + 60.0))
+            data.wayPoints.add(WayPoint("via", rail.id, originArc + 25.0))
+            data.wayPoints.add(WayPoint("stop", rail.id, originArc + 60.0))
             OperationalDestinationService(world).register(
                 OperationalDestination(
                     id = "current",
-                    displayName = "current",
                     railId = rail.id,
                     arcLengthInAbMeters = originArc,
                     approachDirection = ViewDirection.AB,
@@ -176,13 +175,12 @@ class ManualNavigationTest {
                 world,
                 PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
             )
-            world.basicWorldData.wayPoints.add(WayPoint("origin", "origin", rail.id, 0.0))
-            world.basicWorldData.wayPoints.add(WayPoint("via", "via", rail.id, 20.0))
-            world.basicWorldData.wayPoints.add(WayPoint("plain", "plain", rail.id, 40.0))
+            world.basicWorldData.wayPoints.add(WayPoint("origin", rail.id, 0.0))
+            world.basicWorldData.wayPoints.add(WayPoint("via", rail.id, 20.0))
+            world.basicWorldData.wayPoints.add(WayPoint("plain", rail.id, 40.0))
             OperationalDestinationService(world).register(
                 OperationalDestination(
                     id = "central@one",
-                    displayName = "Central",
                     railId = rail.id,
                     arcLengthInAbMeters = 80.0,
                     role = DestinationRole.StationBerthRole(

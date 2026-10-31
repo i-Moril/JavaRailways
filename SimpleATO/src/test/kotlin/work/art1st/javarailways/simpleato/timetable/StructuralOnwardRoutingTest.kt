@@ -20,7 +20,7 @@ class StructuralOnwardRoutingTest {
                 val train = createTrainWithConfig("physical", rail, world, List(4) { 10.0 }, connectorLength = 0.25)
                 world.onOwnerForTest { train.setLocation(rail.viewAB.getRailLocationAt(80.0)); train.commit() }
                 listOf("origin" to 80.0, "via" to 130.0, "end" to 200.0).forEach { (id, arc) ->
-                    world.basicWorldData.wayPoints.add(WayPoint(id, id, rail.id, arc))
+                    world.basicWorldData.wayPoints.add(WayPoint(id, rail.id, arc))
                 }
                 val home = DepotId("home")
                 val depot = world.simpleAtoWorldData.depots

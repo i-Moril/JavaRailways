@@ -6,6 +6,7 @@ import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.AfterEach
@@ -46,8 +47,8 @@ class BasicInfrastructureSnapshotTest {
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
         val snapshot = BasicInfrastructureSnapshotCodec.decode(
             """{"formatVersion":2,"infrastructureRevision":7,"wayPoints":[
-                {"id":"valid","displayName":"Valid","railId":"${rail.id}","arcLengthInAbMeters":10.0},
-                {"id":" ","displayName":"Invalid","railId":"${rail.id}","arcLengthInAbMeters":20.0}],
+                {"id":"valid","railId":"${rail.id}","arcLengthInAbMeters":10.0},
+                {"id":" ","railId":"${rail.id}","arcLengthInAbMeters":20.0}],
                 "railMetadata":[{"railId":"${rail.id}","metadata":{}}],
                 "operatingDirections":[{"railId":"${rail.id}","permittedDirection":"AB"}]}"""
         )
@@ -67,7 +68,7 @@ class BasicInfrastructureSnapshotTest {
         IsolatedSimulationThreadMarker.run { original.save().copy(id = railId).load(CoreRail.SavedRailV1.Dependency(world)) }
         val snapshot = BasicInfrastructureSnapshotCodec.decode(
             """{"formatVersion":2,"infrastructureRevision":7,"wayPoints":[
-                {"id":"valid","displayName":"Valid","railId":"$railId","arcLengthInAbMeters":10.0}],
+                {"id":"valid","railId":"$railId","arcLengthInAbMeters":10.0}],
                 "railMetadata":[
                     {"railId":"$railId","metadata":{"authoring":{"designSpeedMetersPerSecond":20.0}}},
                     {"railId":"${railId.uppercase()}","metadata":{"authoring":{"designSpeedMetersPerSecond":30.0}}}],
@@ -97,6 +98,25 @@ class BasicInfrastructureSnapshotTest {
                 }
             }
         }
+    }
+
+    @Test
+    fun `standalone waypoint identity changes preserve geometry in the current snapshot`() = withFreshWorld { world ->
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
+        val snapshot = BasicInfrastructureSnapshotCodec.decode(
+            """{"formatVersion":2,"infrastructureRevision":7,"wayPoints":[
+                {"id":"yard-entry","railId":"${rail.id}","arcLengthInAbMeters":20.0}]}"""
+        )
+        snapshot.restore(world)
+        assertEquals(WayPoint("yard-entry", rail.id, 20.0), world.basicWorldData.wayPoints["yard-entry"])
+
+        val renamed = world.basicWorldData.wayPoints.rename("yard-entry", "yard-exit")
+
+        assertNull(world.basicWorldData.wayPoints["yard-entry"])
+        assertEquals(WayPoint("yard-exit", rail.id, 20.0), renamed)
+        val captured = BasicInfrastructureSnapshotV2.capture(world, 7L, emptySet())
+        assertEquals(listOf(SavedWayPointV1("yard-exit", rail.id.toString(), 20.0)), captured.wayPoints)
+        assertEquals(captured, BasicInfrastructureSnapshotCodec.decode(BasicInfrastructureSnapshotCodec.encode(captured)))
     }
 
     @Test
@@ -132,7 +152,7 @@ class BasicInfrastructureSnapshotTest {
         val direction = SavedOperatingDirectionV1.capture(rail.id, ViewDirection.AB)
         val base = BasicInfrastructureSnapshotV2(
             2, 7L,
-            listOf(SavedWayPointV1("standalone", "Standalone", rail.id.toString(), 20.0)),
+            listOf(SavedWayPointV1("standalone", rail.id.toString(), 20.0)),
             listOf(SavedRailInfrastructureMetadataV1.capture(
                 rail.id,
                 RailInfrastructureMetadata(
@@ -207,7 +227,7 @@ class BasicInfrastructureSnapshotTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        world.basicWorldData.wayPoints.add(WayPoint("orphan", "Orphan", rail.id, 20.0))
+        world.basicWorldData.wayPoints.add(WayPoint("orphan", rail.id, 20.0))
         IsolatedSimulationThreadMarker.run { world.removeRail(rail) }
 
         val failure = assertThrows(IllegalStateException::class.java) {
@@ -226,8 +246,8 @@ class BasicInfrastructureSnapshotTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        world.basicWorldData.wayPoints.add(WayPoint("standalone", "Standalone", rail.id, 20.0))
-        world.basicWorldData.wayPoints.add(WayPoint("projected", "Projected", rail.id, 40.0))
+        world.basicWorldData.wayPoints.add(WayPoint("standalone", rail.id, 20.0))
+        world.basicWorldData.wayPoints.add(WayPoint("projected", rail.id, 40.0))
 
         val snapshot = BasicInfrastructureSnapshotV2.capture(
             world,

@@ -80,8 +80,8 @@ class ProtectionRegionTimetableDependencyTest {
                 world.registerExtensionData(basicPlugin, basic)
                 world.registerExtensionData(atoPlugin, ato)
                 ato.routePlanningRestrictions.replaceSources(listOf(signals.routePlanningBinding))
-                basic.wayPoints.add(WayPoint("A", "Origin", rail.id, origin))
-                basic.wayPoints.add(WayPoint("B", "Beyond region", rail.id, origin + 25.0))
+                basic.wayPoints.add(WayPoint("A", rail.id, origin))
+                basic.wayPoints.add(WayPoint("B", rail.id, origin + 25.0))
                 fun timetable(start: String, target: String, moveInitially: Boolean = false) = Timetable("protection",
                     services = listOf(TimetableService("s1", TrainSelector.TrainId(train.id), listOf(
                         TimetableStep.Check(start), TimetableStep.At(0L, TimetableAction.GoTo(target))))),
@@ -94,8 +94,8 @@ class ProtectionRegionTimetableDependencyTest {
                         registry.dependencySnapshots().single().dependencies.resourceIds)
                 }
                 // Temporary markers belong only to the rejected internal-endpoint candidate.
-                basic.wayPoints.add(WayPoint("C", "Candidate initial position", rail.id, origin + 2.0))
-                basic.wayPoints.add(WayPoint("D", "Internal target", rail.id, origin + 10.0))
+                basic.wayPoints.add(WayPoint("C", rail.id, origin + 2.0))
+                basic.wayPoints.add(WayPoint("D", rail.id, origin + 10.0))
                 val previous = registry.dependencySnapshots().singleOrNull()
                 val oldClocks = dispatcher.saveCheckpoint().clocks
                 val oldLocation = train.head.location.arcLength

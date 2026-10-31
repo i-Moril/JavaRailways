@@ -134,7 +134,6 @@ sealed interface DestinationRole {
  */
 data class OperationalDestination(
     val id: String,
-    val displayName: String,
     val railId: UUID,
     val arcLengthInAbMeters: Double,
     /** Null means no destination-level restriction; rail direction rules still apply. */
@@ -143,7 +142,6 @@ data class OperationalDestination(
 ) {
     init {
         requireStableId("destinationId", id)
-        require(displayName.isNotBlank() && displayName == displayName.trim())
         require(arcLengthInAbMeters.isFinite() && arcLengthInAbMeters >= 0.0)
         val canonicalRoleId = when (role) {
             DestinationRole.Regular -> id
@@ -161,7 +159,7 @@ data class OperationalDestination(
         }
     }
 
-    fun toWayPoint(): WayPoint = WayPoint(id, displayName, railId, arcLengthInAbMeters)
+    fun toWayPoint(): WayPoint = WayPoint(id, railId, arcLengthInAbMeters)
 }
 
 /** World-local stable Destination records. Live StationBerths are owned by StationStore. */

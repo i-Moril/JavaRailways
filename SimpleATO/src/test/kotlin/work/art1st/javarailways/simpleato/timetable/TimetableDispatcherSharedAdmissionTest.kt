@@ -874,7 +874,6 @@ class TimetableDispatcherSharedAdmissionTest {
         val destinations = OperationalDestinationService(world)
         destinations.register(OperationalDestination(
             "north@out",
-            "North out",
             rail.id,
             origin,
             ViewDirection.AB,
@@ -882,14 +881,13 @@ class TimetableDispatcherSharedAdmissionTest {
         ))
         destinations.register(OperationalDestination(
             "south@in",
-            "South in",
             rail.id,
             origin + 100.0,
             ViewDirection.AB,
             DestinationRole.DepotStablingPointRole("south", "in", usableLengthMeters = 20.0)
         ))
-        data.wayPoints.add(WayPoint("B", "B", rail.id, origin + 50.0))
-        data.wayPoints.add(WayPoint("C", "C", rail.id, origin + 160.0))
+        data.wayPoints.add(WayPoint("B", rail.id, origin + 50.0))
+        data.wayPoints.add(WayPoint("C", rail.id, origin + 160.0))
         world.simpleAtoWorldData.depots.registerRollingStock(
             RollingStockRecord(
                 train.id,
@@ -985,9 +983,9 @@ class TimetableDispatcherSharedAdmissionTest {
         )
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
         val origin = train.head.location.arcLength
-        data.wayPoints.add(WayPoint("A", "A", rail.id, origin))
-        data.wayPoints.add(WayPoint("B", "B", rail.id, origin + 45.0))
-        data.wayPoints.add(WayPoint("C", "C", rail.id, origin + 110.0))
+        data.wayPoints.add(WayPoint("A", rail.id, origin))
+        data.wayPoints.add(WayPoint("B", rail.id, origin + 45.0))
+        data.wayPoints.add(WayPoint("C", rail.id, origin + 110.0))
         world.simpleAtoWorldData.timetables.add(Timetable(
             "first",
             services = listOf(TimetableService(
@@ -1082,9 +1080,9 @@ class TimetableDispatcherSharedAdmissionTest {
         )
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
         val origin = train.head.location.arcLength
-        data.wayPoints.add(WayPoint("A", "A", rail.id, origin))
-        data.wayPoints.add(WayPoint("B", "B", rail.id, origin + if (withOrdinaryStop) 60.0 else 250.0))
-        if (withOrdinaryStop) data.wayPoints.add(WayPoint("C", "C", rail.id, origin + 180.0))
+        data.wayPoints.add(WayPoint("A", rail.id, origin))
+        data.wayPoints.add(WayPoint("B", rail.id, origin + if (withOrdinaryStop) 60.0 else 250.0))
+        if (withOrdinaryStop) data.wayPoints.add(WayPoint("C", rail.id, origin + 180.0))
         val steps = mutableListOf<TimetableStep>(
             TimetableStep.Check("A"),
             TimetableStep.At(0L, TimetableAction.GoTo("B"))

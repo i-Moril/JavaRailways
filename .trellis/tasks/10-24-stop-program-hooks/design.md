@@ -4,6 +4,8 @@ User authorized implementation after the confirmed two-entry summary on 2026-10-
 
 ## Ownership and current contracts
 
+2026-10-31 路径点身份追加约束：`WayPoint`/`OperationalDestination` 和对应 current snapshot 仅保存 ID 与空间/角色数据；编辑、metadata、地图、候选和查找统一使用实际 ID。独立对象的站名、车辆段名、线路名继续由各自 owner 管理。按 research/waypoint-identity-only.md 同步删除字段及所有消费逻辑，不增加旧字段兼容或专项拒绝分支，保持开发格式版本；旧服务器存档只由离线工具转换。
+
 Frontend editor document owns shared `stationPrograms`, `events`, run-call ordered `viaIds`, duty simulation reference and duty action source. Existing schema formatVersion stays 1: repository is development-only and no released/frozen boundary has been identified. No permanent old-data reader. Existing live data is not changed or deployed in this task; any future deployment requires dry-run/audited conversion and recovery points where needed.
 
 Shared station record is `{stationId, arrival:StationProgramDefinition, departurePreparation:StationProgramDefinition, preparationLeadTicks:number}`. Both definitions have no declared parameters. Missing station record yields explicit default open/end and close/end entries, not an empty bypass. Remove per-call arrival editing/current writing. Station execution is instantiated independently per actual stop; PASS never runs; origin preparation only; terminal arrival only even if an optional terminal departure tick exists.

@@ -80,10 +80,10 @@ class FullFeatureSimulationIsolationTest {
                         speedLimits = SpeedLimitMetadata(listOf(SpeedLimitEntry(10.0, SpeedLimitType.SUBGRADE)))))
                 }
             }
-            source.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 30.0))
-            source.basicWorldData.wayPoints.add(WayPoint("terminal", "Terminal", terminalRail.id, 130.0))
+            source.basicWorldData.wayPoints.add(WayPoint("origin", rail.id, 30.0))
+            source.basicWorldData.wayPoints.add(WayPoint("terminal", terminalRail.id, 130.0))
             OperationalDestinationService(source).register(OperationalDestination(
-                "station", "Station", terminalRail.id, 50.0, ViewDirection.AB, DestinationRole.Regular))
+                "station", terminalRail.id, 50.0, ViewDirection.AB, DestinationRole.Regular))
             val liveTrain = createTrainWithConfig("live-transient", rail, source, listOf(10.0))
             val liveFrame = liveTrain.publishedFrame
             val feature = SimpleSignalsSimulationFeatureFactory.fourLightFeature(
@@ -167,9 +167,9 @@ class FullFeatureSimulationIsolationTest {
             val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
             registerWorldData(source)
             source.basicWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
-            source.basicWorldData.wayPoints.add(WayPoint("lead-origin", "Lead", rail.id, 50.0))
-            source.basicWorldData.wayPoints.add(WayPoint("incoming-origin", "Incoming", rail.id, 40.0))
-            source.basicWorldData.wayPoints.add(WayPoint("terminal", "Terminal", rail.id, 250.0))
+            source.basicWorldData.wayPoints.add(WayPoint("lead-origin", rail.id, 50.0))
+            source.basicWorldData.wayPoints.add(WayPoint("incoming-origin", rail.id, 40.0))
+            source.basicWorldData.wayPoints.add(WayPoint("terminal", rail.id, 250.0))
             val leadProfile = profile(1).let { base ->
                 val original = base.cars.single().behavior
                 val script = requireNotNull(original.script)

@@ -22,6 +22,8 @@ data class BasicWorldData(
 
 来源：`Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`。
 
+`WayPoint(id, railId, arcLength)` 保存唯一 ID、Core rail UUID 与 canonical AB 弧长；展示、查找和 `WayPointStore.rename(oldId,newId)` 均使用 ID。当前持久化 `SavedWayPointV1` 保存相同身份和坐标信息。
+
 `World.basicWorldData`与`World.basicWorldDataOrNull`位于`work.art1st.javarailways.basic`，直接访问显式注册的
 Basic extension data。旧`pathFinding.RailMap`目的地索引已删除；通用运营轨道对象由`RailObjectStore`维护，
 不再为每个世界创建另一份目的地索引。ATO仍合并Core已有的静态信号和动态车端，不用该store替代物理对象来源。

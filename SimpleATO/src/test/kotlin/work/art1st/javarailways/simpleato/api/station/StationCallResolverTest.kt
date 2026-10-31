@@ -215,7 +215,7 @@ class StationCallResolverTest {
         )
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
         val originArc = train.head.location.arcLength
-        data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
+        data.wayPoints.add(WayPoint("A", rail.id, originArc))
         val stationId = StationId("central")
         val berthRef = StationBerthRef(stationId, "one")
         val berth = StationBerth(

@@ -63,7 +63,7 @@ class TimetableInitialPositionerTest {
         IsolatedSimulationThreadMarker.run {
             world.physicsCoordinator.processBetweenFrames { world.renameTrain(train, "s100-1") }
         }
-        world.basicWorldData.wayPoints.add(WayPoint("yard@1", "Yard 1", rail.id, 70.0))
+        world.basicWorldData.wayPoints.add(WayPoint("yard@1", rail.id, 70.0))
         val timetable = Timetable(
             id = "tt",
             initialPositions = listOf(
@@ -111,7 +111,6 @@ class TimetableInitialPositionerTest {
         listOf(80.0 to "1", 180.0 to "2").forEach { (arc, pointId) ->
             destinations.register(OperationalDestination(
                 "msb@$pointId",
-                "MSB $pointId",
                 rail.id,
                 arc,
                 ViewDirection.AB,
@@ -162,7 +161,7 @@ class TimetableInitialPositionerTest {
             world.physicsCoordinator.processBetweenFrames { world.renameTrain(train, "s100-1") }
         }
         train.setControllerForTest(object : TrainController(train) {})
-        world.basicWorldData.wayPoints.add(WayPoint("yard@1", "Yard", rail.id, 70.0))
+        world.basicWorldData.wayPoints.add(WayPoint("yard@1", rail.id, 70.0))
         val timetable = Timetable(
             id = "tt",
             initialPositions = listOf(TimetableInitialPosition(
@@ -197,7 +196,7 @@ class TimetableInitialPositionerTest {
         IsolatedSimulationThreadMarker.run {
             world.physicsCoordinator.processBetweenFrames { world.renameTrain(train, "s100-1") }
         }
-        world.basicWorldData.wayPoints.add(WayPoint("undirected", "Undirected", rail.id, 70.0))
+        world.basicWorldData.wayPoints.add(WayPoint("undirected", rail.id, 70.0))
         val timetable = Timetable(
             id = "tt",
             initialPositions = listOf(
@@ -231,8 +230,8 @@ class TimetableInitialPositionerTest {
             second.setLocation(rail.viewAB.getRailLocationAt(160.0))
             world.publishOwnerChanges(listOf(second))
         }
-        world.basicWorldData.wayPoints.add(WayPoint("one", "One", rail.id, 80.0))
-        world.basicWorldData.wayPoints.add(WayPoint("two", "Two", rail.id, 84.0))
+        world.basicWorldData.wayPoints.add(WayPoint("one", rail.id, 80.0))
+        world.basicWorldData.wayPoints.add(WayPoint("two", rail.id, 84.0))
         val timetable = Timetable(
             "overlap", initialPositions = listOf(
                 TimetableInitialPosition(TimetableObjectSelector.Regex("first"), TimetableObjectSelector.Regex("one")),

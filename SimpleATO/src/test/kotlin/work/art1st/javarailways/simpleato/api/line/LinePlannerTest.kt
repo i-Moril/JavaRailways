@@ -49,11 +49,11 @@ class LinePlannerTest {
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
         val destinations = OperationalDestinationService(world)
         for ((id, position) in listOf("a" to 10.0, "b" to 90.0)) destinations.register(OperationalDestination(
-            id = "$id@one", displayName = id, railId = rail.id, arcLengthInAbMeters = position,
+            id = "$id@one", railId = rail.id, arcLengthInAbMeters = position,
             approachDirection = ViewDirection.AB,
             role = DestinationRole.StationBerthRole(StationId(id), id, "one", DoorSide.LEFT)))
-        world.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("via1", "Via", rail.id, 40.0))
-        world.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("via2", "Via", rail.id, 60.0))
+        world.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("via1", rail.id, 40.0))
+        world.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("via2", rail.id, 60.0))
         val line = Line(LineId("L"), "Line", listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a")))
         val planner = LinePlanner(world)
         fun compile(via: List<String>) = planner.compileResetCandidates(line, line.upStationIds, listOf("a@one", "b@one"),
@@ -88,12 +88,12 @@ class LinePlannerTest {
         val goalDirection = if (goal.endAbMeters > goal.startAbMeters) ViewDirection.BA else ViewDirection.AB
         val destinations = OperationalDestinationService(world)
         destinations.register(OperationalDestination(
-            id = "origin@one", displayName = "Origin", railId = origin.railId,
+            id = "origin@one", railId = origin.railId,
             arcLengthInAbMeters = origin.endAbMeters, approachDirection = originDirection,
             role = DestinationRole.StationBerthRole(StationId("origin"), "Origin", "one", DoorSide.LEFT)
         ))
         destinations.register(OperationalDestination(
-            id = "goal@one", displayName = "Goal", railId = goal.railId,
+            id = "goal@one", railId = goal.railId,
             arcLengthInAbMeters = goal.startAbMeters, approachDirection = goalDirection,
             role = DestinationRole.StationBerthRole(StationId("goal"), "Goal", "one", DoorSide.LEFT)
         ))
@@ -121,7 +121,7 @@ class LinePlannerTest {
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
         val destinations = OperationalDestinationService(world)
         fun station(id:String, arc:Double, direction:ViewDirection = ViewDirection.AB) = OperationalDestination(
-            id="$id@one", displayName=id, railId=rail.id, arcLengthInAbMeters=arc,
+            id="$id@one", railId=rail.id, arcLengthInAbMeters=arc,
             approachDirection=direction,
             role=DestinationRole.StationBerthRole(StationId(id), id, "one", DoorSide.LEFT)
         )
@@ -165,7 +165,7 @@ class LinePlannerTest {
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(120.0, 1))
         val destinations = OperationalDestinationService(world)
         fun berth(station:String, berth:String, arc:Double, direction:ViewDirection = ViewDirection.AB) = OperationalDestination(
-            id="$station@$berth", displayName="$station $berth", railId=rail.id, arcLengthInAbMeters=arc,
+            id="$station@$berth", railId=rail.id, arcLengthInAbMeters=arc,
             approachDirection=direction,
             role=DestinationRole.StationBerthRole(StationId(station), station, berth, DoorSide.LEFT)
         )

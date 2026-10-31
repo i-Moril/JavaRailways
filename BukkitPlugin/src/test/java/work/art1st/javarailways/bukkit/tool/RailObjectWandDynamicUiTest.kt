@@ -16,7 +16,7 @@ class RailObjectWandDynamicUiTest {
         val session = registry.getPlayerSession(playerId)
         editor.seedSession(
             playerId,
-            work.art1st.javarailways.basic.WayPoint("pending:internal", "", UUID.randomUUID(), 2.0),
+            work.art1st.javarailways.basic.WayPoint("pending:internal", UUID.randomUUID(), 2.0),
             destination = null,
             pending = true
         )

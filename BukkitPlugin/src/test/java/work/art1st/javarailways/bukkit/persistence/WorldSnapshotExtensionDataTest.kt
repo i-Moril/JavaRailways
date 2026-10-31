@@ -33,13 +33,13 @@ class WorldSnapshotExtensionDataTest {
         val railId = "00000000-0000-0000-0000-000000000001"
         val basic = BasicInfrastructureSnapshotCodec.decode("""
             {"formatVersion":2,"infrastructureRevision":7,
-             "wayPoints":[{"id":"standalone","displayName":"Standalone","railId":"00000000-0000-0000-0000-000000000001","arcLengthInAbMeters":0.25}],
+             "wayPoints":[{"id":"standalone","railId":"00000000-0000-0000-0000-000000000001","arcLengthInAbMeters":0.25}],
              "railMetadata":[],
              "operatingDirections":[{"railId":"00000000-0000-0000-0000-000000000001","permittedDirection":"BA"}]}
         """.trimIndent())
         val simpleAto = SimpleATOInfrastructureSnapshotCodec.decode("""
             {"formatVersion":1,"infrastructureRevision":7,
-             "destinations":[{"id":"central","displayName":"Central","railId":"00000000-0000-0000-0000-000000000001","arcLengthInAbMeters":0.75}],
+             "destinations":[{"id":"central","railId":"00000000-0000-0000-0000-000000000001","arcLengthInAbMeters":0.75}],
              "lines":[{"id":"main","displayName":"Main","upStationIds":[],"downStationIds":[],"color":"#123456"}],
              "lineRevision":4}
         """.trimIndent())

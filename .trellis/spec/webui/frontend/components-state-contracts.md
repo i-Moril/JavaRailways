@@ -31,13 +31,13 @@
 
 ## 完整路径点输入与局部后缀
 
-直接选择完整路径点ID的输入复用 `EditableIdSelect` / `EditableIdList`，候选由 `idOptions.ts` 及调用者的实际 metadata 提供。单值ID保持可编辑，按ID/可见名称忽略大小写筛选，候选选择、Enter或blur只提交一次；Esc取消未提交文本，fieldKey变化丢弃旧字段文本/回调。有序多值使用tags，允许手输，保持输入顺序。作者草稿可以保留未知/已删除ID，不能自动改成第一个候选、清空或用显示名替代canonical ID；原内容/编译校验仍负责引用合法性。
+直接选择完整路径点ID的输入复用 `EditableIdSelect` / `EditableIdList`，候选由 `idOptions.ts` 及调用者的实际 metadata 提供。候选显示与提交均为实际完整 ID，按 ID 忽略大小写筛选。单值ID保持可编辑，候选选择、Enter或blur只提交一次；Esc取消未提交文本，fieldKey变化丢弃旧字段文本/回调。有序多值使用tags，允许手输，保持输入顺序。作者草稿可以保留未知/已删除ID，不能自动改成第一个候选或清空；原内容/编译校验仍负责引用合法性。
 
-站内停车点填写/选择的是局部后缀（berthId），不是完整路径点名称；运行线停车点维持原来的无边框Select，只显示当前站的后缀，由原逻辑解析destinationId。不得因“所有路径点可手输”的要求扩大修改到这个控件。程序SELECT_STOP.berthIds和STORE_AT_DEPOT.stablingPointIds也保留原局部ID/原始列表输入，不套用全局路径点控件；普通station/depot聚合ID和泛型ID_LIST不猜成路径点。Blockly仅对明确连接MOVE.viaIds的字面量列表提供完整路径点建议。参数引用和无效原始JSON仍可保留修复。重联会合点要沿实际DutyTimeline→字段组件传递名称metadata，并保留原destinations候选范围，不能只改控件却丢名称。
+站内停车点填写/选择的是局部后缀（berthId），不是完整路径点名称；运行线停车点维持原来的无边框Select，只显示当前站的后缀，由原逻辑解析destinationId。不得因“所有路径点可手输”的要求扩大修改到这个控件。程序SELECT_STOP.berthIds和STORE_AT_DEPOT.stablingPointIds也保留原局部ID/原始列表输入，不套用全局路径点控件；普通station/depot聚合ID和泛型ID_LIST不猜成路径点。Blockly仅对明确连接MOVE.viaIds的字面量列表提供完整路径点建议。参数引用和无效原始JSON仍可保留修复。重联会合点使用原destinations候选范围内的实际 ID。
 
-函数模拟起点候选仅来自 `programSimulationWayPoints`，包括符合既有方向规则的depot存车线；利用现有depotDetails显示归属和canonical ID。手输未知/无方向点仍不可执行。任何raw query编辑立即作废旧模拟结果/采纳资格，不等blur，Esc恢复输入也不能复活旧测量。展示候选不是完整车体可放置证明。
+函数模拟起点候选仅来自 `programSimulationWayPoints`，包括符合既有方向规则的depot存车线；候选直接显示实际路径点 ID。手输未知/无方向点仍不可执行。任何raw query编辑立即作废旧模拟结果/采纳资格，不等blur，Esc恢复输入也不能复活旧测量。展示候选不是完整车体可放置证明。
 
-受控 `Select mode="tags"` 的searchValue须在接受onChange/选择后显式清空。rc-select内部选择时不保证调用外部onSearch；否则blur会把残留的名称查询当成额外ID提交。测试不能用mock主动onSearch('')替组件掩盖问题；需真实浏览器或忠实选择→blur事件顺序验证无额外值/历史，连同单步Undo/Redo、Esc、owner替换和窄屏标签换行检查。
+受控 `Select mode="tags"` 的searchValue须在接受onChange/选择后显式清空。rc-select内部选择时不保证调用外部onSearch；否则blur会把残留查询当成额外ID提交。测试不能用mock主动onSearch('')替组件掩盖问题；需真实浏览器或忠实选择→blur事件顺序验证无额外值/历史，连同单步Undo/Redo、Esc、owner替换和窄屏标签换行检查。
 
 ## Recovery、i18n 与 theme
 

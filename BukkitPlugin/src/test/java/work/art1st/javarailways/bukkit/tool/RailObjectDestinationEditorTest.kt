@@ -59,7 +59,7 @@ class RailObjectDestinationEditorTest {
     fun `failed standalone conversion restores the original anchor without role projections`() {
         attachWorldData()
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
-        val anchor = WayPoint("standalone", "Original", rail.id, 20.0)
+        val anchor = WayPoint("standalone", rail.id, 20.0)
         world.basicWorldData.wayPoints.add(anchor)
         val invalid = stationDestination(anchor).copy(arcLengthInAbMeters = 101.0)
 
@@ -78,7 +78,7 @@ class RailObjectDestinationEditorTest {
     fun `standalone conversion publishes canonical projections and removal clears them`() {
         attachWorldData()
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
-        val anchor = WayPoint("standalone", "Original", rail.id, 20.0)
+        val anchor = WayPoint("standalone", rail.id, 20.0)
         world.basicWorldData.wayPoints.add(anchor)
         val playerId = UUID.randomUUID()
         editor.seedSession(playerId, anchor, destination = null, pending = false)
@@ -100,7 +100,7 @@ class RailObjectDestinationEditorTest {
 
         assertNull(world.basicWorldData.wayPoints[anchor.id])
         assertEquals(updated, world.simpleAtoWorldData.destinations[updated.id])
-        assertEquals(WayPoint("central@one", "Original", rail.id, 20.0), world.basicWorldData.wayPoints[updated.id])
+        assertEquals(WayPoint("central@one", rail.id, 20.0), world.basicWorldData.wayPoints[updated.id])
         val station = world.simpleAtoWorldData.stations[StationId("central")]!!
         val berth = world.simpleAtoWorldData.stations.berth(station.berthRefs.single())!!
         assertEquals("one", berth.berthRef.berthId)
@@ -129,7 +129,7 @@ class RailObjectDestinationEditorTest {
     fun `destination callback rejects changed world session target and obsolete dialog identity`() {
         attachWorldData()
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
-        val anchor = WayPoint("same-id", "Original", rail.id, 20.0)
+        val anchor = WayPoint("same-id", rail.id, 20.0)
         world.basicWorldData.wayPoints.add(anchor)
         val destination = stationDestination(anchor)
         val playerId = UUID.randomUUID()
@@ -167,7 +167,7 @@ class RailObjectDestinationEditorTest {
     }
 
     private fun stationDestination(anchor: WayPoint) = OperationalDestination(
-        "central@one", anchor.displayName, anchor.railId, anchor.arcLength,
+        "central@one", anchor.railId, anchor.arcLength,
         role = DestinationRole.StationBerthRole(StationId("central"), "Central", "one", DoorSide.NONE)
     )
 

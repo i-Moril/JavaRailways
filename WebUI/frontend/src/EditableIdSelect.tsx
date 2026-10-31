@@ -3,7 +3,7 @@ import {AutoComplete,Select} from 'antd';
 
 export interface IdOption {value:string;label:string}
 export const matchesIdOption=(text:string,option?:IdOption)=>!!option&&
-  `${option.value}\n${option.label}`.toLowerCase().includes(text.toLowerCase());
+  option.value.toLowerCase().includes(text.toLowerCase());
 interface Common {fieldKey:string;options:IdOption[];disabled?:boolean;placeholder?:string;'aria-label'?:string;style?:CSSProperties;className?:string}
 interface SingleProps extends Common {
   value?:string;onCommit:(value:string)=>void;allowClear?:boolean;

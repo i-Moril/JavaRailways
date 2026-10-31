@@ -56,7 +56,7 @@ export interface DepotMetadata { id:string; displayName?:string; stablingPoints:
 export interface SimulationProfileDescriptor { type:'WORLD_TRAIN'|'TRAIN_TEMPLATE'; id:string; displayName:string; carCount:number }
 export interface ProgramSimulationWayPoint {id:string;displayName:string;railId:string;direction:'AB'|'BA';directionSource:'WAYPOINT'|'RAIL'}
 export interface TimetableExtensionDescriptor { typeId:string; version:number; title:string; description:string; parameterSchema?:Record<string,unknown> }
-export interface WorldMetadata { wayPoints?: string[]; programSimulationWayPoints?:ProgramSimulationWayPoint[]; stations?: StationBerthMetadata[]; depots?: string[]; depotDetails?:DepotMetadata[]; trains?: string[]; simulationProfiles?:SimulationProfileDescriptor[]; extensions?:{ actions?:TimetableExtensionDescriptor[]; conditions?:TimetableExtensionDescriptor[] } }
+export interface WorldMetadata { wayPoints?: string[]; destinations?:{id:string;displayName:string}[]; programSimulationWayPoints?:ProgramSimulationWayPoint[]; stations?: StationBerthMetadata[]; depots?: string[]; depotDetails?:DepotMetadata[]; trains?: string[]; simulationProfiles?:SimulationProfileDescriptor[]; extensions?:{ actions?:TimetableExtensionDescriptor[]; conditions?:TimetableExtensionDescriptor[] } }
 export interface DraftSummary { id: string; updatedAt?: string; timetable?: SavedTimetableV1 }
 export interface EditorDocumentSummary { id:string; updatedAt?:string }
 export interface ValidationIssue { path?: string; message: string; severity?: string }

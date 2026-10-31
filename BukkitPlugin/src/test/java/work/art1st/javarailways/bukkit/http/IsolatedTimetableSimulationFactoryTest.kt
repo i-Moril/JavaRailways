@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit.http
 
+import kotlinx.serialization.json.jsonPrimitive
+
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertNull
 import work.art1st.javarailways.core.physics.train.onOwnerForTest
@@ -193,6 +195,133 @@ class IsolatedTimetableSimulationFactoryTest {
                     assertEquals(initial.occupiedIntervals, train.publishedFrame.occupiedIntervals)
                     assertEquals(0.0, train.publishedFrame.speedMetersPerSecond)
                 }
+            }
+            assertTrue(source.allTrains.isEmpty())
+        } finally {
+            source.physicsCoordinator.close()
+            (source.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
+    fun `depot stabling points with own or rail direction are real standalone simulation starts`(reverseTrain: Boolean) {
+        val source = createTestWorld()
+        registerWorldData(source)
+        try {
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+            source.basicWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
+            val service = OperationalDestinationService(source)
+            for ((pointId, ownDirection) in listOf("own" to ViewDirection.BA, "rail" to null)) {
+                val id = "home@$pointId"
+                service.register(OperationalDestination(id, "Depot track $pointId", rail.id,
+                    if (pointId == "own") 100.0 else 200.0, ownDirection,
+                    DestinationRole.DepotStablingPointRole("home", pointId, "Home depot", usableLengthMeters = 30.0)))
+                val original = source.simpleAtoWorldData.destinations[id]
+                val sourcePoints = source.simpleAtoWorldData.depots.stablingPoints(DepotId("home"))
+                val sourceStock = source.simpleAtoWorldData.depots.allRollingStock()
+                assertEquals(id, source.basicWorldData.wayPoints[id]!!.id)
+                assertTrue(sourcePoints.any { it.point.destinationId == id })
+                val resolved = resolveProgramSimulationWayPoint(source, id)
+                assertEquals(ownDirection ?: ViewDirection.AB, resolved.direction)
+                assertEquals(if (ownDirection == null) "RAIL" else "WAYPOINT", resolved.directionSource)
+                assertEquals(id, resolved.json()["id"]!!.jsonPrimitive.content)
+                val timetable = standaloneCall(listOf(TimetableAction.Stop(7)), startTick = 17,
+                    wayPointId = id, reverseTrain = reverseTrain)
+                val factory = testSimulationFactory()
+                val snapshot = factory.capture(source, timetable, templateSelection(), standaloneServices())
+                factory.create(snapshot, 2).use { simulation ->
+                    val train = simulation.world.allTrains.single()
+                    val initial = train.publishedFrame
+                    assertEquals(resolved.direction, initial.head.facing)
+                    assertEquals(original, simulation.world.simpleAtoWorldData.destinations[id])
+                    val result = simulation.simulate(IsolatedTimetableSimulationRequest(timetable, maximumSimulationTicks = 100))
+                    assertTrue(result is IsolatedTimetableSimulationResult.Completed) { result.toString() }
+                    val run = result.runs.single()
+                    assertEquals(id, run.currentWayPointId)
+                    val timing = run.taskTimings.single()
+                    assertEquals(7L, timing.endTick!! - timing.startTick)
+                    assertEquals(reverseTrain, train.publishedFrame.reversed)
+                    assertEquals(initial.occupiedIntervals.toSet(), train.publishedFrame.occupiedIntervals.toSet())
+                }
+                assertTrue(source.allTrains.isEmpty())
+                assertSame(original, source.simpleAtoWorldData.destinations[id])
+                assertEquals(sourcePoints, source.simpleAtoWorldData.depots.stablingPoints(DepotId("home")))
+                assertEquals(sourceStock, source.simpleAtoWorldData.depots.allRollingStock())
+            }
+        } finally {
+            source.physicsCoordinator.close()
+            (source.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
+    fun `saved directed depot destinations restore Basic mirrors before standalone simulation capture`() {
+        val source = createTestWorld()
+        registerWorldData(source)
+        try {
+            val rails = (1..6).map { createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1)) }
+            work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotCodec.decode("""
+                {"formatVersion":2,"infrastructureRevision":7,"wayPoints":[],"operatingDirections":[]}
+            """).restore(source)
+            val destinations = rails.mapIndexed { index, rail -> """
+                {"id":"kasaidpt@${index + 1}","displayName":"kasaidpt@${index + 1}","railId":"${rail.id}",
+                 "arcLengthInAbMeters":100.0,"approachDirection":"BA","roleType":"DEPOT_STABLING_POINT",
+                 "depotId":"kasaidpt","stablingPointId":"${index + 1}","depotDisplayName":"Kasai depot","usableLengthMeters":120.0}
+            """ }.joinToString(",")
+            val saved = work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotCodec.decode("""
+                {"formatVersion":1,"infrastructureRevision":7,"destinations":[$destinations],"lines":[],"lineRevision":0}
+            """)
+            assertTrue(source.basicWorldData.wayPoints.all().isEmpty())
+            saved.restore(source)
+            assertTrue(source.basicWorldData.operatingDirections.entries().isEmpty())
+            assertEquals((1..6).map { "kasaidpt@$it" }, source.basicWorldData.wayPoints.all().map { it.id })
+            for (index in 1..6) {
+                val point = resolveProgramSimulationWayPoint(source, "kasaidpt@$index")
+                assertEquals("WAYPOINT", point.directionSource)
+                assertEquals(ViewDirection.BA, point.direction)
+            }
+            assertEquals(6, source.simpleAtoWorldData.depots.stablingPoints(DepotId("kasaidpt")).size)
+            val timetable = standaloneCall(listOf(TimetableAction.Stop(7)), wayPointId = "kasaidpt@3")
+            val factory = testSimulationFactory()
+            factory.create(factory.capture(source, timetable, templateSelection(), standaloneServices()), 2).use { simulation ->
+                assertEquals(6, simulation.world.basicWorldData.wayPoints.all().size)
+                assertEquals(ViewDirection.BA, simulation.world.allTrains.single().publishedFrame.head.facing)
+                val result = simulation.simulate(IsolatedTimetableSimulationRequest(timetable, maximumSimulationTicks = 100))
+                assertTrue(result is IsolatedTimetableSimulationResult.Completed) { result.toString() }
+                val timing = result.runs.single().taskTimings.single()
+                assertEquals(7L, timing.endTick!! - timing.startTick)
+            }
+            assertTrue(source.allTrains.isEmpty())
+            assertEquals(6, source.simpleAtoWorldData.depots.stablingPoints(DepotId("kasaidpt")).size)
+        } finally {
+            source.physicsCoordinator.close()
+            (source.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
+    fun `undirected or removed depot stabling points cannot bypass explicit simulation start eligibility`() {
+        val source = createTestWorld()
+        registerWorldData(source)
+        try {
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+            val service = OperationalDestinationService(source)
+            service.register(OperationalDestination("home@one", "Depot track", rail.id, 100.0,
+                role = DestinationRole.DepotStablingPointRole("home", "one", usableLengthMeters = 30.0)))
+            val timetable = standaloneCall(listOf(TimetableAction.Stop(1)), wayPointId = "home@one")
+            val factory = testSimulationFactory()
+            assertThrows(IllegalArgumentException::class.java) { resolveProgramSimulationWayPoint(source, "home@one") }
+            assertThrows(IllegalArgumentException::class.java) {
+                factory.capture(source, timetable, templateSelection(), standaloneServices())
+            }
+            source.basicWorldData.operatingDirections.put(rail.id, ViewDirection.BA)
+            assertEquals(ViewDirection.BA, resolveProgramSimulationWayPoint(source, "home@one").direction)
+            service.remove("home@one")
+            assertNull(source.basicWorldData.wayPoints["home@one"])
+            assertThrows(IllegalArgumentException::class.java) { resolveProgramSimulationWayPoint(source, "home@one") }
+            assertThrows(IllegalArgumentException::class.java) {
+                factory.capture(source, timetable, templateSelection(), standaloneServices())
             }
             assertTrue(source.allTrains.isEmpty())
         } finally {

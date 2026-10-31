@@ -8,7 +8,9 @@ import * as en from 'blockly/msg/en';
 import {useI18n} from './i18n';
 import {validateStationProgram} from './stationPrograms';
 import {arrivalStepTypes,libraryStepTypes,blockStepId,blocksToDefinition,defaultProgramStep,definitionToBlocks,expressionFields,programStepTypes,type ProgramWorkspaceState} from './programBlocks';
-import type {StationProgramDefinition,StationProgramParameterType,StationProgramStep,TimetableEventPoint,TimetableExtensionDescriptor} from './types';
+import type {StationProgramDefinition,StationProgramParameterType,StationProgramStep,TimetableEventPoint,TimetableExtensionDescriptor,WorldMetadata} from './types';
+import {EditableIdSelect,EditableIdList,type IdOption} from './EditableIdSelect';
+import {waypointOptions,berthOptions,stablingPointOptions} from './idOptions';
 import {readProgramBlockDraft,storeProgramBlockDraft,clearProgramBlockDraft,reconcileProgramEntryLead,type ProgramBlockSnapshot as Snapshot} from './programBlockDrafts';
 export {clearProgramBlockDraft,getProgramBlockDraftValidity} from './programBlockDrafts';
 import './ProgramBlockEditor.css';
@@ -18,7 +20,7 @@ import {plannedConditions} from './stationPlans';
 const workspaceDraftInvalidators=new WeakMap<Blockly.Workspace,()=>void>();
 const workspaceEntries=new WeakMap<Blockly.Workspace,{label:string;leadLabel:string;lead?:number}>();
 const parameterTypes:StationProgramParameterType[]=['TICK','DURATION','DESTINATION','STATION','DEPOT','STRING','ID_LIST','JSON_OBJECT','UNIT_SLOTS'];
-export interface ProgramBlockEditorProps {value:StationProgramDefinition;onChange:(value:StationProgramDefinition)=>void;fieldScope:string;draftScope?:string;extensions?:TimetableExtensionDescriptor[];conditions?:TimetableExtensionDescriptor[];events?:TimetableEventPoint[];onValidityChange?:(valid:boolean)=>void;focusedStep?:string;context?:'library'|'arrival'|'duty';onUndo?:()=>void;onRedo?:()=>void;entryLabel?:string;preparationLeadTicks?:number;onEntryChange?:(value:StationProgramDefinition,preparationLeadTicks:number)=>void}
+export interface ProgramBlockEditorProps {metadata?:WorldMetadata;value:StationProgramDefinition;onChange:(value:StationProgramDefinition)=>void;fieldScope:string;draftScope?:string;extensions?:TimetableExtensionDescriptor[];conditions?:TimetableExtensionDescriptor[];events?:TimetableEventPoint[];onValidityChange?:(valid:boolean)=>void;focusedStep?:string;context?:'library'|'arrival'|'duty';onUndo?:()=>void;onRedo?:()=>void;entryLabel?:string;preparationLeadTicks?:number;onEntryChange?:(value:StationProgramDefinition,preparationLeadTicks:number)=>void}
 const copy=<T,>(value:T):T=>JSON.parse(JSON.stringify(value)) as T;
 const fingerprint=(snapshot:Snapshot)=>JSON.stringify(snapshot,(key,value)=>key==='x'||key==='y'||key==='acceptedPreparationLeadTicks'?undefined:value);
 function defineBlocks(t:ReturnType<typeof useI18n>['t']){
@@ -123,6 +125,17 @@ export function ProgramBlockEditor(props:ProgramBlockEditorProps){
   const type=parameterTypes.find((type)=>block.type===`rail_literal_${type}`||block.type===`rail_parameter_${type}`);if(!type)return null;
   const raw=String(block.getFieldValue('VALUE')??'');const reference=block.type.startsWith('rail_parameter_');
   if(!reference&&type==='UNIT_SLOTS')return <div key={block.id}><Typography.Text>{t('programs.unitSlots')}</Typography.Text><UnitSlotsInput fieldKey={`${fieldScope}/${block.id}`} rawValue={raw} onRawChange={(text)=>changeField(block,'VALUE',text)} onChange={(slots)=>changeField(block,'VALUE',JSON.stringify(slots))}/></div>;
+  if(!reference&&type==='DESTINATION')return <label key={block.id}>{t('programs.param.DESTINATION')}<EditableIdSelect fieldKey={`${fieldScope}/${block.id}`} aria-label={t('programs.param.DESTINATION')} value={raw} options={waypointOptions(props.metadata??{})} onEditingChange={editing=>{if(editing)latest.current.onValidityChange?.(false);else sync.current();}} onCommit={text=>changeField(block,'VALUE',text)}/></label>;
+  if(!reference&&type==='ID_LIST'){
+   const parent=block.getParent(),metadata=props.metadata??{};
+   const literal=(name:string,valueType:string)=>{const sibling=parent?.getInputTargetBlock(name);return sibling?.type===`rail_literal_${valueType}`?String(sibling.getFieldValue('VALUE')??''):'';};
+   let options:IdOption[]|undefined;
+   if(parent?.type==='rail_MOVE'&&parent.getInputTargetBlock('viaIds')===block)options=waypointOptions(metadata);
+   if(parent?.type==='rail_SELECT_STOP'&&parent.getInputTargetBlock('berthIds')===block)options=berthOptions(metadata,literal('stationId','STATION'));
+   if(parent?.type==='rail_STORE_AT_DEPOT'&&parent.getInputTargetBlock('stablingPointIds')===block)options=stablingPointOptions(metadata,literal('depotId','DEPOT'));
+   let ids:string[]|undefined;try{const value:unknown=JSON.parse(raw);if(Array.isArray(value)&&value.every(id=>typeof id==='string'&&id.trim())&&new Set(value).size===value.length)ids=value;}catch{/* Preserve the raw invalid workspace below. */}
+   if(options&&ids)return <label key={block.id}>{t('programs.param.ID_LIST')}<EditableIdList fieldKey={`${fieldScope}/${block.id}`} aria-label={t('programs.param.ID_LIST')} value={ids} options={options} onChange={ids=>changeField(block,'VALUE',JSON.stringify(ids))}/></label>;
+  }
   return <label key={block.id}>{t(`programs.param.${type}`)}{reference?<Select aria-label={t('programs.parameter')} value={raw||undefined} options={parameters.current.filter((p)=>p.type===type).map((p)=>({value:p.id,label:p.id}))} onChange={(id)=>changeField(block,'VALUE',id)} style={{minWidth:180}}/>:type==='JSON_OBJECT'?<Input.TextArea aria-label={t('programs.jsonParameters')} value={raw} rows={5} onChange={(event)=>changeField(block,'VALUE',event.target.value)}/>:type==='ID_LIST'?<Input aria-label={t(`programs.param.${type}`)} value={raw} onChange={(event)=>changeField(block,'VALUE',event.target.value)}/>:type==='TICK'||type==='DURATION'?<Input aria-label={t(`programs.param.${type}`)} inputMode="numeric" value={raw} onChange={(event)=>changeField(block,'VALUE',event.target.value)}/>:<Input aria-label={t(`programs.param.${type}`)} value={raw} onChange={(event)=>changeField(block,'VALUE',event.target.value)}/>}</label>;
  };
  return <div className="program-block-editor" data-revision={revision} onKeyDownCapture={(event)=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'&&!(event.target instanceof HTMLInputElement)&&!(event.target instanceof HTMLTextAreaElement)){event.preventDefault();event.stopPropagation();history(event.shiftKey);}}}>

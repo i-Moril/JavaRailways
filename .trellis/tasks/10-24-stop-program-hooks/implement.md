@@ -68,3 +68,17 @@ User correction2026-10-30: all actual simulation seeding proves unique whole-tra
 - [x] Actual regression failures for mixed-rail repeated reverse and reverse→depot fixed with retained origin direction; test fixture owner nesting corrected without weakening production guards.
 - [x] Final Core538/Basic435/SimpleATO643/Bukkit663/WebUI49 tests (2328 total), frontend323/build, actual local browser input/error/narrow-layout check, independent review, spec/context validation pass. See research/function-simulation-validation-2026-10-30.md.
 - [ ] User game validation, commit/deployment follow-up and remaining parent issues. Keep task in_progress; no finish/archive.
+
+
+## 2026-10-30 下一批：路径点输入与存车线入口
+
+边界：存车线已由运营目标映射Basic路径点，并未被现有metadata/执行器按角色排除。先补真实当前格式恢复和实际隔离执行回归，避免为不存在的过滤缺陷增加后端代码；网页统一手动输入/候选筛选是本批实际可见改动。输入/草稿/history归UI，既有方向、拓扑、未知引用校验归原owner；不改DSL、执行器、持久化或schema。
+
+- [x] 库存所有直接路径点、站内泊位/库内存车点输入，复用一个可编辑ID控件但显式传入各域候选。
+- [x] 输入时按ID/名称筛选；Enter/blur/选择提交一次，Esc取消，字段/owner变化清理旧输入；有序多选保序。
+- [x] 库参数/Blockly DESTINATION和MOVE.viaIds保留参数引用、未知/无效草稿及撤销历史；泛型ID_LIST不猜路径点语义。
+- [x] 模拟起点可输入canonical depot@point ID；任何未提交文本编辑立即作废旧测量，非eligible点仍不能运行。
+- [x] 真depot注册/保存恢复/源状态隔离+显式换向回归；前端完整测试/build、真实浏览器输入/筛选/历史和独立审查。
+- [x] 更新spec及验证记录。无自动提交、部署或归档。
+
+最终验证：前端335/57文件+build、Bukkit667/WebUI49、真实App浏览器筛选/输入/单步历史/窄屏和独立复审通过。详见research/waypoint-input-validation.md。线上认证metadata响应及部署后游戏验收未验证；本批未提交/部署，父任务继续in_progress。

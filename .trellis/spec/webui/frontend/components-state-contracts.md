@@ -29,6 +29,16 @@
 
 参考 `authoring.test.ts`、`editor.test.ts`、`graph.test.ts`、`lines.test.tsx`。
 
+## 路径点与局部停车点输入
+
+具体路径点输入复用 `EditableIdSelect` / `EditableIdList`，候选由 `idOptions.ts` 及调用者的实际 metadata 提供。单值ID保持可编辑，按ID/可见名称忽略大小写筛选，候选选择、Enter或blur只提交一次；Esc取消未提交文本，fieldKey变化丢弃旧字段文本/回调。有序多值使用tags，允许手输，保持输入顺序。作者草稿可以保留未知/已删除ID，不能自动改成第一个候选、清空或用显示名替代canonical ID；原内容/编译校验仍负责引用合法性。
+
+全局waypoint、station-local berthId、depot-local stabling pointId分别传入自己的候选和提交值。普通station/depot聚合ID和泛型ID_LIST不猜成路径点；Blockly仅对明确连接MOVE.viaIds、SELECT_STOP.berthIds、STORE_AT_DEPOT.stablingPointIds的字面量列表提供对应建议。参数引用和无效原始JSON仍可保留修复。重联会合点要沿实际DutyTimeline→字段组件传递名称metadata，并保留原destinations候选范围，不能只改控件却丢名称。
+
+函数模拟起点候选仅来自 `programSimulationWayPoints`，包括符合既有方向规则的depot存车线；利用现有depotDetails显示归属和canonical ID。手输未知/无方向点仍不可执行。任何raw query编辑立即作废旧模拟结果/采纳资格，不等blur，Esc恢复输入也不能复活旧测量。展示候选不是完整车体可放置证明。
+
+受控 `Select mode="tags"` 的searchValue须在接受onChange/选择后显式清空。rc-select内部选择时不保证调用外部onSearch；否则blur会把残留的名称查询当成额外ID提交。测试不能用mock主动onSearch('')替组件掩盖问题；需真实浏览器或忠实选择→blur事件顺序验证无额外值/历史，连同单步Undo/Redo、Esc、owner替换和窄屏标签换行检查。
+
 ## Recovery、i18n 与 theme
 
 `authoringRecovery.ts` 的 key 包含 encoded owner/world，只恢复 version 1 且 owner/world 相同的对象。storage parse/write/remove 均 best-effort，异常不能中断编辑。breaking shape 默认丢弃旧 recovery；任务未要求时不加入永久 reader。测试 corrupt/old/cross-world/cross-owner。

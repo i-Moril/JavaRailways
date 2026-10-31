@@ -50,7 +50,9 @@ sealed interface AtoMissionPoint {
 
     data class Stop(
         override val target: WayPointRef,
-        val offsetMetersBefore: Double = 0.0
+        val offsetMetersBefore: Double = 0.0,
+        /** Domain-classified station stopping policy, independent of arrival tolerance. */
+        val stationStop: Boolean = false
     ) : AtoMissionPoint {
         init {
             require(offsetMetersBefore.isFinite() && offsetMetersBefore >= 0.0)
@@ -220,7 +222,10 @@ class AtoMissionResolver(private val world: World) {
                 revision = request.revision,
                 expandedRoute = expanded
             )
-            legs += AtoMissionLeg(index, point, planned)
+            val resolvedPoint = if (point is AtoMissionPoint.Stop &&
+                world.simpleAtoWorldData.destinations[point.target.id]?.role is work.art1st.javarailways.simpleato.api.destination.DestinationRole.StationBerthRole
+            ) point.copy(stationStop = true) else point
+            legs += AtoMissionLeg(index, resolvedPoint, planned)
             from = to
             currentDirection = expanded.segments.last().railViewRef.direction
         }

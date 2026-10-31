@@ -1,0 +1,32 @@
+{
+  "Core": {
+    "tests": 538,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "Basic": {
+    "tests": 436,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "SimpleATO": {
+    "tests": 661,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "SimpleSignals": {
+    "tests": 675,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "BukkitPlugin": {
+    "tests": 688,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1
+  }
+}

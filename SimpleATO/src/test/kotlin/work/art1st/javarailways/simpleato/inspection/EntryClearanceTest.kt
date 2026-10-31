@@ -21,6 +21,17 @@ class EntryClearanceTest {
         observed: Double = 80.0) = entryClearanceState(requirement, length, 0.0, routeLength, observed,
         profile, constraints.toList())
 
+    @Test fun `station authority uses its carried margin while an independent safety bound remains restrictive`() {
+        val station = MovementAuthorityConstraint(ConstraintKey("mission", "station-authority"), 35.3, 0.3)
+        val ready = state(station)
+        assertTrue(ready.movementReady)
+        assertEquals(40.0, ready.requiredAuthorityEndRouteDistanceMeters)
+        assertFalse(state(station, routeLength = 35.3).movementReady, "entry request floor retains its independent margin")
+        assertFalse(state(station.copy(remainingDistanceMeters = 35.2)).movementReady)
+        assertFalse(state(station, MovementAuthorityConstraint(ConstraintKey("signals", "red"), 35.3)).movementReady)
+        assertFalse(state(station, FollowConstraint(ConstraintKey("basic", "follow"), 35.3, 0.0)).movementReady)
+    }
+
     @Test fun `grant margin and operation stop must leave the full tail clear`() {
         assertFalse(state(MovementAuthorityConstraint(ConstraintKey("mission", "authority/1"), 39.0)).movementReady)
         val ready = state(MovementAuthorityConstraint(ConstraintKey("mission", "authority/1"), 40.0))

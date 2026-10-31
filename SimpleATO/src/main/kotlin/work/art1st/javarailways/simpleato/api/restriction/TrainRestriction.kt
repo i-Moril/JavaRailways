@@ -79,9 +79,11 @@ data class StopTrainRestriction(
  */
 data class MovementAuthorityRestriction(
     override val restrictionId: String,
-    val routeDistanceMeters: Double
+    val routeDistanceMeters: Double,
+    val stoppingMarginMeters: Double? = null
 ) : TrainRestriction {
     init {
+        require(stoppingMarginMeters == null || stoppingMarginMeters.isFinite() && stoppingMarginMeters >= 0.0)
         requireNamespacedRestrictionId(restrictionId)
         requireRouteDistance(routeDistanceMeters)
     }

@@ -105,7 +105,7 @@ internal fun entryClearanceState(
                 }
             if (exactSelfRed) false else when (constraint) {
                 is MovementAuthorityConstraint ->
-                    constraint.remainingDistanceMeters - profile.safetyDistanceMeters < remaining - EPSILON
+                    constraint.remainingDistanceMeters - (constraint.stoppingMarginMeters ?: profile.safetyDistanceMeters) < remaining - EPSILON
                 is StopConstraint -> stopsInside(constraint.remainingDistanceMeters -
                     (constraint.stoppingMarginMeters ?: profile.stopToleranceMeters))
                 is FollowConstraint -> stopsInside(constraint.gapMeters - profile.safetyDistanceMeters)

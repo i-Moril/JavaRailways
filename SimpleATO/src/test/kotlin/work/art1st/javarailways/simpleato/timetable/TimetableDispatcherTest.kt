@@ -2876,7 +2876,8 @@ class TimetableDispatcherTest {
     @Test
     fun `selected stop resolves real length commits one berth and continues from selected marker`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
-        val dispatcher = dispatcher()
+        // The simplified kinematic actuator needs reaction lookahead for station braking.
+        val dispatcher = dispatcher(safetyProfile = profile.copy(reactionTimeSeconds = 0.1))
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(150.0, 1))
@@ -2923,7 +2924,9 @@ class TimetableDispatcherTest {
     @Test
     fun `available selected stop retries a physically occupied preferred marker before granting movement`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
-        val dispatcher = dispatcher()
+        // This state-machine fixture integrates a kinematic actuator at 50ms; retain control response
+        // rather than relying on the former tolerance-derived station stopping offset.
+        val dispatcher = dispatcher(safetyProfile = profile.copy(reactionTimeSeconds = 0.1))
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(50.0, 0.0, 0.0))

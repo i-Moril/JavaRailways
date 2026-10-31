@@ -72,7 +72,8 @@ class StationCallRuntimeTest {
     private val profile = AtoSafetyProfile(
         accelerationMetersPerSecondSquared = 1.0,
         serviceDecelerationMetersPerSecondSquared = 1.0,
-        reactionTimeSeconds = 0.0,
+        // The test actuator integrates in 50ms steps; include its discrete control response.
+        reactionTimeSeconds = 0.1,
         safetyDistanceMeters = 1.0,
         stopToleranceMeters = 0.25
     )
@@ -134,6 +135,13 @@ class StationCallRuntimeTest {
         for (tick in 0 until 2_000) {
             fixture.tick()
             notifications += fixture.ato.drainStationCallNotifications()
+            if (tick == 0) {
+                val stopping = fixture.ato.runtimeDiagnostics.constraints.single {
+                    it.contains("namespace=station") && it.contains("StopConstraint")
+                }
+                assertTrue(stopping.contains("stoppingMarginMeters=0.0"),
+                    "station stopping target has no advance despite fixture stopTolerance0.25 and berth tolerance0.15: $stopping")
+            }
             if (notifications.any { it.type == StationCallNotificationType.BERTHED }) break
         }
 

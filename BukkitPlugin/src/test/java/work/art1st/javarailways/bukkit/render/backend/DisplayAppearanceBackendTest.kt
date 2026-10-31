@@ -125,24 +125,25 @@ class DisplayAppearanceBackendTest {
         assertEquals(1, removes)
     }
 
-    private fun withPacketVersion(block: () -> Unit) = synchronized(PacketEvents::class.java) {
-        val previous = PacketEvents.getAPI()
-        // The official API binding supplies version information for real EntityLib metadata only.
-        // No network/platform lifecycle is started, and unexpected platform access fails the test.
-        PacketEvents.setAPI(object : PacketEventsAPI<Any>() {
-            override fun getServerManager(): ServerManager = ServerManager { ServerVersion.V_1_21_11 }
-            override fun getPlugin(): Any = error("No packet plugin used")
-            override fun getProtocolManager(): ProtocolManager = error("No protocol manager used")
-            override fun getPlayerManager(): PlayerManager = error("No player manager used")
-            override fun getNettyManager(): NettyManager = error("No netty manager used")
-            override fun getInjector(): ChannelInjector = error("No injector used")
-            override fun load() = error("No packet load used")
-            override fun init() = error("No packet init used")
-            override fun terminate() = error("No packet terminate used")
-            override fun isLoaded() = false
-            override fun isInitialized() = false
-            override fun isTerminated() = false
-        })
-        try { block() } finally { PacketEvents.setAPI(previous) }
-    }
+}
+
+internal fun withPacketVersion(block: () -> Unit) = synchronized(PacketEvents::class.java) {
+    val previous = PacketEvents.getAPI()
+    // The official API binding supplies version information for real EntityLib metadata only.
+    // No network/platform lifecycle is started, and unexpected platform access fails the test.
+    PacketEvents.setAPI(object : PacketEventsAPI<Any>() {
+        override fun getServerManager(): ServerManager = ServerManager { ServerVersion.V_1_21_11 }
+        override fun getPlugin(): Any = error("No packet plugin used")
+        override fun getProtocolManager(): ProtocolManager = error("No protocol manager used")
+        override fun getPlayerManager(): PlayerManager = error("No player manager used")
+        override fun getNettyManager(): NettyManager = error("No netty manager used")
+        override fun getInjector(): ChannelInjector = error("No injector used")
+        override fun load() = error("No packet load used")
+        override fun init() = error("No packet init used")
+        override fun terminate() = error("No packet terminate used")
+        override fun isLoaded() = false
+        override fun isInitialized() = false
+        override fun isTerminated() = false
+    })
+    try { block() } finally { PacketEvents.setAPI(previous) }
 }

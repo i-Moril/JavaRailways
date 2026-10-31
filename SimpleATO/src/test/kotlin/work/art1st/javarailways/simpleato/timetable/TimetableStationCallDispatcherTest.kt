@@ -454,7 +454,8 @@ class TimetableStationCallDispatcherTest {
     private val profile = AtoSafetyProfile(
         accelerationMetersPerSecondSquared = 1.0,
         serviceDecelerationMetersPerSecondSquared = 1.0,
-        reactionTimeSeconds = 0.0,
+        // The test actuator integrates in 50ms steps; include its discrete control response.
+        reactionTimeSeconds = 0.1,
         safetyDistanceMeters = 1.0,
         stopToleranceMeters = 0.25
     )

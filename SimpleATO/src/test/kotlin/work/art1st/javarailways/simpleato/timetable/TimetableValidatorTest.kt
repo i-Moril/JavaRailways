@@ -215,6 +215,34 @@ class TimetableValidatorTest {
     }
 
     @Test
+    fun `same physical anchor retains separate station and ordinary stop margin proofs`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        world.basicWorldData.wayPoints.add(WayPoint("origin", rail.id, 10.0))
+        world.basicWorldData.wayPoints.add(WayPoint("anchor", rail.id, 99.5))
+        OperationalDestinationService(world).register(OperationalDestination("central@one", rail.id, 99.5,
+            ViewDirection.AB, DestinationRole.StationBerthRole(StationId("central"), berthId = "one",
+                doorSide = DoorSide.LEFT)))
+        val station = TimetableService("station", TrainSelector.TrainId("station-train"), listOf(
+            TimetableStep.Check("origin"), TimetableStep.At(0L, TimetableAction.CallStation("central", "one")),
+            TimetableStep.At(0L, TimetableAction.GoTo("anchor"))))
+        val ordinary = TimetableService("ordinary", TrainSelector.TrainId("ordinary-train"), listOf(
+            TimetableStep.Check("origin"), TimetableStep.At(0L, TimetableAction.DestinationOptions("anchor", stoppingOffsetMetersBefore = 10.0)),
+            TimetableStep.At(0L, TimetableAction.GoTo("anchor"))))
+        val timetable = Timetable("mixed-margins", services = listOf(station, ordinary))
+        world.simpleAtoWorldData.timetables.add(timetable)
+        val validation = TimetableValidator(world).validate(timetable)
+        assertTrue(validation.isSuccess, validation.errors.toString())
+        assertEquals(listOf(0.0, 10.0), validation.routeStoppingOffsetsMeters)
+        assertEquals(listOf(true, false), validation.retainedRoutes.values.map { it.terminalStationStop })
+        val dispatcher = TimetableDispatcher(UnavailableRouteAdmissionTestContext, emptyTrainRestrictionSnapshots,
+            emptyInspectionRuntime(), acceptingInfrastructureDependencyService(), authorityStoppingMarginMeters = 5.0)
+        assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, timetable.id) } is TimetableEpochStartResult.Started,
+            "station uses real0.3m suffix while the ordinary10m offset fits its conservative5m margin")
+    }
+
+    @Test
     fun `validation distinguishes pass through legs and preserves station effective stopping offset`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
@@ -232,6 +260,7 @@ class TimetableValidatorTest {
             val result = TimetableValidator(world).validate(timetable(override))
             assertTrue(result.isSuccess, result.errors.toString())
             assertEquals(listOf(null, effective), result.routeStoppingOffsetsMeters)
+            assertEquals(listOf(false, true), result.routes.map { route -> result.retainedRoutes.values.single { it.route === route }.terminalStationStop })
             assertEquals(listOf(50.0, 40.0), result.routes.map { it.totalLength })
         }
         world.basicWorldData.wayPoints.add(WayPoint("beyond", rail.id, 100.0))

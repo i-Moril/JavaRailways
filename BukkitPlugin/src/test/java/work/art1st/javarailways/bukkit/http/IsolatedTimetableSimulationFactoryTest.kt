@@ -33,6 +33,7 @@ import work.art1st.javarailways.simpleato.api.depot.*
 import work.art1st.javarailways.simpleato.timetable.TimetableAction
 import work.art1st.javarailways.simpleato.timetable.TimetableLineSpeedLimit
 import work.art1st.javarailways.simpleato.timetable.TimetableService
+import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunState
 import work.art1st.javarailways.simpleato.timetable.TimetableStep
 import work.art1st.javarailways.simpleato.timetable.TrainSelector
 import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationRequest
@@ -1318,6 +1319,89 @@ class IsolatedTimetableSimulationFactoryTest {
                 assertSame(originalExtensions[index + 1], car.getExtensionDataOrNull<work.art1st.javarailways.bukkit.operation.SimulationCarBehaviorExtension>(BasicPlugin.INSTANCE))
                 assertSame(controls[index + 1], newAto.dynamicsProfileFor(car))
             }
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource("AB, 0.5, true, false", "BA, 0.5, true, false",
+        "AB, 0.5, true, true", "BA, 0.5, true, true", "AB, 0.3, true, false", "BA, 0.3, true, false",
+        "AB, 0.2, false, false", "BA, 0.2, false, false")
+    fun `station terminal uses actual short lawful suffix through shared admission`(
+        direction: ViewDirection, lawfulSuffix: Double, shouldComplete: Boolean, reverseAfter: Boolean
+    ) {
+        val source = createTestWorld()
+        registerWorldData(source)
+        try {
+            val first = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(600.0, 2))
+            val second = requireNotNull(first.viewAB.activeRail).rail
+            val platform = if (direction == ViewDirection.AB) first else second
+            val forbidden = if (direction == ViewDirection.AB) second else first
+            source.basicWorldData.operatingDirections.put(forbidden.id,
+                if (direction == ViewDirection.AB) ViewDirection.BA else ViewDirection.AB)
+            val origin = 150.0
+            val nominalStop = if (direction == ViewDirection.AB) 300.0 - lawfulSuffix else lawfulSuffix
+            val destinations = OperationalDestinationService(source)
+            destinations.register(OperationalDestination("origin", platform.id, origin, direction, DestinationRole.Regular))
+            destinations.register(OperationalDestination("terminal@one", platform.id, nominalStop, direction,
+                DestinationRole.StationBerthRole(StationId("terminal"), berthId = "one", doorSide = DoorSide.NONE,
+                    positionToleranceMeters = 0.1, usableLengthMeters = 130.0)))
+            if (reverseAfter) destinations.register(OperationalDestination("return", platform.id, origin,
+                if (direction == ViewDirection.AB) ViewDirection.BA else ViewDirection.AB, DestinationRole.Regular))
+            val originalDirections = source.basicWorldData.operatingDirections.snapshot(source.topologyState,
+                listOf(first.id, second.id))
+            val timetable = Timetable("short-station-authority", services = listOf(TimetableService("duty",
+                TrainSelector.TrainId("scheduled"), listOf(TimetableStep.Check("origin"),
+                    TimetableStep.At(0, TimetableAction.DestinationOptions("terminal@one", minimumDwellTicks = 0)),
+                    TimetableStep.At(0, TimetableAction.GoTo("terminal@one"))) +
+                    if (reverseAfter) listOf(TimetableStep.At(0, TimetableAction.Reverse),
+                        TimetableStep.At(0, TimetableAction.GoTo("return"))) else emptyList())))
+            val loaded = requireNotNull(work.art1st.javarailways.bukkit.config.model.PackageLoader(
+                java.io.File("../models/s100")).loadTrainPackage())
+            val models = loaded.cars.values.associate { it.resourceName to
+                work.art1st.javarailways.bukkit.config.model.SavedCarModelTree.build(it, loaded.partRegistry) }
+            val saved = work.art1st.javarailways.bukkit.config.model.SavedTrainPackageSnapshot.build("s100",
+                loaded.actions, loaded.behavior, loaded.control, loaded.cars.values.associate { it.resourceName to it.control })
+            val version = work.art1st.javarailways.bukkit.config.model.TrainResourceVersion(saved, models,
+                models.keys.associateWith { saved }, loaded.train.composition.map {
+                    loaded.cars.getValue(it.substringAfterLast('/')).resourceName })
+            val exactProfile = profileFromTemplate("template", version)
+            assertEquals(5, exactProfile.cars.size)
+            val factory = IsolatedTimetableSimulationFactory(IsolatedSimulationProfileResolver { _, _, _ -> exactProfile },
+                9.80665, extensionPlugin = BasicPlugin.INSTANCE)
+            val captured = factory.capture(source, timetable, listOf(
+                TimetableProfileSelection("duty", SimulationProfileType.TRAIN_TEMPLATE, "template")))
+            factory.create(captured, workerThreads = 1).use { simulation ->
+                val result = simulation.simulate(IsolatedTimetableSimulationRequest(timetable,
+                    delayThresholdTicks = 4000, maximumSimulationTicks = 6000))
+                if (shouldComplete) {
+                    assertTrue(result is IsolatedTimetableSimulationResult.Completed, result.toString())
+                    val frame = simulation.world.allTrains.single().publishedFrame
+                    assertEquals(platform.id, frame.head.railId)
+                    if (reverseAfter) {
+                        assertEquals(origin, frame.head.arcLengthInAbMeters, 0.1)
+                        assertEquals(if (direction == ViewDirection.AB) ViewDirection.BA else ViewDirection.AB, frame.head.facing)
+                    } else {
+                        val signedError = (frame.head.arcLengthInAbMeters - nominalStop) *
+                            if (direction == ViewDirection.AB) 1.0 else -1.0
+                        assertTrue(signedError in -0.1..0.0, "station position error=$signedError")
+                    }
+                    assertEquals(0.0, frame.speedMetersPerSecond)
+                    assertFalse(simulation.world.simpleAtoWorldData.atoCoordinator.isStalled)
+                    assertEquals(TimetableServiceRunState.COMPLETED, result.runs.single().state)
+                } else {
+                    assertTrue(result is IsolatedTimetableSimulationResult.Failed, result.toString())
+                    val reason = (result as IsolatedTimetableSimulationResult.Failed).reason
+                    assertTrue(reason.contains("terminal", ignoreCase = true) ||
+                        reason.contains("direction", ignoreCase = true), reason)
+                    assertEquals(origin, simulation.world.allTrains.single().publishedFrame.head.arcLengthInAbMeters, 1e-8)
+                }
+            }
+            assertTrue(source.allTrains.isEmpty(), "simulation must not place a source-world train")
+            assertEquals(originalDirections.directions, source.basicWorldData.operatingDirections.snapshot(
+                source.topologyState, listOf(first.id, second.id)).directions)
+        } finally {
+            source.physicsCoordinator.close()
+            (source.tickManager as AutoCloseable).close()
         }
     }
 

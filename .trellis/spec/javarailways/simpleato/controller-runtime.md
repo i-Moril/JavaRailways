@@ -55,8 +55,8 @@ Stop、MA、跟车和前方限速约束把各自扣除显式空间余量后的�
 反应距离由包络统一扣除，不能调用方先扣一次再让包络重复扣除。无包络的运动学单元测试仍使用原常减速度公式。
 实际正加速度消退的积分与坡段门控归上述Basic契约，不在SimpleATO复制动力学。
 
-普通mission Stop显式使用零几何停车margin，曲线瞄准原运营目标；停车容差用于接受到达，不把普通目标退到容差边缘。
-车站既有显式margin、外部Stop/物理边界的默认margin语义保持不变；不能为修普通停车而整体更改公开Stop约束。
+普通非车站mission Stop显式使用零几何停车margin，曲线瞄准原运营目标；停车容差用于接受到达，不把普通目标退到容差边缘。
+车站Stop同样使用零几何停车margin，瞄准既有停车点（含明确设置的停车偏移），不添加固定提前量，也不根据到站容差平移目标。由`AtoMissionPoint.Stop.stationStop`或同revision实际terminal StationCall明确标识的终点，mission授权余量为0.3米；普通mission和独立红灯/资源约束默认保留全局安全距离。`MovementAuthorityConstraint.stoppingMarginMeters`为空时使用profile全局值，否则使用明确值；公开`terminalMovementAuthorityLimitMeters(routeEndDistanceMeters, stationTerminal)`只使用显式参数，不读取physics私有active状态；资源准入如何证明车站终点及保留原始grant见[终点授权合同](terminal-route-completion.md)。外部Stop/物理边界的原默认margin和连挂contact规则不受影响。
 
 controller同时拥有该列车唯一的`TrainRestrictionConstraintAdapter`。admission client直接向adapter发布immutable
 restriction snapshot；Dispatcher仅在route建立/延长时绑定冻结route、Mission revision及二者的坐标映射。每个physics tick

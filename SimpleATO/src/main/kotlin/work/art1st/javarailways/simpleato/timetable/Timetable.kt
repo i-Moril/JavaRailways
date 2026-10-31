@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationIds
 import work.art1st.javarailways.simpleato.api.depot.DepotId
 import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector
@@ -313,7 +314,8 @@ data class ValidatedTimetableRouteKey(
 data class ValidatedTimetableRoute(
     val route: ExpandedRoute,
     val stoppingOffsetMeters: Double?,
-    val topology: work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
+    val topology: work.art1st.javarailways.core.api.physics.rail.topology.TopologyState,
+    val terminalStationStop: Boolean = false
 )
 
 @ConsistentCopyVisibility
@@ -768,13 +770,17 @@ class TimetableValidator(
                             val candidateRoutes = ArrayList<ExpandedRoute>()
                             val candidateOffsets = ArrayList<Double?>()
                             val candidateErrors = ArrayList<String>()
+                            var explicitTerminalStationCall = false
                             val next = validateAction(prefix, index, origin, step.action, candidateErrors, candidateRoutes,
                                 candidateOffsets, takeFromDepotSelector, inputDirection, movementStoppingOffset)
                             if (movement && pendingStationCall != null && candidateRoutes.isNotEmpty()) {
                                 val (callIndex, call) = pendingStationCall!!
                                 val offset = validateStationCallPrefix(prefix, callIndex, origin, call,
                                     candidateRoutes, inputDirection, candidateErrors)
-                                if (offset != null) candidateOffsets[candidateOffsets.lastIndex] = offset
+                                if (offset != null) {
+                                    candidateOffsets[candidateOffsets.lastIndex] = offset
+                                    explicitTerminalStationCall = true
+                                }
                             }
                             if (candidateErrors.isNotEmpty()) {
                                 rejected += candidateErrors
@@ -791,7 +797,10 @@ class TimetableValidator(
                                 val key = ValidatedTimetableRouteKey(service.id, index, requireNotNull(origin),
                                     if (step.action is TimetableAction.StoreAtDepot) 0 else legIndex,
                                     route.toWayPointId, route.segments.first().railViewRef.direction, address, candidateOffsets[legIndex])
-                                val evidence = ValidatedTimetableRoute(route, candidateOffsets[legIndex], world.topologyState)
+                                val terminalStation = candidateOffsets[legIndex] != null &&
+                                    (world.simpleAtoWorldData.destinations[route.toWayPointId]?.role is DestinationRole.StationBerthRole ||
+                                        explicitTerminalStationCall && legIndex == candidateRoutes.lastIndex)
+                                val evidence = ValidatedTimetableRoute(route, candidateOffsets[legIndex], world.topologyState, terminalStation)
                                 val previous = retainedRoutes.putIfAbsent(key, evidence)
                                 if (previous != null && previous != evidence)
                                     errors += "$prefix route key has conflicting geometry or stopping constraints: $key"
@@ -1208,7 +1217,7 @@ class TimetableValidator(
         resolved as StationCallResolutionResult.Success
         val cumulative = movementRoutes.sumOf { it.totalLength }
         return resolved.resolved.stoppingOffsetMetersBefore.takeIf {
-            abs(cumulative - prefixRoute.totalLength) <= 0.5
+            abs(cumulative - prefixRoute.totalLength) <= 1.0e-6
         }
     }
 

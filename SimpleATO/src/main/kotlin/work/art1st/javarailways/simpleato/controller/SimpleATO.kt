@@ -441,9 +441,19 @@ class SimpleATO(
 
     internal val authorityStoppingMarginMeters: Double get() = safetyProfile.safetyDistanceMeters
 
-    fun terminalMovementAuthorityLimitMeters(routeEndDistanceMeters: Double): Double {
+    fun terminalMovementAuthorityLimitMeters(routeEndDistanceMeters: Double, stationTerminal: Boolean = false): Double {
         require(routeEndDistanceMeters.isFinite() && routeEndDistanceMeters >= 0.0)
-        return routeEndDistanceMeters + safetyProfile.safetyDistanceMeters
+        return routeEndDistanceMeters + if (stationTerminal) AtoSafetyProfile.STATION_AUTHORITY_MARGIN_METERS else safetyProfile.safetyDistanceMeters
+    }
+
+    private fun terminalAuthorityMarginMeters(routeEndDistanceMeters: Double): Double {
+        val mission = activeMission ?: return safetyProfile.safetyDistanceMeters
+        val stop = mission.legs.lastOrNull()?.point as? AtoMissionPoint.Stop ?: return safetyProfile.safetyDistanceMeters
+        return if (stop.stationStop || activeStationCall?.let { call ->
+            call.resolved.call.missionRevision == mission.revision &&
+                kotlin.math.abs(call.missionTargetProgressMeters - call.resolved.stoppingOffsetMetersBefore -
+                    (routeEndDistanceMeters - stop.offsetMetersBefore)) <= 1.0e-6
+        } == true) AtoSafetyProfile.STATION_AUTHORITY_MARGIN_METERS else safetyProfile.safetyDistanceMeters
     }
 
     /** Retire consumed pre-formation movement without replacing the controller or its restrictions. */
@@ -912,30 +922,20 @@ class SimpleATO(
             val authorityRemaining = (authorityLimit - controlProgress).coerceAtLeast(0.0)
             add(if (activeContactAuthority != null)
                 StopConstraint(authorityKey, authorityRemaining, stoppingMarginMeters = 0.0)
-            else MovementAuthorityConstraint(authorityKey, authorityRemaining))
+            else MovementAuthorityConstraint(authorityKey, authorityRemaining,
+                terminalAuthorityMarginMeters(mission.legs.sumOf { it.plannedRoute.expandedRoute.totalLength })))
             mission.legs.forEach { leg ->
                 targetDistance += leg.plannedRoute.expandedRoute.totalLength
                 val point = leg.point
                 if (point is AtoMissionPoint.Stop) {
-                    val stationMargin = activeStationCall?.takeIf { stationCall ->
-                        stationCall.resolved.call.missionRevision == mission.revision &&
-                            kotlin.math.abs(
-                                stationCall.missionTargetProgressMeters - targetDistance
-                            ) <= safetyProfile.stopToleranceMeters
-                    }?.let { stationCall ->
-                        2.0 * minOf(
-                            stationCall.resolved.positionToleranceMeters,
-                            safetyProfile.stopToleranceMeters
-                        )
-                    }
                     val stopProgress = controlProgress
                     add(
                         StopConstraint(
                             ConstraintKey("mission", "stop/${mission.revision}/${leg.index}"),
                             (targetDistance - stopProgress - point.offsetMetersBefore)
                                 .coerceAtLeast(0.0),
-                            // Arrival tolerance is not a geometric shift of an ordinary mission target.
-                            stoppingMarginMeters = stationMargin ?: 0.0
+                            // Arrival tolerance does not shift the nominal stopping target.
+                            stoppingMarginMeters = 0.0
                         )
                     )
                 }
@@ -1017,10 +1017,7 @@ class SimpleATO(
                 StopConstraint(
                     ConstraintKey("station", "stop/${resolved.call.callId}"),
                     positionError.coerceAtLeast(0.0),
-                    stoppingMarginMeters = 2.0 * minOf(
-                        resolved.positionToleranceMeters,
-                        safetyProfile.stopToleranceMeters
-                    )
+                    stoppingMarginMeters = 0.0
                 )
             )
         }

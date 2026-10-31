@@ -8,7 +8,7 @@ Basic 保存唯一方向配置并处理物理准入、grant、资源冲突和车
 
 ## 2. 一次运行怎样经过各模块
 
-ATO 读取公共方向，组合选路限制并生成运营路径。终端策略在停车点后提供物理保护后缀，最终路径确定后，Dispatcher 检查真实停点、车身和全局安全距离所需的前缀，并生成绑定完整路径的方向结果。
+ATO 读取公共方向，组合选路限制并生成运营路径。终端策略在停车点后提供物理保护后缀，最终路径确定后，Dispatcher 检查真实停点、车身和本次终点余量（terminal StationCall0.3米，否则全局安全距离）所需的前缀，并生成绑定完整路径的方向结果。
 
 Basic 仍可授予整个闭塞的物理资源；准入客户端如实保留该 grant，在同一限制快照中按需增加较近的方向边界。原有最严格约束管线同时消费物理边界、方向边界、信号和任务限制，因此保护后缀不会自动变成可行驶权限。
 
@@ -34,7 +34,7 @@ limit.requireLegalThrough(requiredEndRouteDistanceMeters)
 
 `FrozenRouteSelectionResult.Selected.operatingDirectionLimit` 可以在尚未完成候选时为空，但进入准入客户端前必须具有匹配结果；缺失或错绑是内部不变量错误，不能默认全程允许。完整有效选择的首次申请仍先发布 0m 授权；pending／拒绝维持较安全旧边界。
 
-准入来源仍为 `simpleato:resource-admission`。真实物理边界使用 `simpleato:committed-authority`；方向比已发布物理边界更近时，额外发布 `simpleato:operating-direction` 的 `MovementAuthorityRestriction`。同源限制 ID 不冲突，不裁剪 grant；全程合法时不增加重复限制，尤其不能覆盖独立证明的零间隙连挂接触语义。
+准入来源仍为 `simpleato:resource-admission`。真实物理边界使用 `simpleato:committed-authority`；方向比已发布物理边界更近时，额外发布 `simpleato:operating-direction` 的 `MovementAuthorityRestriction`。同源限制 ID 不冲突，不裁剪 grant；全程合法时不增加重复限制，尤其不能覆盖独立证明的零间隙连挂接触语义。对实际grant和方向前缀均已覆盖车站requiredEnd的terminal StationCall，资源与方向restriction携带车站0.3米余量；其余情况及独立信号来源保留默认全局值，详见[终点授权合同](terminal-route-completion.md)。
 
 ## 5. 生命周期、线程和版本
 

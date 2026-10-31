@@ -10,7 +10,7 @@ class EditorGlowMetadataTest {
     private val editor = UUID.randomUUID()
     private val observer = UUID.randomUUID()
 
-    @Test fun `outline is viewer isolated and merges flags without altering metadata or brightness`() {
+    @Test fun `outline is viewer isolated and merges flags without altering metadata or brightness`() = withPacketVersion {
         val state = EditorGlowMetadata(0, 22)
         state.register(12, 0x20, 0x123456)
         state.select(12, mapOf(editor to 0xff0000))
@@ -27,7 +27,7 @@ class EditorGlowMetadataTest {
         assertNull(state.merge(12, observer, original))
     }
 
-    @Test fun `full scene metadata updates keep outline and reset restores latest baseline`() {
+    @Test fun `full scene metadata updates keep outline and reset restores latest baseline`() = withPacketVersion {
         val state = EditorGlowMetadata(0, 22)
         state.register(12)
         state.merge(12, editor, emptyList()) // Viewer sees model before editing begins.
@@ -44,7 +44,7 @@ class EditorGlowMetadataTest {
         assertNull(state.merge(12, editor, emptyList()))
     }
 
-    @Test fun `late queued glow and reset resolve current intent and destroyed identities cannot revive`() {
+    @Test fun `late queued glow and reset resolve current intent and destroyed identities cannot revive`() = withPacketVersion {
         val state = EditorGlowMetadata(0, 22)
         state.register(12)
         state.merge(12, editor, emptyList())
@@ -66,7 +66,7 @@ class EditorGlowMetadataTest {
         assertNull(state.merge(12, editor, emptyList()))
     }
 
-    @Test fun `selection copies input and forget or clear retires seen viewers and entities`() {
+    @Test fun `selection copies input and forget or clear retires seen viewers and entities`() = withPacketVersion {
         val state = EditorGlowMetadata(0, 22)
         state.register(12, 0x40, 0x102030) // Preserve an existing normal glow on reset.
         state.merge(12, editor, emptyList())

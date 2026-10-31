@@ -55,6 +55,75 @@ class RouteAuthorityAdmissionClientTest {
     private val client = client(service, publisher)
 
     @Test
+    fun `station context reduces only proven terminal authority including protected direction suffix`() {
+        val safe = UUID(0L, 91L)
+        val forbidden = UUID(0L, 92L)
+        val protected = RouteSnapshot(route.routeId, route.revision, route.topologyRevision, listOf(
+            RouteSegmentSnapshot(safe, ViewDirection.AB, 0.0, 100.0),
+            RouteSegmentSnapshot(forbidden, ViewDirection.AB, 0.0, 40.0)))
+        val selected = selection(protected, directions = mapOf(forbidden to ViewDirection.BA)).copy(
+            stationTerminalAuthority = work.art1st.javarailways.simpleato.routing.StationTerminalAuthority(99.8))
+        val initial = grant(90.0, protected)
+        service.onRequest = { RouteAdmissionResult.Granted(initial) }
+        client.request(selected, RouteBoundary(90.0))
+        assertTrue(publisher.snapshots.last().restrictions.filterIsInstance<MovementAuthorityRestriction>()
+            .all { it.stoppingMarginMeters == null }, "intermediate grant keeps ordinary safety margin")
+        val pending = RouteAdmissionTestFixtures.handle()
+        service.onRequest = { RouteAdmissionResult.Pending(pending, initial) }
+        service.onProgress = { RouteAdmissionResult.Granted(initial.copy(committedAuthority = RouteBoundary(140.0))) }
+        client.request(selected, RouteBoundary(140.0))
+        assertTrue(publisher.snapshots.last().restrictions.filterIsInstance<MovementAuthorityRestriction>()
+            .all { it.stoppingMarginMeters == null })
+        client.progress()
+        assertEquals(140.0, client.committedGrantSnapshot!!.committedAuthority.distanceFromRouteStartMeters)
+        val restrictions = publisher.snapshots.last().restrictions.filterIsInstance<MovementAuthorityRestriction>()
+        assertEquals(listOf(100.0, 140.0), restrictions.map { it.routeDistanceMeters }.sorted())
+        assertTrue(restrictions.all { it.stoppingMarginMeters == 0.3 })
+        val manager = ConstraintManager()
+        val adapter = TrainRestrictionConstraintAdapter("train", manager)
+        adapter.publish(publisher.snapshots.last());adapter.apply(stamp, FrozenRouteBinding.from(protected), 99.5)
+        assertTrue(manager.permittedSpeedMetersPerSecond(0.0, 30.0, AtoSafetyProfile()) > 0.0,
+            "a proven station terminal is reachable before the lawful 100m direction boundary")
+        manager.replace(ConstraintOwner(ConstraintOwnerType.SIGNALLING, "test:red"), listOf(
+            MovementAuthorityConstraint(ConstraintKey("test:red", "authority"), 0.3)))
+        assertEquals(0.0, manager.permittedSpeedMetersPerSecond(0.0, 30.0, AtoSafetyProfile()),
+            "independent red authority keeps its ordinary margin and wins")
+        assertThrows(IllegalArgumentException::class.java) {
+            client.prepareContinuation(selected.copy(stationTerminalAuthority =
+                work.art1st.javarailways.simpleato.routing.StationTerminalAuthority(100.3)))
+        }
+        val beforeForeign = publisher.snapshots.size
+        assertThrows(IllegalArgumentException::class.java) {
+            client.prepareContinuation(selected.copy(trainId = "foreign", stationTerminalAuthority = null))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            client.prepareContinuation(selection(protected, directions = mapOf(forbidden to ViewDirection.BA), worldId = "foreign"))
+        }
+        assertEquals(beforeForeign, publisher.snapshots.size)
+        assertTrue(publisher.snapshots.last().restrictions.filterIsInstance<MovementAuthorityRestriction>().all { it.stoppingMarginMeters == 0.3 })
+        client.prepareContinuation(selected.copy(stationTerminalAuthority = null))
+        assertTrue(publisher.snapshots.last().restrictions.filterIsInstance<MovementAuthorityRestriction>()
+            .all { it.stoppingMarginMeters == null }, "same frozen route cannot retain old station provenance")
+    }
+
+    @Test
+    fun `new pending target withdraws previous station margin before granting its resources`() {
+        val station = selection.copy(stationTerminalAuthority =
+            work.art1st.javarailways.simpleato.routing.StationTerminalAuthority(90.3))
+        val held = grant(95.0)
+        service.onRequest = { RouteAdmissionResult.Granted(held) }
+        client.request(station, RouteBoundary(95.0))
+        assertEquals(0.3, publisher.snapshots.last().restrictions.filterIsInstance<MovementAuthorityRestriction>().single().stoppingMarginMeters)
+        val pending = RouteAdmissionTestFixtures.handle()
+        service.onRequest = { RouteAdmissionResult.Pending(pending, held) }
+        client.request(selection, RouteBoundary(100.0))
+        assertEquals(null, publisher.snapshots.last().restrictions.filterIsInstance<MovementAuthorityRestriction>().single().stoppingMarginMeters)
+        val count = publisher.snapshots.size
+        assertThrows(IllegalStateException::class.java) { client.prepareContinuation(station) }
+        assertEquals(count, publisher.snapshots.size, "pending provenance cannot be rebound before its lifecycle check")
+    }
+
+    @Test
     fun `protection grant remains truthful while direction restriction limits actual movement`() {
         val safe = UUID(0L, 21L)
         val forbidden = UUID(0L, 22L)
@@ -636,14 +705,15 @@ class RouteAuthorityAdmissionClientTest {
     private fun selection(
         route: RouteSnapshot,
         trainId: String = "train",
-        directions: Map<UUID, ViewDirection> = emptyMap()
+        directions: Map<UUID, ViewDirection> = emptyMap(),
+        worldId: String = stamp.worldId
     ): FrozenRouteSelectionResult.Selected {
         val topology = buildTestTopology(route.topologyRevision,
             route.segments.groupBy { it.railId }.map { (id, segments) ->
                 TestTopologyRail(id, segments.maxOf { it.endArcLengthMeters })
             }, emptyMap())
-        return FrozenRouteSelectionResult.Selected(trainId, stamp, route,
-            RouteOperatingDirectionLimit.calculate(stamp.worldId, route, topology,
+        return FrozenRouteSelectionResult.Selected(trainId, stamp.copy(worldId = worldId), route,
+            RouteOperatingDirectionLimit.calculate(worldId, route, topology,
                 RailOperatingDirections(topology, route.segments.associate { it.railId to directions[it.railId] })))
     }
 

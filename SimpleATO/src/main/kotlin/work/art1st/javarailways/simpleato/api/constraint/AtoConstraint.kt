@@ -123,9 +123,11 @@ data class FollowConstraint(
 
 data class MovementAuthorityConstraint(
     override val key: ConstraintKey,
-    val remainingDistanceMeters: Double
+    val remainingDistanceMeters: Double,
+    val stoppingMarginMeters: Double? = null
 ) : AtoConstraint {
     init {
+        require(stoppingMarginMeters == null || stoppingMarginMeters.isFinite() && stoppingMarginMeters >= 0.0)
         require(remainingDistanceMeters >= 0.0 && remainingDistanceMeters.isFinite())
     }
 
@@ -135,7 +137,7 @@ data class MovementAuthorityConstraint(
         brakingEnvelope: GradeAwareBrakingEnvelope?
     ): Double = speedForTarget(
         targetSpeed = 0.0,
-        distance = remainingDistanceMeters - profile.safetyDistanceMeters,
+        distance = remainingDistanceMeters - (stoppingMarginMeters ?: profile.safetyDistanceMeters),
         currentSpeed = currentSpeedMetersPerSecond,
         reactionTimeSeconds = profile.reactionTimeSeconds,
         deceleration = profile.serviceDecelerationMetersPerSecondSquared,

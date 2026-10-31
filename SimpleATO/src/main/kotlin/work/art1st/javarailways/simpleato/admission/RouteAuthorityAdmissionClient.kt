@@ -19,6 +19,7 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestriction
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
+import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionResult
 
 /**
@@ -92,9 +93,19 @@ internal class RouteAuthorityAdmissionClient(
         val current = active ?: return
         val grant = current.committedGrant ?: return
         val binding = FrozenRouteBinding.from(selection.route)
-        if (current.restrictionRoute == binding) return
         check(!current.unsafeFailure && !current.reversalPending && current.pending == null) {
             "a pending or unsafe admission cannot prepare an operating continuation"
+        }
+        require(current.matches(selection)) { "operating continuation belongs to a different train or world" }
+        if (current.restrictionRoute == binding) {
+            val directionEnd = minOf(current.directionEndMeters,
+                requireNotNull(selection.operatingDirectionLimit).endRouteDistanceMeters)
+            if (current.stationTerminalAuthority != selection.stationTerminalAuthority || current.directionEndMeters != directionEnd) {
+                current.stationTerminalAuthority = selection.stationTerminalAuthority
+                current.directionEndMeters = directionEnd
+                publishAuthority(current, selection.observationStamp, grant.committedAuthority.distanceFromRouteStartMeters)
+            }
+            return
         }
         val committed = current.selection.route
         require(current.matches(selection) &&
@@ -106,6 +117,7 @@ internal class RouteAuthorityAdmissionClient(
             committed.totalLengthMeters) <= COMPLETE_ROUTE_EPSILON_METERS) {
             "a physical continuation requires authority through the previous route end"
         }
+        current.stationTerminalAuthority = selection.stationTerminalAuthority
         current.restrictionRoute = binding
         current.directionEndMeters = minOf(current.directionEndMeters,
             requireNotNull(selection.operatingDirectionLimit).endRouteDistanceMeters)
@@ -164,6 +176,18 @@ internal class RouteAuthorityAdmissionClient(
                 )
             }
             current
+        }
+
+        // A new operating target must not inherit a previous station's reduced braking margin,
+        // even when its next resource request remains pending on the same physical route.
+        val terminal = selection.stationTerminalAuthority.takeIf {
+            route.restrictionRoute == FrozenRouteBinding.from(selection.route)
+        }
+        if (route.stationTerminalAuthority != terminal) {
+            route.stationTerminalAuthority = terminal
+            route.committedGrant?.let { grant ->
+                publishAuthority(route, selection.observationStamp, grant.committedAuthority.distanceFromRouteStartMeters)
+            }
         }
 
         val intent = RouteResourceIntent(
@@ -264,6 +288,7 @@ internal class RouteAuthorityAdmissionClient(
                     "reversal rebase changed the observed-head authority boundary"
                 }
                 route.selection = selection
+                route.stationTerminalAuthority = selection.stationTerminalAuthority
                 route.restrictionRoute = FrozenRouteBinding.from(selection.route)
                 route.directionEndMeters = requireNotNull(selection.operatingDirectionLimit).endRouteDistanceMeters
                 route.committedGrant = grant
@@ -317,6 +342,7 @@ internal class RouteAuthorityAdmissionClient(
                 route.pending = null
                 route.committedGrant = result.grant
                 route.selection = requestedSelection
+                route.stationTerminalAuthority = requestedSelection.stationTerminalAuthority
                 route.restrictionRoute = FrozenRouteBinding.from(requestedSelection.route)
                 route.directionEndMeters = requireNotNull(requestedSelection.operatingDirectionLimit).endRouteDistanceMeters
                 publishAuthority(
@@ -415,7 +441,11 @@ internal class RouteAuthorityAdmissionClient(
     ) {
         val restrictions = buildList<TrainRestriction> {
             val contact = route.committedGrant?.couplingContactAuthority
-            if (contact == null) add(MovementAuthorityRestriction(AUTHORITY_RESTRICTION_ID, boundaryMeters))
+            val stationMargin = route.stationTerminalAuthority?.takeIf {
+                route.committedGrant != null && boundaryMeters >= it.requiredEndRouteDistanceMeters &&
+                    route.directionEndMeters >= it.requiredEndRouteDistanceMeters
+            }?.let { AtoSafetyProfile.STATION_AUTHORITY_MARGIN_METERS }
+            if (contact == null) add(MovementAuthorityRestriction(AUTHORITY_RESTRICTION_ID, boundaryMeters, stationMargin))
             else {
                 check(contact.contactBoundary.distanceFromRouteStartMeters == boundaryMeters &&
                     route.restrictionRoute == FrozenRouteBinding.from(route.selection.route)) {
@@ -427,7 +457,7 @@ internal class RouteAuthorityAdmissionClient(
             // A fully legal path needs no duplicate constraint at its physical end; in particular
             // it must not replace Basic's separately proved zero-gap coupling contact semantics.
             if (route.directionEndMeters < boundaryMeters) {
-                add(MovementAuthorityRestriction(DIRECTION_RESTRICTION_ID, route.directionEndMeters))
+                add(MovementAuthorityRestriction(DIRECTION_RESTRICTION_ID, route.directionEndMeters, stationMargin))
             }
             route.committedGrant?.maximumSpeedMetersPerSecond?.let { maximumSpeed ->
                 add(CurrentSpeedRestriction(SPEED_RESTRICTION_ID, maximumSpeed))
@@ -441,6 +471,12 @@ internal class RouteAuthorityAdmissionClient(
     }
 
     private fun requireDirectionLimit(selection: FrozenRouteSelectionResult.Selected) {
+        selection.stationTerminalAuthority?.let {
+            require(it.requiredEndRouteDistanceMeters <= selection.route.totalLengthMeters) {
+                "station terminal authority exceeds its exact frozen route"
+            }
+            requireNotNull(selection.operatingDirectionLimit).requireLegalThrough(it.requiredEndRouteDistanceMeters)
+        }
         requireNotNull(selection.operatingDirectionLimit) {
             "an exact operating direction result is required before route admission"
         }.requireMatches(selection)
@@ -475,6 +511,7 @@ internal class RouteAuthorityAdmissionClient(
 
     private data class ActiveRoute(
         var selection: FrozenRouteSelectionResult.Selected,
+        var stationTerminalAuthority: work.art1st.javarailways.simpleato.routing.StationTerminalAuthority? = selection.stationTerminalAuthority,
         var directionEndMeters: Double = requireNotNull(selection.operatingDirectionLimit).endRouteDistanceMeters,
         var restrictionRoute: FrozenRouteBinding =
             FrozenRouteBinding.from(selection.route),

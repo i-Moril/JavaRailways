@@ -56,12 +56,18 @@ internal enum class FrozenRouteSelectionRejection {
     PLANNER_REJECTED
 }
 
+/** Explicit station-call provenance, expressed in this exact frozen route's distance coordinate. */
+internal data class StationTerminalAuthority(val requiredEndRouteDistanceMeters: Double) {
+    init { require(requiredEndRouteDistanceMeters.isFinite() && requiredEndRouteDistanceMeters >= 0.0) }
+}
+
 internal sealed interface FrozenRouteSelectionResult {
     data class Selected(
         val trainId: String,
         val observationStamp: RailwayStateStamp,
         val route: RouteSnapshot,
-        val operatingDirectionLimit: RouteOperatingDirectionLimit? = null
+        val operatingDirectionLimit: RouteOperatingDirectionLimit? = null,
+        val stationTerminalAuthority: StationTerminalAuthority? = null
     ) : FrozenRouteSelectionResult
 
     data class Rejected(

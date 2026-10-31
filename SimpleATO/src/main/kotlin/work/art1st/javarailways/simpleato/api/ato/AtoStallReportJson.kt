@@ -143,7 +143,8 @@ object AtoStallReportJson {
                 "leadingSpeedMetersPerSecond" to JsonPrimitive(leadingSpeedMetersPerSecond)
             )
             is MovementAuthorityConstraint -> mapOf(
-                "remainingDistanceMeters" to JsonPrimitive(remainingDistanceMeters)
+                "remainingDistanceMeters" to JsonPrimitive(remainingDistanceMeters),
+                "stoppingMarginMeters" to (stoppingMarginMeters?.let(::JsonPrimitive) ?: JsonNull)
             )
             is DepartureHoldConstraint -> emptyMap()
         }

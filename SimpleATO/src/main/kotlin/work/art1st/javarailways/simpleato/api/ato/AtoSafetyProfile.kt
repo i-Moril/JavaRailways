@@ -15,4 +15,8 @@ data class AtoSafetyProfile(
         require(safetyDistanceMeters >= 0.0 && safetyDistanceMeters.isFinite())
         require(stopToleranceMeters >= 0.0 && stopToleranceMeters.isFinite())
     }
+    companion object {
+        /** Station terminal authority covers this real distance beyond its nominal stopping mark. */
+        const val STATION_AUTHORITY_MARGIN_METERS = 0.3
+    }
 }

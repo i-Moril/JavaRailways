@@ -120,15 +120,8 @@ internal object BlockPathBuilder {
     fun directedPath(topology: TopologyState, first: RailPositionSnapshot, second: RailPositionSnapshot): List<FixedBlockTraversal> =
         requireNotNull(walk(topology, first, second, first.facing)) { "No turnout-free path in the selected component" }
 
-    fun definition(blockId: String, path: List<FixedBlockTraversal>, directions: Map<UUID, ViewDirection?>): FixedBlockDefinition {
-        require(path.all { directions.containsKey(it.railId) }) { "Operating direction snapshot is incomplete" }
-        val both = path.all { directions[it.railId] == null }
-        val forward = path.all { directions[it.railId] == it.facing }
-        val backward = path.all { directions[it.railId] == it.facing.reversed() }
-        require(both || forward || backward) { "Operating directions are inconsistent across the complete block path" }
-        val oriented = if (backward) path.asReversed().map { it.copy(facing = it.facing.reversed()) } else path
-        return FixedBlockDefinition(blockId, 0, oriented, both)
-    }
+    fun definition(blockId: String, path: List<FixedBlockTraversal>): FixedBlockDefinition =
+        FixedBlockDefinition(blockId, 0, path)
 
     private fun walk(topology: TopologyState, first: RailPositionSnapshot, target: RailPositionSnapshot,
         initialFacing: ViewDirection): List<FixedBlockTraversal>? {

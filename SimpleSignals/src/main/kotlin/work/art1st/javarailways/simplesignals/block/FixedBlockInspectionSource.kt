@@ -26,8 +26,7 @@ internal class FixedBlockInspectionSource(
     private val inspectionLeadTimeSeconds: (FixedBlockReadSnapshot, FixedBlockSignalEntry) -> Double = { _, _ -> 0.0 },
     private val protectionDeclarations: (FixedBlockReadSnapshot, RouteSnapshot) -> List<InspectionDeclaration> = { _, _ -> emptyList() },
     private val protectionSignalState: (String) -> PublishedSectionSignal? = { null },
-    private val hasConfiguredProtectionSignal: (String) -> Boolean = { false },
-    private val directionPolicy: FixedBlockDirectionPolicy = FixedBlockDirectionPolicy()
+    private val hasConfiguredProtectionSignal: (String) -> Boolean = { false }
 ) {
     private val nextRevision = AtomicLong(0L)
 
@@ -36,15 +35,13 @@ internal class FixedBlockInspectionSource(
         bindingProvider = { input ->
             val captured = snapshot()
             val windows = matchRoute(captured, input.route)
-            val disabled = directionPolicy.disabledBlocks(captured, windows.map { captured.blocksById.getValue(it.blockId) }.distinct())
-            val normal = directionPolicy.normalWindows(captured, windows, disabled)
             InspectionDeclarationBinding(
                 sourceId = FIXED_BLOCK_SIGNAL_SOURCE_ID,
                 trainId = input.trainId,
                 route = FrozenRouteBinding.from(input.route),
                 definitionRevision = captured.definitionRevision,
                 trainProfileRevision = 0L,
-                declarations = normal.filter(FixedBlockRouteWindow::enteredAtBoundary).map { window ->
+                declarations = windows.filter(FixedBlockRouteWindow::enteredAtBoundary).map { window ->
                     val block = captured.blocksById.getValue(window.blockId)
                     val entry = block.entryTraversal(window.reversed)
                     val signalEntry = FixedBlockSignalEntry(window.blockId,
@@ -58,7 +55,7 @@ internal class FixedBlockInspectionSource(
                         minimumRequestedAuthorityEndRouteDistanceMeters = window.exitRouteDistanceMeters
                     )
                 } + protectionDeclarations(captured, input.route),
-                authorityRequestFloors = normal.filterNot(FixedBlockRouteWindow::enteredAtBoundary).map { window ->
+                authorityRequestFloors = windows.filterNot(FixedBlockRouteWindow::enteredAtBoundary).map { window ->
                     InspectionAuthorityRequestFloor(window.entryRouteDistanceMeters, window.exitRouteDistanceMeters)
                 }
             )
@@ -66,8 +63,6 @@ internal class FixedBlockInspectionSource(
         routeInfrastructureDependencies = { route ->
             val captured = snapshot()
             val windows = matchRoute(captured, route)
-            val disabled = directionPolicy.disabledBlocks(captured, windows.map { captured.blocksById.getValue(it.blockId) }.distinct())
-            directionPolicy.normalWindows(captured, windows, disabled)
             java.util.Set.copyOf(windows.map { window ->
                 StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, window.blockId)
             })
@@ -75,9 +70,6 @@ internal class FixedBlockInspectionSource(
         terminalRouteContinuation = { route, proposedMovingRoute ->
             val captured = snapshot()
             val windows = matchRoute(captured, route)
-            val disabled = directionPolicy.disabledBlocks(captured,
-                windows.map { captured.blocksById.getValue(it.blockId) }.distinct())
-            directionPolicy.normalWindows(captured, windows, disabled)
             val ownsTerminal = windows.any {
                 kotlin.math.abs(it.exitRouteDistanceMeters - route.totalLengthMeters) <= 1.0e-6
             }
@@ -144,7 +136,7 @@ internal class FixedBlockInspectionSource(
     )
 
     private fun matchRoute(captured: FixedBlockReadSnapshot, route: RouteSnapshot): List<FixedBlockRouteWindow> {
-        return when (val matched = FixedBlockRouteMatcher.matchRoute(captured, route, detectReverse = true)) {
+        return when (val matched = FixedBlockRouteMatcher.matchRoute(captured, route)) {
             is FixedBlockAuthorityMatchResult.Matched -> matched.windows
             is FixedBlockAuthorityMatchResult.Rejected -> error(matched.detail)
         }

@@ -35,15 +35,13 @@ internal data class FixedBlockTraversal(
 internal data class FixedBlockDefinition private constructor(
     val blockId: String,
     val revision: Long,
-    val traversals: List<FixedBlockTraversal>,
-    val bidirectional: Boolean = false
+    val traversals: List<FixedBlockTraversal>
 ) {
     constructor(
         blockId: String,
         revision: Long,
-        traversals: Collection<FixedBlockTraversal>,
-        bidirectional: Boolean = false
-    ) : this(blockId, revision, java.util.List.copyOf(traversals), bidirectional)
+        traversals: Collection<FixedBlockTraversal>
+    ) : this(blockId, revision, java.util.List.copyOf(traversals))
 
     init {
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(blockId)) { "blockId must be namespaced" }

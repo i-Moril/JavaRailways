@@ -53,7 +53,7 @@ class FixedBlockInspectionSourceTest {
     @Test
     fun `moving margin cannot enter a new block and exact block exit owns an empty suffix`() {
         val block = FixedBlockDefinition("test:margin", 1L,
-            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)), true)
+            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)))
         val source = FixedBlockInspectionSource({ snapshot(block) }).source
         val before = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 1.0))
         val proposed = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 4.0))
@@ -70,7 +70,7 @@ class FixedBlockInspectionSourceTest {
     fun `terminal completion clips complete compiled path and internal start has request floor without passed signal`() {
         val block = FixedBlockDefinition("test:complete", 1L, listOf(
             FixedBlockTraversal(first, ViewDirection.AB, 2.0, 10.0),
-            FixedBlockTraversal(second, ViewDirection.AB, 0.0, 8.0)), true)
+            FixedBlockTraversal(second, ViewDirection.AB, 0.0, 8.0)))
         val captured = snapshot(block)
         val source = FixedBlockInspectionSource({ captured }).source
         val forward = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0),
@@ -101,28 +101,26 @@ class FixedBlockInspectionSourceTest {
     }
 
     @Test
-    fun `direction mismatch refuses forward reverse internal and repeated routes without a signal rule`() {
-        val block = FixedBlockDefinition("test:unavailable", 1L, listOf(
+    fun `geometry supplies entries and internal floors in both directions without an operating policy`() {
+        val block = FixedBlockDefinition("test:geometry", 1L, listOf(
             FixedBlockTraversal(first, ViewDirection.AB, 2.0, 10.0),
             FixedBlockTraversal(second, ViewDirection.AB, 0.0, 8.0)))
         val captured = snapshot(block)
-        val directions = work.art1st.javarailways.basic.rail.OperatingDirectionStore()
-        val source = FixedBlockInspectionSource({ captured }, directionPolicy = FixedBlockDirectionPolicy(directions::snapshot)).source
+        val source = FixedBlockInspectionSource({ captured }).source
         val routes = listOf(
             route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0), RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0)),
             route(RouteSegmentSnapshot(first, ViewDirection.AB, 4.0, 10.0), RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0)),
             route(RouteSegmentSnapshot(second, ViewDirection.BA, 4.0, 10.0), RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 10.0)))
-        routes.forEach { route ->
-            assertThrows(IllegalStateException::class.java) { source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", route)) }
-            assertThrows(IllegalStateException::class.java) { source.routeInfrastructureDependencies.dependencies(route) }
+        val bindings = routes.map { route ->
+            assertEquals(setOf(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)),
+                source.routeInfrastructureDependencies.dependencies(route))
+            source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", route))
         }
-        directions.put(first, ViewDirection.AB)
-        assertThrows(IllegalStateException::class.java) { source.routeInfrastructureDependencies.dependencies(routes.first()) }
-        directions.put(second, ViewDirection.AB)
-        val repaired = source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", routes.first()))
-        assertEquals(1, repaired.declarations.size)
-        assertEquals(0, repaired.speedRanges.size)
-        assertThrows(IllegalStateException::class.java) { source.routeInfrastructureDependencies.dependencies(routes.last()) }
+        assertEquals(fixedBlockSignalDeclarationId(block.blockId), bindings[0].declarations.single().declarationId)
+        assertTrue(bindings[1].declarations.isEmpty())
+        assertEquals(14.0, bindings[1].authorityRequestFloors.single().minimumEndRouteDistanceMeters)
+        assertTrue(bindings[2].declarations.isEmpty())
+        assertEquals(14.0, bindings[2].authorityRequestFloors.single().minimumEndRouteDistanceMeters)
 
         val third = UUID(0L, 3L)
         val loop = topologyState(topology.revision, listOf(first, second, third), listOf(
@@ -133,16 +131,18 @@ class FixedBlockInspectionSourceTest {
         val repeated = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0),
             RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0), RouteSegmentSnapshot(third, ViewDirection.AB, 0.0, 10.0),
             RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0), RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0))
-        directions.put(second, null)
-        val repeatedSource = FixedBlockInspectionSource({ loopSnapshot }, directionPolicy = FixedBlockDirectionPolicy(directions::snapshot)).source
-        assertThrows(IllegalStateException::class.java) { repeatedSource.bindingProvider.bind(InspectionBindingInput(stamp(), "train", repeated)) }
+        val repeatedSource = FixedBlockInspectionSource({ loopSnapshot }).source
+        val repeatedBinding = repeatedSource.bindingProvider.bind(InspectionBindingInput(stamp(), "train", repeated))
+        assertEquals(listOf(2.0, 32.0), repeatedBinding.declarations.map { it.triggerRouteDistanceMeters })
+        assertEquals(setOf(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)),
+            repeatedSource.routeInfrastructureDependencies.dependencies(repeated))
     }
 
     @Test
     fun `both genuine entries select independent rules lead times and one block dependency`() {
         val block = FixedBlockDefinition("test:two-way", 1L, listOf(
             FixedBlockTraversal(first, ViewDirection.AB, 2.0, 10.0),
-            FixedBlockTraversal(second, ViewDirection.AB, 0.0, 8.0)), true)
+            FixedBlockTraversal(second, ViewDirection.AB, 0.0, 8.0)))
         val worldRuntime = signalWorldRuntime(worldId)
         val forwardSignal = signal(block.blockId, 1L, 12.0)
         val reverseSignal = forwardSignal.reconfigured(signalId = "test:reverse-signal", inspectionLeadTimeSeconds = 4.0,
@@ -231,7 +231,7 @@ class FixedBlockInspectionSourceTest {
     @Test
     fun `unconfigured forward entry has resource floor but configured reverse missing baseline stops`() {
         val block = FixedBlockDefinition("test:reverse-only", 1, listOf(
-            FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)), true)
+            FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)))
         val snapshot = FixedBlockCatalog().also { it.publish(topology, 1, listOf(block)) }.snapshot(topology)
         val source = fixedBlockInspectionSource({ snapshot }, hasConfiguredSignal = {
             it.direction == FixedBlockEntryDirection.REVERSE
@@ -277,7 +277,7 @@ class FixedBlockInspectionSourceTest {
             endpoint(second, RailEndpoint.B) to endpoint(third, RailEndpoint.A),
             endpoint(third, RailEndpoint.B) to endpoint(first, RailEndpoint.A)))
         val block = FixedBlockDefinition("test:reverse-loop", 1L,
-            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)), true)
+            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)))
         val snapshot = FixedBlockCatalog().also { it.publish(loop, 1L, listOf(block)) }.snapshot(loop)
         val route = route(*listOf(first, third, second, first).map {
             RouteSegmentSnapshot(it, ViewDirection.BA, 0.0, 10.0)

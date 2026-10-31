@@ -72,10 +72,12 @@ class SignalEpochRuntime(
     private val directionLock = Any()
     private var changedDirectionRails = linkedSetOf<java.util.UUID>()
 
-    /** Store writers call this after releasing the policy lock. Multiple writes coalesce per epoch. */
-    fun publishOperatingDirectionChanges(railIds: Set<java.util.UUID>) = synchronized(directionLock) {
-        changedDirectionRails.addAll(railIds)
-        Unit
+    /** Fence existing routes now; only signal-source notifications coalesce until the next epoch. */
+    fun publishOperatingDirectionChanges(railIds: Set<java.util.UUID>) {
+        inspectionRuntime?.invalidateOperatingDirections(railIds)
+        synchronized(directionLock) {
+            changedDirectionRails.addAll(railIds)
+        }
     }
 
     private fun takeOperatingDirectionChanges(): Set<java.util.UUID> = synchronized(directionLock) {
@@ -150,6 +152,7 @@ class SignalEpochRuntime(
         val liveTrainIds = frame.trains.mapTo(hashSetOf()) { it.trainId }
         (previousClearanceLiveTrainIds - liveTrainIds).forEach { inspectionRuntime?.withdrawClearancesForTrain(it) }
         previousClearanceLiveTrainIds = liveTrainIds
+        val changedDirectionRails = takeOperatingDirectionChanges()
         if (current.sources.isEmpty()) {
             inspectionRuntime?.takeClearanceUpdates(false)
             completeEpoch(stamp, java.util.Set.copyOf(liveTrainIds))
@@ -174,7 +177,7 @@ class SignalEpochRuntime(
         val continuationUpdatesBySource = current.consumeContinuationUpdates(
             observation.activeContinuations
         )
-        val directionChangesBySource = current.directionChangesBySource(takeOperatingDirectionChanges())
+        val directionChangesBySource = current.directionChangesBySource(changedDirectionRails)
         current.sources.forEach { source ->
             val topologyBaseline = initialBaseline || source.sourceId in topologySources
             val updates = updatesBySource[source.sourceId].orEmpty()

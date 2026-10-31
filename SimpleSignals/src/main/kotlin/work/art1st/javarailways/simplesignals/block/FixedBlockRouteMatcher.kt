@@ -73,15 +73,13 @@ internal object FixedBlockRouteMatcher {
     /** Matches every fixed block reached by the complete exact frozen route. */
     fun matchRoute(
         snapshot: FixedBlockReadSnapshot,
-        route: RouteSnapshot,
-        detectReverse: Boolean = false
-    ): FixedBlockAuthorityMatchResult = matchAuthority(snapshot, route, route.totalLengthMeters, detectReverse)
+        route: RouteSnapshot
+    ): FixedBlockAuthorityMatchResult = matchAuthority(snapshot, route, route.totalLengthMeters)
 
     fun matchAuthority(
         snapshot: FixedBlockReadSnapshot,
         route: RouteSnapshot,
-        authorityEndRouteMeters: Double,
-        detectReverse: Boolean = false
+        authorityEndRouteMeters: Double
     ): FixedBlockAuthorityMatchResult {
         require(authorityEndRouteMeters.isFinite() && authorityEndRouteMeters >= 0.0) {
             "authorityEndRouteMeters must be finite and non-negative"
@@ -104,7 +102,6 @@ internal object FixedBlockRouteMatcher {
         for (block in candidates) {
             val directions = listOf(block.traversals, block.reverseTraversals)
             for ((direction, traversals) in directions.withIndex()) {
-                if (direction == 1 && !detectReverse && !block.definition.bidirectional) continue
                 if (traversals.isEmpty()) continue
                 // Match the full operating route before clipping to the requested authority. Otherwise a
                 // rolling request ending inside a block looks indistinguishable from a broken path.

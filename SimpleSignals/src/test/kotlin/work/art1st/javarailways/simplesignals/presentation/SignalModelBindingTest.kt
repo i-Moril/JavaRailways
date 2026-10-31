@@ -41,6 +41,9 @@ internal class SignalModelBindingTest {
             return Handle(objectId).also(handles::add)
         }
         fun byId(id: String) = handles.last { it.id == id }
+        override fun createEditorHighlight(owner: Plugin, viewer: org.bukkit.entity.Player, sessionId: String):
+            work.art1st.javarailways.bukkit.api.model.EditorModelHighlightHandle =
+            error("Editor highlighting is not used by model-binding tests")
         override fun pick(owner: Plugin, worldId: UUID, ray: ModelRay): Optional<ModelPick> = Optional.empty()
         override fun closeOwner(owner: Plugin): CompletionStage<Void> {
             closeOwnerCalls++

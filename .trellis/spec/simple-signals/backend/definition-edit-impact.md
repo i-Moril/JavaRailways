@@ -30,8 +30,8 @@ Basic 判断这些轨道是否涉及已应用时刻表、列车占用或其他�
 - region/table 改变：包含相关区域边界、内部和进路；进路 section 与入口选择作为传播起点。
   区域有未完成边界编辑时，同时包含原完整边界与当前 `boundaryDraft` 的轨道；旧区域范围继续用于禁行和修复。
 - region 与直接后继 block 互相影响准入 floor；变更 block 时不能遗漏前驱 region，变更 region/table 时不能遗漏直接后继 block。
-  双向 block 将两个已归一化的真实入口按轨道建表；反向入口也按位置和朝向匹配 region cut，
-  开关变化在旧、新 publication 分别收集。具体方向语义见[双向固定闭塞](bidirectional-fixed-block.md)。
+  所有 block 将两个已归一化的真实入口按轨道建表；反向入口也按位置和朝向匹配 region cut，
+  路径／边界变化在旧、新 publication 分别收集，不存在单双向权限开关。具体语义见[闭塞两端入口](bidirectional-fixed-block.md)。
 - signal 改变：包含其受控 section 和所有结构上可受影响的消费者。
 - indicator 改变：包含旧、新放置轨道和绑定入口的进路，不把仅显示模型的设备当作限速提供者。
 - attached signal 改变：包含旧、新放置轨道及各自主信号绑定的区间或进路；改绑时同时保护两个主信号的逻辑范围。
@@ -49,7 +49,7 @@ Basic 判断这些轨道是否涉及已应用时刻表、列车占用或其他�
 ## 4. 接口与单位
 
 内部入口：`SimpleSignalsDefinitionEditImpact.impact(previous, candidate): TopologyEditImpact?`。
-没有任何轨道或资源影响（如空世界初始publication）时返回null；实际patch在取得许可前必须有非空影响。
+没有任何旧/新逻辑、观察依赖、轨道摆放或资源影响时返回null，例如删除已解绑且摆在地面的信号。此时不构造Core明确禁止的空TopologyEditImpact，不伪造GRANTED或轨道锚点；继续执行同一完整候选校验、基线检查及原子保存/source替换事务。非空影响仍必须取得真实host编辑许可；仅railIds为空不能替代完整impact是否为空的判定。
 `SimpleSignalsPreparedDefinitions.editImpact`保存现有host影响值，`affectedRailIds`只投影其中轨道集合供诊断。
 `SimpleSignalsDefinitionEditImpact` 从改变的 signal、section 与保护入口取得起点，再沿
 `SimpleSignalsTopologyIndex.signalConsumers` 收集所有结构可达消费者；观察路径轨道来自同一 index 的
@@ -76,7 +76,7 @@ Basic 判断这些轨道是否涉及已应用时刻表、列车占用或其他�
 - 有影响但被静态运营依赖、动态 claim 或其他编辑阻挡：透传现有 host decision/blocker。
 - 许可后 topology/base publication 改变：typed stale，保留旧状态。
 - staged save 或 source validation 失败：保留旧磁盘 primary、旧 source 和旧 publication。
-- 成功：沿用原子 commit point；关闭许可，不新增 rollback 状态机。
+- 成功：沿用原子 commit point；若实际取得许可则关闭，无基础设施影响时editDecision为空，不新增rollback状态机。
 
 ## 7. 性能、复杂度与退化
 
@@ -128,3 +128,5 @@ Correct：从实际改变的对象出发，在旧、新编译状态中沿结构�
 远处编辑使准备的完整 graph/root 过期时，在 worker 重新走完整 prepare，原子提交仍要求 graph 与 root 同源。
 只允许一次此类自动重准备，继续竞争返回 `RETRY_REQUIRED`，不把竞争次数当作所选对象失效。
 定义 revision 冲突或原选择的真实依赖变化直接拒绝，不重写用户意图。
+
+未绑定地面固定/保护信号、表示器及附属设备的编辑/删除，必须回归存盘重载和零伪造许可；轨道附着或仍有受控/观察范围的设备继续受真实静态/动态claim保护。无影响路径也须覆盖无变化、revision错误、source拒绝、保存失败、取消及拓扑换代保留旧publication与磁盘。

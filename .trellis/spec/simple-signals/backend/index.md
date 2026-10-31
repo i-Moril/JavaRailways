@@ -1,7 +1,7 @@
 # SimpleSignals Backend 规范
 
 
-边界名称元数据、真实共用边界归组、一次命名交互与进路两端标签见[边界名称](boundary-names.md)。名称不替代内部 ID，不参与几何相等和信号放行。
+边界名称元数据、真实共用边界归组、独立命名模式与进路两端标签见[边界名称](boundary-names.md)。名称不替代内部 ID，不参与几何相等和信号放行。
 
 
 ## 状态与范围
@@ -16,7 +16,7 @@ plugin-local immutable section occupancy snapshot，并以同一exact frozen-rou
 已建立catalog signal type驱动的JS规则执行边界、灯色/限速输出快照及其列车限制投影；固定闭塞主信号、保护区域固定进路信号、
 当前入口信号都引用必填 `signalType`，presentation-only进路显示器不执行规则；
 已提供独立管理员 inspect/export/validate/apply 命令及 current-JSON 草稿工作流；
-现已接入[统一区间 Wand](section-authoring-wands.md)：玩家划定无向切口，插件识别内部并推导入口方向，自动生成普通闭塞或含道岔/平交冲突的保护区域；多解时点击内部确认，F只切换创建/删除。并提供固定闭塞、保护区域当前入口和固定进路主信号的
+现已接入[统一区间 Wand](section-authoring-wands.md)：玩家划定无向切口，插件识别内部并推导入口方向，自动生成普通闭塞或含道岔/平交冲突的保护区域；多解时点击内部确认，F按创建→命名→删除循环切换。并提供固定闭塞、保护区域当前入口和固定进路主信号的
 两步绑定／摆放、新建、精确更新与级联删除；附属信号已支持从已摆放主信号选择后独立新建／更新／删除，
 既有进路表示器可从有向入口选择后改位、换模型或删除。右键空气/轨道使用轨道附着，右键真实方块面使用面中心和玩家水平朝向的地面姿态；
 二者复用相同定义事务和模型生命周期。[表示器新建/映射与入口编辑](section-authoring-wands.md#表示器映射作者与新建)已接线：明确选择无进路外观，逐进路映射可缺项且提示补配，确认后才提交完整设备；缺项选中时使用明确无进路外观，不猜模型default。
@@ -35,7 +35,7 @@ GraalJS 沙箱、有向区间图到不可变前视树的编译，以及真实 wo
 世界拓扑版本增加不再使所有既有区间和冻结路线过期。
 已提供[保护区域当前通路预览](current-route-preview.md)：只读路径/方向显示、相关事件异步更新和关闭清理通过离线检查。
 [当前通路录制](current-route-recording.md)复用预览与已有定义事务；本批改为鼠标确认和稳定身份的路径替换。
-[区域自动最短进路](automatic-protection-routes.md)在新区域闭合时生成进路表，并在多通路出入口显示警告；独立离线检查41套/427项通过。
+[区域自动最短进路与修复](automatic-protection-routes.md)在新区域闭合时生成进路表，重新围合或确认修复时保留有效进路并补齐缺失组合，在多通路出入口显示警告；独立离线检查41套/427项通过。
 
 模型显示方案见[信号状态如何显示成模型](model-presentation.md)。SimpleSignals 已提供私有的预设应用和
 轨道附着/地面摆放计算，复用公开曲线和值类型，输出 `ModelPose`；方向、倾斜与原地旋转已通过真实曲线测试。
@@ -195,8 +195,7 @@ world runtime的definition入口为一次更新建立全新的candidate region�
 
 ## 固定闭塞定义与索引
 
-`FixedBlockDefinition`由稳定namespaced block ID、单调revision、一条从入口到出口的完整有序有向traversal，以及
-默认关闭的 `bidirectional` 组成；每段使用
+`FixedBlockDefinition`由稳定namespaced block ID、单调revision及一条完整有序有向traversal组成，不保存独立单双向权限；每段使用
 rail UUID、`ViewDirection`及canonical AB闭区间。定义不保存长度、occupancy或route occurrence，这些都是exact topology root下的
 派生值。
 
@@ -231,7 +230,7 @@ baseline；此前snapshot为unknown而不是空占用。没有配置规则的blo
 同一world candidate完整编译后、outer publication替换前，runtime还会用已编译interval检查fixed block与所有保护区域的正长度interior
 重叠；大于`Curve.TOLERANCE`的交集拒绝整批candidate，只有共用边界点允许。失败不取得edit permit、不写盘且保留旧publication。
 这个检查只发生在load/authoring路径，不进入tick。当前不规定不同fixed-block定义之间能否重叠，
-不能在基础catalog中提前禁止。单个双向闭塞则复用一份定义、占用几何和资源，见[双向固定闭塞合同](bidirectional-fixed-block.md)。
+不能在基础catalog中提前禁止。每个闭塞的两个几何方向始终复用一份定义、占用几何和资源，见[闭塞两端入口与轨道方向合同](bidirectional-fixed-block.md)。
 
 ## 固定闭塞进路资源
 
@@ -297,15 +296,11 @@ degree-2物理环线上的真实Basic申请/延长/车尾释放，并覆盖内�
 已越过真实入口不读取信号、后续真实入口照常激活、入口零交集、真实前方入口缺baseline仍为0、
 停车保留token、延长后车尾释放，以及已释放历史block在之后的申请中不被重新取得。
 
-默认 block 仍按作者的有向 traversal 匹配。默认关闭的 `bidirectional` 开关已支持
-同一物理路径的两端进入，复用同一 token、占用状态及 Basic 折返/释放机制。两入口已支持独立规则；反向路径派生、入口检查、
-保护区域衔接和验证要求归[双向固定闭塞合同](bidirectional-fixed-block.md)，已完成离线验证。
-
-该合同还规定已接通的方向修正：逐段核对运营方向，有效单向闭塞明确拒绝反向申请；
-整条路径方向失配时保留定义与已有 claim，但明确拒绝 ATO 绑定和资源申请，不再使用旧低速降级。
-公开方向子集由 Basic 唯一存储提供，相关修改沿既有 epoch 与 rail 索引唤醒；手动驾驶不变。
-未配置信号规则的 block 同样不能绕过拒绝；信号阶段把失配发布为有效速度 0 的不可用状态。
-这些控制值和占用/信号在同一个不可变 publication 中发布，机制不在本索引重复定义。
+所有闭塞始终按作者路径及其反向几何匹配，两入口独立规则共享同一 token、占用与 Basic 换向／释放机制。
+闭塞内部混合单向／双向轨道不导致整块失效；创建不再依方向配置翻转保存路径。
+实际运营路径、换向后的车身及停车余量由 SimpleATO 使用 Basic 公共方向配置校验，并通过既有限制管线独立收紧方向边界。
+完整保护后缀可以比合法行驶范围长，但不能掩盖非法方向或余量失败。详细机制归[闭塞两端入口合同](bidirectional-fixed-block.md)和
+[ATO 终点分离契约](../../javarailways/simpleato/terminal-route-completion.md)。Basic/Core 运行接口和手动驾驶不变。
 
 ### 后续单线支持的边界（目标，尚未实现）
 
@@ -313,7 +308,7 @@ degree-2物理环线上的真实Basic申请/延长/车尾释放，并覆盖内�
 后续具体准入机制仍须讨论。当前建造与显示模型必须保留以下边界：
 
 - 同一物理闭塞允许双向进入时，两端必须申请同一个 `simplesignals:fixed-block` 资源，不能因 AB/BA 方向或不同信号机而拆成两份独立资源。
-  本批已补齐 SimpleSignals 的双向匹配和入口限制；单个闭塞的互斥和车尾释放复用 Basic 现有机制，不是第二套资源仲裁。
+  两端匹配与入口规则不依赖单双向开关；单个闭塞的互斥和车尾释放复用 Basic 现有机制，不是第二套资源仲裁。
 - 附属信号机和中继信号机引用主信号结果，各自保留模型和摆放；附属显示不创建资源、不重复执行规则，也不凭显示位置增加入口限制。
   两个真实入口共用资源，不代表必须共用同一信号结果；它们可以根据各自前方区间独立计算，不能把显示主从关系当作入口互斥模型。
 - 双向单闭塞两端独立规则已实现：按作者路径的 FORWARD/REVERSE 分别配置下游、输出、提前时间和模型。
@@ -430,7 +425,7 @@ ATO。clear不会删除声明、资源或完整区间authority floor。列车通
 
 `FixedBlockSignalDefinition` 保存稳定 namespaced `signalId`、单调 `revision`、`controlledBlockId`、`entryDirection`、
 非负有限 `inspectionLeadTimeSeconds`、必填 `signalType` 和可选实例 `placement`。固定闭塞编译器只校验设备／入口唯一、
-block 存在及反向入口只用于双向 block；模型、逻辑和扫描距离全部由 `signalType` 在统一 catalog 中解析。
+block 存在及入口身份唯一性；两个几何入口均可绑定，不使用单双向权限过滤；模型、逻辑和扫描距离全部由 `signalType` 在统一 catalog 中解析。
 
 world definition prepare 在 publication 前建立真实 section observation graph；catalog 准备再按每种 logic 的扫描距离编译
 路径树和 JS 输出依赖。未知 `signalType`、无观察入口、输出依赖环、非法模型 variant 或 stale graph 均拒绝候选；启动／拓扑
@@ -452,7 +447,7 @@ runtime兼容alias或无实际发行版本对应的中间schema。需要保留�
 
 Good case：JS 根据同 epoch 占用、路径选择和下游限速调用独立速度／外观 setter；多个附属显示复用一次结果。
 Base case：没有 signal 定义的入口仍只执行资源/authority floor；已配置 signal 尚无 catalog 或 baseline 时入口限速为 0。
-Bad case：引用不存在的 block/type、一个入口两个 signal、单向 block 反向信号、输出依赖环或脚本失败均不能保留许可。
+Bad case：引用不存在的 block/type、一个入口两个 signal、未知入口方向、输出依赖环或脚本失败均不能保留许可。
 
 Wrong：按 `modelVariant` 字符串在 runtime 中硬编码速度，或每 tick 遍历所有 signal 重算。Correct：低频编译观察树，
 JS 明确设置速度和不透明模型名，物理／下游变化只触发受影响的有向 wave。

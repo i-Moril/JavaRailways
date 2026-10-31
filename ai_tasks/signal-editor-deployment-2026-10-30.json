@@ -1,0 +1,80 @@
+{
+  "target": {
+    "host": "192.168.1.230",
+    "instance": "836082a48c4f48fcb1fea4e83c57dc96",
+    "name": "JavaRailwaysTest"
+  },
+  "recovery": {
+    "path": "/opt/mcsmanager/backups/javarailways/signal-editor-20261030-eelgsq2c",
+    "archiveSha256": "7ed68c83288840b5956747cd95d4b02b46e56a562b9b4f61a5f6bb6ccd2a1f02",
+    "hashVerified": true,
+    "fileCount": 142
+  },
+  "install": {
+    "installedAt": "2026-10-30T18:11:57.548908+00:00",
+    "sourceCommit": "32d1c413a4bffdb2dda620cee11444dd7ea358f7",
+    "pluginDataUnchanged": true,
+    "otherPluginJarsUnchanged": true,
+    "jars": {
+      "Chunky-Bukkit-1.4.40.jar": "2a5477fc80f71012e15ade1ce34dbeb836e17623b28db112492c0f1443c09721",
+      "JavaRailways.jar": "8aac93d78523b32e0776161c6898b84b5ddd3ffe589d98eecd91206601a04abd",
+      "SimpleSignals.jar": "0346443a02bfd0a7a14a11cd6b3893e4c321005e732fc7db5e427a336f35ac39",
+      "Terra-bukkit-7.0.0-BETA+47d430776-shaded.jar": "91aa93352444fb87105b33cf0ec36ad0ea554cc4b1c272aead4b6ee8b4e41867",
+      "TunnelBridgeBuilder.jar": "831a0c25179c9c98f2a7135256080c9f402713b18215781976ab2eb5fce3d722",
+      "ViaVersion-5.12.0-SNAPSHOT.jar": "cc23a414b2bded80a72646a5fe43cc6b2ba97df516147a3630f402d9695e945b",
+      "voxy-server-side-paper.jar": "696db9a0fb4e24f79383b4093b4212380c69513814e198033abc4f252d067b01",
+      "worldedit-bukkit-7.4.4.jar": "44c97ee6c1df9afa127df3c5a2c6a7108f826fb44ab7b255a7ec4250feb89b9d"
+    }
+  },
+  "normalShutdown": {
+    "savedAllWorldsAndPlayersAt": "2026-10-30T18:11:27Z",
+    "managerStatus": 0,
+    "oldPid": 763679
+  },
+  "running": {
+    "instanceUuid": "836082a48c4f48fcb1fea4e83c57dc96",
+    "status": 3,
+    "processInfo": {
+      "cpu": 412.5147579693034,
+      "memory": 3897298944,
+      "ctime": 194680,
+      "elapsed": 50570,
+      "timestamp": 1793383970634,
+      "pid": 765121,
+      "ppid": 765116
+    }
+  },
+  "runtimeMessages": [
+    "[18:12:28] [Server thread/INFO]: Done (26.568s)! For help, type \"help\"",
+    "[18:12:43] [Folia Region Scheduler Thread #0/INFO]: ATO world: RUNNING",
+    "[18:12:44] [Folia Region Scheduler Thread #0/INFO]: SimpleSignals 2952ad2c-41ce-40bc-b83b-1b578ae7af12: installed, definitionRevision=107, topologyRevision=1; regions=5, tables=5, blocks=14, fixedBlockSignals=8, protectionSignals=5, routeIndicators=0, attachedSignals=0"
+  ],
+  "http": {
+    "bridgeHealth": true,
+    "bridgePort": 8765,
+    "webPort": 29002,
+    "matchedSidecar": "/opt/mcsmanager/daemon/data/InstanceData/836082a48c4f48fcb1fea4e83c57dc96/plugins/JavaRailways/webui/JavaRailways-WebUI.jar",
+    "webuiSha256": "f4cd3ba53c9003ccfc867ec5508e8b7720019b270779f0050cdba11e7696ae81",
+    "servedAssetsMatched": 17,
+    "mainJarSha256": "8aac93d78523b32e0776161c6898b84b5ddd3ffe589d98eecd91206601a04abd"
+  },
+  "definitionsUnchangedThroughStartup": true,
+  "incrementalLogs": {
+    "plugins/JavaRailways/logs/errors.log": "[2026-10-30T18:12:26.812628407Z] WARNING module=Bukkit logger=JavaRailways source=work.art1st.javarailways.bukkit.http.TimetableWebUiSidecar thread=Server thread\nTimetable WebUI is listening on non-loopback address '0.0.0.0'; login and session traffic may be exposed without HTTPS\n\n[2026-10-30T18:12:26.815526859Z] WARNING module=Bukkit logger=JavaRailways source=work.art1st.javarailways.bukkit.http.TimetableWebUiSidecar thread=Server thread\nTimetable WebUI public URL uses plaintext HTTP: http://mc.art1st.work:29002\n\n[2026-10-30T18:12:28.970460084Z] WARNING module=Core logger=work.art1st.javarailways.core.physics.tick.PhysicsCoordinator source=work.art1st.javarailways.core.physics.tick.PhysicsCoordinator thread=JavaRailways-PhysicsCoordinator-1\nPhysics epoch overload: 311.72737ms (1/3 in 10000ms)\n\n[2026-10-30T18:12:28.976078494Z] WARNING module=Core logger=work.art1st.javarailways.core.physics.tick.PhysicsCoordinator source=work.art1st.javarailways.core.physics.tick.PhysicsCoordinator thread=JavaRailways-PhysicsCoordinator-1\nPhysics delta clamped in epoch 41: raw=315.676411ms applied=200.0ms\n\n",
+    "plugins/JavaRailways/logs/webui.log": "[main] INFO io.javalin.Javalin - Starting Javalin ...\n[main] INFO org.eclipse.jetty.server.Server - jetty-11.0.25; built: 2025-03-13T00:15:57.301Z; git: a2e9fae3ad8320f2a713d4fa29bba356a99d1295; jvm 25.0.4.1+1-LTS\n[main] INFO org.eclipse.jetty.server.session.DefaultSessionIdManager - Session workerName=node0\n[main] INFO org.eclipse.jetty.server.handler.ContextHandler - Started o.e.j.s.ServletContextHandler@732d0d24{/,null,AVAILABLE}\n[main] INFO org.eclipse.jetty.server.AbstractConnector - Started ServerConnector@5c7933ad{HTTP/1.1, (http/1.1)}{0.0.0.0:29002}\n[main] INFO org.eclipse.jetty.server.Server - Started Server@2254127a{STARTING}[11.0.25,sto=0] @1063ms\n[main] INFO io.javalin.Javalin - \n       __                  ___           _____\n      / /___ __   ______ _/ (_)___      / ___/\n __  / / __ `/ | / / __ `/ / / __ \\    / __ \\\n/ /_/ / /_/ /| |/ / /_/ / / / / / /   / /_/ /\n\\____/\\__,_/ |___/\\__,_/_/_/_/ /_/    \\____/\n\n       https://javalin.io/documentation\n\n[main] INFO io.javalin.Javalin - Javalin started in 275ms \\o/\n[main] INFO io.javalin.Javalin - Static file handler added: StaticFileConfig(hostedPath=/, directory=/public, location=CLASSPATH, precompress=false, aliasCheck=null, headers={Cache-Control=max-age=0}, skipFileFunction=Function1<jakarta.servlet.http.HttpServletRequest, java.lang.Boolean>, mimeTypes={}, roles=[]). File system location: 'jar:file:/opt/mcsmanager/daemon/data/InstanceData/836082a48c4f48fcb1fea4e83c57dc96/plugins/JavaRailways/webui/JavaRailways-WebUI.jar!/public/'\n[main] INFO io.javalin.Javalin - Listening on http://0.0.0.0:29002/\n[main] INFO io.javalin.Javalin - You are running Javalin 6.7.0 (released June 22, 2025. Your Javalin version is 495 days old. Consider checking for a newer version.).\n",
+    "plugins/JavaRailways/webui/logs/errors.log": "",
+    "plugins/SimpleSignals/logs/errors.log": ""
+  },
+  "checks": {
+    "suites": 202,
+    "tests": 1344,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "command": "./gradlew :BukkitPlugin:test :SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries --offline --console=plain",
+    "commitTreeCheck": "BUILD SUCCESSFUL in 2s; 47 tasks; 2 executed, 45 up-to-date",
+    "independentReview": "passed"
+  },
+  "rollback": "Normal stop and fresh backup before restoring both old plugin jars from the recovery archive; preserve any later user edits.",
+  "scope": "User authorized commit and deployment without creating a Trellis task. JavaRailways and SimpleSignals updated together; plugin data unchanged and no migration. No push. Actual client deletion and red glowing outline remain unverified."
+}

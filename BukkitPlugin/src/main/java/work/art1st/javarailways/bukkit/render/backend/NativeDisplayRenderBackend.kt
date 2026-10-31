@@ -58,6 +58,10 @@ internal class NativeDisplayVisual(
     private val dispatcher: PlatformDispatcher = BukkitPlugin.INSTANCE.platformDispatcher
 ) : DisplayVisual {
     override val affinityEntity get() = entity
+    override val packetEntityId get() = entity.entityId
+    override val packetGlowBaseline get() = ((if (entity.isVisualFire || entity.fireTicks > 0) 1 else 0) or
+        (if (entity.isSneaking) 2 else 0) or (if (entity.isInvisible) 0x20 else 0) or
+        (if (entity.isGlowing) 0x40 else 0)).toByte() to (entity.glowColorOverride?.asRGB() ?: -1)
     @Volatile
     private var destroyed = false
     private val destruction = Destruction()

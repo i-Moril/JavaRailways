@@ -1,0 +1,14 @@
+{
+  "currentCodec": {
+    "result": "CURRENT_DEFINITIONS_OK files=1 blocks=1 fixedBlockSignals=2",
+    "classpathSha256": {
+      "/workspace/minecraft/JavaRailways/SimpleSignals/build/libs/SimpleSignals-1.0-SNAPSHOT.jar": "4951ea121c979b42213b108de2d9d1df4d810ffa43e2d6f78a234ebe1903ef99",
+      "/workspace/minecraft/JavaRailways/BukkitPlugin/build/libs/JavaRailways-1.0-SNAPSHOT-all.jar": "023e9a193ea23d441d723771d03ce856afcc5cf822a99b86d97bcc88e61ca8c4"
+    },
+    "helperSha256": "8ecb757e3acf04169c184a9738983cfb7d31d984e2f8db81634ab5b537149d7e"
+  },
+  "removedFields": 1,
+  "applyComplete": true,
+  "sourceUnchanged": true,
+  "input": "fixed old-definitions fixture; temporary local source/candidate"
+}

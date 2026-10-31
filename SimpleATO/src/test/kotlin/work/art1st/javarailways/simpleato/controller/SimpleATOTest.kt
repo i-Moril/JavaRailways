@@ -79,6 +79,7 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapsh
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotProvider
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRoute
 import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionResult
+import work.art1st.javarailways.simpleato.routing.RouteAllocationTiming
 
 class SimpleATOTest {
     private val worldFixtures = mutableListOf<TestWorldFixture>()
@@ -113,6 +114,20 @@ class SimpleATOTest {
         assertEquals(62.0, fixture.ato.routePerceptionHorizonMeters(), 1.0e-12)
         assertEquals(62.0, fixture.ato.routePerceptionHorizonMeters(5.0), 1.0e-12)
         assertEquals(150.0, fixture.ato.routePerceptionHorizonMeters(15.0), 1.0e-12)
+    }
+
+    @Test
+    fun `rolling admission extends before a slow train stops at the global safety margin`() {
+        val fixture = fixture("slow-default-margin", atoProfile = profile.copy(
+            serviceDecelerationMetersPerSecondSquared = 2.0, safetyDistanceMeters = 5.0),
+            maximumSpeedMetersPerSecond = 2.0)
+        assertEquals(0.0, fixture.train.speed)
+        assertEquals(6.0, fixture.ato.routeAllocationTriggerDistanceMeters(
+            RouteAllocationTiming(0.25, 0.25, 2.0)), 1e-12,
+            "the stopped train retains the max-speed braking envelope including5m safety")
+        assertEquals(12.0, fixture.ato.routeAllocationTriggerDistanceMeters(
+            RouteAllocationTiming(0.25, 0.25, 10.0)), 1e-12,
+            "a larger configured setup threshold is preserved")
     }
 
     @Test
@@ -638,6 +653,8 @@ class SimpleATOTest {
         railLengthMeters: Double = 500.0,
         configureTrack: (CoreWorld, CoreRail) -> Unit = { _, _ -> },
         physicsCoordinator: PhysicsCoordinator? = null,
+        atoProfile: AtoSafetyProfile = profile,
+        maximumSpeedMetersPerSecond: Double = 10.0,
         inspectionMaximumLeadTimeSeconds: (String) -> Double = { 0.0 }
     ): Fixture {
         val world = createTestWorld(physicsCoordinator)
@@ -653,8 +670,8 @@ class SimpleATOTest {
         val ato = SimpleATO(
             train = train,
             world = world,
-            actuator = KinematicTrainActuator(10.0, profile),
-            safetyProfile = profile,
+            actuator = KinematicTrainActuator(maximumSpeedMetersPerSecond, atoProfile),
+            safetyProfile = atoProfile,
             inspectionMaximumLeadTimeSeconds = inspectionMaximumLeadTimeSeconds
         )
         train.setControllerForTest(ato)

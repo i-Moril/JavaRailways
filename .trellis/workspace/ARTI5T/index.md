@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 30
-- **Last Active**: 2026-10-27
+- **Total Sessions**: 32
+- **Last Active**: 2026-10-30
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~959 | Active |
+| `journal-1.md` | ~1025 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,8 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 32 | 2026-10-30 | Boundary naming mode and test-server deployment | `5bd00387` | `dev/signal-system` |
+| 31 | 2026-10-30 | Fixed-block direction decoupling and test-server deployment | `188c24c6`, `220e705e`, `d7e9d305`, `c1da82ce` | `dev/signal-system` |
 | 30 | 2026-10-27 | Unify graph and duty timed operations | `a824bc2e` | `codex/timetable-station-programs` |
 | 29 | 2026-10-27 | Feedback round4: explicit time points and object actions | `ceea884e` | `codex/timetable-station-programs` |
 | 28 | 2026-10-27 | Deploy feedback round3 | `cae124d9` | `codex/timetable-station-programs` |

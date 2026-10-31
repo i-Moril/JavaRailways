@@ -83,6 +83,7 @@ import work.art1st.javarailways.simpleato.routing.FrozenMissionRouteRejection
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRouteResult
 import work.art1st.javarailways.simpleato.routing.TerminalRouteMargin
 import work.art1st.javarailways.simpleato.routing.TerminalMarginProposal
+import work.art1st.javarailways.simpleato.routing.RouteOperatingDirectionLimit
 import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionContext
 import work.art1st.javarailways.simpleato.persistence.SavedActiveRunCheckpointV1
@@ -2666,6 +2667,22 @@ class TimetableDispatcher(
             stallRun(world, run, "InfrastructureInvariantViolation", "reverse requires a stopped train")
             return
         }
+        try {
+            val body = fixedBodyRoute(world, run.train, "${run.instanceId}/reverse-direction-check")
+            val reversed = RouteSnapshot(body.routeId, body.revision, body.topologyRevision,
+                body.segments.asReversed().map { segment ->
+                    val rail = world.topologyState.railProjection.getValue(segment.railId).single()
+                    val length = abs(rail.railEndAbMeters - rail.railStartAbMeters)
+                    RouteSegmentSnapshot(segment.railId,
+                        if (segment.facing == ViewDirection.AB) ViewDirection.BA else ViewDirection.AB,
+                        length - segment.endArcLengthMeters, length - segment.startArcLengthMeters)
+                })
+            routeDirectionLimit(world, reversed).requireLegalThrough(reversed.totalLengthMeters)
+        } catch (failure: Exception) {
+            stallRun(world, run, "OperatingDirectionViolation",
+                "reversed train body violates operating directions: ${failure.message}")
+            return
+        }
         val admissionClient = run.admissionClient
         if (admissionClient?.state?.committedAuthority != null) {
             when (val result = admissionClient.suspendReleaseForReversal()) {
@@ -2774,6 +2791,14 @@ class TimetableDispatcher(
                 committed.route
             )) {
                 is FrozenMissionRouteResult.Frozen -> {
+                    val checkedBody = try {
+                        body.route.copy(selection = directionCheckedSelection(world, body.route.selection,
+                            body.route.headDistanceFromRouteStartMeters))
+                    } catch (failure: Exception) {
+                        stallRun(world, run, "OperatingDirectionViolation",
+                            "reversed body direction could not be validated: ${failure.message}")
+                        return
+                    }
                     // The stopped train no longer consumes the old inspection binding. Basic still
                     // retains the old grant until the rebase succeeds, so protect the union of old
                     // and reversed routes during every retry.
@@ -2796,11 +2821,11 @@ class TimetableDispatcher(
                         }
                     }
                     when (val result = client.rebaseAfterReversal(
-                        body.route.selection,
+                        checkedBody.selection,
                         RouteBoundary(body.route.headDistanceFromRouteStartMeters)
                     )) {
                         is RouteAdmissionResult.Granted -> {
-                            run.admittedRoute = AdmissionRoute(body.route, committed.missionRevision)
+                            run.admittedRoute = AdmissionRoute(checkedBody, committed.missionRevision)
                             when (val protection = checkNotNull(run.routeEditProtection).protect(
                                 world.topologyState,
                                 body.route.selection.route
@@ -3419,8 +3444,8 @@ class TimetableDispatcher(
         runtime: MissionRuntime,
         context: FrozenRouteSelectionContext
     ): AdmissionRoute? {
-        (run.admittedRoute?.takeIf { it.missionRevision == runtime.mission.revision }
-            ?: run.admissionCandidate?.takeIf { it.missionRevision == runtime.mission.revision })?.let {
+        (run.admissionCandidate?.takeIf { it.missionRevision == runtime.mission.revision }
+            ?: run.admittedRoute?.takeIf { it.missionRevision == runtime.mission.revision })?.let {
             val stamp = context.observation.stamp
             val committed = it.route.selection
             if (stamp.worldId != committed.observationStamp.worldId) {
@@ -3428,7 +3453,7 @@ class TimetableDispatcher(
                 run.message = "committed operating route topology changed; explicit replan is required"
                 return null
             }
-            return it.withObservation(stamp)
+            if (!it.requiresTerminalCompletion) return it.withObservation(stamp)
         }
 
         val result = if (run.admittedRoute == null) {
@@ -3480,10 +3505,10 @@ class TimetableDispatcher(
                     }
                     var completed = inspectionRuntime.completeTerminalRoute(result.route.selection.route,
                         proposal.route, proposal.failure)
-                    require(completed.totalLengthMeters + 1.0e-6 >=
-                        actualStop + authorityStoppingMarginMeters) {
-                        "selected terminal policy cannot provide the configured stopping margin"
-                    }
+                    val requiredEnd = maxOf(result.route.headDistanceFromRouteStartMeters,
+                        actualStop + authorityStoppingMarginMeters)
+                    requireLegalTerminalPrefix(world, completed, requiredEnd,
+                        result.route.selection.route.totalLengthMeters)
                     val retained = run.admittedRoute?.route?.selection?.route
                     if (retained != null && completed.revision == retained.revision &&
                         completed.segments != retained.segments) {
@@ -3491,7 +3516,8 @@ class TimetableDispatcher(
                             completed.topologyRevision, completed.segments)
                     }
                     AdmissionRoute(result.route.copy(
-                        selection = result.route.selection.copy(route = completed),
+                        selection = directionCheckedSelection(world,
+                            result.route.selection.copy(route = completed, operatingDirectionLimit = null), requiredEnd),
                         // Physical output missions retain a safety suffix beyond their actual
                         // stop. The next physical origin must align with that stop, not its suffix.
                         operationalEndRouteDistanceMeters = if (runtime.mission.origin is AtoMissionOrigin.Physical)
@@ -3518,6 +3544,31 @@ class TimetableDispatcher(
             world.basicWorldData.operatingDirections.overlay(topology))
         return TerminalRouteMargin.propose(topology, restrictions, route,
             maxOf(route.totalLengthMeters, operatingEnd + authorityStoppingMarginMeters))
+    }
+
+    private fun directionCheckedSelection(world: World, selection: FrozenRouteSelectionResult.Selected,
+        requiredEndRouteMeters: Double): FrozenRouteSelectionResult.Selected {
+        val limit = routeDirectionLimit(world, selection.route)
+        limit.requireMatches(selection)
+        limit.requireLegalThrough(requiredEndRouteMeters)
+        return selection.copy(operatingDirectionLimit = limit)
+    }
+
+    private fun routeDirectionLimit(world: World, route: RouteSnapshot): RouteOperatingDirectionLimit {
+        val topology = world.topologyState
+        val directions = world.basicWorldData.operatingDirections.snapshot(topology,
+            route.segments.map { it.railId })
+        return RouteOperatingDirectionLimit.calculate(world.simpleAtoWorldData.atoCoordinator.worldId,
+            route, topology, directions)
+    }
+
+    private fun requireLegalTerminalPrefix(world: World, route: RouteSnapshot,
+        requiredEndRouteMeters: Double, selectedEndRouteMeters: Double) {
+        val topology = world.topologyState
+        val restrictions = world.simpleAtoWorldData.routePlanningRestrictions.compile(topology,
+            world.basicWorldData.operatingDirections.overlay(topology))
+        TerminalRouteMargin.requireLegalPrefix(topology, restrictions, route,
+            requiredEndRouteMeters, selectedEndRouteMeters)
     }
 
     private fun handleAdmissionRejection(
@@ -4856,12 +4907,17 @@ class TimetableDispatcher(
                 topologyRevision = topology.revision
             )
         }
-        // Structural paths include complete incoming bodies and every finite output continuation.
-        // They are already proved with their stop margin; do not plan/extend them a second time.
-        val structuralSnapshots = (validation.structural.sources.values.map { it.envelope.retainedPath } +
-            validation.structural.routes.values.map { it.proof.onward }).distinct()
+        val structuralSourceSnapshots = validation.structural.sources.values.map { it.envelope.retainedPath }.distinct()
+        // Keep the certified structural corridors unchanged. Their forward eligibility windows
+        // do not replace the global braking margin needed by the future moving candidate.
+        val terminalSelections = selectedSnapshots.mapIndexed { index, route ->
+            route to validation.routeStoppingOffsetsMeters[index]
+        } + validation.structural.routes.values.map {
+            it.proof.onward to it.stoppingOffsetFromRetainedEndMeters
+        }
         val physicalDependencies = when (
-            val compiled = PhysicalRouteDependencyCompiler.compile(topology, selectedSnapshots + structuralSnapshots)
+            val compiled = PhysicalRouteDependencyCompiler.compile(topology,
+                terminalSelections.map { it.first } + structuralSourceSnapshots)
         ) {
             is PhysicalRouteDependencyCompilation.Compiled -> compiled.dependencies
             PhysicalRouteDependencyCompilation.NoDependencies -> {
@@ -4934,8 +4990,7 @@ class TimetableDispatcher(
             return null
         }
         val proposals = try {
-            selectedSnapshots.mapIndexed { index, route ->
-                val offset = validation.routeStoppingOffsetsMeters[index]
+            terminalSelections.map { (route, offset) ->
                 if (offset == null || offset >= authorityStoppingMarginMeters) TerminalMarginProposal(route)
                 else terminalMarginProposal(world, route, route.totalLengthMeters - offset)
             }
@@ -4943,7 +4998,7 @@ class TimetableDispatcher(
             return rejectGuardedPlan("could not complete applied timetable '$timetableId': " +
                 (failure.message ?: failure.javaClass.name))
         }
-        when (val physical = PhysicalRouteDependencyCompiler.compile(topology, proposals.map { it.route } + structuralSnapshots)) {
+        when (val physical = PhysicalRouteDependencyCompiler.compile(topology, proposals.map { it.route } + structuralSourceSnapshots)) {
             is PhysicalRouteDependencyCompilation.Compiled -> upgradeGuard(physical.dependencies)?.let {
                 return rejectGuardedPlan("could not protect proposed terminal margin: $it")
             }
@@ -4951,20 +5006,19 @@ class TimetableDispatcher(
             PhysicalRouteDependencyCompilation.NoDependencies -> return rejectGuardedPlan("terminal proposal lost its selected path")
         }
         val snapshots = try {
-            selectedSnapshots.zip(proposals).mapIndexed { index, (route, proposal) ->
+            terminalSelections.zip(proposals).map { (selection, proposal) ->
+                val (route, offset) = selection
                 inspectionRuntime.completeTerminalRoute(route, proposal.route, proposal.failure).also {
-                    val offset = validation.routeStoppingOffsetsMeters[index]
                     val requiredEnd = if (offset == null) route.totalLengthMeters
                         else route.totalLengthMeters - offset + authorityStoppingMarginMeters
-                    require(it.totalLengthMeters + 1.0e-6 >= requiredEnd) {
-                        "selected terminal policy cannot provide the configured stopping margin"
-                    }
+                    requireLegalTerminalPrefix(world, it, requiredEnd, route.totalLengthMeters)
+                    routeDirectionLimit(world, it).requireLegalThrough(requiredEnd)
                 }
             }
         } catch (failure: Exception) {
             return rejectGuardedPlan("could not complete applied timetable '$timetableId': ${failure.message}")
         }
-        val completedPhysical = when (val compiled = PhysicalRouteDependencyCompiler.compile(topology, snapshots + structuralSnapshots)) {
+        val completedPhysical = when (val compiled = PhysicalRouteDependencyCompiler.compile(topology, snapshots + structuralSourceSnapshots)) {
             is PhysicalRouteDependencyCompilation.Compiled -> compiled.dependencies
             is PhysicalRouteDependencyCompilation.Rejected -> return rejectGuardedPlan(
                 "could not compile completed timetable '$timetableId': ${compiled.detail}")
@@ -4973,7 +5027,7 @@ class TimetableDispatcher(
         }
         upgradeGuard(completedPhysical)?.let { return rejectGuardedPlan("could not protect completed timetable '$timetableId': $it") }
         val signalResources = try {
-            inspectionRuntime.collectRouteInfrastructureDependencies(snapshots + structuralSnapshots)
+            inspectionRuntime.collectRouteInfrastructureDependencies(snapshots + structuralSourceSnapshots)
         } catch (failure: Exception) {
             return rejectGuardedPlan("could not compile applied timetable '$timetableId': " +
                 (failure.message ?: failure.javaClass.name))
@@ -5576,8 +5630,9 @@ class TimetableDispatcher(
     }
 
     /** Exact current body only: this acquires protection, never a movement or a searched path. */
-    private fun fixedBodyRoute(world: World, train: CoreTrain, id: String): RouteSnapshot =
-        RouteSnapshot(id, nextMissionRevision(), world.topologyState.revision, train.publishedFrame.bodyTraversal.map { span ->
+    private fun fixedBodyRoute(world: World, train: CoreTrain, id: String,
+        revision: Long = nextMissionRevision()): RouteSnapshot =
+        RouteSnapshot(id, revision, world.topologyState.revision, train.publishedFrame.bodyTraversal.map { span ->
             val rail = world.topologyState.railProjection[span.railId]!!.single()
             val length = abs(rail.railEndAbMeters - rail.railStartAbMeters)
             RouteSegmentSnapshot(span.railId, span.facing,
@@ -5614,8 +5669,11 @@ class TimetableDispatcher(
         val client = run.admissionClient ?: RouteAuthorityAdmissionClient(run.train.id,
             "${run.admissionOwner.ownerId}/request", run.admissionOwner, formationAwareAdmissionService(run, context.service),
             run.ato.trainRestrictionPublisher).also { run.admissionClient = it }
-        val selection = run.admittedRoute?.route?.selection ?: FrozenRouteSelectionResult.Selected(run.train.id,
+        val uncheckedSelection = run.admittedRoute?.route?.selection ?: FrozenRouteSelectionResult.Selected(run.train.id,
             context.observation.stamp, fixedBodyRoute(world, run.train, "${run.instanceId}/split-source-body"))
+        val body = fixedBodyRoute(world, run.train, "${run.instanceId}/split-source-direction-check")
+        routeDirectionLimit(world, body).requireLegalThrough(body.totalLengthMeters)
+        val selection = directionCheckedSelection(world, uncheckedSelection, 0.0)
         check(checkNotNull(run.routeEditProtection).protect(world.topologyState, selection.route) is FrozenRouteProtectionResult.Protected) {
             "split source body could not be protected against edits"
         }
@@ -5852,7 +5910,9 @@ class TimetableDispatcher(
             val moving = pending.moving
             try {
                 moving.lastPublishedAtoState = moving.ato.publishedState
-                val selected = FrozenRouteSelectionResult.Selected(moving.train.id, context.observation.stamp, pending.route)
+                val selected = directionCheckedSelection(world,
+                    FrozenRouteSelectionResult.Selected(moving.train.id, context.observation.stamp, pending.route),
+                    pending.route.totalLengthMeters)
                 val route = AdmissionRoute(FrozenMissionRoute(selected, pending.route.totalLengthMeters - pending.distance, 0.0), moving.missionRevision)
                 if (!applyCommittedAdmissionRestriction(world, moving, moving.currentRuntime, context.observation,
                     capturePublishedTrainSnapshot(moving), route)) continue
@@ -6063,12 +6123,16 @@ class TimetableDispatcher(
                 if (mission != null) outputRun.currentRuntime = MissionRuntime(mission, MissionRouteLayout(world, mission),
                     absoluteTimetableTick(source, continuation.step.tick), target,
                     TimetableStepAddress(continuation.stepIndex), lastOdometerMeters = ato.lifetimeTravelDistanceMeters)
-                route = if (resolved == null) fixedBodyRoute(world, train, "${physicalOrigin.id}/admission")
-                    else RouteSnapshot("${physicalOrigin.id}/admission", revision, resolved.admission.topologyRevision, resolved.admission.segments)
-                headDistance = resolved?.let { it.headMeters - it.tailMeters } ?: route.totalLengthMeters
-                outputRun.admittedRoute = AdmissionRoute(FrozenMissionRoute(FrozenRouteSelectionResult.Selected(train.id,
-                    context.observation.stamp, route), headDistance, 0.0,
-                    route.totalLengthMeters - (evidence?.stoppingOffsetFromRetainedEndMeters ?: 0.0)), revision)
+                // Formation publication transfers only the stopped body. The first moving
+                // candidate appends its retained mission and obtains the normal terminal margin
+                // before any departure grant; the eligibility window is not a braking margin.
+                route = fixedBodyRoute(world, train, "${physicalOrigin.id}/admission", revision)
+                headDistance = route.totalLengthMeters
+                val selected = directionCheckedSelection(world,
+                    FrozenRouteSelectionResult.Selected(train.id, context.observation.stamp, route),
+                    headDistance)
+                outputRun.admittedRoute = AdmissionRoute(FrozenMissionRoute(selected, headDistance, 0.0),
+                    revision, requiresTerminalCompletion = mission != null)
             }
             val intentOwner = outputRun?.admissionOwner ?: InfrastructureOwner("simpleato:formation-hold/${UUID.nameUUIDFromBytes((event.operation.ledgerChange.eventId + "/output/" + definition.id).toByteArray(StandardCharsets.UTF_8))}", 0)
             outputs[owner.trainId] = outputRun to RouteResourceIntent("${intentOwner.ownerId}/request", intentOwner,
@@ -6594,7 +6658,9 @@ class TimetableDispatcher(
 
     private data class AdmissionRoute(
         val route: FrozenMissionRoute,
-        val missionRevision: Long
+        val missionRevision: Long,
+        /** A stopped formation handoff has body authority, not a prepared moving route. */
+        val requiresTerminalCompletion: Boolean = false
     ) {
         fun withObservation(stamp: RailwayStateStamp): AdmissionRoute = copy(
             route = route.copy(

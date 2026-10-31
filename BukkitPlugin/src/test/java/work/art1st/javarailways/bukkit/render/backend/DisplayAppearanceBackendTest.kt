@@ -26,6 +26,24 @@ import java.lang.reflect.Proxy
 
 class DisplayAppearanceBackendTest {
     @Test
+    fun `native ordinary model captures current flags and display outline baseline on owner`() {
+        val display = Proxy.newProxyInstance(ItemDisplay::class.java.classLoader, arrayOf(ItemDisplay::class.java)) { _, method, _ ->
+            when (method.name) {
+                "getEntityId" -> 42
+                "isVisualFire", "isSneaking", "isInvisible", "isGlowing" -> true
+                "getGlowColorOverride" -> org.bukkit.Color.fromRGB(0x123456)
+                else -> error("Unexpected snapshot call: ${method.name}")
+            }
+        } as ItemDisplay
+        val plugin = Proxy.newProxyInstance(Plugin::class.java.classLoader, arrayOf(Plugin::class.java)) { _, method, _ ->
+            error("Unexpected plugin call: ${method.name}")
+        } as Plugin
+        val visual = NativeDisplayVisual(plugin, display, work.art1st.javarailways.bukkit.util.EntityCleanupDispatcher())
+        assertEquals(42, visual.packetEntityId)
+        assertEquals(0x63.toByte() to 0x123456, visual.packetGlowBaseline)
+    }
+
+    @Test
     fun `native visual sends complete real items and removes its brightness override`() {
         ModelRuntimeTestSupport.bootstrap()
         var item: ItemStack? = null

@@ -18,9 +18,9 @@ import java.util.UUID
 class SectionOverlayDrawingTest {
     private val world = UUID(0, 1)
     private val rail = UUID(0, 2)
-    private fun block(id: String = "test:block", facing: ViewDirection = ViewDirection.AB, both: Boolean = false,
+    private fun block(id: String = "test:block", facing: ViewDirection = ViewDirection.AB,
         lower: Double = 2.0, upper: Double = 8.0) = FixedBlockDefinition(id, 0,
-        listOf(FixedBlockTraversal(rail, facing, lower, upper)), both)
+        listOf(FixedBlockTraversal(rail, facing, lower, upper)))
     private fun definitions(vararg blocks: FixedBlockDefinition) = SimpleSignalsWorldDefinitions(world, 0,
         emptyList(), emptyList(), blocks.toList())
     private fun cut(id: String, ab: Double, direction: ViewDirection = ViewDirection.AB) =
@@ -43,17 +43,15 @@ class SectionOverlayDrawingTest {
         assertTrue(labels.single { it.id() == "block/test:block/end" }.text().toString().contains("未命名边界"))
     }
 
-    @Test fun `section overlays contain boundary markers and one continuous line without arrows or interior captions`() {
-        fun drawing(facing: ViewDirection, both: Boolean) = SectionOverlayDrawing.prepare(
-            definitions(block(facing = facing, both = both)), emptySet(), emptySet()) { curve(10.0) }
-        val forward = drawing(ViewDirection.AB, false)
-        val reverse = drawing(ViewDirection.BA, false)
-        val both = drawing(ViewDirection.AB, true)
+    @Test fun `two-end block geometry draws one continuous line without arrows or interior captions`() {
+        fun drawing(facing: ViewDirection) = SectionOverlayDrawing.prepare(
+            definitions(block(facing = facing)), emptySet(), emptySet()) { curve(10.0) }
+        val forward = drawing(ViewDirection.AB)
+        val reverse = drawing(ViewDirection.BA)
         fun spans(value: SectionOverlayDrawing) = value.labels.filter { it.id().contains("coverage") }
         assertEquals(spans(forward), spans(reverse))
-        assertEquals(spans(forward), spans(both))
         assertEquals(6, spans(forward).size)
-        listOf(forward, reverse, both).forEach { value ->
+        listOf(forward, reverse).forEach { value ->
             assertFalse(value.labels.any {
                 (it.text() as? net.kyori.adventure.text.TextComponent)?.content() == EditorMarkerGlyph.DIRECTION.text()
             })

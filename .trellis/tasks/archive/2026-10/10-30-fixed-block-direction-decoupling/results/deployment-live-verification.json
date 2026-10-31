@@ -1,0 +1,82 @@
+{
+  "verifiedAt": "2026-10-30T12:02:28.374108+00:00",
+  "sourceCommit": "220e705e5975a2705895695fd1388cb489927d5c",
+  "done": "[12:00:04] [Server thread/INFO]: Done (28.552s)! For help, type \"help\"",
+  "ato": "[12:00:22] [Folia Region Scheduler Thread #0/INFO]: ATO world: RUNNING",
+  "signals": "[12:00:25] [Folia Region Scheduler Thread #0/INFO]: SimpleSignals 2952ad2c-41ce-40bc-b83b-1b578ae7af12: installed, definitionRevision=63, topologyRevision=1; regions=6, tables=6, blocks=13, fixedBlockSignals=8, protectionSignals=2, routeIndicators=0, attachedSignals=0",
+  "jars": {
+    "voxy-server-side-paper.jar": "696db9a0fb4e24f79383b4093b4212380c69513814e198033abc4f252d067b01",
+    "Chunky-Bukkit-1.4.40.jar": "2a5477fc80f71012e15ade1ce34dbeb836e17623b28db112492c0f1443c09721",
+    "TunnelBridgeBuilder.jar": "831a0c25179c9c98f2a7135256080c9f402713b18215781976ab2eb5fce3d722",
+    "ViaVersion-5.12.0-SNAPSHOT.jar": "cc23a414b2bded80a72646a5fe43cc6b2ba97df516147a3630f402d9695e945b",
+    "worldedit-bukkit-7.4.4.jar": "44c97ee6c1df9afa127df3c5a2c6a7108f826fb44ab7b255a7ec4250feb89b9d",
+    "Terra-bukkit-7.0.0-BETA+47d430776-shaded.jar": "91aa93352444fb87105b33cf0ec36ad0ea554cc4b1c272aead4b6ee8b4e41867",
+    "SimpleSignals.jar": "4951ea121c979b42213b108de2d9d1df4d810ffa43e2d6f78a234ebe1903ef99",
+    "JavaRailways.jar": "efd212fbe1b4b68c871f24010c523692a3ab19f3f2988f08e78ff367988dd0b3"
+  },
+  "sidecars": {
+    "2952ad2c-41ce-40bc-b83b-1b578ae7af12-definitions.json": {
+      "sha256": "640f1fa3bc8fd84497c0c120a3b3a781b71fd0ce3c029813b6bedadbee9b48cb",
+      "definitionRevision": 63,
+      "blocks": 13,
+      "signals": 8
+    },
+    "2952ad2c-41ce-40bc-b83b-1b578ae7af12-definitions.json.bak": {
+      "sha256": "1761ffe64b26ddac1a71bd1616204a19c30f5d784936c5dafc2540f5101c3940",
+      "definitionRevision": 62,
+      "blocks": 12,
+      "signals": 8
+    }
+  },
+  "http": {
+    "http://127.0.0.1:8765/health": {
+      "status": 200,
+      "sha256": "4062edaf750fb8074e7e83e0c9028c94e32468a8b6f1614774328ef045150f93"
+    },
+    "http://127.0.0.1:29002/": {
+      "status": 200,
+      "sha256": "410055827d0f602feea8f1b58d862c63b2cf352a349fc898504d134f2f6e0395"
+    },
+    "/assets/index-DLbd-GXK.js": {
+      "status": 200,
+      "sha256": "dabb101a8011aa3a2967fc0126c7bc01d346810534dbffd6352bb37f8e6ad559"
+    },
+    "/assets/index-CdCGfk_W.css": {
+      "status": 200,
+      "sha256": "6f855e9ed9e96f061a701c2decaadfa5f302951f2799bbf899e3815f715383dd"
+    }
+  },
+  "webuiSidecarSha256": "f4cd3ba53c9003ccfc867ec5508e8b7720019b270779f0050cdba11e7696ae81",
+  "pluginErrorLogs": [
+    {
+      "path": "plugins/JavaRailways/logs/errors.log",
+      "bytesAdded": 1109,
+      "newLevels": [
+        "WARNING",
+        "WARNING",
+        "WARNING",
+        "WARNING"
+      ],
+      "newErrors": false
+    },
+    {
+      "path": "plugins/SimpleSignals/logs/errors.log",
+      "bytesAdded": 0,
+      "newLevels": [],
+      "newErrors": false
+    }
+  ],
+  "startupErrors": [
+    "[11:59:50] [ForkJoinPool.commonPool-worker-3/ERROR]: [com.dfsek.seismic.util.ReflectionUtils] Field theUnsafe not found in class sun.misc.Unsafe"
+  ],
+  "startupPhysicsWarnings": [
+    "[12:00:04] [JavaRailways-PhysicsCoordinator-1/WARN]: [work.art1st.javarailways.core.physics.tick.PhysicsCoordinator] Physics epoch overload: 352.219443ms (1/3 in 10000ms)",
+    "[12:00:04] [JavaRailways-PhysicsCoordinator-1/WARN]: [work.art1st.javarailways.core.physics.tick.PhysicsCoordinator] Physics delta clamped in epoch 43: raw=355.270912ms applied=200.0ms"
+  ],
+  "loadedDefinitions": [
+    "[12:00:02] [Server thread/INFO]: [SimpleSignals] SimpleSignals route planning and section occupancy enabled for world 'world': loaded definitions from primary file",
+    "[12:00:02] [Server thread/INFO]: [SimpleSignals] SimpleSignals route planning and section occupancy enabled for world 'world_nether': no definitions file; using empty revision 0",
+    "[12:00:02] [Server thread/INFO]: [SimpleSignals] SimpleSignals route planning and section occupancy enabled for world 'world_the_end': no definitions file; using empty revision 0"
+  ],
+  "gameAcceptance": false
+}

@@ -38,7 +38,7 @@ class SectionTopologyRevalidationTest {
         topologyState(revision, listOf(a, b) + (if (extra) listOf(branch) else emptyList()) + others,
             line + if (extra) listOf(endpoint(a, RailEndpoint.B) to endpoint(branch, RailEndpoint.A)) else emptyList())
     private fun block(id: String, vararg rails: UUID) = FixedBlockDefinition(id, 0,
-        rails.map { FixedBlockTraversal(it, ViewDirection.AB, 0.0, 10.0) }, bidirectional = true)
+        rails.map { FixedBlockTraversal(it, ViewDirection.AB, 0.0, 10.0) })
     private fun signal(block: FixedBlockDefinition) = FixedBlockSignalDefinition("${block.blockId}/signal", 0,
         block.blockId, 2.0, "automatic:block")
     private fun region() = ProtectionRegionDefinition("test:region", 0, listOf(
@@ -285,6 +285,9 @@ class SectionTopologyRevalidationTest {
         val epochs = SignalEpochRuntime(worldId.toString(), { value ->
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, value.revision)
         })
+        val source = occupancy.source!!
+        assertTrue(branch in source.watchedOperatingDirectionRailIds, "remote signal connector remains a topology interest")
+        assertFalse(source.areas.any { area -> area.intervals.any { it.railId == branch } })
         epochs.replaceSources(occupancy.sources)
         epochs.process(frame(1, initial))
         val mainArea = runtime.fixedBlockSnapshot().blocksById.getValue(main.blockId).occupancyArea
@@ -294,8 +297,15 @@ class SectionTopologyRevalidationTest {
             epochs.invalidateTopology(event)
             val base = runtime.authoringPublication()
             val captured = runtime.topologyGuard.capture()
-            if (rail == branch) assertEquals(setOf(TopologySection(TopologySectionKind.SIGNAL, upstreamSignal.signalId)),
-                captured.pending.keys, "connector geometry changes signal distance, not either monitored block")
+            if (rail == branch) {
+                assertEquals(setOf(TopologySection(TopologySectionKind.SIGNAL, upstreamSignal.signalId)),
+                    captured.pending.keys, "connector geometry changes signal distance, not either monitored block")
+                epochs.process(frame(2, next))
+                assertEquals(2L, runtime.currentSectionOccupancy()!!.presentationSnapshot()!!.occupancy.stamp.physicsEpoch,
+                    "remote dependency edit wakes the existing source before worker replacement")
+                assertInstanceOf(SectionSignalState.Unavailable::class.java,
+                    runtime.currentSectionOccupancy()!!.signalById(upstreamSignal.signalId)!!.state)
+            }
             val candidate = SectionTopologyRevalidation.compile(base, captured, 1000.0)
             val replacement = SectionOccupancyRuntime.from(candidate)
             replacement.retainPublishedFrom(runtime.currentSectionOccupancy())
@@ -310,7 +320,7 @@ class SectionTopologyRevalidationTest {
         val replacement = runtime.currentSectionOccupancy()!!
         assertSame(mainArea, runtime.fixedBlockSnapshot().blocksById.getValue(main.blockId).occupancyArea)
         assertEquals(0.0, replacement.signalById(upstreamSignal.signalId)!!.state.effectiveSpeedLimitMetersPerSecond)
-        epochs.process(frame(2, unrelatedChanged))
+        epochs.process(frame(3, unrelatedChanged))
         assertTrue(upstreamSignal.signalId in replacement.signalSnapshot()!!.changedSignalIds,
             "the first swap's signal-only pending baseline must still reevaluate after the second swap")
         assertEquals(0.0, replacement.signalById(upstreamSignal.signalId)!!.state.effectiveSpeedLimitMetersPerSecond)

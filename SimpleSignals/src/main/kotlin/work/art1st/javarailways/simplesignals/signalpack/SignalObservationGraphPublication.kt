@@ -86,13 +86,11 @@ internal object SignalObservationGraphBuilder {
                 fixedSection(blockId, FixedBlockEntryDirection.FORWARD, block.traversals, block.lengthMeters,
                     blockId in fixedBlocks.unavailableBlockIds)
             )
-            if (block.definition.bidirectional) {
-                addSection(
-                    sections,
-                    fixedSection(blockId, FixedBlockEntryDirection.REVERSE, block.reverseTraversals,
-                        block.lengthMeters, blockId in fixedBlocks.unavailableBlockIds)
-                )
-            }
+            addSection(
+                sections,
+                fixedSection(blockId, FixedBlockEntryDirection.REVERSE, block.reverseTraversals,
+                    block.lengthMeters, blockId in fixedBlocks.unavailableBlockIds)
+            )
         }
 
         val authoredRoutes = definitions.routeTables.flatMap { it.routes }.associateBy { it.routeId }

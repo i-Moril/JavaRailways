@@ -1,0 +1,10 @@
+{
+  "recovery": "/opt/mcsmanager/backups/javarailways/function-simulation-20261030-36g_n9f3",
+  "archiveSha256": "3a5c2b49d87b5ecf82d90a390c85c2c87abf054baa5ab9e53afe8067eec77bae",
+  "fileCount": 142,
+  "oldPid": 753535,
+  "managerStopped": true,
+  "worldsAndPlayerDataSaved": true,
+  "localArchive": "/tmp/jr-direction-stopped-20261030/recovery.tar.gz",
+  "sourceMatchesManifest": true
+}

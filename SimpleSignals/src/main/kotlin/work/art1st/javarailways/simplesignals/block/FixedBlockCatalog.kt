@@ -61,14 +61,14 @@ internal class CompiledFixedBlock(
     traversals: Collection<FixedBlockTraversal>,
     val lengthMeters: Double,
     val occupancyArea: RailwayOccupancyAreaDefinition,
-    reverseTraversals: Collection<FixedBlockTraversal> = emptyList()
+    reverseTraversals: Collection<FixedBlockTraversal>
 ) {
     /** Topology-normalized traversal; rail-end values within tolerance are snapped to the endpoint. */
     val traversals: List<FixedBlockTraversal> = java.util.List.copyOf(traversals)
-    /** Reverse geometry detects passage independently of permission to acquire the block. */
+    /** Reverse geometry describes the same protected path from its other end. */
     val reverseTraversals: List<FixedBlockTraversal> = java.util.List.copyOf(reverseTraversals)
     val entryTraversals: List<FixedBlockTraversal> = java.util.List.copyOf(
-        listOf(this.traversals.first()) + if (definition.bidirectional) this.reverseTraversals.take(1) else emptyList()
+        listOf(this.traversals.first(), this.reverseTraversals.first())
     )
 
     fun entryTraversal(reversed: Boolean): FixedBlockTraversal =

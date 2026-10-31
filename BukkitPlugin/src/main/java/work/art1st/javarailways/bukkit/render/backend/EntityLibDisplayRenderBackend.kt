@@ -81,6 +81,9 @@ class EntityLibDisplayRenderBackend : DisplayRenderBackend {
 private class EntityLibDisplayVisual(
     private val entity: WrapperEntity
 ) : DisplayVisual {
+    override val packetEntityId = entity.entityId
+    override val packetGlowBaseline = entity.entityMeta.getMask(me.tofaa.entitylib.meta.EntityMeta.OFFSET) to
+        (entity.entityMeta as AbstractDisplayMeta).glowColorOverride
     @Volatile
     private var destroyed = false
     private val destruction = Destruction()

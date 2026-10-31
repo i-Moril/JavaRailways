@@ -20,8 +20,7 @@ internal object FixedBlockSignalEntranceResolver {
 
     private data class Candidate(
         val blockId: String,
-        val direction: FixedBlockEntryDirection,
-        val bidirectional: Boolean
+        val direction: FixedBlockEntryDirection
     )
 
     fun resolve(
@@ -31,16 +30,15 @@ internal object FixedBlockSignalEntranceResolver {
     ): Resolved {
         val candidates = blocks.candidates(listOf(point.railId)).flatMap { block ->
             listOfNotNull(
-                candidate(block.definition.blockId, FixedBlockEntryDirection.FORWARD, true,
+                candidate(block.definition.blockId, FixedBlockEntryDirection.FORWARD,
                     block.traversals.first(), point),
                 candidate(block.definition.blockId, FixedBlockEntryDirection.REVERSE,
-                    block.definition.bidirectional, block.reverseTraversals.first(), point)
+                    block.reverseTraversals.first(), point)
             )
         }.distinct()
         require(candidates.isNotEmpty()) { "Click a fixed-block entrance while looking into the block" }
         require(candidates.size == 1) { "The selected boundary is shared by multiple fixed-block entrances" }
         val candidate = candidates.single()
-        require(candidate.bidirectional) { "The selected fixed block does not allow reverse entry" }
         val matchingSignals = signals.filter {
             it.controlledBlockId == candidate.blockId && it.entryDirection == candidate.direction
         }
@@ -53,11 +51,7 @@ internal object FixedBlockSignalEntranceResolver {
         signals: Collection<FixedBlockSignalDefinition>,
         binding: FixedBlockSignalWandBinding
     ): Resolved {
-        val block = blocks.blocksById[binding.blockId]
-            ?: throw IllegalArgumentException("The bound fixed block no longer exists")
-        require(binding.entryDirection != FixedBlockEntryDirection.REVERSE || block.definition.bidirectional) {
-            "The bound fixed block no longer allows reverse entry"
-        }
+        require(binding.blockId in blocks.blocksById) { "The bound fixed block no longer exists" }
         val matchingSignals = signals.filter {
             it.controlledBlockId == binding.blockId && it.entryDirection == binding.entryDirection
         }
@@ -68,10 +62,9 @@ internal object FixedBlockSignalEntranceResolver {
     private fun candidate(
         blockId: String,
         direction: FixedBlockEntryDirection,
-        bidirectional: Boolean,
         entrance: FixedBlockTraversal,
         point: RailPositionSnapshot
-    ): Candidate? = Candidate(blockId, direction, bidirectional).takeIf {
+    ): Candidate? = Candidate(blockId, direction).takeIf {
         entrance.railId == point.railId && entrance.facing == point.facing &&
             abs(entrance.travelStartAbMeters - point.arcLengthInAbMeters) <= SNAP_METERS
     }

@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simplesignals.authoring
 
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceService
+import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.curve.Curve
@@ -16,6 +17,7 @@ internal interface SectionOverlayCapture
 internal interface SectionOverlayBackend {
     fun capture(worldId: UUID): SectionOverlayCapture?
     fun current(capture: SectionOverlayCapture): Boolean
+    fun problemModels(capture: SectionOverlayCapture): Set<String>
     fun prepare(capture: SectionOverlayCapture): SectionOverlayDrawing
 }
 
@@ -23,11 +25,14 @@ internal interface SectionOverlayBackend {
 internal class RuntimeSectionOverlayBackend(
     private val runtimeForWorld: (UUID) -> SimpleSignalsWorldRuntime?,
     private val infrastructure: InfrastructureResourceService,
-    private val targets: RailTargetService
+    private val targets: RailTargetService,
+    private val issues: WorldIssueService
 ) : SectionOverlayBackend {
     private data class Capture(val worldId: UUID, val runtime: SimpleSignalsWorldRuntime,
         val publication: SimpleSignalsRuntimePublication, val topology: TopologyState,
-        val guard: SectionTopologyGuard.View) : SectionOverlayCapture
+        val guard: SectionTopologyGuard.View) : SectionOverlayCapture {
+        val problems = SignalEditorProblems.prepare(publication, guard)
+    }
 
     override fun capture(worldId: UUID): SectionOverlayCapture? {
         val runtime = runtimeForWorld(worldId)?.takeUnless { it.closed } ?: return null
@@ -41,6 +46,11 @@ internal class RuntimeSectionOverlayBackend(
             value.runtime.authoringPublication() === value.publication &&
             infrastructure.currentTopology(value.worldId) === value.topology &&
             value.runtime.topologyGuard.capture() === value.guard
+    }
+
+    override fun problemModels(capture: SectionOverlayCapture): Set<String> {
+        val value = capture as Capture
+        return value.problems.models(issues.snapshot(value.worldId))
     }
 
     override fun prepare(capture: SectionOverlayCapture): SectionOverlayDrawing {

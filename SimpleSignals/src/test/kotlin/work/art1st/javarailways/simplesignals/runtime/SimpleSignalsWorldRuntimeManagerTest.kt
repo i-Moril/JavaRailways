@@ -66,7 +66,6 @@ import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionConte
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceStartResult
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunState
 import work.art1st.javarailways.simpleato.timetable.InfrastructureDependencyService
-import work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy
 import work.art1st.javarailways.simplesignals.block.FixedBlockRouteResourcePolicy
 import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.core.physics.infrastructure.InfrastructureClaimRequest
@@ -161,6 +160,134 @@ import java.util.concurrent.TimeUnit
 class SimpleSignalsWorldRuntimeManagerTest {
     @TempDir
     lateinit var directory: Path
+
+    @Test fun `unbound ground devices delete through the atomic transaction without a fabricated rail permit`() {
+        for (kind in listOf("fixed", "route", "entry", "indicator", "attached")) {
+            val f = Fixture()
+            val placement = ModelPlacement.Ground(ModelPose.IDENTITY)
+            val model = DeviceModelDefinition("demo_signals:home", placement)
+            val fixed = FixedBlockSignalDefinition("test:device", 1, null, 0.0, "automatic:block", placement = placement)
+            val initial = SimpleSignalsWorldDefinitions(f.worldId, 1, emptyList(), emptyList(),
+                fixedBlockSignals = if (kind in listOf("fixed", "attached")) listOf(fixed) else emptyList(),
+                protectionSignals = if (kind in listOf("route", "entry")) listOf(ProtectionSignalDefinition(
+                    "test:device", 1, if (kind == "route") ProtectionSignalKind.FIXED_ROUTE else ProtectionSignalKind.CURRENT_ENTRY,
+                    null, 0.0, "automatic:block", placement)) else emptyList(),
+                routeIndicators = if (kind == "indicator") listOf(RouteIndicatorDefinition(
+                    "test:device", 1, null, "stop", emptyMap(), model)) else emptyList(),
+                attachedSignals = if (kind == "attached") listOf(AttachedSignalDefinition(
+                    "test:attached", 1, fixed.signalId, model)) else emptyList())
+            val definitions = store().also { it.save(f.worldId, initial) }
+            val infrastructure = MutableTopologyService(f.currentTopology, editRegistry { f.currentTopology })
+            val sources = CapturingSignalEpochSourceService()
+            val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, sources)
+            assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status, kind)
+            val patch = when (kind) {
+                "fixed" -> SimpleSignalsDefinitionPatch(removeFixedBlockSignalIds = listOf("test:device"))
+                "route", "entry" -> SimpleSignalsDefinitionPatch(removeProtectionSignalIds = listOf("test:device"))
+                "indicator" -> SimpleSignalsDefinitionPatch(removeRouteIndicatorIds = listOf("test:device"))
+                else -> SimpleSignalsDefinitionPatch(removeAttachedSignalIds = listOf("test:attached"))
+            }
+            val validation = manager.validateDefinitionPatch(f.worldId, 1, patch)
+            assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATED, validation.status, "$kind: ${validation.diagnostics}")
+            assertTrue(validation.affectedRailIds.isEmpty())
+            val result = manager.applyDefinitionPatch(f.worldId, 1, patch)
+            assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, result.status, "$kind: ${result.diagnostics}")
+            assertEquals(2L, result.definitions!!.definitionRevision)
+            assertNull(result.editDecision, "no host infrastructure permit was requested")
+            assertEquals(0, infrastructure.permitAcquisitionCount)
+            assertEquals(2, sources.atomicCommitCount, "installation and deletion each replace sources atomically")
+            assertTrue(manager.authoringRuntime(f.worldId)!!.currentDefinitions().attachedSignals.isEmpty())
+            if (kind != "attached") assertTrue(result.definitions!!.fixedBlockSignals.isEmpty() &&
+                result.definitions!!.protectionSignals.isEmpty() && result.definitions!!.routeIndicators.isEmpty())
+            manager.remove(f.worldId)
+            assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+            assertEquals(result.definitions, manager.authoringRuntime(f.worldId)!!.currentDefinitions())
+            manager.remove(f.worldId)
+        }
+    }
+
+    @Test fun `unbound rail devices still require real infrastructure permits for deletion`() {
+        for (kind in listOf(TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM)) {
+            val f = Fixture()
+            val signal = FixedBlockSignalDefinition("test:device", 1, null, 0.0, "automatic:block",
+                placement = ModelPlacement.RailAttached(RailPositionSnapshot(f.entry, ViewDirection.AB, 1.0)))
+            val initial = SimpleSignalsWorldDefinitions(f.worldId, 1, emptyList(), emptyList(), fixedBlockSignals = listOf(signal))
+            val definitions = store().also { it.save(f.worldId, initial) }
+            val disk = Files.readString(definitions.primaryFile(f.worldId))
+            val registry = editRegistry(f.currentTopology)
+            val infrastructure = MutableTopologyService(f.currentTopology, registry)
+            val sources = CapturingSignalEpochSourceService()
+            val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, sources)
+            assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+            val runtime = manager.authoringRuntime(f.worldId)!!
+            val publication = runtime.authoringPublication()
+            val source = sources.sources.getValue(f.worldId)
+            val release = protect(registry, f.currentTopology, f.entry, kind)
+            val patch = SimpleSignalsDefinitionPatch(removeFixedBlockSignalIds = listOf(signal.signalId))
+            val blocked = manager.applyDefinitionPatch(f.worldId, 1, patch)
+            assertEquals(SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED, blocked.status, blocked.diagnostics.toString())
+            assertEquals(setOf(f.entry), infrastructure.lastEditRequest!!.impact.railIds)
+            assertSame(publication, runtime.authoringPublication())
+            assertSame(source, sources.sources.getValue(f.worldId))
+            assertEquals(disk, Files.readString(definitions.primaryFile(f.worldId)))
+            release()
+            assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, manager.applyDefinitionPatch(f.worldId, 1, patch).status)
+            assertEquals(2, infrastructure.permitAcquisitionCount)
+            assertEquals(1, infrastructure.permitCloseCount)
+            manager.remove(f.worldId)
+        }
+    }
+
+    @Test fun `empty impact device edits retain no-op revision source persistence and cancellation guards`() {
+        for (failure in listOf("noop", "revision", "source", "persistence", "topology", "cancel")) {
+            val f = Fixture()
+            val initial = SimpleSignalsWorldDefinitions(f.worldId, 1, emptyList(), emptyList(),
+                fixedBlockSignals = listOf(FixedBlockSignalDefinition("test:device", 1, null, 0.0, "automatic:block",
+                    placement = ModelPlacement.Ground(ModelPose.IDENTITY))))
+            val seed = store().also { it.save(f.worldId, initial) }
+            val disk = Files.readString(seed.primaryFile(f.worldId))
+            val definitions = if (failure == "persistence") SimpleSignalsWorldDefinitionStore(directory.toFile()) {
+                throw java.io.IOException("injected before primary replace")
+            } else seed
+            val infrastructure = MutableTopologyService(f.currentTopology)
+            val sources = CapturingSignalEpochSourceService()
+            val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, sources)
+            assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+            val runtime = manager.authoringRuntime(f.worldId)!!
+            val publication = runtime.authoringPublication()
+            val source = sources.sources.getValue(f.worldId)
+            var active = true
+            var topologyChanges = 0
+            when (failure) {
+                "source" -> sources.nextPrevalidationFailure = IllegalArgumentException("injected source rejection")
+                "topology" -> sources.beforeCommitAction = {
+                    topologyChanges++
+                    infrastructure.topology = f.topology(41L + topologyChanges)
+                }
+                "cancel" -> sources.beforeCommitAction = { active = false }
+            }
+            val patch = if (failure == "noop") SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = initial.fixedBlockSignals)
+                else SimpleSignalsDefinitionPatch(removeFixedBlockSignalIds = listOf("test:device"))
+            val result = manager.applyDefinitionPatch(f.worldId, if (failure == "revision") 0 else 1, patch,
+                authoringGuard = { active })
+            val expected = when (failure) {
+                "noop" -> SimpleSignalsDefinitionAuthoringStatus.PATCH_REJECTED
+                "revision" -> SimpleSignalsDefinitionAuthoringStatus.REVISION_REJECTED
+                "source" -> SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED
+                "persistence" -> SimpleSignalsDefinitionAuthoringStatus.PERSISTENCE_FAILED
+                // No selected infrastructure changed: one reprepare is allowed, then ask for a retry.
+                "topology" -> SimpleSignalsDefinitionAuthoringStatus.RETRY_REQUIRED
+                else -> SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE
+            }
+            assertEquals(expected, result.status, "$failure: ${result.diagnostics}")
+            assertSame(publication, runtime.authoringPublication(), failure)
+            assertSame(source, sources.sources.getValue(f.worldId), failure)
+            assertEquals(disk, Files.readString(seed.primaryFile(f.worldId)), failure)
+            assertEquals(0, infrastructure.permitAcquisitionCount, failure)
+            if (failure == "topology") assertEquals(2, topologyChanges, "one bounded reprepare before retry required")
+            manager.remove(f.worldId)
+        }
+    }
 
     @Test fun `unbound signal issue disappears on deletion and unload preserves other producers`() {
         val f = Fixture()
@@ -327,7 +454,11 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val saved = manager.authoringRuntime(world)!!.currentDefinitions()
         assertTrue(saved.regions.isEmpty())
         assertTrue(saved.pendingProtectionBoundaries.isEmpty())
-        assertEquals(listOf(FixedBlockTraversal(rail, ViewDirection.AB, 0.0, 10.0)), saved.fixedBlocks.single().traversals)
+        assertEquals(listOf(FixedBlockTraversal(rail, ViewDirection.BA, 0.0, 10.0)), saved.fixedBlocks.single().traversals,
+            "the closing click selects 10m toward 0m; direction configuration must not reverse the authored path")
+        val compiled = manager.authoringRuntime(world)!!.fixedBlockSnapshot().blocksById.getValue(saved.fixedBlocks.single().blockId)
+        assertEquals(listOf(ViewDirection.BA, ViewDirection.AB), compiled.entryTraversals.map { it.facing })
+        assertEquals(listOf(10.0, 0.0), compiled.entryTraversals.map { it.travelStartAbMeters })
         manager.remove(world)
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(world).status)
         assertEquals(saved, manager.authoringRuntime(world)!!.currentDefinitions())
@@ -418,9 +549,10 @@ class SimpleSignalsWorldRuntimeManagerTest {
         } finally { unprotect() }
     }
 
-    @Test fun `region repair keeps manually selected route rather than regenerating shortest paths`() {
+    @Test fun `region repair retains manually selected route and adds only missing endpoint pairs`() {
         val f = Fixture()
         val r = RecordingFixture(f, tables = listOf(f.table(1, f.lowerRoute())))
+        r.infrastructure.operatingDirectionOverride = r.topology.railProjection.keys.associateWith { null }
         val backend = RuntimeSectionWandBackend(r.manager, r.infrastructure.service, 1000.0)
         val retained = f.region.boundaries.last().position.cutPosition()
         val naming = backend.naming(backend.capture(f.worldId)!!, retained)!!
@@ -435,9 +567,150 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertNull(r.runtime.currentDefinitions().regions.single().boundaryDraft)
         assertEquals(listOf(work.art1st.javarailways.simplesignals.persistence.BoundaryName(retained, "保留出口")),
             r.runtime.currentDefinitions().boundaryNames)
-        assertTrue(repaired.text.render(java.util.Locale.US).contains("Revalidated"), repaired.text.render(java.util.Locale.US))
-        assertEquals(before, r.runtime.currentDefinitions().routeTables)
-        assertEquals(f.lowerRoute().traversals, r.runtime.currentDefinitions().routeTables.single().routes.single().traversals)
+        assertTrue(repaired.text.render(java.util.Locale.US).contains("repaired"), repaired.text.render(java.util.Locale.US))
+        val table = r.runtime.currentDefinitions().routeTables.single()
+        assertEquals(before.single().tableId, table.tableId)
+        assertEquals(before.single().revision + 1, table.revision)
+        assertEquals(listOf(f.lowerRoute()), table.routes.filter { it.entryBoundaryId == "test:entry" })
+        assertTrue(table.routes.any { it.entryBoundaryId == "test:exit" && it.exitBoundaryId == "test:entry" })
+        assertTrue(r.runtime.authoringPublication().routeTables.unavailableRegionIds().isEmpty())
+    }
+
+    @Test fun `repair preserves multiple authored variants and all valid device identities`() {
+        val f = Fixture()
+        val routes = listOf(f.upperRoute(), f.lowerRoute())
+        val table = ProtectionRouteTableDefinition("test:variants", 1, f.region.regionId, f.region.revision, routes)
+        val model = DeviceModelDefinition("demo_signals:home", ModelPlacement.Ground(ModelPose.IDENTITY))
+        val fixed = ProtectionSignalDefinition("test:fixed", 2, ProtectionSignalKind.FIXED_ROUTE,
+            f.lowerRoute().routeId, 0.0, "automatic:block", model.placement)
+        val current = fixed.copy(signalId = "test:current", kind = ProtectionSignalKind.CURRENT_ENTRY,
+            bindingId = "test:entry")
+        val indicator = RouteIndicatorDefinition("test:indicator", 3, "test:entry", "stop",
+            mapOf("test:upper" to "proceed", "test:lower" to "stop"), model)
+        val attached = AttachedSignalDefinition("test:repeat", 4, fixed.signalId, model)
+        val initial = SimpleSignalsWorldDefinitions(f.worldId, 1, listOf(f.region), listOf(table),
+            protectionSignals = listOf(fixed, current), routeIndicators = listOf(indicator), attachedSignals = listOf(attached))
+        val store = store().also { it.save(f.worldId, initial) }
+        val infrastructure = MutableTopologyService(f.currentTopology)
+        val models = RecordingModels()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), store,
+            CapturingSignalEpochSourceService(), modelPresentation = models)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+        val runtime = manager.authoringRuntime(f.worldId)!!
+        val handles = models.handles.toList()
+        val backend = RuntimeSectionWandBackend(manager, infrastructure.service, 1000.0)
+        val boundary = f.region.boundaries.first().position.cutPosition()
+        val deleted = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.DELETE, false, boundary, true) { true }
+        assertNotNull(runtime.currentDefinitions().regions.single().boundaryDraft, deleted.text.render(java.util.Locale.US))
+        val result = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.CREATE, false, boundary, true) { true }
+        assertTrue(result.text.render(java.util.Locale.US).contains("repaired"), result.text.render(java.util.Locale.US))
+        val saved = runtime.currentDefinitions()
+        assertEquals(routes, saved.routeTables.single().routes)
+        assertEquals(initial.protectionSignals.sortedBy { it.signalId }, saved.protectionSignals)
+        assertEquals(initial.routeIndicators, saved.routeIndicators)
+        assertEquals(initial.attachedSignals, saved.attachedSignals)
+        assertEquals(handles.size, models.handles.size)
+        handles.zip(models.handles).forEach { (before, after) -> assertSame(before, after); assertEquals(0, before.closeCalls) }
+        assertTrue(runtime.authoringPublication().routeTables.unavailableRegionIds().isEmpty())
+        assertEquals(saved, (store.load(f.worldId) as work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
+    }
+
+    @Test fun `re enclosing moved boundary removes invalid route unbinds devices and regenerates usable coverage`() {
+        val f = Fixture()
+        val r = RecordingFixture(f, tables = listOf(f.table(1, f.lowerRoute())))
+        val initial = r.runtime.currentDefinitions()
+        val fixed = ProtectionSignalDefinition("test:fixed", 0, ProtectionSignalKind.FIXED_ROUTE, "test:lower", 0.0, "automatic:block")
+        val current = ProtectionSignalDefinition("test:current", 0, ProtectionSignalKind.CURRENT_ENTRY, "test:entry", 0.0, "automatic:block")
+        val indicator = RouteIndicatorDefinition("test:indicator", 0, "test:entry", "none", mapOf("test:lower" to "go"))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, r.manager.applyDefinitionPatch(f.worldId,
+            initial.definitionRevision, SimpleSignalsDefinitionPatch(upsertProtectionSignals = listOf(fixed, current),
+                upsertRouteIndicators = listOf(indicator))).status)
+        val backend = RuntimeSectionWandBackend(r.manager, r.infrastructure.service, 1000.0)
+        backend.perform(backend.capture(f.worldId)!!, SectionWandTool.DELETE, false,
+            f.region.boundaries.first().position.cutPosition(), true) { true }
+        // Beyond boundary snapping range: this is a genuinely new endpoint with a new ID.
+        val outcome = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.CREATE, false,
+            RailCutPosition(f.entry, 3.0), true) { true }
+        assertTrue(outcome.text.render(java.util.Locale.US).contains("repaired"), outcome.text.render(java.util.Locale.US))
+        val saved = r.runtime.currentDefinitions()
+        assertNull(saved.regions.single().boundaryDraft)
+        assertEquals(f.region.regionId, saved.regions.single().regionId)
+        assertTrue(saved.routeTables.single().routes.isNotEmpty())
+        assertTrue(saved.routeTables.single().routes.none { it.routeId == "test:lower" || it.entryBoundaryId == "test:entry" || it.exitBoundaryId == "test:entry" })
+        assertTrue(saved.protectionSignals.all { it.bindingId == null && it.revision == 1L })
+        assertNull(saved.routeIndicators.single().entryBoundaryId)
+        assertTrue(saved.routeIndicators.single().modelVariantsByRouteId.isEmpty())
+        assertTrue(r.runtime.authoringPublication().routeTables.unavailableRegionIds().isEmpty())
+        val overlay = RuntimeSectionOverlayBackend(r.manager::authoringRuntime, r.infrastructure.service, fixtureRailTargets(), work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService())
+        val drawing = overlay.prepare(overlay.capture(f.worldId)!!)
+        assertTrue(drawing.labels.any { it.id().startsWith("region/${f.region.regionId}/0/") },
+            "Repaired saved paths must produce internal coverage again")
+        assertEquals(saved, (r.store.load(f.worldId) as work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
+    }
+
+    @Test fun `formal stale routes need explicit repair and never reuse a removed route identity`() {
+        val f = Fixture()
+        val r = RecordingFixture(f)
+        val discovered = ProtectionRouteDiscovery.discover(r.topology, f.region,
+            r.runtime.protectionRegionSnapshot().regionsById.getValue(f.region.regionId).interior,
+            listOf(f.entry, f.upperIn, f.lowerIn, f.upperOut, f.lowerOut, f.exit).associateWith { null })
+        val generated = discovered.routes.first()
+        val broken = ProtectionRouteDefinition(generated.routeId, generated.entryBoundaryId, generated.exitBoundaryId,
+            f.discontinuousRoute().traversals)
+        // Historical table targets an earlier region revision, as occurs after old boundary repair.
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, r.manager.applyDefinitionPatch(f.worldId, 1,
+            SimpleSignalsDefinitionPatch(upsertRouteTables = listOf(ProtectionRouteTableDefinition("test:old", 0,
+                f.region.regionId, 0, listOf(broken))))).status)
+        val backend = RuntimeSectionWandBackend(r.manager, r.infrastructure.service, 1000.0)
+        val before = r.runtime.authoringPublication()
+        val disk = Files.readString(r.store.primaryFile(f.worldId))
+        val selection = backend.prepareRepair(backend.capture(f.worldId)!!, RailCutPosition(f.upperIn, 5.0))!!
+        assertSame(before, r.runtime.authoringPublication())
+        assertEquals(disk, Files.readString(r.store.primaryFile(f.worldId)))
+        assertTrue(selection.text.render(java.util.Locale.US).contains("remove 1 invalid routes"))
+        assertFalse(selection.text.render(java.util.Locale.US).contains("{0}"))
+        val repaired = backend.repair(selection) { true }
+        assertTrue(repaired.text.render(java.util.Locale.US).contains("repaired"), repaired.text.render(java.util.Locale.US))
+        val saved = r.runtime.currentDefinitions()
+        assertTrue(saved.routeTables.single().routes.none { it.routeId == generated.routeId })
+        assertTrue(r.runtime.authoringPublication().routeTables.unavailableRegionIds().isEmpty())
+        assertNull(backend.prepareRepair(backend.capture(f.worldId)!!, RailCutPosition(f.upperIn, 5.0)))
+        assertThrows(IllegalArgumentException::class.java) { backend.repair(selection) { true } }
+    }
+
+    @Test fun `prepared repair failures retain exact publication disk and host sources`() {
+        val r = RecordingFixture()
+        val backend = RuntimeSectionWandBackend(r.manager, r.infrastructure.service, 1000.0)
+        val selected = backend.prepareRepair(backend.capture(r.f.worldId)!!, RailCutPosition(r.f.upperIn, 5.0))!!
+        val before = r.runtime.authoringPublication()
+        val disk = Files.readString(r.store.primaryFile(r.f.worldId))
+        r.infrastructure.nextEditDecision = TopologyEditDecision(TopologyEditStatus.CONFLICT, emptyList(), "blocked")
+        assertTrue(backend.repair(selected) { true }.text.render(java.util.Locale.US).contains("EDIT_BLOCKED"))
+        assertSame(before, r.runtime.authoringPublication())
+        assertEquals(disk, Files.readString(r.store.primaryFile(r.f.worldId)))
+        r.infrastructure.nextEditDecision = TopologyEditDecision(TopologyEditStatus.GRANTED)
+        r.sources.nextPrevalidationFailure = IllegalArgumentException("source rejected")
+        assertTrue(backend.repair(selected) { true }.text.render(java.util.Locale.US).contains("VALIDATION_REJECTED"))
+        assertSame(before, r.runtime.authoringPublication())
+        assertEquals(disk, Files.readString(r.store.primaryFile(r.f.worldId)))
+        var active = true
+        r.sources.beforeCommitAction = { active = false }
+        assertTrue(backend.repair(selected) { active }.text.render(java.util.Locale.US).contains("WORLD_UNAVAILABLE"))
+        assertSame(before, r.runtime.authoringPublication())
+        assertEquals(disk, Files.readString(r.store.primaryFile(r.f.worldId)))
+        r.sources.beforeCommitAction = {}
+        r.manager.remove(r.f.worldId)
+        val failing = SimpleSignalsWorldDefinitionStore(directory.toFile()) { throw java.io.IOException("injected repair save failure") }
+        val manager = runtimeManager(plugin(), r.infrastructure.service, r.routes, failing, r.sources)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(r.f.worldId).status)
+        val restarted = RuntimeSectionWandBackend(manager, r.infrastructure.service, 1000.0)
+        val retained = manager.authoringRuntime(r.f.worldId)!!.authoringPublication()
+        val repair = restarted.prepareRepair(restarted.capture(r.f.worldId)!!, RailCutPosition(r.f.upperIn, 5.0))!!
+        assertTrue(restarted.repair(repair) { true }.text.render(java.util.Locale.US).contains("PERSISTENCE_FAILED"))
+        assertSame(retained, manager.authoringRuntime(r.f.worldId)!!.authoringPublication())
+        assertEquals(disk, Files.readString(r.store.primaryFile(r.f.worldId)))
+        // The denied first request increments attempts but never returns an owned permit.
+        assertEquals(r.infrastructure.permitAcquisitionCount - 1, r.infrastructure.permitCloseCount)
     }
 
     @Test fun `existing multi row pair exact path remains no op and different path refuses arbitrary deletion`() {
@@ -1829,7 +2102,11 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val existing = ProtectionSignalDefinition("test:fixed-existing", 6, ProtectionSignalKind.FIXED_ROUTE,
             upper.routeId, 11.0, "automatic:block")
         val definitions = store().also { it.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
-            listOf(fixture.region), listOf(table), protectionSignals = listOf(existing))) }
+            listOf(fixture.region), listOf(table), protectionSignals = listOf(existing),
+                boundaryNames = fixture.region.boundaries.map { boundary ->
+                    work.art1st.javarailways.simplesignals.persistence.BoundaryName(boundary.position.cutPosition(),
+                        if (boundary.boundaryId == upper.entryBoundaryId) "西端" else "出口")
+                })) }
         val infrastructure = MutableTopologyService(fixture.currentTopology)
         val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
             CapturingSignalEpochSourceService(), loadDefaultSignalCatalog = false)
@@ -1843,6 +2120,11 @@ class SimpleSignalsWorldRuntimeManagerTest {
             SignalWandMode.PLACEMENT, entrance)
         assertEquals(listOf(lower.routeId, upper.routeId), choices.take(2).map {
             (it.binding as ProtectionFixedRouteSignalWandBinding).routeId })
+        choices.forEach { choice ->
+            val label = choice.label.render(java.util.Locale.SIMPLIFIED_CHINESE)
+            assertTrue(label.contains("西端"), label)
+            assertTrue(label.contains("出口"), label)
+        }
         backend.place(capture, choices.first {
             (it.binding as ProtectionFixedRouteSignalWandBinding).routeId == lower.routeId
         }.binding, placement) { true }
@@ -1973,7 +2255,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
     fun `signal wand creates updates and exactly deletes attached signals selected from a placed primary`() {
         val fixture = Fixture()
         val block = FixedBlockDefinition("test:attached-wand-block", 1,
-            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 4.0)), bidirectional = true)
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 4.0)))
         val primaryPosition = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)
         val primary = FixedBlockSignalDefinition("test:attached-wand-primary", 3, block.blockId, 0.0,
             "automatic:block", placement = ModelPlacement.RailAttached(primaryPosition))
@@ -2277,7 +2559,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val worldId = UUID.randomUUID()
         val block = FixedBlockDefinition("test:directed-scan", 1, rails.map {
             FixedBlockTraversal(it, ViewDirection.AB, 0.0, 10.0)
-        }, true)
+        })
         val signals = listOf(FixedBlockEntryDirection.FORWARD, FixedBlockEntryDirection.REVERSE)
             .take(if (bothDirections) 2 else 1).map { direction ->
             FixedBlockSignalDefinition("test:scan-${direction.name.lowercase()}", 1, block.blockId, 0.0,
@@ -3621,7 +3903,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val infrastructure = MutableTopologyService(topology, registry)
         val successor = FixedBlockDefinition("test:reverse-successor", 1L, listOf(
             FixedBlockTraversal(outside, ViewDirection.AB, 0.0, 10.0),
-            FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0)), true)
+            FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0)))
         val definitions = store()
         definitions.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1L,
             listOf(fixture.region), listOf(fixture.table(1L, fixture.upperRoute())), listOf(successor)))
@@ -3632,15 +3914,18 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val before = Files.readString(definitions.primaryFile(fixture.worldId))
         val publication = runtime.authoringPublication()
         val retained = sources.sources.getValue(fixture.worldId)
+        val shortened = listOf(
+            FixedBlockTraversal(outside, ViewDirection.AB, 1.0, 10.0),
+            FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0))
         val withoutRevision = SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(
-            FixedBlockDefinition(successor.blockId, 1L, successor.traversals, false)))
+            FixedBlockDefinition(successor.blockId, 1L, shortened)))
         assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
             manager.applyDefinitionPatch(fixture.worldId, 1L, withoutRevision).status)
         assertEquals(0, infrastructure.permitAcquisitionCount)
         val releaseRegion = protect(registry, topology, fixture.upperIn, TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY)
-        val disabling = SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(
-            FixedBlockDefinition(successor.blockId, 2L, successor.traversals, false)))
-        listOf(disabling, SimpleSignalsDefinitionPatch(removeFixedBlockIds = listOf(successor.blockId))).forEach { patch ->
+        val shortening = SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(
+            FixedBlockDefinition(successor.blockId, 2L, shortened)))
+        listOf(shortening, SimpleSignalsDefinitionPatch(removeFixedBlockIds = listOf(successor.blockId))).forEach { patch ->
             assertEquals(SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED,
                 manager.applyDefinitionPatch(fixture.worldId, 1L, patch).status)
             assertTrue(fixture.upperIn in infrastructure.lastEditRequest!!.impact.railIds)
@@ -3661,8 +3946,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertSame(retained, sources.sources.getValue(fixture.worldId))
         releaseBlock()
         assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED,
-            manager.applyDefinitionPatch(fixture.worldId, 1L, disabling).status)
-        assertFalse(runtime.authoringPublication().definitions.fixedBlocks.single().bidirectional)
+            manager.applyDefinitionPatch(fixture.worldId, 1L, shortening).status)
+        assertEquals(shortened, runtime.authoringPublication().definitions.fixedBlocks.single().traversals)
     }
 
     @Test
@@ -4275,7 +4560,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val invalid = manager.applyDefinitionPatch(f.worldId, 1,
             SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(fixed.copy(revision = 3, controlledBlockId = "test:unknown"))))
         assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED, invalid.status)
-        val block = FixedBlockDefinition("test:target", 0, listOf(FixedBlockTraversal(f.entry, ViewDirection.AB, 2.0, 8.0)), true)
+        val block = FixedBlockDefinition("test:target", 0, listOf(FixedBlockTraversal(f.entry, ViewDirection.AB, 2.0, 8.0)))
         assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, manager.applyDefinitionPatch(f.worldId, 1,
             SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(block))).status)
         assertTrue(runtime.currentDefinitions().fixedBlockSignals.all { it.controlledBlockId == null })
@@ -5519,7 +5804,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
-    fun `duplicate directional entry and reverse on one way reject candidate before disk source or permit changes`() {
+    fun `duplicate directional entry rejects atomically while the other entry can be added independently`() {
         val f = Fixture()
         val block = FixedBlockDefinition("test:entry-block", 1,
             listOf(FixedBlockTraversal(f.entry, ViewDirection.AB, 1.0, 4.0)))
@@ -5535,16 +5820,19 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val originalSource = sources.sources.getValue(f.worldId).single()
         val originalRuntime = manager.authoringRuntime(f.worldId)!!
         val originalPublication = originalRuntime.authoringPublication()
-        for (candidate in listOf(signal.reconfigured(signalId = "test:duplicate"),
-            signal.reconfigured(signalId = "test:reverse", entryDirection = work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection.REVERSE))) {
-            val patch = SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(candidate))
-            assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
-                manager.applyDefinitionPatch(f.worldId, 1, patch).status)
-            assertEquals(0, infrastructure.permitAcquisitionCount)
-            assertEquals(originalDisk, Files.readString(stored.primaryFile(f.worldId)))
-            assertSame(originalSource, sources.sources.getValue(f.worldId).single())
-            assertSame(originalPublication, originalRuntime.authoringPublication())
-        }
+        val duplicate = signal.reconfigured(signalId = "test:duplicate")
+        val patch = SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(duplicate))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
+            manager.applyDefinitionPatch(f.worldId, 1, patch).status)
+        assertEquals(0, infrastructure.permitAcquisitionCount)
+        assertEquals(originalDisk, Files.readString(stored.primaryFile(f.worldId)))
+        assertSame(originalSource, sources.sources.getValue(f.worldId).single())
+        assertSame(originalPublication, originalRuntime.authoringPublication())
+        val reverse = signal.reconfigured(signalId = "test:reverse", entryDirection = FixedBlockEntryDirection.REVERSE)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED,
+            manager.applyDefinitionPatch(f.worldId, 1, SimpleSignalsDefinitionPatch(
+                upsertFixedBlockSignals = listOf(reverse))).status)
+        assertEquals(setOf(signal.entry, reverse.entry), originalRuntime.currentDefinitions().fixedBlockSignals.map { it.entry }.toSet())
     }
 
     @Test
@@ -6515,7 +6803,6 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val claimHost = Any()
         val requester = Any()
         val policy = FixedBlockRouteResourcePolicy(ownerPlugin,
-            { FixedBlockDirectionPolicy(source.basicWorldData.operatingDirections::snapshot) },
             manager::validateRouteAdmission, manager::fixedBlockSnapshot)
         val validator = registry.registerResourceValidator { resource ->
             resource is StableInfrastructureResource && resource.typeId == FIXED_BLOCK_RESOURCE_TYPE &&
@@ -6642,9 +6929,11 @@ class SimpleSignalsWorldRuntimeManagerTest {
                         assertEquals(listOf("proceed", "slow", "caution", "stop"), actualAspects(simulation.runtime))
                         assertLiveUnchanged()
                     }
+                    val beforeDirectionEdit = actualLimits(first.runtime)
                     first.world.onOwnerForTest { first.world.basicWorldData.operatingDirections.put(sourceRail.id, ViewDirection.BA) }
                     first.step()
-                    assertTrue(actualLimits(first.runtime).all { it == 0.0 })
+                    assertEquals(beforeDirectionEdit, actualLimits(first.runtime), "track direction does not disable the physical block")
+                    assertTrue(blockToken in first.world.infrastructureCoordination.claimSnapshots().single().footprint.resources)
                     assertLiveUnchanged()
                     first.close()
                     assertTrue(first.world.infrastructureCoordination.claimSnapshots().isEmpty())
@@ -6701,7 +6990,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
-    fun `real simulation admission claims fixed blocks releases by tail and observes direction updates`() {
+    fun `real simulation admission claims fixed blocks releases by tail and keeps signals independent of direction edits`() {
         initializeDomainPlugins()
         val source = actualSignalWorld()
         val id = UUID.fromString(source.runtimeId)
@@ -6744,11 +7033,14 @@ class SimpleSignalsWorldRuntimeManagerTest {
             repeat(175) { simulation.step(200.0) }
             val afterTail = request("following", "test:following-after-tail")
             assertTrue(afterTail is work.art1st.javarailways.basic.api.route.RouteAdmissionResult.Granted, afterTail.toString())
+            val beforeDirectionEdit = actualLimits(simulation.runtime)
+            val claimsBeforeDirectionEdit = world.infrastructureCoordination.claimSnapshots()
             world.onOwnerForTest {
                 world.basicWorldData.operatingDirections.put(rail.id, ViewDirection.BA)
             }
             simulation.step()
-            assertTrue(actualLimits(simulation.runtime).all { it == 0.0 }, "direction restrictions reach installed signal sources")
+            assertEquals(beforeDirectionEdit, actualLimits(simulation.runtime), "track direction does not disable fixed-block signals")
+            assertEquals(claimsBeforeDirectionEdit, world.infrastructureCoordination.claimSnapshots())
             world.onOwnerForTest { world.basicWorldData.operatingDirections.put(rail.id, ViewDirection.AB) }
             simulation.step()
             assertEquals("stop", actualAspects(simulation.runtime).last())
@@ -7047,14 +7339,14 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
-    fun `real simulation reversal retains the same bidirectional block claim and releases after the reverse tail`() {
+    fun `real simulation reversal retains the same physical block claim and releases after the reverse tail`() {
         initializeDomainPlugins()
         val source = actualSignalWorld()
         val id = UUID.fromString(source.runtimeId)
         val rail = source.allRails.single()
         source.basicWorldData.operatingDirections.put(rail.id, null)
-        val block = FixedBlockDefinition("test:actual-bidirectional", 1,
-            listOf(FixedBlockTraversal(rail.id, ViewDirection.AB, 0.0, 1450.0)), bidirectional = true)
+        val block = FixedBlockDefinition("test:actual-reversible", 1,
+            listOf(FixedBlockTraversal(rail.id, ViewDirection.AB, 0.0, 1450.0)))
         val definitions = SimpleSignalsWorldDefinitions(id, 1, emptyList(), emptyList(), listOf(block), listOf(
             FixedBlockSignalDefinition("test:forward", 1, block.blockId, 0.0, "jr_four_light:block"),
             FixedBlockSignalDefinition("test:reverse", 1, block.blockId, 0.0, "jr_four_light:block", FixedBlockEntryDirection.REVERSE)))
@@ -7413,7 +7705,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val infrastructure = MutableTopologyService(fixture.currentTopology)
         val definitions = store()
         val block = FixedBlockDefinition("test:local", 1,
-            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 1.0, 3.0)), true)
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 1.0, 3.0)))
         definitions.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
             emptyList(), emptyList(), listOf(block)))
         val sources = CapturingSignalEpochSourceService()
@@ -7455,7 +7747,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val infrastructure = MutableTopologyService(fixture.currentTopology)
         val definitions = store()
         val block = FixedBlockDefinition("test:topology-model-block", 1,
-            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 1.0, 3.0)), true)
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 1.0, 3.0)))
         val signal = FixedBlockSignalDefinition("test:topology-model-device", 1, block.blockId, 0.0,
             signalType = "automatic:block",
             placement = ModelPlacement.RailAttached(RailPositionSnapshot(fixture.entry, ViewDirection.AB, 2.0)))

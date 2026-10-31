@@ -16,9 +16,9 @@ class FixedBlockSignalCompilerTest {
     private val rail = UUID(0, 1)
     private val topology = lineTopologyState(1, rail)
 
-    private fun snapshot(bidirectional: Boolean = true) = FixedBlockCatalog().also {
+    private fun snapshot() = FixedBlockCatalog().also {
         it.publish(topology, 1, listOf(FixedBlockDefinition("test:block", 1,
-            listOf(FixedBlockTraversal(rail, ViewDirection.AB, 0.0, 10.0)), bidirectional)))
+            listOf(FixedBlockTraversal(rail, ViewDirection.AB, 0.0, 10.0)))))
     }.snapshot(topology)
 
     private fun signal(
@@ -42,7 +42,7 @@ class FixedBlockSignalCompilerTest {
     }
 
     @Test
-    fun `compiler rejects unknown blocks duplicate devices duplicate entries and reverse one way entry`() {
+    fun `compiler rejects unknown blocks duplicate devices and duplicate entries`() {
         assertThrows(IllegalArgumentException::class.java) {
             CompiledFixedBlockSignals.compile(listOf(signal(blockId = "test:missing")), snapshot())
         }
@@ -51,10 +51,6 @@ class FixedBlockSignalCompilerTest {
         }
         assertThrows(IllegalArgumentException::class.java) {
             CompiledFixedBlockSignals.compile(listOf(signal(), signal("test:other")), snapshot())
-        }
-        assertThrows(IllegalArgumentException::class.java) {
-            CompiledFixedBlockSignals.compile(
-                listOf(signal(direction = FixedBlockEntryDirection.REVERSE)), snapshot(false))
         }
     }
 

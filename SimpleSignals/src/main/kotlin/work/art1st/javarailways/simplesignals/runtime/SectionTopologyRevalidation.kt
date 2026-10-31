@@ -348,7 +348,7 @@ internal object SectionTopologyRevalidation {
             tables.unavailableRegionIds()
         )
         return SimpleSignalsRuntimePublication(topology, definitions, regionCatalog, tables, selection, blockCatalog,
-            signals.first, signals.second, observationGraph, previous, previous.directionPolicy).also {
+            signals.first, signals.second, observationGraph, previous).also {
             it.topologyIndex = SectionTopologyIndex(it, view.index, extraDependencies)
             it.topologyGuard = previous.topologyGuard
         }

@@ -2,7 +2,6 @@ package work.art1st.javarailways.simplesignals.region
 
 import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
 import work.art1st.javarailways.simplesignals.testing.fixedBlockPolicy
-import work.art1st.javarailways.simplesignals.testing.authoredDirectionPolicy
 
 import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -61,7 +60,7 @@ class ProtectionRegionInspectionSourceTest {
     @Test
     fun `region reverse exit joins the derived reverse block entry and clamps an internal stop`() {
         val block = FixedBlockDefinition("test:two-way-west", 1L,
-            listOf(FixedBlockTraversal(west, ViewDirection.AB, 0.0, 5.0)), true)
+            listOf(FixedBlockTraversal(west, ViewDirection.AB, 0.0, 5.0)))
         listOf(10.0 to 30.0, 8.0 to 28.0).forEach { (lastEnd, floor) ->
             val reverse = RouteSnapshot("test:reverse", 1L, topology.revision, listOf(
                 segment(east, ViewDirection.BA, 0.0, 10.0),
@@ -160,15 +159,14 @@ class ProtectionRegionInspectionSourceTest {
     }
 
     @Test
-    fun `known disabled successor refuses the frozen crossing instead of omitting its floor`() {
+    fun `successor geometry contributes a floor without a closed-block direction policy`() {
         val block = FixedBlockDefinition("test:block/east", 1L,
             listOf(FixedBlockTraversal(east, ViewDirection.AB, 5.0, 10.0)))
-        val captured = publication(listOf(block), directionPolicy =
-            work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy())
+        val captured = publication(listOf(block))
         val source = ProtectionRegionInspectionSource { captured }.source
-        assertThrows(IllegalStateException::class.java) {
-            source.bindingProvider.bind(InspectionBindingInput(stamp, "train", forwardRoute()))
-        }
+        val declaration = source.bindingProvider.bind(
+            InspectionBindingInput(stamp, "train", forwardRoute())).declarations.single()
+        assertEquals(30.0, declaration.minimumRequestedAuthorityEndRouteDistanceMeters)
         assertEquals(listOf(block), captured.definitions.fixedBlocks)
     }
 
@@ -481,8 +479,7 @@ class ProtectionRegionInspectionSourceTest {
             catalog,
             captured.fixedBlockSignals,
             captured.protectionSignals,
-            captured.signalObservationGraph,
-            directionPolicy = authoredDirectionPolicy { catalog.snapshot(captured.topology) }
+            captured.signalObservationGraph
         )
         return ProtectionRegionInspectionSource { inconsistent }.source
     }
@@ -491,11 +488,10 @@ class ProtectionRegionInspectionSourceTest {
         blocks: Collection<FixedBlockDefinition> = emptyList(),
         regions: List<ProtectionRegionDefinition> = listOf(region()),
         tables: List<ProtectionRouteTableDefinition> = emptyList(),
-        revision: Long = 3L,
-        directionPolicy: work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy? = null
+        revision: Long = 3L
     ): SimpleSignalsRuntimePublication {
         val worldId = UUID.randomUUID()
-        val runtime = directionPolicy?.let { SimpleSignalsWorldRuntime(worldId, it) } ?: signalWorldRuntime(worldId)
+        val runtime = signalWorldRuntime(worldId)
         val result = runtime.initializeDefinitions(topology, SimpleSignalsWorldDefinitions(worldId, revision,
             regions, tables, blocks.toList()))
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, result.status, result.toString())

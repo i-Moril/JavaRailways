@@ -1,0 +1,10 @@
+{"file": ".trellis/spec/simple-signals/backend/bidirectional-fixed-block.md", "reason": "保留两端身份与同资源生命周期，替换独立权限 flag 和整块方向失配合同"}
+{"file": ".trellis/spec/javarailways/simpleato/index.md", "reason": "ATO 与 Basic、信号插件的模块所有权"}
+{"file": ".trellis/spec/javarailways/simpleato/terminal-route-completion.md", "reason": "运营终点、停车安全余量、完整物理后缀与换向资源交接"}
+{"file": ".trellis/spec/javarailways/simpleato/ato-policy-runtime.md", "reason": "沿用单一最严格约束管线，不新增制动器或手动 ATS"}
+{"file": ".trellis/spec/javarailways/basic/operating-directions.md", "reason": "唯一公共方向来源；本批仅改变消费者，不修改 Basic 运行代码"}
+{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "未发布 schema 保持约定版本，不能因删除字段猜测升版"}
+{"file": "ai_tasks/persistence_schema_evolution_rules.md", "reason": "严格 current model 和一次性开发数据转换边界"}
+{"file": ".trellis/tasks/10-30-fixed-block-direction-decoupling/research/current-behavior.md", "reason": "当前源码证据、旧合同替换点、Basic 不扩接口的依据"}
+{"file": ".trellis/tasks/10-30-fixed-block-direction-decoupling/research/context-reading-guide.md", "reason": "大规范定向读取要求，避免32KiB注入截断；保留原Basic安全合同及原epoch机制"}
+{"file": ".trellis/spec/javarailways/simpleato/operating-direction-enforcement.md", "reason": "当前实现的方向结果、保护后缀和独立ATO方向边界、通知时序合同"}

@@ -46,13 +46,10 @@ internal class ProtectionRouteBindingCompiler(private val publication: SimpleSig
             is ProtectionRegionRouteMatchResult.Matched -> match.windows
             is ProtectionRegionRouteMatchResult.Rejected -> error(match.diagnostics.joinToString { it.detail })
         }
-        val geometryWindows = when (val match = FixedBlockRouteMatcher.matchRoute(blocks, route, detectReverse = true)) {
+        val blockWindows = when (val match = FixedBlockRouteMatcher.matchRoute(blocks, route)) {
             is FixedBlockAuthorityMatchResult.Matched -> match.windows
             is FixedBlockAuthorityMatchResult.Rejected -> error(match.detail)
         }
-        val disabled = publication.directionPolicy.disabledBlocks(blocks,
-            geometryWindows.map { blocks.blocksById.getValue(it.blockId) }.distinct())
-        val blockWindows = publication.directionPolicy.normalWindows(blocks, geometryWindows, disabled)
         val projection = if (windows.any { it.regionId in tableRegions }) {
             when (val projected = DirectedRouteProjector.project(route, regions.derivedTopology)) {
                 is DirectedRouteProjectionResult.Projected -> projected.route

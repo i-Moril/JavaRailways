@@ -23,21 +23,17 @@ class SectionTopologyTest {
     private fun cut(rail: UUID, arc: Double, facing: ViewDirection = ViewDirection.AB) =
         ProtectionBoundaryDefinition("test:${rail.leastSignificantBits}-$arc", point(rail, arc, facing))
 
-    @Test fun `path infers mixed canonical directions and reverses all traversals when needed`() {
+    @Test fun `definition preserves selected path order and mixed canonical directions`() {
         val topology = graph(mapOf(a to 10.0, b to 10.0), listOf(port(a, false) to port(b, false)))
         val path = BlockPathBuilder.path(topology, point(a, 2.0), point(b, 2.0))
         assertEquals(listOf(ViewDirection.AB, ViewDirection.BA), path.map { it.facing })
-        val block = BlockPathBuilder.definition("test:block", path, mapOf(a to ViewDirection.BA, b to ViewDirection.AB))
-        assertEquals(listOf(b, a), block.traversals.map { it.railId })
-        assertEquals(listOf(ViewDirection.AB, ViewDirection.BA), block.traversals.map { it.facing })
-        assertFalse(block.bidirectional)
-        assertThrows(IllegalArgumentException::class.java) {
-            BlockPathBuilder.definition("test:bad", path, mapOf(a to ViewDirection.AB, b to ViewDirection.AB))
-        }
-        assertThrows(IllegalArgumentException::class.java) {
-            BlockPathBuilder.definition("test:mixed", path, mapOf(a to ViewDirection.AB, b to null))
-        }
-        assertTrue(BlockPathBuilder.definition("test:both", path, mapOf(a to null, b to null)).bidirectional)
+        val block = BlockPathBuilder.definition("test:block", path)
+        assertEquals(path, block.traversals)
+        assertEquals(listOf(a, b), block.traversals.map { it.railId })
+        val reversePath = BlockPathBuilder.path(topology, point(b, 2.0), point(a, 2.0))
+        val reverseBlock = BlockPathBuilder.definition("test:reverse", reversePath)
+        assertEquals(listOf(b, a), reverseBlock.traversals.map { it.railId })
+        assertEquals(reversePath, reverseBlock.traversals)
     }
 
     @Test fun `even the straight branch of a turnout is rejected`() {

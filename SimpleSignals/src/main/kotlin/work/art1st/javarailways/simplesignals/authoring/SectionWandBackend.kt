@@ -12,7 +12,7 @@ import work.art1st.javarailways.simplesignals.region.*
 import java.util.UUID
 
 internal enum class SectionWandTool(val key: String) {
-    CREATE("create"), DELETE("delete")
+    CREATE("create"), NAME("name"), DELETE("delete")
 }
 
 internal enum class SectionWandKind { PENDING, BLOCK, REGION }
@@ -21,6 +21,7 @@ internal interface SectionWandDeletion {
     val text: WandText
     val retainDevices: Boolean
 }
+internal interface SectionWandRepair { val text: WandText }
 internal interface SectionBoundaryNaming { val initial: String; val description: WandText }
 internal data class SectionWandOutcome(val text: WandText, val kind: SectionWandKind = SectionWandKind.PENDING,
     val warnings: List<ProtectionBoundaryDefinition> = emptyList(),
@@ -28,6 +29,8 @@ internal data class SectionWandOutcome(val text: WandText, val kind: SectionWand
 
 /** Immutable capture and worker-only edit boundary, kept separate from player/Bukkit operations. */
 internal interface SectionWandBackend {
+    fun prepareRepair(capture: SectionWandCapture, point: RailCutPosition): SectionWandRepair? = null
+    fun repair(selection: SectionWandRepair, active: () -> Boolean): SectionWandOutcome = error("Repair unavailable")
     fun naming(capture: SectionWandCapture, point: RailCutPosition): SectionBoundaryNaming? = null
     fun rename(selection: SectionBoundaryNaming, name: String, active: () -> Boolean): SectionWandOutcome = error("Naming unavailable")
     fun capture(worldId: UUID): SectionWandCapture?
@@ -54,6 +57,10 @@ internal class RuntimeSectionWandBackend(
     }
     private data class Deletion(val capture: Capture, val edit: SectionAuthoringEdit, val kind: SectionWandKind,
         override val text: WandText, override val retainDevices: Boolean) : SectionWandDeletion
+
+    private data class Repair(val capture: Capture, val edit: SectionAuthoringEdit) : SectionWandRepair {
+        override val text: WandText get() = edit.text
+    }
 
     private data class Naming(val capture: Capture, val position: RailCutPosition,
         override val initial: String, override val description: WandText) : SectionBoundaryNaming
@@ -129,6 +136,55 @@ internal class RuntimeSectionWandBackend(
         else SectionWandOutcome(WandText.diagnostic(SimpleSignalsAdminCommand.formatResult(result)))
     }
 
+    private fun selectedRegion(captured: Capture, point: RailCutPosition): ProtectionRegionDefinition? {
+        val compiled = checkNotNull(captured.publication.regions.compilationSnapshot())
+        val definitions = captured.publication.definitions
+        val nearby = compiled.regionIdsByRail[point.railId].orEmpty()
+            .mapNotNull { id -> definitions.regions.singleOrNull { it.regionId == id } }
+            .filter { it.boundaryDraft == null }
+        val inside = nearby.filter { region -> compiled.regionsById.getValue(region.regionId).interior.any { slice ->
+            slice.railId == point.railId && point.arcLengthInAbMeters > slice.startAbMeters && point.arcLengthInAbMeters < slice.endAbMeters } }
+        val candidates = inside.ifEmpty { nearby.filter { region -> region.effectiveCuts.any { samePoint(it.position, point) } } }
+        require(candidates.size <= 1) { "Several regions overlap here; select the interior" }
+        return candidates.singleOrNull()
+    }
+
+    private fun discover(captured: Capture, region: ProtectionRegionDefinition): Pair<ResolvedProtectionRegion, DiscoveredProtectionRoutes> {
+        val resolved = ProtectionRegionGraphResolver.resolve(region, ProtectionRegionTopology.direct(captured.topology))
+        require(resolved is ProtectionRegionGraphResolution.Resolved) { "Protection region geometry is unavailable; repair was not applied" }
+        val interior = resolved.region.interior
+        interior.forEach { captured.watch(it.railId) }
+        val directions = infrastructure.operatingDirections(captured.worldId, captured.topology, interior.map { it.railId }.toSet())
+        return resolved.region to ProtectionRouteDiscovery.discover(captured.topology, region, interior, directions.directions)
+    }
+
+    override fun prepareRepair(capture: SectionWandCapture, point: RailCutPosition): SectionWandRepair? {
+        val captured = capture as Capture
+        captured.watch(point.railId)
+        require(current(captured)) { "Selection expired; select the rail again" }
+        val region = selectedRegion(captured, point) ?: return null
+        val publication = captured.publication
+        val compiled = checkNotNull(publication.regions.compilationSnapshot())
+        val hasTable = publication.definitions.routeTables.any { it.regionId == region.regionId }
+        if (region.regionId !in compiled.unavailableRegionIds && hasTable &&
+            region.regionId !in publication.routeTables.unavailableRegionIds()) return null
+        val (resolved, found) = discover(captured, region)
+        val edit = ProtectionRegionRepair.prepare(captured.topology, publication.definitions, resolved, found)
+        return Repair(captured, edit)
+    }
+
+    override fun repair(selection: SectionWandRepair, active: () -> Boolean): SectionWandOutcome {
+        val selected = selection as Repair
+        val captured = selected.capture
+        require(active() && current(captured)) { "Selection expired before submission" }
+        val result = manager.applyDefinitionPatch(captured.worldId, captured.publication.definitions.definitionRevision,
+            selected.edit.patch, captured.runtime, captured.topology, active)
+        return if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
+            SectionWandOutcome(WandText.key("section.applied", WandText.key("region.repair.completed", selected.edit.text),
+                result.definitions!!.definitionRevision), SectionWandKind.REGION)
+        else SectionWandOutcome(WandText.diagnostic(SimpleSignalsAdminCommand.formatResult(result)))
+    }
+
     override fun perform(capture: SectionWandCapture, tool: SectionWandTool, leftClick: Boolean,
         point: RailCutPosition, retainDevices: Boolean, active: () -> Boolean): SectionWandOutcome {
         val captured = capture as Capture
@@ -138,43 +194,31 @@ internal class RuntimeSectionWandBackend(
         val definitions = publication.definitions
         val topology = captured.topology
         var warningBoundaries = emptyList<ProtectionBoundaryDefinition>()
-        fun discover(region: ProtectionRegionDefinition): DiscoveredProtectionRoutes {
-            val resolved = ProtectionRegionGraphResolver.resolve(region, ProtectionRegionTopology.direct(topology))
-            require(resolved is ProtectionRegionGraphResolution.Resolved) { "Protection region is unavailable" }
-            val interior = resolved.region.interior
-            val directions = infrastructure.operatingDirections(captured.worldId, topology, interior.map { it.railId }.toSet())
-            return ProtectionRouteDiscovery.discover(topology, region, interior, directions.directions)
-        }
         if (tool == SectionWandTool.CREATE && leftClick) {
-            val compiled = publication.regions.compilationSnapshot()!!
-            val nearby = compiled.regionIdsByRail[point.railId].orEmpty()
-                .mapNotNull { id -> definitions.regions.singleOrNull { it.regionId == id } }
-                .filter { it.boundaryDraft == null }
-            val inside = nearby.filter { region -> compiled.regionsById[region.regionId]!!.interior.any { slice ->
-                slice.railId == point.railId && point.arcLengthInAbMeters > slice.startAbMeters && point.arcLengthInAbMeters < slice.endAbMeters } }
-            val candidates = inside.ifEmpty { nearby.filter { region ->
-                region.effectiveCuts.any { samePoint(it.position, point) } } }
-            if (candidates.size > 1) return SectionWandOutcome(WandText.key("section.select.interior"))
-            val region = candidates.singleOrNull()
+            val region = selectedRegion(captured, point)
             if (region != null) {
-                val found = discover(region)
+                val (_, found) = discover(captured, region)
                 return SectionWandOutcome(WandText.key("region.warnings", found.routes.size, found.warningBoundaryIds.size), SectionWandKind.REGION,
                     warnings = region.boundaries.filter { it.boundaryId in found.warningBoundaryIds }, warningCapture = captured)
             }
         }
         val edit = when (tool) {
+            SectionWandTool.NAME -> error("Naming requires a boundary selection")
             SectionWandTool.DELETE -> SectionAuthoringActions.deleteSection(definitions, point, leftClick, topology, retainDevices)
             SectionWandTool.CREATE -> {
                 val interiors = publication.regions.compilationSnapshot()!!.regionsById.mapValues { it.value.interior }
-                val directions = { rails: Set<UUID> -> infrastructure.operatingDirections(captured.worldId, topology, rails).directions }
                 val placed = if (leftClick) SectionAuthoringActions.confirmSection(topology, definitions, point,
-                    maxRegionDistanceMeters, interiors, directions)
+                    maxRegionDistanceMeters, interiors)
                 else SectionAuthoringActions.placeSectionBoundary(topology, definitions, point,
-                    maxRegionDistanceMeters, interiors, directions)
-                val region = placed.patch.upsertRegions.singleOrNull()?.takeIf { it.boundaryDraft == null &&
-                    definitions.regions.none { old -> old.regionId == it.regionId } }
-                if (region == null) placed else {
-                    val found = discover(region)
+                    maxRegionDistanceMeters, interiors)
+                val region = placed.patch.upsertRegions.singleOrNull()?.takeIf { it.boundaryDraft == null }
+                if (region == null) placed else if (definitions.regions.any { it.regionId == region.regionId }) {
+                    val (resolved, found) = discover(captured, region)
+                    val repaired = ProtectionRegionRepair.prepare(topology, definitions, resolved, found, placed.patch.pendingProtectionBoundaries)
+                    SectionAuthoringEdit(repaired.patch,
+                        WandText.key("region.repair.completed", repaired.text))
+                } else {
+                    val (_, found) = discover(captured, region)
                     require(found.routes.isNotEmpty()) { "No direction-legal entry/exit route; protection region was not created" }
                     warningBoundaries = region.boundaries.filter { it.boundaryId in found.warningBoundaryIds }
                     val table = ProtectionRouteTableDefinition(ProtectionRouteDiscovery.stableId(region.regionId, "table"),

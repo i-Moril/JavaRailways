@@ -80,7 +80,7 @@ public final class SimpleSignalsSimulationFeatureFactory {
             double length = blockRailLengthsMeters.get(i);
             blocks.add(new FixedBlockDefinition(blockId, 1L,
                     Collections.singletonList(new FixedBlockTraversal(
-                            blockRailIds.get(i), ViewDirection.AB, 0.0, length)), false));
+                            blockRailIds.get(i), ViewDirection.AB, 0.0, length))));
             signals.add(new FixedBlockSignalDefinition(
                     signalId, 1L, blockId, 0.0, SIGNAL_TYPE,
                     FixedBlockEntryDirection.FORWARD, null));

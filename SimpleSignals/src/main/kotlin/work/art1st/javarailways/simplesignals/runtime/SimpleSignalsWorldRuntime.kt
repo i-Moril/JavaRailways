@@ -192,8 +192,7 @@ internal class SimpleSignalsRuntimePublication(
     val fixedBlockSignals: CompiledFixedBlockSignals,
     val protectionSignals: CompiledProtectionSignals,
     val signalObservationGraph: SignalObservationGraphPublication,
-    previous: SimpleSignalsRuntimePublication? = null,
-    val directionPolicy: work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy()
+    previous: SimpleSignalsRuntimePublication? = null
 ) {
     internal var topologyIndex: SectionTopologyIndex? = null
     internal var topologyGuard: SectionTopologyGuard? = null
@@ -224,7 +223,6 @@ internal data class PreviewRegionState(val definition: ProtectionRegionDefinitio
  */
 internal class SimpleSignalsWorldRuntime(
     val worldId: UUID,
-    private val directionPolicy: work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy(),
     private val protectionRegionMaxDistanceMeters: Double = 1000.0
 ) {
     private data class RuntimeState(
@@ -363,8 +361,7 @@ internal class SimpleSignalsWorldRuntime(
         ::fixedBlockInspectionLeadTime,
         ::protectionDeviceDeclarations,
         ::protectionDeviceSignal,
-        { id -> state.publication?.protectionSignals?.signalIdsByDeclaration?.containsKey(id) == true },
-        directionPolicy
+        { id -> state.publication?.protectionSignals?.signalIdsByDeclaration?.containsKey(id) == true }
     ).source
 
     val protectionRegionInspectionSource = ProtectionRegionInspectionSource(
@@ -687,8 +684,7 @@ internal class SimpleSignalsWorldRuntime(
             candidateSignals,
             candidateProtectionSignals,
             candidateObservationGraph,
-            current,
-            directionPolicy
+            current
         )
         candidate.topologyIndex = SectionTopologyIndex(candidate, current?.topologyIndex)
         SimpleSignalsDefinitionPreparationResult.Prepared(
@@ -1365,10 +1361,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                     "SimpleSignals is disabled")
                 val previous = runtimes[worldId]
                 if (previous == null) {
-                    SimpleSignalsWorldRuntime(worldId,
-                        work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy(
-                            { topology, rails -> infrastructure.operatingDirections(worldId, topology, rails) }),
-                        protectionRegionMaxDistanceMeters).also { runtimes[worldId] = it }
+                    SimpleSignalsWorldRuntime(worldId, protectionRegionMaxDistanceMeters).also { runtimes[worldId] = it }
                 } else previous
             }
             if (!reserved.closed) {
@@ -1797,18 +1790,11 @@ internal class SimpleSignalsWorldRuntimeManager(
             ))
             is SimpleSignalsDefinitionPreparationResult.Prepared -> preparation.value
         }
-        val impactRailIds = prepared.affectedRailIds
         if (expectedTopology != null && !topology.preservesRails(expectedTopology,
                 SimpleSignalsDefinitionEditImpact.impact(prepared.basePublication, prepared.candidatePublication,
                     includeTopologyChanges = false)?.railIds.orEmpty())) {
             return PatchPreparation.Rejected(authoringResult(SimpleSignalsDefinitionAuthoringStatus.STALE_TOPOLOGY,
                 "selected rail dependencies changed after the authoring selection"))
-        }
-        if (impactRailIds.isEmpty()) {
-            return PatchPreparation.Rejected(authoringResult(
-                SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
-                "definition edit does not resolve to any affected rail"
-            ))
         }
         return PatchPreparation.Ready(prepared)
     }
@@ -1915,24 +1901,28 @@ internal class SimpleSignalsWorldRuntimeManager(
             "signal catalog changed while the definition edit was being prepared; retry the edit")
         val topology = prepared.topology
         val nextRevision = prepared.definitions.definitionRevision
+        // Unbound ground devices can have no infrastructure impact. They still use the
+        // same guarded atomic transaction; host permits only represent real infrastructure.
         val permitResult = try {
-            infrastructure.acquireEditPermit(
-                plugin,
-                worldId,
-                TopologyEditRequest(
-                    topology.revision,
-                    InfrastructureOwner("simplesignals:definitions/$worldId", nextRevision),
-                    checkNotNull(prepared.editImpact)
+            prepared.editImpact?.let { impact ->
+                infrastructure.acquireEditPermit(
+                    plugin,
+                    worldId,
+                    TopologyEditRequest(
+                        topology.revision,
+                        InfrastructureOwner("simplesignals:definitions/$worldId", nextRevision),
+                        impact
+                    )
                 )
-            )
+            }
         } catch (failure: Exception) {
             return@synchronized authoringResult(
                 SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE,
                 "edit permit is unavailable: ${describe(failure)}"
             )
         }
-        val permit = permitResult.permit().orElse(null)
-        if (permit == null) {
+        val permit = permitResult?.permit()?.orElse(null)
+        if (permitResult != null && permit == null) {
             val status = when (permitResult.decision().status) {
                 TopologyEditStatus.STALE_TOPOLOGY ->
                     SimpleSignalsDefinitionAuthoringStatus.STALE_TOPOLOGY
@@ -2067,13 +2057,13 @@ internal class SimpleSignalsWorldRuntimeManager(
                 SimpleSignalsDefinitionAuthoringResult(
                     SimpleSignalsDefinitionAuthoringStatus.APPLIED,
                     definitions = prepared.definitions,
-                    editDecision = permitResult.decision()
+                    editDecision = permitResult?.decision()
                 )
             } finally {
                 stagedSave.close()
             }
         } finally {
-            permit.close()
+            permit?.close()
         }
         }
         if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED) {

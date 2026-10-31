@@ -32,7 +32,7 @@ class SectionAuthoringActionsTest {
     private fun point(arc: Double) = RailCutPosition(rail, arc)
     private fun boundary(name: String, arc: Double, facing: ViewDirection) = ProtectionBoundaryDefinition("test:$name", point(arc).facing(facing))
     private fun block(name: String, from: Double, to: Double) = FixedBlockDefinition("test:$name", 0,
-        listOf(FixedBlockTraversal(rail, ViewDirection.AB, from, to)), true)
+        listOf(FixedBlockTraversal(rail, ViewDirection.AB, from, to)))
     private fun definitions(regions: List<ProtectionRegionDefinition> = emptyList(), blocks: List<FixedBlockDefinition> = emptyList(),
         pending: List<ProtectionBoundaryCut> = emptyList()) = SimpleSignalsWorldDefinitions(world, 0, regions, emptyList(), blocks,
         pendingProtectionBoundaries = pending)
@@ -79,7 +79,7 @@ class SectionAuthoringActionsTest {
         assertTrue(unified.upsertRegions.isEmpty())
     }
 
-    @Test fun `deleting bidirectional block removes both primary signals and all their displays only`() {
+    @Test fun `deleting block with two entrance signals removes both primary signals and all their displays only`() {
         val shared = block("shared", 2.0, 8.0)
         val other = block("other", 8.0, 10.0)
         val forward = signal("forward", shared.blockId)
@@ -118,15 +118,13 @@ class SectionAuthoringActionsTest {
         assertTrue(edit.text.render(java.util.Locale.SIMPLIFIED_CHINESE).contains("不能唯一确定"))
     }
 
-    private val directions: (Set<UUID>) -> Map<UUID, ViewDirection?> = { rails -> rails.associateWith { null } }
-
     @Test fun `pending first cut is persisted and plain closure creates a block without a region`() {
-        val open = SectionAuthoringActions.placeSectionBoundary(topology, definitions(), point(2.0), 100.0, emptyMap(), directions) { "test:first" }
+        val open = SectionAuthoringActions.placeSectionBoundary(topology, definitions(), point(2.0), 100.0, emptyMap()) { "test:first" }
         assertTrue(open.patch.upsertRegions.isEmpty())
         assertEquals(listOf(first.cut()), open.patch.pendingProtectionBoundaries)
         var id = 0
         val closed = SectionAuthoringActions.placeSectionBoundary(topology,
-            definitions(pending = open.patch.pendingProtectionBoundaries!!), point(8.0), 100.0, emptyMap(), directions) { "test:new${id++}" }
+            definitions(pending = open.patch.pendingProtectionBoundaries!!), point(8.0), 100.0, emptyMap()) { "test:new${id++}" }
         assertTrue(closed.patch.upsertRegions.isEmpty())
         assertEquals(listOf(FixedBlockTraversal(rail, ViewDirection.BA, 2.0, 8.0)), closed.patch.upsertFixedBlocks.single().traversals)
         assertEquals(emptyList<ProtectionBoundaryCut>(), closed.patch.pendingProtectionBoundaries)
@@ -135,7 +133,7 @@ class SectionAuthoringActionsTest {
     @Test fun `repair snaps to removed accepted cut and restores its ID while keeping region and tables`() {
         val draft = ProtectionRegionDefinition(region.regionId, 1, region.boundaries, listOf(last.cut()))
         val repaired = SectionAuthoringActions.placeSectionBoundary(topology, definitions(listOf(draft)),
-            point(2.4), 100.0, interior, directions) { error("Repair must preserve every ID") }.patch
+            point(2.4), 100.0, interior) { error("Repair must preserve every ID") }.patch
         val restored = repaired.upsertRegions.single()
         assertEquals(region.regionId, restored.regionId)
         assertEquals(region.boundaries.toSet(), restored.boundaries.toSet())
@@ -147,7 +145,7 @@ class SectionAuthoringActionsTest {
 
     @Test fun `zero-marker region is found through retained interior when first replacement cut is placed`() {
         val draft = ProtectionRegionDefinition(region.regionId, 1, region.boundaries, emptyList())
-        val edit = SectionAuthoringActions.placeSectionBoundary(topology, definitions(listOf(draft)), point(3.0), 100.0, interior, directions) { "test:replacement" }
+        val edit = SectionAuthoringActions.placeSectionBoundary(topology, definitions(listOf(draft)), point(3.0), 100.0, interior) { "test:replacement" }
         val changed = edit.patch.upsertRegions.single()
         assertEquals(region.regionId, changed.regionId)
         assertEquals(listOf("test:replacement"), changed.boundaryDraft!!.map { it.boundaryId })
@@ -161,7 +159,7 @@ class SectionAuthoringActionsTest {
         val footprints = mapOf("test:a" to listOf(ProtectionRegionInteriorSlice(rail, 1.0, 4.0)),
             "test:b" to listOf(ProtectionRegionInteriorSlice(rail, 6.0, 9.0)))
         assertThrows(IllegalArgumentException::class.java) {
-            SectionAuthoringActions.placeSectionBoundary(topology, definitions(listOf(regionA, regionB)), point(9.0), 100.0, footprints, directions)
+            SectionAuthoringActions.placeSectionBoundary(topology, definitions(listOf(regionA, regionB)), point(9.0), 100.0, footprints)
         }
     }
 
@@ -175,12 +173,12 @@ class SectionAuthoringActionsTest {
         val old = block("old", 0.0, 2.0)
         var id = 0
         val edit = SectionAuthoringActions.placeSectionBoundary(topology,
-            definitions(blocks = listOf(old)), point(8.0), 1.0, emptyMap(), directions) { "test:auto${id++}" }
+            definitions(blocks = listOf(old)), point(8.0), 1.0, emptyMap()) { "test:auto${id++}" }
         assertEquals(listOf(FixedBlockTraversal(rail, ViewDirection.BA, 2.0, 8.0)), edit.patch.upsertFixedBlocks.single().traversals)
         assertTrue(edit.patch.removeFixedBlockIds.isEmpty())
         val unoriented = SectionAuthoringActions.placeSectionBoundary(topology,
             definitions(pending = listOf(first.cut())),
-            point(8.0), 100.0, emptyMap(), directions) { "test:wrong${id++}" }
+            point(8.0), 100.0, emptyMap()) { "test:wrong${id++}" }
         assertEquals(edit.patch.upsertFixedBlocks.single().traversals, unoriented.patch.upsertFixedBlocks.single().traversals)
         assertTrue(unoriented.patch.pendingProtectionBoundaries!!.isEmpty())
     }
@@ -189,15 +187,15 @@ class SectionAuthoringActionsTest {
         val id = "12345678-1234-1234-1234-123456789abc"
         val edit = SectionAuthoringActions.createBlock(definitions(), block(id, 2.0, 8.0))
         assertEquals("test:$id", edit.patch.upsertFixedBlocks.single().blockId)
-        assertEquals("Created bidirectional block: block", edit.text.render(java.util.Locale.US))
-        assertEquals("Created bidirectional block: test:platform", SectionAuthoringActions.createBlock(
+        assertEquals("Created block: block", edit.text.render(java.util.Locale.US))
+        assertEquals("Created block: test:platform", SectionAuthoringActions.createBlock(
             definitions(), block("platform", 2.0, 8.0)).text.render(java.util.Locale.US))
     }
 
     @Test fun `ordinary joint has one block boundary identity across its two rail coordinates`() {
         val topology = lineTopologyState(1, rail, otherRail)
         val a = block("a", 2.0, 10.0)
-        val b = FixedBlockDefinition("test:b", 0, listOf(FixedBlockTraversal(otherRail, ViewDirection.AB, 0.0, 8.0)), true)
+        val b = FixedBlockDefinition("test:b", 0, listOf(FixedBlockTraversal(otherRail, ViewDirection.AB, 0.0, 8.0)))
         val defs = definitions(blocks = listOf(a, b))
         val target = RailCutPosition(otherRail, 0.0)
         assertEquals(setOf("test:a", "test:b"), SectionAuthoringActions.deleteBlock(defs, target, true, topology, false).patch.removeFixedBlockIds.toSet())
@@ -208,11 +206,11 @@ class SectionAuthoringActionsTest {
         val joined = lineTopologyState(1, rail, otherRail)
         var id = 0
         val old = SectionAuthoringActions.placeSectionBoundary(joined, definitions(pending = listOf(first.cut())),
-            point(10.0), 1.0, emptyMap(), directions) { "test:joint-${id++}" }.patch.upsertFixedBlocks.single()
+            point(10.0), 1.0, emptyMap()) { "test:joint-${id++}" }.patch.upsertFixedBlocks.single()
         val nextEnd = ProtectionBoundaryCut("test:next-end", RailCutPosition(otherRail, 8.0))
         val next = SectionAuthoringActions.placeSectionBoundary(joined,
             definitions(blocks = listOf(old), pending = listOf(nextEnd)), RailCutPosition(otherRail, 0.0),
-            1.0, emptyMap(), directions) { "test:joint-${id++}" }.patch
+            1.0, emptyMap()) { "test:joint-${id++}" }.patch
         assertEquals(listOf(FixedBlockTraversal(otherRail, ViewDirection.AB, 0.0, 8.0)), next.upsertFixedBlocks.single().traversals)
         assertTrue(next.removeFixedBlockIds.isEmpty())
         assertTrue(next.upsertRegions.isEmpty())
@@ -222,7 +220,7 @@ class SectionAuthoringActionsTest {
     @Test fun `a new block outside an established region reuses its border without stealing ownership`() {
         var id = 0
         val edit = SectionAuthoringActions.placeSectionBoundary(topology, definitions(regions = listOf(region)),
-            point(0.8), 100.0, interior, directions) { "test:outside${id++}" }
+            point(0.8), 100.0, interior) { "test:outside${id++}" }
         assertTrue(edit.patch.upsertRegions.isEmpty())
         assertEquals(listOf(FixedBlockTraversal(rail, ViewDirection.AB, 0.8, 2.0)), edit.patch.upsertFixedBlocks.single().traversals)
         assertTrue(edit.patch.pendingProtectionBoundaries!!.isEmpty())
@@ -249,7 +247,7 @@ class SectionAuthoringActionsTest {
         fun create(): ProtectionRegionDefinition {
             var id = 0
             val edit = SectionAuthoringActions.placeSectionBoundary(topology, definitions(pending = cuts.take(3)),
-                cuts.last().position, 100.0, emptyMap(), directions) { "test:created-${id++}" }
+                cuts.last().position, 100.0, emptyMap()) { "test:created-${id++}" }
             assertTrue(edit.patch.pendingProtectionBoundaries!!.isEmpty())
             return edit.patch.upsertRegions.single()
         }
@@ -259,7 +257,7 @@ class SectionAuthoringActionsTest {
         assertTrue(ProtectionRegionGraphResolver.resolve(forward, ProtectionRegionTopology.direct(topology)) is ProtectionRegionGraphResolution.Resolved)
         // Existing failed drafts can be completed by clicking the interior without replacing cuts.
         val confirmed = SectionAuthoringActions.confirmSection(topology, definitions(pending = cuts),
-            RailCutPosition(crossA, 4.0), 100.0, emptyMap(), directions) { "test:confirmed" }
+            RailCutPosition(crossA, 4.0), 100.0, emptyMap()) { "test:confirmed" }
         assertEquals(cuts.map { it.boundaryId }.toSet(), confirmed.patch.upsertRegions.single().boundaries.map { it.boundaryId }.toSet())
     }
 
@@ -272,13 +270,13 @@ class SectionAuthoringActionsTest {
             mapOf(aEnd to setOf(bStart), bStart to setOf(aEnd), bEnd to setOf(aStart), aStart to setOf(bEnd)))
         var id = 0
         val pending = SectionAuthoringActions.placeSectionBoundary(loop, definitions(pending = listOf(first.cut())),
-            point(8.0), 1.0, emptyMap(), directions) { "test:loop-${id++}" }
+            point(8.0), 1.0, emptyMap()) { "test:loop-${id++}" }
         assertTrue(pending.patch.upsertFixedBlocks.isEmpty())
         assertEquals(2, pending.patch.pendingProtectionBoundaries!!.size)
         val defs = definitions(pending = pending.patch.pendingProtectionBoundaries)
-        val middle = SectionAuthoringActions.confirmSection(loop, defs, point(5.0), 1.0, emptyMap(), directions) { "test:middle" }
+        val middle = SectionAuthoringActions.confirmSection(loop, defs, point(5.0), 1.0, emptyMap()) { "test:middle" }
         assertEquals(6.0, middle.patch.upsertFixedBlocks.single().traversals.sumOf { it.lengthMeters })
-        val outside = SectionAuthoringActions.confirmSection(loop, defs, point(9.0), 1.0, emptyMap(), directions) { "test:outside" }
+        val outside = SectionAuthoringActions.confirmSection(loop, defs, point(9.0), 1.0, emptyMap()) { "test:outside" }
         assertEquals(14.0, outside.patch.upsertFixedBlocks.single().traversals.sumOf { it.lengthMeters })
         assertTrue(outside.patch.pendingProtectionBoundaries!!.isEmpty())
     }

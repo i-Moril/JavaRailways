@@ -1,5 +1,9 @@
 package work.art1st.javarailways.bukkit.api.internal
 
+import org.bukkit.entity.Player
+import com.github.retrooper.packetevents.PacketEvents
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityMetadata
+import work.art1st.javarailways.bukkit.render.backend.EditorModelGlowPackets
 import org.bukkit.Location
 import org.bukkit.World as BukkitWorld
 import org.bukkit.plugin.Plugin
@@ -38,6 +42,8 @@ internal class DefaultModelPresentationService(
     private val active = mutableMapOf<Identity, Handle>()
     // Closed handles remain here until cleanup finishes, so closeOwner also observes earlier closes.
     private val outstanding = mutableSetOf<Handle>()
+    private val highlights = mutableSetOf<Highlight>()
+    private var glowPackets: EditorModelGlowPackets? = null
     @Volatile private var closed = false
     private val tasks = LatestAffinityTaskDispatcher<Handle, Handle> { handle, complete ->
         val completed = AtomicBoolean()
@@ -57,6 +63,7 @@ internal class DefaultModelPresentationService(
             val binding = worlds[worldId]?.takeIf { it.bukkitWorld === bukkitWorld } ?: return
             worlds.remove(worldId)
             binding.available = false
+            highlights.filter { it.world === binding }.forEach { it.close() }
             outstanding.filter { it.identity.world === binding }
         }
         handles.forEach(Handle::close)
@@ -78,8 +85,87 @@ internal class DefaultModelPresentationService(
         }
     }
 
+    override fun createEditorHighlight(owner: Plugin, viewer: Player, sessionId: String): EditorModelHighlightHandle {
+        require(sessionId.isNotBlank()) { "Editor highlight session ID must not be blank" }
+        check(dispatcher.owns(viewer)) { "Editor highlight creation must run on viewer owner" }
+        check(viewer.isOnline) { "Editor highlight viewer is offline" }
+        val world = viewer.world
+        val viewerId = viewer.uniqueId
+        return synchronized(registryLock) {
+            check(!closed && host.isEnabled && owner.isEnabled) { "Editor highlight owner/host unavailable" }
+            val binding = worlds[world.uid]?.takeIf { it.bukkitWorld === world }
+                ?: error("Editor highlight world is not registered")
+            check(highlights.none { it.owner === owner && it.viewer === viewer && it.world === binding && it.sessionId == sessionId }) {
+                "Active editor highlight session already exists"
+            }
+            Highlight(owner, viewer, viewerId, binding, sessionId).also { highlights += it }
+        }
+    }
+
+    fun closeViewer(viewer: Player) {
+        synchronized(registryLock) {
+            highlights.filter { it.viewer === viewer }.forEach { it.close() }
+            glowPackets?.forget(viewer.uniqueId)
+        }
+    }
+
+    private inner class Highlight(val owner: Plugin, val viewer: Player, val viewerId: UUID,
+                                 val world: WorldBinding, val sessionId: String) : EditorModelHighlightHandle {
+        var stopped = false
+        var revision = -1L
+        var objects: Set<String> = emptySet()
+        var rgb = 0
+        override fun submit(revision: Long, objectIds: Set<String>, rgb: Int) {
+            require(revision >= 0 && rgb in 0..0xffffff && objectIds.all { it.isNotBlank() }) { "Invalid highlight submission" }
+            val copy = objectIds.toSet()
+            synchronized(registryLock) {
+                if (stopped || revision <= this.revision || !world.available || !owner.isEnabled) return
+                this.revision = revision
+                this.objects = copy
+                this.rgb = rgb
+                refreshHighlights()
+            }
+        }
+        override fun close() {
+            synchronized(registryLock) {
+                if (stopped) return
+                stopped = true
+                objects = emptySet()
+                // Keep viewer discoverable while reset packets are scheduled.
+                refreshHighlights()
+                highlights.remove(this)
+            }
+        }
+    }
+
+    /** Created before publishing the first actual display, so every outgoing baseline is observed. */
+    private fun ensureGlowPackets(): EditorModelGlowPackets {
+        return glowPackets ?: EditorModelGlowPackets { id, entityId, current ->
+            val target = synchronized(registryLock) { highlights.firstOrNull { it.viewerId == id }?.viewer }
+            if (target != null) dispatcher.runForEntity(target, action = {
+                if (target.isOnline) current()?.let { entries ->
+                    PacketEvents.getAPI().playerManager.sendPacketSilently(target, WrapperPlayServerEntityMetadata(entityId, entries))
+                }
+            })
+        }.also { glowPackets = it }
+    }
+
+    /** Called under registryLock; exact existing identities only, without reading Bukkit entities. */
+    private fun refreshHighlights(only: Handle? = null) {
+        val packets = glowPackets ?: return
+        for (handle in if (only == null) outstanding else listOf(only)) {
+            val identity = handle.identity
+            val colors = highlights.filter { !it.stopped && it.owner === identity.owner && it.world === identity.world &&
+                identity.objectId in it.objects }.associate { it.viewerId to it.rgb }
+            handle.model?.packetEntityIds?.forEach { packets.select(it, colors) }
+        }
+    }
+
     override fun closeOwner(owner: Plugin): CompletionStage<Void> {
-        val handles = synchronized(registryLock) { outstanding.filter { it.identity.owner === owner } }
+        val handles = synchronized(registryLock) {
+            highlights.filter { it.owner === owner }.forEach { it.close() }
+            outstanding.filter { it.identity.owner === owner }
+        }
         handles.forEach(Handle::close)
         return CompletableFuture.allOf(*handles.map { it.cleanup }.toTypedArray()).minimalCompletionStage()
     }
@@ -102,6 +188,9 @@ internal class DefaultModelPresentationService(
     override fun close() {
         val handles = synchronized(registryLock) {
             if (closed) return
+            highlights.toList().forEach { it.close() }
+            glowPackets?.close()
+            glowPackets = null
             closed = true
             worlds.values.forEach { it.available = false }
             worlds.clear()
@@ -140,7 +229,7 @@ internal class DefaultModelPresentationService(
         private var accepted: ModelPresentation? = null
         val cleanup = CompletableFuture<Void>()
         // Only the per-handle serial target task changes these; audience reads the adapter's volatile model.
-        @Volatile private var model: OrdinaryModel? = null
+        @Volatile var model: OrdinaryModel? = null
         @Volatile private var audience: OrdinaryModelRenderable? = null
         private var applied: ModelPresentation? = null
         private var location: Location? = null
@@ -256,6 +345,14 @@ internal class DefaultModelPresentationService(
                     }
                     model = ModelTreeBuilder(identity.world.railWorld, backend, viewRange)
                         .buildModel(definition, location!!, scenes)
+                    synchronized(registryLock) {
+                        val baselines = model!!.packetGlowBaselines
+                        if (baselines.isNotEmpty()) {
+                            val packets = ensureGlowPackets()
+                            baselines.forEach { (id, baseline) -> packets.register(id, baseline) }
+                        }
+                        refreshHighlights(this)
+                    }
                 }
                 model!!.submit(state.transform(), next.selection)
                 applied = state
@@ -296,6 +393,7 @@ internal class DefaultModelPresentationService(
             val oldAudience = audience
             audience = null
             val oldModel = model
+            synchronized(registryLock) { oldModel?.packetEntityIds?.forEach { glowPackets?.remove(it) } }
             model = null
             applied = null
             val steps = DestructionSteps()

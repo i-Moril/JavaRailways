@@ -36,6 +36,39 @@ import java.util.logging.Logger
 
 class DefaultModelPresentationServiceTest {
     @Test
+    fun `editor highlight sessions are exact owner viewer world scoped and retire on lifecycle`(): Unit = Fixture().use { f ->
+        val viewer = player(f.bukkitWorld) {}
+        f.dispatcher.entityLocations[viewer] = Location(f.bukkitWorld, 0.0, 64.0, 0.0)
+        assertThrows(IllegalStateException::class.java) { f.service.createEditorHighlight(f.owner.plugin, viewer, "edit") }
+        lateinit var first: EditorModelHighlightHandle
+        f.dispatcher.runForEntity(viewer, action = {
+            first = f.service.createEditorHighlight(f.owner.plugin, viewer, "edit")
+            assertThrows(IllegalStateException::class.java) { f.service.createEditorHighlight(f.owner.plugin, viewer, "edit") }
+            val secondOwner = Owner("Other")
+            f.service.createEditorHighlight(secondOwner.plugin, viewer, "edit").close()
+        })
+        f.dispatcher.drain()
+        first.submit(0, setOf("signal"), 0xff0000)
+        assertThrows(IllegalArgumentException::class.java) { first.submit(1, setOf("signal"), -1) }
+        assertThrows(IllegalArgumentException::class.java) { first.submit(1, setOf(" "), 0xff0000) }
+        first.close()
+        first.submit(99, setOf("signal"), 0xff0000)
+        f.dispatcher.runForEntity(viewer, action = {
+            f.service.createEditorHighlight(f.owner.plugin, viewer, "edit")
+            f.service.closeViewer(viewer)
+            f.service.createEditorHighlight(f.owner.plugin, viewer, "edit")
+            f.service.closeOwner(f.owner.plugin)
+            f.service.createEditorHighlight(f.owner.plugin, viewer, "edit")
+        })
+        f.dispatcher.drain()
+        f.service.removeWorld(f.worldId, f.bukkitWorld)
+        f.dispatcher.runForEntity(viewer, action = {
+            assertThrows(IllegalStateException::class.java) { f.service.createEditorHighlight(f.owner.plugin, viewer, "edit") }
+        })
+        f.dispatcher.drain()
+    }
+
+    @Test
     fun `picking uses authored rotated geometry at the latest accepted pose without rendering`(): Unit = Fixture().use { f ->
         val box = ModelSelectionBox(0.0, 0.0, 0.0, 2.0, 1.0, 0.5)
         val handle = f.service.create(f.owner.plugin, f.worldId, "selected", ModelDefinition(definition().parts(), listOf(box)))
@@ -489,6 +522,7 @@ class DefaultModelPresentationServiceTest {
             return proxy(Player::class.java) { method, _ -> when (method) {
                 "getUniqueId" -> { beforeIdRead(); id }
                 "getWorld" -> world
+                "isOnline" -> true
                 "getLocation" -> Location(world, 0.0, 64.0, 0.0)
                 else -> null
             } }

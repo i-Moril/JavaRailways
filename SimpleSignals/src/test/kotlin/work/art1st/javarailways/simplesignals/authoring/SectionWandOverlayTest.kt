@@ -17,6 +17,7 @@ import org.bukkit.event.world.WorldUnloadEvent
 import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.bukkit.api.model.EditorModelHighlightHandle
 import work.art1st.javarailways.bukkit.api.editor.EditorTextHandle
 import work.art1st.javarailways.bukkit.api.editor.EditorTextLabel
 import work.art1st.javarailways.bukkit.api.editor.EditorTextService
@@ -99,6 +100,9 @@ class SectionWandOverlayTest {
         f.overlay.onQuit(PlayerQuitEvent(f.player, Component.empty()))
         assertTrue(f.handles[0].closed)
         assertFalse(f.handles[1].closed)
+        assertTrue(f.highlights[0].closed)
+        assertFalse(f.highlights[1].closed)
+        assertEquals(f.viewers, f.highlightViewers)
     }
 
     @Test fun `permission loss unhold world unload and sameUUID world replacement close handles`() {
@@ -113,6 +117,7 @@ class SectionWandOverlayTest {
             val f = Fixture(); f.start()
             stop(f)
             assertTrue(f.handles.single().closed)
+            assertTrue(f.highlights.single().closed)
             val revision = f.handles.single().revision
             f.tick(); f.drainWorker(); f.drainOwner()
             assertEquals(revision, f.handles.single().revision)
@@ -134,6 +139,7 @@ class SectionWandOverlayTest {
         assertTrue(f.handles.single().closed)
         assertEquals(0, f.prepares)
         assertEquals(-1L, f.handles.single().revision)
+        assertEquals(-1L, f.highlights.single().revision)
         val g = Fixture()
         g.overlay.check(g.player); g.drainOwner(); g.drainWorker()
         val oldTask = g.refreshes[g.refreshes.lastIndex]
@@ -141,6 +147,7 @@ class SectionWandOverlayTest {
         g.tool = SectionWandTool.DELETE
         g.overlay.check(g.player); g.drainOwner(); g.drainWorker(); g.drainOwner()
         assertTrue(g.handles.first().closed)
+        assertTrue(g.highlights.first().closed)
         assertFalse(g.handles.last().closed)
         val revision = g.handles.last().revision
         oldTask()
@@ -199,15 +206,73 @@ class SectionWandOverlayTest {
         assertEquals(-1L, f.handles.single().revision)
     }
 
+    @Test fun `live faults update highlight without rebuilding geometry and identical IDs coalesce`() {
+        val f = Fixture()
+        f.problemModels = setOf("protection-signal/test:broken")
+        f.start()
+        val highlight = f.highlights.single()
+        assertEquals(f.problemModels, highlight.models)
+        assertEquals(0xFF0000, highlight.rgb)
+        val revision = highlight.revision
+        f.tick(); f.drainWorker(); f.drainOwner()
+        assertEquals(revision, highlight.revision)
+        f.problemModels = emptySet()
+        f.tick(); f.drainWorker(); f.drainOwner()
+        assertTrue(highlight.models.isEmpty())
+        assertTrue(highlight.revision > revision)
+        assertEquals(1, f.prepares)
+        f.overlay.close()
+    }
+
+    @Test fun `failed diagnostics clears stale glow and preparation may recover next refresh`() {
+        val f = Fixture()
+        f.problemModels = setOf("fixed-block-signal/test:broken")
+        f.start()
+        f.problemFailure = IllegalStateException("issue read failed")
+        f.tick(); f.drainWorker(); f.drainOwner()
+        assertTrue(f.highlights.single().models.isEmpty())
+        f.problemFailure = null
+        f.tick(); f.drainWorker(); f.drainOwner()
+        assertEquals(f.problemModels, f.highlights.single().models)
+        f.overlay.close()
+    }
+
+    @Test fun `highlight construction failure closes text and cleanup failure does not retain other handles`() {
+        val f = Fixture()
+        f.highlightCreateFailure = true
+        f.overlay.check(f.player)
+        assertThrows(IllegalStateException::class.java) { f.drainOwner() }
+        assertTrue(f.handles.single().closed)
+        val g = Fixture()
+        g.start()
+        g.handles.single().closeFailure = true
+        g.overlay.close()
+        assertTrue(g.highlights.single().closed)
+        assertEquals(1, g.cancelled)
+    }
+
+    private class Highlight : EditorModelHighlightHandle {
+        var closed = false
+        var revision = -1L
+        var models = emptySet<String>()
+        var rgb = -1
+        override fun submit(revision: Long, objectIds: Set<String>, rgb: Int) {
+            check(!closed); check(revision > this.revision)
+            this.revision = revision; models = objectIds.toSet(); this.rgb = rgb
+        }
+        override fun close() { closed = true; models = emptySet() }
+    }
+
     private class Handle : EditorTextHandle {
         var closed = false
         var revision = -1L
         var labels = emptyList<EditorTextLabel>()
+        var closeFailure = false
         override fun submit(revision: Long, labels: List<EditorTextLabel>) {
             check(!closed); check(revision > this.revision)
             this.revision = revision; this.labels = labels.toList()
         }
-        override fun close() { closed = true; labels = emptyList() }
+        override fun close() { closed = true; labels = emptyList(); if (closeFailure) error("text close failed") }
     }
     private class Fixture {
         var ownerThread = true
@@ -219,6 +284,11 @@ class SectionWandOverlayTest {
         var available = true
         var token = capture()
         var prepares = 0
+        var problemModels = emptySet<String>()
+        var problemFailure: Exception? = null
+        var highlightCreateFailure = false
+        val highlights = arrayListOf<Highlight>()
+        val highlightViewers = arrayListOf<Player>()
         var cancelled = 0
         var retireOnAttach = false
         var world = newWorld()
@@ -298,6 +368,11 @@ class SectionWandOverlayTest {
                 if (ownerThread) ownerValidationFailure?.let { throw it }
                 return available && capture === token
             }
+            override fun problemModels(capture: SectionOverlayCapture): Set<String> {
+                check(!ownerThread)
+                problemFailure?.let { throw it }
+                return problemModels
+            }
             override fun prepare(capture: SectionOverlayCapture): SectionOverlayDrawing {
                 check(!ownerThread); prepares++
                 return SectionOverlayDrawing(listOf(EditorTextLabel("near", 0.0, 1.0, 0.0, Component.text("near")),
@@ -312,6 +387,12 @@ class SectionWandOverlayTest {
             override fun closeOwner(owner: Plugin) = CompletableFuture.completedFuture<Void>(null)
         }
         val overlay = SectionWandOverlay(plugin, backend, texts,
+            createHighlight = { viewer ->
+                check(ownerThread)
+                if (highlightCreateFailure) error("highlight create failed")
+                highlightViewers += viewer
+                Highlight().also { highlights += it }
+            },
             enabled = { check(ownerThread); enabled },
             worker = { workers += it }, owner = { _, action, onRetired -> owners += action; ownerRetirements += onRetired },
             repeat = { _, action, onRetired ->

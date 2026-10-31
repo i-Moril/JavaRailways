@@ -17,6 +17,10 @@ class DirectionalSignalPersistenceTest {
         assertEquals(listOf(12.0, 4.0), decoded.fixedBlockSignals.map { it.inspectionLeadTimeSeconds })
         val encoded = SimpleSignalsWorldDefinitionsCodec.encode(decoded)
         assertTrue(encoded.contains("\"schemaVersion\": 1"))
+        assertFalse(encoded.contains("bidirectional"))
+        assertEquals(listOf("test:forward", "test:reverse"), decoded.fixedBlockSignals.map { it.signalId })
+        assertEquals(work.art1st.javarailways.core.api.physics.rail.ViewDirection.BA,
+            decoded.fixedBlocks.single().traversals.single().facing)
         assertTrue(encoded.contains("\"entryDirection\": \"REVERSE\""))
         assertEquals(decoded, SimpleSignalsWorldDefinitionsCodec.decode(encoded, world))
         assertNotNull(decoded.fixedBlockSignals.last().placement)

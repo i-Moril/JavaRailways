@@ -395,3 +395,15 @@ EntityLib 部分只验证真实 ItemDisplayMeta 的 -1 自然光/0 固定黑暗�
 
 源码依据：`api/model/*.java`、`api/model/asset/*`、`ModelTreeBuilder.kt`、`render/model/OrdinaryModel.kt`、`render/model/CompositeModel.kt`、`PartAnimationConfig.kt`、
 `api/rail/RailTargetService.java`、`api/internal/JavaRailwaysServiceRegistration.kt`。
+
+## 编辑者专用模型描边
+
+宿主提供中立的 `ModelPresentationService.createEditorHighlight(Plugin owner, Player viewer, String sessionId): EditorModelHighlightHandle`。在viewer所属线程创建，捕获确切玩家、已加载world实例和owner；`submit(long revision, Set<String> objectIds, int rgb)`提交完整模型选择（RGB范围0..0xffffff，非负递增revision，空集合清除），`close()`撤销。集合复制不可变；旧revision和关闭后的提交不生效，未知ID不创建模型。对象ID沿用现有owner/world模型身份，模型替换后仍可应用本次编辑选择，不新增第二套模型实体。
+
+NATIVE与ENTITYLIB共用宿主的PacketEvents元数据覆盖出口，仅为目标viewer合并glowing标志及display的glow-color override。保留原始其他标志位、颜色、亮度和动画字段；原包及元数据列表不能原地修改，避免同一packet多viewer共用造成串色。模型创建时在目标owner捕获基础元数据并在首次向观众发布前登记实体ID；监听后续原始metadata保持基础状态。选择改变或撤销时向已经看见该实体的viewer提交最新覆盖/恢复值；发送在玩家owner执行，并在实际执行时核对当前选择，旧排队包不能复活已撤销描边。网络回调仅查同步值表，不读取Bukkit实体、玩家、世界或信号状态。EntityLib经TrainPacketBundleCoordinator发送的metadata必须走普通PacketEvents发送出口，不能用sendPacketSilently绕开覆盖；bundle分界及其他包保留原出口。排队回调绑定实体登记的实际state实例，同一数字entityId被新模型复用后不能接受旧回调。
+
+outline不改变完整场景、模型root姿态或展示revision，不调用JS/物理授权。只有模型创建/替换和编辑选择变化才更新关联；普通pose/scene提交不扫描全模型。每次metadata覆盖与该包元数据项数线性相关；编辑选择更新随现有模型/编辑会话集合增长，不增加世界几何或逐列车扫描。
+
+离开编辑、换世界、退出、world卸载、owner停用、handle/service关闭必须清除并恢复基础效果；模型删除撤回实体ID，同ID/新world不能继承旧viewer会话。关闭幂等，不因一个cleanup异常遗漏其他资源。此API不持久化，不新增版本或兼容reader。调用者不得用普通红色文字或复制发光模型冒充真实描边，也不得把编辑者标记广播给普通玩家。
+
+必需测试包括：两个viewer只有目标发光，原包不变，后续metadata保留覆盖且不丢其他位，退出恢复原flags/color，排队选择与取消竞争、重复/过期revision、换世界/退出/owner关闭、模型替换，以及Java consumer编译。真实客户端两种backend的红色轮廓画面仍需现场验收，纯metadata测试不等于GPU显示验证。

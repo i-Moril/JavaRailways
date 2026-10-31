@@ -73,10 +73,7 @@ class SimpleSignalsPlugin : JavaPlugin() {
             topologyWorker = { action -> server.asyncScheduler.runNow(this) { if (isEnabled) action() } },
             worldIssues = services.worldIssues()
         )
-        val fixedBlocks = FixedBlockRouteResourcePolicy(this, { worldId ->
-            work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy(
-                { topology, rails -> services.infrastructure().operatingDirections(worldId, topology, rails) })
-        }, runtimes::validateRouteAdmission, runtimes::fixedBlockSnapshot)
+        val fixedBlocks = FixedBlockRouteResourcePolicy(this, runtimes::validateRouteAdmission, runtimes::fixedBlockSnapshot)
         val providerRegistration = services.infrastructure().registerResourceProvider(
             this,
             FIXED_BLOCK_RESOURCE_TYPE,
@@ -103,8 +100,9 @@ class SimpleSignalsPlugin : JavaPlugin() {
         }
         val admin = SimpleSignalsAdminCommand(this, runtimes, SimpleSignalsDefinitionDrafts(dataFolder.toPath()))
         val overlay = SectionWandOverlay(this,
-            RuntimeSectionOverlayBackend(runtimes::authoringRuntime, services.infrastructure(), services.railTargets()),
-            services.editorTexts(), showStatus = { sectionWands?.showStatus(it) })
+            RuntimeSectionOverlayBackend(runtimes::authoringRuntime, services.infrastructure(), services.railTargets(), services.worldIssues()),
+            services.editorTexts(), createHighlight = { viewer -> services.models().createEditorHighlight(this, viewer, "section-overlay") },
+            showStatus = { sectionWands?.showStatus(it) })
         sectionOverlay = overlay
         server.pluginManager.registerEvents(overlay, this)
         server.onlinePlayers.forEach(overlay::check)

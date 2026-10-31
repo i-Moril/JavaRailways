@@ -5,7 +5,7 @@
   "protectionRegions": [],
   "protectionRouteTables": [],
   "fixedBlocks": [{
-    "blockId": "test:shared", "revision": 1, "bidirectional": true,
+    "blockId": "test:shared", "revision": 1,
     "traversals": [{"railId": "00000000-0000-0000-0000-00000000007a",
       "facing": "BA", "lowerAbMeters": 2.0, "upperAbMeters": 8.0}]
   }],

@@ -31,11 +31,8 @@ internal class CompiledFixedBlockSignals private constructor(
             copied.forEach { definition ->
                 if (!revalidatingTopology) definition.placement?.validatePlacement(fixedBlocks.topology, definition.signalId)
                 val blockId = definition.controlledBlockId ?: return@forEach
-                val block = requireNotNull(fixedBlocks.blocksById[blockId]) {
+                requireNotNull(fixedBlocks.blocksById[blockId]) {
                     "signal ${definition.signalId} controls unknown block ${definition.controlledBlockId}"
-                }
-                require(definition.entryDirection != FixedBlockEntryDirection.REVERSE || block.definition.bidirectional) {
-                    "signal ${definition.signalId} cannot bind the reverse entry of a single-direction block"
                 }
             }
             return CompiledFixedBlockSignals(copied.mapNotNull { definition ->

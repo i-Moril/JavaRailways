@@ -274,7 +274,7 @@ class TimetableFormationDispatcherTest {
                     override val typeId = "test:train-info"
                     override val version = 1
                     override val descriptor = TimetableExtensionDescriptor("Info", "Actual output train")
-                    override fun validate(parameters: JsonObject) = if (parameters.size == 4) emptyList() else listOf("four properties required")
+                    override fun validate(parameters: JsonObject) = if (parameters.size == 3) emptyList() else listOf("three properties required")
                     override fun start(parameters: JsonObject, context: TimetableRuntimeContext): TimetableExtensionActionStartResult {
                         observed += checkNotNull(context.train).trainId to parameters
                         return TimetableExtensionActionStartResult.Accepted(object : TimetableExtensionActionTicket {
@@ -301,7 +301,6 @@ class TimetableFormationDispatcherTest {
                 val actual = f.world.allTrains.single { it.id == trainId }.publishedFrame!!
                 assertEquals(kotlinx.serialization.json.JsonPrimitive(actual.trainName), values["NAME"])
                 assertEquals(kotlinx.serialization.json.JsonPrimitive(1), values["CAR_COUNT"])
-                assertEquals(kotlinx.serialization.json.JsonPrimitive(1), values["UNIT_COUNT"])
                 assertEquals(kotlinx.serialization.json.JsonPrimitive(if (actual.reversed) "REVERSED" else "FORWARD"), values["DIRECTION"])
             }
             assertEquals(2, observed.map { it.first }.distinct().size)
@@ -398,8 +397,8 @@ class TimetableFormationDispatcherTest {
 
 
     @ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
-    fun `compile-selected display update follows actual unit through split and held sibling stays separate`(dynamic: Boolean) {
+    @org.junit.jupiter.params.provider.CsvSource("false,false", "true,false", "false,true", "true,true")
+    fun `display update targets selected units or whole train before split`(dynamic: Boolean, wholeTrain: Boolean) {
         Fixture(false,separateDutyCaps=true).use { f ->
             f.world.onOwnerForTest {
                 f.world.simpleAtoWorldData.timetableExtensions.registerCondition(object : TimetableConditionProvider {
@@ -411,7 +410,7 @@ class TimetableFormationDispatcherTest {
                 })
                 val table=checkNotNull(f.world.simpleAtoWorldData.timetables["split"])
                 val source=table.services.single()
-                val branch=TimetableStep.At(0,TimetableAction.SetDisplay(listOf(1), if(dynamic) JsonObject(emptyMap()) else kotlinx.serialization.json.buildJsonObject { put("destination",kotlinx.serialization.json.JsonPrimitive("D express")) },
+                val branch=TimetableStep.At(0,TimetableAction.SetDisplay(if (wholeTrain) emptyList() else listOf(1), if(dynamic) JsonObject(emptyMap()) else kotlinx.serialization.json.buildJsonObject { put("destination",kotlinx.serialization.json.JsonPrimitive("D express")) },
                     trainInfo = if(dynamic) mapOf("destination" to TrainInfoField.NAME, "cars" to TrainInfoField.CAR_COUNT) else emptyMap()))
                 val steps=listOf(source.steps[0],branch)+source.steps.drop(1)
                 val line=checkNotNull(source.lineId)
@@ -432,8 +431,51 @@ class TimetableFormationDispatcherTest {
                 val displays=outputs.flatMap { f.dispatcher.unitDisplaysForTrain(f.world,it.id,"split",0) }.associateBy { it.unitId }
                 assertEquals(if(dynamic) f.train.publishedFrame.trainName else "D express",displays.getValue("unit-0").values["destination"].toString().trim('"'))
                 if(dynamic) assertEquals(kotlinx.serialization.json.JsonPrimitive(2), displays.getValue("unit-0").values["cars"])
-                assertEquals("E",displays.getValue("unit-1").values["destination"].toString().trim('"'))
+                assertEquals(if (wholeTrain) (if (dynamic) f.train.publishedFrame.trainName else "D express") else "E", displays.getValue("unit-1").values["destination"].toString().trim('"'))
             }
+        }
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
+    fun `station display and reset apply to both units regardless of train orientation`(reversed: Boolean) {
+        Fixture(false, sourceReversed = reversed, orientationCase = true, separateDutyCaps = true).use { f ->
+            val observed = arrayListOf<Map<String, String>>()
+            f.world.onOwnerForTest {
+                f.world.simpleAtoWorldData.timetableExtensions.registerAction(object : TimetableActionProvider {
+                    override val typeId = "test:display-observe"
+                    override val version = 1
+                    override val descriptor = TimetableExtensionDescriptor("Observe", "Read all unit displays")
+                    override fun start(parameters: JsonObject, context: TimetableRuntimeContext): TimetableExtensionActionStartResult {
+                        observed += f.dispatcher.unitDisplaysForTrain(f.world, checkNotNull(context.train).trainId, "split", 0)
+                            .associate { it.unitId to it.values.getValue("destination").toString().trim('"') }
+                        return TimetableExtensionActionStartResult.Accepted(object : TimetableExtensionActionTicket {
+                            override fun snapshot() = TimetableExtensionActionSnapshot(TimetableExtensionActionState.SUCCEEDED)
+                            override fun cancel() = Unit
+                        })
+                    }
+                })
+                val table = checkNotNull(f.world.simpleAtoWorldData.timetables["split"])
+                val source = table.services.single()
+                val read = StationProgramAction.Extension(TimetableExtensionCall("test:display-observe"))
+                val program = StationStopPrograms("origin-station", "origin-call", StationStopRole.ORIGIN,
+                    listOf(StationProgramAction.End), listOf(
+                        StationProgramAction.SetDisplay(kotlinx.serialization.json.buildJsonObject { put("destination", kotlinx.serialization.json.JsonPrimitive("All")) }),
+                        read, StationProgramAction.ResetDisplay, read, StationProgramAction.End), 0, 0, "origin")
+                val steps = listOf(source.steps[0], TimetableStep.At(0, TimetableAction.BeginStationStop(program))) + source.steps.drop(1)
+                val line = checkNotNull(source.lineId)
+                val updated = source.copy(steps = steps, runSegments = listOf(
+                    TimetableRunSegment("before", line, 0, 2), TimetableRunSegment("after", line, 3, 4)))
+                val trips = (1..2).map { slot -> TimetableOperationalTrip("trip-$slot",
+                    kotlinx.serialization.json.buildJsonObject { put("destination", kotlinx.serialization.json.JsonPrimitive("default-$slot")) },
+                    listOf(TimetableOperationalTripSegment("source", "before", listOf(slot)))) }
+                f.world.simpleAtoWorldData.timetables.add(table.copy(services = listOf(updated), operationalTrips = trips))
+            }
+            f.begin(); f.physics.start()
+            repeat(500) { f.tick() }
+            assertEquals(2, observed.size, f.dispatcher.statuses().toString())
+            assertEquals(mapOf("unit-0" to "All", "unit-1" to "All"), observed[0])
+            assertEquals(setOf("default-1", "default-2"), observed[1].values.toSet())
         }
     }
 

@@ -10,11 +10,11 @@ import work.art1st.javarailways.simpleato.timetable.TimetableAction
 import work.art1st.javarailways.simpleato.timetable.TimetableStep
 import work.art1st.javarailways.simpleato.timetable.TrainSelector
 
-/** Exact current HTTP browser capture, not a hand-written approximation of its source generator. */
+/** Exact current frontend generator output, not a hand-written approximation of the DSL. */
 class BrowserGeneratedStationProgramTest {
     private fun resource(name: String): String = checkNotNull(javaClass.getResource("/timetable/$name")).readText()
 
-    @Test fun `captured browser source compiles through Graal and restores complete station contracts`() {
+    @Test fun `frontend generated source compiles through Graal and restores complete station contracts`() {
         val document = Json.parseToJsonElement(resource("browser-generated-station-programs.document.json")).jsonObject
         val source = resource("browser-generated-station-programs.js")
         val id = document.getValue("id").jsonPrimitive.content
@@ -27,15 +27,17 @@ class BrowserGeneratedStationProgramTest {
         assertEquals(TrainSelector.TrainId("QA train"), service.trainSelector)
         assertEquals(20.0, restored.lineSpeedLimits.single().maximumSpeedMetersPerSecond)
 
-        // INLINE is the first duty element. Its generated initial CHECK must precede both its
+        // PROGRAM is the first duty element. Its generated initial CHECK must precede both its
         // display instruction and the run scope, so the real compiler can establish acquisition.
         assertEquals(TimetableStep.Check("a@1"), service.steps[0])
-        val display = (service.steps[1] as TimetableStep.At).action as TimetableAction.SetDisplay
-        assertEquals(listOf(1), display.unitSlots)
+        assertEquals(TimetableAction.TaskStart("display"), (service.steps[1] as TimetableStep.At).action)
+        val display = (service.steps[2] as TimetableStep.At).action as TimetableAction.SetDisplay
+        assertTrue(display.unitSlots.isEmpty())
         assertEquals(JsonPrimitive("C"), display.values["destination"])
-        assertTrue(worker.compilationTrace.any { it.stepIndex == 1 && it.origin == "duty:D1/element:display/program:display/step:display-info" })
+        assertTrue(worker.compilationTrace.any { it.stepIndex == 2 && it.origin == "duty:D1/element:display/call:display/program:display/step:display-info" })
 
-        val originStep = service.steps[2] as TimetableStep.At
+        assertEquals(TimetableAction.TaskEnd("display"), (service.steps[3] as TimetableStep.At).action)
+        val originStep = service.steps[4] as TimetableStep.At
         val origin = (originStep.action as TimetableAction.BeginStationStop).stopPrograms
         val incoming = service.steps.filterIsInstance<TimetableStep.At>().mapNotNull {
             (it.action as? TimetableAction.DestinationOptions)?.stopPrograms
@@ -55,7 +57,7 @@ class BrowserGeneratedStationProgramTest {
 
         val segment = service.runSegments.single()
         assertEquals("R1", segment.runId)
-        assertEquals(2, segment.startStepIndex)
+        assertEquals(4, segment.startStepIndex)
         assertEquals(service.steps.size, segment.endStepIndexExclusive)
         assertEquals(listOf("junction"), segment.calls[1].viaIds)
         val via = service.steps.filterIsInstance<TimetableStep.At>().map { it.action }.filterIsInstance<TimetableAction.GoVia>().single()

@@ -7,16 +7,16 @@ import type {TimetableAuthoringDocumentV1} from './authoring';
 import type {StationProgramRecord,TimedOperation} from './types';
 const captured=vi.hoisted(()=>({options:[] as {value:string;label:string;disabled?:boolean}[][]}));
 vi.mock('antd',async(importOriginal)=>{const original=await importOriginal<typeof import('antd')>();return {...original,Select:(props:{'aria-label'?:string;options?:{value:string;label:string;disabled?:boolean}[]})=>{if(props['aria-label']==='Select operation program')captured.options.push(props.options??[]);return <span/>;}};});
-const binding={programId:'deleted',revision:1,contentIdentity:'hash',definition:{parameters:[{id:'units',type:'UNIT_SLOTS' as const}],steps:[]}};
+const binding={programId:'deleted',revision:1,contentIdentity:'hash',definition:{parameters:[{id:'text',type:'STRING' as const}],steps:[]}};
 const live:StationProgramRecord={formatVersion:1,id:'live',name:'2',revision:1,contentIdentity:'hash',definition:{parameters:[],steps:[]}};
-const existing:TimedOperation={id:'call',tick:100,program:{programId:'deleted',arguments:{units:[1]}}};
+const existing:TimedOperation={id:'call',tick:100,program:{programId:'deleted',arguments:{text:'Central'}}};
 const render=(operation:TimedOperation,library:StationProgramRecord[]=[])=>renderToStaticMarkup(<I18nProvider><TimedOperationFields operation={operation} onChange={()=>{}} fieldScope="qa" stationNames={new Map()} stationIds={[]} library={library} bindings={[binding,{...binding,programId:'another-deleted'}]} onOpenProgramLibrary={()=>{}}/></I18nProvider>);
 beforeEach(()=>{captured.options=[];});
 describe('deleted program source vs retained call snapshot',()=>{
  it('shows only the current deleted-source binding, disabled, and preserves its arguments without a dead source link',()=>{
   const operation=structuredClone(existing),html=render(operation,[live]);
   expect(captured.options[0]).toEqual([{value:'deleted',label:'deleted · Bound snapshot only (no library source)',disabled:true},{value:'live',label:'2',disabled:false}]);
-  expect(html).toContain('Unit 1');expect(html).not.toContain('Edit in program library');expect(operation).toEqual(existing);
+  expect(html).toContain('value="Central"');expect(html).not.toContain('Edit in program library');expect(operation).toEqual(existing);
  });
  it('does not offer any deleted-source binding for a new call',()=>{
   render({id:'new',tick:100},[live]);expect(captured.options[0]).toEqual([{value:'live',label:'2',disabled:false}]);

@@ -137,10 +137,10 @@ class ProgramSimulationTest {
                 JsonObject(this + mapOf("definition" to Json.parseToJsonElement("""{"parameters":[],"steps":$steps}"""),
                     "plannedContext" to Json.parseToJsonElement(context)))
             }.source(), "function-simulation")
-            assertTrue(programSimulationNeedsRegisteredUnits(compiled("""[{"id":"r","type":"RESET_DISPLAY","unitSlots":{"value":[1]}}]""")))
-            assertTrue(programSimulationNeedsRegisteredUnits(compiled("""[{"id":"e","type":"EXTENSION","typeId":"demo:action","version":1,"parameters":{"trainInfo":{"count":"UNIT_COUNT"}}}]""")))
-            assertFalse(programSimulationNeedsRegisteredUnits(compiled("""[{"id":"e","type":"EXTENSION","typeId":"demo:action","version":1,"parameters":{"value":{"type":"SET_DISPLAY","trainInfo":{"count":"UNIT_COUNT"}}}}]""")))
-            assertFalse(programSimulationNeedsRegisteredUnits(compiled("""[{"id":"b","type":"BRANCH","typeId":"javarailways:plan_duty_id","version":1,"parameters":{"value":{"values":["other"]}},"thenSteps":[{"id":"r","type":"RESET_DISPLAY","unitSlots":{"value":[1]}}],"elseSteps":[]}]""", """{"dutyId":"actual"}""")))
+            assertTrue(programSimulationNeedsRegisteredUnits(compiled("""[{"id":"r","type":"RESET_DISPLAY"}]""")))
+            assertFalse(programSimulationNeedsRegisteredUnits(compiled("""[{"id":"e","type":"EXTENSION","typeId":"demo:action","version":1,"parameters":{"trainInfo":{"name":"NAME"}}}]""")))
+            assertFalse(programSimulationNeedsRegisteredUnits(compiled("""[{"id":"e","type":"EXTENSION","typeId":"demo:action","version":1,"parameters":{"value":{"type":"SET_DISPLAY","trainInfo":{"name":"NAME"}}}}]""")))
+            assertFalse(programSimulationNeedsRegisteredUnits(compiled("""[{"id":"b","type":"BRANCH","typeId":"javarailways:plan_duty_id","version":1,"parameters":{"value":{"values":["other"]}},"thenSteps":[{"id":"r","type":"RESET_DISPLAY"}],"elseSteps":[]}]""", """{"dutyId":"actual"}""")))
         }
     }
 

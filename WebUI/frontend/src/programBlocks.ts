@@ -6,7 +6,7 @@ export const programStepTypes:StationProgramStep['type'][]=['SET_DISPLAY','RESET
 export const libraryStepTypes:StationProgramStep['type'][]=['SET_DISPLAY','RESET_DISPLAY','WAIT_UNTIL','WAIT_EVENT','WAIT_DURATION','REVERSE','MOVE','STORE_AT_DEPOT','EXTENSION','BRANCH'];
 export const arrivalStepTypes:StationProgramStep['type'][]=['SET_DISPLAY','RESET_DISPLAY','WAIT_UNTIL','WAIT_EVENT','WAIT_DURATION','REVERSE','OPEN_DOORS','CLOSE_DOORS','END','ASYNC','AWAIT','EXTENSION','BRANCH'];
 export const expressionFields:Partial<Record<StationProgramStep['type'],Record<string,StationProgramParameterType>>>={
- SET_DISPLAY:{unitSlots:'UNIT_SLOTS',values:'JSON_OBJECT',removeKeys:'ID_LIST'},RESET_DISPLAY:{unitSlots:'UNIT_SLOTS'},WAIT_UNTIL:{tick:'TICK'},WAIT_DURATION:{durationTicks:'DURATION'},MOVE:{destinationId:'STRING',viaIds:'ID_LIST'},SELECT_STOP:{stationId:'STRING',berthIds:'ID_LIST'},STORE_AT_DEPOT:{depotId:'STRING',stablingPointIds:'ID_LIST'},EXTENSION:{parameters:'JSON_OBJECT'},BRANCH:{parameters:'JSON_OBJECT'},
+ SET_DISPLAY:{values:'JSON_OBJECT',removeKeys:'ID_LIST'},RESET_DISPLAY:{},WAIT_UNTIL:{tick:'TICK'},WAIT_DURATION:{durationTicks:'DURATION'},MOVE:{destinationId:'STRING',viaIds:'ID_LIST'},SELECT_STOP:{stationId:'STRING',berthIds:'ID_LIST'},STORE_AT_DEPOT:{depotId:'STRING',stablingPointIds:'ID_LIST'},EXTENSION:{parameters:'JSON_OBJECT'},BRANCH:{parameters:'JSON_OBJECT'},
 };
 export interface ProgramBlockState {type:string;id?:string;fields?:Record<string,string|number>;inputs?:Record<string,{block?:ProgramBlockState;shadow?:ProgramBlockState}>;next?:{block:ProgramBlockState};x?:number;y?:number;enabled?:boolean;disabledReasons?:string[];extraState?:{count:number}}
 export interface ProgramWorkspaceState {blocks?:{languageVersion:number;blocks:ProgramBlockState[]}}
@@ -18,7 +18,7 @@ export function expressionToBlock(expression:StationProgramValue<StationProgramL
  if('trainInfo' in expression)return {type:'rail_train_info',id,fields:{VALUE:JSON.stringify(Object.entries(expression.trainInfo).map(([key,field])=>({key,field})))}};
  if('operation' in expression)return {type:`rail_operation_${expression.operation.type}`,id,inputs:Object.fromEntries(expression.operation.operands.map((item,index)=>[`ARG${index}`,expressionInputState(expressionToBlock(item,operationTypes[expression.operation.type].inputs[index],`${id}_${index}`,parameters))]))};
  if('object' in expression){const entries=Object.entries(expression.object);return {type:'rail_object',id,extraState:{count:entries.length},fields:Object.fromEntries(entries.map(([key],i)=>[`KEY${i}`,key])),inputs:Object.fromEntries(entries.map(([,child],i)=>[`ITEM${i}`,expressionInputState(expressionToBlock(child,'value' in child?(typeof child.value==='number'?'NUMBER':typeof child.value==='string'?'STRING':'JSON_OBJECT'):'operation' in child?operationTypes[child.operation.type].output:'JSON_OBJECT',`${id}_${i}`,parameters))]))};}
- return {type:`rail_${'parameterId' in expression?'parameter':'literal'}_${type}`,id,fields:{VALUE:'parameterId' in expression?expression.parameterId:['NUMBER','TICK','DURATION','ID_LIST','UNIT_SLOTS','JSON_OBJECT'].includes(type)?JSON.stringify(expression.value):String(expression.value)}};
+ return {type:`rail_${'parameterId' in expression?'parameter':'literal'}_${type}`,id,fields:{VALUE:'parameterId' in expression?expression.parameterId:['NUMBER','TICK','DURATION','ID_LIST','JSON_OBJECT'].includes(type)?JSON.stringify(expression.value):String(expression.value)}};
 }
 export function definitionToBlocks(definition:StationProgramDefinition):ProgramWorkspaceState {
  const chain=(steps:StationProgramStep[]):ProgramBlockState|undefined=>{
@@ -55,7 +55,7 @@ export function blocksToDefinition(state:ProgramWorkspaceState,parameters:Statio
   if(Object.keys(expression.inputs??{}).length)throw new Error('Invalid program expression');const raw=expression.fields?.VALUE;if(typeof raw!=='string')throw new Error('Invalid program expression');
   if(expression.type==='rail_train_info'){if(!allowTrainInfo)throw new Error('Train information is unavailable in this input');return {trainInfo:trainInfoFromRows(raw)};}
   const match=/^rail_(literal|parameter)_(.+)$/.exec(expression.type);if(!match||expected&&!compatibleProgramType(match[2] as StationProgramParameterType,expected))throw new Error('Invalid program expression');if(match[1]==='parameter')return {parameterId:raw};
-  try{return {value:['NUMBER','TICK','DURATION','ID_LIST','UNIT_SLOTS','JSON_OBJECT'].includes(match[2])?JSON.parse(raw):raw};}catch{throw new Error('Invalid program expression');}
+  try{return {value:['NUMBER','TICK','DURATION','ID_LIST','JSON_OBJECT'].includes(match[2])?JSON.parse(raw):raw};}catch{throw new Error('Invalid program expression');}
  };
  const chain=(first:ProgramBlockState|undefined,depth:number):StationProgramStep[]=>{
   if(depth>16)throw new Error('Program branch depth exceeds16');
@@ -92,7 +92,7 @@ export function blocksToDefinition(state:ProgramWorkspaceState,parameters:Statio
 export function blockStepId(blockId:string){return newStepId(blockId);}
 export function defaultProgramStep(type:StationProgramStep['type'],provider?:{typeId:string;version:number}):StationProgramStep{
  const step:Record<string,unknown>={id:`step-${Array.from(crypto.getRandomValues(new Uint8Array(16)),(byte)=>byte.toString(16).padStart(2,'0')).join('')}`,type};
- for(const [name,valueType] of Object.entries(expressionFields[type]??{}))step[name]={value:valueType==='UNIT_SLOTS'?[1]:valueType==='ID_LIST'?[]:valueType==='JSON_OBJECT'?{}:valueType==='DURATION'?1:valueType==='TICK'?0:''};
+ for(const [name,valueType] of Object.entries(expressionFields[type]??{}))step[name]={value:valueType==='ID_LIST'?[]:valueType==='JSON_OBJECT'?{}:valueType==='DURATION'?1:valueType==='TICK'?0:''};
  if(type==='BRANCH'||type==='EXTENSION'){step.typeId=provider?.typeId??'';step.version=provider?.version??1;}
  if(type==='BRANCH'){step.thenSteps=[];step.elseSteps=[];}
  if(type==='SELECT_STOP')step.selectionPolicy='FIXED_PREFERENCE';

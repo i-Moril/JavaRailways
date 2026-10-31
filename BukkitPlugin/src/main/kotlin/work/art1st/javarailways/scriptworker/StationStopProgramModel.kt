@@ -10,7 +10,6 @@ import kotlinx.serialization.json.JsonObject
     val durationTicks: Long? = null,
     val taskId: String? = null,
     val steps: List<SavedStationProgramAction> = emptyList(),
-    val unitSlots: List<Int> = emptyList(),
     val values: JsonObject = JsonObject(emptyMap()),
     val removeKeys: List<String> = emptyList(),
     val extensionCall: SavedTimetableExtensionCallV1? = null,

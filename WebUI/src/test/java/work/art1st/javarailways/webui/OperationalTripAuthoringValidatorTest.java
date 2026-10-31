@@ -23,16 +23,13 @@ class OperationalTripAuthoringValidatorTest {
         }
         assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(mapper.readTree(document("[" + trip + "," + trip.replace("\"a\"", "\"b\"") + "]"))));
     }
-    @Test void displayProgramSupportsTypedSlotsAndStrictNativeFields() throws Exception {
+    @Test void displayProgramAppliesToWholeTrainAndPreservesStrictNativeFields() throws Exception {
         String definition = """
-            {"parameters":[{"id":"units","type":"UNIT_SLOTS"}],"steps":[
-             {"id":"set","type":"SET_DISPLAY","unitSlots":{"parameterId":"units"},"values":{"value":{"destination":"E"}}},
-             {"id":"reset","type":"RESET_DISPLAY","unitSlots":{"value":[2]}}]}
+            {"parameters":[],"steps":[
+             {"id":"set","type":"SET_DISPLAY","values":{"value":{"destination":"E"}}},
+             {"id":"reset","type":"RESET_DISPLAY"}]}
             """;
-        assertDoesNotThrow(() -> StationProgramValidator.validateArguments(mapper.readTree(definition), mapper.readTree("{\"units\":[1,2]}")));
-        for (String slots : new String[]{"[]", "[0]", "[1,1]", "[\"1\"]"}) {
-            assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateArguments(mapper.readTree(definition), mapper.readTree("{\"units\":" + slots + "}")));
-        }
+        assertDoesNotThrow(() -> StationProgramValidator.validateArguments(mapper.readTree(definition), mapper.createObjectNode()));
         assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(mapper.readTree(definition.replace("\"values\":", "\"displayValues\":"))));
     }
 }

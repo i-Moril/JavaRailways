@@ -188,20 +188,13 @@ class TimetableStationCallDispatcherTest {
 
     @Test fun `station train information reads each published direction and validates before start`() {
         val bindings = mapOf("name" to TrainInfoField.NAME, "cars" to TrainInfoField.CAR_COUNT,
-            "units" to TrainInfoField.UNIT_COUNT, "direction" to TrainInfoField.DIRECTION)
+            "direction" to TrainInfoField.DIRECTION)
         val read = StationProgramAction.Extension(TimetableExtensionCall("test:train-info"), bindings)
         val fixture = fixture(destinationOptions = TimetableAction.DestinationOptions("C", doorSide = DoorSide.NONE,
             stopPrograms = programs(StationStopRole.TERMINAL, departure = null,
                 arrival = listOf(read, StationProgramAction.Reverse, read, StationProgramAction.End))))
         val observed = arrayListOf<JsonObject>()
         val cars = fixture.train.cars.map { it.id }
-        val home = work.art1st.javarailways.simpleato.api.depot.DepotId("info-home")
-        val point = work.art1st.javarailways.simpleato.api.depot.StablingPointRef(home, "info-point")
-        fixture.world.simpleAtoWorldData.depots.addStablingPoint(home, "Info home",
-            work.art1st.javarailways.simpleato.api.depot.DepotStablingPoint(point, "A"))
-        fixture.world.simpleAtoWorldData.depots.registerFixedUnit(
-            work.art1st.javarailways.simpleato.api.depot.FixedEmuUnit("info-unit",
-                work.art1st.javarailways.simpleato.api.depot.DepotId("info-home"), cars, "emu"), cars)
         var validations = 0
         fixture.world.simpleAtoWorldData.timetableExtensions.registerAction(object : TimetableActionProvider {
             override val typeId = "test:train-info"
@@ -215,7 +208,6 @@ class TimetableStationCallDispatcherTest {
                 assertEquals(observed.size + 1, validations)
                 assertEquals(kotlinx.serialization.json.JsonPrimitive(fixture.train.publishedFrame.trainName), parameters["name"])
                 assertEquals(kotlinx.serialization.json.JsonPrimitive(cars.size), parameters["cars"])
-                assertEquals(kotlinx.serialization.json.JsonPrimitive(1), parameters["units"])
                 observed += parameters
                 return TimetableExtensionActionStartResult.Accepted(object : TimetableExtensionActionTicket {
                     override fun snapshot() = TimetableExtensionActionSnapshot(TimetableExtensionActionState.SUCCEEDED)

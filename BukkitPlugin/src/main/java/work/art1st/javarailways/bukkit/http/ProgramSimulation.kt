@@ -164,7 +164,7 @@ internal fun programSimulationNeedsRegisteredUnits(saved: SavedTimetableV1): Boo
         action != null && (action.type in setOf(
             work.art1st.javarailways.simpleato.persistence.SavedTimetableActionTypeV1.SET_DISPLAY,
             work.art1st.javarailways.simpleato.persistence.SavedTimetableActionTypeV1.RESET_DISPLAY
-        ) || action.trainInfo.values.any { it.name == "UNIT_COUNT" } || needs(action.thenSteps) || needs(action.elseSteps))
+        ) || needs(action.thenSteps) || needs(action.elseSteps))
     }
     return saved.services.any { needs(it.steps) }
 }

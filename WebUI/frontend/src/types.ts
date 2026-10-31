@@ -3,13 +3,13 @@ export type StepType = 'CHECK' | 'AT';
 export type ActionType = 'BEGIN_OPERATIONAL_TRIP' | 'BEGIN_STATION_STOP' | 'SET_DISPLAY' | 'RESET_DISPLAY' | 'TAKE_FROM_FORMATION_OUTPUT' | 'COUPLE' | 'SPLIT' | 'TAKE_FROM_DEPOT' | 'TAKE_FROM_WAYPOINT' | 'STORE_AT_DEPOT' | 'DESTINATION' | 'DESTINATION_OPTIONS' | 'STOP' | 'HALT' | 'REVERSE' | 'WAIT_UNTIL' | 'STATION_DESTINATION_OPTIONS' | 'SELECT_STOP' | 'EXTENSION' | 'CONDITIONAL';
 export interface ExtensionCallV1 { typeId: string; version: number; parameters: Record<string, unknown> }
 export interface TimetableConditionV1 { type: 'PREDICATE'|'ALL'|'ANY'|'NOT'; call?: ExtensionCallV1|null; conditions: TimetableConditionV1[] }
-export type TrainInfoField='NAME'|'CAR_COUNT'|'UNIT_COUNT'|'DIRECTION';
+export type TrainInfoField='NAME'|'CAR_COUNT'|'DIRECTION';
 export type TrainInfoBindings=Record<string,TrainInfoField>;
 export interface StationProgramActionSnapshot {
   trainInfo?:TrainInfoBindings;
   type:'OPEN_DOORS'|'CLOSE_DOORS'|'END'|'REVERSE'|'WAIT_UNTIL'|'WAIT_DURATION'|'ASYNC'|'AWAIT'|'SET_DISPLAY'|'RESET_DISPLAY'|'EXTENSION';
   tick?:number|null; durationTicks?:number|null; taskId?:string|null; steps:StationProgramActionSnapshot[];
-  unitSlots:number[]; values:ProgramJsonObject; removeKeys:string[]; extensionCall?:ExtensionCallV1|null;
+  values:ProgramJsonObject; removeKeys:string[]; extensionCall?:ExtensionCallV1|null;
 }
 export interface StationStopProgramsSnapshot {
   stationId:string; callId:string; role:'ORIGIN'|'STOP'|'TERMINAL';
@@ -115,7 +115,7 @@ export interface ServerLogPage {
 }
 export interface ServerLogQuery { source:string; query?:string; cursor?:string }
 // Shared library records are authoring inputs; runtime uses bound embedded definitions.
-export type StationProgramParameterType='NUMBER'|'TICK'|'DURATION'|'STRING'|'ID_LIST'|'JSON_OBJECT'|'UNIT_SLOTS';
+export type StationProgramParameterType='NUMBER'|'TICK'|'DURATION'|'STRING'|'ID_LIST'|'JSON_OBJECT';
 export type ProgramJsonValue=null|boolean|number|string|ProgramJsonValue[]|ProgramJsonObject;
 export interface ProgramJsonObject {[key:string]:ProgramJsonValue}
 export type StationProgramLiteral=ProgramJsonValue;
@@ -124,8 +124,8 @@ export type StationProgramExpression={operation:{type:StationProgramOperation;op
 export type StationProgramValue<T>={value:T}|{parameterId:string}|StationProgramExpression;
 export type StationProgramJsonValue=StationProgramValue<ProgramJsonObject>|{trainInfo:TrainInfoBindings};
 export type StationProgramStep=
- | {id:string;type:'SET_DISPLAY';unitSlots:StationProgramValue<number[]>;values:StationProgramJsonValue;removeKeys?:StationProgramValue<string[]>}
- | {id:string;type:'RESET_DISPLAY';unitSlots:StationProgramValue<number[]>}
+ | {id:string;type:'SET_DISPLAY';values:StationProgramJsonValue;removeKeys?:StationProgramValue<string[]>}
+ | {id:string;type:'RESET_DISPLAY'}
  | {id:string;type:'WAIT_UNTIL';tick:StationProgramValue<number>}
  | {id:string;type:'WAIT_EVENT';eventId:string;offsetTicks:number}
  | {id:string;type:'WAIT_DURATION';durationTicks:StationProgramValue<number>}

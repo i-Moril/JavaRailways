@@ -9,7 +9,7 @@ import java.util.Set;
 
 /** Strict authoring structure. World references and executable continuity remain runtime validation. */
 final class StationProgramValidator {
-    private static final Set<String> PARAMETER_TYPES = Set.of("NUMBER", "TICK", "DURATION", "STRING", "ID_LIST", "JSON_OBJECT", "UNIT_SLOTS");
+    private static final Set<String> PARAMETER_TYPES = Set.of("NUMBER", "TICK", "DURATION", "STRING", "ID_LIST", "JSON_OBJECT");
     private static final long MAX_SAFE_INTEGER = 9_007_199_254_740_991L;
     private StationProgramValidator() {}
 
@@ -94,8 +94,7 @@ final class StationProgramValidator {
             if (depth > 0 && type.equals("STORE_AT_DEPOT")) fail("fixed operations cannot be conditional: " + id);
             switch (type) {
                 case "SET_DISPLAY" -> {
-                    fields(step, step.has("removeKeys") ? Set.of("id", "type", "unitSlots", "values", "removeKeys") : Set.of("id", "type", "unitSlots", "values"), "SET_DISPLAY step");
-                    value(step.path("unitSlots"), "UNIT_SLOTS", parameters, false);
+                    fields(step, step.has("removeKeys") ? Set.of("id", "type", "values", "removeKeys") : Set.of("id", "type", "values"), "SET_DISPLAY step");
                     dataValue(step.path("values"), parameters);
                     if (!step.path("values").has("trainInfo")) {
                         JsonNode display = ProgramExpressionValidator.validate(step.path("values"), "JSON_OBJECT", parameters, null);
@@ -107,8 +106,7 @@ final class StationProgramValidator {
                     }
                 }
                 case "RESET_DISPLAY" -> {
-                    fields(step, Set.of("id", "type", "unitSlots"), "RESET_DISPLAY step");
-                    value(step.path("unitSlots"), "UNIT_SLOTS", parameters, false);
+                    fields(step, Set.of("id", "type"), "RESET_DISPLAY step");
                 }
                 case "WAIT_UNTIL" -> {
                     fields(step, Set.of("id", "type", "tick"), "WAIT_UNTIL step");
@@ -197,8 +195,7 @@ final class StationProgramValidator {
             }
             if (type.equals("ASYNC")) validateStepArguments(step.path("steps"), parameters, arguments);
             Map<String, String> sinks = switch (type) {
-                case "SET_DISPLAY" -> Map.of("unitSlots", "UNIT_SLOTS", "values", "JSON_OBJECT", "removeKeys", "ID_LIST");
-                case "RESET_DISPLAY" -> Map.of("unitSlots", "UNIT_SLOTS");
+                case "SET_DISPLAY" -> Map.of("values", "JSON_OBJECT", "removeKeys", "ID_LIST");
                 case "WAIT_UNTIL" -> Map.of("tick", "TICK");
                 case "WAIT_DURATION" -> Map.of("durationTicks", "DURATION");
                 case "BRANCH", "EXTENSION" -> Map.of("parameters", "JSON_OBJECT");
@@ -232,7 +229,7 @@ final class StationProgramValidator {
             if (!bindings.isObject() || bindings.size() < 1 || bindings.size() > 64) fail("trainInfo requires1 to64 bindings");
             bindings.fields().forEachRemaining(entry -> {
                 if (entry.getKey().isBlank() || entry.getKey().length() > 256) fail("trainInfo key must be nonblank and at most256 characters");
-                if (!entry.getValue().isTextual() || !Set.of("NAME", "CAR_COUNT", "UNIT_COUNT", "DIRECTION").contains(entry.getValue().asText())) fail("unknown trainInfo field");
+                if (!entry.getValue().isTextual() || !Set.of("NAME", "CAR_COUNT", "DIRECTION").contains(entry.getValue().asText())) fail("unknown trainInfo field");
             });
         } else value(node, "JSON_OBJECT", parameters, false);
     }
@@ -253,7 +250,6 @@ final class StationProgramValidator {
                 double number = value.doubleValue();
                 if (!value.isNumber() || !Double.isFinite(number) || Math.rint(number) != number || number < (positive ? 1 : 0) || number > MAX_SAFE_INTEGER) fail(type + " must be a " + (positive ? "positive" : "nonnegative") + " safe integer");
             }
-            case "UNIT_SLOTS" -> unitSlots(value);
             case "JSON_OBJECT" -> ProgramJsonValidator.object(value);
             case "ID_LIST" -> {
                 array(value, 256, "ID_LIST");

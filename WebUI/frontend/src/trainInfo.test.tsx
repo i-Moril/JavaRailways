@@ -8,8 +8,8 @@ import {getProgramBlockDraftValidity,readProgramBlockDraft,storeProgramBlockDraf
 import {TrainInfoFields} from './TrainInfoFields';
 import {I18nProvider} from './i18n';
 import type {StationProgramDefinition,StationProgramStep} from './types';
-const bindings={name:'NAME',carCount:'CAR_COUNT',unitCount:'UNIT_COUNT',direction:'DIRECTION'} as const;
-const display=():StationProgramDefinition=>({parameters:[],steps:[{id:'display',type:'SET_DISPLAY',unitSlots:{value:[1]},values:{trainInfo:bindings}}]});
+const bindings={name:'NAME',carCount:'CAR_COUNT',direction:'DIRECTION'} as const;
+const display=():StationProgramDefinition=>({parameters:[],steps:[{id:'display',type:'SET_DISPLAY',values:{trainInfo:bindings}}]});
 afterEach(()=>vi.unstubAllGlobals());
 describe('explicit current train information sources',()=>{
  it('round trips allowed action sources in library and station contexts without evaluating them',()=>{
@@ -18,7 +18,7 @@ describe('explicit current train information sources',()=>{
   expect(validateStationProgram(definition)).toEqual([]);expect(validateArrivalProgram(definition)).toEqual([]);
  });
  it('does not interpret literal objects resembling the explicit source',()=>{
-  const definition:StationProgramDefinition={parameters:[],steps:[{id:'literal',type:'SET_DISPLAY',unitSlots:{value:[1]},values:{value:{trainInfo:{name:'NAME'}}}}]};
+  const definition:StationProgramDefinition={parameters:[],steps:[{id:'literal',type:'SET_DISPLAY',values:{value:{trainInfo:{name:'NAME'}}}}]};
   const blocks=definitionToBlocks(definition);expect(blocks.blocks!.blocks[0].next!.block.inputs!.values.shadow!.type).toBe('rail_literal_JSON_OBJECT');expect(blocksToDefinition(blocks,[])).toEqual(definition);
  });
  it('rejects sources in condition, routing, waits and other action fields',()=>{
@@ -26,7 +26,6 @@ describe('explicit current train information sources',()=>{
    {id:'condition',type:'BRANCH',typeId:'javarailways:plan_run_id',version:1,parameters:{trainInfo:bindings},thenSteps:[],elseSteps:[]},
    {id:'wait',type:'WAIT_UNTIL',tick:{trainInfo:bindings}},
    {id:'move',type:'MOVE',destinationId:{trainInfo:bindings},viaIds:{value:[]}},
-   {id:'display',type:'SET_DISPLAY',unitSlots:{trainInfo:bindings},values:{value:{}}},
   ]){
    const definition={parameters:[],steps:[step]} as unknown as StationProgramDefinition;
    expect(validateStationProgram(definition).join(' ')).toContain('unavailable');expect(()=>blocksToDefinition(definitionToBlocks(definition),[])).toThrow('unavailable');
@@ -53,6 +52,6 @@ describe('explicit current train information sources',()=>{
  });
  it('renders property rows and explains canonical direction without changing the source',()=>{
   const html=renderToStaticMarkup(<I18nProvider><TrainInfoFields raw={JSON.stringify(defaultTrainInfoRows())} onChange={()=>{throw new Error('render mutation');}}/></I18nProvider>);
-  expect(html).toContain('Read current train information');expect(html).toContain('FORWARD / REVERSED');expect(html).toContain('not line or geographic direction');expect(html).toContain('Output key 4');
+  expect(html).toContain('Read current train information');expect(html).toContain('FORWARD / REVERSED');expect(html).toContain('not line or geographic direction');expect(html).toContain('Output key 3');
  });
 });

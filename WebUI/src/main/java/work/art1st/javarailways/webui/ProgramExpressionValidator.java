@@ -39,7 +39,7 @@ final class ProgramExpressionValidator {
         } else if (expression.has("value")) {
             JsonNode value = expression.path("value");
             ProgramJsonValidator.value(value);
-            String type = value.isNumber() ? "NUMBER" : value.isTextual() ? "STRING" : value.isObject() ? "JSON_OBJECT" : value.isArray() ? (Set.of("ID_LIST", "UNIT_SLOTS").contains(expected == null ? "" : expected) ? expected : "ARRAY") : value.isBoolean() ? "BOOLEAN" : "NULL";
+            String type = value.isNumber() ? "NUMBER" : value.isTextual() ? "STRING" : value.isObject() ? "JSON_OBJECT" : value.isArray() ? ("ID_LIST".equals(expected) ? expected : "ARRAY") : value.isBoolean() ? "BOOLEAN" : "NULL";
             result = new Result(type, value);
         } else if (expression.has("object")) {
             JsonNode object = expression.path("object");

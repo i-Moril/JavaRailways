@@ -24,7 +24,7 @@
 
 条件工具箱仅提供可由编辑文档确定的计划值：run_type、line_direction、station_id、run_id、line_id、call_status、duty_id，使用 `javarailways:plan_*` 的 version1 literal values；ScriptWorker 在编译时选择分支。不能按实际车长、车型或运行迟到求条件。
 
-“读取当前列车信息”是 JSON_OBJECT 数据源 `{trainInfo:{outputKey:field}}`，field 为 NAME／CAR_COUNT／UNIT_COUNT／DIRECTION，仅可连接 SET_DISPLAY.values 或 EXTENSION.parameters。键名1至64项、非空白且最长256 UTF-16 单元，保留原文；编辑器重复键、空键和不完整映射必须保留为无效工作区并阻止保存，不能转换对象后静默覆盖。与 literal/parameterId 互斥，普通 JSON 对象内容不触发数据读取。键/属性侧栏复用画布历史和草稿；`__proto__` 等键通过 own-property 安全构造保留。四项数据分别是实际列车名称、车厢数、完整登记单元数和当前编组正向／反向（FORWARD／REVERSED），方向不是上/下行或地理方向。运行时在动作开始时求值，不在编译或参考车辆上提前取值；不开放计划条件、移动、选站或等待的动态参数。
+“读取当前列车信息”是 JSON_OBJECT 数据源 `{trainInfo:{outputKey:field}}`，field 为 NAME／CAR_COUNT／DIRECTION，仅可连接 SET_DISPLAY.values 或 EXTENSION.parameters。键名1至64项、非空白且最长256 UTF-16 单元，保留原文；编辑器重复键、空键和不完整映射必须保留为无效工作区并阻止保存，不能转换对象后静默覆盖。与 literal/parameterId 互斥，普通 JSON 对象内容不触发数据读取。键/属性侧栏复用画布历史和草稿；`__proto__` 等键通过 own-property 安全构造保留。三项数据分别是实际列车名称、总车厢数和当前编组正向／反向（FORWARD／REVERSED），方向不是上/下行或地理方向。运行时在动作开始时求值，不在编译或参考车辆上提前取值；不开放计划条件、移动、选站或等待的动态参数。
 
 交路由 DutyTimeline 时间轴编辑RUN、交路所属PROGRAM和运行图所属EVENT引用；不再提供交路积木或内联程序画布。程序体仍使用本规范的程序库编辑器，交路时间与耗时规则见 studio-authoring.md。
 
@@ -66,7 +66,7 @@ Each canvas must set Blockly's full locale before `inject`, including the duty c
 
 ## 编组单元输入
 
-UNIT_SLOTS 常量在积木侧栏和调用参数中复用 UnitSlotsInput，协议仍为 number[]／Blockly VALUE JSON。以当前实际运行车头起从1编号的完整编组单元选择，单元可能包含多节车厢，换向后重新按运行车头编号；不得暗示编号是车厢号或伪造实际编组清单。接受1至Int32上限的互异整数，非空且最多128项。候选编号仅在添加或回车后提交一次既有历史，切换字段/积木/世界丢弃候选；重复和非法候选禁用添加。无效积木原始JSON必须保留、可修复且继续阻止保存，参数引用不转换成常量。
+程序中的 SET_DISPLAY／RESET_DISPLAY 统一作用于执行时的整列车，不带单元选择输入；参数类型、工具箱和调用侧栏均不包含编组单元选择，也不提供单元数量信息。NAME、CAR_COUNT、DIRECTION 仍读取实际列车。交路的重联／解编安排、运行线连续显示方案及其内部单元身份保持独立，不能据此重新开放程序的局部编组选择。
 
 Blockly焦点转到侧栏控件产生的空选择，不应卸载正在编辑的侧栏；新积木选择和权威外部加载仍更新选择。多控件参数行使用div与显式文字，不用单个label包裹多个输入。输入框回车/Esc不冒泡至弹窗。
 

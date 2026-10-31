@@ -5,11 +5,10 @@ import type { BoundStationProgram,StationProgramCall,StationProgramDefinition,St
 
 const clone=<T,>(value:T):T=>JSON.parse(JSON.stringify(value)) as T;
 const validId=(value:string)=>/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value);
-const types:StationProgramParameterType[]=['NUMBER','TICK','DURATION','STRING','ID_LIST','JSON_OBJECT','UNIT_SLOTS'];
+const types:StationProgramParameterType[]=['NUMBER','TICK','DURATION','STRING','ID_LIST','JSON_OBJECT'];
 export function stationProgramLiteralValid(value:unknown,type:StationProgramParameterType):boolean {
   if(type==='NUMBER')return typeof value==='number'&&Number.isFinite(value)&&(!Number.isInteger(value)||Number.isSafeInteger(value));
   if(type==='STRING')return typeof value==='string'&&value.length<=8192;
-  if(type==='UNIT_SLOTS')return Array.isArray(value)&&value.length>0&&value.length<=128&&value.every((slot)=>Number.isSafeInteger(slot)&&slot>0&&slot<=2147483647)&&new Set(value).size===value.length;
   if(type==='JSON_OBJECT')return programJsonObjectError(value)==='';
   if(type==='TICK'||type==='DURATION')return Number.isSafeInteger(value)&&Number(value)>=0;
   if(type==='ID_LIST')return Array.isArray(value)&&value.length<=256&&value.every((item)=>typeof item==='string'&&!!item.trim()&&item.length<=256);
@@ -52,14 +51,14 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
     if(depth>0&&step.type==='STORE_AT_DEPOT')errors.push(`Fixed operations cannot be conditional: ${step.id}`);
     switch(step.type){
       case 'SET_DISPLAY':{
-        check(step.unitSlots,'UNIT_SLOTS');check(step.values as StationProgramValue<StationProgramLiteral>,'JSON_OBJECT',false,true);if(step.removeKeys)check(step.removeKeys,'ID_LIST');
+        check(step.values as StationProgramValue<StationProgramLiteral>,'JSON_OBJECT',false,true);if(step.removeKeys)check(step.removeKeys,'ID_LIST');
         let values:unknown;try{if(step.values&&!('trainInfo' in step.values))values=resolveProgramValue(step.values,args??{});}catch{/* Unbound parameters are checked when invoked. */}
         if(values!==undefined){const error=displayValuesError(values);if(error)errors.push(error);}
         const keys=step.removeKeys&&('value' in step.removeKeys?step.removeKeys.value:'parameterId' in step.removeKeys?args?.[step.removeKeys.parameterId]:undefined);
         if(Array.isArray(keys)&&new Set<unknown>(keys).size!==keys.length)errors.push('Display removal keys must be unique');
         break;
       }
-      case 'RESET_DISPLAY':check(step.unitSlots,'UNIT_SLOTS');break;
+      case 'RESET_DISPLAY':break;
       case 'WAIT_UNTIL':check(step.tick,'TICK');break;
       case 'WAIT_EVENT':if(!validId(step.eventId)||!Number.isSafeInteger(step.offsetTicks))errors.push('Invalid event wait');break;
       case 'WAIT_DURATION':check(step.durationTicks,'DURATION',true);break;

@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class TrainInfoProgramValidatorTest {
     private final ObjectMapper mapper = new ObjectMapper();
-    private static final String BINDINGS = "{\"name\":\"NAME\",\"cars\":\"CAR_COUNT\",\"units\":\"UNIT_COUNT\",\"direction\":\"DIRECTION\"}";
+    private static final String BINDINGS = "{\"name\":\"NAME\",\"cars\":\"CAR_COUNT\",\"direction\":\"DIRECTION\"}";
     private JsonNode definition(String steps) throws Exception {
         return mapper.readTree("{\"parameters\":[],\"steps\":[" + steps + "]}");
     }
@@ -15,7 +15,7 @@ class TrainInfoProgramValidatorTest {
         return "{\"id\":\"action\",\"type\":\"EXTENSION\",\"typeId\":\"demo:action\",\"version\":1,\"parameters\":" + expression + "}";
     }
     @Test void explicitBindingsAvailableInDataSlotsAcrossProgramContexts() throws Exception {
-        String steps = "{\"id\":\"display\",\"type\":\"SET_DISPLAY\",\"unitSlots\":{\"value\":[1]},\"values\":{\"trainInfo\":"+BINDINGS+"}}," + extension("{\"trainInfo\":"+BINDINGS+"}");
+        String steps = "{\"id\":\"display\",\"type\":\"SET_DISPLAY\",\"values\":{\"trainInfo\":"+BINDINGS+"}}," + extension("{\"trainInfo\":"+BINDINGS+"}");
         var definition = definition(steps);
         assertDoesNotThrow(() -> StationProgramValidator.validate(definition));
         assertDoesNotThrow(() -> StationProgramValidator.validateArrival(definition));
@@ -37,10 +37,9 @@ class TrainInfoProgramValidatorTest {
         for (int i=0;i<65;i++) sixtyFive.put("k"+i,"NAME");
         assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(definition(extension("{\"trainInfo\":"+sixtyFive+"}"))));
     }
-    @Test void sourcesCannotAffectConditionsMovementWaitsOrUnitSelection() {
+    @Test void sourcesCannotAffectConditionsMovementOrWaits() {
         for (String step : new String[]{
             "{\"id\":\"wait\",\"type\":\"WAIT_DURATION\",\"durationTicks\":{\"trainInfo\":"+BINDINGS+"}}",
-            "{\"id\":\"display\",\"type\":\"SET_DISPLAY\",\"unitSlots\":{\"trainInfo\":"+BINDINGS+"},\"values\":{\"value\":{}}}",
             "{\"id\":\"move\",\"type\":\"MOVE\",\"destinationId\":{\"trainInfo\":"+BINDINGS+"},\"viaIds\":{\"value\":[]}}",
             "{\"id\":\"branch\",\"type\":\"BRANCH\",\"typeId\":\"javarailways:plan_duty_id\",\"version\":1,\"parameters\":{\"trainInfo\":"+BINDINGS+"},\"thenSteps\":[],\"elseSteps\":[]}",
             extension("{\"trainInfo\":"+BINDINGS+",\"value\":{}}")

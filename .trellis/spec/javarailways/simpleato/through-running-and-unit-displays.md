@@ -30,7 +30,7 @@ CURRENT：一份时刻表内的多线路停车跨线、整编组物理运行、�
 
 原生动作：`SetDisplay(unitSlots,values,removeKeys)` 先删指定键再覆盖值；`ResetDisplay(unitSlots)` 恢复当前车次默认值；`BeginOperationalTrip(tripId,runId,unitSlots)` 提前建立下一段的上下文。wire 类型分别是 SET_DISPLAY、RESET_DISPLAY、BEGIN_OPERATIONAL_TRIP，字段使用 `displayValues/removeDisplayKeys/operationalTripId/runId/unitSlots`。
 
-JS 支持 `runSegment(options,callback)`、`operationalTrip(id,definition)`，以及 timed/untimed `setDisplay/resetDisplay/beginOperationalTrip`。站内程序提供 SET_DISPLAY/RESET_DISPLAY 和 UNIT_SLOTS 参数；BEGIN 是编译控制边界，不是可条件化的编组变换。
+JS 支持 `runSegment(options,callback)`、`operationalTrip(id,definition)`，以及 timed/untimed `setDisplay/resetDisplay/beginOperationalTrip`。程序 SET_DISPLAY/RESET_DISPLAY 不带单元选择，统一作用于当前整列车；程序参数不提供单元槽位类型。原生 TimetableAction 的 SetDisplay/ResetDisplay 空选择表示执行时的所有登记单元，显式非空选择仍供连续显示方案使用；BeginOperationalTrip 必须保持非空选择。BEGIN 是编译控制边界，不是可条件化的编组变换。
 
 如果节点程序在 RUN 前设置显示信息，ScriptWorker 在 gap 内最后一次 acquire/couple/split/reverse 之后、首个显示动作之前插入 BEGIN；同时移动后续段范围及编译 trace。BEGIN 不改变当前 RUN/线路限速。没有前置显示动作时由 RUN 入口初始化。这样站内程序设置的新目的地不会在发车时再次被默认值覆盖。
 

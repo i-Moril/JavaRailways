@@ -499,8 +499,8 @@ class IsolatedTimetableSimulationFactoryTest {
                     StablingPointRef(home, "one"))
             }
             val timetable = standaloneCall(listOf(TimetableAction.Extension(
-                work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionCall("test:unit-count"),
-                mapOf("units" to work.art1st.javarailways.simpleato.timetable.TrainInfoField.UNIT_COUNT))),
+                work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionCall("test:train-info"),
+                mapOf("cars" to work.art1st.javarailways.simpleato.timetable.TrainInfoField.CAR_COUNT))),
                 wayPointId = "home@one")
             val factory = testSimulationFactory()
             val snapshot = factory.capture(source, timetable,
@@ -510,9 +510,9 @@ class IsolatedTimetableSimulationFactoryTest {
                 val observed = arrayListOf<kotlinx.serialization.json.JsonObject>()
                 simulation.world.simpleAtoWorldData.timetableExtensions.registerAction(object :
                     work.art1st.javarailways.simpleato.api.timetable.TimetableActionProvider {
-                    override val typeId = "test:unit-count"
+                    override val typeId = "test:train-info"
                     override val version = 1
-                    override val descriptor = TimetableExtensionDescriptor("Units", "Read actual isolated units")
+                    override val descriptor = TimetableExtensionDescriptor("Cars", "Read actual isolated cars")
                     override fun start(parameters: kotlinx.serialization.json.JsonObject, context: TimetableRuntimeContext):
                         work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionActionStartResult {
                         observed += parameters
@@ -532,7 +532,7 @@ class IsolatedTimetableSimulationFactoryTest {
                 val result = simulation.simulate(IsolatedTimetableSimulationRequest(timetable))
                 assertTrue(result is IsolatedTimetableSimulationResult.Completed) { result.toString() }
                 assertEquals(listOf(kotlinx.serialization.json.buildJsonObject {
-                    put("units", kotlinx.serialization.json.JsonPrimitive(1))
+                    put("cars", kotlinx.serialization.json.JsonPrimitive(1))
                 }), observed)
             }
             assertEquals(listOf("original-unit"), source.simpleAtoWorldData.depots.fixedUnitsForFormation(train.cars.map { it.id }).map { it.id })

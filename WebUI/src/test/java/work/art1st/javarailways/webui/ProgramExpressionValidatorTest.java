@@ -127,7 +127,7 @@ class ProgramExpressionValidatorTest {
         JsonNode definition = mapper.readTree("""
             {"parameters":[{"id":"place","type":"STRING"}],"steps":[
               {"id":"move","type":"MOVE","destinationId":{"parameterId":"place"},"viaIds":{"value":[]}},
-              {"id":"display","type":"SET_DISPLAY","unitSlots":{"value":[1]},"values":{"object":{
+              {"id":"display","type":"SET_DISPLAY","values":{"object":{
                 "title":{"operation":{"type":"CONCAT","operands":[{"value":"Next: "},{"parameterId":"place"}]}},
                 "id":{"parameterId":"place"}}}},
               {"id":"store","type":"STORE_AT_DEPOT","depotId":{"parameterId":"place"},"stablingPointIds":{"value":[]}}]}
@@ -144,7 +144,7 @@ class ProgramExpressionValidatorTest {
     @Test void genericStringsRemainEmptyOrLongUntilUsedAsIdentifiers() throws Exception {
         JsonNode definition = mapper.readTree("""
             {"parameters":[{"id":"text","type":"STRING"}],"steps":[
-              {"id":"display","type":"SET_DISPLAY","unitSlots":{"value":[1]},"values":{"object":{"title":{"parameterId":"text"}}}}]}
+              {"id":"display","type":"SET_DISPLAY","values":{"object":{"title":{"parameterId":"text"}}}}]}
             """);
         for (String text : new String[]{"", "   ", "x".repeat(8192)}) {
             assertEquals(text, evaluate(literal(text), "STRING").asText());

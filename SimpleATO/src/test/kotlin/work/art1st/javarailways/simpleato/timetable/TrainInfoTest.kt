@@ -18,7 +18,7 @@ class TrainInfoTest {
             val saved = SavedTimetableActionV1.capture(value)
             assertEquals(value, Json.decodeFromString<SavedTimetableActionV1>(Json.encodeToString(SavedTimetableActionV1.serializer(), saved)).restore())
         }
-        val station = listOf(StationProgramAction.SetDisplay(listOf(1), empty, trainInfo = bindings),
+        val station = listOf(StationProgramAction.SetDisplay(empty, trainInfo = bindings),
             StationProgramAction.Extension(TimetableExtensionCall("test:info"), bindings))
         station.forEach { value ->
             val saved = SavedStationProgramAction.capture(value)
@@ -43,6 +43,6 @@ class TrainInfoTest {
         val literal = kotlinx.serialization.json.buildJsonObject { put("trainInfo", empty) }
         assertEquals(literal, TimetableAction.Extension(TimetableExtensionCall("test:info", parameters = literal)).call.parameters)
         assertThrows(IllegalArgumentException::class.java) { TimetableAction.Extension(TimetableExtensionCall("test:info", parameters = literal), bindings) }
-        assertThrows(IllegalArgumentException::class.java) { StationProgramAction.SetDisplay(listOf(1), literal, trainInfo = bindings) }
+        assertThrows(IllegalArgumentException::class.java) { StationProgramAction.SetDisplay(literal, trainInfo = bindings) }
     }
 }

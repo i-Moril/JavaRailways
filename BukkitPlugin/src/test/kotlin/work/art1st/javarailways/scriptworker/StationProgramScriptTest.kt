@@ -34,20 +34,17 @@ class StationProgramScriptTest {
         assertThrows(Throwable::class.java) { compile("timetable.service('s','train',t=>{t.task('x',30,c=>c.waitUntil(50));t.task('y',40,c=>{});});") }
     }
 
-    @Test fun `display program compiles parameterized slots and values into native timed actions`() {
+    @Test fun `display program compiles whole-train display actions with parameterized values`() {
         val result = compile("""
           timetable.service('s','train',t=>{t.check('A');t.at(20).program('display',{
-            parameters:[{id:'units',type:'UNIT_SLOTS'},{id:'text',type:'JSON_OBJECT'}],steps:[
-              {id:'set',type:'SET_DISPLAY',unitSlots:{parameterId:'units'},values:{parameterId:'text'},removeKeys:{value:['old']}},
-              {id:'reset',type:'RESET_DISPLAY',unitSlots:{value:[2]}}]}, {units:[1,2],text:{destination:'E'}});});
+            parameters:[{id:'text',type:'JSON_OBJECT'}],steps:[
+              {id:'set',type:'SET_DISPLAY',values:{parameterId:'text'},removeKeys:{value:['old']}},
+              {id:'reset',type:'RESET_DISPLAY'}]}, {text:{destination:'E'}});});
         """)
-        assertEquals(listOf(1,2), result.services.single().steps[1].action!!.unitSlots)
+        assertTrue(result.services.single().steps[1].action!!.unitSlots.isEmpty())
         assertEquals(listOf("old"), result.services.single().steps[1].action!!.removeDisplayKeys)
         assertEquals(SavedTimetableActionTypeV1.RESET_DISPLAY, result.services.single().steps.last().action!!.type)
-        for (slots in listOf("[]","[0]","[1,1]","['1']")) assertThrows(Throwable::class.java) {
-            compile("""timetable.service('s','train',t=>{t.check('A');t.program('p',{parameters:[],steps:[
-              {id:'bad',type:'RESET_DISPLAY',unitSlots:{value:$slots}}]},{});});""")
-        }
+        assertTrue(result.services.single().steps.last().action!!.unitSlots.isEmpty())
     }
 
     @Test fun `planned program branches fold and retain selected source addresses`() {

@@ -1,6 +1,6 @@
 import type {TrainInfoField,TrainInfoBindings} from './types';
-export const trainInfoFields:TrainInfoField[]=['NAME','CAR_COUNT','UNIT_COUNT','DIRECTION'];
-export const defaultTrainInfoRows=()=>[{key:'name',field:'NAME'},{key:'carCount',field:'CAR_COUNT'},{key:'unitCount',field:'UNIT_COUNT'},{key:'direction',field:'DIRECTION'}];
+export const trainInfoFields:TrainInfoField[]=['NAME','CAR_COUNT','DIRECTION'];
+export const defaultTrainInfoRows=()=>[{key:'name',field:'NAME'},{key:'carCount',field:'CAR_COUNT'},{key:'direction',field:'DIRECTION'}];
 export interface TrainInfoRow {key:string;field:string}
 export function trainInfoError(value:unknown):string {
  if(!value||typeof value!=='object'||Array.isArray(value))return 'Train information requires an object mapping';

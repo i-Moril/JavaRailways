@@ -3,7 +3,7 @@ package work.art1st.javarailways.scriptworker
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
-@Serializable enum class SavedTrainInfoField { NAME, CAR_COUNT, UNIT_COUNT, DIRECTION }
+@Serializable enum class SavedTrainInfoField { NAME, CAR_COUNT, DIRECTION }
 
 @Serializable enum class SavedTrainSelectorTypeV1 { ANY, TRAIN_ID }
 @Serializable enum class SavedLineDirectionV1 { UP, DOWN }

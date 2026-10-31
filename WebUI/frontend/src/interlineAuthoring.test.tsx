@@ -36,7 +36,7 @@ describe('one-document through running and unit trips',()=>{
  });
  it('establishes a named train origin before its initial display program without a second run check',()=>{
   const d=document();
-  d.boundPrograms=[{programId:'display',revision:1,contentIdentity:'sha256:'+'a'.repeat(64),definition:{parameters:[],steps:[{id:'set',type:'SET_DISPLAY',unitSlots:{value:[1]},values:{value:{destination:'E'}}}]}}];
+  d.boundPrograms=[{programId:'display',revision:1,contentIdentity:'sha256:'+'a'.repeat(64),definition:{parameters:[],steps:[{id:'set',type:'SET_DISPLAY',values:{value:{destination:'E'}}}]}}];
   d.duties[0].elements.unshift({id:'initial-display',type:'PROGRAM',tick:50,program:{programId:'display',arguments:{}}});
   const generated=generateTimetableSource(d);
   expect(generated.issues).toEqual([]);
@@ -75,11 +75,9 @@ describe('one-document through running and unit trips',()=>{
   expect(filtered.services).toHaveLength(1);expect(filtered.services[0].id).toBe('duty');expect(filtered.services[0].steps).toBe(service.steps);
   const layout=layoutGraph(filtered,1000,58,170,undefined,undefined,'branch');expect(layout.paths).toHaveLength(1);expect(layout.paths[0].runId).toBe('B01');expect(layout.points.every((p)=>p.stepIndex===2)).toBe(true);expect(layout.points.map((p)=>p.location)).toEqual(['C','E']);
  });
- it('supports typed display edits in branches, rejects invalid unit positions and bounded display values',()=>{
-  const step={id:'display',type:'SET_DISPLAY' as const,unitSlots:{value:[1,2]},values:{value:{destination:'E'}},removeKeys:{value:['old']}};
+ it('supports whole-train display edits and bounded display values',()=>{
+  const step={id:'display',type:'SET_DISPLAY' as const,values:{value:{destination:'E'}},removeKeys:{value:['old']}};
   expect(validateStationProgram({parameters:[],steps:[step]})).toEqual([]);
-  for(const slots of [[],[0],[1,1],[2147483648],Array.from({length:129},(_,i)=>i+1)])expect(validateStationProgram({parameters:[],steps:[{...step,unitSlots:{value:slots}}]}).length).toBeGreaterThan(0);
-  expect(validateStationProgram({parameters:[{id:'units',type:'ID_LIST'}],steps:[{...step,unitSlots:{parameterId:'units'}}]}).join(' ')).toContain('incompatible');
   expect(displayValuesError({' ':1})).toContain('nonblank');expect(displayValuesError(Object.fromEntries(Array.from({length:129},(_,i)=>['key'+i,1])))).toContain('128');
  });
 });

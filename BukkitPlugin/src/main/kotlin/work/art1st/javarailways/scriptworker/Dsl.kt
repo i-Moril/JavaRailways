@@ -356,7 +356,7 @@ class ServiceBuilder(private val branchDepth: Int = 0, initialTick: Long = 0L, i
             operationalTripId = tripId, runId = runId, unitSlots = parseUnitSlots(unitSlots)))
     }
     internal fun displayAt(tick: Long, slots: Value, values: Value, removeKeys: Value): ServiceBuilder {
-        val ids = parseUnitSlots(slots)
+        val ids = if (slots.hasArrayElements() && slots.arraySize == 0L) emptyList() else parseUnitSlots(slots)
         val json = toJson(values, 24) as? JsonObject ?: error("display values must be a JSON object")
         validateDisplayValues(json)
         val keys = if (removeKeys.isNull) emptyList() else {
@@ -367,7 +367,7 @@ class ServiceBuilder(private val branchDepth: Int = 0, initialTick: Long = 0L, i
         return add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.SET_DISPLAY, unitSlots = ids, displayValues = json, removeDisplayKeys = keys))
     }
     internal fun resetDisplayAt(tick: Long, slots: Value): ServiceBuilder = add(tick,
-        SavedTimetableActionV1(SavedTimetableActionTypeV1.RESET_DISPLAY, unitSlots = parseUnitSlots(slots)))
+        SavedTimetableActionV1(SavedTimetableActionTypeV1.RESET_DISPLAY, unitSlots = if (slots.hasArrayElements() && slots.arraySize == 0L) emptyList() else parseUnitSlots(slots)))
     internal fun buildRunSegments(): List<SavedTimetableRunSegmentV1> = runSegments.toList()
 
     @HostAccess.Export fun origin(origin: String, callback: Value): ServiceBuilder {

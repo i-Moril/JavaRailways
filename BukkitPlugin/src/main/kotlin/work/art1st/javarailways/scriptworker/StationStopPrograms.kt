@@ -30,8 +30,8 @@ internal fun compileStationStopPrograms(target: String, options: JsonObject): Sa
                 "OPEN_DOORS", "CLOSE_DOORS", "REVERSE", "END" -> setOf("id", "type")
                 "WAIT_UNTIL" -> setOf("id", "type", "tick")
                 "WAIT_DURATION" -> setOf("id", "type", "durationTicks")
-                "SET_DISPLAY" -> setOf("id", "type", "unitSlots", "values") + (if (step.containsKey("removeKeys")) setOf("removeKeys") else emptySet())
-                "RESET_DISPLAY" -> setOf("id", "type", "unitSlots")
+                "SET_DISPLAY" -> setOf("id", "type", "values") + (if (step.containsKey("removeKeys")) setOf("removeKeys") else emptySet())
+                "RESET_DISPLAY" -> setOf("id", "type")
                 "EXTENSION" -> setOf("id", "type", "typeId", "version", "parameters")
                 "BRANCH" -> setOf("id", "type", "typeId", "version", "parameters", "thenSteps", "elseSteps")
                 "ASYNC" -> setOf("id", "type", "taskId", "steps")
@@ -43,8 +43,7 @@ internal fun compileStationStopPrograms(target: String, options: JsonObject): Sa
             val expressions = when (type) {
                 "WAIT_UNTIL" -> listOf("tick")
                 "WAIT_DURATION" -> listOf("durationTicks")
-                "SET_DISPLAY" -> listOf("unitSlots", "values") + if (step.containsKey("removeKeys")) listOf("removeKeys") else emptyList()
-                "RESET_DISPLAY" -> listOf("unitSlots")
+                "SET_DISPLAY" -> listOf("values") + if (step.containsKey("removeKeys")) listOf("removeKeys") else emptyList()
                 "EXTENSION", "BRANCH" -> listOf("parameters")
                 else -> emptyList()
             }
@@ -52,7 +51,7 @@ internal fun compileStationStopPrograms(target: String, options: JsonObject): Sa
                 try { ProgramExpressions.validateShape(step.getValue(name), (type == "SET_DISPLAY" && name == "values") || type == "EXTENSION") }
                 catch (failure: RuntimeException) { throw IllegalArgumentException("step:$id: ${failure.message}", failure) }
                 if (step.getValue(name).jsonObject.keys != setOf("trainInfo")) {
-                    val sink = when (name) { "tick" -> "TICK"; "durationTicks" -> "DURATION"; "unitSlots" -> "UNIT_SLOTS"; "removeKeys" -> "ID_LIST"; else -> "JSON_OBJECT" }
+                    val sink = when (name) { "tick" -> "TICK"; "durationTicks" -> "DURATION"; "removeKeys" -> "ID_LIST"; else -> "JSON_OBJECT" }
                     try {
                         val resolved = ProgramExpressions.evaluate(Json.decodeFromJsonElement<StationProgramValue>(step.getValue(name)), sink)
                         if (name == "durationTicks") require(resolved.jsonPrimitive.long > 0) { "wait duration must be positive" }
@@ -83,7 +82,7 @@ internal fun compileStationStopPrograms(target: String, options: JsonObject): Sa
             val raw = step.getValue(name).jsonObject
             if (raw.keys == setOf("trainInfo") && name in setOf("values", "parameters")) return JsonObject(emptyMap())
             val expected = when (name) {
-                "tick" -> "TICK"; "durationTicks" -> "DURATION"; "unitSlots" -> "UNIT_SLOTS"; "removeKeys" -> "ID_LIST"
+                "tick" -> "TICK"; "durationTicks" -> "DURATION"; "removeKeys" -> "ID_LIST"
                 else -> "JSON_OBJECT"
             }
             return try { ProgramExpressions.evaluate(Json.decodeFromJsonElement<StationProgramValue>(raw), expected) }
@@ -104,12 +103,10 @@ internal fun compileStationStopPrograms(target: String, options: JsonObject): Sa
                 "WAIT_UNTIL" -> SavedStationProgramAction(SavedStationProgramActionType.WAIT_UNTIL, tick = expression(step,"tick").jsonPrimitive.long.also { require(it >= 0) })
                 "WAIT_DURATION" -> SavedStationProgramAction(SavedStationProgramActionType.WAIT_DURATION, durationTicks = expression(step,"durationTicks").jsonPrimitive.long.also { require(it > 0) })
                 "SET_DISPLAY" -> SavedStationProgramAction(SavedStationProgramActionType.SET_DISPLAY,
-                    unitSlots = expression(step,"unitSlots").jsonArray.map { it.jsonPrimitive.int }.also(::requireUnitSlots),
                     values = expression(step,"values").jsonObject.also(::validateDisplayValues),
                     removeKeys = step["removeKeys"]?.let { expression(step,"removeKeys").jsonArray.map { it.jsonPrimitive.content } }.orEmpty(),
                     trainInfo = step.getValue("values").jsonObject["trainInfo"]?.let(::parseTrainInfo).orEmpty())
-                "RESET_DISPLAY" -> SavedStationProgramAction(SavedStationProgramActionType.RESET_DISPLAY,
-                    unitSlots = expression(step,"unitSlots").jsonArray.map { it.jsonPrimitive.int }.also(::requireUnitSlots))
+                "RESET_DISPLAY" -> SavedStationProgramAction(SavedStationProgramActionType.RESET_DISPLAY)
                 "EXTENSION" -> SavedStationProgramAction(SavedStationProgramActionType.EXTENSION,
                     extensionCall = SavedTimetableExtensionCallV1(step.getValue("typeId").jsonPrimitive.content,
                         step.getValue("version").jsonPrimitive.int.also { require(it > 0) }, expression(step,"parameters").jsonObject.also(::validateProgramJsonObject)).also { require(it.typeId.matches(Regex("[a-z0-9_.-]+:[a-z0-9_./-]+"))) },

@@ -5,12 +5,12 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 
 class TrainInfoCompilerTest {
-    private val bindings = """{"name":"NAME","cars":"CAR_COUNT","units":"UNIT_COUNT","direction":"DIRECTION"}"""
+    private val bindings = """{"name":"NAME","cars":"CAR_COUNT","direction":"DIRECTION"}"""
     private fun definition(steps: String) = Json.parseToJsonElement("""{"parameters":[],"steps":[$steps]}""")
     private fun expand(steps: String) = expandStationProgram(definition(steps), JsonObject(emptyMap()), 20,
         mapOf("dutyId" to JsonPrimitive("d")))
     private fun extension(expression: String) = """{"id":"action","type":"EXTENSION","typeId":"demo:action","version":1,"parameters":$expression}"""
-    private fun display(expression: String) = """{"id":"display","type":"SET_DISPLAY","unitSlots":{"value":[1]},"values":$expression}"""
+    private fun display(expression: String) = """{"id":"display","type":"SET_DISPLAY","values":$expression}"""
     private fun station(steps: String) = compileStationStopPrograms("A", Json.parseToJsonElement("""
       {"stationId":"s","callId":"c","callRole":"STOP","departureTick":100,"plannedContext":{"dutyId":"d"},
        "stationProgram":{"preparationLeadTicks":10,"arrival":{"parameters":[],"steps":[$steps,{"id":"end","type":"END"}]},
@@ -82,8 +82,7 @@ class TrainInfoCompilerTest {
         }
         for (step in listOf(
             """{"id":"bad","type":"WAIT_DURATION","durationTicks":{"trainInfo":$bindings}}""",
-            """{"id":"bad","type":"BRANCH","typeId":"javarailways:plan_duty_id","version":1,"parameters":{"trainInfo":$bindings},"thenSteps":[],"elseSteps":[]}""",
-            """{"id":"bad","type":"SET_DISPLAY","unitSlots":{"trainInfo":$bindings},"values":{"value":{}}}"""
+            """{"id":"bad","type":"BRANCH","typeId":"javarailways:plan_duty_id","version":1,"parameters":{"trainInfo":$bindings},"thenSteps":[],"elseSteps":[]}"""
         )) {
             assertThrows(RuntimeException::class.java) { expand(step) }
             assertThrows(RuntimeException::class.java) { station(step) }

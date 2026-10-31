@@ -142,7 +142,7 @@ sealed class TimetableAction {
         override fun hashCode() = java.util.Objects.hash(tripId,runId,unitSlots)
     }
     class SetDisplay(unitSlots: List<Int>, values: kotlinx.serialization.json.JsonObject, removeKeys: List<String> = emptyList(), trainInfo: Map<String, TrainInfoField> = emptyMap()) : TimetableAction() {
-        val unitSlots = immutableUnitSlots(unitSlots)
+        val unitSlots = if (unitSlots.isEmpty()) emptyList() else immutableUnitSlots(unitSlots)
         val values = immutableDisplayValues(values)
         val trainInfo = immutableTrainInfo(trainInfo)
         init { require(trainInfo.isEmpty() || values.isEmpty()) { "trainInfo replaces literal values" } }
@@ -152,7 +152,7 @@ sealed class TimetableAction {
         override fun hashCode() = java.util.Objects.hash(unitSlots, values, removeKeys, trainInfo)
     }
     class ResetDisplay(unitSlots: List<Int>) : TimetableAction() {
-        val unitSlots = immutableUnitSlots(unitSlots)
+        val unitSlots = if (unitSlots.isEmpty()) emptyList() else immutableUnitSlots(unitSlots)
         override fun equals(other: Any?) = other is ResetDisplay && unitSlots == other.unitSlots
         override fun hashCode() = unitSlots.hashCode()
     }

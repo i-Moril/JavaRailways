@@ -22,21 +22,16 @@ sealed interface StationProgramAction {
         override fun equals(other: Any?) = other is Async && taskId == other.taskId && steps == other.steps
         override fun hashCode() = java.util.Objects.hash(taskId, steps)
     }
-    class SetDisplay(unitSlots: List<Int>, values: JsonObject, removeKeys: List<String> = emptyList(), trainInfo: Map<String, TrainInfoField> = emptyMap()) : StationProgramAction {
-        val unitSlots = immutableUnitSlots(unitSlots)
+    class SetDisplay(values: JsonObject, removeKeys: List<String> = emptyList(), trainInfo: Map<String, TrainInfoField> = emptyMap()) : StationProgramAction {
         val values = immutableDisplayValues(values)
         val trainInfo = immutableTrainInfo(trainInfo)
         init { require(trainInfo.isEmpty() || values.isEmpty()) { "trainInfo replaces literal values" } }
         val removeKeys: List<String> = java.util.List.copyOf(removeKeys)
         init { require(removeKeys.distinct().size == removeKeys.size && removeKeys.all { it.isNotBlank() }) }
-        override fun equals(other: Any?) = other is SetDisplay && unitSlots == other.unitSlots && values == other.values && removeKeys == other.removeKeys && trainInfo == other.trainInfo
-        override fun hashCode() = java.util.Objects.hash(unitSlots, values, removeKeys, trainInfo)
+        override fun equals(other: Any?) = other is SetDisplay && values == other.values && removeKeys == other.removeKeys && trainInfo == other.trainInfo
+        override fun hashCode() = java.util.Objects.hash(values, removeKeys, trainInfo)
     }
-    class ResetDisplay(unitSlots: List<Int>) : StationProgramAction {
-        val unitSlots = immutableUnitSlots(unitSlots)
-        override fun equals(other: Any?) = other is ResetDisplay && unitSlots == other.unitSlots
-        override fun hashCode() = unitSlots.hashCode()
-    }
+    data object ResetDisplay : StationProgramAction
     class Extension(val call: TimetableExtensionCall, trainInfo: Map<String, TrainInfoField> = emptyMap()) : StationProgramAction {
         val trainInfo = immutableTrainInfo(trainInfo)
         init { require(trainInfo.isEmpty() || call.parameters.isEmpty()) { "trainInfo replaces literal parameters" } }

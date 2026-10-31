@@ -13,7 +13,7 @@ def definition(kind='DESTINATION'):
     return dict(parameters=[dict(id='place', type=kind)], steps=[
         dict(id='move', type='MOVE', destinationId=dict(parameterId='place'), viaIds=dict(value=[])),
         dict(id='store', type='STORE_AT_DEPOT', depotId=dict(parameterId='place'), stablingPointIds=dict(value=[])),
-        dict(id='display', type='SET_DISPLAY', unitSlots=dict(value=[1]), values=dict(value={
+        dict(id='display', type='SET_DISPLAY', values=dict(value={
             '10': 1, '2': 2.0, 'type': 'DESTINATION', 'nested': {'parameters': [{'type': 'STATION'}]}}))])
 
 

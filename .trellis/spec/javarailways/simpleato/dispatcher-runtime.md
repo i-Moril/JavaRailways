@@ -272,6 +272,6 @@ ATO 不根据目标位置自行换向；未显式 Reverse 的身后目标必须�
 
 ## 程序只读列车信息
 
-程序的显示／扩展动作可携带独立 immutable trainInfo 绑定（TrainInfoField NAME/CAR_COUNT/UNIT_COUNT/DIRECTION），绑定与 literal values/call.parameters 互斥；TimetableExtensionCall 和 condition 不承载此字段。持久化 DTO 对应显式 enum/map，保持当前格式版本，capture/restore 不丢失绑定。
+程序的显示／扩展动作可携带独立 immutable trainInfo 绑定（TrainInfoField NAME/CAR_COUNT/DIRECTION），绑定与 literal values/call.parameters 互斥；TimetableExtensionCall 和 condition 不承载此字段。持久化 DTO 对应显式 enum/map，保持当前格式版本，capture/restore 不丢失绑定。
 
-Dispatcher 在每条动作开始时共用 resolver 从实际 ActiveRun 绑定列车的一个最新 publishedFrame 读取 trainName、cars.size、reversed；方向输出 FORWARD/REVERSED。只有请求 UNIT_COUNT 才按同一帧 carIds 调 fixedUnitsForFormation，登记缺失或不完整通过既有失败链处理，不能回退0或车厢数。解编交接与换向后重新读取，不复用编译时或旧列车缓存。扩展仍静态检查 provider 存在；仅显式动态参数延后到执行时 validate(resolved)，校验通过才 start，错误保留 provider 原因。literal 扩展的既有编译校验不变。显示动作仍遵守单元槽位、display JSON 限制和运营显示上下文。
+Dispatcher 在每条动作开始时共用 resolver 从实际 ActiveRun 绑定列车的一个最新 publishedFrame 读取 trainName、cars.size、reversed；方向输出 FORWARD/REVERSED。信息读取不再查询登记单元数；总车厢数直接来自该帧。解编交接与换向后重新读取，不复用编译时或旧列车缓存。扩展仍静态检查 provider 存在；仅显式动态参数延后到执行时 validate(resolved)，校验通过才 start，错误保留 provider 原因。literal 扩展的既有编译校验不变。程序显示动作作用于当前整列车，仍遵守 display JSON 限制和运营显示上下文；原生时刻表显示动作的显式槽位选择仍用于连续显示方案。

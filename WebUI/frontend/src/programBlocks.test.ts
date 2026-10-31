@@ -1,13 +1,14 @@
 import {describe,expect,it,vi,afterEach} from 'vitest';
 import {blocksToDefinition,definitionToBlocks,defaultProgramStep,programStepTypes,libraryStepTypes,type ProgramBlockState,type ProgramWorkspaceState} from './programBlocks';
 import {getProgramBlockDraftValidity,clearProgramBlockDraft,readProgramBlockDraft,storeProgramBlockDraft} from './programBlockDrafts';
+import {programParameterTypes} from './ProgramFields';
 import type {StationProgramDefinition,StationProgramStep} from './types';
 const clone=<T,>(value:T):T=>JSON.parse(JSON.stringify(value));
 const first=(state:ProgramWorkspaceState)=>state.blocks!.blocks[0].next!.block;
 const definition:StationProgramDefinition={parameters:[{id:'duration',type:'DURATION'},{id:'station',type:'STRING'}],steps:[
-{id:'display',type:'SET_DISPLAY',unitSlots:{value:[1,2]},values:{value:{destination:'Central',nested:{a:[1,true,null]}}}},
-{id:'display-remove',type:'SET_DISPLAY',unitSlots:{value:[1]},values:{value:{}},removeKeys:{value:['destination']}},
-{id:'reset',type:'RESET_DISPLAY',unitSlots:{value:[2]}},
+{id:'display',type:'SET_DISPLAY',values:{value:{destination:'Central',nested:{a:[1,true,null]}}}},
+{id:'display-remove',type:'SET_DISPLAY',values:{value:{}},removeKeys:{value:['destination']}},
+{id:'reset',type:'RESET_DISPLAY'},
 {id:'until',type:'WAIT_UNTIL',tick:{value:400}},
 {id:'wait',type:'WAIT_DURATION',durationTicks:{parameterId:'duration'}},
 {id:'reverse',type:'REVERSE'},
@@ -18,6 +19,14 @@ const definition:StationProgramDefinition={parameters:[{id:'duration',type:'DURA
 {id:'branch',type:'BRANCH',typeId:'demo:condition',version:3,parameters:{value:{}},thenSteps:[{id:'inside',type:'WAIT_DURATION',durationTicks:{value:10}}],elseSteps:[{id:'nested',type:'BRANCH',typeId:'demo:condition',version:1,parameters:{value:{}},thenSteps:[],elseSteps:[{id:'reverse-inside',type:'REVERSE'}]}]},
 ]};
 describe('rail program Blockly mapping',()=>{
+ it('creates whole-train display actions without a formation selector',()=>{
+  expect(programParameterTypes).toEqual(['NUMBER','TICK','DURATION','STRING','ID_LIST','JSON_OBJECT']);
+  for(const type of ['SET_DISPLAY','RESET_DISPLAY'] as const){
+   const step=defaultProgramStep(type),state=definitionToBlocks({parameters:[],steps:[step]});
+   expect(Object.keys(first(state).inputs??{})).toEqual(type==='SET_DISPLAY'?['values','removeKeys']:[]);
+   expect(blocksToDefinition(state,[]).steps).toEqual([step]);
+  }
+ });
  it('builds toolbox steps on HTTP without crypto.randomUUID',()=>{
   vi.stubGlobal('crypto',{getRandomValues:crypto.getRandomValues.bind(crypto)});
   try{

@@ -15,7 +15,6 @@ import {waypointOptions} from './idOptions';
 import {readProgramBlockDraft,storeProgramBlockDraft,clearProgramBlockDraft,reconcileProgramEntryLead,type ProgramBlockSnapshot as Snapshot} from './programBlockDrafts';
 export {clearProgramBlockDraft,getProgramBlockDraftValidity} from './programBlockDrafts';
 import './ProgramBlockEditor.css';
-import {UnitSlotsInput} from './UnitSlotsInput';
 import {plannedConditions} from './stationPlans';
 
 const operationOperandLabels:Record<StationProgramOperation,readonly string[]>={
@@ -23,7 +22,7 @@ const operationOperandLabels:Record<StationProgramOperation,readonly string[]>={
 };
 const workspaceDraftInvalidators=new WeakMap<Blockly.Workspace,()=>void>();
 const workspaceEntries=new WeakMap<Blockly.Workspace,{label:string;leadLabel:string;lead?:number}>();
-const parameterTypes:StationProgramParameterType[]=['NUMBER','TICK','DURATION','STRING','ID_LIST','JSON_OBJECT','UNIT_SLOTS'];
+const parameterTypes:StationProgramParameterType[]=['NUMBER','TICK','DURATION','STRING','ID_LIST','JSON_OBJECT'];
 export interface ProgramBlockEditorProps {metadata?:WorldMetadata;value:StationProgramDefinition;onChange:(value:StationProgramDefinition)=>void;fieldScope:string;draftScope?:string;extensions?:TimetableExtensionDescriptor[];conditions?:TimetableExtensionDescriptor[];events?:TimetableEventPoint[];onValidityChange?:(valid:boolean)=>void;focusedStep?:string;context?:'library'|'arrival'|'duty';onUndo?:()=>void;onRedo?:()=>void;entryLabel?:string;preparationLeadTicks?:number;onEntryChange?:(value:StationProgramDefinition,preparationLeadTicks:number)=>void}
 const copy=<T,>(value:T):T=>JSON.parse(JSON.stringify(value)) as T;
 const fingerprint=(snapshot:Snapshot)=>JSON.stringify(snapshot,(key,value)=>key==='x'||key==='y'||key==='acceptedPreparationLeadTicks'?undefined:value);
@@ -48,7 +47,7 @@ export function defineBlocks(t:ReturnType<typeof useI18n>['t']){
  Blockly.Blocks.rail_object={init(this:Blockly.Block){this.appendDummyInput('HEADER').appendField(t('programs.object'));this.setOutput(true,'JSON_OBJECT');this.setColour(160);this.loadExtraState?.({count:1});},saveExtraState(this:Blockly.Block){return {count:this.inputList.filter(input=>input.name.startsWith('ITEM')).length};},loadExtraState(this:Blockly.Block,state:{count:number}){const count=Number.isInteger(state.count)?Math.max(0,Math.min(128,state.count)):0;const current=this.inputList.filter(input=>input.name.startsWith('ITEM')).length;for(let i=current-1;i>=count;i--)this.removeInput(`ITEM${i}`);for(let i=current;i<count;i++)this.appendValueInput(`ITEM${i}`).appendField(rawField(''),'KEY'+i);}};
 
  for(const type of parameterTypes){
-  Blockly.Blocks[`rail_literal_${type}`]={init(this:Blockly.Block){this.appendDummyInput().appendField(t(`programs.param.${type}`)).appendField(rawField(type==='JSON_OBJECT'?'{}':type==='ID_LIST'?'[]':type==='UNIT_SLOTS'?'[1]':type==='DURATION'?'1':type==='TICK'||type==='NUMBER'?'0':''),'VALUE');this.setOutput(true,programOutputChecks(type));this.setColour(160);if(type==='UNIT_SLOTS')this.setTooltip(t('programs.unitSlotsHelp'));}};
+  Blockly.Blocks[`rail_literal_${type}`]={init(this:Blockly.Block){this.appendDummyInput().appendField(t(`programs.param.${type}`)).appendField(rawField(type==='JSON_OBJECT'?'{}':type==='ID_LIST'?'[]':type==='DURATION'?'1':type==='TICK'||type==='NUMBER'?'0':''),'VALUE');this.setOutput(true,programOutputChecks(type));this.setColour(160);}};
   Blockly.Blocks[`rail_parameter_${type}`]={init(this:Blockly.Block){this.appendDummyInput().appendField(t('programs.parameter')).appendField(t(`programs.param.${type}`)).appendField(rawField(''),'VALUE');this.setOutput(true,programOutputChecks(type));this.setColour(315);}};
  }
 }
@@ -83,7 +82,7 @@ export function ProgramBlockEditor(props:ProgramBlockEditorProps){
  useEffect(()=>{
   if(!host.current)return;
   Blockly.setLocale(Object.fromEntries(Object.entries(locale==='zh-CN'?zh:en).filter((entry):entry is [string,string]=>typeof entry[1]==='string')));defineBlocks(t);
-  const toolbox={kind:'categoryToolbox',contents:[{kind:'category',name:t('programs.steps'),colour:'210',contents:(context==='arrival'?arrivalStepTypes:libraryStepTypes).map((type)=>({kind:'block',...definitionToBlocks({parameters:[],steps:[defaultProgramStep(type,type==='BRANCH'?conditions[0]:extensions[0])]}).blocks!.blocks[0].next!.block,id:undefined}))},...parameterTypes.filter((type)=>context!=='arrival'||['NUMBER','STRING','TICK','DURATION','ID_LIST','JSON_OBJECT','UNIT_SLOTS'].includes(type)).map((type)=>({kind:'category',name:t(`programs.param.${type}`),colour:'160',contents:[{kind:'block',type:`rail_literal_${type}`},...(type==='JSON_OBJECT'?[{kind:'block',type:'rail_train_info'},{kind:'block',type:'rail_object'}]:[]),...Object.entries(operationTypes).filter(([,spec])=>spec.output===type).map(([operation])=>({kind:'block',type:`rail_operation_${operation}`})),...(context!=='library'?[]:[{kind:'block',type:`rail_parameter_${type}`}])]}))]};
+  const toolbox={kind:'categoryToolbox',contents:[{kind:'category',name:t('programs.steps'),colour:'210',contents:(context==='arrival'?arrivalStepTypes:libraryStepTypes).map((type)=>({kind:'block',...definitionToBlocks({parameters:[],steps:[defaultProgramStep(type,type==='BRANCH'?conditions[0]:extensions[0])]}).blocks!.blocks[0].next!.block,id:undefined}))},...parameterTypes.filter((type)=>context!=='arrival'||['NUMBER','STRING','TICK','DURATION','ID_LIST','JSON_OBJECT'].includes(type)).map((type)=>({kind:'category',name:t(`programs.param.${type}`),colour:'160',contents:[{kind:'block',type:`rail_literal_${type}`},...(type==='JSON_OBJECT'?[{kind:'block',type:'rail_train_info'},{kind:'block',type:'rail_object'}]:[]),...Object.entries(operationTypes).filter(([,spec])=>spec.output===type).map(([operation])=>({kind:'block',type:`rail_operation_${operation}`})),...(context!=='library'?[]:[{kind:'block',type:`rail_parameter_${type}`}])]}))]};
   const dark=document.documentElement.dataset.theme!=='light';
   const theme=Blockly.Theme.defineTheme(`rail-${dark?'dark':'light'}`,{name:`rail-${dark?'dark':'light'}`,base:Blockly.Themes.Classic,componentStyles:{workspaceBackgroundColour:dark?'#141c28':'#ffffff',toolboxBackgroundColour:dark?'#1e293b':'#f1f5f9',toolboxForegroundColour:dark?'#e5e7eb':'#172033',flyoutBackgroundColour:dark?'#283448':'#e2e8f0',flyoutForegroundColour:dark?'#e5e7eb':'#172033',flyoutOpacity:1,scrollbarColour:dark?'#64748b':'#94a3b8'},fontStyle:{family:'system-ui, sans-serif',weight:'normal',size:12}});
   const ws=Blockly.inject(host.current,{renderer:'zelos',toolbox,theme,trashcan:false,scrollbars:true,move:{scrollbars:true,drag:true,wheel:true},zoom:{controls:false,wheel:true,startScale:0.8,minScale:0.3,maxScale:1.5},media:'/blockly-media/',sounds:false});workspace.current=ws;workspaceDraftInvalidators.set(ws,()=>{if(!restoring.current)latest.current.onValidityChange?.(false);});ws.undo=(redo)=>historyAction.current(!!redo);
@@ -134,7 +133,6 @@ export function ProgramBlockEditor(props:ProgramBlockEditorProps){
   if(block.type==='rail_train_info')return <TrainInfoFields key={block.id} raw={String(block.getFieldValue('VALUE')??'')} onChange={raw=>changeField(block,'VALUE',raw)}/>;
   const type=parameterTypes.find((type)=>block.type===`rail_literal_${type}`||block.type===`rail_parameter_${type}`);if(!type)return null;
   const raw=String(block.getFieldValue('VALUE')??'');const reference=block.type.startsWith('rail_parameter_');
-  if(!reference&&type==='UNIT_SLOTS')return <div key={block.id}><Typography.Text>{t('programs.unitSlots')}</Typography.Text><UnitSlotsInput fieldKey={`${fieldScope}/${block.id}`} rawValue={raw} onRawChange={(text)=>changeField(block,'VALUE',text)} onChange={(slots)=>changeField(block,'VALUE',JSON.stringify(slots))}/></div>;
   if(isProgramDestinationLiteral(block))return <label key={block.id}>{t('programs.destinationId')}<EditableIdSelect fieldKey={`${fieldScope}/${block.id}`} aria-label={t('programs.destinationId')} value={raw} options={waypointOptions(props.metadata??{})} onEditingChange={editing=>{if(editing)latest.current.onValidityChange?.(false);else sync.current();}} onCommit={text=>changeField(block,'VALUE',text)}/></label>;
   if(!reference&&type==='ID_LIST'){
    const parent=block.getParent();

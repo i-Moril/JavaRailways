@@ -36,7 +36,7 @@ class ProgramExpressionsTest {
 
     @Test fun `bound numeric and text parameters compose into display object and waits`() {
         val definition = Json.parseToJsonElement("""{"parameters":[{"id":"seconds","type":"NUMBER"},{"id":"station","type":"STRING"}],"steps":[
-            {"id":"display","type":"SET_DISPLAY","unitSlots":{"value":[1]},"values":{"object":{"destination":${op("CONCAT", literal("Next: "), """{"parameterId":"station"}""")},"count":${op("ADD", literal(1), literal(2))}}}},
+            {"id":"display","type":"SET_DISPLAY","values":{"object":{"destination":${op("CONCAT", literal("Next: "), """{"parameterId":"station"}""")},"count":${op("ADD", literal(1), literal(2))}}}},
             {"id":"wait","type":"WAIT_DURATION","durationTicks":${op("MULTIPLY", """{"parameterId":"seconds"}""", literal(20))}}
         ]}""")
         val expanded = expandStationProgram(definition, buildJsonObject { put("seconds", 1.5); put("station", "central") }, 0)
@@ -82,7 +82,7 @@ class ProgramExpressionsTest {
         val options = Json.parseToJsonElement("""{"stationId":"s","callId":"c","callRole":"STOP","departureTick":100,"stationProgram":{
           "preparationLeadTicks":10,"arrival":{"parameters":[],"steps":[
             {"id":"wait","type":"WAIT_DURATION","durationTicks":${op("MULTIPLY", literal(2), literal(20))}},
-            {"id":"display","type":"SET_DISPLAY","unitSlots":{"value":[1]},"values":{"object":{"text":${op("CONCAT",literal("A"),literal("B"))}}}},
+            {"id":"display","type":"SET_DISPLAY","values":{"object":{"text":${op("CONCAT",literal("A"),literal("B"))}}}},
             {"id":"end","type":"END"}]},"departurePreparation":{"parameters":[],"steps":[{"id":"end","type":"END"}]}}}""").jsonObject
         val result = compileStationStopPrograms("s@1", options)!!
         assertEquals(40L, result.arrival[0].durationTicks)
@@ -101,7 +101,7 @@ class ProgramExpressionsTest {
         val reference = """{"parameterId":"id"}"""
         val destination = op("CONCAT", reference, literal("@1"))
         val definition = Json.parseToJsonElement("""{"parameters":[{"id":"id","type":"STRING"}],"steps":[
-          {"id":"display","type":"SET_DISPLAY","unitSlots":{"value":[1]},"values":{"object":{"text":$reference}}},
+          {"id":"display","type":"SET_DISPLAY","values":{"object":{"text":$reference}}},
           {"id":"move","type":"MOVE","destinationId":$destination,"viaIds":{"value":[]}},
           {"id":"select","type":"SELECT_STOP","stationId":$reference,"berthIds":{"value":["berth"]},"selectionPolicy":"FIXED_PREFERENCE"},
           {"id":"store","type":"STORE_AT_DEPOT","depotId":$reference,"stablingPointIds":{"value":[]}}

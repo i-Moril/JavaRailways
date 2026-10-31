@@ -27,4 +27,69 @@ class CapturedCarBehaviorTest {
         assertEquals(mapOf("door" to setOf("closed", "open"), "duplicate" to setOf("new"),
             "suspension" to emptySet<String>(), "wheel" to setOf("run")), snapshot.captureAnimationCapabilities())
     }
+    @Test
+    fun `capability queries normalize scenes and reject unknown animation or scene`() {
+        val capabilities = mapOf("lamp" to setOf("head", "tail"), "motion" to emptySet())
+        assertTrue(capabilities.supportsAnimation("lamp", null))
+        assertTrue(capabilities.supportsAnimation("lamp", " HEAD "))
+        assertFalse(capabilities.supportsAnimation("lamp", "off"))
+        assertFalse(capabilities.supportsAnimation("missing", null))
+        assertTrue(capabilities.supportsAnimation("motion", null))
+        assertFalse(capabilities.supportsAnimation("motion", "head"))
+    }
+
+    @Test
+    fun `real s100 package reverses every car without requesting another cars end lights`() {
+        val loaded = requireNotNull(PackageLoader(java.io.File("../models/s100")).loadTrainPackage())
+        assertEquals(setOf("head", "head_tail", "motor", "motor_tail", "passenger", "trailer"), loaded.cars.keys)
+        for ((modelName, model) in loaded.cars) {
+            val capabilities = SavedCarModelTree.build(model, loaded.partRegistry).captureAnimationCapabilities()
+            val effects = mutableListOf<Pair<String, String?>>()
+            val results = mutableListOf<Result<Unit>>()
+            CarBehavior({ loaded.behavior }, { loaded.actions }, { name, scene ->
+                if (capabilities.supportsAnimation(name, scene)) {
+                    effects.add(name to scene)
+                    true
+                } else false
+            }, { _, _, _ -> fail<Unit>("light actions must not play sound") },
+                { _, _ -> error("light actions must not schedule delayed effects") }, {},
+                { throw it }, capabilities::supportsAnimation).use { behavior ->
+                val lightNames = capabilities.keys.filter { it.endsWith("_end_light") }.toSet()
+                val metadata = behavior.metadata(false)
+                assertTrue(effects.isEmpty(), "metadata must not start effects: $modelName")
+                assertEquals(lightNames.isNotEmpty(), metadata.any { it.name == "lights-refresh" }, modelName)
+                assertEquals(lightNames.isNotEmpty(), metadata.any { it.name == "end-lights-off" }, modelName)
+                for (tail in listOf(false, true)) {
+                    effects.clear()
+                    results.clear()
+                    assertEquals(work.art1st.javarailways.bukkit.extension.train.TrainModelOperationResult.Accepted,
+                        behavior.call("onReverse", emptyList(), tail, results::add, optional = true), modelName)
+                    assertTrue(results.single().isSuccess, modelName)
+                    assertEquals(lightNames, effects.map { it.first }.toSet(), modelName)
+                    effects.forEach { (name, scene) ->
+                        assertEquals(if ((name == "front_end_light") xor tail) "head" else "tail", scene, modelName)
+                    }
+                }
+                if (lightNames.isNotEmpty()) {
+                    effects.clear()
+                    results.clear()
+                    behavior.action("end-lights-off", false, results::add)
+                    assertTrue(results.single().isSuccess, modelName)
+                    assertEquals(lightNames.map { it to "off" }.toSet(), effects.toSet(), modelName)
+                }
+                effects.clear()
+                results.clear()
+                behavior.action("power-off", false, results::add)
+                assertTrue(results.single().isSuccess, modelName)
+                assertEquals((lightNames + "cabin_lights").map { it to "off" }.toSet(), effects.toSet(), modelName)
+                // Calling a real, but unsupported, raw action remains a genuine rejection.
+                val unsupported = if ("front_end_light" !in lightNames) "front-light-head" else "rear-light-head"
+                results.clear()
+                assertTrue(behavior.action(unsupported, false, results::add) is
+                    work.art1st.javarailways.bukkit.extension.train.TrainModelOperationResult.Rejected, modelName)
+                assertTrue(results.single().isFailure, modelName)
+            }
+        }
+    }
+
 }

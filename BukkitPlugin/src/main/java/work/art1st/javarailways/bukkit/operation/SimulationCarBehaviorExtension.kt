@@ -6,6 +6,7 @@ import work.art1st.javarailways.bukkit.behavior.CarBehavior
 import work.art1st.javarailways.bukkit.behavior.TrainBehaviorActionDefinition
 import work.art1st.javarailways.bukkit.behavior.TrainBehaviorScriptException
 import work.art1st.javarailways.bukkit.behavior.CapturedCarBehavior
+import work.art1st.javarailways.bukkit.behavior.supportsAnimation
 import work.art1st.javarailways.bukkit.behavior.carBehaviorActions
 import work.art1st.javarailways.bukkit.extension.train.TrainModelOperationResult
 import work.art1st.javarailways.bukkit.render.Animation
@@ -50,8 +51,7 @@ internal class SimulationCarBehaviorExtension(
         script = { definition.script },
         actions = { definition.actions },
         animate = { name, scene ->
-            val scenes = definition.animations[name]
-            if (scenes == null || (scene != null && Animation.normalizeSceneName(scene) !in scenes)) false
+            if (!definition.animations.supportsAnimation(name, scene)) false
             else {
                 effectObserver?.invoke(self, SimulationBehaviorEffect.AnimationStarted(name, Animation.normalizeSceneName(scene)))
                 true
@@ -63,7 +63,8 @@ internal class SimulationCarBehaviorExtension(
         },
         schedule = ::schedule,
         log = { message -> LOGGER.log(System.Logger.Level.INFO, "[simulation ${(self.world as CoreWorld).runtimeId} car ${self.id}] $message") },
-        scriptFailed = ::stopTrainForScriptFailure
+        scriptFailed = ::stopTrainForScriptFailure,
+        hasAnimation = { name, scene -> definition.animations.supportsAnimation(name, scene) }
     )
 
     override fun initialize(host: Car, savedExtensionData: Map<String, SerializableExtensionData>) { self = host }

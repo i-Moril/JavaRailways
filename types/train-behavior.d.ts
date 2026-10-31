@@ -16,6 +16,9 @@ interface JavaRailwaysBehaviorActionOptions {
 /** Execute this car's source-package action; delayed effects keep this exact car and physical side. */
 declare function action(name: string): boolean;
 
+/** Query this car's configured model without playing effects; available during initialization. */
+declare function hasAnimation(name: string, scene?: string | null): boolean;
+
 /** Play a sound at this car. Volume and pitch default to 1.0. */
 declare function sound(key: string, volume?: number, pitch?: number): boolean;
 

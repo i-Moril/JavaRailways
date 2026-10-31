@@ -145,12 +145,12 @@ export interface StationProgramDefinition {
  steps:StationProgramStep[];
 }
 export interface ProgramSimulationRequest {
- programId:string;definition:StationProgramDefinition;arguments:Record<string,StationProgramLiteral>;startTick:number;periodDays:number;
+ programId:string;definition:StationProgramDefinition;arguments:Record<string,StationProgramLiteral>;startTick:number;executionTimeoutMillis:number;
  profile:{type:'WORLD_TRAIN'|'TRAIN_TEMPLATE';id:string};initialPosition:{wayPointId:string;reverseTrain:boolean};
  plannedContext?:Record<string,string>;maximumDurationTicks:number;
 }
 export interface ProgramSimulationResult {
- status:'COMPLETED'|'FAILED'|'LIMIT_REACHED';simulatedTicks:number;durationTicks?:number;startTick?:number;endTick?:number;reason?:string;failedProgramStepId?:string;
+ status:'COMPLETED'|'FAILED'|'LIMIT_REACHED';simulatedTicks:number;durationTicks?:number;startTick?:number;endTick?:number;reason?:string;reasonCode?:string;failedProgramStepId?:string;
  initialPosition:{wayPointId:string;direction:'AB'|'BA';directionSource:'WAYPOINT'|'RAIL';reverseTrain:boolean};
 }
 export interface StationProgramRecord {

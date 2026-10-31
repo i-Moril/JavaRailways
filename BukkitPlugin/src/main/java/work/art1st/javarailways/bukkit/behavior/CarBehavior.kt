@@ -15,7 +15,8 @@ internal class CarBehavior(
     private val sound: (String, Double, Double) -> Unit,
     private val schedule: (Double, () -> Unit) -> AutoCloseable,
     private val log: (String) -> Unit,
-    private val scriptFailed: (TrainBehaviorScriptException) -> Unit
+    private val scriptFailed: (TrainBehaviorScriptException) -> Unit,
+    private val hasAnimation: (String, String?) -> Boolean
 ) : AutoCloseable {
     private var runtime: TrainBehaviorRuntime? = null
     private var loadedScript: TrainBehaviorScript? = null
@@ -178,6 +179,7 @@ internal class CarBehavior(
                 override fun action(name: String) = this@CarBehavior.action(name)
                 override fun sound(key: String, volume: Double, pitch: Double) = effect(0.0) { this@CarBehavior.sound(key, volume, pitch) }
                 override fun log(message: String) = this@CarBehavior.log(message)
+                override fun hasAnimation(name: String, scene: String?) = this@CarBehavior.hasAnimation(name, scene)
                 override fun operatingEnd() = if (relativeTail) "tail" else "head"
             })
             try {

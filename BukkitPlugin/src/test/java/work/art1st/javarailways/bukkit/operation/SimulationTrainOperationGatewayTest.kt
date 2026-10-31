@@ -137,16 +137,17 @@ class SimulationTrainOperationGatewayTest {
     fun `formal doors capture installed directions and real reverse invokes only target world behavior`() {
         val script = Files.readString(Path.of("../models/s100/behavior.js"))
         val actions = listOf("door-left-open", "door-right-open", "door-left-close", "door-right-close",
-            "lights-head-running", "lights-tail-running").map(::action)
-        val source = definition(script, actions)
+            "front-light-head", "front-light-tail").map(::action)
+        val source = definition(script, actions, actions.associate { it.name to emptySet<String>() } +
+            ("front_end_light" to setOf("head", "tail", "off")))
         fixture(listOf(source, source)).use { a -> fixture(listOf(source, source)).use { b ->
             a.world.onOwnerForTest { (a.train.cars[1] as CoreCar).reverse() }
             assertSucceeded(a.execute(TrainOperation.OpenDoors(DoorSide.LEFT)))
             assertEquals(listOf("door-left-open"), a.animations(0))
             assertEquals(listOf("door-right-open"), a.animations(1))
             a.world.onOwnerForTest { a.train.reverse() }
-            assertEquals(listOf("door-left-open", "lights-tail-running"), a.animations(0))
-            assertEquals(listOf("door-right-open", "lights-head-running"), a.animations(1))
+            assertEquals(listOf("door-left-open", "front-light-tail"), a.animations(0))
+            assertEquals(listOf("door-right-open", "front-light-head"), a.animations(1))
             assertTrue(b.effectSnapshots().all { it.isEmpty() })
             assertSucceeded(a.execute(TrainOperation.CloseDoors(DoorSide.LEFT)))
             assertEquals("door-right-close", a.animations(0).last())

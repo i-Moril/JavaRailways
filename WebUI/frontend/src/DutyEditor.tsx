@@ -1,3 +1,4 @@
+import {SimulationTimeoutInput,DEFAULT_SIMULATION_TIMEOUT_MILLIS} from './SimulationTimeoutInput';
 import {useStationProgramLibrary} from './useStationProgramLibrary';
 import {defaultStationStopProgram} from './stationPlans';
 import {defaultDutyProgramArguments,orderDutyTimeline,projectDutyTimeline,sortDutyTasks} from './dutyTimeline';
@@ -105,6 +106,8 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   const [busy,setBusy]=useState(false);
   const profileAssignments=Object.fromEntries(value.duties.filter((duty)=>duty.referenceVehicle).map((duty)=>[duty.id,`${duty.referenceVehicle!.type}:${duty.referenceVehicle!.id}`]));
   const [delayThresholdTicks,setDelayThresholdTicks]=useState(initialRecovery?.delayThresholdTicks??1_200);
+  const [executionTimeoutMillis,setExecutionTimeoutMillis]=useState(DEFAULT_SIMULATION_TIMEOUT_MILLIS);
+  const [timeoutValid,setTimeoutValid]=useState(true),[timeoutRevision,setTimeoutRevision]=useState(0);
   const [simulationState,setSimulationState]=useState<{result:TimetableSimulationResult;inputKey:string}>();
   const programDraftScope=JSON.stringify([recoveryOwner,world,documentId||blockDraftKey.current]);
   const editorDraftInvalid=reportedEditorDraftInvalid;
@@ -113,8 +116,8 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   const generated=useMemo(()=>generateTimetableSource(value,lines),[value,lines]);
   const hasAuthoringErrors=generated.issues.some((issue)=>issue.severity==='error');
   const compiled=!hasAuthoringErrors&&!editorDraftInvalid&&!arrivalDraftsInvalid&&compiledState?.documentHashInput===generated.documentHashInput?compiledState.result:undefined;
-  const simulationInputKey=JSON.stringify([world,generated.documentHashInput,delayThresholdTicks,Object.entries(profileAssignments).sort(([a],[b])=>a.localeCompare(b))]);
-  const simulation=!hasAuthoringErrors&&!editorDraftInvalid&&!arrivalDraftsInvalid&&simulationState?.inputKey===simulationInputKey?simulationState.result:undefined;
+  const simulationInputKey=JSON.stringify([world,generated.documentHashInput,delayThresholdTicks,executionTimeoutMillis,timeoutRevision,Object.entries(profileAssignments).sort(([a],[b])=>a.localeCompare(b))]);
+  const simulation=timeoutValid&&!hasAuthoringErrors&&!editorDraftInvalid&&!arrivalDraftsInvalid&&simulationState?.inputKey===simulationInputKey?simulationState.result:undefined;
   const onDraftValidityChange=useCallback((key:string,valid:boolean)=>{
     const previous=invalidDrafts.current.has(key);
     if(previous===!valid)return;
@@ -222,7 +225,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     }).catch((error)=>{if(isCurrent())onError(String(error));});
     return()=>{active=false;};
   },[]);
-  const execute=async(operation:()=>Promise<void>)=>{const serial=++operationSerial.current,identity=ownerIdentity.current;setBusy(true);onError('');try{await operation();}catch(error){if(ownerIdentity.current===identity&&serial===operationSerial.current)onError(error instanceof Error?error.message:String(error));}finally{if(serial===operationSerial.current)setBusy(false);}};
+  const execute=async(operation:()=>Promise<void>,reportCurrent:()=>boolean=()=>true)=>{const serial=++operationSerial.current,identity=ownerIdentity.current;setBusy(true);onError('');try{await operation();}catch(error){if(reportCurrent()&&ownerIdentity.current===identity&&serial===operationSerial.current)onError(error instanceof Error?error.message:String(error));}finally{if(serial===operationSerial.current)setBusy(false);}};
   const load=async(id:string)=>execute(async()=>{
     const epoch=++ownerEpoch.current,input=liveInputs.current;
     const loaded=id?await api.editorDocument(world,id):emptyAuthoringDocument();
@@ -311,7 +314,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     }
   });
   const publish=async()=>{if(!editorDraftValidity.current.valid||arrivalDraftsInvalid||!compiled?.validation.valid)return;await execute(async()=>{await api.publish(world,compiled.timetable);});};
-  const simulate=async()=>{if(!editorDraftValidity.current.valid||arrivalDraftsInvalid||!hasAllProfiles||hasConflictingProfiles||generated.issues.some((issue)=>issue.severity==='error'))return;await execute(async()=>{
+  const simulate=async()=>{if(!timeoutValid||!editorDraftValidity.current.valid||arrivalDraftsInvalid||!hasAllProfiles||hasConflictingProfiles||generated.issues.some((issue)=>issue.severity==='error'))return;await execute(async()=>{
     const assignments=profileDuties.map((duty)=>{
       const selected=profileAssignments[duty.id],separator=selected.indexOf(':');
       return {serviceId:duty.id,profileType:selected.slice(0,separator) as 'WORLD_TRAIN'|'TRAIN_TEMPLATE',profileId:selected.slice(separator+1)};
@@ -326,9 +329,9 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
       setCompiledState({result:candidate,documentHashInput:generated.documentHashInput});
     }
     if(!candidate.validation.valid)throw new Error(candidate.validation.errors.join('; '));
-    const result=await api.simulateTimetable(world,candidate.timetable,assignments,delayThresholdTicks);
+    const result=await api.simulateTimetable(world,candidate.timetable,assignments,delayThresholdTicks,executionTimeoutMillis);
     if(current())setSimulationState({result,inputKey:simulationInputKey});
-  });};
+  },()=>liveInputs.current.simulationInputKey===simulationInputKey);};
   const replaceRun=(next:AuthoringRunV1,clearArrivalOverrides=false)=>{setPreviewRun(undefined);setValue((current)=>{
     const sourceLine=lines.find((line)=>line.id===next.diagramLineId);
     const diagramLines=sourceLine?[...current.diagramLines.filter((line)=>line.id!==sourceLine.id),{id:sourceLine.id,upStationIds:sourceLine.upStationIds,downStationIds:sourceLine.downStationIds}]:current.diagramLines;
@@ -392,7 +395,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     patchDuty(selectedDutyValue.id,{selector:{...selectedDutyValue.selector,...patch}});
   };
   const compileReason=(editorDraftInvalid||arrivalDraftsInvalid)?t('programs.invalidDraft'):busy?t('ui.busy'):!world?t('ui.noLine'):generated.issues.some((issue)=>issue.severity==='error')?t('ui.fixIssues'):'';
-  const simulationReason=(editorDraftInvalid||arrivalDraftsInvalid)?t('programs.invalidDraft'):busy?t('ui.busy'):generated.issues.some((issue)=>issue.severity==='error')||compiled&&!compiled.validation.valid?t('ui.fixIssues'):hasConflictingProfiles?t('ui.profilesConflict'):!hasAllProfiles?t('ui.profilesMissing'):'';
+  const simulationReason=!timeoutValid?t('ui.invalidNumber'):(editorDraftInvalid||arrivalDraftsInvalid)?t('programs.invalidDraft'):busy?t('ui.busy'):generated.issues.some((issue)=>issue.severity==='error')||compiled&&!compiled.validation.valid?t('ui.fixIssues'):hasConflictingProfiles?t('ui.profilesConflict'):!hasAllProfiles?t('ui.profilesMissing'):'';
   const commands:AuthoringCommandState={
     'new-run':busy?t('ui.busy'):!graphLineId?t('ui.noLine'):'',
     'copy-run':(editorDraftInvalid||arrivalDraftsInvalid)?t('programs.invalidDraft'):busy?t('ui.busy'):!selectedRunValue?t('duties.selectRun'):'',
@@ -441,17 +444,18 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     try{setValue(editAuthoringGraphTime(value,selectedPoint.runId,selectedPoint,tick));}catch(error){onError(graphTimeError(error));throw error;}
   };
   const resetTimes=()=>void execute(async()=>{
+    if(!timeoutValid)throw new Error(t('ui.invalidNumber'));
     const run=selectedRunValue,profile=simulationProfiles.find((item)=>`${item.type}:${item.id}`===resetProfile);
     if(!run?.diagramLineId||!profile||run.calls.length<2)throw new Error(t('duties.resetMissing'));
     const firstDeparture=run.calls[0]?.departureTick;
     if(firstDeparture==null)throw new Error(t('ui.originRequired'));
     const input=liveInputs.current,epoch=ownerEpoch.current;
-    const result=await api.simulateLine(world,run.lineId!,authoringResetProfile(lines,run,{profileType:profile.type,profileId:profile.id}));
-    if(ownerEpoch.current!==epoch||liveInputs.current.world!==input.world||liveInputs.current.documentJson!==input.documentJson||liveInputs.current.documentHashInput!==input.documentHashInput)throw new Error(t('duties.resetChanged'));
+    const result=await api.simulateLine(world,run.lineId!,authoringResetProfile(lines,run,{profileType:profile.type,profileId:profile.id}),executionTimeoutMillis);
+    if(ownerEpoch.current!==epoch||liveInputs.current.world!==input.world||liveInputs.current.documentJson!==input.documentJson||liveInputs.current.documentHashInput!==input.documentHashInput||liveInputs.current.simulationInputKey!==input.simulationInputKey)throw new Error(t('duties.resetChanged'));
     const next=resetRunTimings(run,result,firstDeparture,fixedDwell);
     if(next.calls.some((call)=>[call.arrivalTick,call.departureTick].some((tick)=>tick!=null&&tick>=value.periodDays*24000)))throw new Error(t('duties.outsidePeriod'));
     replaceRun(next,true);
-  });
+  },()=>liveInputs.current.simulationInputKey===simulationInputKey);
   const copyRuns=()=>{
     if(!selectedRunValue||copyInvalid||editorDraftInvalid||arrivalDraftsInvalid)return;
     try{if(!Number.isSafeInteger(copyCount)||copyCount<1||copyCount>100||!Number.isSafeInteger(copyOffset))throw new Error(t('ui.invalidNumber'));const copies=allocateAuthoringIds(value,'RUN',copyCount).map((id,index)=>copyRunShifted(selectedRunValue,id,copyOffset*(index+1),()=>uid('call')));
@@ -498,7 +502,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     <label>{t('simulation.profile')}<Select value={resetProfile||undefined} onChange={setResetProfile} options={simulationProfiles.map((profile)=>({value:`${profile.type}:${profile.id}`,label:profile.displayName}))}/></label>
     <Typography.Text type="secondary">{selectedRunValue?.calls[0]?.departureTick==null?t('ui.originRequired'):`${t('ui.departure')}: ${selectedRunValue.calls[0].departureTick}`}</Typography.Text>
     <label>{t('duties.fixedDwell')}<CommittedNumberInput fieldKey={`${fieldScope}/${selectedRun}/reset-dwell`} allowEmpty={false} min={0} precision={0} value={fixedDwell} onCommit={(tick)=>setFixedDwell(tick??0)}/></label>
-    <Button disabled={busy||!resetProfile||!selectedRunValue?.diagramLineId||selectedRunValue.calls[0]?.departureTick==null} onClick={resetTimes}>{t('duties.resetTimes')}</Button>
+    <Button disabled={busy||!timeoutValid||!resetProfile||!selectedRunValue?.diagramLineId||selectedRunValue.calls[0]?.departureTick==null} onClick={resetTimes}>{t('duties.resetTimes')}</Button>
   </div></section>;
 
 
@@ -511,7 +515,8 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     <Flex gap={6} wrap><Button icon={<EditOutlined/>} onClick={()=>void renameFormalScript()} disabled={busy||!persistedFormalScriptName||formalScriptName===persistedFormalScriptName}>{t('duties.renameScript')}</Button><Button danger icon={<DeleteOutlined/>} onClick={()=>void deleteFormalScript()} disabled={busy||!persistedFormalScriptName}>{t('duties.deleteScript')}</Button><Button danger onClick={()=>void remove()} disabled={!documentId||busy||!!persistedFormalScriptName}>{t('common.deleteDocument')}</Button></Flex>
   </div>;
   return <section className="duty-page studio-timetable-page">
-    {page==='duties'?<DutyManagement programSimulation={{world,owner:fieldScope,metadata,periodDays:value.periodDays,events:value.events}} focusedDutyElement={focusedDutyElement?.scope===fieldScope?focusedDutyElement:undefined} onOperationValidityChange={(dutyId,elementId,valid)=>onDraftValidityChange(`duty/${dutyId}/${elementId}`,valid)} onReferenceEvent={referenceEvent} onOpenGraphEvent={(id)=>{setPendingGraphEvent({id,scope:fieldScope});onPageChange?.('graph');}} simulation={simulation} onSimulate={()=>void simulate()} simulationReason={simulationReason} busy={busy} document={value} onDocumentChange={setValue} onOpenFormation={(dutyId,eventId)=>{setSelectedDuty(dutyId);const element=value.duties.find(d=>d.id===dutyId)?.elements.find(e=>e.type==='FORMATION'&&e.eventId===eventId);if(element)setFocusedDutyElement({dutyId,elementId:element.id,scope:fieldScope});}} onAddFormation={addFormation} onPatchFormation={patchFormation} onFormationSource={setFormationSource} focusedProgram={visibleFocusedProgram} onOpenProgramLibrary={onOpenProgramLibrary} programLibrary={programLibrary} boundPrograms={value.boundPrograms} programError={programError} programLoading={programLoading} onRefreshPrograms={()=>void loadPrograms()} onAddProgram={addProgram} onAdoptProgram={adoptProgram} onPatchProgram={patchProgram} fieldScope={fieldScope} duties={value.duties} runs={value.runs} selectedId={selectedDuty} metadata={metadata} onSelect={setSelectedDuty} onAdd={addDuty}
+    <div className="simulation-setup option-section"><SimulationTimeoutInput fieldKey={`${fieldScope}/simulation-timeout`} value={executionTimeoutMillis} onChange={setExecutionTimeoutMillis} onValidityChange={valid=>{setTimeoutValid(valid);setTimeoutRevision(revision=>revision+1);setSimulationState(undefined);}}/><Typography.Text type="secondary">{t('simulation.timeoutHint')}</Typography.Text></div>
+    {page==='duties'?<DutyManagement programSimulation={{world,owner:fieldScope,metadata,events:value.events}} focusedDutyElement={focusedDutyElement?.scope===fieldScope?focusedDutyElement:undefined} onOperationValidityChange={(dutyId,elementId,valid)=>onDraftValidityChange(`duty/${dutyId}/${elementId}`,valid)} onReferenceEvent={referenceEvent} onOpenGraphEvent={(id)=>{setPendingGraphEvent({id,scope:fieldScope});onPageChange?.('graph');}} simulation={simulation} onSimulate={()=>void simulate()} simulationReason={simulationReason} busy={busy} document={value} onDocumentChange={setValue} onOpenFormation={(dutyId,eventId)=>{setSelectedDuty(dutyId);const element=value.duties.find(d=>d.id===dutyId)?.elements.find(e=>e.type==='FORMATION'&&e.eventId===eventId);if(element)setFocusedDutyElement({dutyId,elementId:element.id,scope:fieldScope});}} onAddFormation={addFormation} onPatchFormation={patchFormation} onFormationSource={setFormationSource} focusedProgram={visibleFocusedProgram} onOpenProgramLibrary={onOpenProgramLibrary} programLibrary={programLibrary} boundPrograms={value.boundPrograms} programError={programError} programLoading={programLoading} onRefreshPrograms={()=>void loadPrograms()} onAddProgram={addProgram} onAdoptProgram={adoptProgram} onPatchProgram={patchProgram} fieldScope={fieldScope} duties={value.duties} runs={value.runs} selectedId={selectedDuty} metadata={metadata} onSelect={setSelectedDuty} onAdd={addDuty}
       onDelete={()=>{if(!selectedDutyValue||!window.confirm(t('ui.confirmDuty')))return;setValue((current)=>({...current,operationalTrips:current.operationalTrips?.map((trip)=>({...trip,segments:trip.segments.filter((s)=>s.serviceId!==selectedDutyValue.id)})),duties:current.duties.filter((duty)=>duty.id!==selectedDutyValue.id)}));setSelectedDuty('');}}
       onPatch={patchTimelineDuty} onAssign={assignRun} onRemove={removeElement} onViewRun={viewRun}/>:page==='validation'?<AuthoringValidation fieldScope={fieldScope} duties={value.duties} issues={generated.issues} compiled={compiled} compileError={compileFailure?.key===generated.documentHashInput?compileFailure.message:''}
       simulation={simulation} profiles={simulationProfiles} assignments={profileAssignments} threshold={delayThresholdTicks} conflicting={hasConflictingProfiles} busy={busy} compileReason={compileReason} simulationReason={simulationReason} delayedOrigin={delayedOrigin} source={generated.source}
@@ -537,7 +542,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     {visibleDutyOperationMenu&&<Dropdown open autoFocus trigger={['click']} placement="bottomLeft" onOpenChange={(open)=>{if(!open)setDutyOperationMenu(undefined);}} menu={{'aria-label':t('events.menu'),items:[{key:'owner',label:t('timed.openDuty')}],onClick:()=>{openDutyOperation(visibleDutyOperationMenu.dutyId,visibleDutyOperationMenu.elementId);setDutyOperationMenu(undefined);}}}><span className="graph-event-menu-anchor" style={{left:visibleDutyOperationMenu.anchor.x,top:visibleDutyOperationMenu.anchor.y}}/></Dropdown>}
     <Modal title={t(eventDraft?.original?'events.edit':'events.add')} open={Boolean(eventDraft&&eventDraft.scope===eventScope)} onCancel={()=>setEventDraft(undefined)} onOk={applyGraphEvent} okText={t('common.save')} okButtonProps={{disabled:!eventDraftValid}} destroyOnHidden footer={(_, {OkBtn,CancelBtn})=><Flex justify="space-between"><span>{eventDraft?.original&&<Button danger icon={<DeleteOutlined/>} disabled={eventDraft.scope!==eventScope||!timetableEventUnchanged(value.events??[],eventDraft.original)} onClick={()=>{if(eventDraft.scope===eventScope&&eventDraft.original)deleteEvent(eventDraft.original);}}>{t('common.delete')}</Button>}</span><Space><CancelBtn/><OkBtn/></Space></Flex>}>
       <Flex wrap gap={12} align="center"><Button loading={programLoading} onClick={()=>void loadPrograms()}>{t('programs.refresh')}</Button>{programError&&<Typography.Text type="danger" role="alert">{programError}</Typography.Text>}</Flex>
-      {eventDraft&&<TimedOperationFields programSimulation={{world,owner:eventScope,metadata,periodDays:value.periodDays,events:value.events}} key={`${eventScope}/${eventDraft.original?.id??'new'}`} fieldScope={`${fieldScope}/graph-event/${eventDraft.original?.id??'new'}`} operation={eventDraft.operation} onChange={(operation)=>setEventDraft((current)=>current?{...current,operation}:current)} stationIds={eventStationIds} stationNames={stationNames} bindings={value.boundPrograms??[]} library={programLibrary} allowMarker onValidityChange={(valid)=>setEventDraft((current)=>current&&current.valid!==valid?{...current,valid}:current)} measuredTicks={(()=>{const projection=projectedOperations.find((item)=>item.owner==='GRAPH'&&item.operation.id===eventDraft.original?.id);return JSON.stringify([eventDraft.original?.tick,eventDraft.original?.program])===JSON.stringify([eventDraft.operation.tick,eventDraft.operation.program])&&projection?.measured&&projection.endTick!==undefined?projection.endTick-projection.startTick:undefined;})()} onSimulate={()=>void simulate()} simulationReason={!eventDraft.original||JSON.stringify([eventDraft.original.tick,eventDraft.original.program])!==JSON.stringify([eventDraft.operation.tick,eventDraft.operation.program])?t('timed.saveFirst'):simulationReason} busy={busy} onOpenProgramLibrary={onOpenProgramLibrary}/>}
+      {eventDraft&&<TimedOperationFields programSimulation={{world,owner:eventScope,metadata,events:value.events}} key={`${eventScope}/${eventDraft.original?.id??'new'}`} fieldScope={`${fieldScope}/graph-event/${eventDraft.original?.id??'new'}`} operation={eventDraft.operation} onChange={(operation)=>setEventDraft((current)=>current?{...current,operation}:current)} stationIds={eventStationIds} stationNames={stationNames} bindings={value.boundPrograms??[]} library={programLibrary} allowMarker onValidityChange={(valid)=>setEventDraft((current)=>current&&current.valid!==valid?{...current,valid}:current)} measuredTicks={(()=>{const projection=projectedOperations.find((item)=>item.owner==='GRAPH'&&item.operation.id===eventDraft.original?.id);return JSON.stringify([eventDraft.original?.tick,eventDraft.original?.program])===JSON.stringify([eventDraft.operation.tick,eventDraft.operation.program])&&projection?.measured&&projection.endTick!==undefined?projection.endTick-projection.startTick:undefined;})()} onSimulate={()=>void simulate()} simulationReason={!eventDraft.original||JSON.stringify([eventDraft.original.tick,eventDraft.original.program])!==JSON.stringify([eventDraft.operation.tick,eventDraft.operation.program])?t('timed.saveFirst'):simulationReason} busy={busy} onOpenProgramLibrary={onOpenProgramLibrary}/>}
 
     </Modal>
 

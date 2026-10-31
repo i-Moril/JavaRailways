@@ -5,18 +5,17 @@ import java.util.Set;
 
 /** Transient one-call simulation request. World references are rechecked by the bridge owner. */
 final class ProgramSimulationValidator {
-    private static final long MAX_SAFE_INTEGER = 9_007_199_254_740_991L;
+    private static final long MAX_SIMULATION_TICK = (9_007_199_254_740_991L / 24_000L) * 24_000L - 1L;
     private ProgramSimulationValidator() {}
 
     static void validate(JsonNode request) {
-        fields(request, Set.of("programId", "definition", "arguments", "startTick", "periodDays", "profile", "initialPosition", "plannedContext", "maximumDurationTicks"), "program simulation request");
+        fields(request, Set.of("programId", "definition", "arguments", "startTick", "profile", "initialPosition", "plannedContext", "maximumDurationTicks", "executionTimeoutMillis"), "program simulation request");
+        BridgeClient.simulationExecutionTimeoutMillis(request);
         String id = text(request.path("programId"), "programId");
         if (!id.matches("[A-Za-z0-9][A-Za-z0-9_-]{0,127}")) fail("invalid programId");
         StationProgramValidator.validateArguments(request.path("definition"), request.path("arguments"));
-        long days = integer(request.path("periodDays"), "periodDays", 1, MAX_SAFE_INTEGER / 24_000);
-        long period = days * 24_000;
-        long start = integer(request.path("startTick"), "startTick", 0, period - 1);
-        integer(request.path("maximumDurationTicks"), "maximumDurationTicks", 1, period - start);
+        long start = integer(request.path("startTick"), "startTick", 0, MAX_SIMULATION_TICK - 1);
+        integer(request.path("maximumDurationTicks"), "maximumDurationTicks", 1, MAX_SIMULATION_TICK - start);
         JsonNode profile = request.path("profile");
         fields(profile, Set.of("type", "id"), "profile");
         if (!Set.of("WORLD_TRAIN", "TRAIN_TEMPLATE").contains(text(profile.path("type"), "profile.type"))) fail("invalid profile.type");

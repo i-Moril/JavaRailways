@@ -60,7 +60,7 @@ internal fun timetablePathSegments(uri: java.net.URI): List<String> =
         java.net.URLDecoder.decode(it.replace("+", "%2B"), StandardCharsets.UTF_8)
     }
 
-internal class HttpFailure(val status: Int, message: String) : RuntimeException(message)
+internal class HttpFailure(val status: Int, message: String, val code: String? = null) : RuntimeException(message)
 
 /** Resolve either the current authoring cap or an authoritative stored service cap. */
 internal fun resolveLineSimulationMaximumSpeed(
@@ -192,7 +192,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 }
                 route(exchange)
             } catch (e: HttpFailure) {
-                exchange.respond(e.status, error(e.message ?: "request failed"))
+                exchange.respond(e.status, error(e.message ?: "request failed", e.code))
             } catch (e: IllegalArgumentException) {
                 exchange.respond(400, error(e.message ?: "bad request"))
             } catch (e: Exception) {
@@ -325,7 +325,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
 
         private fun <T> await(action: () -> T): T = awaitDomainHttpRequest(
             plugin.platformDispatcher, timeoutMillis,
-            expired = { HttpFailure(504, "request expired before entering the simulation context") },
+            expired = { HttpFailure(504, "request expired before entering the simulation context", "REQUEST_TIMEOUT") },
             action = action
         )
 
@@ -562,7 +562,9 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 requiredDomainFeatures = plugin::requiredSimulationDomainFeatures,
                 prepareDomainFeatures = plugin::prepareSimulationDomainFeatures
             )
-            val response = runBoundedProgramSimulation(simulationExecutor) {
+            val response = runBoundedProgramSimulation(
+                simulationExecutor, request.executionTimeoutMillis
+            ) {
                 val compiled = try { plugin.timetableScriptSandbox.compileSource(request.source(), "function-simulation") }
                 catch (failure: TimetableScriptFailure) { throw HttpFailure(422, failure.message ?: "program compilation failed") }
                 val captured = await {
@@ -603,6 +605,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
 
         private fun simulateTimetableJson(worldName: String, body: String): String {
             val root = json.parseToJsonElement(body).jsonObject
+            val executionTimeoutMillis = simulationExecutionTimeoutMillis(root)
             val savedElement = root["timetable"]
                 ?: throw HttpFailure(400, "timetable is required")
             val saved = runCatching { TimetableSnapshotCodec.decode(savedElement.toString()) }
@@ -663,10 +666,10 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                         }
                 }
             } catch (_: RejectedExecutionException) {
-                throw HttpFailure(429, "timetable simulation queue is full; retry later")
+                throw HttpFailure(429, "timetable simulation queue is full; retry later", "SIMULATION_QUEUE_FULL")
             }
             val result = try {
-                task.get(60, TimeUnit.SECONDS)
+                task.get(executionTimeoutMillis, TimeUnit.MILLISECONDS)
             } catch (failure: ExecutionException) {
                 val cause = failure.cause ?: failure
                 if (cause is HttpFailure) throw cause
@@ -676,7 +679,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 throw cause
             } catch (_: TimeoutException) {
                 task.cancel(true)
-                throw HttpFailure(504, "timetable simulation timed out")
+                throw HttpFailure(504, "timetable simulation timed out", "SIMULATION_TIMEOUT")
             } catch (interrupted: InterruptedException) {
                 task.cancel(true)
                 Thread.currentThread().interrupt()
@@ -767,6 +770,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
 
         private fun simulateLineJson(worldName: String, lineId: String, body: String): String {
             val request = json.parseToJsonElement(body).jsonObject
+            val executionTimeoutMillis = simulationExecutionTimeoutMillis(request)
             val snapshot = await {
                 withWorld(worldName) { _, world ->
                     val data = world.basicWorldData
@@ -921,10 +925,10 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     )
                 }
             } catch (_: RejectedExecutionException) {
-                throw HttpFailure(429, "line simulation queue is full; retry later")
+                throw HttpFailure(429, "line simulation queue is full; retry later", "SIMULATION_QUEUE_FULL")
             }
             val result = try {
-                task.get(60, TimeUnit.SECONDS)
+                task.get(executionTimeoutMillis, TimeUnit.MILLISECONDS)
             } catch (failure: ExecutionException) {
                 val cause = failure.cause ?: failure
                 if (cause is IllegalArgumentException) throw HttpFailure(400, cause.message ?: "invalid simulation profile")
@@ -932,7 +936,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 throw cause
             } catch (_: TimeoutException) {
                 task.cancel(true)
-                throw HttpFailure(504, "line simulation timed out")
+                throw HttpFailure(504, "line simulation timed out", "SIMULATION_TIMEOUT")
             } catch (interrupted: InterruptedException) {
                 task.cancel(true)
                 Thread.currentThread().interrupt()
@@ -1090,7 +1094,10 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
         sendResponseHeaders(status, bytes.size.toLong())
         responseBody.use { it.write(bytes) }
     }
-    private fun error(message: String) = json.encodeToString(buildJsonObject { put("error", message) })
+    private fun error(message: String, code: String? = null) = json.encodeToString(buildJsonObject {
+        put("error", message)
+        code?.let { put("code", it) }
+    })
     private fun etag(body: String): String = '"' + MessageDigest.getInstance("SHA-256").digest(body.toByteArray(StandardCharsets.UTF_8)).joinToString("") { "%02x".format(it) } + '"'
 }
 

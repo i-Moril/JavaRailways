@@ -33,3 +33,9 @@ internal fun SavedCarModelTree.captureAnimationCapabilities(): Map<String, Set<S
     }
     return result.mapValues { (_, scenes) -> scenes.toSet() }
 }
+
+/** Query a detached model capability without starting an effect or requiring a visible model. */
+internal fun Map<String, Set<String>>.supportsAnimation(name: String, scene: String?): Boolean {
+    val scenes = get(name) ?: return false
+    return scene == null || work.art1st.javarailways.bukkit.render.Animation.normalizeSceneName(scene) in scenes
+}

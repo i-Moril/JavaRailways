@@ -114,7 +114,10 @@ public final class WebUiApplication {
             settings.http.maxRequestSize = config.maxRequestBytes();
             settings.staticFiles.add("/public", Location.CLASSPATH);
         });
-        app.before(context -> context.header("Referrer-Policy", "no-referrer"));
+        app.before(context -> {
+            context.header("Referrer-Policy", "no-referrer");
+            context.attribute("requestId", java.util.UUID.randomUUID().toString());
+        });
         app.get("/health", context -> context.json(Map.of("status", "ok")));
         app.get("/auth/session", this::sessionStatus);
         app.post("/auth/exchange", this::exchangeLoginToken);
@@ -205,21 +208,26 @@ public final class WebUiApplication {
             (exception, context) -> error(context, 400, exception.getMessage()));
         app.exception(IllegalStateException.class,
             (exception, context) -> {
-                errorLog.reportFailure("WebUI request failed method=" + context.method() + " path=" + context.path(), exception);
+                logRequestFailure(context, exception);
                 error(context, 503, exception.getMessage());
             });
+        app.exception(BridgeClient.Failure.class, (exception, context) -> {
+            logRequestFailure(context, exception);
+            error(context, exception.status, exception.code, exception.getMessage());
+        });
         app.exception(IOException.class,
             (exception, context) -> {
-                errorLog.reportFailure("WebUI request failed method=" + context.method() + " path=" + context.path(), exception);
-                error(context, 502, "bridge or draft storage unavailable");
+                logRequestFailure(context, exception);
+                error(context, 502, "STORAGE_UNAVAILABLE", "Draft storage is unavailable");
             });
         app.exception(Exception.class, (exception, context) -> {
-            errorLog.reportFailure("WebUI request failed method=" + context.method() + " path=" + context.path(), exception);
+            logRequestFailure(context, exception);
             error(context, 500, "internal error");
         });
         app.exception(InterruptedException.class, (exception, context) -> {
+            logRequestFailure(context, exception);
             Thread.currentThread().interrupt();
-            error(context, 504, "bridge request interrupted");
+            error(context, 504, "REQUEST_INTERRUPTED", "Bridge request interrupted");
         });
         app.get("/{path...}", context -> {
             if (context.path().startsWith("/api/")) {
@@ -448,11 +456,11 @@ public final class WebUiApplication {
     private void simulateProgram(Context context) throws IOException, InterruptedException {
         JsonNode request = requestJson(context);
         ProgramSimulationValidator.validate(request);
-        respond(context, bridge.post(worldPath(context) + "/programs/simulate", request));
+        respond(context, bridge.simulate(worldPath(context) + "/programs/simulate", request));
     }
 
     private void simulateTimetable(Context context) throws IOException, InterruptedException {
-        respond(context, bridge.post(worldPath(context) + "/timetables/simulate", requestJson(context)));
+        respond(context, bridge.simulate(worldPath(context) + "/timetables/simulate", requestJson(context)));
     }
 
     private String worldPath(Context context) {
@@ -464,7 +472,7 @@ public final class WebUiApplication {
     }
 
     private void simulateLine(Context context) throws IOException, InterruptedException {
-        respond(context, bridge.post(
+        respond(context, bridge.simulate(
             lineCollectionPath(context) + "/" + segment(context.pathParam("line")) + "/simulate",
             requestJson(context)
         ));
@@ -729,10 +737,46 @@ public final class WebUiApplication {
     }
 
     private static void respond(Context context, BridgeClient.Response response) {
-        context.status(response.status()).json(response.body());
+        if (response.status() >= 400) {
+            ObjectNode body = response.body().isObject() ? ((ObjectNode) response.body()).deepCopy() : new ObjectMapper().createObjectNode();
+            if (!body.path("error").isTextual()) body.put("error", "Server request failed");
+            if (!body.path("code").isTextual()) body.put("code",
+                response.status() == 422 && context.path().endsWith("/simulate") ? "SIMULATION_REJECTED" : errorCode(response.status()));
+            body.put("requestId", (String) context.attribute("requestId"));
+            LOGGER.log(System.Logger.Level.WARNING, "WebUI bridge request failed requestId=" + context.attribute("requestId")
+                + " method=" + context.method() + " path=" + context.path()
+                + " status=" + response.status() + " code=" + body.path("code").asText());
+            context.status(response.status()).json(body);
+        } else context.status(response.status()).json(response.body());
     }
 
     private static void error(Context context, int status, String message) {
-        context.status(status).json(Map.of("error", message == null ? "bad request" : message));
+        error(context, status, errorCode(status), message);
+    }
+
+    private static String errorCode(int status) {
+        return switch (status) {
+            case 400 -> "INVALID_REQUEST";
+            case 401 -> "AUTH_REQUIRED";
+            case 403 -> "FORBIDDEN";
+            case 404 -> "NOT_FOUND";
+            case 409 -> "CONFLICT";
+            case 422 -> "REQUEST_REJECTED";
+            case 429 -> "TOO_MANY_REQUESTS";
+            case 502 -> "BRIDGE_UNAVAILABLE";
+            case 503 -> "SERVICE_UNAVAILABLE";
+            case 504 -> "BRIDGE_TIMEOUT";
+            default -> "INTERNAL_ERROR";
+        };
+    }
+
+    private static void error(Context context, int status, String code, String message) {
+        context.status(status).json(Map.of("error", message == null ? "Request failed" : message,
+            "code", code, "requestId", (String) context.attribute("requestId")));
+    }
+
+    private void logRequestFailure(Context context, Exception exception) {
+        errorLog.reportFailure("WebUI request failed requestId=" + context.attribute("requestId")
+            + " method=" + context.method() + " path=" + context.path(), exception);
     }
 }

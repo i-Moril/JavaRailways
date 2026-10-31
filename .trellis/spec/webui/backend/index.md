@@ -25,7 +25,7 @@
 - `WebUiApplication` 是唯一 Javalin composition/route owner；handler 分清 local repository、bridge proxy 与 merged response。
 - `BridgeClient` 每次请求带 server-side Bearer token、JSON Accept/Content-Type 和 timeout；空 token fail-fast，token 不出现在 browser response/log。
 - public API 当前仅 world list 与 rail map/read stream；metadata、lines、drafts、editor documents、validate/publish 等需有效 session。
-- error JSON 统一 `{ "error": ... }`；保持 400 input、401 session、404 missing、502 bridge/storage IO（含 HTTP timeout）、503 configuration/state、504 thread interruption 的可预测 status。
+- error JSON 统一 `{error:string,code:string,requestId:string}`；稳定code区分bridge timeout/unavailable/invalid response与storage IO，保持400 input、401 session、404 missing、502 IO、503 configuration/state、504 timeout/interruption。requestId关联WebUI错误日志，不返回凭据或异常栈。
 - path segment、world/id/script name 均在 boundary 验证/编码，禁止把 URL/path 参数直接拼为 filesystem traversal。
 
 ## 质量检查

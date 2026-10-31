@@ -1,5 +1,11 @@
 # Implementation plan
 
+2026-10-31用户纠正模拟超时必须由界面设置：撤回刚新增的simulation配置项及环境变量；三个模拟请求必填executionTimeoutMillis，界面秒数转换整数毫秒，worker与HTTPdeadline从同请求值推导。前端351/Bukkit679/WebUI54及构建通过，真实UI1.001秒→1001毫秒/非法禁用/交路可见验证及独立复审通过。见research/simulation-errors-2026-10-31.md最后记录；未提交、部署或归档。
+
+2026-10-31超时与周期跟进：统一simulation-timeout-millis，managed/external网页从同预算加普通请求超时推导模拟deadline；移除独立函数模拟periodDays/UI，派生内部安全运行范围，跨日/参数绝对等待/真实LIMIT回归通过。最终前端347、Bukkit680、WebUI55及构建、真实页面跨日请求和独立复审通过，见research/simulation-errors-2026-10-31.md后续记录。未提交/部署/归档。
+
+2026-10-31模拟错误批次：用户授权修复已知错误。错误响应/本地化/模拟独立超时和s100逐车灯光能力已完成；前端345、Bukkit676、WebUI51测试及构建通过，独立复审和本机真实UI中英文超时验证通过。见research/simulation-errors-2026-10-31.md，含测试heap重跑、领域诊断语言/日志追踪及模型快照部署边界。未提交、部署或归档，保持原任务进行中。
+
 当前追加批次：2026-10-31 路径点仅保留 ID，用户明确授权直接修改。按 research/waypoint-identity-only.md 的模块所有权同步删除模型/存档/API/UI 全部显示名逻辑，集中运行跨层检查；离线数据工具先 dry-run，不自动部署/归档。
 
 后续用户已明确提交部署：daabfa4e已上线，主/备62字段经最终停服副本真实codec校验后与新JAR配套切换。完整恢复点、实际ATO/信号、0剩余点名称、14编辑文件保留及17资源/公开位置流均核验；部署记录见research/deployment-2026-10-31-waypoint-identity.md。父任务保持in_progress，不归档；旧实例停服模型清理异常保留为后续排查事项。

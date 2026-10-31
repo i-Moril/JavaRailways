@@ -3,7 +3,8 @@ import {act,StrictMode} from 'react';
 import {createRoot,type Root} from 'react-dom/client';
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {ProgramSimulationDialog} from './ProgramSimulationDialog';
-import {I18nProvider} from './i18n';
+import {I18nProvider,useI18n} from './i18n';
+import {ApiError} from './apiErrors';
 import {api} from './api';
 import type {ProgramSimulationResult,StationProgramDefinition,WorldMetadata} from './types';
 vi.mock('./api',()=>({api:{simulateProgram:vi.fn()}}));
@@ -24,20 +25,50 @@ const metadata:WorldMetadata={simulationProfiles:[{type:'TRAIN_TEMPLATE',id:'emu
 const complete:ProgramSimulationResult={status:'COMPLETED',simulatedTicks:250,startTick:150,endTick:250,durationTicks:100,initialPosition:{wayPointId:'point',direction:'BA',directionSource:'RAIL',reverseTrain:true}};
 let container:HTMLDivElement,root:Root;
 const deferred=()=>{let resolve!:(value:ProgramSimulationResult)=>void;const promise=new Promise<ProgramSimulationResult>(done=>resolve=done);return {promise,resolve};};
-const render=async(p:Partial<Parameters<typeof ProgramSimulationDialog>[0]>={})=>{await act(async()=>root.render(<StrictMode><I18nProvider><ProgramSimulationDialog world="world" owner="owner" metadata={metadata} periodDays={1} programId="1" definition={definition} startTick={100} onClose={()=>{}} {...p}/></I18nProvider></StrictMode>));};
+const LocaleSwitch=()=>{const {setLocale}=useI18n();return <button onClick={()=>setLocale('zh-CN')}>Switch Chinese</button>;};
+const render=async(p:Partial<Parameters<typeof ProgramSimulationDialog>[0]>={})=>{await act(async()=>root.render(<StrictMode><I18nProvider><LocaleSwitch/><ProgramSimulationDialog world="world" owner="owner" metadata={metadata} programId="1" definition={definition} startTick={100} onClose={()=>{}} {...p}/></I18nProvider></StrictMode>));};
 const button=(text:string)=>[...container.querySelectorAll('button')].find(button=>button.textContent===text)!;
 const click=async(text:string)=>{await act(async()=>button(text).click());};
 const select=async(label:string,value:string)=>{const element=container.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`);if(element){await act(async()=>{element.value=value;element.dispatchEvent(new Event('change',{bubbles:true}));});}else{await input(label,value);await act(async()=>container.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true})));}};
 const reverse=async(value:boolean)=>{await act(async()=>container.querySelector<HTMLInputElement>(`input[value="${value}"]`)!.click());};
 const input=async(label:string,value:string)=>{const element=container.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(element,value);element.dispatchEvent(new Event('input',{bubbles:true}));});};
 const ready=async()=>{await select('Simulation reference vehicle','TRAIN_TEMPLATE:emu');await select('Starting waypoint','point');await reverse(true);};
-beforeEach(()=>{vi.clearAllMocks();Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});container=document.createElement('div');document.body.append(container);root=createRoot(container);});
+beforeEach(()=>{localStorage.clear();vi.clearAllMocks();Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});container=document.createElement('div');document.body.append(container);root=createRoot(container);});
 afterEach(async()=>{await act(async()=>root.unmount());container.remove();});
 describe('mounted standalone invocation scenario',()=>{
+ it('displays a localized precise API error and retranslates it when the configured language changes',async()=>{
+  vi.mocked(api.simulateProgram).mockRejectedValue(new ApiError(504,'BRIDGE_TIMEOUT',undefined,'trace-12'));
+  await render();await ready();await click('Start simulation');
+  expect(container.textContent).toContain('Timed out waiting for the server bridge.');expect(container.textContent).toContain('Log reference: trace-12');
+  await click('Switch Chinese');expect(container.textContent).toContain('等待服务器桥接响应超时。');expect(container.textContent).toContain('日志追踪编号: trace-12');
+  expect(container.textContent).not.toContain('Timed out waiting');expect(container.textContent).not.toContain('"error"');
+ });
+
  it('requires an explicit reversal choice, uses only directed points and adopts a completed measurement only on request',async()=>{
   const adopt=vi.fn();vi.mocked(api.simulateProgram).mockResolvedValue(complete);await render({onAdoptDuration:adopt});expect(button('Start simulation').disabled).toBe(true);expect(container.textContent).not.toContain('undirected');
   await select('Simulation reference vehicle','TRAIN_TEMPLATE:emu');await select('Starting waypoint','point');expect(container.querySelector('input[type="radio"]:checked')).toBeNull();expect(button('Start simulation').disabled).toBe(true);await reverse(true);await click('Start simulation');
   expect(api.simulateProgram).toHaveBeenCalledExactlyOnceWith('world',expect.objectContaining({definition,arguments:{},startTick:100,profile:{type:'TRAIN_TEMPLATE',id:'emu'},initialPosition:{wayPointId:'point',reverseTrain:true}}));expect(container.textContent).toContain('Actual function duration: 100 tick');expect(adopt).not.toHaveBeenCalled();await click('Use as planned duration');expect(adopt).toHaveBeenCalledExactlyOnceWith(100);
+ });
+ it('offers an advance budget without a timetable period or end-of-day clipping',async()=>{
+  vi.mocked(api.simulateProgram).mockResolvedValue(complete);await render({startTick:23900});await ready();
+  expect(container.textContent).not.toContain('Timetable period');
+  await input('Simulation advance limit (ticks)','48000');
+  await act(async()=>container.querySelector<HTMLInputElement>('input[aria-label="Simulation advance limit (ticks)"]')!.dispatchEvent(new FocusEvent('focusout',{bubbles:true})));
+  await click('Start simulation');
+  expect(api.simulateProgram).toHaveBeenCalledExactlyOnceWith('world',expect.objectContaining({startTick:23900,maximumDurationTicks:48000}));
+  expect(vi.mocked(api.simulateProgram).mock.calls[0][1]).not.toHaveProperty('periodDays');
+ });
+ it('submits an editable real-time budget in exact milliseconds',async()=>{
+  vi.mocked(api.simulateProgram).mockResolvedValue(complete);await render();await ready();
+  await input('Simulation timeout (real seconds)','1.001');
+  await act(async()=>container.querySelector<HTMLInputElement>('input[aria-label="Simulation timeout (real seconds)"]')!.dispatchEvent(new FocusEvent('focusout',{bubbles:true})));
+  await click('Start simulation');expect(api.simulateProgram).toHaveBeenCalledExactlyOnceWith('world',expect.objectContaining({executionTimeoutMillis:1001}));
+ });
+ it('blocks invalid timeout drafts and ignores failures from a previous timeout choice',async()=>{
+  let reject!:(error:Error)=>void;const pending=new Promise<ProgramSimulationResult>((_,fail)=>{reject=fail;});vi.mocked(api.simulateProgram).mockReturnValue(pending);
+  await render();await ready();await click('Start simulation');await input('Simulation timeout (real seconds)','0');
+  expect(button('Start simulation').disabled).toBe(true);await act(async()=>reject(new Error('obsolete timeout error')));expect(container.textContent).not.toContain('obsolete timeout error');
+  expect(api.simulateProgram).toHaveBeenCalledTimes(1);
  });
  it('invalidates a pending response after A to B to A and allows a new request',async()=>{
   const first=deferred();vi.mocked(api.simulateProgram).mockReturnValueOnce(first.promise).mockResolvedValueOnce(complete);await render();await ready();await click('Start simulation');await reverse(false);await reverse(true);await act(async()=>first.resolve(complete));expect(container.textContent).not.toContain('Actual function duration:');expect(button('Start simulation').disabled).toBe(false);await click('Start simulation');expect(container.textContent).toContain('Actual function duration: 100 tick');
@@ -70,6 +101,6 @@ describe('mounted standalone invocation scenario',()=>{
   const old=deferred();vi.mocked(api.simulateProgram).mockReturnValueOnce(old.promise);await render({onAdoptDuration:vi.fn()});await ready();await click('Start simulation');await render({owner:'another-owner',valid:false,onAdoptDuration:vi.fn()});await act(async()=>old.resolve(complete));expect(container.textContent).not.toContain('Actual function duration:');expect(button('Start simulation').disabled).toBe(true);expect(button('Use as planned duration').disabled).toBe(true);
  });
  it('shows failed and limited results without an adoptable duration',async()=>{
-  const adopt=vi.fn();vi.mocked(api.simulateProgram).mockResolvedValue({...complete,status:'LIMIT_REACHED',durationTicks:undefined,endTick:undefined,reason:'Still waiting',failedProgramStepId:'wait'});await render({onAdoptDuration:adopt});await ready();await click('Start simulation');expect(container.textContent).toContain('complete duration is unknown');expect(container.textContent).toContain('Still waiting');expect(container.textContent).toContain('Failed step: wait');expect(button('Use as planned duration').disabled).toBe(true);expect(adopt).not.toHaveBeenCalled();
+  const adopt=vi.fn();vi.mocked(api.simulateProgram).mockResolvedValue({...complete,status:'LIMIT_REACHED',durationTicks:undefined,endTick:undefined,reason:'Still waiting',reasonCode:'SIMULATION_LIMIT_REACHED',failedProgramStepId:'wait'});await render({onAdoptDuration:adopt});await ready();await click('Start simulation');expect(container.textContent).toContain('complete duration is unknown');expect(container.textContent).toContain('Still waiting');expect(container.textContent).toContain('Failed step: wait');expect(button('Use as planned duration').disabled).toBe(true);expect(adopt).not.toHaveBeenCalled();await click('Switch Chinese');expect(container.textContent).toContain('已达到模拟推进上限。');expect(container.textContent).toContain('详细原因: Still waiting');expect(container.textContent).toContain('失败步骤: wait');
  });
 });

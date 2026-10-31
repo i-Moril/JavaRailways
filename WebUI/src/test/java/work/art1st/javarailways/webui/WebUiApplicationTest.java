@@ -21,6 +21,34 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class WebUiApplicationTest {
     @TempDir Path drafts;
 
+    @Test void bridgeTimeoutReturnsTypedErrorAndCorrelatedLogInsteadOfStorageFailure() throws Exception {
+        var mapper = new ObjectMapper();
+        HttpServer bridge = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        bridge.createContext("/worlds", exchange -> {
+            try { Thread.sleep(350); } catch (InterruptedException failure) { Thread.currentThread().interrupt(); }
+            exchange.close();
+        });
+        bridge.start();
+        Javalin app = new WebUiApplication(new WebUiConfig(
+            URI.create("http://127.0.0.1:" + bridge.getAddress().getPort() + "/"), "private-token",
+            drafts.resolve("drafts"), "127.0.0.1", false, 0, 4096, Duration.ofMillis(150))).createApp().start(0);
+        String requestId;
+        try {
+            var response = HttpClient.newHttpClient().send(HttpRequest.newBuilder(
+                URI.create("http://127.0.0.1:" + app.port() + "/api/v1/worlds")).GET().build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(504, response.statusCode());
+            var error = mapper.readTree(response.body());
+            assertEquals("BRIDGE_TIMEOUT", error.path("code").asText());
+            requestId = error.path("requestId").asText();
+            java.util.UUID.fromString(requestId);
+            assertTrue(!response.body().contains("storage") && !response.body().contains("private-token"));
+        } finally { app.stop(); bridge.stop(0); }
+        String log = java.nio.file.Files.readString(drafts.resolve("logs/errors.log"));
+        assertTrue(log.contains("requestId=" + requestId));
+        assertTrue(log.contains("java.net.http.HttpTimeoutException"));
+        assertTrue(!log.contains("private-token"));
+    }
+
     @Test void rejectsEditorDocumentsThatCannotBeSafelyLoadedByTheFrontend() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         String valid = """
@@ -91,7 +119,9 @@ class WebUiApplicationTest {
             assertEquals("Bearer bridge-token", exchange.getRequestHeaders().getFirst("Authorization"));
             assertEquals("POST", exchange.getRequestMethod());
             received.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
-            byte[] body = (status.get() == 200 ? "{\"status\":\"COMPLETED\",\"durationTicks\":1300}" : "{\"error\":\"simulation unavailable\"}").getBytes();
+            byte[] body = (status.get() == 200 ? "{\"status\":\"COMPLETED\",\"durationTicks\":1300}" : status.get() == 504
+                ? "{\"error\":\"program simulation timed out\",\"code\":\"SIMULATION_TIMEOUT\"}"
+                : "{\"error\":\"simulation unavailable\"}").getBytes();
             exchange.sendResponseHeaders(status.get(), body.length); exchange.getResponseBody().write(body); exchange.close();
         });
         bridge.start();
@@ -103,7 +133,7 @@ class WebUiApplicationTest {
             URI endpoint = URI.create(root + "/api/v1/worlds/world/programs/simulate");
             String body = """
                 {"programId":"p","definition":{"parameters":[],"steps":[{"id":"w","type":"WAIT_DURATION","durationTicks":{"value":1300}}]},
-                 "arguments":{},"startTick":100,"periodDays":1,"maximumDurationTicks":2000,
+                 "arguments":{},"startTick":100,"executionTimeoutMillis":60000,"maximumDurationTicks":2000,
                  "profile":{"type":"WORLD_TRAIN","id":"reference"},"initialPosition":{"wayPointId":"point","reverseTrain":true}}
                 """;
             assertEquals(401, client.send(HttpRequest.newBuilder(endpoint).header("Content-Type", "application/json")
@@ -122,7 +152,20 @@ class WebUiApplicationTest {
                 assertEquals(code, response.statusCode());
                 assertEquals(new ObjectMapper().readTree(body), new ObjectMapper().readTree(received.get()));
                 assertTrue(!response.body().contains("bridge-token") && !response.body().contains("one-time-token"));
+                if (code == 504) {
+                    var timeout = new ObjectMapper().readTree(response.body());
+                    assertEquals("SIMULATION_TIMEOUT", timeout.path("code").asText());
+                    assertEquals("program simulation timed out", timeout.path("error").asText());
+                    java.util.UUID.fromString(timeout.path("requestId").asText());
+                }
             }
+            // Local storage failure must never be mislabeled as a bridge outage.
+            java.nio.file.Files.createDirectories(drafts.resolve("world"));
+            java.nio.file.Files.writeString(drafts.resolve("world/broken.json"), "not JSON");
+            var failedRead = client.send(HttpRequest.newBuilder(URI.create(root + "/api/v1/worlds/world/drafts/broken"))
+                .header("Cookie", cookie).GET().build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(502, failedRead.statusCode());
+            assertEquals("STORAGE_UNAVAILABLE", new ObjectMapper().readTree(failedRead.body()).path("code").asText());
         } finally { app.stop(); bridge.stop(0); }
     }
 
@@ -159,7 +202,7 @@ class WebUiApplicationTest {
                 .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{\"token\":\"one-time-token\"}")).build(), HttpResponse.BodyHandlers.ofString());
             String cookie = login.headers().firstValue("Set-Cookie").orElseThrow().split(";", 2)[0];
             for (int speed : new int[]{5, 0}) {
-                String body = "{\"profileType\":\"TRAIN_TEMPLATE\",\"profileId\":\"train\",\"maximumSpeedMetersPerSecond\":" + speed + "}";
+                String body = "{\"executionTimeoutMillis\":1234,\"profileType\":\"TRAIN_TEMPLATE\",\"profileId\":\"train\",\"maximumSpeedMetersPerSecond\":" + speed + "}";
                 HttpResponse<String> result = client.send(HttpRequest.newBuilder(reset).header("Cookie", cookie)
                     .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
                 assertEquals(new ObjectMapper().readTree(body), new ObjectMapper().readTree(received.get()));

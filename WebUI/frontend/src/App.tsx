@@ -72,8 +72,8 @@ export default function App() {
         let loginError='';
         if(loginToken){
           window.history.replaceState(null,'',`${window.location.pathname}${window.location.search}`);
-          const response=await fetch('/auth/exchange',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:loginToken})});
-          if(!response.ok){const body=await response.json().catch(()=>({})) as {error?:string};loginError=body.error||`Login failed (${response.status})`;}
+          try { await api.exchangeLoginToken(loginToken); }
+          catch(failure) { loginError=failure instanceof Error?failure.message:String(failure); }
         }
         const session=await api.session();
         if(cancelled)return;

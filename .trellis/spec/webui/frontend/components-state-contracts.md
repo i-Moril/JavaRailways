@@ -18,6 +18,12 @@
 
 不要从 component 直接 fetch privileged API，也不要把 Java enum/token翻译后发回 server。`UP`、`DOWN`、`WORLD_TRAIN`、action `type` 等保持固定值。
 
+登录exchange也走同一request owner。non-2xx由`apiErrors.ts`解析`error/code/requestId`为`ApiError`，按当前`javarailways.locale`显示zh-CN/en-US摘要与日志编号，不能将response.text()的JSON/HTML直接显示。网络失败、错误正文读取中断及成功响应无效JSON同样转换为明确错误类型。未知code使用HTTP摘要并保留安全的字符串诊断，不从502猜桥接或磁盘原因。领域原始诊断可作为标明的详细原因保留；尚未全面翻译领域文本。
+
+`ProgramSimulationDialog`保留ApiError对象并在render时按context locale翻译，已有错误随切换语言更新；其他既有组件在接收错误时取当前语言的message。HTTP200但FAILED/LIMIT_REACHED的模拟按reasonCode翻译摘要、保留reason和failedProgramStepId，不能当成功耗时。
+
+模拟执行超时由界面当前调用选择，秒为展示单位、请求必填整数executionTimeoutMillis（1..3600000）。共享SimulationTimeoutInput默认60秒，明确区别于模拟tick推进上限；函数dialog和DutyEditor（完整时刻表/线路重算）各有明确的临时值owner，不写文档或恢复存储。非法/未提交输入阻止模拟，输入编辑立即作废旧结果，已提交budget参与异步身份校验；不能在玩家编辑超时时默默发送上一个合法值。后端及bridge HTTP等待均读取同一请求预算，不新增simulation配置文件项。
+
 ## Authoring 与 validation
 
 `TimetableAuthoringDocumentV1.formatVersion` 是独立 editor-document boundary。`validateAuthoringDocument` 负责结构化文档的 ID、period、line/call 顺序、tick/dwell、duty assignment、location/time continuity；`generateTimetableSource` deterministic 生成只读 JS。规则：

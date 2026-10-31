@@ -15,7 +15,7 @@ class ProgramSimulationTest {
     private fun request(extra: JsonObject.() -> JsonObject = { this }): ProgramSimulationRequest {
         val root = Json.parseToJsonElement("""
             {"programId":"p","definition":{"parameters":[],"steps":[]},"arguments":{},
-             "startTick":100,"periodDays":1,"maximumDurationTicks":2000,
+             "startTick":100,"executionTimeoutMillis":60000,"maximumDurationTicks":2000,
              "profile":{"type":"TRAIN_TEMPLATE","id":"train"},
              "initialPosition":{"wayPointId":"point","reverseTrain":false}}
         """).jsonObject
@@ -24,11 +24,11 @@ class ProgramSimulationTest {
 
     @Test fun `requires explicit reverse choice and safe bounded integer horizon`() {
         assertEquals(2100L, request().maximumSimulationTicks)
-        for (field in listOf("programId", "definition", "arguments", "startTick", "periodDays", "maximumDurationTicks", "profile", "initialPosition")) {
+        for (field in listOf("programId", "definition", "arguments", "startTick", "maximumDurationTicks", "executionTimeoutMillis", "profile", "initialPosition")) {
             assertThrows(IllegalArgumentException::class.java) { request { JsonObject(this - field) } }
         }
         for ((field, value) in listOf("startTick" to JsonPrimitive("100"), "startTick" to JsonPrimitive(-1),
-            "periodDays" to JsonPrimitive(Long.MAX_VALUE), "maximumDurationTicks" to JsonPrimitive(23901), "maximumDurationTicks" to JsonPrimitive(0))) {
+            "startTick" to JsonPrimitive(Long.MAX_VALUE), "maximumDurationTicks" to JsonPrimitive(Long.MAX_VALUE), "maximumDurationTicks" to JsonPrimitive(0))) {
             assertThrows(IllegalArgumentException::class.java) { request { JsonObject(this + (field to value)) } }
         }
         assertThrows(IllegalArgumentException::class.java) {
@@ -41,6 +41,35 @@ class ProgramSimulationTest {
             """{"wayPointId":"point","reverseTrain":true,"facing":"OPPOSITE"}"""
         )) assertThrows(IllegalArgumentException::class.java) {
             request { JsonObject(this + ("initialPosition" to Json.parseToJsonElement(position))) }
+        }
+    }
+
+    @Test fun `internal horizon covers multiple days and absolute waits without restricting the advance budget`() {
+        val input = request {
+            JsonObject(this + mapOf("startTick" to JsonPrimitive(23_900L), "maximumDurationTicks" to JsonPrimitive(48_000L),
+                "definition" to Json.parseToJsonElement("""
+                    {"parameters":[{"id":"when","type":"TICK"}],"steps":[
+                      {"id":"wait","type":"WAIT_UNTIL","tick":{"parameterId":"when"}}]}
+                """), "arguments" to buildJsonObject { put("when", 120_000L) }))
+        }
+        assertEquals(71_900L, input.maximumSimulationTicks)
+        assertEquals(6L, input.periodDays)
+        TimetableScriptSandbox(directory).use { sandbox ->
+            val saved = sandbox.compileSource(input.source(), "function-simulation")
+            assertEquals(6L, saved.periodDays)
+            assertTrue(saved.services.single().steps.any { it.tick == 120_000L })
+        }
+        val edge = (9_007_199_254_740_991L / 24_000L) * 24_000L - 1L
+        val boundary = request { JsonObject(this + mapOf("startTick" to JsonPrimitive(edge - 1), "maximumDurationTicks" to JsonPrimitive(1))) }
+        assertTrue(boundary.periodDays * 24_000L <= 9_007_199_254_740_991L)
+    }
+
+    @Test fun `execution deadline is an explicit safe wall clock budget independent of ticks`() {
+        for (value in listOf(JsonPrimitive(0), JsonPrimitive(3_600_001), JsonPrimitive(1.5), JsonPrimitive("1000"), JsonNull)) {
+            assertThrows(IllegalArgumentException::class.java) { request { JsonObject(this + ("executionTimeoutMillis" to value)) } }
+        }
+        for (value in listOf(1L, 1_001L, 3_600_000L)) {
+            assertEquals(value, request { JsonObject(this + ("executionTimeoutMillis" to JsonPrimitive(value))) }.executionTimeoutMillis)
         }
     }
 
@@ -114,6 +143,7 @@ class ProgramSimulationTest {
             val preparing = programSimulationResultJson(IsolatedTimetableSimulationResult.PeriodEnded(2100L,
                 listOf(run(emptyList()))), saved, point, true)
             assertTrue(preparing["reason"]!!.jsonPrimitive.content.contains("preparation"))
+            assertEquals("SIMULATION_LIMIT_REACHED", preparing["reasonCode"]!!.jsonPrimitive.content)
             assertFalse(preparing.containsKey("startTick"))
             for (result in listOf(
                 IsolatedTimetableSimulationResult.PeriodEnded(2100L, listOf(run(listOf(TimetableTaskTiming(PROGRAM_SIMULATION_TASK, 100L))))),
@@ -123,6 +153,12 @@ class ProgramSimulationTest {
                 val json = programSimulationResultJson(result, saved, point, false)
                 assertFalse(json.containsKey("durationTicks")); assertFalse(json.containsKey("endTick"))
                 assertNotEquals("COMPLETED", json["status"]!!.jsonPrimitive.content)
+                val expectedReasonCode = when (result) {
+                    is IsolatedTimetableSimulationResult.Failed -> "SIMULATION_FAILED"
+                    is IsolatedTimetableSimulationResult.PeriodEnded -> "SIMULATION_LIMIT_REACHED"
+                    else -> "SIMULATION_TIMING_UNAVAILABLE"
+                }
+                assertEquals(expectedReasonCode, json["reasonCode"]!!.jsonPrimitive.content)
             }
         }
     }
@@ -135,8 +171,9 @@ class ProgramSimulationTest {
         assertTrue(occupied.await(5, TimeUnit.SECONDS))
         executor.submit { release.await() }
         try {
-            val full = assertThrows(HttpFailure::class.java) { runBoundedProgramSimulation(executor) { error("cannot start") } }
+            val full = assertThrows(HttpFailure::class.java) { runBoundedProgramSimulation(executor, 1000L) { error("cannot start") } }
             assertEquals(429, full.status)
+            assertEquals("SIMULATION_QUEUE_FULL", full.code)
         } finally { release.countDown(); executor.shutdown(); assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS)) }
         val worker = Executors.newSingleThreadExecutor()
         val cancelled = CountDownLatch(1)
@@ -147,6 +184,7 @@ class ProgramSimulationTest {
                 }
             }
             assertEquals(504, timeout.status)
+            assertEquals("SIMULATION_TIMEOUT", timeout.code)
             assertTrue(cancelled.await(5, TimeUnit.SECONDS))
         } finally { worker.shutdownNow(); assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS)) }
     }

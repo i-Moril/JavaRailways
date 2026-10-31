@@ -3,7 +3,35 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from 're
 export type Locale = 'zh-CN' | 'en-US';
 
 const zh = {
+  'errors.bridgeTimeout':'等待服务器桥接响应超时。',
+  'errors.bridgeUnavailable':'无法连接服务器桥接服务。',
+  'errors.bridgeInvalidResponse':'服务器桥接返回了无法读取的响应。',
+  'errors.storageUnavailable':'无法读写服务器存储。',
+  'errors.requestInterrupted':'服务器请求已中断。',
+  'errors.internal':'服务器处理请求时发生内部错误。',
+  'errors.unavailable':'服务暂时不可用。',
+  'errors.invalid':'请求内容无效。',
+  'errors.rejected':'服务器无法处理此请求。',
+  'errors.simulationFailed':'模拟执行失败。',
+  'errors.simulationTimingUnavailable':'未获得明确的函数执行起止时间。',
+  'errors.auth':'请先登录。',
+  'errors.forbidden':'没有执行此操作的权限。',
+  'errors.notFound':'请求的资源不存在。',
+  'errors.conflict':'数据已发生变化，请刷新后重试。',
+  'errors.simulationTimeout':'模拟超过了服务器执行时间限制。',
+  'errors.simulationQueueFull':'模拟队列已满，请稍后重试。',
+  'errors.simulationRejected':'无法执行这次模拟。',
+  'errors.network':'网络请求失败，请检查连接。',
+  'errors.http':'请求失败',
+  'errors.timeout':'等待服务器响应超时。',
+  'errors.rateLimited':'请求过于频繁，请稍后重试。',
+  'errors.details':'详细原因',
+  'errors.requestId':'日志追踪编号',
+  'errors.simulationLimit':'已达到模拟推进上限。',
+
   'programSimulation.cancel':'取消',
+  'simulation.timeout':'模拟执行超时（真实秒）',
+  'simulation.timeoutHint':'限制服务器实际计算的等待时间，与模拟推进的 tick 数不同；仅用于本次模拟，不保存到时刻表。',
   'programSimulation.title':'模拟函数耗时',
   'programSimulation.open':'模拟函数',
   'programSimulation.run':'开始模拟',
@@ -11,7 +39,6 @@ const zh = {
   'programSimulation.scenarioHint':'在隔离环境中运行这一次函数调用。参考车辆只提供车型与运行参数，不复制真实列车的当前位置或运行状态。',
   'programSimulation.waypoint':'模拟起点',
   'programSimulation.start':'开始时刻（tick）',
-  'programSimulation.period':'周期天数',
   'programSimulation.limit':'模拟推进上限（tick）',
   'programSimulation.noProfiles':'当前没有可用的参考车辆。',
   'programSimulation.noPoints':'当前没有指定方向的路径点。请为路径点或其所在轨道配置方向。',
@@ -717,7 +744,35 @@ const zh = {
 
 type TranslationKey = keyof typeof zh;
 const en: Record<TranslationKey, string> = {
+  'errors.bridgeTimeout':'Timed out waiting for the server bridge.',
+  'errors.bridgeUnavailable':'Cannot connect to the server bridge.',
+  'errors.bridgeInvalidResponse':'The server bridge returned an unreadable response.',
+  'errors.storageUnavailable':'Cannot read or write server storage.',
+  'errors.requestInterrupted':'The server request was interrupted.',
+  'errors.internal':'The server encountered an internal error.',
+  'errors.unavailable':'The service is temporarily unavailable.',
+  'errors.invalid':'The request is invalid.',
+  'errors.rejected':'The server could not process this request.',
+  'errors.simulationFailed':'Simulation execution failed.',
+  'errors.simulationTimingUnavailable':'No unambiguous function execution timing was recorded.',
+  'errors.auth':'Please sign in.',
+  'errors.forbidden':'You do not have permission to perform this action.',
+  'errors.notFound':'The requested resource was not found.',
+  'errors.conflict':'The data has changed. Refresh and try again.',
+  'errors.simulationTimeout':'Simulation exceeded the server execution time limit.',
+  'errors.simulationQueueFull':'The simulation queue is full. Try again later.',
+  'errors.simulationRejected':'This simulation could not run.',
+  'errors.network':'The network request failed. Check your connection.',
+  'errors.http':'Request failed',
+  'errors.timeout':'Timed out waiting for the server response.',
+  'errors.rateLimited':'Too many requests. Try again later.',
+  'errors.details':'Details',
+  'errors.requestId':'Log reference',
+  'errors.simulationLimit':'The simulation advance limit was reached.',
+
   'programSimulation.cancel':'Cancel',
+  'simulation.timeout':'Simulation timeout (real seconds)',
+  'simulation.timeoutHint':'Limits real computation time, separately from simulated ticks. Used for this simulation only; not saved in the timetable.',
   'programSimulation.title':'Simulate function duration',
   'programSimulation.open':'Simulate function',
   'programSimulation.run':'Start simulation',
@@ -725,7 +780,6 @@ const en: Record<TranslationKey, string> = {
   'programSimulation.scenarioHint':'Run this invocation in isolation. The reference vehicle supplies its model and operating parameters; its live position and runtime state are not copied.',
   'programSimulation.waypoint':'Starting waypoint',
   'programSimulation.start':'Start tick',
-  'programSimulation.period':'Period (days)',
   'programSimulation.limit':'Simulation advance limit (ticks)',
   'programSimulation.noProfiles':'No reference vehicles are available.',
   'programSimulation.noPoints':'No directed waypoints are available. Configure a direction on a waypoint or its rail.',
@@ -1444,13 +1498,14 @@ interface I18nValue {
 
 const I18nContext = createContext<I18nValue | null>(null);
 
-function initialLocale(): Locale {
+export function currentLocale(): Locale {
   if (typeof window === 'undefined') return 'en-US';
-  return normalizeLocale(window.localStorage.getItem('javarailways.locale') || window.navigator.language);
+  try { return normalizeLocale(window.localStorage.getItem('javarailways.locale') || window.navigator?.language); }
+  catch { return normalizeLocale(window.navigator?.language); }
 }
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [locale, updateLocale] = useState<Locale>(initialLocale);
+  const [locale, updateLocale] = useState<Locale>(currentLocale);
   const value = useMemo<I18nValue>(() => ({
     locale,
     setLocale(next) {

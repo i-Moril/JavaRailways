@@ -11,7 +11,7 @@ import java.util.concurrent.*
 
 internal const val PROGRAM_SIMULATION_SERVICE = "function-simulation"
 internal const val PROGRAM_SIMULATION_TASK = "function-call"
-private const val MAX_SAFE_INTEGER = 9_007_199_254_740_991L
+private const val MAX_SIMULATION_TICK = (9_007_199_254_740_991L / 24_000L) * 24_000L - 1L
 
 internal data class ProgramSimulationWayPoint(
     val id: String,
@@ -44,15 +44,42 @@ internal data class ProgramSimulationRequest(
     val definition: JsonObject,
     val arguments: JsonObject,
     val startTick: Long,
-    val periodDays: Long,
     val profileType: SimulationProfileType,
     val profileId: String,
     val wayPointId: String,
     val reverseTrain: Boolean,
     val plannedContext: JsonObject,
-    val maximumDurationTicks: Long
+    val maximumDurationTicks: Long,
+    val executionTimeoutMillis: Long
 ) {
     val maximumSimulationTicks: Long get() = startTick + maximumDurationTicks
+
+    // The dispatcher needs a period, but a one-call measurement has no repeating timetable.
+    // Cover absolute waits as well as the budget: a wait beyond the budget must reach the
+    // simulation limit rather than fail compilation for falling outside an artificial day.
+    val periodDays: Long get() {
+        var latestTick = maximumSimulationTicks
+        fun visit(steps: JsonArray) {
+            steps.forEach { raw ->
+                val step = raw.jsonObject
+                when (step["type"]?.jsonPrimitive?.content) {
+                    "WAIT_UNTIL" -> {
+                        val expression = step["tick"] as? JsonObject
+                        val value = expression?.get("value") ?: expression?.get("parameterId")
+                            ?.jsonPrimitive?.content?.let(arguments::get)
+                        val tick = (value as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
+                        if (tick != null) {
+                            require(tick in 0L..MAX_SIMULATION_TICK) { "wait tick is outside the safe simulation range" }
+                            latestTick = maxOf(latestTick, tick)
+                        }
+                    }
+                    "BRANCH" -> { visit(step["thenSteps"]!!.jsonArray); visit(step["elseSteps"]!!.jsonArray) }
+                }
+            }
+        }
+        visit(definition["steps"]!!.jsonArray)
+        return latestTick / 24_000L + 1L
+    }
 
     /** JSON.parse keeps keys such as __proto__ as data; nothing supplied is executable source. */
     fun source(): String {
@@ -76,7 +103,7 @@ internal data class ProgramSimulationRequest(
         fun parse(body: String): ProgramSimulationRequest {
             val root = Json.parseToJsonElement(body) as? JsonObject
                 ?: throw IllegalArgumentException("program simulation request must be an object")
-            fields(root, setOf("programId", "definition", "arguments", "startTick", "periodDays", "profile", "initialPosition", "plannedContext", "maximumDurationTicks"), "program simulation request")
+            fields(root, setOf("programId", "definition", "arguments", "startTick", "profile", "initialPosition", "plannedContext", "maximumDurationTicks", "executionTimeoutMillis"), "program simulation request")
             val programId = text(root["programId"], "programId")
             require(programId.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,127}"))) { "invalid programId" }
             val definition = obj(root["definition"], "definition")
@@ -96,10 +123,8 @@ internal data class ProgramSimulationRequest(
             }
             checkLibrarySteps(definition["steps"])
             val arguments = obj(root["arguments"], "arguments")
-            val periodDays = integer(root["periodDays"], "periodDays", 1L, MAX_SAFE_INTEGER / 24_000L)
-            val periodTicks = periodDays * 24_000L
-            val startTick = integer(root["startTick"], "startTick", 0L, periodTicks - 1L)
-            val maximumDuration = integer(root["maximumDurationTicks"], "maximumDurationTicks", 1L, periodTicks - startTick)
+            val startTick = integer(root["startTick"], "startTick", 0L, MAX_SIMULATION_TICK - 1L)
+            val maximumDuration = integer(root["maximumDurationTicks"], "maximumDurationTicks", 1L, MAX_SIMULATION_TICK - startTick)
             val profile = obj(root["profile"], "profile")
             fields(profile, setOf("type", "id"), "profile")
             val profileType = SimulationProfileType.valueOf(text(profile["type"], "profile.type"))
@@ -108,10 +133,10 @@ internal data class ProgramSimulationRequest(
             val context = root["plannedContext"]?.let { obj(it, "plannedContext") } ?: JsonObject(emptyMap())
             fields(context, setOf("runType", "lineDirection", "stationId", "runId", "lineId", "callStatus", "dutyId"), "plannedContext")
             context.forEach { (key, value) -> text(value, "plannedContext.$key") }
-            return ProgramSimulationRequest(programId, definition, arguments, startTick, periodDays,
+            return ProgramSimulationRequest(programId, definition, arguments, startTick,
                 profileType, text(profile["id"], "profile.id"), text(position["wayPointId"], "initialPosition.wayPointId"),
                 (position["reverseTrain"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
-                    ?: throw IllegalArgumentException("initialPosition.reverseTrain must be an explicit boolean"), context, maximumDuration)
+                    ?: throw IllegalArgumentException("initialPosition.reverseTrain must be an explicit boolean"), context, maximumDuration, simulationExecutionTimeoutMillis(root))
         }
 
         private fun fields(value: JsonObject, allowed: Set<String>, label: String) {
@@ -155,6 +180,11 @@ internal fun programSimulationResultJson(
     timing?.let { put("startTick", it.startTick) }
     if (complete) { put("endTick", endTick!!); put("durationTicks", endTick - timing!!.startTick) }
     else {
+        put("reasonCode", when (result) {
+            is IsolatedTimetableSimulationResult.PeriodEnded, is IsolatedTimetableSimulationResult.DelayExceeded -> "SIMULATION_LIMIT_REACHED"
+            is IsolatedTimetableSimulationResult.Failed -> "SIMULATION_FAILED"
+            else -> "SIMULATION_TIMING_UNAVAILABLE"
+        })
         put("reason", when (result) {
             is IsolatedTimetableSimulationResult.Failed -> result.reason
             is IsolatedTimetableSimulationResult.PeriodEnded -> if (timing == null)
@@ -180,13 +210,20 @@ internal fun programSimulationResultJson(
 
 internal fun <T> runBoundedProgramSimulation(
     executor: ExecutorService,
-    timeoutMillis: Long = 60_000L,
+    timeoutMillis: Long,
     action: () -> T
 ): T {
     val future = try { executor.submit(Callable(action)) }
-    catch (_: RejectedExecutionException) { throw HttpFailure(429, "program simulation queue is full; retry later") }
+    catch (_: RejectedExecutionException) { throw HttpFailure(429, "program simulation queue is full; retry later", "SIMULATION_QUEUE_FULL") }
     return try { future.get(timeoutMillis, TimeUnit.MILLISECONDS) }
     catch (failure: ExecutionException) { throw (failure.cause ?: failure) }
-    catch (_: TimeoutException) { future.cancel(true); throw HttpFailure(504, "program simulation timed out") }
+    catch (_: TimeoutException) { future.cancel(true); throw HttpFailure(504, "program simulation timed out", "SIMULATION_TIMEOUT") }
     catch (interrupted: InterruptedException) { future.cancel(true); Thread.currentThread().interrupt(); throw interrupted }
+}
+
+/** Shared wall-clock request budget; independent of the simulated tick horizon. */
+internal fun simulationExecutionTimeoutMillis(root: JsonObject): Long {
+    return (root["executionTimeoutMillis"] as? JsonPrimitive)?.takeUnless { it.isString }
+        ?.longOrNull?.takeIf { it in 1L..3_600_000L }
+        ?: throw IllegalArgumentException("executionTimeoutMillis must be an integer between 1 and 3600000")
 }

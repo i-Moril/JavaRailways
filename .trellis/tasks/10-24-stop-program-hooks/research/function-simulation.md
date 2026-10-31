@@ -17,7 +17,7 @@ GET metadata provides `programSimulationWayPoints: {id,railId,direction:'AB'|'BA
 POST `/api/v1/worlds/{world}/programs/simulate` (sidecar and bridge):
 
 ```
-{programId, definition, arguments, startTick, periodDays,
+{programId, definition, arguments, startTick, executionTimeoutMillis,
  profile:{type:'WORLD_TRAIN'|'TRAIN_TEMPLATE',id},
  initialPosition:{wayPointId,reverseTrain:boolean},
  plannedContext?:object, maximumDurationTicks}
@@ -32,7 +32,7 @@ Response:
  initialPosition:{wayPointId,direction:'AB'|'BA',directionSource:'WAYPOINT'|'RAIL',reverseTrain:boolean}}
 ```
 
-Require all execution fields and explicit reverseTrain true/false; the uncommitted facing enum is removed, with no compatibility path. startTick within periodDays*24000; maximumDurationTicks positive, bounded by remaining period (UI default min(24000, remaining)). Failed/partial result never carries successful duration. Frontend resolves WAIT_EVENT against exact current document context where available before request; library has no fabricated event context. Planned context contains only actual caller-known plan fields (library empty; call dutyId only or known equivalent). Server compiles safe JSON as data via tiny DSL wrapper: acquisition at real waypoint + optional actual reverse() + task('function-call') + program invocation. The setup reverse precedes task timing, leaves body positions unchanged, and is not opposite-side placement. Normal validation remains authoritative.
+Require all execution fields and explicit reverseTrain true/false; the uncommitted facing enum is removed, with no compatibility path. CURRENT Oct31 correction: independent function simulation has no player-facing or wire periodDays. startTick and positive maximumDurationTicks define a safe-integer bounded horizon (UI initial limit24000); the dispatcher wrapper derives enough days for the horizon and absolute WAIT_UNTIL targets, including parameters/branches. Waits beyond the advance budget yield LIMIT_REACHED rather than an artificial period compilation failure. Failed/partial result never carries successful duration. Frontend resolves WAIT_EVENT against exact current document context where available before request; library has no fabricated event context. Planned context contains only actual caller-known plan fields (library empty; call dutyId only or known equivalent). Server compiles safe JSON as data via tiny DSL wrapper: acquisition at real waypoint + optional actual reverse() + task('function-call') + program invocation. The setup reverse precedes task timing, leaves body positions unchanged, and is not opposite-side placement. Normal validation remains authoritative.
 
 ## UI ownership
 

@@ -23,11 +23,15 @@ public allowlist 由 `isPublicMapRequest` 精确约束：`GET /api/v1/worlds`、
 | 无效 JSON/path/document | 400 |
 | 缺失或过期的 WebUI session | 401 |
 | 本地资源缺失或 API 未知 | 404 |
-| bridge/storage 的 `IOException` | 502 |
+| bridge连接失败/无效响应、storage 的 `IOException`（按code区分） | 502 |
 | bridge token 缺失或状态无效 | 503 |
-| 请求被中断 | 504 |
+| bridge HTTP超时、模拟超时、领域等待过期或请求被中断（按code区分） | 504 |
 
 catch `InterruptedException` 时恢复 interrupt flag。不要吞掉 bridge error 后写入“成功”本地状态。
+
+错误响应由sidecar归一为`{error:string,code:string,requestId:string}`。`BridgeClient.Failure`保留原始IO异常作为cause，以`BRIDGE_TIMEOUT/BRIDGE_UNAVAILABLE/BRIDGE_INVALID_RESPONSE`区分传输原因；本地repository IO为`STORAGE_UNAVAILABLE`。requestId在请求入口生成，同时进入响应与sidecar失败日志；HTTP错误转发保留真实error/code，不把领域拒绝改写为存储故障。编号目前不透传Bukkit原始日志。响应不含异常栈、Bearer或cookie。
+
+普通bridge请求继续使用configured timeout；program/timetable/line模拟请求必填整数`executionTimeoutMillis`（1..3600000），由界面每次模拟的现实时间秒数换算。三个worker读同一请求字段，独立`BridgeClient.simulate`验证后以该预算+普通request timeout作为HTTP响应余量；不设独立simulation配置文件项/环境变量，不提供旧请求默认。不得为长模拟扩大普通读写超时。该预算不是捕获/编译/所有请求阶段的统一总deadline。后端队列满返回`SIMULATION_QUEUE_FULL`，worker超时返回`SIMULATION_TIMEOUT`；进入领域上下文前过期为`REQUEST_TIMEOUT`，不能误报桥接无法连接。
 
 ## Repository 与 formal script
 
@@ -43,9 +47,13 @@ Draft/editor document 是独立持久化边界；shape breaking 时升级其最�
 
 ## 独立函数耗时模拟
 
-`POST /api/v1/worlds/{world}/programs/simulate` 需要 session，sidecar 验证请求后转发 bridge；复用既有模拟队列和超时，不进入 public map allowlist。请求包含 `programId/definition/arguments/startTick/periodDays/profile/initialPosition/maximumDurationTicks`，可选真实 `plannedContext`；`initialPosition={wayPointId,reverseTrain:boolean}` 必须明确布尔值，无默认或旧 facing 兼容。metadata 的 `programSimulationWayPoints` 只列路径点自身或轨道已声明方向的点，含 direction/directionSource；bridge 捕获时重新验证。
+`POST /api/v1/worlds/{world}/programs/simulate` 需要 session，sidecar 验证请求后转发 bridge；复用既有模拟队列和超时，不进入 public map allowlist。请求包含 `programId/definition/arguments/startTick/profile/initialPosition/maximumDurationTicks/executionTimeoutMillis`，可选真实 `plannedContext`；`initialPosition={wayPointId,reverseTrain:boolean}` 必须明确布尔值，无默认或旧 facing 兼容。metadata 的 `programSimulationWayPoints` 只列路径点自身或轨道已声明方向的点，含 direction/directionSource；bridge 捕获时重新验证。
+
+独立函数模拟不要求周期输入。`startTick+maximumDurationTicks`决定推进截止，后端仅为原dispatcher编译派生内部periodDays，覆盖截止及所有分支的绝对WAIT_UNTIL目标（含参数），保证超出推进预算的等待可以返回LIMIT_REACHED，不被人工周期拒绝。事件引用在前端按真实tick解析，不默默取模或复制其他周期。最大tick限制为可安全表示的完整天数边界，起点、预算之和、等待目标和内部周期均须保持JS安全整数。该临时wire不改变持久化schema。
 
 响应 `status` 为 COMPLETED/FAILED/LIMIT_REACHED，含 simulatedTicks 和实际初始点/方向/是否反转；只有完成才有 durationTicks/startTick/endTick。失败保留 reason/failedProgramStepId，不以最大tick或下一任务开始伪造完成。该请求/响应是临时运行边界，不改变 editor document、程序库或持久化版本。后端不得重新按 programId 读取库内容替换请求的 exact definition：来源可以是未保存的有效画布或已绑定且来源删除的固定快照。
+
+非完成报告另含`reasonCode`，按真实result类型输出`SIMULATION_FAILED/SIMULATION_LIMIT_REACHED/SIMULATION_TIMING_UNAVAILABLE`，供前端翻译摘要；原reason保留为诊断细节，不按英文子串猜故障类型。
 
 路径点 descriptor 的展示身份统一为 `id`：`programSimulationWayPoints` 返回 `id/railId/direction/directionSource`；`destinations` 返回实际 `id`、空间位置、方向与角色。地图 `markers` 返回 `id/kind/railId/arcLengthMeters/x/y/z`，网页直接用 `id` 绘制文字。车站、车辆段、线路、模拟车辆等对象自身的名称由各自 descriptor 提供。
 

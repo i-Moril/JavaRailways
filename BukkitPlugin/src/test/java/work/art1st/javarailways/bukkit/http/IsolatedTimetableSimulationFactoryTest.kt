@@ -576,6 +576,45 @@ class IsolatedTimetableSimulationFactoryTest {
         }
     }
 
+    @Test
+    fun `absolute wait past one day compiles then reaches the requested simulation limit`(
+        @org.junit.jupiter.api.io.TempDir directory: java.nio.file.Path
+    ) {
+        val source = createTestWorld()
+        registerWorldData(source)
+        try {
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+            OperationalDestinationService(source).register(OperationalDestination("origin", rail.id, 100.0,
+                ViewDirection.AB, DestinationRole.Regular))
+            val input = ProgramSimulationRequest.parse("""
+                {"programId":"p","definition":{"parameters":[],"steps":[
+                  {"id":"wait","type":"WAIT_UNTIL","tick":{"value":48000}}]},"arguments":{},
+                 "startTick":10,"executionTimeoutMillis":60000,"maximumDurationTicks":100,
+                 "profile":{"type":"TRAIN_TEMPLATE","id":"template"},
+                 "initialPosition":{"wayPointId":"origin","reverseTrain":false}}
+            """)
+            TimetableScriptSandbox(directory).use { sandbox ->
+                val saved = sandbox.compileSource(input.source(), "standalone")
+                val timetable = saved.restore()
+                val factory = testSimulationFactory()
+                val snapshot = factory.capture(source, timetable, templateSelection(), standaloneServices())
+                factory.create(snapshot, 2).use { simulation ->
+                    val result = simulation.simulate(IsolatedTimetableSimulationRequest(timetable,
+                        delayThresholdTicks = input.maximumSimulationTicks + 1,
+                        maximumSimulationTicks = input.maximumSimulationTicks))
+                    assertTrue(result is IsolatedTimetableSimulationResult.PeriodEnded) { result.toString() }
+                    val json = programSimulationResultJson(result, saved,
+                        ProgramSimulationWayPoint("origin", rail.id.toString(), ViewDirection.AB, "WAYPOINT"), false)
+                    assertEquals("LIMIT_REACHED", json["status"]!!.jsonPrimitive.content)
+                    assertFalse(json.containsKey("durationTicks"))
+                }
+            }
+        } finally {
+            source.physicsCoordinator.close()
+            (source.tickManager as AutoCloseable).close()
+        }
+    }
+
     private fun standaloneCall(actions: List<TimetableAction>, startTick: Long = 0, wayPointId: String = "origin",
         reverseTrain: Boolean = false) =
         Timetable("standalone", services = listOf(TimetableService("function-simulation", steps =

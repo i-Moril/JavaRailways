@@ -2,7 +2,7 @@ import {describe,expect,it} from 'vitest';
 import {buildProgramSimulationRequest,completedProgramDuration,ProgramSimulationRequestOwner} from './programSimulation';
 import type {ProgramSimulationRequest,ProgramSimulationResult,StationProgramLiteral,WorldMetadata} from './types';
 const metadata:WorldMetadata={wayPoints:['undirected'],programSimulationWayPoints:[{id:'point',railId:'rail',direction:'BA',directionSource:'WAYPOINT'}],simulationProfiles:[{type:'WORLD_TRAIN',id:'train',displayName:'Train',carCount:2}]};
-const request=():ProgramSimulationRequest=>({programId:'1',definition:{parameters:[{id:'duration',type:'DURATION'}],steps:[{id:'wait',type:'WAIT_DURATION',durationTicks:{parameterId:'duration'}}]},arguments:{duration:100},startTick:1200,periodDays:1,profile:{type:'WORLD_TRAIN',id:'train'},initialPosition:{wayPointId:'point',reverseTrain:false},maximumDurationTicks:2000});
+const request=():ProgramSimulationRequest=>({programId:'1',definition:{parameters:[{id:'duration',type:'DURATION'}],steps:[{id:'wait',type:'WAIT_DURATION',durationTicks:{parameterId:'duration'}}]},arguments:{duration:100},startTick:1200,profile:{type:'WORLD_TRAIN',id:'train'},initialPosition:{wayPointId:'point',reverseTrain:false},executionTimeoutMillis:60000,maximumDurationTicks:2000});
 describe('standalone program simulation contract',()=>{
  it('sends the actual accepted definition and arguments, detached without library lookup or live-state cloning',()=>{
   const input=request(),built=buildProgramSimulationRequest(input,metadata);expect(built).toEqual(input);expect(built.definition).not.toBe(input.definition);input.arguments.duration=999;expect(built.arguments.duration).toBe(100);expect(built).not.toHaveProperty('trainState');expect(built).not.toHaveProperty('plannedContext');
@@ -13,8 +13,18 @@ describe('standalone program simulation contract',()=>{
   for(const reverseTrain of [undefined,'true','false',0,1])expect(()=>buildProgramSimulationRequest({...input,initialPosition:{wayPointId:'point',reverseTrain:reverseTrain as never}},metadata)).toThrow('explicitly');
   expect(()=>buildProgramSimulationRequest(input,{...metadata,programSimulationWayPoints:[]})).toThrow('explicit direction');
  });
- it('validates exact vehicle catalog identity, period, time and bounded positive limit',()=>{
-  for(const patch of [{profile:{type:'TRAIN_TEMPLATE' as const,id:'train'}},{periodDays:0},{startTick:24000},{startTick:-1},{maximumDurationTicks:0},{maximumDurationTicks:22801}])expect(()=>buildProgramSimulationRequest({...request(),...patch},metadata)).toThrow();
+ it('validates exact vehicle catalog identity, time and bounded positive limit',()=>{
+  for(const patch of [{profile:{type:'TRAIN_TEMPLATE' as const,id:'train'}},{startTick:Number.MAX_SAFE_INTEGER},{startTick:-1},{maximumDurationTicks:0},{maximumDurationTicks:Number.MAX_SAFE_INTEGER}])expect(()=>buildProgramSimulationRequest({...request(),...patch},metadata)).toThrow();
+ });
+ it('does not clip standalone functions or absolute document anchors at a timetable day',()=>{
+  const input:ProgramSimulationRequest={...request(),startTick:23900,maximumDurationTicks:48000};
+  const built=buildProgramSimulationRequest(input,metadata);expect(built.maximumDurationTicks).toBe(48000);expect(built).not.toHaveProperty('periodDays');
+  input.definition={parameters:[],steps:[{id:'event',type:'WAIT_EVENT',eventId:'later',offsetTicks:0}]};input.arguments={};
+  expect(buildProgramSimulationRequest(input,metadata,[{id:'later',tick:120000}]).definition.steps[0]).toMatchObject({type:'WAIT_UNTIL',tick:{value:120000}});
+ });
+ it('requires an integer wall-clock budget separately from the tick horizon',()=>{
+  for(const executionTimeoutMillis of [undefined,0,3600001,1.5,'1000'])expect(()=>buildProgramSimulationRequest({...request(),executionTimeoutMillis:executionTimeoutMillis as number},metadata)).toThrow('execution timeout');
+  for(const executionTimeoutMillis of [1,1001,3600000])expect(buildProgramSimulationRequest({...request(),executionTimeoutMillis},metadata).executionTimeoutMillis).toBe(executionTimeoutMillis);
  });
  it('rejects missing, mistyped and unknown arguments before requesting execution',()=>{
   for(const args of [{},{duration:'wrong'},{duration:100,other:1}] as Record<string,StationProgramLiteral>[])expect(()=>buildProgramSimulationRequest({...request(),arguments:args},metadata)).toThrow('argument');

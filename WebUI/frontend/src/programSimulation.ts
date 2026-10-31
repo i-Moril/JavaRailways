@@ -1,18 +1,20 @@
+import {validSimulationTimeout} from './SimulationTimeoutInput';
 import {resolveEventWaits} from './stationPlans';
 import {validateStationProgram} from './stationPrograms';
 import type {ProgramSimulationRequest,ProgramSimulationResult,TimedOperation,WorldMetadata} from './types';
 
+export const MAX_PROGRAM_SIMULATION_TICK=Math.floor(Number.MAX_SAFE_INTEGER/24000)*24000-1;
+
 /** A call is measured in its own scenario, never fabricated into a timetable report. */
 export function buildProgramSimulationRequest(input:ProgramSimulationRequest,metadata:WorldMetadata,events:TimedOperation[]=[]):ProgramSimulationRequest {
+ if(!validSimulationTimeout(input.executionTimeoutMillis))throw new Error('Invalid simulation execution timeout');
  if(!input.programId.trim())throw new Error('A program is required');
- if(!Number.isSafeInteger(input.periodDays)||input.periodDays<1||!Number.isSafeInteger(input.periodDays*24000))throw new Error('Invalid timetable period');
- const periodTicks=input.periodDays*24000;
- if(!Number.isSafeInteger(input.startTick)||input.startTick<0||input.startTick>=periodTicks)throw new Error('Start tick must be inside the timetable period');
- if(!Number.isSafeInteger(input.maximumDurationTicks)||input.maximumDurationTicks<=0||input.maximumDurationTicks>periodTicks-input.startTick)throw new Error('Simulation limit must fit inside the remaining timetable period');
+ if(!Number.isSafeInteger(input.startTick)||input.startTick<0||input.startTick>=MAX_PROGRAM_SIMULATION_TICK)throw new Error('Invalid simulation start tick');
+ if(!Number.isSafeInteger(input.maximumDurationTicks)||input.maximumDurationTicks<=0||input.maximumDurationTicks>MAX_PROGRAM_SIMULATION_TICK-input.startTick)throw new Error('Invalid simulation advance limit');
  if(!metadata.simulationProfiles?.some(profile=>profile.type===input.profile.type&&profile.id===input.profile.id))throw new Error('Select an available reference vehicle');
  if(!metadata.programSimulationWayPoints?.some(point=>point.id===input.initialPosition.wayPointId))throw new Error('Select a waypoint with an explicit direction');
  if(typeof input.initialPosition.reverseTrain!=='boolean')throw new Error('Choose whether to reverse the placed train explicitly');
- const definition=resolveEventWaits(input.definition,events,periodTicks),errors=validateStationProgram(definition,input.arguments);
+ const definition=resolveEventWaits(input.definition,events,MAX_PROGRAM_SIMULATION_TICK+1),errors=validateStationProgram(definition,input.arguments);
  if(errors.length)throw new Error(errors.join('; '));
  return structuredClone({...input,definition});
 }

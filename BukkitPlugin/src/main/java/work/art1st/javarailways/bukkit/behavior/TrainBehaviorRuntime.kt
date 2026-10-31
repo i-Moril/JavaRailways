@@ -15,6 +15,7 @@ interface TrainBehaviorBindings {
     fun sound(key: String, volume: Double = 1.0, pitch: Double = 1.0): Boolean
     fun log(message: String)
     fun operatingEnd(): String = "head"
+    fun hasAnimation(name: String, scene: String?): Boolean
 }
 
 data class TrainBehaviorActionDefinition(
@@ -114,6 +115,9 @@ class TrainBehaviorRuntime(
         }
 
         @HostAccess.Export
+        fun hasAnimation(name: String, scene: String?): Boolean = bindings.hasAnimation(name, scene)
+
+        @HostAccess.Export
         fun operatingEnd(): String = bindings.operatingEnd()
     }
 
@@ -132,6 +136,9 @@ class TrainBehaviorRuntime(
             const __javaRailwaysDefinedActions = Object.create(null);
             function log(message) {
               return __javaRailwaysTrain.log(String(message));
+            }
+            function hasAnimation(name, scene) {
+              return __javaRailwaysTrain.hasAnimation(String(name), scene == null ? null : String(scene));
             }
             function operatingEnd() {
               return String(__javaRailwaysTrain.operatingEnd());

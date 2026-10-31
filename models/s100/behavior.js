@@ -51,17 +51,29 @@ function door(side, scene) {
   runDoorAction(side, suffix)
 }
 
-function refreshLights() {
-  action(operatingEnd() === "tail" ? "lights-tail-running" : "lights-head-running")
+function hasEndLights() {
+  return hasAnimation("front_end_light") || hasAnimation("rear_end_light")
 }
 
-defineAction("lights-refresh", { displayName: "刷新头尾灯", executable: true, requiresControl: false }, function() {
-  refreshLights()
-})
+function refreshLights() {
+  const tail = operatingEnd() === "tail"
+  if (hasAnimation("front_end_light")) action(tail ? "front-light-tail" : "front-light-head")
+  if (hasAnimation("rear_end_light")) action(tail ? "rear-light-head" : "rear-light-tail")
+}
 
-defineAction("end-lights-off", { displayName: "关闭头尾灯", executable: true, requiresControl: true }, function() {
-  action("end-lights-off")
-})
+function turnOffEndLights() {
+  if (hasAnimation("front_end_light")) action("front-light-off")
+  if (hasAnimation("rear_end_light")) action("rear-light-off")
+}
+
+if (hasEndLights()) {
+  defineAction("lights-refresh", { displayName: "刷新头尾灯", executable: true, requiresControl: false }, function() {
+    refreshLights()
+  })
+  defineAction("end-lights-off", { displayName: "关闭头尾灯", executable: true, requiresControl: true }, function() {
+    turnOffEndLights()
+  })
+}
 
 defineAction("cabin-lights-on", { displayName: "开启车内灯", executable: true, requiresControl: true }, function() {
   action("cabin-lights-on")
@@ -72,9 +84,8 @@ defineAction("cabin-lights-off", { displayName: "关闭车内灯", executable: t
 })
 
 defineAction("power-off", { displayName: "车辆断电", executable: false, requiresControl: false }, function() {
-  const endLightsOff = action("end-lights-off")
-  const cabinLightsOff = action("cabin-lights-off")
-  return endLightsOff && cabinLightsOff
+  turnOffEndLights()
+  return action("cabin-lights-off")
 })
 
 function onReverse() {

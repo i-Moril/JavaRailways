@@ -98,7 +98,7 @@ function Library({world,recoveryOwner,metadata={},extensions=[],conditions=[],fo
       {!!errors.length&&<Alert type="warning" title={errors.join('; ')}/>}
       <Typography.Paragraph type="secondary">{t('programs.conflictHint')}</Typography.Paragraph>
     </>:<Typography.Paragraph type="secondary">{t('programs.selectFile')}</Typography.Paragraph>}</section></div>
-    {simulationOpen&&selected&&<ProgramSimulationDialog world={world} owner={`${recoveryOwner}/${selected.id}`} metadata={metadata} periodDays={1} programId={selected.id} definition={definition} valid={valid&&!errors.length} editableArguments onClose={()=>setSimulationOpen(false)}/>}
+    {simulationOpen&&selected&&<ProgramSimulationDialog world={world} owner={`${recoveryOwner}/${selected.id}`} metadata={metadata} programId={selected.id} definition={definition} valid={valid&&!errors.length} editableArguments onClose={()=>setSimulationOpen(false)}/>}
     <Modal open={!!dialog} title={dialog?.kind==='rename'?t('programs.rename'):dialog?.kind==='delete'?t('common.delete'):t('programs.unsavedTitle')} onCancel={()=>{if(!busy)setDialog(undefined);}} onOk={confirm} confirmLoading={busy} closable={!busy} maskClosable={!busy} cancelButtonProps={{disabled:busy}} okButtonProps={{danger:dialog?.kind==='delete',disabled:busy||dialog?.kind==='rename'&&!rename.trim()}}>
       {error&&<Alert type="error" showIcon title={error}/>}
       {dialog?.kind==='rename'?<Input autoFocus maxLength={256} aria-label={t('programs.name')} value={rename} disabled={busy} onChange={(event)=>setRename(event.target.value)} onPressEnter={confirm}/>:<Typography.Paragraph>{dialog?.kind==='delete'?t('programs.deleteHint'):t('programs.unsavedHint')}</Typography.Paragraph>}

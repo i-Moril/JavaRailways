@@ -16,7 +16,7 @@ BukkitPlugin既有`CarBehavior`、`CarOperationBatch`和`TrainBehaviorRuntime`�
 
 `SimulationControlProfileCatalog`在源稳定owner边界捕获物理蓝图及每车`CapturedCarBehavior(script,actions,animations)`；真正create/step不再读LIVE renderer或ModelManager。WORLD_TRAIN每车通过CarExtension的既有operationalSnapshot选择SNAPSHOT固定包/FOLLOW_PACKAGE当前成功发布包；已引用包/模型缺失明确失败。TRAIN_TEMPLATE使用当前resourceVersion的models与carPackages逐车源，不能用主包脚本替代跨包车厢来源。
 
-动画能力是实际SavedCarModelTree的body/bogie/wheel部分递归索引；每节点调用现`toRuntimeAnimationMap`，保留空动画省略与同节点同名last-entry语义，读取现Animation的normalized scene索引，跨节点合并能力。不重复解析timeline，不携带模型实例、Compiled display、Context、延迟supplier或source World/服务。配置值及脚本文本为detached只读输入，同一capture每target新建状态。
+动画能力是实际SavedCarModelTree的body/bogie/wheel部分递归索引；每节点调用现`toRuntimeAnimationMap`，保留空动画省略与同节点同名last-entry语义，读取现Animation的normalized scene索引，跨节点合并能力。共用 `supportsAnimation(name, scene?)` 为 JS 只读 `hasAnimation` 出口与真实效果验证提供同一名称/场景判断；查询不启动效果，可在初始化与声明读取时调用。s100按实际车厢端灯能力选择独立前/后灯动作，缺失动画的直接动作仍失败。不重复解析timeline，不携带模型实例、Compiled display、Context、延迟supplier或source World/服务。配置值及脚本文本为detached只读输入，同一capture每target新建状态。
 
 安装方向保存`car.isReversed xor train.isReversed`，seed用现CoreCar.reverse还原。模板没有安装反向字段时用其当前真实默认false；不是旧数据兼容路径。每次接受操作才按共享`behaviorRelativeTail`计算`controlTail xor (car.isReversed xor train.isReversed)`；SIM没有手动session，使用LIVE无session的`controlTail=train.isReversed`。不复制在线列车/预约/控制器或JS globals。
 

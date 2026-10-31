@@ -33,6 +33,7 @@ import work.art1st.javarailways.bukkit.behavior.CarBehavior
 import work.art1st.javarailways.bukkit.behavior.CapturedCarBehavior
 import work.art1st.javarailways.bukkit.behavior.carBehaviorActions
 import work.art1st.javarailways.bukkit.behavior.captureAnimationCapabilities
+import work.art1st.javarailways.bukkit.behavior.supportsAnimation
 import work.art1st.javarailways.bukkit.behavior.TrainBehaviorActionDefinition
 import work.art1st.javarailways.bukkit.config.model.SavedTrainPackageSnapshot
 import work.art1st.javarailways.bukkit.config.model.CarControlConfig
@@ -77,7 +78,7 @@ class CarExtension : TrainComponentExtension<Car>() {
                 BukkitThreadOwnership.ensureLocation(location, "CarExtension.sound")
                 location.world!!.playSound(location, key, volume.toFloat(), pitch.toFloat())
             }, ::scheduleBehaviorEffect,
-            { BukkitPlugin.INSTANCE.logger.info("[CarBehavior:${self.id}] $it") }, ::stopTrainForScriptFailure)
+            { BukkitPlugin.INSTANCE.logger.info("[CarBehavior:${self.id}] $it") }, ::stopTrainForScriptFailure, ::hasAnimation)
     }
     private var bodyModel: CompositeModel? = null
     private var bogieModels: List<CompositeModel> = emptyList()
@@ -367,12 +368,14 @@ class CarExtension : TrainComponentExtension<Car>() {
         }
     }
 
-    private fun buildPreparedModel() {
-        val modelName = carModelName
-            ?: throw IllegalStateException("Car model name not set for car at ${self.position}")
+    private var capabilityModel: SavedCarModelTree? = null
+    private var animationCapabilities: Map<String, Set<String>> = emptyMap()
+
+    /** Same resource policy as display construction, independent of visibility. */
+    private fun resolveModelSnapshot(): SavedCarModelTree {
+        val modelName = requireNotNull(carModelName) { "Car model name not set" }
         val modelManager = BukkitPlugin.INSTANCE.modelManager
-        val modelGeneration = modelManager.generation
-        val snapshot = if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT) {
+        return if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT) {
             savedModelSnapshot ?: requireNotNull(CarModelSnapshotStore.load(requireNotNull(savedModelSnapshotHash) {
                 "Car '${self.id}' has no creation-time model snapshot"
             })) { "Pinned car model snapshot '$savedModelSnapshotHash' is unavailable" }.also { savedModelSnapshot = it }
@@ -381,6 +384,21 @@ class CarExtension : TrainComponentExtension<Car>() {
                 "Car '${self.id}' has no creation template"
             }).models[modelName]) { "Template '$resourceType' has no model '$modelName'" }
         }
+    }
+
+    private fun hasAnimation(name: String, scene: String?): Boolean {
+        val snapshot = resolveModelSnapshot()
+        if (capabilityModel !== snapshot) {
+            animationCapabilities = snapshot.captureAnimationCapabilities()
+            capabilityModel = snapshot
+        }
+        return animationCapabilities.supportsAnimation(name, scene)
+    }
+
+    private fun buildPreparedModel() {
+        val modelManager = BukkitPlugin.INSTANCE.modelManager
+        val modelGeneration = modelManager.generation
+        val snapshot = resolveModelSnapshot()
         val carDef = snapshot.car
         val builder = modelManager.createTreeBuilder(self.world, snapshot.partResolver())
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld

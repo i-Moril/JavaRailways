@@ -3,7 +3,7 @@ import {api} from './api';
 import {demoApi} from './frontendDev';
 import type {ProgramSimulationRequest} from './types';
 afterEach(()=>vi.unstubAllGlobals());
-const input:ProgramSimulationRequest={programId:'unsaved',definition:{parameters:[],steps:[{id:'wait',type:'WAIT_DURATION',durationTicks:{value:42}}]},arguments:{},startTick:100,periodDays:1,profile:{type:'TRAIN_TEMPLATE',id:'EMU'},initialPosition:{wayPointId:'point',reverseTrain:true},maximumDurationTicks:2400};
+const input:ProgramSimulationRequest={programId:'unsaved',definition:{parameters:[],steps:[{id:'wait',type:'WAIT_DURATION',durationTicks:{value:42}}]},arguments:{},startTick:100,profile:{type:'TRAIN_TEMPLATE',id:'EMU'},initialPosition:{wayPointId:'point',reverseTrain:true},executionTimeoutMillis:60000,maximumDurationTicks:2400};
 describe('program simulation transport',()=>{
  it('posts exact transient input to the authenticated encoded world endpoint without saving or fetching a library record',async()=>{
   const fetch=vi.fn().mockResolvedValue(new Response(JSON.stringify({status:'FAILED',reason:'placement failed'}),{status:200}));vi.stubGlobal('fetch',fetch);

@@ -2,6 +2,8 @@
 
 当前追加批次：2026-10-31 路径点仅保留 ID，用户明确授权直接修改。按 research/waypoint-identity-only.md 的模块所有权同步删除模型/存档/API/UI 全部显示名逻辑，集中运行跨层检查；离线数据工具先 dry-run，不自动部署/归档。
 
+后续用户已明确提交部署：daabfa4e已上线，主/备62字段经最终停服副本真实codec校验后与新JAR配套切换。完整恢复点、实际ATO/信号、0剩余点名称、14编辑文件保留及17资源/公开位置流均核验；部署记录见research/deployment-2026-10-31-waypoint-identity.md。父任务保持in_progress，不归档；旧实例停服模型清理异常保留为后续排查事项。
+
 1. Establish current shared document/runtime contracts; preserve current schema number and remove runtime old-development compatibility assumptions.
 2. Contracts worker: program actions, station definitions, worker/compiler/snapshot/validation and static condition expansion. Coordinate runtime types with runtime worker.
 3. Runtime worker: station executor and Dispatcher lifecycle integration, gateway operation ownership, arrival/preparation eligibility and final descendant join; regression tests.

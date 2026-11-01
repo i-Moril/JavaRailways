@@ -53,7 +53,15 @@ inspection runtime读取编译好的声明及最大提前时间；controller按�
 
 Stop、MA、跟车和前方限速约束把各自扣除显式空间余量后的目标距离、当前速度及反应时间一次交给同一包络；
 反应距离由包络统一扣除，不能调用方先扣一次再让包络重复扣除。无包络的运动学单元测试仍使用原常减速度公式。
-实际正加速度消退的积分与坡段门控归上述Basic契约，不在SimpleATO复制动力学。
+真实设备响应、正加速度消退与坡段门控归上述Basic契约，不在SimpleATO复制动力学。
+同一`AtoConstraint.brakingLimit(profile)`提供标量规划与实际候选验收的空间目标，保持原显式margin；
+`MinimumConstraintPlanner`将这些目标、已捕获坡度和所属世界真实最大步长投影为Basic不可变`BrakingConstraints`。
+当前速度上限和发车hold仍直接限制标量需求，不构造另一份可写约束集合。
+`brakingEnvelope`接收本次实际delta和`World.maximumPhysicsDeltaSeconds`，不能默认未来每步50ms。
+
+普通mission和车站终点仍是零速目标；只有通过当前接触证明、mission/MA revision及精确边界校验的重联终点，
+才以准入grant携带的接近速度为目标。接近速度与grant上限必须一致；Core仍夹紧实际接触位移。
+独立停车、红灯、跟车和授权约束不因存在接触动作而删除或放宽。
 
 普通非车站mission Stop显式使用零几何停车margin，曲线瞄准原运营目标；停车容差用于接受到达，不把普通目标退到容差边缘。
 车站Stop同样使用零几何停车margin，瞄准既有停车点（含明确设置的停车偏移），不添加固定提前量，也不根据到站容差平移目标。由`AtoMissionPoint.Stop.stationStop`或同revision实际terminal StationCall明确标识的终点，mission授权余量为0.3米；普通mission和独立红灯/资源约束默认保留全局安全距离。`MovementAuthorityConstraint.stoppingMarginMeters`为空时使用profile全局值，否则使用明确值；公开`terminalMovementAuthorityLimitMeters(routeEndDistanceMeters, stationTerminal)`只使用显式参数，不读取physics私有active状态；资源准入如何证明车站终点及保留原始grant见[终点授权合同](terminal-route-completion.md)。外部Stop/物理边界的原默认margin和连挂contact规则不受影响。

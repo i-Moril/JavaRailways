@@ -7,6 +7,8 @@ import work.art1st.javarailways.core.api.physics.train.Car
 interface DynamicsProfileSource {
     /** Exact car-instance lookup; null means this source has no binding for that car. */
     fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile?
+    /** Exact-instance equipment state. New controllerless cars receive explicit stopped/moving initialization. */
+    fun dynamicsDeviceStateFor(car: Car): TrainDynamics.CarDeviceState? = null
 }
 
 /** Optional capability for actuators with consist-dependent intrinsic dynamics. */

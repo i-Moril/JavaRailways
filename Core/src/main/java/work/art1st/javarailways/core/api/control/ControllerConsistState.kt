@@ -10,7 +10,8 @@ import org.jetbrains.annotations.ApiStatus
  */
 @ApiStatus.Experimental
 class ControllerConsistState<T>(initialValue: T) {
-    /** Current live reference; non-blocking O(1) read, not a defensive copy or a published snapshot. */
+    /** Visible live reference; non-blocking O(1) read, not a defensive copy or a multi-cell snapshot. */
+    @Volatile
     var value: T = initialValue
         private set
 

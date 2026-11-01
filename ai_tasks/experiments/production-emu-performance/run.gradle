@@ -1,0 +1,73 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+
+// Experiment-only compilation. Force actual non-incremental compiler invocations:
+// a source/class hash pair collected later is not evidence of their correspondence.
+gradle.projectsEvaluated {
+    def p = rootProject.project(':Basic')
+    def repo = rootProject.projectDir
+    def helper = new File(repo, 'ai_tasks/experiments/production-emu-performance/compile_provenance.py')
+    def receiptDir = new File('/tmp/jr-production-emu-compile')
+    def fingerprint = { String action, String directory = null ->
+        def argv = ['python3', helper.absolutePath, repo.absolutePath, action]
+        if (directory != null) argv.add(directory)
+        def output = rootProject.providers.exec { commandLine(argv) }.standardOutput.asText.get()
+        new JsonSlurper().parseText(output)
+    }
+    def outputsByTask = [
+        ':Core:compileKotlin': 'Core/build/classes/kotlin/main',
+        ':Core:compileTestFixturesKotlin': 'Core/build/classes/kotlin/testFixtures',
+        ':Basic:compileKotlin': 'Basic/build/classes/kotlin/main',
+        ':Basic:compileTestFixturesKotlin': 'Basic/build/classes/kotlin/testFixtures',
+        ':Basic:compileTestKotlin': 'Basic/build/classes/kotlin/test'
+    ]
+    def receipts = [:]
+    outputsByTask.each { taskPath, directory ->
+        def module = rootProject.project(taskPath.substring(0, taskPath.lastIndexOf(':')))
+        module.tasks.named(taskPath.substring(taskPath.lastIndexOf(':') + 1)).configure {
+            outputs.upToDateWhen { false }
+            outputs.cacheIf { false }
+            incremental = false
+            def startedSources
+            doFirst {
+                // A failed compilation must never leave a usable aggregate receipt.
+                new File(receiptDir, 'receipt.json').delete()
+                startedSources = fingerprint('sources')
+            }
+            doLast {
+                if (startedSources != fingerprint('sources')) {
+                    throw new GradleException('Benchmark sources changed during compilation: ' + taskPath)
+                }
+                def classes = fingerprint('classes', directory)
+                if (classes.isEmpty()) throw new GradleException('No compiled classes: ' + taskPath)
+                receipts[taskPath] = [source_sha256: startedSources, class_sha256: classes]
+            }
+        }
+    }
+    p.kotlin.sourceSets.test.kotlin.srcDir(p.file('../ai_tasks/experiments/production-emu-performance'))
+    p.tasks.register('productionEmuPerformanceClasspath') {
+        dependsOn p.tasks.named('testClasses')
+        doLast {
+            def sources = fingerprint('sources')
+            def tasks = [:]
+            outputsByTask.each { taskPath, directory ->
+                def compiled = receipts[taskPath]
+                if (compiled == null || compiled.source_sha256 != sources ||
+                    compiled.class_sha256 != fingerprint('classes', directory)) {
+                    throw new GradleException('Missing or changed compilation receipt: ' + taskPath)
+                }
+                tasks[taskPath] = compiled.class_sha256
+            }
+            def compiledDirectories = outputsByTask.values().collect { new File(repo, it).absolutePath }
+            def classpath = (compiledDirectories + [p.sourceSets.test.runtimeClasspath.asPath]).join(File.pathSeparator)
+            receiptDir.mkdirs()
+            def receipt = [repo: repo.absolutePath, source_sha256: sources, tasks: tasks,
+                           classpath: classpath, runtime_sha256: fingerprint('runtime', classpath), compilation: 'forced non-incremental Kotlin; cache disabled']
+            def pending = new File(receiptDir, 'receipt.json.pending')
+            pending.text = JsonOutput.prettyPrint(JsonOutput.toJson(receipt)) + '\n'
+            java.nio.file.Files.move(pending.toPath(), new File(receiptDir, 'receipt.json').toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+            new File('/tmp/jr-production-emu-classpath').text = classpath
+        }
+    }
+}

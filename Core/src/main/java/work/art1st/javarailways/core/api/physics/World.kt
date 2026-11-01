@@ -18,6 +18,13 @@ interface World : Extendable<Any> {
     /** Immutable runtime mode; not part of the world's persisted infrastructure or runtime data. */
     val executionMode: WorldExecutionMode
 
+    /**
+     * Immutable upper bound on one controller physics step, in seconds. Applies to live and
+     * isolated simulation steps; controllers use the issuing world's bound for braking proofs.
+     * This is a timing limit, not the current delta or a promise of a fixed control cadence.
+     */
+    val maximumPhysicsDeltaSeconds: Double
+
     /** General-purpose Tick manager; train physics uses a separate coordinator. */
     val tickManager: TickManager
 

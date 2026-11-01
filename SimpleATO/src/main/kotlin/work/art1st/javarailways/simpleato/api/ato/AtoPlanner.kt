@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.api.ato
 
+import work.art1st.javarailways.basic.api.ato.BrakingConstraints
+import work.art1st.javarailways.basic.api.ato.BrakingGradeSegment
 import work.art1st.javarailways.basic.api.ato.ControlDemand
 import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
 import work.art1st.javarailways.simpleato.api.constraint.ConstraintManager
@@ -9,7 +11,9 @@ data class AtoPlanningContext(
     val maximumSpeedMetersPerSecond: Double,
     val profile: AtoSafetyProfile,
     val constraints: ConstraintManager,
-    val brakingEnvelope: GradeAwareBrakingEnvelope? = null
+    val brakingEnvelope: GradeAwareBrakingEnvelope? = null,
+    val brakingGradeSegments: List<BrakingGradeSegment> = emptyList(),
+    val maximumControlDeltaSeconds: Double? = null
 )
 
 fun interface AtoPlanner {
@@ -24,6 +28,13 @@ object MinimumConstraintPlanner : AtoPlanner {
             maximumSpeedMetersPerSecond = context.maximumSpeedMetersPerSecond,
             profile = context.profile,
             brakingEnvelope = context.brakingEnvelope
-        )
+        ),
+        brakingConstraints = context.maximumControlDeltaSeconds?.let { maximumDelta ->
+            if (context.brakingGradeSegments.isEmpty()) null else BrakingConstraints(
+                context.brakingGradeSegments,
+                context.constraints.snapshot().values.flatten().mapNotNull { it.brakingLimit(context.profile) },
+                maximumDelta
+            )
+        }
     )
 }

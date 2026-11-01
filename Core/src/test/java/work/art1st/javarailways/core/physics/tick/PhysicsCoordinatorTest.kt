@@ -47,6 +47,21 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 class PhysicsCoordinatorTest {
+    @ParameterizedTest
+    @ValueSource(doubles = [75.0, 350.0])
+    fun `public world timing bound matches the actual accepted simulation step`(maximumMillis: Double) {
+        PhysicsCoordinator(1, automaticFallback = false, maxPhysicsDeltaMillis = maximumMillis).use { coordinator ->
+            val world: work.art1st.javarailways.core.api.physics.World =
+                CoreWorld.createEmpty(DummyTickManager, coordinator)
+            assertEquals(maximumMillis * 0.001, world.maximumPhysicsDeltaSeconds)
+            coordinator.start()
+            coordinator.stepSimulation(maximumMillis).completion.get(5, TimeUnit.SECONDS)
+            assertThrows(IllegalArgumentException::class.java) {
+                coordinator.stepSimulation(maximumMillis + 1.0)
+            }
+        }
+    }
+
     @Test
     fun `movement hold preserves occupancy while other trains move and release resumes`() {
         PhysicsCoordinator(2, automaticFallback = false).use { coordinator ->

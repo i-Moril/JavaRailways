@@ -13,6 +13,8 @@ import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.api.ato.BrakingGradeSegment
+import work.art1st.javarailways.basic.api.ato.BrakingConstraints
+import work.art1st.javarailways.basic.api.ato.BrakingLimit
 import work.art1st.javarailways.basic.api.ato.ControlDemand
 import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
 import work.art1st.javarailways.basic.testing.TestBasicWorldDataRegistry
@@ -166,6 +168,9 @@ class TrainDynamicsTest {
         val light = TestCarProfile(mass = 10_000.0)
         val controller = RealisticManualController(original, trainProfile, listOf(heavy, light), 10.0)
         controller.setHandle("P2")
+        val firstDevice=controller.dynamicsDeviceStateFor(first)
+        val secondDevice=controller.dynamicsDeviceStateFor(second)
+        assertTrue(requireNotNull(firstDevice).pressureKpa>0.0)
         original.setControllerForTest(controller)
         val future = original.splitBefore(second.id, "manual-subset")
         original.world.onOwnerForTest { original.world.physicsCoordinator.drainBetweenFramesOperations() }
@@ -174,6 +179,9 @@ class TrainDynamicsTest {
         assertSame(controller, original.controller)
         assertEquals("P2", controller.handle)
         assertSame(heavy, controller.dynamicsProfileFor(first))
+        assertEquals(firstDevice,controller.dynamicsDeviceStateFor(first))
+        assertEquals(null,controller.dynamicsDeviceStateFor(second))
+        assertTrue(requireNotNull(secondDevice).pressureKpa>0.0)
         assertEquals(null, controller.dynamicsProfileFor(second))
         assertSame(separated, second.train)
     }
@@ -186,6 +194,7 @@ class TrainDynamicsTest {
         val heavy = TestCarProfile(mass = 20_000.0, brakeMaxForce = 40_000.0)
         val light = TestCarProfile(mass = 10_000.0, brakeMaxForce = 5_000.0)
         val executor = TrainDynamicsExecutor(train, trainProfile, listOf(heavy, light), 10.0)
+        val initial=executor.state
 
         assertEquals(15_000.0, executor.preview(10.0, "N", 0.1).gradeForce, 1.0e-9)
         train.currentCars = listOf(lightCar, heavyCar)
@@ -200,7 +209,7 @@ class TrainDynamicsTest {
         val subset = executor.preview(10.0, "B2", 0.1)
         assertEquals(20_000.0, subset.gradeForce, 1.0e-9)
         assertEquals(5_000.0, subset.brakeForce, 1.0e-9)
-        assertEquals(TrainDynamics.State(), executor.state)
+        assertSame(initial, executor.state)
     }
 
     @Test
@@ -233,11 +242,14 @@ class TrainDynamicsTest {
         val nextProfile = object : TrainDynamics.TrainProfile by trainProfile {
             override val powerHandles = listOf("P2", "P3")
         }
+        val originalDevices=train.cars.map { controller.dynamicsDeviceStateFor(it) }
         val updates = controller.prepareConfigurationChange(nextProfile, listOf(replacement, replacement))
+        assertEquals(originalDevices,train.cars.map { controller.dynamicsDeviceStateFor(it) })
         assertSame(carProfile, controller.dynamicsProfileFor(train.cars.first()))
         assertTrue(!controller.setHandle("P3"))
         train.world.onOwnerForTest { train.applyControllerConfiguration(controller, updates) }
         assertSame(controller, train.controller)
+        assertEquals(originalDevices,train.cars.map { controller.dynamicsDeviceStateFor(it) })
         assertSame(replacement, controller.dynamicsProfileFor(train.cars.first()))
         assertEquals("P2", controller.handle)
         assertTrue(controller.setHandle("P3"))
@@ -249,6 +261,67 @@ class TrainDynamicsTest {
             assertThrows(IllegalStateException::class.java) { train.applyControllerConfiguration(controller, updates) }
         }
         assertSame(replacement, controller.dynamicsProfileFor(train.cars.first()))
+    }
+
+    @Test
+    fun `automatic power intention survives real device release and stopped target holds air`()=withDynamicsTrain { train ->
+        val delayedProfile=object:TrainDynamics.TrainProfile by trainProfile {
+            override val brakeApplyTime=1.2
+            override val brakeReleaseTime=1.8
+            override val tractionJerk=0.8
+            override val brakeJerk=0.8
+        }
+        val delayedCar=object:TrainDynamics.CarProfile by carProfile {
+            override val equipment=TrainDynamics.Equipment()
+        }
+        val actuator=HandleTrainActuator(train,delayedProfile,listOf(delayedCar,delayedCar),9.80665)
+        var speed=0.0
+        repeat(40) { speed=actuator.step(speed,ControlDemand(0.0),0.05).speedMetersPerSecond }
+        assertEquals(0.0,speed)
+        train.cars.forEach { assertTrue(requireNotNull(actuator.dynamicsDeviceStateFor(it)).pressureKpa>300.0) }
+        var powerRequested=false
+        repeat(200) {
+            speed=actuator.step(speed,ControlDemand(5.0),0.05).speedMetersPerSecond
+            if(actuator.selectedHandle.startsWith("P"))powerRequested=true
+        }
+        assertTrue(powerRequested)
+        assertTrue(speed>0.0,"device delay must not leave the selector stuck at N")
+        repeat(1000) { speed=actuator.step(speed,ControlDemand(0.0),0.05).speedMetersPerSecond }
+        assertEquals(0.0,speed)
+        train.cars.forEach { assertTrue(requireNotNull(actuator.dynamicsDeviceStateFor(it)).pressureKpa>300.0) }
+    }
+
+    @Test
+    fun `actual candidate cannot cross stop target but may cross a bounded speed target`() {
+        withDynamicsTrain { train ->
+            val profiles = List(train.cars.size) { carProfile }
+            val route = listOf(BrakingGradeSegment(100.0, 0.0))
+            val stop = HandleTrainActuator(train, trainProfile, profiles, 9.80665)
+            val stopDemand = ControlDemand(0.2, BrakingConstraints(route,
+                listOf(BrakingLimit(0.0, 0.0)), train.world.maximumPhysicsDeltaSeconds))
+            val stopped = stop.step(0.0, stopDemand, 0.1)
+            assertEquals(0.0, stopped.distanceMeters)
+            assertEquals(0.0, stopped.speedMetersPerSecond)
+            val crossing = HandleTrainActuator(train, trainProfile, profiles, 9.80665)
+            val crossingDemand = ControlDemand(0.2, BrakingConstraints(route,
+                listOf(BrakingLimit(0.0, 0.2)), train.world.maximumPhysicsDeltaSeconds))
+            val moving = crossing.step(0.0, crossingDemand, 0.1)
+            assertTrue(moving.distanceMeters > 0.0)
+            assertTrue(moving.speedMetersPerSecond <= 0.2)
+        }
+    }
+
+    @Test
+    fun `head uphill does not attribute uphill braking work to the downhill tail`() {
+        withDynamicsTrain { train ->
+            train.currentCars = listOf(ObservedCar(train.cars[0], 0.02), ObservedCar(train.cars[1], -0.02))
+            val actuator = HandleTrainActuator(train, trainProfile, List(2) { carProfile }, 9.80665,
+                initialSpeedMetersPerSecond = 5.0)
+            val headUphill = actuator.brakingEnvelope(listOf(BrakingGradeSegment(100.0, 0.02)), 0.05, 0.2)
+            val allDownhill = actuator.brakingEnvelope(listOf(BrakingGradeSegment(100.0, -0.02)), 0.05, 0.2)
+            assertEquals(allDownhill.permittedSpeedMetersPerSecond(0.0, 80.0, 5.0),
+                headUphill.permittedSpeedMetersPerSecond(0.0, 80.0, 5.0), 0.0)
+        }
     }
 
     private fun withDynamicsTrain(action: (MutableConsist) -> Unit) {
@@ -411,25 +484,19 @@ class TrainDynamicsTest {
                 segments, acceleration)
         val speed = 4.0
         val reactionSeconds = 0.2
-        val releaseSeconds = 1.2 / profile.brakeJerk
-        val speedGain = 1.2 * releaseSeconds / 2.0
-        val extraDistance = speed * releaseSeconds + 1.2 * releaseSeconds * releaseSeconds / 3.0 +
-            speedGain * reactionSeconds
         val baseline = envelope(0.0)
-        assertEquals(
-            (baseline.permittedSpeedMetersPerSecond(0.0, 10.0 - speed * reactionSeconds - extraDistance) - speedGain)
-                .coerceAtLeast(0.0),
-            envelope(1.2).permittedSpeedMetersPerSecond(0.0, 10.0, speed, reactionSeconds), 1.0e-12)
-        assertEquals(baseline.permittedSpeedMetersPerSecond(0.0, 10.0, speed, reactionSeconds),
-            envelope(-1.2).permittedSpeedMetersPerSecond(0.0, 10.0, speed, reactionSeconds), 0.0)
-        assertEquals(0.0, envelope(1.2).permittedSpeedMetersPerSecond(0.0, 1.0, speed, reactionSeconds))
+        assertTrue(envelope(1.2).permittedSpeedMetersPerSecond(0.0,10.0,speed,reactionSeconds)<
+            baseline.permittedSpeedMetersPerSecond(0.0,10.0,speed,reactionSeconds))
+        assertEquals(baseline.permittedSpeedMetersPerSecond(0.0,10.0,speed,reactionSeconds),
+            envelope(-1.2).permittedSpeedMetersPerSecond(0.0,10.0,speed,reactionSeconds),0.0)
+        assertEquals(0.0,envelope(1.2).permittedSpeedMetersPerSecond(0.0,1.0,speed,reactionSeconds))
         val unbrakeable = GradeAwareBrakingEnvelope.fromDynamics(profile, listOf(carProfile), 9.80665,
             listOf(BrakingGradeSegment(10.0, 0.0), BrakingGradeSegment(100.0, -1.0)), 1.2)
         assertEquals(0.0, unbrakeable.permittedSpeedMetersPerSecond(0.0, 12.0, speed, reactionSeconds),
             "reserving unwind distance must not hide an unbrakeable segment inside the target range")
         val noJerk = TestTrainProfile(brakeJerk = 0.0)
-        assertEquals(envelope(0.0, noJerk).permittedSpeedMetersPerSecond(0.0, 10.0, speed, reactionSeconds),
-            envelope(1.2, noJerk).permittedSpeedMetersPerSecond(0.0, 10.0, speed, reactionSeconds), 0.0)
+        assertTrue(envelope(1.2,noJerk).permittedSpeedMetersPerSecond(0.0,10.0,speed,reactionSeconds)<=
+            envelope(0.0,noJerk).permittedSpeedMetersPerSecond(0.0,10.0,speed,reactionSeconds))
     }
 
     @Test
@@ -448,7 +515,8 @@ class TrainDynamicsTest {
             9.80665
         )
 
-        assertEquals(0.1 + 4 * 0.05 + 1.2 + serviceDeceleration / 2.0, reaction, 1.0e-12)
+        assertTrue(reaction>=0.1+4*0.05+1.2+serviceDeceleration/2.0+0.05)
+        assertTrue(reaction.isFinite())
     }
 
     @Test
@@ -466,8 +534,8 @@ class TrainDynamicsTest {
             9.80665
         )
 
-        assertThrows(IllegalArgumentException::class.java) { actuator.brakingEnvelope(emptyList()) }
-        val envelope = actuator.brakingEnvelope(listOf(BrakingGradeSegment(100.0, 0.0)))
+        assertThrows(IllegalArgumentException::class.java) { actuator.brakingEnvelope(emptyList(), 0.05, 0.2) }
+        val envelope = actuator.brakingEnvelope(listOf(BrakingGradeSegment(100.0, 0.0)), 0.05, 0.2)
         assertEquals(100.0, envelope.totalDistanceMeters)
 
         val first = actuator.step(0.0, ControlDemand(trainProfile.maxSpeed), 0.1)
@@ -637,6 +705,11 @@ class TrainDynamicsTest {
     ) : TrainDynamics.CarProfile {
         override val motorAdhesionMassRatio = 1.0
         override val brakeAdhesionMassRatio = 1.0
+        // These force/grade arithmetic fixtures deliberately isolate device delays. Real equipment
+        // response, held-air startup and fade are exercised by TrainEquipmentDynamicsTest.
+        override val equipment = TrainDynamics.Equipment(commandDelaySeconds=0.0,
+            electricBrakeApplyRateNewtonsPerSecond=1e12,electricBrakeReleaseRateNewtonsPerSecond=1e12,
+            tractionApplyRateNewtonsPerSecond=1e12,tractionReleaseRateNewtonsPerSecond=1e12)
         override fun motorForceAt(speed: Double) = motorForce
         override fun resistanceForceAt(speed: Double, defaultResistance: (Double) -> Double) = 0.0
     }

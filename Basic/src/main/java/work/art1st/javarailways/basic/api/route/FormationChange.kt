@@ -130,9 +130,15 @@ sealed interface FormationRoutePolicyResult {
  * Issued only after actual route/resource/provider admission. Consumers must match the exact peer
  * end, immutable target geometry and selected route; every unrelated following/signal restriction
  * remains effective. The contact boundary uses the containing grant's route coordinate.
+ * @property maximumApproachSpeedMetersPerSecond Contact speed ceiling from the same admitted formation intent, in m/s.
  */
 class CouplingContactAuthority internal constructor(
     val eventId: String,
     val proof: CouplingApproachProof,
-    val contactBoundary: RouteBoundary
-)
+    val contactBoundary: RouteBoundary,
+    val maximumApproachSpeedMetersPerSecond: Double
+) {
+    init {
+        require(maximumApproachSpeedMetersPerSecond.isFinite() && maximumApproachSpeedMetersPerSecond > 0.0)
+    }
+}

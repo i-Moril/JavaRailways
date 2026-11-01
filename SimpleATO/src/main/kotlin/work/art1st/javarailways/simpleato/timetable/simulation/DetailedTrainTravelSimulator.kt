@@ -2,6 +2,7 @@ package work.art1st.javarailways.simpleato.timetable.simulation
 
 import java.util.concurrent.CancellationException
 import work.art1st.javarailways.basic.control.TrainDynamics
+import work.art1st.javarailways.basic.control.HandleTrainActuator
 import kotlin.math.max
 import kotlin.math.min
 
@@ -65,11 +66,13 @@ object DetailedTrainTravelSimulator {
         require(legs.all { it.lengthMeters.isFinite() && it.lengthMeters > 0.0 })
         require(profile.cars.isNotEmpty()) { "travel simulation requires at least one car" }
         val effectiveProfile = profile.copy(train = profile.effectiveTrainProfile())
-        val estimatedBrakeDeceleration = max(
-            0.2,
-            profile.cars.sumOf(TrainDynamics.CarProfile::brakeMaxForce) /
-                profile.cars.sumOf(TrainDynamics.CarProfile::effectiveMass) * 0.72
-        )
+        // Preserve the preview's existing 72% service-brake switching heuristic. Actual equipment
+        // follows the shared dynamics; this approximate preview is not the ATO authority proof.
+        val estimatedBrakeDeceleration = TrainDynamics.flatServiceDeceleration(
+            effectiveProfile.train, effectiveProfile.cars, effectiveProfile.gravityMetersPerSecondSquared) * 0.72
+        require(estimatedBrakeDeceleration.isFinite() && estimatedBrakeDeceleration > 0.0) {
+            "selected train profile has no guaranteed pneumatic service braking"
+        }
         require(legs.last().stopAtEnd) { "the final travel leg must end at a stop" }
         val powerHandle = findPowerHandle(effectiveProfile.train)
         val brakeHandle = findBrakeHandle(effectiveProfile.train)
@@ -82,17 +85,21 @@ object DetailedTrainTravelSimulator {
                 }
             }
         }
-        return DetailedTravelSimulationResult(stoppingGroups.flatMap { group ->
-            simulateStoppingGroup(
-                group,
-                effectiveProfile,
-                estimatedBrakeDeceleration,
-                powerHandle,
-                brakeHandle,
-                computationDeadlineNanos
+        var state = TrainDynamics.initialState(effectiveProfile.cars)
+        val simulated = mutableListOf<DetailedSimulatedLeg>()
+        for (group in stoppingGroups) {
+            val result = simulateStoppingGroup(
+                group, effectiveProfile, estimatedBrakeDeceleration, powerHandle, brakeHandle,
+                computationDeadlineNanos, state
             )
-        })
+            simulated += result.legs
+            // A new leg does not create a new vehicle or discharge its braking equipment.
+            state = result.state
+        }
+        return DetailedTravelSimulationResult(simulated)
     }
+
+    private data class StoppingGroupResult(val legs: List<DetailedSimulatedLeg>, val state: TrainDynamics.State)
 
     private fun findPowerHandle(profile: TrainDynamics.TrainProfile): String =
         profile.powerHandles.maxByOrNull(profile::normalizedPowerScale)
@@ -111,27 +118,30 @@ object DetailedTrainTravelSimulator {
         brakeDeceleration: Double,
         powerHandle: String,
         brakeHandle: String,
-        deadlineNanos: Long
-    ): List<DetailedSimulatedLeg> {
+        deadlineNanos: Long,
+        initialState: TrainDynamics.State
+    ): StoppingGroupResult {
         val totalLength = legs.sumOf(DetailedTravelLeg::lengthMeters)
         val boundaries = legs.runningFold(0.0) { distance, leg -> distance + leg.lengthMeters }.drop(1)
         val simulated = mutableListOf<DetailedSimulatedLeg>()
-        var state = TrainDynamics.State()
+        var state = initialState
         var distance = 0.0
         var elapsed = 0.0
         var legIndex = 0
         var legStartedAt = 0.0
         var legPeakSpeed = 0.0
+        val reactionSeconds = HandleTrainActuator.serviceBrakeReactionTimeSeconds(profile.train,
+            profile.cars, profile.gravityMetersPerSecondSquared)
+        val carInputsByLeg = legs.map { leg -> profile.cars.map { TrainDynamics.CarInput(it, leg.averageGrade) } }
         while (elapsed < MAX_LEG_SECONDS * legs.size) {
             if (Thread.currentThread().isInterrupted) throw CancellationException("travel simulation cancelled")
             if (System.nanoTime() >= deadlineNanos) {
                 throw DetailedTrainSimulationLimitException("travel simulation exceeded its computation deadline")
             }
             val remaining = totalLength - distance
-            val stoppingDistance = state.speed * state.speed / (2.0 * brakeDeceleration) + state.speed * 0.8 + 0.5
+            val stoppingDistance = state.speed * state.speed / (2.0 * brakeDeceleration) + state.speed * reactionSeconds + 0.5
             val handle = if (remaining <= stoppingDistance) brakeHandle else powerHandle
-            val currentLeg = legs[legIndex.coerceAtMost(legs.lastIndex)]
-            val cars = profile.cars.map { TrainDynamics.CarInput(it, currentLeg.averageGrade) }
+            val cars = carInputsByLeg[legIndex.coerceAtMost(legs.lastIndex)]
             val beforeDistance = distance
             val beforeElapsed = elapsed
             val result = TrainDynamics.step(
@@ -176,7 +186,7 @@ object DetailedTrainTravelSimulator {
                     legPeakSpeed,
                     distance - totalLength
                 )
-                return simulated
+                return StoppingGroupResult(simulated, state)
             }
         }
         error(

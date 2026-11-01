@@ -20,6 +20,7 @@ class HandleTrainActuator(
     initialSpeedMetersPerSecond: Double = train.speed,
     profileResolver: ((Car) -> TrainDynamics.CarProfile?)? = null
 ) : TrainActuator, ConsistDynamicsActuator {
+    private val maximumControlDeltaSeconds = train.world.maximumPhysicsDeltaSeconds
     private val dynamics = TrainDynamicsExecutor(
         train,
         trainProfile,
@@ -52,6 +53,7 @@ class HandleTrainActuator(
     val lastDynamicsResult: TrainDynamics.StepResult get() = dynamics.lastResult
 
     override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? = dynamics.dynamicsProfileFor(car)
+    override fun dynamicsDeviceStateFor(car: Car): TrainDynamics.CarDeviceState? = dynamics.dynamicsDeviceStateFor(car)
 
     override fun prepareDynamicsChange(cars: List<Car>, source: DynamicsProfileSource?): PreparedDynamicsChange {
         val prepared = dynamics.prepareConsistChange(cars, source)
@@ -82,81 +84,134 @@ class HandleTrainActuator(
         require(currentSpeedMetersPerSecond.isFinite() && currentSpeedMetersPerSecond >= 0.0)
         require(deltaTimeSeconds.isFinite() && deltaTimeSeconds >= 0.0)
         val target = demand.targetSpeedMetersPerSecond.coerceAtMost(maximumSpeedMetersPerSecond)
-        val desired = desiredHandle(currentSpeedMetersPerSecond, target, deltaTimeSeconds)
+        val preview = dynamics.snapshotPreview(currentSpeedMetersPerSecond, deltaTimeSeconds)
+        val desired = desiredHandle(currentSpeedMetersPerSecond, target, preview)
         val proposed = progressToward(selectedHandle, desired)
-        selectedHandle = if (target >= currentSpeedMetersPerSecond && deltaTimeSeconds > 0.0 &&
-            !canRecoverBelowTarget(currentSpeedMetersPerSecond, proposed, target, deltaTimeSeconds)) {
+        val worstRouteGrade = demand.brakingConstraints?.segments?.minOf { it.grade }
+        selectedHandle = if (deltaTimeSeconds > 0.0 &&
+            ((target >= currentSpeedMetersPerSecond && !canRecoverBelowTarget(proposed, target,
+                currentSpeedMetersPerSecond, deltaTimeSeconds, worstRouteGrade)) ||
+                !satisfiesBrakingLimits(proposed, demand, currentSpeedMetersPerSecond, deltaTimeSeconds))) {
             // No proven safe acceleration: start the real configured braking sequence now.
-            // A suddenly reduced limit or changed grade may already be physically unattainable;
-            // never conceal that by changing the integrated speed or distance.
+            // A suddenly reduced limit or changed grade may already be physically unattainable.
+            // Never conceal that by changing the integrated speed or distance.
             progressToward(selectedHandle, serviceBrakeHandles.lastOrNull() ?: NEUTRAL_HANDLE)
         } else proposed
         val result = dynamics.step(currentSpeedMetersPerSecond, selectedHandle, deltaTimeSeconds)
         return ActuationStep(result.state.speed, result.distance)
     }
 
+    private fun satisfiesBrakingLimits(handle: String, demand: ControlDemand, currentSpeed: Double, deltaSeconds: Double): Boolean {
+        val constraints = demand.brakingConstraints ?: return true
+        require(constraints.maximumControlDeltaSeconds >= maximumControlDeltaSeconds)
+        val envelope = envelopeForHandle(constraints.segments, deltaSeconds,
+            constraints.maximumControlDeltaSeconds, handle, currentSpeed)
+        return constraints.limits.all { envelope.admitsSpeed(currentSpeed, it) }
+    }
+
     override fun freeze() {
         selectedHandle = emergencyBrakeHandle ?: serviceBrakeHandles.lastOrNull() ?: NEUTRAL_HANDLE
     }
 
-    override fun brakingEnvelope(segments: List<BrakingGradeSegment>): GradeAwareBrakingEnvelope =
-        GradeAwareBrakingEnvelope.fromDynamics(
+    override fun brakingEnvelope(
+        segments: List<BrakingGradeSegment>,
+        deltaTimeSeconds: Double,
+        maximumControlDeltaSeconds: Double
+    ): GradeAwareBrakingEnvelope {
+        require(segments.isNotEmpty())
+        return envelopeForHandle(segments, deltaTimeSeconds, maximumControlDeltaSeconds,
+            progressToward(selectedHandle, serviceBrakeHandles.lastOrNull() ?: NEUTRAL_HANDLE))
+    }
+
+    private fun envelopeForHandle(
+        segments: List<BrakingGradeSegment>,
+        deltaTimeSeconds: Double,
+        maximumControlDeltaSeconds: Double,
+        firstHandle: String,
+        currentSpeed: Double = dynamics.state.speed
+    ): GradeAwareBrakingEnvelope {
+        require(deltaTimeSeconds.isFinite() && deltaTimeSeconds >= 0.0)
+        require(maximumControlDeltaSeconds.isFinite() && maximumControlDeltaSeconds > 0.0)
+        require(maximumControlDeltaSeconds >= this.maximumControlDeltaSeconds)
+        require(deltaTimeSeconds <= maximumControlDeltaSeconds)
+        val snapshot = dynamics.state
+        val preview = dynamics.snapshotPreview(currentSpeed, deltaTimeSeconds, segments.minOf { it.grade })
+        val braking = serviceBrakeHandles.lastOrNull() ?: NEUTRAL_HANDLE
+        val response = ServiceBrakingResponse.bound(preview, firstHandle, brakingSequence(firstHandle, braking),
+            maximumControlDeltaSeconds)
+        // The head entering an uphill slice does not move the tail off its prior downhill slope.
+        // Without a per-car route projection, use the common worst observed/current grade for
+        // steady braking too, rather than attributing the head's uphill work to the entire mass.
+        val worstGrade = preview.cars.minOf { it.grade }
+        val conservativeSegments = segments.map { it.copy(grade = worstGrade) }
+        return GradeAwareBrakingEnvelope.fromDynamics(
             dynamics.trainProfile,
             dynamics.carProfiles,
             dynamics.gravityMetersPerSecondSquared,
-            segments,
-            currentAccelerationMetersPerSecondSquared = dynamics.state.acceleration
+            conservativeSegments,
+            snapshot.acceleration,
+            response = response
         )
+    }
 
     /**
      * A one-tick safe speed is insufficient: handle travel and positive residual acceleration can
      * cross the limit later. Prove a bounded recovery using the same dynamics and current grades.
      * Exhausting the budget is inconclusive, so it never authorizes further traction.
      */
-    private fun canRecoverBelowTarget(currentSpeed: Double, proposed: String, target: Double, delta: Double): Boolean {
-        val preview = dynamics.snapshotPreview(delta)
+    private fun canRecoverBelowTarget(
+        proposed: String,
+        target: Double,
+        currentSpeed: Double,
+        deltaSeconds: Double,
+        worstRouteGrade: Double?
+    ): Boolean {
+        require(deltaSeconds <= maximumControlDeltaSeconds)
         val braking = serviceBrakeHandles.lastOrNull() ?: NEUTRAL_HANDLE
-        val brakeScale = dynamics.trainProfile.normalizedBrakeScale(braking)
-        var handle = proposed
-        var state = dynamics.state.copy(speed = currentSpeed)
-        repeat(MAX_RECOVERY_PREVIEW_STEPS) {
-            val result = preview(state, handle)
-            state = result.state
-            if (state.speed > target + SPEED_EPSILON) return false
-            val netForce = result.tractionForce - result.brakeForce - result.resistanceForce - result.gradeForce
-            if (handle == braking && state.acceleration <= 0.0 && state.brakeScale <= brakeScale &&
-                netForce <= 0.0) return true
-            handle = progressToward(handle, braking)
-        }
-        return false
+        val preview = dynamics.snapshotPreview(currentSpeed, deltaSeconds, worstRouteGrade)
+        val response = ServiceBrakingResponse.bound(preview, proposed, brakingSequence(proposed, braking),
+            maximumControlDeltaSeconds)
+        return response.proven && currentSpeed + response.speedGainMetersPerSecond <= target + SPEED_EPSILON
     }
 
-    private fun desiredHandle(currentSpeed: Double, targetSpeed: Double, deltaSeconds: Double): String {
+    private fun brakingSequence(firstHandle: String, brakingHandle: String): List<String> {
+        val subsequent = mutableListOf<String>()
+        var handle = firstHandle
+        do {
+            handle = progressToward(handle, brakingHandle)
+            subsequent += handle
+        } while (handle != brakingHandle)
+        return subsequent
+    }
+
+    private fun desiredHandle(currentSpeed: Double, targetSpeed: Double, preview: TrainDynamics.PreviewSession): String {
+        if (targetSpeed == 0.0 && currentSpeed <= SPEED_EPSILON)
+            return serviceBrakeHandles.lastOrNull() ?: NEUTRAL_HANDLE
         if (targetSpeed == 0.0 && currentSpeed > SPEED_EPSILON && serviceBrakeHandles.isNotEmpty()) {
-            val serviceResult = dynamics.preview(currentSpeed, serviceBrakeHandles.last(), deltaSeconds)
+            val serviceResult = preview.trial(serviceBrakeHandles.last())
             val emergency = emergencyBrakeHandle
-            if (serviceResult.state.speed >= currentSpeed && emergency != null) {
+            if (serviceResult.state.motion.speed >= currentSpeed && emergency != null) {
                 return emergency
             }
         }
         return when {
             targetSpeed > currentSpeed + SPEED_EPSILON -> {
-                (listOf(NEUTRAL_HANDLE) + powerHandles)
-                    .map { handle -> handle to dynamics.preview(currentSpeed, handle, deltaSeconds).state.speed }
-                    .filter { (_, nextSpeed) -> nextSpeed <= targetSpeed + SPEED_EPSILON }
-                    .minWithOrNull(
-                        compareBy<Pair<String, Double>> { (_, nextSpeed) -> targetSpeed - nextSpeed }
-                            .thenBy { (handle, _) -> handleStrength(handle) }
-                    )?.first ?: NEUTRAL_HANDLE
+                val candidates = (listOf(NEUTRAL_HANDLE) + powerHandles).map { it to preview.trial(it).state.motion.speed }
+                val feasible = candidates.filter { it.second <= targetSpeed + SPEED_EPSILON }
+                val selected = feasible.minWithOrNull(compareBy<Pair<String, Double>> { targetSpeed - it.second }
+                    .thenBy { handleStrength(it.first) })?.first ?: NEUTRAL_HANDLE
+                // A delayed power command has no first-tick speed benefit. Keep a real power
+                // intention until devices respond. The separate recovery proof still gates it.
+                if (selected == NEUTRAL_HANDLE && feasible.any { it.first in powerHandles })
+                    powerHandles.lastOrNull { handle -> feasible.any { it.first == handle } } ?: selected
+                else selected
             }
             targetSpeed < currentSpeed - SPEED_EPSILON -> {
-                (listOf(NEUTRAL_HANDLE) + serviceBrakeHandles).firstOrNull { handle ->
-                    dynamics.preview(currentSpeed, handle, deltaSeconds).state.speed <=
-                        targetSpeed + SPEED_EPSILON
+                (listOf(NEUTRAL_HANDLE) + serviceBrakeHandles).firstOrNull { handle -> preview.trial(handle).state.motion.speed <= targetSpeed + SPEED_EPSILON
                 } ?: serviceBrakeHandles.lastOrNull() ?: NEUTRAL_HANDLE
             }
             else -> (listOf(NEUTRAL_HANDLE) + powerHandles + serviceBrakeHandles)
-                .map { handle -> handle to dynamics.preview(currentSpeed, handle, deltaSeconds).state.speed }
+                .map { handle -> handle to preview.trial(handle).state.motion.speed }
                 .minWithOrNull(
                     compareBy<Pair<String, Double>> { (_, nextSpeed) -> abs(nextSpeed - targetSpeed) }
                         .thenBy { (handle, _) -> if (handle.equals(selectedHandle, ignoreCase = true)) 0 else 1 }
@@ -187,7 +242,6 @@ class HandleTrainActuator(
     companion object {
         private const val NEUTRAL_HANDLE = "N"
         private const val EMERGENCY_BRAKE_HANDLE = "EB"
-        private const val MAX_RECOVERY_PREVIEW_STEPS = 256
         private const val SPEED_EPSILON = 1.0e-6
         private const val NOMINAL_CONTROL_STEP_SECONDS = 0.05
 
@@ -232,9 +286,14 @@ class HandleTrainActuator(
             val jerkResponseSeconds = trainProfile.brakeJerk.takeIf { it > 0.0 }
                 ?.let { serviceDeceleration / it }
                 ?: 0.0
+            val commandDelay = carProfiles.maxOfOrNull { it.equipment.commandDelaySeconds } ?: 0.0
+            val cutout = carProfiles.maxOfOrNull { car -> (car.mass * car.motorAdhesionMassRatio * gravityMetersPerSecondSquared * trainProfile.adhesionCoefficient) / car.equipment.tractionReleaseRateNewtonsPerSecond
+            } ?: 0.0
+            val serviceScale = trainProfile.normalizedBrakeScale(TrainDynamics.strongestServiceBrakeHandle(trainProfile))
             return planningMarginSeconds +
                 (powerSteps + brakeSteps) * controlStepSeconds +
-                trainProfile.brakeApplyTime +
+                commandDelay + controlStepSeconds + cutout +
+                trainProfile.brakeApplyTime.coerceAtLeast(0.0) * serviceScale +
                 jerkResponseSeconds
         }
     }

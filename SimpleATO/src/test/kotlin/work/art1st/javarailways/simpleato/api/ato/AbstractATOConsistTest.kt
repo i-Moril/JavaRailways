@@ -68,6 +68,9 @@ class AbstractATOConsistTest {
                     train.setControllerForTest(controller)
                     actuator.step(0.0, ControlDemand(30.0), 0.1)
                     val history = actuator.lastDynamicsResult
+                    val firstDevice = actuator.dynamicsDeviceStateFor(first)
+                    val secondDevice = actuator.dynamicsDeviceStateFor(second)
+                    assertNotNull(firstDevice)
                     assertEquals("P1", actuator.selectedHandle)
 
                     if (failInitialization) train.registerExtensionData(object : Plugin {
@@ -84,15 +87,19 @@ class AbstractATOConsistTest {
                         assertSame(safety, controller.currentSafety)
                         assertSame(light, actuator.dynamicsProfileFor(second))
                         assertSame(train, second.train)
+                        assertEquals(secondDevice, actuator.dynamicsDeviceStateFor(second))
                     } else {
                         future.get(5, TimeUnit.SECONDS)
                         assertEquals(safety.copy(
                             serviceDecelerationMetersPerSecondSquared = 2.0,
-                            reactionTimeSeconds = 1.5
+                            reactionTimeSeconds = HandleTrainActuator.serviceBrakeReactionTimeSeconds(
+                                TrainProfile, listOf(heavy), 10.0)
                         ), controller.currentSafety)
                         assertNull(actuator.dynamicsProfileFor(second))
+                        assertNull(actuator.dynamicsDeviceStateFor(second))
                     }
                     assertSame(heavy, actuator.dynamicsProfileFor(first))
+                    assertEquals(firstDevice, actuator.dynamicsDeviceStateFor(first))
                     assertSame(controller, train.controller)
                     assertSame(history, actuator.lastDynamicsResult)
                     assertEquals("P1", actuator.selectedHandle)
@@ -117,6 +124,8 @@ class AbstractATOConsistTest {
                     train.setControllerForTest(controller)
                     actuator.step(0.0, ControlDemand(30.0), 0.1)
                     val history = actuator.lastDynamicsResult
+                    val device = actuator.dynamicsDeviceStateFor(train.cars.single())
+                    assertNotNull(device)
                     val nextProfile = object : TrainDynamics.TrainProfile by TrainProfile { override val maxSpeed = 15.0 }
                     val updates = controller.prepareConfigurationChange(nextProfile, listOf(nextCar))
                     assertSame(safety, controller.currentSafety)
@@ -125,16 +134,19 @@ class AbstractATOConsistTest {
                     world.onOwnerForTest { train.applyControllerConfiguration(controller, updates) }
                     assertSame(controller, train.controller)
                     assertSame(history, actuator.lastDynamicsResult)
+                    assertEquals(device, actuator.dynamicsDeviceStateFor(train.cars.single()))
                     assertEquals("P1", actuator.selectedHandle)
                     assertEquals(15.0, actuator.maximumSpeedMetersPerSecond)
                     assertEquals(2.0, controller.currentSafety.serviceDecelerationMetersPerSecondSquared)
-                    assertEquals(1.5, controller.currentSafety.reactionTimeSeconds, 1.0e-12)
+                    assertEquals(HandleTrainActuator.serviceBrakeReactionTimeSeconds(nextProfile, listOf(nextCar), 10.0),
+                        controller.currentSafety.reactionTimeSeconds, 1.0e-12)
                     assertEquals(17.0, controller.currentSafety.safetyDistanceMeters)
                     assertSame(nextCar, actuator.dynamicsProfileFor(train.cars.single()))
                     assertThrows(IllegalArgumentException::class.java) {
                         controller.prepareConfigurationChange(nextProfile, listOf(CarProfile(20_000.0, 0.0)))
                     }
                     assertSame(nextCar, actuator.dynamicsProfileFor(train.cars.single()))
+                    assertEquals(device, actuator.dynamicsDeviceStateFor(train.cars.single()))
                     assertSame(history, actuator.lastDynamicsResult)
                 }
             }

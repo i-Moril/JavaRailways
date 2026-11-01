@@ -56,6 +56,7 @@ class RealisticManualController(
     val controlledTrain: Train get() = train
 
     override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? = dynamics.dynamicsProfileFor(car)
+    override fun dynamicsDeviceStateFor(car: Car): TrainDynamics.CarDeviceState? = dynamics.dynamicsDeviceStateFor(car)
 
     override fun prepareConsistChange(cars: List<Car>, counterpart: TrainController?): List<PreparedControllerStateUpdate> =
         listOf(dynamics.prepareConsistChange(cars, counterpart as? DynamicsProfileSource).update)

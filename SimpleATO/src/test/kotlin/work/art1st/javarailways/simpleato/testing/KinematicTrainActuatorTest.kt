@@ -25,8 +25,8 @@ class KinematicTrainActuatorTest {
     @Test
     fun `braking capability requires a nonempty route`() {
         val actuator = KinematicTrainActuator(10.0, AtoSafetyProfile())
-        assertThrows(IllegalArgumentException::class.java) { actuator.brakingEnvelope(emptyList()) }
-        val envelope = actuator.brakingEnvelope(listOf(BrakingGradeSegment(100.0, 0.0)))
+        assertThrows(IllegalArgumentException::class.java) { actuator.brakingEnvelope(emptyList(), 0.05, 0.2) }
+        val envelope = actuator.brakingEnvelope(listOf(BrakingGradeSegment(100.0, 0.0)), 0.05, 0.2)
         assertEquals(100.0, envelope.totalDistanceMeters)
     }
 

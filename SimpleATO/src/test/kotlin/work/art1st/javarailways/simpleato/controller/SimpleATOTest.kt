@@ -622,6 +622,71 @@ class SimpleATOTest {
         assertFalse(fixture.coordinator.isStalled, fixture.coordinator.lastStall.toString())
     }
 
+    @Test fun `real equipment releases held brakes and stops at station mark within independent authority`() {
+        val dynamics = object : work.art1st.javarailways.basic.control.TrainDynamics.TrainProfile {
+            override val maxSpeed = 8.0
+            override val powerHandles = listOf("P1", "P2")
+            override val brakeHandles = listOf("B1", "B2", "EB")
+            override val brakeApplyTime = 0.8
+            override val brakeReleaseTime = 1.2
+            override val adhesionCoefficient = 0.25
+            override val tractionJerk = 1.0
+            override val brakeJerk = 1.0
+            override fun normalizedPowerScale(handle: String) = when(handle) { "P1" -> 0.5; "P2" -> 1.0; else -> 0.0 }
+            override fun normalizedBrakeScale(handle: String) = when(handle) { "B1" -> 0.5; "B2", "EB" -> 1.0; else -> 0.0 }
+            override fun resistanceForceAt(speed: Double) = 300.0
+        }
+        val car = object : work.art1st.javarailways.basic.control.TrainDynamics.CarProfile {
+            override val mass = 30_000.0
+            override val effectiveMass = 32_000.0
+            override val motorAdhesionMassRatio = 1.0
+            override val brakeMaxForce = 60_000.0
+            override val electricBrakeMaxForce = 20_000.0
+            override val brakeAdhesionMassRatio = 1.0
+            override fun motorForceAt(speed: Double) = 40_000.0
+            override fun resistanceForceAt(speed: Double, defaultResistance: (Double) -> Double) = defaultResistance(speed)
+        }
+        val safety = AtoSafetyProfile(
+            serviceDecelerationMetersPerSecondSquared = work.art1st.javarailways.basic.control.TrainDynamics.flatServiceDeceleration(dynamics, listOf(car), 9.80665),
+            reactionTimeSeconds = work.art1st.javarailways.basic.control.HandleTrainActuator.serviceBrakeReactionTimeSeconds(dynamics, listOf(car), 9.80665),
+            safetyDistanceMeters = 5.0, stopToleranceMeters = 0.05)
+        lateinit var actuator: work.art1st.javarailways.basic.control.HandleTrainActuator
+        val fixture = fixture("equipment-station", atoProfile = safety, actuatorFactory = { train ->
+            work.art1st.javarailways.basic.control.HandleTrainActuator(train, dynamics, listOf(car), 9.80665).also { made ->
+                actuator = made
+                repeat(80) { made.step(0.0, work.art1st.javarailways.basic.api.ato.ControlDemand(0.0), 0.05) }
+            }
+        })
+        val source = fixture.train.cars.single()
+        assertTrue(checkNotNull(fixture.ato.dynamicsDeviceStateFor(source)).pressureKpa > 100.0)
+        assertEquals(actuator.dynamicsDeviceStateFor(source), fixture.ato.dynamicsDeviceStateFor(source))
+        val rail = fixture.train.head.location.rail
+        val origin = fixture.train.head.location.arcLength
+        fixture.data.wayPoints.add(WayPoint("equipment-origin", rail.id, origin))
+        fixture.data.wayPoints.add(WayPoint("equipment-stop", rail.id, origin + 100.0))
+        val accepted = fixture.ato.submitMission(AtoMissionRequest("equipment-mission", 1,
+            WayPointRef("equipment-origin"), listOf(AtoMissionPoint.Stop(WayPointRef("equipment-stop"), stationStop = true))))
+            as AtoMissionSubmissionResult.Accepted
+        assertEquals(100.3, fixture.ato.terminalMovementAuthorityLimitMeters(100.0, true), 1e-12)
+        assertEquals(105.0, fixture.ato.terminalMovementAuthorityLimitMeters(100.0, false), 1e-12)
+        fixture.ato.setMovementAuthority(accepted.mission.revision, 100.3)
+        var peak = 0.0
+        val trace = mutableListOf<String>()
+        repeat(6000) { tick ->
+            tickAndPublish(fixture.ato, 50.0)
+            if ((tick < 100 && tick % 10 == 0) || tick % 500 == 0) trace +=
+                "tick=$tick speed=${fixture.train.speed} handle=${actuator.selectedHandle} head=${fixture.train.head.location.arcLength - origin} " +
+                    "device=${actuator.dynamicsDeviceStateFor(source)} demand=${fixture.ato.runtimeDiagnostics.permittedSpeedMetersPerSecond}"
+            assertFalse(fixture.coordinator.isStalled, fixture.coordinator.lastStall.toString())
+            val progress = fixture.train.head.location.arcLength - origin
+            assertTrue(progress <= 100.3 + 1e-6, "actual head crossed independent authority: $progress")
+            peak = maxOf(peak, fixture.train.speed)
+        }
+        assertTrue(peak > 1.0, "held-brake departure must not remain neutral: peak=$peak\n${trace.joinToString("\n")}")
+        assertEquals(100.0, fixture.train.head.location.arcLength - origin, 0.15)
+        assertTrue(fixture.ato.isStopped(fixture.train.speed))
+    }
+
     private fun authorizeMovement(fixture: Fixture) {
         val rail = fixture.train.head.location.rail
         val originArc = fixture.train.head.location.arcLength
@@ -654,6 +719,7 @@ class SimpleATOTest {
         physicsCoordinator: PhysicsCoordinator? = null,
         atoProfile: AtoSafetyProfile = profile,
         maximumSpeedMetersPerSecond: Double = 10.0,
+        actuatorFactory: ((work.art1st.javarailways.core.physics.train.CoreTrain) -> work.art1st.javarailways.basic.api.ato.TrainActuator)? = null,
         inspectionMaximumLeadTimeSeconds: (String) -> Double = { 0.0 }
     ): Fixture {
         val world = createTestWorld(physicsCoordinator)
@@ -669,7 +735,7 @@ class SimpleATOTest {
         val ato = SimpleATO(
             train = train,
             world = world,
-            actuator = KinematicTrainActuator(maximumSpeedMetersPerSecond, atoProfile),
+            actuator = actuatorFactory?.invoke(train) ?: KinematicTrainActuator(maximumSpeedMetersPerSecond, atoProfile),
             safetyProfile = atoProfile,
             inspectionMaximumLeadTimeSeconds = inspectionMaximumLeadTimeSeconds
         )

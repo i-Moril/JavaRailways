@@ -198,9 +198,9 @@ class TrainRestrictionConstraintAdapter(
                 (routeDistanceMeters - routeProgressMeters).coerceAtLeast(0.0),
                 stoppingMarginMeters
             )
-            is CouplingContactRestriction -> StopConstraint(key,
+            is CouplingContactRestriction -> RouteSpeedLimitConstraint(key,
                 (authority.contactBoundary.distanceFromRouteStartMeters - routeProgressMeters).coerceAtLeast(0.0),
-                stoppingMarginMeters = 0.0)
+                authority.maximumApproachSpeedMetersPerSecond)
         }
     }
 

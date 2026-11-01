@@ -2053,6 +2053,7 @@ class DefaultInfrastructureResourceServiceTest {
     @OptIn(ExtensionData::class)
     private class TestWorld(override val topologyState: TopologyState) : World {
         override val executionMode = work.art1st.javarailways.core.api.physics.WorldExecutionMode.LIVE
+        override val maximumPhysicsDeltaSeconds: Double = 0.2
         override fun registerTopologyChangeListener(listener: RailTopologyChangeListener): AutoCloseable = AutoCloseable {}
         override val tickManager: TickManager get() = error("tick manager is not used by this test")
         override val allTrains: Collection<Train> = emptyList()

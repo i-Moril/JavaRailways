@@ -394,7 +394,11 @@ class ProtectionSignalControllerHandoffTest {
             return ActuationStep(0.0, 0.0)
         }
 
-        override fun brakingEnvelope(segments: List<BrakingGradeSegment>): GradeAwareBrakingEnvelope =
+        override fun brakingEnvelope(
+            segments: List<BrakingGradeSegment>,
+            deltaTimeSeconds: Double,
+            maximumControlDeltaSeconds: Double
+        ): GradeAwareBrakingEnvelope =
             GradeAwareBrakingEnvelope.constant(1.0, segments)
     }
 }

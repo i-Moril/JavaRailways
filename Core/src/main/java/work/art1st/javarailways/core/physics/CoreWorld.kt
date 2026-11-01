@@ -87,6 +87,9 @@ class CoreWorld(
     private val extensionDataContainer: ExtensionDataContainer<Any> = ExtensionDataContainer(),
     override val executionMode: WorldExecutionMode = WorldExecutionMode.LIVE
 ) : World, Extendable<Any> by extensionDataContainer {
+    override val maximumPhysicsDeltaSeconds: Double
+        get() = physicsCoordinator.maximumPhysicsDeltaSeconds
+
     val executionOwner: WorldExecutionOwner = physicsCoordinator.executionOwner
     private val railSpatialIndex = RailSpatialIndex()
     private val atGradeRailCrossingIndex = AtGradeRailCrossingIndex(railSpatialIndex)

@@ -1,12 +1,12 @@
 package work.art1st.javarailways.basic.control
 
-import work.art1st.javarailways.core.api.physics.train.Train
-import work.art1st.javarailways.core.api.physics.train.Car
-import java.util.IdentityHashMap
-import work.art1st.javarailways.core.api.control.PreparedControllerStateUpdate
 import work.art1st.javarailways.core.api.control.ControllerConsistState
+import work.art1st.javarailways.core.api.control.PreparedControllerStateUpdate
+import work.art1st.javarailways.core.api.physics.train.Car
+import work.art1st.javarailways.core.api.physics.train.Train
+import java.util.IdentityHashMap
 
-/** Stateful adapter around the pure [TrainDynamics] step shared by manual and automatic control. */
+/** Owns committed equipment state. Speculative banks never escape the executor. */
 class TrainDynamicsExecutor(
     private val train: Train,
     trainProfile: TrainDynamics.TrainProfile,
@@ -15,101 +15,145 @@ class TrainDynamicsExecutor(
     initialSpeedMetersPerSecond: Double = train.speed,
     private val profileResolver: ((Car) -> TrainDynamics.CarProfile?)? = null
 ) : DynamicsProfileSource {
-    private val currentTrainProfile = ControllerConsistState(trainProfile)
-    val trainProfile: TrainDynamics.TrainProfile get() = currentTrainProfile.value
+    private class Published(
+        val state: TrainDynamics.State,
+        val result: TrainDynamics.StepResult,
+        val cars: List<Car>
+    ) {
+        val indices = IdentityHashMap<Car, Int>().also { indices ->
+            cars.forEachIndexed { index, car -> indices[car] = index }
+        }
+    }
 
-    private val profilesByCar: ControllerConsistState<Map<Car, TrainDynamics.CarProfile>>
+    private class Binding(
+        val profile: TrainDynamics.TrainProfile,
+        val cars: List<Car>,
+        val profiles: Map<Car, TrainDynamics.CarProfile>,
+        initial: Published
+    ) {
+        val workspace = TrainDynamics.PreviewWorkspace(cars.size)
 
-    /** Profiles for the current consist, in its current order; removed cars are not included. */
+        @Volatile
+        var published = initial
+    }
+
+    private val current: ControllerConsistState<Binding>
+    val trainProfile: TrainDynamics.TrainProfile get() = current.value.profile
     val carProfiles: List<TrainDynamics.CarProfile>
-        get() = train.cars.map(::profileFor)
-
-    @Volatile
-    var state: TrainDynamics.State = TrainDynamics.State(speed = initialSpeedMetersPerSecond)
-        private set
-
-    @Volatile
-    var lastResult: TrainDynamics.StepResult =
-        TrainDynamics.StepResult(state, 0.0, 0.0, 0.0, 0.0, 0.0)
-        private set
+        get() = current.value.let { binding ->
+            train.cars.map { car ->
+                checkNotNull(binding.profiles[car]) {
+                    "car '${car.id}' has no dynamics profile for this exact instance"
+                }
+            }
+        }
+    val state: TrainDynamics.State get() = current.value.published.state
+    val lastResult: TrainDynamics.StepResult get() = current.value.published.result
 
     init {
         require(gravityMetersPerSecondSquared.isFinite() && gravityMetersPerSecondSquared > 0.0)
         require(initialSpeedMetersPerSecond.isFinite() && initialSpeedMetersPerSecond >= 0.0)
         val cars = train.cars.toList()
-        require(carProfiles.size == cars.size) {
-            "car profile count ${carProfiles.size} does not match train car count ${cars.size}"
-        }
-        profilesByCar = ControllerConsistState(IdentityHashMap<Car, TrainDynamics.CarProfile>().also { profiles ->
-            cars.forEachIndexed { index, car -> profiles[car] = carProfiles[index] }
-        })
+        require(carProfiles.size == cars.size) { "car profile count does not match train car count" }
+        val profiles = IdentityHashMap<Car, TrainDynamics.CarProfile>()
+        cars.forEachIndexed { index, car -> profiles[car] = carProfiles[index] }
+        val state = TrainDynamics.initialState(carProfiles, initialSpeedMetersPerSecond)
+        val result = TrainDynamics.StepResult(state, 0.0, 0.0, 0.0, 0.0, 0.0)
+        current = ControllerConsistState(Binding(trainProfile, cars, profiles, Published(state, result, cars)))
     }
 
-    override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? = profilesByCar.value[car]
+    override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? = current.value.profiles[car]
+
+    override fun dynamicsDeviceStateFor(car: Car): TrainDynamics.CarDeviceState? {
+        val published = current.value.published
+        return published.indices[car]?.let { published.state.devices[it] }
+    }
 
     internal fun prepareConsistChange(cars: List<Car>, source: DynamicsProfileSource?): PreparedConsistDynamics {
+        val previous = current.value
         val profiles = IdentityHashMap<Car, TrainDynamics.CarProfile>()
-        val ordered = cars.map { car ->
-            val profile = dynamicsProfileFor(car) ?: source?.dynamicsProfileFor(car) ?: profileResolver?.invoke(car)
+        val devices = cars.map { car ->
+            profiles[car] = dynamicsProfileFor(car) ?: source?.dynamicsProfileFor(car) ?: profileResolver?.invoke(car)
                 ?: error("Train ${train.id} car '${car.id}' has no dynamics profile for this instance")
-            profiles[car] = profile
-            profile
+            dynamicsDeviceStateFor(car) ?: source?.dynamicsDeviceStateFor(car) ?: TrainDynamics.CarDeviceState(
+                pressureKpa = if (previous.published.state.speed == 0.0) {
+                    profiles.getValue(car).equipment.nominalCylinderPressureKpa
+                } else 0.0
+            )
         }
-        return PreparedConsistDynamics(ordered, profilesByCar.prepare(profiles))
+        val state = previous.published.state.copy(devices = TrainDynamics.DeviceSnapshot.of(devices))
+        val capturedCars = cars.toList()
+        val published = Published(state, previous.published.result, capturedCars)
+        val binding = Binding(previous.profile, capturedCars, profiles, published)
+        return PreparedConsistDynamics(cars.map { profiles.getValue(it) }, current.prepare(binding))
     }
 
     fun prepareConfigurationChange(
         trainProfile: TrainDynamics.TrainProfile,
         carProfiles: List<TrainDynamics.CarProfile>
     ): List<PreparedControllerStateUpdate> {
+        val previous = current.value
         val cars = train.cars.toList()
         require(carProfiles.size == cars.size) { "car profile count does not match current consist" }
         TrainDynamics.totalEffectiveMass(carProfiles)
         val profiles = IdentityHashMap<Car, TrainDynamics.CarProfile>()
         cars.forEachIndexed { index, car -> profiles[car] = carProfiles[index] }
-        return listOf(currentTrainProfile.prepare(trainProfile), profilesByCar.prepare(profiles))
+        return listOf(current.prepare(Binding(trainProfile, previous.cars, profiles, previous.published)))
     }
 
-    fun preview(
-        currentSpeedMetersPerSecond: Double,
-        handle: String,
-        deltaTimeSeconds: Double
-    ): TrainDynamics.StepResult = TrainDynamics.step(
-        state = state.copy(speed = currentSpeedMetersPerSecond),
-        config = trainProfile,
-        cars = carInputs(),
-        handle = handle,
-        gravityMetersPerSecondSquared = gravityMetersPerSecondSquared,
-        deltaSeconds = deltaTimeSeconds
+    private data class Capture(
+        val cars: List<Car>,
+        val state: TrainDynamics.State,
+        val inputs: List<TrainDynamics.CarInput>
     )
 
-    /** Captures the current consist and grades once; speculative states never commit to this executor. */
-    internal fun snapshotPreview(deltaTimeSeconds: Double): (TrainDynamics.State, String) -> TrainDynamics.StepResult {
-        val profile = trainProfile
-        val inputs = carInputs()
-        return { speculativeState, handle ->
-            TrainDynamics.step(speculativeState, profile, inputs, handle,
-                gravityMetersPerSecondSquared, deltaTimeSeconds)
+    private fun capture(binding: Binding, speed: Double): Capture {
+        val cars = train.cars.toList()
+        val published = binding.published
+        val inputs = cars.map { car ->
+            val profile = checkNotNull(binding.profiles[car]) {
+                "car '${car.id}' has no dynamics profile for this exact instance"
+            }
+            TrainDynamics.CarInput(profile, car.operatingDirection.y())
         }
-    }
-
-    fun step(
-        currentSpeedMetersPerSecond: Double,
-        handle: String,
-        deltaTimeSeconds: Double
-    ): TrainDynamics.StepResult = preview(currentSpeedMetersPerSecond, handle, deltaTimeSeconds).also {
-        state = it.state
-        lastResult = it
-    }
-
-    private fun profileFor(car: Car): TrainDynamics.CarProfile = checkNotNull(dynamicsProfileFor(car)) {
-        "Train ${train.id} car '${car.id}' has no dynamics profile for this instance"
-    }
-
-    private fun carInputs(): List<TrainDynamics.CarInput> = train.cars.map { car ->
-        TrainDynamics.CarInput(
-            control = profileFor(car),
-            grade = car.operatingDirection.y()
+        val same = cars.size == published.cars.size && cars.indices.all { cars[it] === published.cars[it] }
+        val state = if (same) published.state.copy(speed = speed) else published.state.copy(
+            speed = speed,
+            devices = TrainDynamics.DeviceSnapshot.of(cars.map { car ->
+                published.state.devices[checkNotNull(published.indices[car])]
+            })
         )
+        return Capture(cars, state, inputs)
+    }
+
+    fun preview(currentSpeedMetersPerSecond: Double, handle: String, deltaTimeSeconds: Double): TrainDynamics.StepResult {
+        val binding = current.value
+        val capture = capture(binding, currentSpeedMetersPerSecond)
+        return TrainDynamics.step(capture.state, binding.profile, capture.inputs, handle,
+            gravityMetersPerSecondSquared, deltaTimeSeconds)
+    }
+
+    internal fun snapshotPreview(
+        currentSpeed: Double,
+        deltaTimeSeconds: Double,
+        worstGrade: Double? = null
+    ): TrainDynamics.PreviewSession {
+        val binding = current.value
+        val capture = capture(binding, currentSpeed)
+        val inputs = if (worstGrade == null) capture.inputs else {
+            val commonGrade = minOf(worstGrade, capture.inputs.minOf { it.grade })
+            capture.inputs.map { it.copy(grade = commonGrade) }
+        }
+        return TrainDynamics.PreviewSession(capture.state, binding.profile, inputs,
+            gravityMetersPerSecondSquared, deltaTimeSeconds, binding.workspace)
+    }
+
+    fun step(currentSpeedMetersPerSecond: Double, handle: String, deltaTimeSeconds: Double): TrainDynamics.StepResult {
+        val binding = current.value
+        val capture = capture(binding, currentSpeedMetersPerSecond)
+        val result = TrainDynamics.step(capture.state, binding.profile, capture.inputs, handle,
+            gravityMetersPerSecondSquared, deltaTimeSeconds)
+        binding.published = Published(result.state, result, capture.cars)
+        return result
     }
 }

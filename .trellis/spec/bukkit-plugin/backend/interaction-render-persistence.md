@@ -256,3 +256,16 @@ InfrastructureResourceProviderRegistration持有本次准确ProviderRegistration
 InfrastructureResourceService.selectTurnout保留CompletableFuture公开签名，返回内部帧间Future的独立dependent future。调用方complete/completeExceptionally/cancel/orTimeout只改变自己的等待结果，不更改内部队列是否执行、发布状态或完成时间；实际操作仍在既有帧间owner执行。不能让队列内部result.isDone被外部等待策略改变。回归检查外部完成前未切岔、帧间drain后实际切岔且世界continuation已发布。
 
 SavedCarModelTree.build在加载/重载准备资源时检查当前活动解析路径，A→A或A→B→A拒绝并显示引用路径；已经完成的共享子零件或diamond复用允许。失败候选不发布新模型资源，旧可用registry/资源版本按原reload失败合同保留。未改变快照schema/hash或引入旧开发数据reader。真实YAML加载/重载及图构造回归分别验证拒绝环和允许复用。
+
+## 逐车牵引／制动设备参数
+
+`CarControlConfig.equipment`直接保存Basic的不可变`TrainDynamics.Equipment`，YAML入口为`control.equipment`。
+字段使用kebab-case并在解析边界校验，缺项采用同一显式默认值，不增加模型版本或新旧模型选择分支。
+`brake.regenerative-force`为电制动力上限；设备字段分别设置缸压、指令延迟、电制动功率/低速衰减、
+电制动与牵引力建立/退出速率，以及牵引缓解联锁阈值。列车级`brake.apply-time/release-time`仍负责空气压力响应。
+六种S100车厢的YAML和ZIP成员同步写出参数；这些是工程近似，不代表真实车型标定。
+
+设备默认字段改变canonical train-package snapshot哈希；`CarDefinition.control`是transient，模型树快照哈希不因此改变。
+离线`ai_tasks/migrations/migrate_equipment_snapshots.py`使用源/候选真实JAR codec重算包哈希并更新已知渲染引用，
+覆盖current与`.bak`，先dry-run固定输入/JAR哈希，再停服apply并保存外部恢复点。不得放宽运行时hash验证、
+改变默认字段编码或保留旧哈希读取分支。设备运行状态不因这次配置扩展自动成为持久化字段。

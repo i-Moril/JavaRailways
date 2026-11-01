@@ -41,6 +41,8 @@ class PhysicsTicket internal constructor(
 
 Lifecycle：`attachWorld` 仅一次 → composition注册静态railway-epoch processors → `start()` → wake/capture/await → `beginShutdown()`停止新epoch并捕获exact ticket → 成功await后final save → `close()`/unregister processors。`RailwayEpochProcessor`在`start()`后不能增删；Stall/close后才可清理。`close()`幂等并使 in-flight ticket exceptional；`STALLED/CLOSED` 不返回旧成功 ticket。
 
+`World.maximumPhysicsDeltaSeconds`公开所属coordinator的不可变单步上限，单位秒；live与隔离模拟均消费
+同一真实配置值。它不是当前delta或固定控制周期，控制器不得在制动证明中自行假定50 ms或硬编码默认200 ms。
 Wall-clock delta首 epoch 50 ms，默认 clamp 200 ms；drop计入 `droppedDeltaMillis`，不补跑 catch-up epochs。`stepSimulation(deltaMillis)` 要求 finite、`0 < delta <= maxPhysicsDeltaMillis` 且 `automaticFallback=false`。
 
 ## Epoch 顺序与结果矩阵

@@ -17,6 +17,18 @@ control:
     max-force: 48000
     regenerative-force: 0
     adhesion-mass-ratio: 1.0
+  # Engineering approximation, not measured S100 equipment data.
+  equipment:
+    nominal-cylinder-pressure-kpa: 350.0
+    command-delay-seconds: 0.1
+    electric-brake-max-power-watts: 400000.0
+    electric-brake-fade-speed-meters-per-second: 3.0
+    electric-brake-apply-rate-newtons-per-second: 100000.0
+    electric-brake-release-rate-newtons-per-second: 100000.0
+    traction-apply-rate-newtons-per-second: 80000.0
+    traction-release-rate-newtons-per-second: 160000.0
+    traction-release-pressure-kpa: 5.0
+    electric-release-force-threshold-newtons: 1.0
 # S100 00T0 trailer car: connector + seated sections, no pantograph.
 body-parts:
   # Collision platform: 3x18 shulker grid across the full car and connectors

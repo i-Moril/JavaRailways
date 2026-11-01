@@ -120,7 +120,8 @@ data class CarControlConfig(
     val rotatingMassFactor: Double = 1.08,
     val motor: MotorControlConfig = MotorControlConfig(),
     val brake: CarBrakeControlConfig = CarBrakeControlConfig(),
-    val resistance: DavisResistanceConfig? = null
+    val resistance: DavisResistanceConfig? = null,
+    override val equipment: TrainDynamics.Equipment = TrainDynamics.Equipment()
 ) : TrainDynamics.CarProfile {
     init {
         require(mass.isFinite() && mass > 0.0) { "mass must be finite and positive" }
@@ -135,6 +136,7 @@ data class CarControlConfig(
     override val effectiveMass: Double get() = mass * rotatingMassFactor
     override val motorAdhesionMassRatio: Double get() = motor.adhesionMassRatio
     override val brakeMaxForce: Double get() = brake.maxForce
+    override val electricBrakeMaxForce: Double get() = brake.regenerativeForce
     override val brakeAdhesionMassRatio: Double get() = brake.adhesionMassRatio
     override fun motorForceAt(speed: Double): Double = motor.forceAt(speed)
     override fun resistanceForceAt(speed: Double, defaultResistance: (Double) -> Double): Double =
@@ -144,7 +146,7 @@ data class CarControlConfig(
         fun parse(root: Map<String, Any>?): CarControlConfig {
             val source = root ?: throw IllegalArgumentException("car control config is required")
             source.requireOnlyKeys(
-                setOf("mass", "rotating-mass-factor", "motor", "brake", "resistance"),
+                setOf("mass", "rotating-mass-factor", "motor", "brake", "resistance", "equipment"),
                 "car control"
             )
             return CarControlConfig(
@@ -152,10 +154,42 @@ data class CarControlConfig(
                 rotatingMassFactor = source.requireDouble("rotating-mass-factor", "car control"),
                 motor = MotorControlConfig.parse(source.requireMap("motor", "car control")),
                 brake = CarBrakeControlConfig.parse(source.requireMap("brake", "car control")),
-                resistance = source.optionalMap("resistance", "car control")?.let { DavisResistanceConfig.parse(it) }
+                resistance = source.optionalMap("resistance", "car control")?.let { DavisResistanceConfig.parse(it) },
+                equipment = parseEquipment(source.optionalMap("equipment", "car control"))
             )
         }
     }
+}
+
+
+/** Additive per-car equipment settings use the same immutable value as the production kernel. */
+private fun parseEquipment(source: Map<String, Any>?): TrainDynamics.Equipment {
+    val defaults = TrainDynamics.Equipment()
+    if (source == null) return defaults
+    source.requireOnlyKeys(setOf(
+        "nominal-cylinder-pressure-kpa",
+        "command-delay-seconds",
+        "electric-brake-max-power-watts",
+        "electric-brake-fade-speed-meters-per-second",
+        "electric-brake-apply-rate-newtons-per-second",
+        "electric-brake-release-rate-newtons-per-second",
+        "traction-apply-rate-newtons-per-second",
+        "traction-release-rate-newtons-per-second",
+        "traction-release-pressure-kpa",
+        "electric-release-force-threshold-newtons"
+    ), "car control.equipment")
+    return TrainDynamics.Equipment(
+        nominalCylinderPressureKpa = source.double("nominal-cylinder-pressure-kpa") ?: defaults.nominalCylinderPressureKpa,
+        commandDelaySeconds = source.double("command-delay-seconds") ?: defaults.commandDelaySeconds,
+        electricBrakeMaxPowerWatts = source.double("electric-brake-max-power-watts") ?: defaults.electricBrakeMaxPowerWatts,
+        electricBrakeFadeSpeedMetersPerSecond = source.double("electric-brake-fade-speed-meters-per-second") ?: defaults.electricBrakeFadeSpeedMetersPerSecond,
+        electricBrakeApplyRateNewtonsPerSecond = source.double("electric-brake-apply-rate-newtons-per-second") ?: defaults.electricBrakeApplyRateNewtonsPerSecond,
+        electricBrakeReleaseRateNewtonsPerSecond = source.double("electric-brake-release-rate-newtons-per-second") ?: defaults.electricBrakeReleaseRateNewtonsPerSecond,
+        tractionApplyRateNewtonsPerSecond = source.double("traction-apply-rate-newtons-per-second") ?: defaults.tractionApplyRateNewtonsPerSecond,
+        tractionReleaseRateNewtonsPerSecond = source.double("traction-release-rate-newtons-per-second") ?: defaults.tractionReleaseRateNewtonsPerSecond,
+        tractionReleasePressureKpa = source.double("traction-release-pressure-kpa") ?: defaults.tractionReleasePressureKpa,
+        electricReleaseForceThresholdNewtons = source.double("electric-release-force-threshold-newtons") ?: defaults.electricReleaseForceThresholdNewtons
+    )
 }
 
 @Serializable

@@ -128,14 +128,14 @@ class FullFeatureSimulationIsolationTest {
                                     second.simulate(IsolatedTimetableSimulationRequest(timetable))
                                 }
                                 val secondResult = secondRun.get(60, TimeUnit.SECONDS)
-                                assertTrue(secondResult is IsolatedTimetableSimulationResult.Completed, secondResult.toString())
+                                assertTrue(secondResult is IsolatedTimetableSimulationResult.Completed) { "$secondResult; transitions=${secondTrace.transitions()}" }
                                 assertEquals(0L, first.world.latestWorldFrame().physicsEpoch,
                                     "target A must remain blocked while B completes real physics, signals and Dispatcher")
                                 assertTrue(firstCars.all { effects.snapshot(it).isEmpty() })
                                 release.countDown()
                                 blocker.get(5, TimeUnit.SECONDS)
                                 val firstResult = first.simulate(IsolatedTimetableSimulationRequest(timetable))
-                                assertTrue(firstResult is IsolatedTimetableSimulationResult.Completed, firstResult.toString())
+                                assertTrue(firstResult is IsolatedTimetableSimulationResult.Completed) { "$firstResult; transitions=${firstTrace.transitions()}" }
                                 assertEquals(secondResult.simulatedTicks, firstResult.simulatedTicks)
                                 assertDoorGate(firstTrace)
                                 assertDoorGate(secondTrace)
@@ -313,6 +313,9 @@ class FullFeatureSimulationIsolationTest {
                     .count { it.key == "minecraft:block.iron_door.close" } },
                 world.simpleAtoWorldData.signalRestrictions.snapshotsFor(train.id).mapTo(linkedSetOf()) { it.sourceId }))
         }
+        fun transitions(): List<Pair<Long, TimetableServiceRunState?>> = samples
+            .filterIndexed { index, sample -> index == 0 || sample.state != samples[index - 1].state }
+            .map { it.epoch to it.state }
         override fun close() { world.tickManager.unregister(this) }
     }
 

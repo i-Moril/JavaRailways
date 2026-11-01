@@ -35,6 +35,11 @@ class CouplingApproachAdmissionTest {
                 f.runtime.requestCouplingApproach(f.requester, handle, f.approachIntent())).grant }
             assertEquals(0.2, grant.maximumSpeedMetersPerSecond)
             assertEquals(grant.committedAuthority, checkNotNull(grant.couplingContactAuthority).contactBoundary)
+            assertEquals(grant.maximumSpeedMetersPerSecond, grant.couplingContactAuthority.maximumApproachSpeedMetersPerSecond)
+            assertThrows(IllegalArgumentException::class.java) {
+                grant.copy(maximumSpeedMetersPerSecond = 0.3)
+            }
+            assertEquals(grant, grant.copy(maximumSpeedMetersPerSecond = 0.2))
             val publication = f.runtime.activeAdmissions().single { it.owner == grant.owner }
             assertEquals(grant.routeId, publication.route.routeId)
             assertEquals(FormationRoutePurpose.COUPLING_APPROACH, checkNotNull(publication.formationContext).purpose)

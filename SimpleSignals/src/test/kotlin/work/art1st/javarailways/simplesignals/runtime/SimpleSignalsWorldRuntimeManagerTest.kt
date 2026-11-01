@@ -7145,7 +7145,11 @@ class SimpleSignalsWorldRuntimeManagerTest {
             override val maximumSpeedMetersPerSecond = 30.0
             override fun step(currentSpeedMetersPerSecond: Double, demand: work.art1st.javarailways.basic.api.ato.ControlDemand,
                 deltaTimeSeconds: Double) = work.art1st.javarailways.basic.api.ato.ActuationStep(0.0, 0.0)
-            override fun brakingEnvelope(segments: List<work.art1st.javarailways.basic.api.ato.BrakingGradeSegment>) =
+            override fun brakingEnvelope(
+                segments: List<work.art1st.javarailways.basic.api.ato.BrakingGradeSegment>,
+                deltaTimeSeconds: Double,
+                maximumControlDeltaSeconds: Double
+            ) =
                 work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope.constant(1.0, segments)
         }
         actualSimulation(source, feature, actuator) { world ->

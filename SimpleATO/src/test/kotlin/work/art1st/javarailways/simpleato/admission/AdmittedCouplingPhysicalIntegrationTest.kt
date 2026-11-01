@@ -58,6 +58,7 @@ class AdmittedCouplingPhysicalIntegrationTest {
             f.red(false)
             var peakSpeed = 0.0
             var collisions = 0
+            val trace = mutableListOf<String>()
             PhysicsRailEventBus.register(object : EventListener {
                 @HandlesEvent
                 fun collision(event: CollisionEvent) {
@@ -67,12 +68,20 @@ class AdmittedCouplingPhysicalIntegrationTest {
                 var steps = 0
                 while (f.world.allTrains.size == 2 && steps++ < 500) {
                     f.tick()
+                    if (steps < 20 || steps % 50 == 0) {
+                        val diagnostics = f.ato.runtimeDiagnostics
+                        trace += "step=$steps head=${f.moving.publishedFrame.head} speed=${f.moving.speed} " +
+                            "selected=${f.actuator.selectedHandle} " +
+                            "device=${f.actuator.dynamicsDeviceStateFor(f.moving.cars.first())} " +
+                            "cap=${diagnostics.permittedSpeedMetersPerSecond} " +
+                            "remaining=${diagnostics.movementAuthorityLimitMeters - (diagnostics.projectedProgressMeters ?: 0.0)}"
+                    }
                     peakSpeed = maxOf(peakSpeed, f.moving.publishedFrame.speedMetersPerSecond)
                     assertTrue(f.moving.publishedFrame.speedMetersPerSecond <= CAP + 0.01)
                 }
             }
             assertTrue(peakSpeed > CAP * 0.5, "real handle dynamics must accelerate the physical body")
-            assertTrue(collisions > 0, "Core must observe actual contact")
+            assertTrue(collisions > 0, "Core must observe actual contact\n${trace.joinToString("\n")}")
             assertEquals(1, f.world.allTrains.size, f.ato.runtimeDiagnostics.toString())
             assertSame(f.moving, f.world.allTrains.single())
             assertEquals(setOf("moving-car", "target-car"), f.moving.cars.map { it.id }.toSet())
@@ -134,7 +143,8 @@ class AdmittedCouplingPhysicalIntegrationTest {
         }
         val moving = train("moving", 99.0)
         val target = train("target", 110.5)
-        val ato = SimpleATO(moving, world, HandleTrainActuator(moving, Dynamics, listOf(CarDynamics), 9.8),
+        val actuator = HandleTrainActuator(moving, Dynamics, listOf(CarDynamics), 9.8)
+        val ato = SimpleATO(moving, world, actuator,
             AtoSafetyProfile(accelerationMetersPerSecondSquared = 1.0,
                 serviceDecelerationMetersPerSecondSquared = 2.0, reactionTimeSeconds = 0.0,
                 safetyDistanceMeters = 0.1, stopToleranceMeters = 0.01), inspectionMaximumLeadTimeSeconds = { 0.0 })

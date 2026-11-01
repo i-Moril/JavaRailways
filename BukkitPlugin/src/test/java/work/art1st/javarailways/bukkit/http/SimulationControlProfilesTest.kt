@@ -1,6 +1,7 @@
 package work.art1st.javarailways.bukkit.http
 
 import org.junit.jupiter.api.Assertions.*
+import work.art1st.javarailways.basic.control.TrainDynamics
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.bukkit.config.TrainModelUpdatePolicy
 import work.art1st.javarailways.bukkit.config.model.*
@@ -21,6 +22,26 @@ class SimulationControlProfilesTest {
         assertEquals(listOf(setOf("first-action"), setOf("second-action")), profile.cars.map { it.behavior.actions.keys })
         assertTrue(profile.cars.none { it.installedReversed })
         assertSame(template.control, profile.trainControl)
+    }
+
+    @Test
+    fun `mixed simulation profile keeps each exact car equipment and electric brake source`() {
+        val firstEquipment = TrainDynamics.Equipment(commandDelaySeconds = 0.2, nominalCylinderPressureKpa = 400.0)
+        val secondEquipment = TrainDynamics.Equipment(commandDelaySeconds = 0.4, nominalCylinderPressureKpa = 500.0)
+        val first = source("first", 20000.0).let { pack -> SavedTrainPackageSnapshot.build(pack.packageName,
+            pack.actions, pack.behavior, pack.control, mapOf("first/car" to CarControlConfig(equipment = firstEquipment,
+                brake = CarBrakeControlConfig(regenerativeForce = 20000.0)))) }
+        val second = source("second", 35000.0).let { pack -> SavedTrainPackageSnapshot.build(pack.packageName,
+            pack.actions, pack.behavior, pack.control, mapOf("second/car" to CarControlConfig(equipment = secondEquipment,
+                brake = CarBrakeControlConfig(regenerativeForce = 30000.0)))) }
+        val template = source("template", 99000.0)
+        val profile = profileFromTemplate("mixed", TrainResourceVersion(template,
+            mapOf("first/car" to model("first/car"), "second/car" to model("second/car")),
+            mapOf("first/car" to first, "second/car" to second), listOf("first/car", "second/car")))
+        assertEquals(listOf(firstEquipment, secondEquipment), profile.carControls.map { it.equipment })
+        assertEquals(listOf(20000.0, 30000.0), profile.carControls.map { it.electricBrakeMaxForce })
+        assertEquals(profile.carControls, profile.cars.map { it.control })
+        assertEquals(firstEquipment, profile.cars.first().control.equipment)
     }
 
     @Test

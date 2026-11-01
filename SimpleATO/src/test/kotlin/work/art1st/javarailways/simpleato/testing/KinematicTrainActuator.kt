@@ -42,6 +42,10 @@ class KinematicTrainActuator(
         )
     }
 
-    override fun brakingEnvelope(segments: List<BrakingGradeSegment>): GradeAwareBrakingEnvelope =
+    override fun brakingEnvelope(
+        segments: List<BrakingGradeSegment>,
+        deltaTimeSeconds: Double,
+        maximumControlDeltaSeconds: Double
+    ): GradeAwareBrakingEnvelope =
         GradeAwareBrakingEnvelope.constant(profile.serviceDecelerationMetersPerSecondSquared, segments)
 }

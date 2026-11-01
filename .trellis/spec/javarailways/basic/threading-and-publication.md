@@ -33,6 +33,12 @@ latestAcceptedRevision = revision
 
 来源：`Basic/src/main/java/work/art1st/javarailways/basic/api/ato/command/RevisionedCommandQueue.kt`。Queue只安全传envelope，不使mutable payload线程安全。
 
+## 控制器设备状态
+
+`ControllerConsistState.value` 的单个引用具有volatile可见性；它不发布多cell事务或完整世界epoch。动力学Executor把配置绑定、实际Car身份及稳定设备状态组织在同一个绑定中，通过既有prepared更新安装；physics推进只发布该绑定拥有的稳定State/StepResult。编组准备失败不修改原绑定。Dispatcher与外部观测仍消费Core完成epoch后的publication，不因此读取worker active状态。
+
+预演数组工作区只由当前执行器的同步计算拥有，不能放进公开State、快照、结构prepared结果或跨线程消息。需要保留的设备状态必须有独立存储。
+
 ## Publication与failure矩阵
 
 | 条件 | physics结果 | main结果 |

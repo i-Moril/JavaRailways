@@ -1,0 +1,678 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.0.0/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.11' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+
+> Configure project :WebUI
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.12' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+
+> Task :ConfigLib:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :ConfigLib:compileKotlin UP-TO-DATE
+> Task :ConfigLib:compileJava NO-SOURCE
+> Task :ConfigLib:processResources NO-SOURCE
+> Task :ConfigLib:classes UP-TO-DATE
+> Task :ConfigLib:jar UP-TO-DATE
+> Task :Core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :Core:compileKotlin UP-TO-DATE
+> Task :Core:compileJava NO-SOURCE
+> Task :Core:processResources NO-SOURCE
+> Task :Core:classes UP-TO-DATE
+> Task :Core:jar UP-TO-DATE
+> Task :Core:compileTestFixturesKotlin UP-TO-DATE
+> Task :Core:compileTestFixturesJava NO-SOURCE
+> Task :Core:processTestFixturesResources NO-SOURCE
+> Task :Core:testFixturesClasses UP-TO-DATE
+> Task :Core:testFixturesJar UP-TO-DATE
+> Task :Core:compileTestKotlin UP-TO-DATE
+> Task :Core:compileTestJava NO-SOURCE
+> Task :Core:processTestResources UP-TO-DATE
+> Task :Core:testClasses UP-TO-DATE
+> Task :Core:test UP-TO-DATE
+> Task :Basic:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :Basic:processResources NO-SOURCE
+> Task :Basic:processTestFixturesResources NO-SOURCE
+> Task :Basic:processTestResources NO-SOURCE
+> Task :SimpleATO:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :SimpleATO:processResources NO-SOURCE
+> Task :SimpleATO:processTestResources NO-SOURCE
+> Task :BukkitPlugin:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :BukkitPlugin:paperweightUserdevSetup UP-TO-DATE
+> Task :Diagnostics:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :Diagnostics:compileKotlin UP-TO-DATE
+> Task :Diagnostics:compileJava UP-TO-DATE
+> Task :SimpleATOBukkit:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :BukkitPlugin:mainResourceFactory UP-TO-DATE
+> Task :Diagnostics:processResources NO-SOURCE
+> Task :Diagnostics:classes UP-TO-DATE
+> Task :Diagnostics:jar UP-TO-DATE
+> Task :WebUI:compileJava UP-TO-DATE
+> Task :WebUI:installFrontend UP-TO-DATE
+> Task :WebUI:buildFrontend UP-TO-DATE
+> Task :WebUI:processResources UP-TO-DATE
+> Task :WebUI:classes UP-TO-DATE
+> Task :WebUI:shadowJar UP-TO-DATE
+> Task :BukkitPlugin:processResources UP-TO-DATE
+> Task :SimpleATOBukkit:processResources NO-SOURCE
+> Task :BukkitPlugin:offlineMigrationResourceFactory UP-TO-DATE
+> Task :BukkitPlugin:processOfflineMigrationResources NO-SOURCE
+> Task :SimpleSignals:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :SimpleSignals:mainResourceFactory UP-TO-DATE
+> Task :SimpleSignals:processResources UP-TO-DATE
+> Task :BukkitPlugin:testResourceFactory UP-TO-DATE
+> Task :BukkitPlugin:processTestResources UP-TO-DATE
+> Task :WebUI:compileTestJava UP-TO-DATE
+> Task :WebUI:processTestResources NO-SOURCE
+> Task :WebUI:testClasses UP-TO-DATE
+> Task :WebUI:test UP-TO-DATE
+> Task :SimpleSignals:testResourceFactory UP-TO-DATE
+> Task :SimpleSignals:processTestResources UP-TO-DATE
+> Task :TunnelBridgeBuilder:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :TunnelBridgeBuilder:mainResourceFactory UP-TO-DATE
+> Task :TunnelBridgeBuilder:processResources UP-TO-DATE
+> Task :TunnelBridgeBuilder:testResourceFactory UP-TO-DATE
+> Task :TunnelBridgeBuilder:processTestResources NO-SOURCE
+> Task :Basic:compileKotlin
+> Task :Basic:compileJava NO-SOURCE
+> Task :Basic:classes UP-TO-DATE
+> Task :Basic:jar
+> Task :Basic:compileTestFixturesKotlin
+> Task :Basic:compileTestFixturesJava NO-SOURCE
+> Task :Basic:testFixturesClasses UP-TO-DATE
+> Task :Basic:testFixturesJar UP-TO-DATE
+> Task :SimpleATO:compileKotlin
+> Task :SimpleATO:compileJava NO-SOURCE
+> Task :SimpleATO:classes UP-TO-DATE
+> Task :SimpleATO:jar UP-TO-DATE
+> Task :SimpleATOBukkit:compileKotlin
+> Task :SimpleATOBukkit:compileJava NO-SOURCE
+> Task :SimpleATO:compileTestKotlin
+> Task :SimpleATO:compileTestJava NO-SOURCE
+> Task :SimpleATO:testClasses UP-TO-DATE
+> Task :BukkitPlugin:compileKotlin
+> Task :Basic:compileTestKotlin
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/BrakingGradeSegment/lengthMeters/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/BrakingGradeSegment/grade/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/BrakingResponse/distanceMeters/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/BrakingResponse/speedGainMetersPerSecond/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/BrakingResponse/durationSeconds/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/BrakingResponse/proven/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/GradeAwareBrakingEnvelope/totalDistanceMeters/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/GradeAwareBrakingEnvelope.Companion/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/GradeAwareBrakingEnvelope.Companion/fromDynamics/#work.art1st.javarailways.basic.control.TrainDynamics.TrainProfile#kotlin.collections.List[work.art1st.javarailways.basic.control.TrainDynamics.CarProfile]#kotlin.Double#kotlin.collections.List[work.art1st.javarailways.basic.api.ato.BrakingGradeSegment]#kotlin.Double#work.art1st.javarailways.basic.api.ato.BrakingResponse?/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/ControlDemand/targetSpeedMetersPerSecond/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/ControlDemand/brakingConstraints/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/BrakingLimit/distanceMeters/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/BrakingLimit/targetSpeedMetersPerSecond/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/BrakingLimit/reactionTimeSeconds/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/BrakingConstraints/maximumControlDeltaSeconds/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/BrakingConstraints/segments/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/BrakingConstraints/limits/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/ActuationStep/speedMetersPerSecond/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/ActuationStep/distanceMeters/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/TrainActuator/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/TrainActuator/step/#kotlin.Double#work.art1st.javarailways.basic.api.ato.ControlDemand#kotlin.Double/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato/TrainActuator/maximumSpeedMetersPerSecond/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.command/RevisionedCommand/revision/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.command/RevisionedCommand/command/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.command/CommandOfferResult/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.command/RevisionedCommandQueue/latestAcceptedRevision/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.command/RevisionedCommandQueue/latestDrainedRevision/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.command/RevisionedCommandQueue/pendingCount/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.snapshot/RailObservationSnapshot/subject/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.snapshot/RailObservationSnapshot/transition/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.snapshot/RailObservationSnapshot/routeDistanceMeters/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.snapshot/RailObservationSnapshot/relativeSpeedMetersPerSecond/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.snapshot/PerceptionSnapshot/epoch/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.snapshot/PerceptionSnapshot/train/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.snapshot/PerceptionSnapshot/route/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.snapshot/PerceptionSnapshot/observations/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.snapshot/RouteSegmentSnapshot/railId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.snapshot/RouteSegmentSnapshot/facing/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.snapshot/RouteSegmentSnapshot/startArcLengthMeters/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.snapshot/RouteSegmentSnapshot/endArcLengthMeters/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.snapshot/RouteSegmentSnapshot/lengthMeters/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.snapshot/RouteSnapshot/routeId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.snapshot/RouteSnapshot/revision/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.snapshot/RouteSnapshot/topologyRevision/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.snapshot/RouteSnapshot/segments/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.ato.snapshot/RouteSnapshot/totalLengthMeters/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.observation/RailwayOccupancyCrossingKind/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.observation/RailwayTrainObservation.Companion/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.observation/RailwayObservation.Companion/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.observation/RailwayStateStamp/worldId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.observation/RailwayStateStamp/physicsEpoch/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.observation/RailwayStateStamp/topologyRevision/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperation.OpenDoors/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperation.OpenDoors/side/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperation.CloseDoors/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperation.CloseDoors/side/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperation.SetCabLights/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperation.SetCabLights/enabled/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperation.ExecuteModelAction/actionName/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperation.Announce/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperation.Announce/messageId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationRequest/requestId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationRequest/serviceRunId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationRequest/stationCallId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationRequest/trainId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationRequest/missionRevision/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationRequest/operation/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationTicketState/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationTicketSnapshot/ticketId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationTicketSnapshot/requestId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationTicketSnapshot/state/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationTicketSnapshot/message/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationTicket/snapshot/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationTicket/cancel/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationTicket/request/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationExecutionResult/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationExecutionResult.Accepted/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationExecutionResult.Accepted/ticket/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationExecutionResult.Rejected/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationExecutionResult.Rejected/reason/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/TrainOperationGateway/execute/#work.art1st.javarailways.basic.api.operation.TrainOperationRequest/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.operation/RejectingTrainOperationGateway/execute/#work.art1st.javarailways.basic.api.operation.TrainOperationRequest/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.rail/RailObjectStore/register/#work.art1st.javarailways.core.api.physics.rail.RailObject/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.rail/RailObjectStore/unregister/#work.art1st.javarailways.core.api.physics.rail.RailObjectRef/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.rail/RailObjectStore/get/#work.art1st.javarailways.core.api.physics.rail.RailObjectRef/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.rail/RailObjectStore/objectsOnRail/#java.util.UUID/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/ActiveRouteAdmissionSnapshot/owner/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/ActiveRouteAdmissionSnapshot/trainId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/ActiveRouteAdmissionSnapshot/route/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/ActiveRouteAdmissionSnapshot/state/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/ActiveRouteAdmissionSnapshot/requestedAuthority/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/ActiveRouteAdmissionSnapshot/committedAuthority/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/ActiveRouteAdmissionSnapshot/releasedThroughRouteMeters/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/ActiveRouteAdmissionUpdate/owner/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/ActiveRouteAdmissionUpdate/current/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/RailViewRef.Companion/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationTrainIdentity/trainId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationTrainIdentity/carIds/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationTrainIdentity/reversed/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FixedFormationChangeIntent/eventId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FixedFormationChangeIntent.Couple/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FixedFormationChangeIntent.Couple/eventId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FixedFormationChangeIntent.Couple/approachingGrantId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FixedFormationChangeIntent.Couple/stationaryGrantId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FixedFormationChangeIntent.Couple/proof/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FixedFormationChangeIntent.Couple/output/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FixedFormationChangeIntent.Couple/maximumApproachSpeedMetersPerSecond/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FixedFormationChangeIntent.Split/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FixedFormationChangeIntent.Split/eventId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FixedFormationChangeIntent.Split/sourceGrantId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FixedFormationChangeIntent.Split/source/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FixedFormationChangeIntent.Split/beforeCarId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FixedFormationChangeIntent.Split/retained/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FixedFormationChangeIntent.Split/separated/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationChangePhase/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationChangeSnapshot/handle/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationChangeSnapshot/eventId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationChangeSnapshot/phase/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationChangeSnapshot/sources/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationChangeSnapshot/outputs/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationChangeSnapshot/outputGrants/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationChangeResult/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationChangeResult.Accepted/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationChangeResult.Accepted/snapshot/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationChangeResult.Rejected/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationChangeResult.Rejected/failure/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationRoutePurpose/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationRouteContext/eventId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationRouteContext/purpose/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationRouteContext/maximumSpeedMetersPerSecond/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationRouteContext/sources/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationRouteContext/outputs/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationRouteContext/retainedStableResources/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationResourceClearance/resource/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationResourceClearance/releaseAfterTailPasses/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationRoutePolicyResult/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationRoutePolicyResult.Accepted/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationRoutePolicyResult.Accepted/clearances/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationRoutePolicyResult.Rejected/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/FormationRoutePolicyResult.Rejected/failure/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/CouplingContactAuthority/eventId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/CouplingContactAuthority/proof/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/CouplingContactAuthority/contactBoundary/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/CouplingContactAuthority/maximumApproachSpeedMetersPerSecond/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/RailOperatingDirections/topology/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/RailOperatingDirections/directions/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/ResourcePreparationSnapshot/state/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/ResourcePreparationSnapshot/detail/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/ResourcePreparationTicket/snapshot/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/ResourcePreparationTicket/abort/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/RouteGrantSnapshot/couplingContactAuthority/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/RouteAdmissionBlocker.OccupyingTrain/trainId/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/RouteAdmissionBlocker.ConflictingResource/resource/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/RouteAdmissionBlocker.ConflictingResource/owner/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/RouteAdmissionResult.Granted/grant/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/RouteAdmissionResult.Pending/handle/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/RouteAdmissionResult.Pending/committedGrant/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/RouteAdmissionResult.Rejected/failure/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/RouteGrantReversalResult.Accepted/grant/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/RouteGrantReversalResult.Rejected/failure/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/RouteResourceAdmissionService/requestCouplingApproach/#work.art1st.javarailways.basic.api.route.FormationChangeHandle#work.art1st.javarailways.basic.api.route.RouteResourceIntent/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/RouteResourceAdmissionService/requestFormationOutput/#work.art1st.javarailways.basic.api.route.FormationChangeHandle#work.art1st.javarailways.basic.api.route.RouteResourceIntent/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/PreparationScalar.Text/value/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/PreparationScalar.Integer/value/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/PreparationScalar.Decimal/value/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/PreparationScalar.Flag/value/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/ResourcePreparationDescriptor/equals/#kotlin.Any?/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/ResourcePreparationDescriptor/hashCode/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route/ResourcePreparationDescriptor/toString/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route.planning/OperatingDirectionOverlay/toRestrictions/#work.art1st.javarailways.core.api.physics.rail.topology.TopologyState/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route.planning/OperatingDirectionOverlay/topologyRevision/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.route.planning/OperatingDirectionOverlay/allowedDirections/#/ (jvm)
+w: [:Basic:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.basic.api.safety/WorldSafetyInterlock/isEngaged/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.control/TrainController/tick/#kotlin.Double/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.control/TrainController/train/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.control/TrainController/profileCategory/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.control/TrainController/profileId/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event/DerailEvent/msg/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event/PassSignalEvent/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event/PassSignalEvent/signal/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event/RenderableEvent/renderable/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event/TrainLinkEvent/secondContactHead/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event/TrainSplitEvent/carId/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event/TrainSplitEvent/newTrainId/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event/TrainSplitEvent/originalReversed/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event/TrainSplitEvent/rejectionReason/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event/TrainSplitEvent/isRejected/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event/TrainSplitEvent/retainedReversed/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event/TrainSplitEvent/separatedReversed/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event/TrainSplitSuccessEvent/separatedTrain/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event/TrainSplitSuccessEvent/carId/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event/TrainSplitSuccessEvent/originalReversed/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event/TrainSplitSuccessEvent/retainedMovementHold/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event/TrainSplitSuccessEvent/separatedMovementHold/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event/TrainSplitSuccessEvent/originalCarIds/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event.processor/Priority/value/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event.processor/EventRegistration/close/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event.processor/MainRailEventBus/register/#work.art1st.javarailways.core.api.event.processor.EventListener/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event.processor/MainRailEventBus/unregister/#work.art1st.javarailways.core.api.event.processor.EventListener/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event.processor/MainRailEventBus/publish/#work.art1st.javarailways.core.api.event.MainThreadRailEvent/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event.processor/PhysicsRailEventBus/register/#work.art1st.javarailways.core.api.event.processor.EventListener/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event.processor/PhysicsRailEventBus/unregister/#work.art1st.javarailways.core.api.event.processor.EventListener/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.event.processor/PhysicsRailEventBus/publish/#work.art1st.javarailways.core.api.event.PhysicsRailEvent/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics/RailwayWorldFrameSnapshot.Companion/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics/WorldElement/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics/WorldElement/world/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve/getPointAt/#org.joml.Vector3dc/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve/stream/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve/getNearestPoint/#org.joml.Vector3dc/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve/totalArcLength/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve/reversed/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve.Point/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve.Point/position/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve.Point/tangent/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve.Point/normal/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve.Point/curve/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve.Point/arcLength/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve.RawPoint/position/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve.RawPoint/tangent/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve.RawPoint/normal/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve.RawPoint/arcLength/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve.RawPoint/segmentType/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve.Companion/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve.Companion/TOLERANCE/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/Curve.Companion/PRECISION/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/CurveException/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/PrimeCurve/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/PrimeCurve/reversed/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/PrimeCurve.SavedPrimeCurve/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/PrimeCurve.Companion/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.curve/PrimeCurve.Companion/fromPoints/#kotlin.collections.List[work.art1st.javarailways.core.api.physics.curve.Curve.RawPoint]/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.exception/BogieException/message/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.exception/CannotConnectRailException/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.exception/CannotCreateTrainException/message/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.exception/CannotMoveForwardException/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.exception/CannotMoveForwardException/message/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.exception/InvalidActiveRailException/message/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.exception/PhysicsException/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.exception/RailException/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/StableTopologyNodeKey/equals/#kotlin.Any?/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/StableTopologyNodeKey/hashCode/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/StableTopologyNodeKey/toString/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/StableTopologyNodeKey/ports/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureDependencies/equals/#kotlin.Any?/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureDependencies/hashCode/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureDependencies/railIds/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureDependencies/topologyNodeKeys/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureDependencies/resourceIds/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureDependencyRequest/owner/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureDependencyRequest/dependencies/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureDependencySnapshot/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureDependencySnapshot/owner/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureDependencySnapshot/dependencies/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureDependencyMutationStatus/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureDependencyMutationResult/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureDependencyMutationResult/status/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureDependencyMutationResult/detail/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureDependencyMutationResult/successful/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/RailIntervalResource/railId/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/RailIntervalResource/startAbMeters/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/RailIntervalResource/endAbMeters/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/StableInfrastructureResource/typeId/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/StableInfrastructureResource/resourceId/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureOwner/ownerId/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureOwner/revision/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureFootprint/equals/#kotlin.Any?/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureFootprint/hashCode/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureFootprint/toString/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureFootprint/resources/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureBlockerKind/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureBlocker/kind/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureBlocker/owner/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureBlocker/overlappingResources/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureMutationStatus/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureMutationResult/status/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureMutationResult/detail/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureMutationResult/blockers/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureMutationResult/successful/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureClaimSnapshot/owner/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/InfrastructureClaimSnapshot/footprint/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/PhysicalResourceIdentity/diamond/#work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/PhysicalResourceIdentity/DIAMOND_TYPE_ID/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditImpact/railIds/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditImpact/topologyNodeKeys/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditImpact/resourceIds/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditRequest/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditRequest/topologyRevision/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditRequest/owner/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditRequest/impact/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditOverlap/railIds/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditOverlap/topologyNodeKeys/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditOverlap/resourceIds/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditBlockerKind/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditBlocker/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditBlocker/kind/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditBlocker/owner/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditBlocker/overlap/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditStatus/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditDecision/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditDecision/status/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditDecision/detail/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditDecision/blockers/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TopologyEditDecision/successful/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TurnoutResourceIdentity/fromPorts/#kotlin.collections.Collection[work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef]/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.infrastructure/TurnoutResourceIdentity/TYPE_ID/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailInterval/overlaps/#work.art1st.javarailways.core.api.physics.rail.RailInterval#kotlin.Double/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailInterval/railId/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailInterval/minArcLengthInAbMeters/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailInterval/maxArcLengthInAbMeters/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/IntervalOccupancyState/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailIntervalReleaseDetector/update/#kotlin.collections.Collection[work.art1st.javarailways.core.api.physics.rail.RailInterval]/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailIntervalReleaseDetector/state/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailLocation/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailLocation/arcLengthIn/#work.art1st.javarailways.core.api.physics.rail.ViewDirection/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailLocation/rail/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailLocation/position/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailLocation/tangent/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailLocation/normal/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailObject/location/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailObjectRef/toString/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailObjectRef/namespace/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailObjectRef/id/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailObjectSnapshot/ref/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailObjectSnapshot/lifecycleState/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailObjectSnapshot/position/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailObjectSnapshot.Companion/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailPositionSnapshot/railId/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailPositionSnapshot/facing/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailPositionSnapshot.Companion/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailView/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailView/getRailLocationAt/#kotlin.Double/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailView/selectNextRail/#work.art1st.javarailways.core.api.physics.rail.RailView?/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailView/rail/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailView/viewDirection/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailView/curve/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailView/nextRails/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailView/nextActiveRail/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailView/reversed/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailView/startPoint/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailView/endPoint/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailwayOccupancySnapshot/equals/#kotlin.Any?/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailwayOccupancySnapshot/hashCode/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/RailwayOccupancySnapshot.Companion/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/Reversible/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/Reversible/reverse/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail/ViewDirection/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail.topology/RailTopologyChange/previous/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail.topology/RailTopologyChange/current/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail.topology/RailTopologyChange/affectedRailIds/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.rail.topology/RailTopologyChangeListener/onTopologyChange/#work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/Bogie/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/Bogie/peekCurve/#kotlin.Double/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/Bogie/moveForward/#kotlin.Double/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/Bogie/location/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/Car/bogies/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/Car/length/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/Car/floorHeight/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/Car/bogieAOffset/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/Car/bogieBOffset/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/Car/seats/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CouplingApproachRequest/approachingTrainId/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CouplingApproachRequest/approachingEnd/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CouplingApproachRequest/stationaryTrainId/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CouplingApproachRequest/stationaryEnd/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CouplingApproachProof/request/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CouplingApproachProof/approachingFrame/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CouplingApproachProof/stationaryFrame/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CouplingApproachProof/contactHead/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CouplingApproachProof/headTraversal/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CouplingApproachProof/distanceToContactMeters/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CouplingApproachInspection/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CouplingApproachInspection.Accepted/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CouplingApproachInspection.Accepted/proof/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CouplingApproachInspection.Rejected/reason/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/FormationMovementHold/trainId/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/FormationMovementHoldRestoration/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/FormationMovementHoldRestoration.Accepted/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/FormationMovementHoldRestoration.Accepted/hold/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/FormationMovementHoldRestoration.Rejected/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/FormationMovementHoldRestoration.Rejected/reason/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/Seat/car/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainExtension/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CarFrameSnapshot/carId/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CarFrameSnapshot/lengthMeters/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CarFrameSnapshot/state/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CarFrameSnapshot/bogies/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CarFrameSnapshot.Companion/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/CarFrameSnapshot.Companion/create/#kotlin.String#kotlin.Double#work.art1st.javarailways.core.api.render.RenderableFrameSnapshot#kotlin.collections.Collection[work.art1st.javarailways.core.api.render.RenderableFrameSnapshot]/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/SweptRailSpanSnapshot/railId/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/SweptRailSpanSnapshot/minArcAB/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/SweptRailSpanSnapshot/maxArcAB/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainFrameSnapshot/trainId/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainFrameSnapshot/trainName/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainFrameSnapshot/speedMetersPerSecond/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainFrameSnapshot/derailed/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainFrameSnapshot/reversed/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainFrameSnapshot/cars/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainFrameSnapshot/head/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainFrameSnapshot/tail/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainFrameSnapshot/sweptSpans/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainFrameSnapshot/headTraversal/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainFrameSnapshot/tailTraversal/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainFrameSnapshot/derailReason/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainFrameSnapshot.Companion/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainFrameSnapshot.Companion/create/#kotlin.String#kotlin.String#kotlin.Long#kotlin.Long#kotlin.Double#kotlin.Boolean#kotlin.Boolean#kotlin.collections.Collection[work.art1st.javarailways.core.api.physics.train.CarFrameSnapshot]#work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot#work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot#kotlin.collections.Collection[work.art1st.javarailways.core.api.physics.rail.RailInterval]#kotlin.collections.Collection[work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot]#kotlin.collections.Collection[work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot]#kotlin.collections.Collection[work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot]#kotlin.collections.Collection[work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot]#kotlin.String?/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainSnapshot/trainId/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainSnapshot/speedMetersPerSecond/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainSnapshot/derailed/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainSnapshot/carCount/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainSnapshot/head/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainSnapshot/tail/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainSnapshot/derailReason/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.physics.train/TrainSnapshot.Companion/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/DynamicRenderable/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/Renderable/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/Renderable/position/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/Renderable/direction/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/Renderable/normal/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableExtension/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/Vector3Snapshot/toVector3d/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/Vector3Snapshot/x/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/Vector3Snapshot/y/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/Vector3Snapshot/z/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/Vector3Snapshot.Companion/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/Vector3Snapshot.Companion/capture/#org.joml.Vector3dc/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot/positionVector/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot/directionVector/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot/normalVector/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot/velocityVector/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot/positionValue/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot/positionX/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot/positionY/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot/positionZ/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot/directionX/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot/directionY/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot/directionZ/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot/normalX/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot/normalY/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot/normalZ/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot/velocityX/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot/velocityY/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot/velocityZ/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot.Companion/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot.Companion/create/#work.art1st.javarailways.core.api.render.Vector3Snapshot#work.art1st.javarailways.core.api.render.Vector3Snapshot#work.art1st.javarailways.core.api.render.Vector3Snapshot#work.art1st.javarailways.core.api.render.Vector3Snapshot/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableFrameSnapshot.Companion/capture/#work.art1st.javarailways.core.api.render.Renderable/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableStateSnapshot/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableStateSnapshot/position/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableStateSnapshot/direction/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableStateSnapshot/normal/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableStateSnapshot/velocity/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.render/RenderableStateSnapshot/world/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util/Destruction/run/#kotlin.Function0[java.util.concurrent.CompletionStage[java.lang.Void]]/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util/DestructionSteps/action/#kotlin.Function0[kotlin.Unit]/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util/DestructionSteps/await/#kotlin.Function0[java.util.concurrent.CompletionStage[java.lang.Void]]/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util/DestructionSteps/finish/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.exception/CorruptedDataException/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.exception/CorruptedDataException/data/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.plugin/Extendable/getExtensionDataOrNull/#work.art1st.javarailways.core.api.util.plugin.Plugin/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.plugin/Extendable/requireExtensionData/#work.art1st.javarailways.core.api.util.plugin.Plugin/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.plugin/ExtensionData/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.plugin/ExtensionDataContainer/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.plugin/ExtensionDataContainer/getExtensionDataOrNull/#work.art1st.javarailways.core.api.util.plugin.Plugin/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.plugin/ExtensionDataContainer/requireExtensionData/#work.art1st.javarailways.core.api.util.plugin.Plugin/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.plugin/ExtensionDataContainer/extensionData/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.plugin/ExtensionDataTypeRegistry.Companion/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.plugin/Plugin/identifier/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.plugin/PluginRegistry/plugins/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.plugin/SerializableExtensionData/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/Synchronizable/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickManager/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickManager/register/#work.art1st.javarailways.core.api.util.tick.TickingObject/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickManager/unregister/#work.art1st.javarailways.core.api.util.tick.TickingObject/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickManager/preTick/#kotlin.Long/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickManager/postTick/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickManager/scheduleMainThreadPostTickTask/#java.util.concurrent.Callable[TypeParam(bounds=[kotlin.Any?])]/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickManager/pendingCommitMetrics/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickManager/latestAsyncPhaseMetrics/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickManager/latestMainThreadTickMetrics/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickManager/asyncObjectMetrics/#kotlin.String#kotlin.String/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickManager/topAsyncObjectMetrics/#kotlin.Int/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/AsyncTickObjectMetrics/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/AsyncTickObjectMetrics/category/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/AsyncTickObjectMetrics/id/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/AsyncTickObjectMetrics/samples/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/AsyncTickObjectMetrics/lastNanos/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/AsyncTickObjectMetrics/avg20Nanos/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/AsyncTickObjectMetrics/avg100Nanos/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/AsyncTickObjectMetrics/max100Nanos/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/AsyncTickPhaseMetrics/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/AsyncTickPhaseMetrics/tickIndex/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/AsyncTickPhaseMetrics/deltaMillis/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/AsyncTickPhaseMetrics/objectCount/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/AsyncTickPhaseMetrics/wallTimeNanos/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/AsyncTickPhaseMetrics/totalObjectNanos/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/AsyncTickPhaseMetrics/errorCount/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickCommitMailboxMetrics/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickCommitMailboxMetrics/size/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickCommitMailboxMetrics/capacity/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickCommitMailboxMetrics/peakSize/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickCommitMailboxMetrics/coalescedRequests/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickCommitMailboxMetrics/droppedCapacityRequests/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/MainThreadTickMetrics/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/MainThreadTickMetrics/tickIndex/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/MainThreadTickMetrics/computeNanos/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/MainThreadTickMetrics/blockedWaitAsyncNanos/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/MainThreadTickMetrics/totalImpactNanos/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/MainThreadTickMetrics/phaseBreakdownNanos/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickProfiled/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickProfiled/profileCategory/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickProfiled/profileId/#/ (jvm)
+w: [:Core:dokkaGeneratePublicationHtml] Undocumented: work.art1st.javarailways.core.api.util.tick/TickingObject/tick/#kotlin.Double/ (jvm)
+> Task :Basic:dokkaGeneratePublicationHtml
+> Task :Core:dokkaGeneratePublicationHtml
+> Task :SimpleATO:test
+> Task :Basic:compileTestJava NO-SOURCE
+> Task :Basic:testClasses UP-TO-DATE
+> Task :Basic:test
+> Task :BukkitPlugin:compileJava
+> Task :BukkitPlugin:classes
+> Task :BukkitPlugin:jar UP-TO-DATE
+> Task :SimpleATOBukkit:classes UP-TO-DATE
+> Task :SimpleATOBukkit:jar UP-TO-DATE
+> Task :BukkitPlugin:shadowJar
+> Task :BukkitPlugin:compileOfflineMigrationKotlin
+> Task :BukkitPlugin:compileOfflineMigrationJava NO-SOURCE
+> Task :BukkitPlugin:offlineMigrationClasses UP-TO-DATE
+> Task :BukkitPlugin:compileSignalApiConsumerKotlin NO-SOURCE
+> Task :SimpleSignals:compileKotlin
+> Task :BukkitPlugin:compileSignalApiConsumerJava
+> Task :SimpleSignals:compileJava
+> Task :SimpleSignals:classes
+> Task :SimpleSignals:jar UP-TO-DATE
+> Task :BukkitPlugin:compileTestKotlin
+> Task :BukkitPlugin:compileTestJava
+> Task :BukkitPlugin:testClasses
+> Task :TunnelBridgeBuilder:compileKotlin
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by org.jline.nativ.JLineNativeLoader in an unnamed module (file:/workspace/minecraft/JavaRailways/.gradle-user-home/caches/modules-2/files-2.1/org.jline/jline-native/3.27.1/d0b198908023385a089379a1c854aadc7a7dd99b/jline-native-3.27.1.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::objectFieldOffset has been called by org.joml.MemUtil$MemUtilUnsafe (file:/workspace/minecraft/JavaRailways/.gradle-user-home/caches/modules-2/files-2.1/org.joml/joml/1.10.8/fc0a71dad90a2cf41d82a76156a0e700af8e4f8d/joml-1.10.8.jar)
+WARNING: Please consider reporting this to the maintainers of class org.joml.MemUtil$MemUtilUnsafe
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+
+> Task :SimpleSignals:compileTestKotlin
+w: file:///tmp/javarailways-blockly-deploy/SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/block/StoppedReturnToDepotIntegrationTest.kt:288:61 Unnecessary non-null assertion (!!) on a non-null receiver of type 'RailwayObservation'.
+w: file:///tmp/javarailways-blockly-deploy/SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsWorldRuntimeManagerTest.kt:200:66 Unnecessary non-null assertion (!!) on a non-null receiver of type 'SimpleSignalsWorldDefinitions'.
+w: file:///tmp/javarailways-blockly-deploy/SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsWorldRuntimeManagerTest.kt:201:35 Unnecessary non-null assertion (!!) on a non-null receiver of type 'SimpleSignalsWorldDefinitions'.
+w: file:///tmp/javarailways-blockly-deploy/SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsWorldRuntimeManagerTest.kt:201:87 Unnecessary non-null assertion (!!) on a non-null receiver of type 'SimpleSignalsWorldDefinitions'.
+w: file:///tmp/javarailways-blockly-deploy/SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsWorldRuntimeManagerTest.kt:426:129 Unnecessary non-null assertion (!!) on a non-null receiver of type 'SimpleSignalsWorldDefinitions'.
+
+> Task :BukkitPlugin:test
+> Task :SimpleSignals:compileTestJava
+> Task :SimpleSignals:testClasses
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by org.jline.nativ.JLineNativeLoader in an unnamed module (file:/workspace/minecraft/JavaRailways/.gradle-user-home/caches/modules-2/files-2.1/org.jline/jline-native/3.27.1/d0b198908023385a089379a1c854aadc7a7dd99b/jline-native-3.27.1.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::objectFieldOffset has been called by org.joml.MemUtil$MemUtilUnsafe (file:/workspace/minecraft/JavaRailways/.gradle-user-home/caches/modules-2/files-2.1/org.joml/joml/1.10.8/fc0a71dad90a2cf41d82a76156a0e700af8e4f8d/joml-1.10.8.jar)
+WARNING: Please consider reporting this to the maintainers of class org.joml.MemUtil$MemUtilUnsafe
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+> Task :SimpleSignals:test
+> Task :TunnelBridgeBuilder:compileJava NO-SOURCE
+> Task :TunnelBridgeBuilder:classes UP-TO-DATE
+> Task :TunnelBridgeBuilder:jar UP-TO-DATE
+> Task :Core:logLinkDokkaGeneratePublicationHtml SKIPPED
+> Task :Basic:logLinkDokkaGeneratePublicationHtml SKIPPED
+> Task :TunnelBridgeBuilder:compileTestKotlin
+> Task :TunnelBridgeBuilder:compileTestJava NO-SOURCE
+> Task :TunnelBridgeBuilder:testClasses UP-TO-DATE
+> Task :TunnelBridgeBuilder:test
+
+[Incubating] Problems report is available at: file:///tmp/javarailways-blockly-deploy/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.0.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 3m 27s
+65 actionable tasks: 27 executed, 38 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.0.0/userguide/configuration_cache_enabling.html

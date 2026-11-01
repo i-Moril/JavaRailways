@@ -59,8 +59,9 @@ data class RouteGrantSnapshot(
             "maximumSpeedMetersPerSecond must be finite and positive when present"
         }
         require(couplingContactAuthority == null || maximumSpeedMetersPerSecond != null &&
-            couplingContactAuthority.contactBoundary == committedAuthority) {
-            "contact authority requires its exact contact boundary and a speed ceiling"
+            couplingContactAuthority.contactBoundary == committedAuthority &&
+            couplingContactAuthority.maximumApproachSpeedMetersPerSecond == maximumSpeedMetersPerSecond) {
+            "contact authority requires its exact contact boundary and admitted speed ceiling"
         }
     }
 }

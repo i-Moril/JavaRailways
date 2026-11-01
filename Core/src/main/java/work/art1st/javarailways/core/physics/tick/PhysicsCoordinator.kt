@@ -140,6 +140,9 @@ class PhysicsCoordinator(
         require(overloadsBeforeStall > 0) { "overloadsBeforeStall must be > 0" }
     }
 
+    /** Read-only timing contract shared with controllers; the scheduler still uses milliseconds. */
+    val maximumPhysicsDeltaSeconds: Double = maxPhysicsDeltaMillis * 0.001
+
     private val workerCount = workerThreads
     private val workerPool: ExecutorService = Executors.newFixedThreadPool(workerThreads) { runnable ->
         Thread(runnable, "JavaRailways-PhysicsWorker-${WORKER_SEQUENCE.incrementAndGet()}").apply { isDaemon = true }

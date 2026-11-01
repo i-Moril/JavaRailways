@@ -256,7 +256,8 @@ internal class PreparedFormationAdmission(
         val grant = RouteGrantSnapshot(RouteGrantId(), intent.owner, intent.trainId, intent.route.routeId,
             intent.route.revision, compiled.observation.stamp, intent.desiredAuthority,
             (state.intent as FixedFormationChangeIntent.Couple).maximumApproachSpeedMetersPerSecond,
-            CouplingContactAuthority(state.intent.eventId, state.intent.proof, intent.desiredAuthority))
+            CouplingContactAuthority(state.intent.eventId, state.intent.proof, intent.desiredAuthority,
+                state.intent.maximumApproachSpeedMetersPerSecond))
         state.approachGrant = grant
         publishContactPermissions()
         publishApproachAdmission(compiled, grant)

@@ -121,6 +121,8 @@ class SimpleATO(
 ) : AbstractATO(train, world, actuator, safetyProfile, world.simpleAtoWorldData.atoCoordinator), DynamicsProfileSource {
     override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? =
         (actuator as? DynamicsProfileSource)?.dynamicsProfileFor(car)
+    override fun dynamicsDeviceStateFor(car: Car): TrainDynamics.CarDeviceState? =
+        (actuator as? DynamicsProfileSource)?.dynamicsDeviceStateFor(car)
 
     private sealed interface Command {
         data class SetSpeedLimit(val key: String, val speed: Double) : Command
@@ -676,7 +678,7 @@ class SimpleATO(
         activePerceptionHorizonMeters = scan.perceptionHorizonMeters
         currentSegments = scan.segments
         val gradeSegments = buildBrakingGradeSegments(scan.segments)
-        activeBrakingEnvelope = if (gradeSegments.isEmpty()) null else actuator.brakingEnvelope(gradeSegments)
+        activeBrakingEnvelope = if (gradeSegments.isEmpty()) null else actuator.brakingEnvelope(gradeSegments, deltaTimeSeconds, world.maximumPhysicsDeltaSeconds)
 
         val geometryLength = frameLength?.takeIf { frame?.head == scan.perception.train.head }
         updateTrainRestrictions(scan.perception, restriction, if (clearances.isNotEmpty()) horizon else null)
@@ -720,7 +722,9 @@ class SimpleATO(
                 maximumSpeedMetersPerSecond = actuator.maximumSpeedMetersPerSecond,
                 profile = safetyProfile,
                 constraints = constraintManager,
-                brakingEnvelope = activeBrakingEnvelope
+                brakingEnvelope = activeBrakingEnvelope,
+                brakingGradeSegments = gradeSegments,
+                maximumControlDeltaSeconds = world.maximumPhysicsDeltaSeconds
             )
         )
     }
@@ -920,8 +924,9 @@ class SimpleATO(
             } ?: 0.0
             val authorityKey = ConstraintKey("mission", "authority/${mission.revision}")
             val authorityRemaining = (authorityLimit - controlProgress).coerceAtLeast(0.0)
-            add(if (activeContactAuthority != null)
-                StopConstraint(authorityKey, authorityRemaining, stoppingMarginMeters = 0.0)
+            val contact = activeContactAuthority
+            add(if (contact != null)
+                RouteSpeedLimitConstraint(authorityKey, authorityRemaining, contact.maximumApproachSpeedMetersPerSecond)
             else MovementAuthorityConstraint(authorityKey, authorityRemaining,
                 terminalAuthorityMarginMeters(mission.legs.sumOf { it.plannedRoute.expandedRoute.totalLength })))
             mission.legs.forEach { leg ->
@@ -929,15 +934,15 @@ class SimpleATO(
                 val point = leg.point
                 if (point is AtoMissionPoint.Stop) {
                     val stopProgress = controlProgress
-                    add(
-                        StopConstraint(
-                            ConstraintKey("mission", "stop/${mission.revision}/${leg.index}"),
-                            (targetDistance - stopProgress - point.offsetMetersBefore)
-                                .coerceAtLeast(0.0),
-                            // Arrival tolerance does not shift the nominal stopping target.
-                            stoppingMarginMeters = 0.0
-                        )
-                    )
+                    val stopKey = ConstraintKey("mission", "stop/${mission.revision}/${leg.index}")
+                    val stopTarget = targetDistance - point.offsetMetersBefore
+                    val remaining = (stopTarget - stopProgress).coerceAtLeast(0.0)
+                    // A validated contact ends through Core's physical contact clamp, at the
+                    // admitted coupling speed. All other mission stops retain zero-speed targets.
+                    add(if (contact != null && leg === mission.legs.last() &&
+                        kotlin.math.abs(stopTarget - authorityLimit) <= 1.0e-6)
+                        RouteSpeedLimitConstraint(stopKey, remaining, contact.maximumApproachSpeedMetersPerSecond)
+                    else StopConstraint(stopKey, remaining, stoppingMarginMeters = 0.0))
                 }
             }
         }

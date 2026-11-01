@@ -1,0 +1,67 @@
+{
+  "sourceCommit": "d561c3f767630f9b8780953e49a3ca70c7d34906",
+  "mainJarSha256": "ef04282cfcf1786f23002dfd5a566c32b2a29f911ff87ec237a31cef7d963ea7",
+  "webuiSha256": "4995639a5206aaf3f59eabbe01e0b87d59836ec4617f598db07c49af6efb36cf",
+  "replacementCount": 1,
+  "preservedInstallFiles": 153,
+  "checkedLocalAndPublicAssets": 17,
+  "assets": [
+    "/",
+    "/assets/index-B6cTHjAy.js",
+    "/assets/index-C0em-Yb1.css",
+    "/blockly-media/1x1.gif",
+    "/blockly-media/LICENSE",
+    "/blockly-media/README.txt",
+    "/blockly-media/delete-icon.svg",
+    "/blockly-media/dropdown-arrow.svg",
+    "/blockly-media/foldout-icon.svg",
+    "/blockly-media/handclosed.cur",
+    "/blockly-media/handdelete.cur",
+    "/blockly-media/handopen.cur",
+    "/blockly-media/pilcrow.png",
+    "/blockly-media/quote0.png",
+    "/blockly-media/quote1.png",
+    "/blockly-media/resize-handle.svg",
+    "/blockly-media/sprites.svg"
+  ],
+  "publicUrl": "http://mc.art1st.work:29002",
+  "uiTimeoutContractInDeployedBundle": true,
+  "preservedDraftSignalAndOtherJarFiles": 23,
+  "mapMarkers": 31,
+  "guestSimulationStatus": 401,
+  "guestErrorStructured": true,
+  "runtimeMarkers": [
+    "[08:02:36] [Server thread/INFO]: Done (26.640s)! For help, type \"help\"",
+    "[08:02:46] [Folia Region Scheduler Thread #0/INFO]: ATO world: RUNNING",
+    "[08:02:46] [Folia Region Scheduler Thread #0/INFO]: SimpleSignals 2952ad2c-41ce-40bc-b83b-1b578ae7af12: installed, definitionRevision=117, topologyRevision=1; regions=5, tables=5, blocks=14, fixedBlockSignals=8, protectionSignals=4, routeIndicators=1, attachedSignals=0"
+  ],
+  "incrementalErrors": {
+    "plugins/JavaRailways/logs/errors.log": {
+      "preInstallShutdownErrors": 13,
+      "postInstallErrors": 0,
+      "newWarnings": 5
+    },
+    "plugins/JavaRailways/webui/logs/errors.log": {
+      "preInstallShutdownErrors": 0,
+      "postInstallErrors": 0,
+      "newWarnings": 0
+    },
+    "plugins/SimpleSignals/logs/errors.log": {
+      "preInstallShutdownErrors": 1,
+      "postInstallErrors": 0,
+      "newWarnings": 0
+    }
+  },
+  "knownTerraTheUnsafeStartupErrorCount": 1,
+  "recoveryDirectory": "/opt/mcsmanager/backups/javarailways/graph-colors-20261101-62a7w99i",
+  "archiveSha256": "6049d20234727e41079c6e8a8c0363bdc93cf457504d8503f6ea6cc2c7d16e1b",
+  "newPid": 814147,
+  "publicHomepageStatus": 200,
+  "publicMainScriptStatus": 200,
+  "publicMainScriptSha256": "a166824f80959f476b40a77b54d2087b96bce4480732015040798ea9235c2066",
+  "publicTrainsSseEvent": "trains",
+  "publicTrainsSseArrayEntries": 1,
+  "changedMainJarEntries": [
+    "webui/JavaRailways-WebUI.jar"
+  ]
+}

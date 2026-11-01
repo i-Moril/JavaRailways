@@ -22,6 +22,7 @@ export interface AuthoringRunCallV1 {
 }
 export interface AuthoringRunV1 {
   id:string;
+  color?:string;
   type:'PASSENGER'|'DEADHEAD';
   lineId?:string|null;
   diagramLineId?:string|null;
@@ -344,6 +345,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
     if(!run.id.trim()) issues.push(issue(`${path}.id`,'Run ID is required'));
     else if(runIds.has(run.id)) issues.push(issue(`${path}.id`,`Duplicate run ID: ${run.id}`));
     runIds.add(run.id);
+    if(run.color!==undefined&&!/^#[0-9a-fA-F]{6}$/.test(run.color))issues.push(issue(`${path}.color`,'Run color must be a six-digit hexadecimal color'));
     if(run.calls.length<2) issues.push(issue(`${path}.calls`,'A run requires an origin and a destination'));
     if(!run.lineId?.trim())issues.push(issue(`${path}.lineId`,'A run requires an infrastructure line'));
     if(run.lineId&&!lineSpeedLimitIds.has(run.lineId)) issues.push(issue(`${path}.lineId`,`No maximum speed is configured for infrastructure line: ${run.lineId}`));
@@ -588,7 +590,7 @@ function destinationOptions(document:TimetableAuthoringDocumentV1,duty:Authoring
 export function generateTimetableSource(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[]):GeneratedTimetableSource {
   const issues=validateAuthoringDocument(document,infrastructureLines);
   const {formalScriptName:ignoredName,...savedInput}=authoringDocumentForSave(document);
-  const semanticInput={...savedInput,formationEvents:savedInput.formationEvents?.map(({duration:_,stationId:__,...event})=>event),events:savedInput.events?.map(({id,tick})=>({id,tick})),duties:savedInput.duties.map((duty)=>({...duty,elements:duty.elements.map((element)=>{
+  const semanticInput={...savedInput,runs:savedInput.runs.map(({color:_,...run})=>run),formationEvents:savedInput.formationEvents?.map(({duration:_,stationId:__,...event})=>event),events:savedInput.events?.map(({id,tick})=>({id,tick})),duties:savedInput.duties.map((duty)=>({...duty,elements:duty.elements.map((element)=>{
     if(element.type==='RUN'||element.type==='FORMATION')return element;
     const operation=resolveDutyTimedOperation(document,element);
     return {id:element.id,type:element.type,...(element.type==='EVENT'?{eventId:element.eventId}:{}),tick:operation?.tick,program:operation?.program};

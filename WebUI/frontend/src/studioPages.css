@@ -83,7 +83,6 @@
 .station-label,.time-axis { fill: var(--ant-color-text-secondary); font-family: Inter,system-ui,sans-serif; font-size: 11px; }
 .time-axis.tick-label { fill: var(--ant-color-text); font-weight: 600; }
 .translated-time { fill: var(--ant-color-text-tertiary); font-size: 9px; }
-.selected-path { filter: drop-shadow(0 2px 3px rgba(22,119,255,.30)); }
 .graph-point-tooltip rect { fill: var(--ant-color-text); opacity: .9; }
 .graph-point-tooltip text { fill: var(--ant-color-bg-container); font-size: 11px; }
 .graph-status { min-height: 36px; padding: 8px 12px; border-top: 1px solid var(--ant-color-border-secondary); font-size: 11px; }

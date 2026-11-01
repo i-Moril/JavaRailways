@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterTimetableForDiagramLine, graphServiceColors, layoutGraph } from './graph';
+import { filterTimetableForDiagramLine, graphServiceColor, graphServiceColors, layoutGraph } from './graph';
 import type { SavedTimetableV1 } from './types';
 
 const value: SavedTimetableV1 = {
@@ -92,4 +92,13 @@ describe('graph layout', () => {
     ]);
   });
 
+});
+
+
+it('resolves run, line and automatic colors consistently for both themes and palette indices',()=>{
+  for(const theme of ['light','dark'] as const)for(const index of [0,1,5,6,10]){
+    expect(graphServiceColor(theme,index)).toBe(graphServiceColors(theme)[index%graphServiceColors(theme).length]);
+    expect(graphServiceColor(theme,index,'#123456')).toBe('#123456');
+    expect(graphServiceColor(theme,index,'#123456','#abcdef')).toBe('#abcdef');
+  }
 });

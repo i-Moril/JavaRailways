@@ -345,3 +345,25 @@ describe('timetable editor document',()=>{
     expect(result.source).toContain('runScope.at(400).destination("d@1", JSON.parse(');
   });
 });
+
+
+describe('run diagram color',()=>{
+  it('preserves colors through save, copy and undo without altering generated execution',()=>{
+    const original=valid(),colored={...original,runs:original.runs.map((run,index)=>index===0?{...run,color:'#12aBcD'}:run)};
+    expect(validateAuthoringDocument(colored)).toEqual(validateAuthoringDocument(original));
+    const saved=JSON.parse(JSON.stringify(authoringDocumentForSave(colored)));
+    expect(saved.runs[0].color).toBe('#12aBcD');expect(saved.runs[1]).not.toHaveProperty('color');
+    expect(copyRunShifted(saved.runs[0],'copy',100).color).toBe('#12aBcD');
+    const history=updateDocumentHistory(createDocumentHistory(original),colored);
+    expect(undoDocumentHistory(history).present.runs[0]).not.toHaveProperty('color');
+    expect(redoDocumentHistory(undoDocumentHistory(history)).present.runs[0].color).toBe('#12aBcD');
+    expect(generateTimetableSource(colored)).toEqual(generateTimetableSource(original));
+    expect(authoringGraphTimetable(colored)).toEqual(authoringGraphTimetable(original));
+  });
+  it('validates only explicitly supplied six-digit hexadecimal colors',()=>{
+    for(const color of ['red','#abc','#12345678','url(javascript:bad)','']){
+      const document=valid();document.runs[0].color=color;
+      expect(validateAuthoringDocument(document).some(issue=>issue.path==='runs[0].color')).toBe(true);
+    }
+  });
+});

@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe,expect,it } from 'vitest';
 import { Graph } from './Graph';
+import {graphServiceColor} from './graph';
 import { I18nProvider } from './i18n';
 import { ThemeProvider } from './theme';
 import type { SavedTimetableV1 } from './types';
@@ -67,4 +68,30 @@ describe('timed operation ownership on graph',()=>{
   expect(html).toContain('Duty-owned operation (read-only) D1');expect(html).toContain('stroke-dasharray="4 3"');
   expect(html.match(/data-operation-owner=/g)).toHaveLength(2);
  });
+});
+
+
+describe('running graph styling',()=>{
+  const render=(props:Partial<Parameters<typeof Graph>[0]>={})=>renderToStaticMarkup(<I18nProvider><ThemeProvider><Graph value={{...value,services:[value.services[0],{...value.services[0],id:'AP102'}]}} graphLineId="airport" metadata={{stations:[{stationId:'harbour',berthId:'1',destinationId:'harbour@1'},{stationId:'airport',berthId:'1',destinationId:'airport@1'}]}} {...props}/></ThemeProvider></I18nProvider>);
+  it('keeps ordinary paths thin and emphasizes only an explicitly selected run',()=>{
+    const normal=render();
+    expect(normal.match(/<polyline[^>]*stroke-width="1.25"/g)).toHaveLength(2);
+    expect(normal).not.toContain('class="selected-path"');
+    const selected=render({highlightedServiceIds:new Set(['AP101'])});
+    expect(selected.match(/<polyline[^>]*stroke-width="2"/g)).toHaveLength(1);
+    expect(selected.match(/<polyline[^>]*stroke-width="1"/g)).toHaveLength(1);
+    expect(selected).toContain('opacity="0.28"');
+    expect(selected).toContain('r="6"');expect(selected).toContain('r="4.5"');
+  });
+  it('uses the shared automatic color resolver for each service when no line color is specified',()=>{
+    const paths=render().match(/<polyline[^>]*>/g)!;
+    expect(paths[0]).toContain(`stroke="${graphServiceColor('dark',0)}"`);
+    expect(paths[1]).toContain(`stroke="${graphServiceColor('dark',1)}"`);
+  });
+  it('uses the run color before line color, preserves fallback and preview styling',()=>{
+    const html=render({line:{id:'airport',displayName:'Airport',upStationIds:['harbour','airport'],downStationIds:[],color:'#123456'},serviceColors:new Map([['AP101','#abcdef']]),previewServiceIds:new Set(['AP101'])});
+    const paths=html.match(/<polyline[^>]*>/g)!;
+    expect(paths[0]).toContain('stroke="#abcdef"');expect(paths[0]).toContain('stroke-dasharray="10 7"');
+    expect(paths[1]).toContain('stroke="#123456"');expect(paths[1]).not.toContain('stroke-dasharray');
+  });
 });

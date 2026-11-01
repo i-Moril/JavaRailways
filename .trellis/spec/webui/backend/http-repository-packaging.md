@@ -102,3 +102,6 @@ events与交路PROGRAM共用时刻、可选stationId/label/duration/program结�
 ## 数字与字符串表达式
 
 程序值支持递归纯运算和逐项对象构造；类型、格式、求值与预算遵守[表达式合同](../program-expressions.md)。浏览器、Java保存校验和Kotlin编译必须保持一致，原trainInfo动态绑定范围不扩张。
+
+
+编辑文档运行线允许可选`color`，仅接受完整`#RRGGBB`且大小写均可，省略为自动配色；null、CSS名称/函数、缩写与alpha均非该字段形状。Java保存端验证并原样持久化完整authoring JSON；此显示字段不进入运行时DTO，无schema升版或兼容分支。详见[Studio颜色合同](../frontend/studio-authoring.md)。

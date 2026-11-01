@@ -34,7 +34,7 @@ class EditorDocumentRestartTest {
         ObjectMapper mapper = new ObjectMapper();
         String document = """
             {"formatVersion":1,"id":"weekday","formalScriptName":"weekday.js","periodDays":2,
-             "runs":[{"id":"run","type":"PASSENGER","lineDirection":"UP","calls":[
+             "runs":[{"id":"run","type":"PASSENGER","lineDirection":"UP","color":"#12aBcD","calls":[
                 {"id":"call","stationId":"central","status":"TERMINAL","targetId":"central@one"}
              ] }],"duties":[
                 {"id":"1","selector":{"type":"TRAIN_NAME","name":"train"},"elements":[{"id":"split-task","type":"FORMATION","eventId":"split"}]},

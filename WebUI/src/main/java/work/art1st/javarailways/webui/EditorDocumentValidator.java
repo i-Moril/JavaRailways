@@ -117,6 +117,10 @@ final class EditorDocumentValidator {
         requireText(run, "id", "run");
         requireText(run, "type", "run");
         requireText(run, "lineDirection", "run");
+        if (run.has("color") && (!run.path("color").isTextual() ||
+            !run.path("color").asText().matches("#[0-9A-Fa-f]{6}"))) {
+            fail("run color must be a #RRGGBB hex color");
+        }
         requireObjectArray(run, "calls");
         run.path("calls").forEach(call -> {
             java.util.Set<String> fields = new java.util.HashSet<>(java.util.Set.of("id", "stationId", "status", "targetId"));

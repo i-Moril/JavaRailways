@@ -1,6 +1,6 @@
 import { useMemo,useRef,useState } from 'react';
 import { Button,Tooltip } from 'antd';
-import { graphServiceColors,layoutGraph,type GraphPoint } from './graph';
+import { graphServiceColor,layoutGraph,type GraphPoint } from './graph';
 import { useI18n } from './i18n';
 import { formatTimetableTick } from './timetableTime';
 import type {TimedOperation} from './types';
@@ -20,13 +20,14 @@ const pointKey=(point:GraphPoint)=>`${point.serviceIndex}:${point.stepIndex}:${p
 const clamp=(value:number)=>Math.min(3.2,Math.max(.55,value));
 
 export function Graph({
-  operations=[],onOpenDutyOperation,onDutyOperationContext,value,onSelect,metadata,line,graphLineId,highlightedServiceIds,previewServiceIds,onSelectPoint,onDismissPoint,onEditEvent,onEventContext,
+  operations=[],onOpenDutyOperation,onDutyOperationContext,value,onSelect,metadata,line,graphLineId,serviceColors,highlightedServiceIds,previewServiceIds,onSelectPoint,onDismissPoint,onEditEvent,onEventContext,
 }:{
   operations?:ProjectedTimedOperation[];onDutyOperationContext?:(context:GraphDutyOperationContext)=>void;onOpenDutyOperation?:(dutyId:string,elementId:string)=>void;
   value:SavedTimetableV1;
   metadata?:WorldMetadata;
   line?:LineV1;
   graphLineId?:string;
+  serviceColors?:ReadonlyMap<string,string>;
   highlightedServiceIds?:ReadonlySet<string>;
   previewServiceIds?:ReadonlySet<string>;
   onSelect?:(service:number,step:number)=>void;
@@ -63,12 +64,11 @@ export function Graph({
     });
     return [...grouped.values()].map((path)=>({...path,points:path.points.sort((a,b)=>a.tick-b.tick)}));
   },[layout.paths]);
-  const palette=graphServiceColors(theme);
   const period=Math.max(1,value.periodDays*24_000);
   const tickInterval=scaleX>=2?1_000:scaleX>=1.25?2_000:4_000;
   const ticks:Array<{tick:number;x:number}>=[];
   for(let tick=0;tick<=period;tick+=tickInterval)ticks.push({tick,x:layout.tickToX(tick)});
-  const graphColor=(serviceIndex:number)=>line?.color||palette[serviceIndex%palette.length];
+  const graphColor=(service:ServicePath)=>graphServiceColor(theme,service.serviceIndex,line?.color,serviceColors?.get(service.serviceId));
   const reset=()=>{onDismissPoint?.();setPan({x:28,y:24});setScaleX(1);setScaleY(1);};
   const zoom=(axis:'x'|'y',factor:number)=>{onDismissPoint?.();(axis==='x'?setScaleX:setScaleY)((current)=>clamp(current*factor));};
 
@@ -100,15 +100,16 @@ export function Graph({
         {ticks.map(({tick,x})=><g key={tick}><line className="time-grid-line" x1={x} y1={42} x2={x} y2={sheetHeight}/><text className="time-axis tick-label" x={x+5} y={16}>{tick}</text><text className="time-axis translated-time" x={x+5} y={31}>{formatTimetableTick(tick,locale)}</text></g>)}
         {layout.lanes.map((lane)=><g key={lane.id}><line className="station-grid-line" x1={layout.left} y1={lane.y} x2={sheetWidth} y2={lane.y}/><text className="station-label" x={layout.left-12} y={lane.y+4} textAnchor="end">{stationNames.get(lane.id)||lane.id}</text></g>)}
         {services.map((service)=>{
-          const color=graphColor(service.serviceIndex);
+          const color=graphColor(service);
           const hasSelection=(highlightedServiceIds?.size??0)>0;
-          const selected=!hasSelection||highlightedServiceIds!.has(service.serviceId);
+          const selected=highlightedServiceIds?.has(service.serviceId)??false;
+          const visible=!hasSelection||selected;
           const preview=previewServiceIds?.has(service.serviceId)??false;
           const first=service.points[0];
           const labelWidth=Math.max(58,service.serviceId.length*7+18);
-          return <g key={`${service.serviceIndex}:${service.serviceId}`} opacity={selected?1:.28}>
-            {service.points.length>1&&<polyline points={service.points.map((point)=>`${point.x},${point.y}`).join(' ')} fill="none" stroke={color} strokeWidth={selected?5:3} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={preview?'10 7':undefined} className={selected?'selected-path':undefined}/>}
-            {first&&selected&&<g transform={`translate(${first.x+12} ${Math.max(43,first.y-34)})`}><rect width={labelWidth} height="25" rx="5" fill={color}/><text x={labelWidth/2} y="17" textAnchor="middle" fill="#fff" fontWeight="700" fontSize="12">{service.serviceId}</text></g>}
+          return <g key={`${service.serviceIndex}:${service.serviceId}`} opacity={visible?1:.28}>
+            {service.points.length>1&&<polyline points={service.points.map((point)=>`${point.x},${point.y}`).join(' ')} fill="none" stroke={color} strokeWidth={selected?2:hasSelection?1:1.25} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={preview?'10 7':undefined} className={selected?'selected-path':undefined}/>}
+            {first&&visible&&<g transform={`translate(${first.x+12} ${Math.max(43,first.y-34)})`}><rect width={labelWidth} height="25" rx="5" fill={color}/><text x={labelWidth/2} y="17" textAnchor="middle" fill="#fff" fontWeight="700" fontSize="12">{service.serviceId}</text></g>}
             {service.points.map((point)=>{
               const label=`${service.serviceId} · ${stationNames.get(point.location)||point.location} · ${t(point.kind==='ARRIVAL'?'editor.arrivalTime':'editor.departureTime')} · ${point.tick} · ${formatTimetableTick(point.tick,locale)}`;
               const select=(element:SVGCircleElement)=>{
@@ -116,7 +117,7 @@ export function Graph({
                 onSelect?.(point.serviceIndex,point.stepIndex);
                 onSelectPoint?.(point,{x:bounds.left+bounds.width/2,y:bounds.top+bounds.height/2});
               };
-              return <circle key={pointKey(point)} data-graph-point cx={point.x} cy={point.y} r={selected?6:4.5} fill="var(--ant-color-bg-container)" stroke={color} strokeWidth={selected?4:3}
+              return <circle key={pointKey(point)} data-graph-point cx={point.x} cy={point.y} r={visible?6:4.5} fill="var(--ant-color-bg-container)" stroke={color} strokeWidth={selected?2:1.25}
                 role={onSelectPoint||onSelect?'button':undefined} tabIndex={onSelectPoint||onSelect?0:undefined} aria-label={label}
                 style={{cursor:onSelectPoint||onSelect?'pointer':undefined}}
                 onPointerDown={(event)=>event.stopPropagation()}

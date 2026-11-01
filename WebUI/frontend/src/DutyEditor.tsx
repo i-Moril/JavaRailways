@@ -31,7 +31,8 @@ import { editAuthoringGraphTime,shiftAuthoringGraphSuffix } from './authoringGra
 import { CommittedNumberInput } from './CommittedNumberInput';
 import { DutyManagement } from './DutyManagement';
 import { AuthoringValidation } from './AuthoringValidation';
-import type { GraphPoint } from './graph';
+import {graphServiceColor,type GraphPoint} from './graph';
+import {useTheme} from './theme';
 import type { AuthoringCommand,AuthoringCommandState } from './authoringCommands';
 import { TimetableWorkspace } from './TimetableWorkspace';
 import { useI18n } from './i18n';
@@ -45,6 +46,7 @@ export const clampAuthoringSidebarWidth=(width:number,viewportWidth:number)=>Mat
 
 export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,metadata,onError,onOpenProgramLibrary,page='graph',onPageChange,onCommandState}:{programLibraryRevision?:number;onOpenProgramLibrary?:(programId:string,stepId?:string)=>void;page?:'graph'|'duties'|'validation';onPageChange?:(page:'graph'|'duties'|'validation')=>void;onCommandState?:(state:AuthoringCommandState)=>void;world:string;recoveryOwner:string;lines:LineV1[];metadata:WorldMetadata;onError:(message:string)=>void}) {
   const {locale,t}=useI18n();
+  const {theme}=useTheme();
   const [initialRecovery]=useState(()=>{const recovered=loadAuthoringRecovery(recoveryOwner,world);return recovered&&JSON.stringify(recovered.document)!==recovered.savedDocumentJson?recovered:undefined;});
   const initialDocument=initialRecovery?.document??emptyAuthoringDocument();
   const savedDocumentJson=useRef(initialRecovery?.savedDocumentJson??JSON.stringify(initialDocument));
@@ -175,6 +177,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     catch(error){return {preview:undefined,error:graphTimeError(error)};}
   },[value,selectedPoint,pointSelectionValid,moveMode,moveValue,moveSource,generated.documentHashInput,locale]);
   const selectedDutyValue=value.duties.find((duty)=>duty.id===selectedDuty);
+  const graphServiceColors=useMemo(()=>new Map(effectiveRuns.filter((run)=>run.color).map((run)=>[run.id,run.color!])),[effectiveRuns]);
   const graphRuns=useMemo(()=>effectiveRuns.map((run)=>previewRun?.id===run.id?previewRun:run),[effectiveRuns,previewRun]);
   const fullGraphValue=useMemo(()=>authoringGraphTimetable({...value,runs:graphRuns},lines),[value,graphRuns,lines]);
   const graphValue=useMemo(()=>({...fullGraphValue,services:fullGraphValue.services.filter((service)=>!graphLineId||service.diagramLineId===graphLineId)}),[fullGraphValue,graphLineId]);
@@ -557,8 +560,8 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
       onDirectionChange={(direction)=>{setRunDirection(direction);const first=value.runs.find((run)=>run.diagramLineId===graphLineId&&run.lineDirection===direction);setSelectedRun(first?.id??'');}}
       onSearchChange={setRunSearch} onSelectRun={(id)=>{setSelectedRun(id);setFocusedCall('');}} onAddRun={addRun} assignmentFor={(runId)=>assigned.get(runId)}
       graph={<Graph onEditEvent={openGraphEvent} onEventContext={(context)=>{setEventDraft(undefined);setSelectedPoint(undefined);setDutyOperationMenu(undefined);setEventMenu({...context,scope:eventScope});}} operations={projectedOperations} onDutyOperationContext={(context)=>{setEventMenu(undefined);setEventDraft(undefined);setSelectedPoint(undefined);setDutyOperationMenu({...context,scope:eventScope});}} onOpenDutyOperation={openDutyOperation} value={graphValue} metadata={metadata} line={lines.find((line)=>line.id===graphLineId)} graphLineId={graphLineId||undefined}
-        highlightedServiceIds={highlightedRunIds} previewServiceIds={previewRunIds} onSelectPoint={selectPoint} onDismissPoint={()=>{if(!moveOpen)setSelectedPoint(undefined);setEventMenu(undefined);setDutyOperationMenu(undefined);}}/>}
-      inspector={!selectedRunValue?<p className="empty inspector-empty">{t('duties.selectRun')}</p>:<RunRouteEditor events={value.events} stationPrograms={value.stationPrograms} onStationProgramChange={(program)=>setValue((current)=>({...current,stationPrograms:[...(current.stationPrograms??[]).filter((item)=>item.stationId!==program.stationId),program]}))} programDraftScope={programDraftScope} onArrivalValidityChange={onArrivalValidityChange} focusedArrivalStep={focusedArrivalStep} onUndo={documentHistory.undo} onRedo={documentHistory.redo} onRename={renameRun} fieldScope={fieldScope} focusedCallId={focusedCall} tools={runTools} issues={generated.issues.filter((issue)=>issue.path.startsWith(`runs[${value.runs.findIndex((run)=>run.id===selectedRunValue.id)}]`))} run={selectedRunValue} lines={lines} metadata={metadata} busy={busy} onError={onError} onChange={replaceRun} onDelete={deleteSelectedRun}/>}
+        serviceColors={graphServiceColors} highlightedServiceIds={highlightedRunIds} previewServiceIds={previewRunIds} onSelectPoint={selectPoint} onDismissPoint={()=>{if(!moveOpen)setSelectedPoint(undefined);setEventMenu(undefined);setDutyOperationMenu(undefined);}}/>}
+      inspector={!selectedRunValue?<p className="empty inspector-empty">{t('duties.selectRun')}</p>:<RunRouteEditor events={value.events} stationPrograms={value.stationPrograms} automaticColor={graphServiceColor(theme,Math.max(0,graphValue.services.findIndex((service)=>service.id===selectedRunValue.id)),lines.find((line)=>line.id===graphLineId)?.color)} onStationProgramChange={(program)=>setValue((current)=>({...current,stationPrograms:[...(current.stationPrograms??[]).filter((item)=>item.stationId!==program.stationId),program]}))} programDraftScope={programDraftScope} onArrivalValidityChange={onArrivalValidityChange} focusedArrivalStep={focusedArrivalStep} onUndo={documentHistory.undo} onRedo={documentHistory.redo} onRename={renameRun} fieldScope={fieldScope} focusedCallId={focusedCall} tools={runTools} issues={generated.issues.filter((issue)=>issue.path.startsWith(`runs[${value.runs.findIndex((run)=>run.id===selectedRunValue.id)}]`))} run={selectedRunValue} lines={lines} metadata={metadata} busy={busy} onError={onError} onChange={replaceRun} onDelete={deleteSelectedRun}/>}
       graphActions={<><Button icon={<PlusOutlined/>} onClick={()=>{void loadPrograms();openGraphEvent();}}>{t('events.add')}</Button><Popover trigger="click" placement="bottomRight" title={t('common.documentSettings')} content={documentSettings}><Button type="text" icon={<SettingOutlined/>}/></Popover></>}
       graphPreviewActive={Boolean(previewRun)} saved={JSON.stringify(value)===savedDocumentJson.current}/><TimetableEventsEditor operations={projectedOperations} onEdit={openGraphEvent} onOpenDuty={openDutyOperation} stationNames={stationNames}/></>}
 

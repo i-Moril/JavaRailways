@@ -1,0 +1,46 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.0.0/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.11' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.12' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+> Task :Basic:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :ConfigLib:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :ConfigLib:compileKotlin UP-TO-DATE
+> Task :ConfigLib:compileJava NO-SOURCE
+> Task :ConfigLib:processResources NO-SOURCE
+> Task :ConfigLib:classes UP-TO-DATE
+> Task :ConfigLib:jar UP-TO-DATE
+> Task :Core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :Core:compileKotlin UP-TO-DATE
+> Task :Core:compileJava NO-SOURCE
+> Task :Core:processResources NO-SOURCE
+> Task :Core:classes UP-TO-DATE
+> Task :Core:jar UP-TO-DATE
+> Task :Basic:compileKotlin UP-TO-DATE
+> Task :Basic:compileJava NO-SOURCE
+> Task :Basic:processResources NO-SOURCE
+> Task :Basic:classes UP-TO-DATE
+> Task :Basic:jar UP-TO-DATE
+> Task :Basic:compileTestFixturesKotlin UP-TO-DATE
+> Task :Basic:compileTestFixturesJava NO-SOURCE
+> Task :Basic:processTestFixturesResources NO-SOURCE
+> Task :Basic:testFixturesClasses UP-TO-DATE
+> Task :Basic:testFixturesJar UP-TO-DATE
+> Task :Core:compileTestFixturesKotlin UP-TO-DATE
+> Task :Core:compileTestFixturesJava NO-SOURCE
+> Task :Basic:processTestResources NO-SOURCE
+> Task :Basic:compileTestKotlin
+> Task :Basic:compileTestJava NO-SOURCE
+> Task :Basic:testClasses UP-TO-DATE
+> Task :Basic:emuPerformanceClasspath
+
+[Incubating] Problems report is available at: file:///tmp/javarailways-blockly-deploy/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.0.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 12s
+11 actionable tasks: 2 executed, 9 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.0.0/userguide/configuration_cache_enabling.html

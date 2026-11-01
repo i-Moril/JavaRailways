@@ -1,0 +1,1 @@
+Not used for conclusions. The source-hash guard detected a final validation edit and compilation overlapping the first JVM launch. All forks are repeated after source and compiled-class freeze, with hashes checked before and after every fork.

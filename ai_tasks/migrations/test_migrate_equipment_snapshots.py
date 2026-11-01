@@ -165,3 +165,65 @@ class RealCodecTest(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+
+class S100ReplacementTest(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name)
+        self.old=self.root/'old.js';self.old.write_text('old default\n')
+        self.new=self.root/'new.js';self.new.write_text('new default\n')
+        self.policy=m.S100BehaviorReplacement([self.old],self.new)
+        self.value=dict(packageName='s100',behavior=dict(fileName='behavior.js',source=self.old.read_text()),actions={'custom':'unchanged'},control={'maxSpeed':42})
+    def test_exact_replacement_preserves_actions_and_controls(self):
+        result=self.policy.convert(self.value)
+        self.assertEqual(self.new.read_text(),result['behavior']['source'])
+        self.assertEqual(self.value['actions'],result['actions']);self.assertEqual(self.value['control'],result['control'])
+        self.assertEqual(self.old.read_text(),self.value['behavior']['source'])
+        self.assertEqual(result,self.policy.convert(result))
+    def test_unknown_custom_script_is_not_overwritten(self):
+        self.value['behavior']['source']='custom script'
+        with self.assertRaisesRegex(ValueError,'exact reviewed'):self.policy.convert(self.value)
+    def test_unrelated_packages_unchanged(self):
+        self.value['packageName']='custom'
+        self.assertEqual(self.value,self.policy.convert(self.value))
+    def test_changed_replacement_scripts_are_detected(self):
+        self.new.write_text('changed')
+        with self.assertRaisesRegex(ValueError,'pinned'):self.policy.convert(self.value)
+
+class S100SnapshotMigrationTest(unittest.TestCase):
+    setUp = MigrationTest.setUp
+    envelope = MigrationTest.envelope
+    def test_behavior_rehash_updates_both_runtime_refs_and_converges(self):
+        old=self.root/'old.js';new=self.root/'new.js'
+        old.write_text('old default');new.write_text('new default')
+        policy=m.S100BehaviorReplacement([old],new)
+        package=self.source('package',dict(packageName='s100',behavior=dict(fileName='behavior.js',source='old default'),actions={'keep':'action'},control={'keep':'control'}))
+        (self.roots['packages']/(self.package['hash']+'.json')).unlink()
+        (self.roots['packages']/(package['hash']+'.json')).write_bytes(output_json(package))
+        for envelope in [self.core['trains'][0]['extension']['BUKKIT'],self.core['trains'][0]['cars'][0]['config']['extension']['BUKKIT']]:
+            envelope['payload']['packageSnapshotHash']=package['hash']
+        for suffix in ['-runtime.json','-runtime.json.bak']:
+            path=self.roots['worlds']/('world'+suffix)
+            value=json.loads(path.read_bytes());value['coreSnapshotJson']=json.dumps(self.core);path.write_bytes(output_json(value))
+        plan,_,outputs=m.inspect(self.roots,self.source,self.candidate,policy)
+        changed=next(iter(outputs['packages'].values()));value=json.loads(changed)
+        self.assertEqual('new default',value['behavior']['source'])
+        self.assertEqual(package['actions'],value['actions']);self.assertEqual(package['control'],value['control'])
+        self.assertEqual(6,plan['referenceChanges'])
+        with patch.object(m,'ensure_stopped'):
+            m.apply(self.roots,plan,self.root/'backup',self.source,self.candidate,self.instance,policy)
+        after,_,_=m.inspect(self.roots,self.source,self.candidate,policy)
+        self.assertTrue(all(item['action']=='unchanged' for item in after['files']))
+
+class PrecompiledHelperReceiptTest(unittest.TestCase):
+    def test_receipt_binds_jar_helper_source_and_compiled_class(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);jar=root/'source.jar';jar.write_bytes(b'fixture jar')
+            classes=root/'classes';classes.mkdir();helper=classes/'EquipmentSnapshotsMigrationBridge.class';helper.write_bytes(b'fixture class')
+            source=Path(m.__file__).with_name('EquipmentSnapshotsMigrationBridge.java')
+            receipt=dict(jarSha256=digest(jar.read_bytes()),helperSourceSha256=digest(source.read_bytes()),helperSha256=digest(helper.read_bytes()))
+            (classes/'receipt.json').write_bytes(output_json(receipt))
+            with m.Bridge(jar,bridge_classes=classes) as bridge:bridge.verify()
+            for key in receipt:
+                bad=dict(receipt);bad[key]='invalid';(classes/'receipt.json').write_bytes(output_json(bad))
+                with self.assertRaisesRegex(ValueError,'receipt mismatch'):m.Bridge(jar,bridge_classes=classes)

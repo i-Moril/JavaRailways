@@ -43,9 +43,6 @@ class RailObjectWandDynamicUiTest {
                 keys.stationId.id,
                 keys.berthId.id,
                 keys.doorSide.id,
-                keys.stoppingAreaId.id,
-                keys.minimumTrainLength.id,
-                keys.maximumTrainLength.id
             ),
             visibleIds(registry, playerId)
         )

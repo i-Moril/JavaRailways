@@ -208,6 +208,30 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         return modelCleanup;
     }
 
+    /** Compile a real external Java registration without linking host implementation classes. */
+    public AutoCloseable registerStationResolver(
+        work.art1st.javarailways.bukkit.api.station.StationCallResolverService service,
+        UUID worldId
+    ) {
+        return service.register(this, worldId, new StationResolver());
+    }
+
+    private static final class StationResolver implements
+        work.art1st.javarailways.simpleato.api.station.StationCallResolutionProvider,
+        work.art1st.javarailways.simpleato.api.station.StationCallResolutionSimulationFactory {
+        @Override
+        public work.art1st.javarailways.simpleato.api.station.StationCallResolutionResult resolve(
+            work.art1st.javarailways.simpleato.api.station.StationCallResolutionContext context
+        ) {
+            return new work.art1st.javarailways.simpleato.api.station.StationCallResolutionResult.Success(
+                context.getDefaultResolution());
+        }
+        @Override
+        public work.art1st.javarailways.simpleato.api.station.StationCallResolutionSimulationPreparation prepareSimulation() {
+            return targetWorld -> new StationResolver();
+        }
+    }
+
     /** Compiles against the public preparation boundary, without linking host implementation types. */
     public AutoCloseable registerSimulationPreparation(SimulationFeatureService service) {
         return service.register(this, sourceWorldId -> new PreparedSimulationFeature() {

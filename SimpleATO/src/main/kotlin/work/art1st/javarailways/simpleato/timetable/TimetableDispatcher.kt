@@ -168,6 +168,7 @@ enum class TimetableServiceRunState {
     HALTING,
     REVERSING,
     WAITING_EXTENSION_ACTION,
+    WAITING_DOOR_OPERATION,
     MANUAL_INTERVENTION,
     SUSPENDED,
     REPLAN_REQUIRED,
@@ -331,14 +332,10 @@ class TimetableDispatcher(
     private val recoveryRequiredDefinitions = LinkedHashMap<String, Timetable>()
     private val appliedTimetablePlans = LinkedHashMap<String, AppliedTimetablePlan>()
     private val physicalStorageReservations = LinkedHashMap<StablingPointRef, String>()
-    private val berthAllocator = StationBerthAllocator { ref ->
-        checkNotNull(checkNotNull(boundWorld).simpleAtoWorldData.stations.berth(ref)) {
-            "Station berth no longer exists: $ref"
-        }.stoppingAreaRef
-    }
-    /** Captured logical area ownership blocks canonical configuration replacement until release. */
-    fun hasStationStoppingAreaAllocation(area: work.art1st.javarailways.simpleato.api.station.StationStoppingAreaRef): Boolean =
-        berthAllocator.isAllocated(area)
+    private val berthAllocator = StationBerthAllocator()
+    /** Exact berth ownership blocks canonical configuration replacement until release. */
+    fun hasStationBerthAllocation(berthRef: StationBerthRef): Boolean =
+        berthAllocator.isAllocated(berthRef)
 
     private var dispatcherTick = 0L
     private var boundWorld: World? = null
@@ -817,6 +814,7 @@ class TimetableDispatcher(
             depotDepartureRuntime = null,
             depotDepartureReleased = selected.depotAllocation == null || !selected.depotReservationPending
         )
+        confirmWaypointDoorStop(world, run, initialOriginWayPointId)
         run.stationDoorsSecured = when {
             replaceableTrainRuns.any { it.stationDoorsSecured == false } -> false
             replaceableTrainRuns.any { it.stationDoorsSecured == true } -> true
@@ -1024,6 +1022,7 @@ class TimetableDispatcher(
             }
             attempt { run.stopExecution?.runtime?.cancelOutstanding() }
             attempt { cancelExtensionAction(run) }
+            attempt { cancelDoorOperation(run) }
             listOfNotNull(run.stationCall?.operationTicket, run.destinationStop?.operationTicket, run.haltOperation?.ticket)
                 .distinct().forEach { ticket -> attempt { operationTicket(ticket, ticket.request).cancel() } }
         }
@@ -1385,6 +1384,12 @@ class TimetableDispatcher(
             val controlTransferred = manualRouted || fullManual
             if (run.currentUnitIds.isNotEmpty()) refreshUnitDisplays(world,run)
             val publishedAtoState = run.ato.publishedState
+            // A past berth observation must not survive a departure, even if the train later returns.
+            run.confirmedDoorStop?.let { stop ->
+                val frame = run.train.publishedFrame
+                if (!run.ato.isStopped(frame.speedMetersPerSecond) ||
+                    run.reverseOperation == null && !doorStopPlacementMatches(run, stop)) run.confirmedDoorStop = null
+            }
             run.lastPublishedAtoState = publishedAtoState
             val snapshot = if (controlTransferred) {
                 capturePublishedTrainSnapshot(run)
@@ -1395,7 +1400,7 @@ class TimetableDispatcher(
                 TimetableServiceRunState.BERTHED, TimetableServiceRunState.DOORS_OPENING,
                 TimetableServiceRunState.DWELLING, TimetableServiceRunState.DOORS_CLOSING,
                 TimetableServiceRunState.READY_TO_DEPART, TimetableServiceRunState.HALTING,
-                TimetableServiceRunState.WAITING_EXTENSION_ACTION ->
+                TimetableServiceRunState.WAITING_EXTENSION_ACTION, TimetableServiceRunState.WAITING_DOOR_OPERATION ->
                     if (!validateCommittedAuthority(world, run)) return@forEach
                 else -> Unit
             }
@@ -1405,6 +1410,10 @@ class TimetableDispatcher(
             }
             updateTailProgress(run, snapshot)
             releaseDepotDeparture(world, run)
+            if (run.state == TimetableServiceRunState.WAITING_DOOR_OPERATION) {
+                pollDoorOperation(world, run)
+                return@forEach
+            }
             if (run.state == TimetableServiceRunState.WAITING_EXTENSION_ACTION) {
                 pollExtensionAction(world, run)
                 return@forEach
@@ -1558,6 +1567,7 @@ class TimetableDispatcher(
             if (run.state == TimetableServiceRunState.BERTHED &&
                 stationCall != null && dispatcherTick > stationCall.stateEnteredDispatcherTick
             ) {
+                confirmDoorStop(world, run, stationCall.resolved.berthRef, stationCall.resolved.doorSide)
                 if (stationCall.stopPrograms != null) {
                     run.currentWayPointId = stationCall.stopPrograms!!.destinationId
                         ?: OperationalDestinationIds.stationBerth(stationCall.resolved.berthRef.stationId, stationCall.resolved.berthRef.berthId)
@@ -1708,6 +1718,7 @@ class TimetableDispatcher(
                 }
                 run.currentWayPointId = runtime.targetWayPointId
                 run.physicalOriginPending = false
+                confirmWaypointDoorStop(world, run, runtime.targetWayPointId)
                 advanceService(world, run)
                 return@forEach
             }
@@ -2028,6 +2039,7 @@ class TimetableDispatcher(
     private fun discardRun(world: World, run: ActiveRun) {
         bindWorld(world)
         run.stopExecution?.runtime?.cancelOutstanding()?.let { error("cannot discard pending station work: $it") }
+        cancelDoorOperation(run)?.let { error("cannot discard pending door operation: $it") }
         check(run.admissionClient == null || run.admissionEnded) {
             "cannot discard ${run.id} while Basic route resources remain active"
         }
@@ -2455,6 +2467,8 @@ class TimetableDispatcher(
         val role = world.simpleAtoWorldData.destinations[stop.options.destinationId]?.role as?
             work.art1st.javarailways.simpleato.api.destination.DestinationRole.StationBerthRole
         val side = stop.options.doorSide ?: if (stop.options.stopPrograms != null) role?.doorSide ?: DoorSide.NONE else DoorSide.NONE
+        confirmWaypointDoorStop(world, run, stop.options.destinationId,
+            stop.options.doorSide ?: role?.doorSide)
         if (stop.options.stopPrograms != null) {
             run.currentWayPointId = stop.options.destinationId
             run.physicalOriginPending = false
@@ -2888,6 +2902,11 @@ class TimetableDispatcher(
         run.admissionCandidate = null
         run.nextAdmissionAttemptTick = 0L
         run.reverseOperation = null
+        run.confirmedDoorStop = run.confirmedDoorStop?.let { previous ->
+            val frame = run.train.publishedFrame
+            previous.copy(side = reversedDoorSide(previous.side), head = frame.head, tail = frame.tail,
+                reversed = frame.reversed, carIds = frame.cars.map { it.carId })
+        }
         run.stopExecution?.let { execution ->
             execution.reverseCompleted = true
             execution.reversed = true
@@ -3197,6 +3216,7 @@ class TimetableDispatcher(
             if (runtime === run.storageRuntime && !tryCompleteStorage(world, run, runtime)) return
             run.currentWayPointId = runtime.targetWayPointId
             run.physicalOriginPending = false
+            confirmWaypointDoorStop(world, run, runtime.targetWayPointId)
             advanceService(world, run)
             return
         }
@@ -3817,7 +3837,7 @@ class TimetableDispatcher(
         val addressedReason = if (errorType == "TimetableExtensionFailure" || errorType == "TimetableConditionFailure")
             "[${run.service.id}] ${run.programCursor.address ?: "completed"}: $reason" else reason
         val stationCancellation = run.stopExecution?.runtime?.cancelOutstanding()
-        val effectiveReason = listOfNotNull(addressedReason, stationCancellation, cancelExtensionAction(run)).joinToString("; ")
+        val effectiveReason = listOfNotNull(addressedReason, stationCancellation, cancelExtensionAction(run), cancelDoorOperation(run)).joinToString("; ")
         if (run.depotReservationPending) {
             run.depotAllocation?.let(world.simpleAtoWorldData.depots::cancelReservation)
             run.depotReservationPending = false
@@ -3937,6 +3957,7 @@ class TimetableDispatcher(
             run.message = "waiting for old StationBerth tail release before storage"
             return false
         }
+        run.confirmedDoorStop = null
         val storageCommitted = if (run.physicalStorageOnly) {
             physicalStorageReservations.remove(reservation.stablingPointRef, run.instanceId)
         } else {
@@ -4039,6 +4060,7 @@ class TimetableDispatcher(
             effectiveSide == DoorSide.NONE, operationTimeoutTicks, StationProgramActionHost { action, taskId, instruction ->
                 startStationProgramAction(world, run, execution, action, taskId, instruction)
             }, { operationGateway.estimateDoorCloseDurationTicks(run.train.id, effectiveSide) })
+        run.confirmedDoorStop = run.confirmedDoorStop?.copy(side = effectiveSide)
         run.ato.setSpeedLimit(stationProgramHoldKey(run), 0.0)
         run.state = TimetableServiceRunState.DWELLING
         run.message = "station ${programs.stationId}/${programs.callId} ${programs.role.name.lowercase()} tasks"
@@ -4194,6 +4216,137 @@ class TimetableDispatcher(
         }
     }
 
+    /** Only a physically verified acquisition/arrival may establish a default door side. */
+    private fun confirmWaypointDoorStop(world: World, run: ActiveRun, target: String, side: DoorSide? = null) {
+        val role = world.simpleAtoWorldData.destinations[target]?.role as?
+            work.art1st.javarailways.simpleato.api.destination.DestinationRole.StationBerthRole
+        if (role == null || target != OperationalDestinationIds.stationBerth(role.stationId, role.berthId)) {
+            run.confirmedDoorStop = null
+            return
+        }
+        confirmDoorStop(world, run, StationBerthRef(role.stationId, role.berthId), side ?: role.doorSide)
+    }
+
+    private fun confirmDoorStop(world: World, run: ActiveRun, ref: StationBerthRef, side: DoorSide) {
+        val berth = world.simpleAtoWorldData.stations.berth(ref)
+        val frame = run.train.publishedFrame
+        run.confirmedDoorStop = if (berth == null ||
+            berth.lifecycleState != work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState.ACTIVE ||
+            !run.ato.isStopped(frame.speedMetersPerSecond)) null else
+            ConfirmedDoorStop(berth, side, frame.head, frame.tail, frame.reversed, frame.cars.map { it.carId })
+    }
+
+    private fun inheritedDoorSide(world: World, run: ActiveRun): DoorSide {
+        val stop = requireNotNull(run.confirmedDoorStop) {
+            "OPEN_DOORS requires a confirmed current station berth or an explicit doorSideOverride"
+        }
+        require(world.simpleAtoWorldData.stations.berth(stop.berth.berthRef) === stop.berth &&
+            stop.berth.lifecycleState == work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState.ACTIVE &&
+            doorStopPlacementMatches(run, stop)) {
+            "confirmed door berth no longer matches the current train placement"
+        }
+        return stop.side
+    }
+
+    private fun doorStopPlacementMatches(run: ActiveRun, stop: ConfirmedDoorStop): Boolean {
+        val frame = run.train.publishedFrame
+        return frame.head == stop.head && frame.tail == stop.tail && frame.reversed == stop.reversed &&
+            frame.cars.map { it.carId } == stop.carIds
+    }
+
+    private fun reversedDoorSide(side: DoorSide): DoorSide = when (side) {
+        DoorSide.LEFT -> DoorSide.RIGHT
+        DoorSide.RIGHT -> DoorSide.LEFT
+        else -> side
+    }
+
+    private fun beginDoorOperation(world: World, run: ActiveRun, action: TimetableAction) {
+        try {
+            check(run.ato.isStopped(capturePublishedTrainSnapshot(run).speedMetersPerSecond)) {
+                "door operation requires a stopped train"
+            }
+            check(run.doorOperation == null && run.stopExecution == null) { "another door/station operation is active" }
+            run.ato.setSpeedLimit(stopKey(run), 0.0)
+            val open = action is TimetableAction.OpenDoors
+            val side = if (open) (action as TimetableAction.OpenDoors).doorSideOverride ?: inheritedDoorSide(world, run)
+                else DoorSide.BOTH
+            if (open && side == DoorSide.NONE) {
+                run.programCursor = run.programCursor.advance()
+                advanceService(world, run)
+                return
+            }
+            val request = TrainOperationRequest(
+                "${run.instanceId}/door/${run.stationInvocationSequence++}", run.instanceId,
+                "${run.instanceId}/door", run.train.id, run.missionRevision,
+                if (open) TrainOperation.OpenDoors(side) else TrainOperation.CloseDoors(side))
+            // A rejected/failed opening cannot be mistaken for evidence that all doors are closed.
+            if (open) run.stationDoorsSecured = false
+            val result = operationGateway.execute(request)
+            check(result is TrainOperationExecutionResult.Accepted) {
+                (result as TrainOperationExecutionResult.Rejected).reason
+            }
+            val checked = operationTicket(result.ticket, request)
+            run.doorOperation = DispatcherDoorOperation(result.ticket, checked, open, dispatcherTick, run.programCursor.advance())
+            run.state = TimetableServiceRunState.WAITING_DOOR_OPERATION
+            pollDoorOperation(world, run)
+        } catch (failure: Exception) {
+            stallRun(world, run, "TrainOperationFailure", failure.message ?: failure.javaClass.name)
+        }
+    }
+
+    private fun pollDoorOperation(world: World, run: ActiveRun) {
+        val active = checkNotNull(run.doorOperation)
+        try {
+            check(run.ato.isStopped(capturePublishedTrainSnapshot(run).speedMetersPerSecond)) {
+                "door operation requires a stopped train"
+            }
+            when (val result = active.checked.poll()) {
+                StationProgramTicketResult.Pending -> check(dispatcherTick - active.startedDispatcherTick < operationTimeoutTicks) {
+                    "door operation timed out after $operationTimeoutTicks ticks"
+                }
+                StationProgramTicketResult.Succeeded -> {
+                    if (!active.open) run.stationDoorsSecured = true
+                    run.doorOperation = null
+                    run.programCursor = active.successor
+                    run.state = TimetableServiceRunState.WAITING_MISSION
+                    advanceService(world, run)
+                }
+                is StationProgramTicketResult.Failed -> error(result.reason)
+                is StationProgramTicketResult.Cancelled -> error(result.reason)
+            }
+        } catch (failure: Exception) {
+            stallRun(world, run, "TrainOperationFailure", failure.message ?: failure.javaClass.name)
+        }
+    }
+
+    private fun cancelDoorOperation(run: ActiveRun): String? {
+        val active = run.doorOperation ?: return null
+        return try {
+            active.checked.cancel()?.also { return it }
+            run.doorOperation = null
+            null
+        } catch (failure: Exception) {
+            "door operation cancellation failed: ${failure.message ?: failure.javaClass.name}"
+        }
+    }
+
+    private data class ConfirmedDoorStop(
+        val berth: work.art1st.javarailways.simpleato.api.station.StationBerth,
+        val side: DoorSide,
+        val head: work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot,
+        val tail: work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot,
+        val reversed: Boolean,
+        val carIds: List<String>
+    )
+
+    private data class DispatcherDoorOperation(
+        val ticket: TrainOperationTicket,
+        val checked: StationProgramTicket,
+        val open: Boolean,
+        val startedDispatcherTick: Long,
+        val successor: TimetableProgramCursor
+    )
+
     private fun advanceService(world: World, run: ActiveRun) {
         if (!validateCommittedAuthority(world, run)) return
         while (true) {
@@ -4209,9 +4362,20 @@ class TimetableDispatcher(
                     }
                     run.currentWayPointId = step.wayPointId
                     run.physicalOriginPending = false
+                    confirmWaypointDoorStop(world, run, step.wayPointId)
                     run.programCursor = run.programCursor.advance()
                 }
                 is TimetableStep.At -> when (val action = step.action) {
+                    is TimetableAction.OpenDoors, TimetableAction.CloseDoors -> {
+                        if (timetableElapsedTicks(run) < step.tick) {
+                            run.ato.setSpeedLimit(stopKey(run), 0.0)
+                            waitForTimetableTick(run, step.tick, pendingStep = true)
+                            return
+                        }
+                        recordScheduledAction(run, step.tick)
+                        beginDoorOperation(world, run, action)
+                        return
+                    }
                     is TimetableAction.TaskStart -> {
                         if (timetableElapsedTicks(run) < step.tick) {
                             waitForTimetableTick(run, step.tick, pendingStep = true)
@@ -4483,6 +4647,7 @@ class TimetableDispatcher(
                             address = plan.address,
                             lastOdometerMeters = run.ato.lifetimeTravelDistanceMeters
                         )
+                        run.confirmedDoorStop = null
                         run.currentRuntime = runtime
                         run.missionRevision = accepted.mission.revision
                         run.programCursor = plan.successor
@@ -4797,6 +4962,7 @@ class TimetableDispatcher(
         run.stopExecution?.runtime?.cancelOutstanding()?.let { return it }
         if (run.formationBlocked) return "fixed formation operation owns this participant; explicit recovery is required"
         cancelExtensionAction(run)?.let { return it }
+        cancelDoorOperation(run)?.let { return it }
         val ticket = run.stationCall?.operationTicket
             ?: run.destinationStop?.operationTicket
             ?: run.haltOperation?.ticket
@@ -5520,6 +5686,7 @@ class TimetableDispatcher(
             run.depotReservationPending = false
             run.depotDepartureRuntime = runtime
         }
+        run.confirmedDoorStop = null
         run.currentRuntime = runtime
         run.missionRevision = accepted.mission.revision
         run.programCursor = plan.successor
@@ -5612,6 +5779,7 @@ class TimetableDispatcher(
             is TimetableAction.BeginStationStop,
             is TimetableAction.BeginOperationalTrip,
             is TimetableAction.SetDisplay,
+            is TimetableAction.OpenDoors, TimetableAction.CloseDoors,
             is TimetableAction.ResetDisplay,
             is TimetableAction.TakeFromDepot,
             is TimetableAction.TakeFromWaypoint,
@@ -6270,6 +6438,7 @@ class TimetableDispatcher(
 
     private fun movementDoorFailure(run: ActiveRun): String? = when {
         run.stopExecution != null -> "station task join has not completed"
+        run.doorOperation != null -> "door operation has not completed"
         run.stationDoorsSecured == false -> "movement requires successful door closing after station work"
         else -> null
     }
@@ -6810,6 +6979,8 @@ class TimetableDispatcher(
         var pendingDestinationOptions: TimetableAction.DestinationOptions? = null,
         var stopExecution: DispatcherStopExecution? = null,
         var stationDoorsSecured: Boolean? = null,
+        var confirmedDoorStop: ConfirmedDoorStop? = null,
+        var doorOperation: DispatcherDoorOperation? = null,
         var stationInvocationSequence: Long = 0L,
         var pendingStationCallSpec: StationCallSpec? = null,
         var deferredStationCallSpec: StationCallSpec? = null,
@@ -6905,6 +7076,7 @@ class TimetableDispatcher(
             val operationTicket = stationCall?.operationTicket
                 ?: destinationStop?.operationTicket
                 ?: haltOperation?.ticket
+                ?: doorOperation?.ticket
             val operation = operationTicket?.let { ticket ->
                 try {
                     ticket.snapshot()

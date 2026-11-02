@@ -112,6 +112,30 @@ class ProgramSimulationTest {
         }
     }
 
+    @Test fun `door program simulation emits native actions with resolved side and original acquisition point`() {
+        TimetableScriptSandbox(directory).use { sandbox ->
+            val input = request {
+                JsonObject(this + mapOf("definition" to Json.parseToJsonElement("""
+                    {"parameters":[{"id":"side","type":"STRING"}],"steps":[
+                      {"id":"open","type":"OPEN_DOORS","doorSideOverride":{"parameterId":"side"}},
+                      {"id":"close","type":"CLOSE_DOORS"}]}
+                """), "arguments" to Json.parseToJsonElement("""{"side":"LEFT"}""")))
+            }
+            val saved = sandbox.compileSource(input.source(), "function-simulation")
+            assertEquals(listOf("TAKE_FROM_WAYPOINT", "TASK_START", "OPEN_DOORS", "CLOSE_DOORS", "TASK_END"), saved.services.single().steps.map { it.action!!.type.name })
+            assertEquals("LEFT", saved.services.single().steps[2].action!!.doorSideOverride?.name)
+            assertEquals(listOf("point"), saved.services.single().steps.first().action!!.wayPointIds)
+            assertEquals("program:p/step:open", saved.compilationTrace.single { it.stepIndex == 2 }.origin)
+            val computed = request { JsonObject(this + ("definition" to Json.parseToJsonElement("""{"parameters":[],"steps":[{"id":"open","type":"OPEN_DOORS","doorSideOverride":{"operation":{"type":"CONCAT","operands":[{"value":"LE"},{"value":"FT"}]}}}]}"""))) }
+            assertEquals("LEFT", sandbox.compileSource(computed.source(), "function-simulation").services.single().steps[2].action!!.doorSideOverride?.name)
+            val inherit = request { JsonObject(this + ("definition" to Json.parseToJsonElement("""{"parameters":[],"steps":[{"id":"open","type":"OPEN_DOORS"}]}"""))) }
+            assertNull(sandbox.compileSource(inherit.source(), "function-simulation").services.single().steps[2].action!!.doorSideOverride)
+            for (step in listOf("""{"id":"open","type":"OPEN_DOORS","doorSideOverride":{"value":"NONE"}}""", """{"id":"close","type":"CLOSE_DOORS","doorSideOverride":{"value":"LEFT"}}""")) {
+                assertThrows(IllegalArgumentException::class.java) { request { JsonObject(this + ("definition" to Json.parseToJsonElement("""{"parameters":[],"steps":[$step]}"""))) } }
+            }
+        }
+    }
+
     @Test fun `optional reversal is a real action before measured function and never changes acquisition point`() {
         TimetableScriptSandbox(directory).use { sandbox ->
             for (reverse in listOf(false, true)) {

@@ -83,6 +83,178 @@ class TimetableStationCallDispatcherTest {
         lead: Long = 40L, destination: String? = "C") = StationStopPrograms("central","stop-call",role,
             arrival,preparation,StationPreparationLead.constant(lead),departure,destination)
 
+    @Test fun `ordinary door actions explicitly override at a normal waypoint and await real tickets`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(operationGateway = gateway,
+            initialActions = listOf(TimetableAction.OpenDoors(DoorSide.RIGHT), TimetableAction.CloseDoors))
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        assertEquals(listOf(TrainOperation.OpenDoors(DoorSide.RIGHT)), gateway.requests.map { it.operation })
+        repeat(5) { fixture.tick() }
+        assertEquals(TimetableServiceRunState.WAITING_DOOR_OPERATION, fixture.dispatcher.status(id)!!.state)
+        assertEquals(0.0, fixture.train.speed, 1e-9)
+        gateway.tickets[0].succeed()
+        fixture.tick()
+        assertEquals(TrainOperation.CloseDoors(DoorSide.BOTH), gateway.requests[1].operation)
+        repeat(5) { fixture.tick() }
+        assertEquals(0.0, fixture.train.speed, 1e-9)
+        gateway.tickets[1].succeed()
+        repeat(1500) { if (fixture.dispatcher.status(id)!!.state != TimetableServiceRunState.COMPLETED) fixture.tick() }
+        assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)!!.state)
+    }
+
+    @Test fun `ordinary inherited opening requires an exact confirmed berth rather than a nearby station`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(operationGateway = gateway, initialActions = listOf(TimetableAction.OpenDoors()))
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        assertTrue(gateway.requests.isEmpty())
+        assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        assertTrue(fixture.dispatcher.status(TimetableServiceRunId("tt", "service"))!!.message!!.contains("confirmed current station berth"))
+    }
+
+    @Test fun `ordinary opening inherits canonical acquisition side and allows an explicit override`() {
+        for (override in listOf(null, DoorSide.RIGHT)) {
+            val gateway = ControllableOperationGateway()
+            val fixture = fixture(operationGateway = gateway, canonicalOriginDoorSide = DoorSide.LEFT,
+                initialActions = listOf(TimetableAction.OpenDoors(override), TimetableAction.CloseDoors))
+            fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+            assertEquals(TrainOperation.OpenDoors(override ?: DoorSide.LEFT), gateway.requests.single().operation)
+        }
+    }
+
+    @Test fun `NONE inherited berth performs no physical opening`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(operationGateway = gateway, canonicalOriginDoorSide = DoorSide.NONE,
+            initialActions = listOf(TimetableAction.OpenDoors()))
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        repeat(1200) { if (fixture.dispatcher.status(TimetableServiceRunId("tt", "service"))!!.state != TimetableServiceRunState.COMPLETED) fixture.tick() }
+        assertTrue(gateway.requests.isEmpty())
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
+    @Test fun `ordinary opening blocks movement until a successful BOTH close`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(operationGateway = gateway,
+            initialActions = listOf(TimetableAction.OpenDoors(DoorSide.LEFT)))
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        gateway.tickets.single().succeed()
+        fixture.tick()
+        assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        assertTrue(fixture.dispatcher.status(TimetableServiceRunId("tt", "service"))!!.message!!.contains("door closing"))
+        assertEquals(0.0, fixture.train.speed, 1e-9)
+    }
+
+    @Test fun `ordinary door pending timeout cancels and fails without launching movement`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(operationGateway = gateway, operationTimeoutTicks = 3L,
+            initialActions = listOf(TimetableAction.OpenDoors(DoorSide.LEFT), TimetableAction.CloseDoors))
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        repeat(4) { fixture.tick() }
+        assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        assertEquals(TrainOperationTicketState.CANCELLED, gateway.tickets.single().snapshot().state)
+        assertEquals(1, gateway.requests.size)
+    }
+
+    @Test fun `ordinary failed closing cannot release the movement door gate`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(operationGateway = gateway,
+            initialActions = listOf(TimetableAction.OpenDoors(DoorSide.LEFT), TimetableAction.CloseDoors))
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        gateway.tickets.single().succeed()
+        fixture.tick()
+        gateway.tickets.last().fail("close animation failed")
+        fixture.tick()
+        assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        assertEquals(0.0, fixture.train.speed, 1e-9)
+    }
+
+    @Test fun `completed canonical arrival establishes default side and reversal swaps it`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(operationGateway = gateway, canonicalTarget = true, firstTargetOffsetMeters = 40.0,
+            doorSide = DoorSide.LEFT, nextTargetOffsetMeters = 0.0,
+            afterDestinationActions = listOf(TimetableAction.Reverse, TimetableAction.OpenDoors(), TimetableAction.CloseDoors))
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        for (tick in 0 until 1600) {
+            fixture.tick()
+            gateway.tickets.forEach { it.succeed() }
+            if (fixture.dispatcher.status(id)!!.state == TimetableServiceRunState.COMPLETED) break
+        }
+        assertEquals(listOf(TrainOperation.OpenDoors(DoorSide.RIGHT), TrainOperation.CloseDoors(DoorSide.BOTH)), gateway.requests.map { it.operation })
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)!!.state)
+    }
+
+    @Test fun `moving away invalidates inherited berth context`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(operationGateway = gateway, canonicalOriginDoorSide = DoorSide.LEFT,
+            afterDestinationActions = listOf(TimetableAction.OpenDoors()))
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        for (tick in 0 until 1500) {
+            fixture.tick()
+            if (fixture.world.simpleAtoWorldData.atoCoordinator.isStalled) break
+        }
+        assertTrue(gateway.requests.isEmpty())
+        assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        assertTrue(fixture.dispatcher.status(id)!!.message!!.contains("confirmed current station berth"))
+    }
+
+    @Test fun `confirmed station side preserves plugin resolution including explicit NONE`() {
+        for (side in listOf(DoorSide.RIGHT, DoorSide.NONE)) {
+            val gateway = ControllableOperationGateway()
+            val fixture = fixture(operationGateway = gateway, includeStationAction = true, firstTargetOffsetMeters = 40.0,
+                doorSide = DoorSide.LEFT, stopPrograms = programs(StationStopRole.TERMINAL, departure = null,
+                    arrival = listOf(StationProgramAction.End)),
+                afterDestinationActions = listOf(TimetableAction.OpenDoors(), TimetableAction.CloseDoors))
+            fixture.world.simpleAtoWorldData.stationCallResolvers.register { context ->
+                work.art1st.javarailways.simpleato.api.station.StationCallResolutionResult.Success(
+                    context.defaultResolution.copy(doorSide = side))
+            }
+            val id = TimetableServiceRunId("tt", "service")
+            fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+            for (tick in 0 until 1500) {
+                fixture.tick()
+                gateway.tickets.forEach { it.succeed() }
+                if (fixture.dispatcher.status(id)!!.state == TimetableServiceRunState.COMPLETED) break
+            }
+            val expected = if (side == DoorSide.NONE) listOf(TrainOperation.CloseDoors(DoorSide.BOTH)) else
+                listOf(TrainOperation.OpenDoors(side), TrainOperation.CloseDoors(DoorSide.BOTH))
+            assertEquals(expected, gateway.requests.map { it.operation })
+            assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        }
+    }
+
+    @Test fun `retired confirmed berth cannot supply a default side`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(operationGateway = gateway, canonicalOriginDoorSide = DoorSide.LEFT,
+            initialActions = listOf(TimetableAction.OpenDoors(DoorSide.RIGHT), TimetableAction.CloseDoors, TimetableAction.OpenDoors()))
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService(fixture.world).remove("origin@one")
+        gateway.tickets[0].succeed()
+        fixture.tick()
+        gateway.tickets[1].succeed()
+        fixture.tick()
+        assertEquals(2, gateway.requests.size)
+        assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
+    @Test fun `mismatched ordinary operation request fails and cancels its ticket`() {
+        var cancelled = false
+        val gateway = TrainOperationGateway { request ->
+            TrainOperationExecutionResult.Accepted(object : TrainOperationTicket {
+                override val request = request.copy(requestId = "another-request")
+                override fun snapshot() = TrainOperationTicketSnapshot("wrong", this.request.requestId,
+                    if (cancelled) TrainOperationTicketState.CANCELLED else TrainOperationTicketState.PENDING)
+                override fun cancel() { cancelled = true }
+            })
+        }
+        val fixture = fixture(operationGateway = gateway, initialActions = listOf(TimetableAction.OpenDoors(DoorSide.LEFT)))
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        assertTrue(cancelled)
+        assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
     @Test fun `shared destination program opens on actual arrival prepares early and awaits planned release`() {
         val gateway=ControllableOperationGateway()
         val fixture=fixture(nextTargetOffsetMeters=150.0,operationGateway=gateway,
@@ -357,7 +529,7 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test
-    fun `canonical marker edits and aliases cannot bypass a held stopping area`() {
+    fun `canonical marker edits cannot bypass a held berth`() {
         val fixture = fixture()
         val world = fixture.world
         world.registerExtensionData(
@@ -366,7 +538,7 @@ class TimetableStationCallDispatcherTest {
         )
         val service = work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService(world)
         val role = work.art1st.javarailways.simpleato.api.destination.DestinationRole.StationBerthRole(
-            stationId = fixture.station.id, stationDisplayName = "Central", berthId = "one", doorSide = DoorSide.NONE, stoppingAreaId = "platform-one"
+            stationId = fixture.station.id, stationDisplayName = "Central", berthId = "one", doorSide = DoorSide.NONE
         )
         val destination = work.art1st.javarailways.simpleato.api.destination.OperationalDestination(
             "central@one", fixture.berth.location.rail.id,
@@ -383,16 +555,16 @@ class TimetableStationCallDispatcherTest {
         val started = world.onOwnerForTest { fixture.dispatcher.startService(world, "tt", "service") } as TimetableServiceStartResult.Started
         val call = StationCall("held-call", started.run.missionRevision, fixture.station.id, fixture.berth.berthRef, dwellPlan = DwellPlan(5L))
         assertTrue(fixture.dispatcher.scheduleStationCall(world, id, call) is TimetableStationCallScheduleResult.Scheduled)
-        val area = work.art1st.javarailways.simpleato.api.station.StationStoppingAreaRef(fixture.station.id, "platform-one")
-        assertTrue(fixture.dispatcher.hasStationStoppingAreaAllocation(area))
-        assertThrows(IllegalStateException::class.java) { service.replace(destination.id, destination.copy(role = role.copy(stoppingAreaId = "new-area"))) }
+        val berthRef = fixture.berth.berthRef
+        assertTrue(fixture.dispatcher.hasStationBerthAllocation(berthRef))
+        assertThrows(IllegalStateException::class.java) { service.replace(destination.id, destination.copy(role = role.copy(usableLengthMeters = 90.0))) }
         assertThrows(IllegalStateException::class.java) { service.remove(destination.id) }
         val alias = destination.copy(id = "central@two", role = role.copy(berthId = "two"))
-        assertThrows(IllegalStateException::class.java) { service.register(alias) }
+        service.register(alias)
         assertEquals(destination, service[destination.id])
-        assertNull(service[alias.id])
-        assertNull(world.basicWorldData.wayPoints[alias.id])
-        assertTrue(fixture.dispatcher.hasStationStoppingAreaAllocation(area))
+        assertEquals(alias, service[alias.id])
+        assertNotNull(world.basicWorldData.wayPoints[alias.id])
+        assertTrue(fixture.dispatcher.hasStationBerthAllocation(berthRef))
     }
 
     @Test
@@ -1571,7 +1743,11 @@ class TimetableStationCallDispatcherTest {
         operationTimeoutTicks: Long = 100L,
         stationMovementTick: Long = 0L,
         nextMovementTick: Long = 1L,
-        berthStoppingOffsetMetersBefore: Double = 0.0
+        berthStoppingOffsetMetersBefore: Double = 0.0,
+        initialActions: List<TimetableAction> = emptyList(),
+        afterDestinationActions: List<TimetableAction> = emptyList(),
+        canonicalOriginDoorSide: DoorSide? = null,
+        canonicalTarget: Boolean = false
     ): Fixture {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val inspectionRuntime = emptyInspectionRuntime()
@@ -1603,8 +1779,18 @@ class TimetableStationCallDispatcherTest {
         val originArc = train.head.location.arcLength
         val firstTargetArc = originArc + firstTargetOffsetMeters
         val targetArc = originArc + (nextTargetOffsetMeters ?: firstTargetOffsetMeters)
-        data.wayPoints.add(WayPoint("A", rail.id, originArc))
-        data.wayPoints.add(WayPoint("C", rail.id, firstTargetArc))
+        val originId = if (canonicalOriginDoorSide == null) "A" else "origin@one"
+        val targetId = if (canonicalTarget) "central@one" else "C"
+        if (canonicalOriginDoorSide == null) data.wayPoints.add(WayPoint("A", rail.id, originArc))
+        else work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService(world).register(
+            work.art1st.javarailways.simpleato.api.destination.OperationalDestination(originId, rail.id,
+                originArc, ViewDirection.AB, work.art1st.javarailways.simpleato.api.destination.DestinationRole.StationBerthRole(
+                    StationId("origin"), berthId = "one", doorSide = canonicalOriginDoorSide)))
+        if (!canonicalTarget) data.wayPoints.add(WayPoint("C", rail.id, firstTargetArc))
+        else work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService(world).register(
+            work.art1st.javarailways.simpleato.api.destination.OperationalDestination(targetId, rail.id,
+                firstTargetArc, ViewDirection.AB, work.art1st.javarailways.simpleato.api.destination.DestinationRole.StationBerthRole(
+                    StationId("central"), berthId = "one", doorSide = doorSide)))
         if (nextTargetOffsetMeters != null) {
             data.wayPoints.add(WayPoint("D", rail.id, targetArc))
         }
@@ -1617,7 +1803,8 @@ class TimetableStationCallDispatcherTest {
                         trainSelector = if (storeAfterDestination) TrainSelector.AnyTrain else TrainSelector.TrainId(train.id),
                         steps = buildList {
                             if (storeAfterDestination) add(TimetableStep.At(0L, TimetableAction.TakeFromWaypoint(listOf("A"))))
-                            else add(TimetableStep.Check("A"))
+                            else add(TimetableStep.Check(originId))
+                            initialActions.forEach { add(TimetableStep.At(0L, it)) }
                             originPrograms?.let { add(TimetableStep.At(originProgramTick, TimetableAction.BeginStationStop(it))) }
                             if (includeStationAction) {
                                 add(
@@ -1635,7 +1822,8 @@ class TimetableStationCallDispatcherTest {
                             destinationOptions?.let {
                                 add(TimetableStep.At(stationMovementTick, it))
                             }
-                            add(TimetableStep.At(stationMovementTick, TimetableAction.GoTo("C")))
+                            add(TimetableStep.At(stationMovementTick, TimetableAction.GoTo(targetId)))
+                            afterDestinationActions.forEach { add(TimetableStep.At(stationMovementTick, it)) }
                             if (reverseAfterDestination) {
                                 add(TimetableStep.At(stationMovementTick, TimetableAction.Reverse))
                             }
@@ -1669,7 +1857,7 @@ class TimetableStationCallDispatcherTest {
             doorSide = doorSide
         )
         val station = Station(stationId, "Central", listOf(berthRef))
-        world.simpleAtoWorldData.stations.register(station, listOf(berth))
+        if (!canonicalTarget) world.simpleAtoWorldData.stations.register(station, listOf(berth))
         if (storeAfterDestination) {
             work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService(world).register(
                 work.art1st.javarailways.simpleato.api.destination.OperationalDestination("storage@one",rail.id,

@@ -28,6 +28,7 @@ export function parseAuthoringRecovery(serialized:string|null,owner:string,world
   try{
     const value=JSON.parse(serialized) as Partial<AuthoringRecoveryState>;
     if(value.version!==1||value.owner!==owner||value.world!==world||!value.document||typeof value.document!=='object'||typeof value.savedDocumentJson!=='string')return undefined;
+    if(value.document.minimumDwellTicks!==undefined&&(!Number.isSafeInteger(value.document.minimumDwellTicks)||value.document.minimumDwellTicks<0))return undefined;
     if(value.document.operationalTrips!==undefined&&(!Array.isArray(value.document.operationalTrips)||value.document.operationalTrips.some((trip)=>!trip||typeof trip.id!=='string'||displayValuesError(trip.defaults)||!Array.isArray(trip.segments)||trip.segments.some((segment)=>!segment||typeof segment.serviceId!=='string'||typeof segment.runId!=='string'||!Array.isArray(segment.unitSlots)||!segment.unitSlots.length||segment.unitSlots.length>128||new Set(segment.unitSlots).size!==segment.unitSlots.length||segment.unitSlots.some((slot)=>!Number.isSafeInteger(slot)||slot<1||slot>2147483647)))))return undefined;
     if(value.document.formationEvents!==undefined&&(!Array.isArray(value.document.formationEvents)||!value.document.formationEvents.every(formationEventShape)))return undefined;
     if(value.document.boundPrograms!==undefined){

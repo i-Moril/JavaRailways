@@ -18,6 +18,8 @@ import kotlinx.serialization.json.*
     @Serializable @SerialName("BRANCH") data class Branch(override val id: String, val typeId: String, val version: Int,
         val parameters: StationProgramValue, val thenSteps: List<StationProgramStep>, val elseSteps: List<StationProgramStep>) : StationProgramStep()
     @Serializable @SerialName("REVERSE") data class Reverse(override val id: String) : StationProgramStep()
+    @Serializable @SerialName("OPEN_DOORS") data class OpenDoors(override val id: String, val doorSideOverride: StationProgramValue? = null) : StationProgramStep()
+    @Serializable @SerialName("CLOSE_DOORS") data class CloseDoors(override val id: String) : StationProgramStep()
     @Serializable @SerialName("MOVE") data class Move(override val id: String, val destinationId: StationProgramValue, val viaIds: StationProgramValue) : StationProgramStep()
     @Serializable @SerialName("SELECT_STOP") data class SelectStop(override val id: String, val stationId: StationProgramValue, val berthIds: StationProgramValue, val selectionPolicy: SavedStationStopSelectionPolicyV1) : StationProgramStep()
     @Serializable @SerialName("STORE_AT_DEPOT") data class Store(override val id: String, val depotId: StationProgramValue, val stablingPointIds: StationProgramValue) : StationProgramStep()
@@ -55,6 +57,7 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
             "EXTENSION" -> expressionShape(step.getValue("parameters"), true)
             "WAIT_UNTIL" -> expressionShape(step.getValue("tick"))
             "WAIT_DURATION" -> expressionShape(step.getValue("durationTicks"))
+            "OPEN_DOORS" -> step["doorSideOverride"]?.takeUnless { it == JsonNull }?.let { expressionShape(it) }
             "MOVE" -> { expressionShape(step.getValue("destinationId")); expressionShape(step.getValue("viaIds")) }
             "SELECT_STOP" -> { expressionShape(step.getValue("stationId")); expressionShape(step.getValue("berthIds")) }
             "STORE_AT_DEPOT" -> { expressionShape(step.getValue("depotId")); expressionShape(step.getValue("stablingPointIds")) }
@@ -154,6 +157,14 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
                 tick = nextTick
             }
             is StationProgramStep.Reverse -> append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.REVERSE))
+            is StationProgramStep.OpenDoors -> {
+                val side = step.doorSideOverride?.let { value(it, "STRING").jsonPrimitive.content }
+                require(side == null || side in setOf("LEFT", "RIGHT", "BOTH")) {
+                    "doorSideOverride must be LEFT, RIGHT, BOTH, or null to inherit the confirmed station berth"
+                }
+                append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.OPEN_DOORS, doorSideOverride = side))
+            }
+            is StationProgramStep.CloseDoors -> append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.CLOSE_DOORS))
             is StationProgramStep.Move -> {
                 val destination = value(step.destinationId, "STRING").also(::validateProgramIdentifier).jsonPrimitive.content
                 val via = value(step.viaIds, "ID_LIST").jsonArray.map { it.jsonPrimitive.content }

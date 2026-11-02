@@ -134,6 +134,12 @@ sealed class TimetableStep {
 }
 
 sealed class TimetableAction {
+    /** Null inherits the last physically confirmed berth; explicit sides are relative to current facing. */
+    data class OpenDoors(val doorSideOverride: DoorSide? = null) : TimetableAction() {
+        init { require(doorSideOverride != DoorSide.NONE) { "door override requires LEFT, RIGHT or BOTH" } }
+    }
+    data object CloseDoors : TimetableAction()
+
     data class BeginStationStop(val stopPrograms: StationStopPrograms) : TimetableAction() { init { require(stopPrograms.role == StationStopRole.ORIGIN) { "origin stop requires ORIGIN role" } } }
     class BeginOperationalTrip(val tripId: String, val runId: String, unitSlots: List<Int>) : TimetableAction() {
         val unitSlots = immutableUnitSlots(unitSlots)
@@ -703,6 +709,12 @@ class TimetableValidator(
                                 errors.add("$prefix step#$index destination options 后必须先完成导航")
                             }
                         }
+                        is TimetableAction.OpenDoors, TimetableAction.CloseDoors -> {
+                            if (currentWayPointId == null && takeActionCount == 0 && !hasFormationOrigin)
+                                errors += "$prefix step#$index door action requires an acquired or checked train"
+                            if (pendingStationCall != null || pendingDestinationOptions != null)
+                                errors += "$prefix step#$index door action cannot interrupt pending destination navigation"
+                        }
                         is TimetableAction.TaskStart, is TimetableAction.TaskEnd -> Unit
                         TimetableAction.WaitUntil -> {
                             if (currentWayPointId == null && takeActionCount == 0 && !hasFormationOrigin) {
@@ -979,7 +991,7 @@ class TimetableValidator(
         errors: MutableList<String>
     ) {
         when (action) {
-            is TimetableAction.BeginOperationalTrip, is TimetableAction.SetDisplay, is TimetableAction.ResetDisplay -> Unit
+            is TimetableAction.OpenDoors, TimetableAction.CloseDoors, is TimetableAction.BeginOperationalTrip, is TimetableAction.SetDisplay, is TimetableAction.ResetDisplay -> Unit
             is TimetableAction.Extension -> {
                 val call = action.call
                 val provider = world.simpleAtoWorldData.timetableExtensions.action(call.typeId, call.version)
@@ -1109,6 +1121,7 @@ class TimetableValidator(
             is TimetableAction.Extension,
             is TimetableAction.BeginOperationalTrip,
             is TimetableAction.SetDisplay,
+            is TimetableAction.OpenDoors, TimetableAction.CloseDoors,
             is TimetableAction.ResetDisplay,
             is TimetableAction.Conditional -> currentWayPointId
             is TimetableAction.Stop -> {

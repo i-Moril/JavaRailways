@@ -10,7 +10,7 @@ import kotlinx.serialization.json.JsonObject
 @Serializable enum class SavedTimetableStepTypeV1 { CHECK, AT }
 @Serializable enum class SavedTimetableConditionTypeV1 { PREDICATE, ALL, ANY, NOT }
 @Serializable enum class SavedTimetableActivationTypeV1 { SCHEDULED, MANUAL, CONDITIONAL }
-@Serializable enum class SavedTimetableActionTypeV1 { TAKE_FROM_DEPOT, TAKE_FROM_WAYPOINT, TAKE_FROM_FORMATION_OUTPUT, COUPLE, SPLIT, STORE_AT_DEPOT, DESTINATION, DESTINATION_OPTIONS, STOP, HALT, REVERSE, WAIT_UNTIL, STATION_DESTINATION_OPTIONS, SELECT_STOP, EXTENSION, CONDITIONAL, SET_DISPLAY, RESET_DISPLAY, BEGIN_OPERATIONAL_TRIP, BEGIN_STATION_STOP, TASK_START, TASK_END }
+@Serializable enum class SavedTimetableActionTypeV1 { TAKE_FROM_DEPOT, TAKE_FROM_WAYPOINT, TAKE_FROM_FORMATION_OUTPUT, COUPLE, SPLIT, STORE_AT_DEPOT, DESTINATION, DESTINATION_OPTIONS, STOP, HALT, REVERSE, OPEN_DOORS, CLOSE_DOORS, WAIT_UNTIL, STATION_DESTINATION_OPTIONS, SELECT_STOP, EXTENSION, CONDITIONAL, SET_DISPLAY, RESET_DISPLAY, BEGIN_OPERATIONAL_TRIP, BEGIN_STATION_STOP, TASK_START, TASK_END }
 
 @Serializable data class SavedTimetableExtensionCallV1(val typeId: String, val version: Int = 1, val parameters: JsonObject = JsonObject(emptyMap()))
 @Serializable data class SavedTimetableConditionV1(val type: SavedTimetableConditionTypeV1, val call: SavedTimetableExtensionCallV1? = null, val conditions: List<SavedTimetableConditionV1> = emptyList())

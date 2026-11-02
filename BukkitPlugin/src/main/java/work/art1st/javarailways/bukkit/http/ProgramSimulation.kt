@@ -119,9 +119,17 @@ internal data class ProgramSimulationRequest(
                     require(++stepCount <= 256) { "program exceeds256 total steps" }
                     val step = obj(raw, "program step")
                     val type = text(step["type"], "program step.type")
-                    require(type !in setOf("SELECT_STOP", "OPEN_DOORS", "CLOSE_DOORS", "END", "ASYNC", "AWAIT", "WAIT_EVENT")) {
+                    require(type !in setOf("SELECT_STOP", "END", "ASYNC", "AWAIT", "WAIT_EVENT")) {
                         "action must be resolved or is unavailable in library programs: $type"
                     }
+                    if (type == "OPEN_DOORS") {
+                        fields(step, setOf("id", "type", "doorSideOverride"), "OPEN_DOORS step")
+                        step["doorSideOverride"]?.takeUnless { it == JsonNull }?.let {
+                            ProgramExpressions.validateShape(it)
+                            obj(it, "doorSideOverride")["value"]?.let { side -> require(text(side, "doorSideOverride") in setOf("LEFT", "RIGHT", "BOTH")) { "invalid doorSideOverride" } }
+                        }
+                    }
+                    if (type == "CLOSE_DOORS") fields(step, setOf("id", "type"), "CLOSE_DOORS step")
                     if (type == "BRANCH") { checkLibrarySteps(step["thenSteps"], depth + 1); checkLibrarySteps(step["elseSteps"], depth + 1) }
                 }
             }

@@ -21,7 +21,7 @@ final class StationProgramValidator {
     private static void validateLibrarySteps(JsonNode steps) {
         for (JsonNode step : steps) {
             String type = step.path("type").asText();
-            if (Set.of("OPEN_DOORS", "CLOSE_DOORS", "END", "ASYNC", "AWAIT", "SELECT_STOP").contains(type)) fail("action is unavailable in duty/library program: " + type);
+            if (Set.of("END", "ASYNC", "AWAIT", "SELECT_STOP").contains(type)) fail("action is unavailable in duty/library program: " + type);
             if (type.equals("BRANCH")) { validateLibrarySteps(step.path("thenSteps")); validateLibrarySteps(step.path("elseSteps")); }
         }
     }
@@ -58,6 +58,7 @@ final class StationProgramValidator {
         for (JsonNode step : steps) {
             String type = step.path("type").asText();
             if (ends) fail("unreachable station instruction after END");
+            if (type.equals("OPEN_DOORS")) fields(step, Set.of("id", "type"), "station OPEN_DOORS step");
             if (!Set.of("SET_DISPLAY", "RESET_DISPLAY", "WAIT_UNTIL", "WAIT_EVENT", "WAIT_DURATION", "EXTENSION", "BRANCH", "REVERSE", "OPEN_DOORS", "CLOSE_DOORS", "END", "ASYNC", "AWAIT").contains(type)) fail("action is not allowed in station program: " + type);
             if (type.equals("END")) { if (asynchronous) fail("END cannot occur in ASYNC"); ends = true; }
             if (type.equals("ASYNC")) validateStationSteps(step.path("steps"), true);
@@ -133,7 +134,15 @@ final class StationProgramValidator {
                     if (!step.path("version").isIntegralNumber() || !step.path("version").canConvertToInt() || step.path("version").asInt() < 1) fail("extension version must be a positive integer");
                     dataValue(step.path("parameters"), parameters);
                 }
-                case "REVERSE", "OPEN_DOORS", "CLOSE_DOORS", "END" -> fields(step, Set.of("id", "type"), type + " step");
+                case "REVERSE", "CLOSE_DOORS", "END" -> fields(step, Set.of("id", "type"), type + " step");
+                case "OPEN_DOORS" -> {
+                    fields(step, step.has("doorSideOverride") ? Set.of("id", "type", "doorSideOverride") : Set.of("id", "type"), "OPEN_DOORS step");
+                    if (step.hasNonNull("doorSideOverride")) {
+                        JsonNode side = step.path("doorSideOverride");
+                        JsonNode evaluated = ProgramExpressionValidator.validate(side, "STRING", parameters, null);
+                        if (evaluated != null && !Set.of("LEFT", "RIGHT", "BOTH").contains(text(evaluated, "doorSideOverride"))) fail("invalid doorSideOverride");
+                    }
+                }
                 case "WAIT_EVENT" -> {
                     fields(step, Set.of("id", "type", "eventId", "offsetTicks"), "WAIT_EVENT step");
                     id(step.path("eventId"), "time event id");
@@ -194,6 +203,10 @@ final class StationProgramValidator {
                 validateStepArguments(step.path("elseSteps"), parameters, arguments);
             }
             if (type.equals("ASYNC")) validateStepArguments(step.path("steps"), parameters, arguments);
+            if (type.equals("OPEN_DOORS") && step.hasNonNull("doorSideOverride")) {
+                JsonNode side = ProgramExpressionValidator.validate(step.path("doorSideOverride"), "STRING", parameters, arguments);
+                if (!Set.of("LEFT", "RIGHT", "BOTH").contains(text(side, "doorSideOverride"))) fail("invalid doorSideOverride");
+            }
             Map<String, String> sinks = switch (type) {
                 case "SET_DISPLAY" -> Map.of("values", "JSON_OBJECT", "removeKeys", "ID_LIST");
                 case "WAIT_UNTIL" -> Map.of("tick", "TICK");

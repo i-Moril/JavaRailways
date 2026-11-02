@@ -4,11 +4,20 @@ import {trainInfoFromRows} from './trainInfo';
 import type {StationProgramDefinition,StationProgramParameterType,StationProgramStep,StationProgramValue,StationProgramLiteral,StationProgramOperation,StationPreparationLead} from './types';
 
 export const programStepTypes:StationProgramStep['type'][]=['SET_DISPLAY','RESET_DISPLAY','WAIT_UNTIL','WAIT_EVENT','WAIT_DURATION','REVERSE','MOVE','SELECT_STOP','STORE_AT_DEPOT','EXTENSION','BRANCH','OPEN_DOORS','CLOSE_DOORS','END','ASYNC','AWAIT'];
-export const libraryStepTypes:StationProgramStep['type'][]=['SET_DISPLAY','RESET_DISPLAY','WAIT_UNTIL','WAIT_EVENT','WAIT_DURATION','REVERSE','MOVE','STORE_AT_DEPOT','EXTENSION','BRANCH'];
+export const libraryStepTypes:StationProgramStep['type'][]=['SET_DISPLAY','RESET_DISPLAY','WAIT_UNTIL','WAIT_EVENT','WAIT_DURATION','REVERSE','OPEN_DOORS','CLOSE_DOORS','MOVE','STORE_AT_DEPOT','EXTENSION','BRANCH'];
 export const arrivalStepTypes:StationProgramStep['type'][]=['SET_DISPLAY','RESET_DISPLAY','WAIT_UNTIL','WAIT_EVENT','WAIT_DURATION','REVERSE','OPEN_DOORS','CLOSE_DOORS','END','ASYNC','AWAIT','EXTENSION','BRANCH'];
 export const expressionFields:Partial<Record<StationProgramStep['type'],Record<string,StationProgramParameterType>>>={
  SET_DISPLAY:{values:'JSON_OBJECT',removeKeys:'ID_LIST'},RESET_DISPLAY:{},WAIT_UNTIL:{tick:'TICK'},WAIT_DURATION:{durationTicks:'DURATION'},MOVE:{destinationId:'STRING',viaIds:'ID_LIST'},SELECT_STOP:{stationId:'STRING',berthIds:'ID_LIST'},STORE_AT_DEPOT:{depotId:'STRING',stablingPointIds:'ID_LIST'},EXTENSION:{parameters:'JSON_OBJECT'},BRANCH:{parameters:'JSON_OBJECT'},
 };
+/** Two Blockly presentations share the stable OPEN_DOORS domain action. */
+export type ProgramBlockType=StationProgramStep['type']|'OPEN_DOORS_OVERRIDE';
+export const programBlockTypes=programStepTypes.flatMap<ProgramBlockType>(type=>type==='OPEN_DOORS'?['OPEN_DOORS','OPEN_DOORS_OVERRIDE']:[type]);
+export const libraryBlockTypes=libraryStepTypes.flatMap<ProgramBlockType>(type=>type==='OPEN_DOORS'?['OPEN_DOORS','OPEN_DOORS_OVERRIDE']:[type]);
+export const expressionFieldsForBlock=(type:ProgramBlockType):Record<string,StationProgramParameterType>=>type==='OPEN_DOORS_OVERRIDE'?{doorSideOverride:'STRING'}:expressionFields[type]??{};
+export function defaultProgramBlockStep(type:ProgramBlockType,provider?:{typeId:string;version:number}):StationProgramStep {
+ if(type==='OPEN_DOORS_OVERRIDE')return {...defaultProgramStep('OPEN_DOORS'),type:'OPEN_DOORS',doorSideOverride:{value:'LEFT'}};
+ return defaultProgramStep(type,provider);
+}
 export interface ProgramBlockState {type:string;id?:string;fields?:Record<string,string|number>;inputs?:Record<string,{block?:ProgramBlockState;shadow?:ProgramBlockState}>;next?:{block:ProgramBlockState};x?:number;y?:number;enabled?:boolean;disabledReasons?:string[];extraState?:{count?:number;preparationLead?:boolean}}
 export interface ProgramWorkspaceState {blocks?:{languageVersion:number;blocks:ProgramBlockState[]}}
 const expressionInputState=(block:ProgramBlockState)=>block.type.startsWith('rail_literal_')?{shadow:block}:{block};
@@ -25,8 +34,9 @@ export function definitionToBlocks(definition:StationProgramDefinition,preparati
  const chain=(steps:StationProgramStep[]):ProgramBlockState|undefined=>{
   let next:ProgramBlockState|undefined;
   for(const step of [...steps].reverse()){
+   const blockType:ProgramBlockType=step.type==='OPEN_DOORS'&&step.doorSideOverride!=null?'OPEN_DOORS_OVERRIDE':step.type;
    const source=step as unknown as Record<string,unknown>;const inputs:NonNullable<ProgramBlockState['inputs']>={};
-   for(const [name,type] of Object.entries(expressionFields[step.type]??{}))if(source[name]!==undefined)inputs[name]=expressionInputState(expressionToBlock(source[name] as StationProgramValue<StationProgramLiteral>,type,`e_${step.id}_${name}`,new Map(definition.parameters.map(p=>[p.id,p.type]))));
+   for(const [name,type] of Object.entries(expressionFieldsForBlock(blockType)))if(source[name]!==undefined)inputs[name]=expressionInputState(expressionToBlock(source[name] as StationProgramValue<StationProgramLiteral>,type,`e_${step.id}_${name}`,new Map(definition.parameters.map(p=>[p.id,p.type]))));
    if(step.type==='BRANCH')for(const arm of ['thenSteps','elseSteps'] as const){const child=chain(step[arm]);if(child)inputs[arm]={block:child};}
    if(step.type==='ASYNC'){const child=chain(step.steps);if(child)inputs.steps={block:child};}
    const fields:Record<string,string|number>={};
@@ -34,7 +44,7 @@ export function definitionToBlocks(definition:StationProgramDefinition,preparati
    if(step.type==='EXTENSION'||step.type==='BRANCH'){fields.TYPE_ID=step.typeId;fields.VERSION=String(step.version);}
    if(step.type==='SELECT_STOP')fields.POLICY=step.selectionPolicy;
    if(step.type==='WAIT_EVENT'){fields.EVENT_ID=step.eventId;fields.OFFSET=String(step.offsetTicks);}
-   next={type:`rail_${step.type}`,id:`$rail-step/${step.id}`,fields,inputs,...(next?{next:{block:next}}:{})};
+   next={type:`rail_${blockType}`,id:`$rail-step/${step.id}`,fields,inputs,...(next?{next:{block:next}}:{})};
   }
   return next;
  };
@@ -65,15 +75,17 @@ export function blocksToDefinition(state:ProgramWorkspaceState,parameters:Statio
   const result:StationProgramStep[]=[];
   for(let block=first;block;block=block.next?.block){
    mark(block);if(++count>256)throw new Error('Program exceeds256 steps');
-   const type=block.type.slice(5) as StationProgramStep['type'];
-   if(!programStepTypes.includes(type)||block.type!==`rail_${type}`)throw new Error('Unsupported action block');
+   const blockType=block.type.slice(5) as ProgramBlockType;
+   const type=blockType==='OPEN_DOORS_OVERRIDE'?'OPEN_DOORS':blockType;
+   if(!programBlockTypes.includes(blockType)||block.type!==`rail_${blockType}`)throw new Error('Unsupported action block');
+   if(blockType==='OPEN_DOORS_OVERRIDE'&&context!=='library')throw new Error('Door side overrides are only available in library programs');
    if(context==='arrival'&&!arrivalStepTypes.includes(type))throw new Error('This action is unavailable at arrival');
    const step:Record<string,unknown>={id:newStepId(block.id!),type};
-   const expected=new Set(Object.keys(expressionFields[type]??{}));
+   const expected=new Set(Object.keys(expressionFieldsForBlock(blockType)));
    if(type==='BRANCH'){expected.add('thenSteps');expected.add('elseSteps');}
    if(type==='ASYNC')expected.add('steps');
    for(const name of Object.keys(block.inputs??{}))if(!expected.has(name))throw new Error(`Unexpected block input: ${name}`);
-   for(const [name,valueType] of Object.entries(expressionFields[type]??{})){
+   for(const [name,valueType] of Object.entries(expressionFieldsForBlock(blockType))){
     const expression=inputExpression(block.inputs?.[name]);
     if(!expression&&type==='SET_DISPLAY'&&name==='removeKeys')continue;
     if(!expression)throw new Error(`Missing input: ${name}`);

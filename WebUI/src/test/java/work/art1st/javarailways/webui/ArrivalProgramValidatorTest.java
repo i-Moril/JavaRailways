@@ -19,16 +19,17 @@ class ArrivalProgramValidatorTest {
     }
     @Test void persistedRunCallsUseCurrentFieldSet() throws Exception {
         String document = """
-          {"formatVersion":1,"id":"doc","periodDays":1,"duties":[],"diagramLines":[],"arrivalOverrides":[],
+          {"formatVersion":1,"id":"doc","periodDays":1,"minimumDwellTicks":20,"duties":[],"diagramLines":[],"arrivalOverrides":[],
            "runs":[{"id":"run","type":"PASSENGER","lineDirection":"UP","calls":[
              {"id":"call","stationId":"station","berthId":"platform","status":"TERMINAL","targetId":"destination",
-              "arrivalTick":100,"departureTick":120,"minimumDwellTicks":20,"stoppingOffsetMetersBefore":2,
+              "arrivalTick":100,"departureTick":120,"stoppingOffsetMetersBefore":2,
               "doorSide":"LEFT","viaIds":["junction"]}]}]}
           """;
         var current = mapper.readTree(document);
         assertDoesNotThrow(() -> EditorDocumentValidator.validate(current));
+        assertEquals(20, current.path("minimumDwellTicks").asInt());
         var call = (com.fasterxml.jackson.databind.node.ObjectNode) current.path("runs").get(0).path("calls").get(0);
-        call.remove(java.util.List.of("berthId", "arrivalTick", "departureTick", "minimumDwellTicks", "stoppingOffsetMetersBefore", "doorSide", "viaIds"));
+        call.remove(java.util.List.of("berthId", "arrivalTick", "departureTick", "stoppingOffsetMetersBefore", "doorSide", "viaIds"));
         assertDoesNotThrow(() -> EditorDocumentValidator.validate(current));
         call.put("unexpectedField", true);
         IllegalArgumentException failure = assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(current));

@@ -30,7 +30,7 @@ function Library({world,recoveryOwner,metadata={},extensions=[],conditions=[],fo
   const [definition,setDefinition]=useState<StationProgramDefinition>({parameters:[],steps:[]});
   const [estimatedDurationTicks,setEstimatedDurationTicks]=useState<number>();const [durationValid,setDurationValid]=useState(true);const [estimateEpoch,setEstimateEpoch]=useState(0);
   const [valid,setValid]=useState(true);const [editorEpoch,setEditorEpoch]=useState(0);
-  const [busy,setBusy]=useState(false);const [error,setError]=useState('');
+  const [busy,setBusy]=useState(false);const [saving,setSaving]=useState(false);const [saveFailed,setSaveFailed]=useState(false);const [error,setError]=useState('');
   const [dialog,setDialog]=useState<{kind:'leave';action:()=>void}|{kind:'rename'|'delete';record:StationProgramRecord}>();
   const [rename,setRename]=useState('');const [simulationOpen,setSimulationOpen]=useState(false);
   const alive=useRef(true);const request=useRef(0);const locked=useRef(false);
@@ -44,7 +44,7 @@ function Library({world,recoveryOwner,metadata={},extensions=[],conditions=[],fo
   const load=(reloadId?:string)=>perform(async(current)=>{const values=await api.stationPrograms(world);if(current()){setRecords(sortLibraryRecords(values));if(reloadId)select(values.find((record)=>record.id===reloadId));}});
   useEffect(()=>{if(world)void load();},[world]);
   const select=(record?:StationProgramRecord)=>{
-    setSimulationOpen(false);setEstimatedDurationTicks(record?.estimatedDurationTicks);setDurationValid(true);setSelected(record);setDefinition(record?structuredClone(record.definition):{parameters:[],steps:[]});setValid(true);setEditorEpoch((value)=>value+1);setError('');
+    setSaveFailed(false);setSimulationOpen(false);setEstimatedDurationTicks(record?.estimatedDurationTicks);setDurationValid(true);setSelected(record);setDefinition(record?structuredClone(record.definition):{parameters:[],steps:[]});setValid(true);setEditorEpoch((value)=>value+1);setError('');
   };
   const discardSelection=()=>{const scope=selected?`${recoveryOwner}/${world}/${selected.id}`:undefined;flushSync(()=>select());if(scope)clearProgramBlockDraft(scope);};
   const dirty=libraryHasChanges(selected,definition,valid&&durationValid,estimatedDurationTicks);
@@ -67,10 +67,28 @@ function Library({world,recoveryOwner,metadata={},extensions=[],conditions=[],fo
     onLibraryChange?.();if(current()){updateList(record);select(record);}
   }));
   const save=()=>{
-    if(!selected||!valid||!durationValid||validateStationProgram(definition).length)return;
+    if(locked.current||!selected||!valid||!durationValid||validateStationProgram(definition).length)return;
     const source=selected;const snapshot=structuredClone(definition);
-    void perform(async(current)=>{const record=await api.saveStationProgram(world,source.id,source.name,snapshot,source.revision,estimatedDurationTicks);onLibraryChange?.();if(current()){updateList(record);select(record);}});
+    setSaving(true);setSaveFailed(false);
+    void perform(async(current)=>{
+      try{
+        const record=await api.saveStationProgram(world,source.id,source.name,snapshot,source.revision,estimatedDurationTicks);
+        onLibraryChange?.();
+        if(current()){
+          // The acknowledged snapshot advances the baseline, never the live canvas.
+          updateList(record);setSelected(record);
+          setDialog((value)=>value&&value.kind!=='leave'&&value.record.id===record.id?{...value,record}:value);
+        }
+      }catch(failure){if(current())setSaveFailed(true);throw failure;}
+      finally{if(current())setSaving(false);}
+    });
   };
+  const definitionKey=JSON.stringify(definition);
+  useEffect(()=>{
+    if(!selected||!dirty||!valid||!durationValid||busy||dialog||saveFailed||validateStationProgram(definition).length)return;
+    const timer=setTimeout(save,1000);
+    return()=>clearTimeout(timer);
+  },[selected,definitionKey,valid,durationValid,estimatedDurationTicks,busy,dialog,saveFailed]);
   const confirm=()=>{
     if(!dialog||locked.current)return;
     if(dialog.kind==='leave'){setDialog(undefined);discardSelection();dialog.action();return;}
@@ -93,11 +111,12 @@ function Library({world,recoveryOwner,metadata={},extensions=[],conditions=[],fo
     {error&&<Alert type="error" showIcon title={error}/>}
     <div className="program-library-grid"><aside className="panel-surface program-library-files" aria-label={t('programs.title')}><Button type="primary" disabled={busy||!world} onClick={create}>{t('programs.new')}</Button>
       <div role="list" className="program-library-file-list">{records.map((record)=><div role="listitem" key={record.id} className="program-library-file"><Button type={selected?.id===record.id?'primary':'text'} disabled={busy} onClick={()=>{if(record.id!==selected?.id)leave(()=>select(record));}} title={record.name}><span className="program-library-file-name">{record.name}</span></Button><Space size={0}><Button type="text" disabled={busy} aria-label={`${t('programs.rename')} ${record.name}`} title={t('programs.rename')} onClick={()=>{setError('');setRename(record.name);setDialog({kind:'rename',record});}}>✎</Button><Button danger type="text" disabled={busy} aria-label={`${t('common.delete')} ${record.name}`} title={t('common.delete')} onClick={()=>{setError('');setDialog({kind:'delete',record});}}>×</Button></Space></div>)}</div>
-    </aside><section className="panel-surface program-library-editor">{selected?<><Flex align="center" justify="space-between" gap={12}><Typography.Title level={4}>{selected.name}{dirty?' *':''}</Typography.Title><Space><Button disabled={busy||!!errors.length||!valid} onClick={()=>setSimulationOpen(true)}>{t('programSimulation.open')}</Button><Button type="primary" loading={busy} disabled={busy||!!errors.length||!valid||!durationValid||!dirty} onClick={save}>{t('common.save')}</Button></Space></Flex>
+    </aside><section className="panel-surface program-library-editor">{selected?<><Flex align="center" justify="space-between" gap={12}><Typography.Title level={4}>{selected.name}{dirty?' *':''}</Typography.Title><Space><Button disabled={busy||!!errors.length||!valid} onClick={()=>setSimulationOpen(true)}>{t('programSimulation.open')}</Button><Button type="primary" loading={busy} disabled={busy||!!errors.length||!valid||!durationValid||!dirty} onClick={save}>{t(saveFailed?'common.retrySave':'common.save')}</Button></Space></Flex>
+      <span role="status"><Typography.Text type={saveFailed?'danger':'secondary'}>{saving?t('common.autosaving'):saveFailed?t('common.autosaveFailed'):dirty?t('common.unsaved'):t('common.saved')}</Typography.Text></span>
       <Alert type="info" showIcon title={t('programs.executionHint')}/>
-      <div className="timed-operation-grid"><label>{t('programs.estimatedDuration')}<CommittedNumberInput aria-label={t('programs.estimatedDuration')} fieldKey={`${recoveryOwner}/${world}/${selected.id}/${editorEpoch}/estimate/${estimateEpoch}`} value={estimatedDurationTicks} min={0} max={Number.MAX_SAFE_INTEGER} precision={0} disabled={busy} onValidityChange={setDurationValid} onCommit={value=>setEstimatedDurationTicks(value??undefined)}/></label></div><Typography.Text type="secondary">{t('programs.estimatedDurationHint')}</Typography.Text>
+      <div className="timed-operation-grid"><label>{t('programs.estimatedDuration')}<CommittedNumberInput aria-label={t('programs.estimatedDuration')} fieldKey={`${recoveryOwner}/${world}/${selected.id}/${editorEpoch}/estimate/${estimateEpoch}`} value={estimatedDurationTicks} min={0} max={Number.MAX_SAFE_INTEGER} precision={0} disabled={busy&&!saving} onValidityChange={setDurationValid} onCommit={value=>setEstimatedDurationTicks(value??undefined)}/></label></div><Typography.Text type="secondary">{t('programs.estimatedDurationHint')}</Typography.Text>
       {focus?.programId===selected.id&&focus?.stepId&&!findProgramStep(selected.definition.steps,focus.stepId)&&<Alert type="info" title={t('programs.stepUnavailable')}/>}
-      <fieldset inert={busy} disabled={busy} className="program-editor-fields"><ProgramDefinitionEditor metadata={metadata} conditions={conditions} extensions={extensions} onValidityChange={setValid} focusedStep={focus?.programId===selected.id?focus.stepId:undefined} key={`${selected.id}/${editorEpoch}`} fieldScope={`${recoveryOwner}/${world}/${selected.id}`} value={definition} onChange={setDefinition}/></fieldset>
+      <fieldset inert={busy&&!saving} disabled={busy&&!saving} className="program-editor-fields"><ProgramDefinitionEditor metadata={metadata} conditions={conditions} extensions={extensions} onValidityChange={setValid} focusedStep={focus?.programId===selected.id?focus.stepId:undefined} key={`${selected.id}/${editorEpoch}`} fieldScope={`${recoveryOwner}/${world}/${selected.id}`} value={definition} onChange={setDefinition}/></fieldset>
       {!!errors.length&&<Alert type="warning" title={errors.join('; ')}/>}
       <Typography.Paragraph type="secondary">{t('programs.conflictHint')}</Typography.Paragraph>
     </>:<Typography.Paragraph type="secondary">{t('programs.selectFile')}</Typography.Paragraph>}</section></div>

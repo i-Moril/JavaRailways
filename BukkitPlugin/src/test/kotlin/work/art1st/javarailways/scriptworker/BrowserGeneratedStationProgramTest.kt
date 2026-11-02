@@ -10,7 +10,7 @@ import work.art1st.javarailways.simpleato.timetable.TimetableAction
 import work.art1st.javarailways.simpleato.timetable.TimetableStep
 import work.art1st.javarailways.simpleato.timetable.TrainSelector
 
-/** Exact current frontend generator output, not a hand-written approximation of the DSL. */
+/** Recorded HTTP browser capture exercising the runtime DSL; current editor shape is tested in WebUI. */
 class BrowserGeneratedStationProgramTest {
     private fun resource(name: String): String = checkNotNull(javaClass.getResource("/timetable/$name")).readText()
 

@@ -18,7 +18,7 @@ internal class StructuralRouteBindings private constructor(
     private data class StationBinding(val ref: StationBerthRef, val railId: UUID, val arc: Double,
         val direction: ViewDirection?, val offset: Double, val tolerance: Double, val usableLength: Double?,
         val berthDwell: Long?, val stationDwell: Long, val releaseDistance: Double, val doorSide: DoorSide,
-        val area: String, val minimumLength: Double?, val maximumLength: Double?, val lifecycle: RailObjectLifecycleState)
+        val lifecycle: RailObjectLifecycleState)
 
     fun requireCurrent(world: World) {
         for (expected in destinations) require(destination(world, expected.id) == expected) {
@@ -45,8 +45,7 @@ internal class StructuralRouteBindings private constructor(
             return StationBinding(ref, berth.location.rail.id, berth.location.arcLengthIn(ViewDirection.AB),
                 berth.approachDirection, berth.stoppingOffsetMetersBefore, berth.positionToleranceMeters,
                 berth.usableLengthMeters, berth.defaultDwellTicks, station.defaultDwellTicks,
-                berth.releaseDistanceMetersAfter, berth.doorSide, berth.stoppingAreaId,
-                berth.minimumTrainLengthMeters, berth.maximumTrainLengthMeters, berth.lifecycleState)
+                berth.releaseDistanceMetersAfter, berth.doorSide, berth.lifecycleState)
         }
     }
 }

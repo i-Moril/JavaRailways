@@ -44,6 +44,8 @@ import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.train.TrainPlacementResult
 
+import work.art1st.javarailways.simpleato.api.station.StationCallSimulationExtensions
+
 internal data class TimetableProfileSelection(
     val serviceId: String,
     val profileType: SimulationProfileType,
@@ -63,7 +65,9 @@ internal data class IsolatedTimetableSimulationSnapshot(
     val atoSafetyDistanceMeters: Double,
     val atoAdmissionRetryTicks: Int,
     val formationsByService: Map<String, SimulationFormationBlueprint> = emptyMap(),
-    val standaloneProgramServiceIds: Set<String> = emptySet()
+    val standaloneProgramServiceIds: Set<String> = emptySet(),
+    val stationCallResolvers: StationCallSimulationExtensions =
+        work.art1st.javarailways.simpleato.api.station.StationCallResolverRegistry().prepareSimulation()
 )
 
 /** Captures static configuration on the live thread, then creates a runtime with no live trains. */
@@ -181,7 +185,8 @@ internal class IsolatedTimetableSimulationFactory(
             atoSafetyDistanceMeters,
             liveWorld.simpleAtoWorldData.dispatcher.admissionRetryTicks,
             formations,
-            java.util.Set.copyOf(standaloneProgramServiceIds)
+            java.util.Set.copyOf(standaloneProgramServiceIds),
+            liveWorld.simpleAtoWorldData.stationCallResolvers.prepareSimulation()
         )
     }
 
@@ -201,6 +206,7 @@ internal class IsolatedTimetableSimulationFactory(
                 )
             },
             timetableExtensions = { world -> snapshot.timetableExtensions.create(world) },
+            stationCallResolvers = { world -> snapshot.stationCallResolvers.create(world) },
             speedSafety = snapshot.speedSafety,
             preparedFeatures = snapshot.domainFeatures,
             operationResourceFactory = { world ->

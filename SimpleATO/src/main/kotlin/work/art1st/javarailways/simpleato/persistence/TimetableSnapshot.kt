@@ -105,6 +105,7 @@ data class SavedTimetableActivationV1(
 
 @Serializable
 enum class SavedTimetableActionTypeV1 {
+    OPEN_DOORS, CLOSE_DOORS,
     TASK_START, TASK_END,
     TAKE_FROM_DEPOT,
     TAKE_FROM_WAYPOINT,
@@ -165,6 +166,12 @@ data class SavedTimetableActionV1(
     val trainInfo: Map<String, SavedTrainInfoField> = emptyMap()
 ) {
     init {
+        require(type != SavedTimetableActionTypeV1.OPEN_DOORS || doorSideOverride != DoorSide.NONE) {
+            "door override requires LEFT, RIGHT or BOTH"
+        }
+        require(type != SavedTimetableActionTypeV1.CLOSE_DOORS || doorSideOverride == null) {
+            "CLOSE_DOORS always closes BOTH and accepts no side override"
+        }
         require(trainInfo.isEmpty() || type in setOf(SavedTimetableActionTypeV1.SET_DISPLAY, SavedTimetableActionTypeV1.EXTENSION)) { "trainInfo belongs to display or extension actions" }
         immutableTrainInfo(trainInfo.mapValues { TrainInfoField.valueOf(it.value.name) })
         require((type in setOf(SavedTimetableActionTypeV1.TASK_START, SavedTimetableActionTypeV1.TASK_END)) == (taskId != null)) { "taskId belongs to task boundaries" }
@@ -175,6 +182,8 @@ data class SavedTimetableActionV1(
     }
 
     fun restore(): TimetableAction = when (type) {
+        SavedTimetableActionTypeV1.OPEN_DOORS -> TimetableAction.OpenDoors(doorSideOverride)
+        SavedTimetableActionTypeV1.CLOSE_DOORS -> TimetableAction.CloseDoors
         SavedTimetableActionTypeV1.TASK_START -> TimetableAction.TaskStart(requireNotNull(taskId))
         SavedTimetableActionTypeV1.TASK_END -> TimetableAction.TaskEnd(requireNotNull(taskId))
         SavedTimetableActionTypeV1.BEGIN_STATION_STOP -> TimetableAction.BeginStationStop(requireNotNull(stopPrograms).restore())
@@ -242,6 +251,8 @@ data class SavedTimetableActionV1(
 
     companion object {
         fun capture(value: TimetableAction): SavedTimetableActionV1 = when (value) {
+            is TimetableAction.OpenDoors -> SavedTimetableActionV1(SavedTimetableActionTypeV1.OPEN_DOORS, doorSideOverride = value.doorSideOverride)
+            TimetableAction.CloseDoors -> SavedTimetableActionV1(SavedTimetableActionTypeV1.CLOSE_DOORS)
             is TimetableAction.TaskStart -> SavedTimetableActionV1(SavedTimetableActionTypeV1.TASK_START, taskId = value.taskId)
             is TimetableAction.TaskEnd -> SavedTimetableActionV1(SavedTimetableActionTypeV1.TASK_END, taskId = value.taskId)
             is TimetableAction.BeginStationStop -> SavedTimetableActionV1(SavedTimetableActionTypeV1.BEGIN_STATION_STOP, stopPrograms = SavedStationStopPrograms.capture(value.stopPrograms))

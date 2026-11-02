@@ -97,8 +97,8 @@ describe('graph layout', () => {
 
 it('resolves run, line and automatic colors consistently for both themes and palette indices',()=>{
   for(const theme of ['light','dark'] as const)for(const index of [0,1,5,6,10]){
-    expect(graphServiceColor(theme,index)).toBe(graphServiceColors(theme)[index%graphServiceColors(theme).length]);
-    expect(graphServiceColor(theme,index,'#123456')).toBe('#123456');
-    expect(graphServiceColor(theme,index,'#123456','#abcdef')).toBe('#abcdef');
+    expect(graphServiceColor(theme,String(index),Array.from({length:11},(_,i)=>String(i)))).toBe(graphServiceColors(theme)[index%graphServiceColors(theme).length]);
+    expect(graphServiceColor(theme,String(index),Array.from({length:11},(_,i)=>String(i)),'#123456')).toBe('#123456');
+    expect(graphServiceColor(theme,String(index),Array.from({length:11},(_,i)=>String(i)),'#123456','#abcdef')).toBe('#abcdef');
   }
 });

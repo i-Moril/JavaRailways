@@ -7,7 +7,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
  try { response=await fetch(url,{...init,headers:{'Content-Type':'application/json',...init?.headers}}); }
  catch { throw new ApiError(0,'NETWORK_ERROR'); }
  if(!response.ok){
-  if(response.status===401&&typeof window!=='undefined')window.dispatchEvent(new Event('javarailways:unauthorized'));
+  if(response.status===401&&!init?.signal?.aborted&&typeof window!=='undefined')window.dispatchEvent(new Event('javarailways:unauthorized'));
   let body:string;
   try { body=await response.text(); }
   catch { throw new ApiError(response.status,'NETWORK_ERROR'); }
@@ -23,6 +23,7 @@ const liveApi = {
  logs:({source,query,cursor}:ServerLogQuery)=>{const params=new URLSearchParams({source});if(query)params.set('query',query);if(cursor)params.set('cursor',cursor);return request<ServerLogPage>(`/api/v1/logs?${params}`);},
  exchangeLoginToken:(token:string)=>request<void>('/auth/exchange',{method:'POST',body:JSON.stringify({token})}),
  session:()=>request<WebSessionStatus>('/auth/session'),
+ renewSession:(signal?:AbortSignal)=>request<WebSessionStatus>('/auth/session',{method:'POST',signal}),
  worlds: () => request<WorldSummary[]>('/api/v1/worlds'), metadata: (worldId: string) => request<WorldMetadata>(`${base(worldId)}/metadata`),
  railMap: (worldId:string) => request<RailMapFile>(`${base(worldId)}/rail-map`),
  issues: (worldId:string) => request<WorldIssue[]>(`${base(worldId)}/issues`),

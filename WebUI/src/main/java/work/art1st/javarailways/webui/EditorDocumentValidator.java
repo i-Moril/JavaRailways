@@ -20,6 +20,7 @@ final class EditorDocumentValidator {
         if (!document.path("periodDays").isIntegralNumber() || document.path("periodDays").asLong() < 1L) {
             fail("editor document periodDays must be a positive integer");
         }
+        if (document.has("minimumDwellTicks")) requireSafeNonnegative(document.path("minimumDwellTicks"), "minimum dwell ticks");
         requireObjectArray(document, "runs");
         requireObjectArray(document, "duties");
         requireObjectArray(document, "diagramLines");
@@ -124,7 +125,7 @@ final class EditorDocumentValidator {
         requireObjectArray(run, "calls");
         run.path("calls").forEach(call -> {
             java.util.Set<String> fields = new java.util.HashSet<>(java.util.Set.of("id", "stationId", "status", "targetId"));
-            for (String optional : java.util.Set.of("berthId", "arrivalTick", "departureTick", "minimumDwellTicks", "stoppingOffsetMetersBefore", "doorSide", "viaIds")) {
+            for (String optional : java.util.Set.of("berthId", "arrivalTick", "departureTick", "stoppingOffsetMetersBefore", "doorSide", "viaIds")) {
                 if (call.has(optional)) fields.add(optional);
             }
             StationProgramValidator.fields(call, fields, "run call");

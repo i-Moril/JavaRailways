@@ -2,10 +2,10 @@ import { describe,expect,it } from 'vitest';
 import { editAuthoringGraphTime,shiftAuthoringGraphSuffix } from './authoringGraphEditing';
 import { emptyAuthoringDocument,type TimetableAuthoringDocumentV1 } from './authoring';
 import { createDocumentHistory,undoDocumentHistory,updateDocumentHistory } from './documentHistory';
-const draft=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),runs:[{id:'r',type:'PASSENGER',lineDirection:'DOWN',calls:[
+const draft=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),minimumDwellTicks:40,runs:[{id:'r',type:'PASSENGER',lineDirection:'DOWN',calls:[
   {id:'a',stationId:'a',targetId:'a',status:'ORIGIN',departureTick:100},
-  {id:'b',stationId:'b',targetId:'b',status:'STOP',arrivalTick:200,departureTick:300,minimumDwellTicks:40},
-  {id:'c',stationId:'c',targetId:'c',status:'STOP',arrivalTick:400,departureTick:500,minimumDwellTicks:50},
+  {id:'b',stationId:'b',targetId:'b',status:'STOP',arrivalTick:200,departureTick:300},
+  {id:'c',stationId:'c',targetId:'c',status:'STOP',arrivalTick:400,departureTick:500},
   {id:'d',stationId:'d',targetId:'d',status:'TERMINAL',arrivalTick:600},
 ]}]});
 const arrival={kind:'ARRIVAL',stepIndex:1} as const;
@@ -45,7 +45,7 @@ describe('graph event suffix shifts',()=>{
     expect(shifted.document.runs[0].calls[1].departureTick).toBe(320);
   });
   it('treats PASS arrival and projected departure as the same single event',()=>{
-    const document=draft();document.runs[0].calls[1]={...document.runs[0].calls[1],status:'PASS',departureTick:null,minimumDwellTicks:null};
+    const document=draft();document.runs[0].calls[1]={...document.runs[0].calls[1],status:'PASS',departureTick:null};
     const fromArrival=shiftAuthoringGraphSuffix(document,'r',arrival,'OFFSET',20);
     const fromDeparture=shiftAuthoringGraphSuffix(document,'r',departure,'OFFSET',20);
     expect(fromArrival).toEqual(fromDeparture);expect(fromArrival.kind).toBe('ARRIVAL');expect(fromArrival.affectedEvents).toBe(4);
@@ -121,8 +121,18 @@ describe('explicit single-node toolbar commits',()=>{
     expect(JSON.stringify(document)).toBe(before);
   });
   it('edits the PASS departure projection as the canonical arrival',()=>{
-    const document=draft();document.runs[0].calls[1]={...document.runs[0].calls[1],status:'PASS',departureTick:null,minimumDwellTicks:null};
+    const document=draft();document.runs[0].calls[1]={...document.runs[0].calls[1],status:'PASS',departureTick:null};
     const next=editAuthoringGraphTime(document,'r',departure,260);
     expect(next.runs).toBe(document.runs);expect(next.arrivalOverrides).toEqual([{runId:'r',callId:'b',tick:260}]);
   });
+});
+
+it('reads a changed global minimum for every edit and keeps missing-field default zero',()=>{
+  const document=draft();document.minimumDwellTicks=80;
+  expect(()=>editAuthoringGraphTime(document,'r',departure,279)).toThrow('minimum dwell');
+  expect(editAuthoringGraphTime(document,'r',departure,280).runs[0].calls[1].departureTick).toBe(280);
+  expect(()=>shiftAuthoringGraphSuffix(document,'r',departure,'ABSOLUTE',279)).toThrow('minimum dwell');
+  expect(shiftAuthoringGraphSuffix(document,'r',departure,'ABSOLUTE',280).document.runs[0].calls[1].departureTick).toBe(280);
+  delete document.minimumDwellTicks;
+  expect(editAuthoringGraphTime(document,'r',departure,200).runs[0].calls[1].departureTick).toBe(200);
 });

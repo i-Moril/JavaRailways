@@ -12,7 +12,7 @@ vi.mock('./RunTitleEditor',()=>({RunTitleEditor:()=>null}));
 vi.mock('./CommittedNumberInput',()=>({CommittedNumberInput:()=>null}));
 vi.mock('antd',()=>{
  const Wrapper=({children}:any)=><div>{children}</div>;
- return {Input:(props:any)=><input {...props}/>,Button:({children,onClick,disabled}:any)=><button onClick={onClick} disabled={disabled}>{children}</button>,Flex:Wrapper,Modal:()=>null,Segmented:()=>null,Space:Wrapper,Tag:Wrapper,Typography:{Text:Wrapper,Title:Wrapper,Paragraph:Wrapper},Tabs:({onChange}:any)=><button onClick={()=>onChange('options')}>Options</button>,
+ return {Switch:()=>null,Input:(props:any)=><input {...props}/>,Button:({children,onClick,disabled}:any)=><button onClick={onClick} disabled={disabled}>{children}</button>,Flex:Wrapper,Modal:()=>null,Segmented:()=>null,Space:Wrapper,Tag:Wrapper,Typography:{Text:Wrapper,Title:Wrapper,Paragraph:Wrapper},Tabs:({onChange}:any)=><button onClick={()=>onChange('options')}>Options</button>,
   Table:({columns,dataSource}:any)=><table><tbody>{dataSource.map((row:any)=><tr key={row.id}>{columns.map((column:any)=><td key={column.key}>{column.render(undefined,row)}</td>)}</tr>)}</tbody></table>,
   Select:({value,onChange,onSelect,options,showSearch,mode,...props}:any)=>mode==='tags'?<div>{value.map((id:string)=><span key={id}>{id}</span>)}<input aria-label={props['aria-label']} value={showSearch.searchValue} onChange={()=>{}} onInput={event=>showSearch.onSearch(event.currentTarget.value)} onKeyDown={event=>{if(event.key==='Enter'&&showSearch.searchValue)onChange([...value,showSearch.searchValue]);props.onKeyDown?.(event);}}/>{options.filter((option:any)=>showSearch.filterOption(showSearch.searchValue,option)).map((option:any)=><button key={option.value} onClick={()=>{onChange([...value,option.value]);onSelect?.(option.value);}}>{option.label}</button>)}</div>:<select value={value??''} onChange={event=>onChange(event.currentTarget.value)}>{options.map((option:any)=><option key={option.value} value={option.value}>{option.label}</option>)}</select>};
 });
@@ -23,7 +23,7 @@ beforeEach(()=>{Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});contai
 afterEach(async()=>{await act(async()=>root.unmount());container.remove();});
 async function mount(focusedCallId?:string){
  const change=vi.fn();let document:AuthoringRunV1=initial;
- function Harness(){const [run,setRun]=useState(initial);return <I18nProvider><RunRouteEditor automaticColor={graphServiceColor('light',1)} fieldScope="world/document" focusedCallId={focusedCallId} run={run} lines={[{id:'L',displayName:'Line',upStationIds:['a','b'],downStationIds:['b','a']}]} metadata={metadata} busy={false} onError={()=>{}} onDelete={()=>{}} onChange={next=>{document=next;change(next);setRun(next);}}/></I18nProvider>;}
+ function Harness(){const [run,setRun]=useState(initial);return <I18nProvider><RunRouteEditor automaticColor={graphServiceColor('light','run-1',['run-0','run-1'])} fieldScope="world/document" focusedCallId={focusedCallId} run={run} lines={[{id:'L',displayName:'Line',upStationIds:['a','b'],downStationIds:['b','a']}]} metadata={metadata} busy={false} onError={()=>{}} onDelete={()=>{}} onChange={next=>{document=next;change(next);setRun(next);}}/></I18nProvider>;}
  await act(async()=>root.render(<Harness/>));
  return {change,current:()=>document};
 }
@@ -53,10 +53,10 @@ it('assigns and resets a diagram-only run color from the options panel',async()=
  await act(async()=>Array.from(container.querySelectorAll('button')).find(button=>button.textContent==='Options')!.click());
  const input=container.querySelector('input[type="color"]') as HTMLInputElement;
  expect(input.getAttribute('aria-label')).toBe('Run color');
- expect(input.value).toBe(graphServiceColor('light',1));
+ expect(input.value).toBe(graphServiceColor('light','run-1',['run-0','run-1']));
  await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(input,'#abcdef');input.dispatchEvent(new Event('input',{bubbles:true}));});
  expect(current().color).toBe('#abcdef');expect(change).toHaveBeenCalledTimes(1);
  await act(async()=>Array.from(container.querySelectorAll('button')).find(button=>button.textContent==='Reset to automatic')!.click());
  expect(current()).not.toHaveProperty('color');expect(change).toHaveBeenCalledTimes(2);
- expect(input.value).toBe(graphServiceColor('light',1));
+ expect(input.value).toBe(graphServiceColor('light','run-1',['run-0','run-1']));
 });

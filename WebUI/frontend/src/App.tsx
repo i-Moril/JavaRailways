@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { App as AntApp, Button, ConfigProvider, Flex, Layout, Select, Switch, Tabs, Tag, Tooltip, Typography } from 'antd';
 import { CodeOutlined, GlobalOutlined, MoonOutlined, NodeIndexOutlined, PlayCircleOutlined, PlusOutlined, RedoOutlined, SaveOutlined, SunOutlined, CopyOutlined, UndoOutlined } from '@ant-design/icons';
 import { api } from './api';
+import { trackSessionActivity } from './sessionActivity';
 import { frontendDemoEnabled } from './frontendDev';
 import { DutyEditor } from './DutyEditor';
 import { StationProgramLibrary } from './StationProgramLibrary';
@@ -97,6 +98,11 @@ export default function App() {
 
   useEffect(()=>{
     if(!authenticated)return;
+    return trackSessionActivity(window,api.renewSession,()=>window.dispatchEvent(new Event('javarailways:unauthorized')));
+  },[authenticated]);
+
+  useEffect(()=>{
+    if(!authenticated)return;
     const timer=window.setInterval(()=>{void api.session().then((session)=>{if(!session.authenticated){window.dispatchEvent(new Event('javarailways:unauthorized'));}}).catch(()=>undefined);},60_000);
     return()=>window.clearInterval(timer);
   },[authenticated]);
@@ -161,12 +167,12 @@ export default function App() {
     </section>
 
     {authenticated&&<section className="persistent-graph-view" hidden={!['graph','duties','validation'].includes(view)}><DutyEditor programLibraryRevision={programLibraryRevision} key={JSON.stringify([authenticatedPlayer,world])} onOpenProgramLibrary={(programId,stepId)=>{setProgramFocus({world,programId,stepId});setView('programs');}} onCommandState={setAuthoringState} page={view==='duties'?'duties':view==='validation'?'validation':'graph'} onPageChange={setView} world={world} recoveryOwner={authenticatedPlayer} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>}
-    {authenticated&&view === 'programs'&&<StationProgramLibrary metadata={metadata} onLibraryChange={()=>setProgramLibraryRevision((revision)=>revision+1)} key={`${authenticatedPlayer}::${world}`} world={world} recoveryOwner={authenticatedPlayer} extensions={metadata.extensions?.actions} conditions={metadata.extensions?.conditions} focus={programFocus?.world===world?programFocus:undefined}/> }
+    {authenticated&&<section className="persistent-graph-view" hidden={view!=='programs'}><StationProgramLibrary metadata={metadata} onLibraryChange={()=>setProgramLibraryRevision((revision)=>revision+1)} key={`${authenticatedPlayer}::${world}`} world={world} recoveryOwner={authenticatedPlayer} extensions={metadata.extensions?.actions} conditions={metadata.extensions?.conditions} focus={programFocus?.world===world?programFocus:undefined}/></section>}
     {authenticated&&view === 'logs' && <LogsPage />}
     {authenticated&&view === 'issues' && <IssuesPage key={world} world={world} />}
     {view === 'map' && <RailMap key={world} world={world} onError={setError} />}
-    {view === 'lines' && <LinesPage world={world} metadata={metadata} collection={lineCollection}
-      onCollection={setLineCollection} run={run} />}
+    {authenticated&&<section className="persistent-graph-view" hidden={view!=='lines'}><LinesPage key={JSON.stringify([authenticatedPlayer,world])} world={world} metadata={metadata} collection={lineCollection}
+      onCollection={setLineCollection} run={run} /></section>}
 
 
   </main></AntApp></ConfigProvider>;

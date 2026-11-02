@@ -70,7 +70,16 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
         if(typeof step.typeId!=='string'||step.typeId.length>256||! /^[a-z0-9_.-]+:[a-z0-9_./-]+$/.test(step.typeId))errors.push('Extension typeId must be namespaced');
         if(!Number.isInteger(step.version)||step.version<1||step.version>2147483647)errors.push('Extension version must be a positive integer');
         check(step.parameters as StationProgramValue<StationProgramLiteral>,'JSON_OBJECT',false,step.type==='EXTENSION');break;
-      case 'REVERSE':case 'OPEN_DOORS':case 'CLOSE_DOORS':case 'END':break;
+      case 'OPEN_DOORS':{
+        if(step.doorSideOverride!=null){
+          check(step.doorSideOverride,'STRING');
+          let side:unknown;
+          try{side=resolveProgramValue(step.doorSideOverride,args??{});}catch{/* Unbound STRING expressions are checked when invoked. */}
+          if(side!==undefined&&!['LEFT','RIGHT','BOTH'].includes(side as string))errors.push('Door side override must be LEFT, RIGHT or BOTH');
+        }
+        break;
+      }
+      case 'REVERSE':case 'CLOSE_DOORS':case 'END':break;
       case 'ASYNC':if(!validId(step.taskId))errors.push('Invalid task ID');visit(step.steps,depth+1);break;
       case 'AWAIT':if(!validId(step.taskId))errors.push('Invalid task ID');break;
       case 'MOVE':checkId(step.destinationId);check(step.viaIds,'ID_LIST');break;
@@ -175,6 +184,7 @@ export function validateArrivalProgram(definition:StationProgramDefinition,perio
   if(definition.parameters.length)errors.push('Arrival programs cannot declare parameters');
   const visit=(steps:StationProgramStep[])=>{for(const step of steps){
     if(!['SET_DISPLAY','RESET_DISPLAY','WAIT_UNTIL','WAIT_EVENT','WAIT_DURATION','REVERSE','OPEN_DOORS','CLOSE_DOORS','END','ASYNC','AWAIT','BRANCH','EXTENSION'].includes(step.type))errors.push(`Unsupported arrival action: ${step.id} (${step.type})`);
+    if(step.type==='OPEN_DOORS'&&'doorSideOverride' in step)errors.push(`Door side overrides are unavailable at arrival: ${step.id}`);
     if(step.type==='ASYNC')visit(step.steps);
     if(step.type==='BRANCH'){visit(step.thenSteps);visit(step.elseSteps);}
   }};

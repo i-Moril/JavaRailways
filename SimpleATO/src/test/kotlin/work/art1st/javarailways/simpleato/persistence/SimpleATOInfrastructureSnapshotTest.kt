@@ -50,26 +50,6 @@ class SimpleATOInfrastructureSnapshotTest {
 
 
 
-    @Test
-    fun `fixed marker fixture defaults to independent area and preserves explicit grouping`() {
-        val json = kotlinx.serialization.json.Json { encodeDefaults = true }
-        val saved = json.decodeFromString(SavedOperationalDestinationV1.serializer(), """
-            {"id":"central@one","railId":"00000000-0000-0000-0000-000000000001",
-            "arcLengthInAbMeters":20.0,"roleType":"STATION_BERTH","stationId":"central",
-            "stationDisplayName":"Central","berthId":"one","doorSide":"NONE"}
-        """.trimIndent())
-        val role = saved.restore().role as DestinationRole.StationBerthRole
-        assertEquals("one", role.stoppingAreaId)
-        val grouped = saved.restore().copy(role = role.copy(
-            stoppingAreaId = "platform", minimumTrainLengthMeters = 20.0, maximumTrainLengthMeters = 40.0
-        ))
-        val restored = json.decodeFromString(SavedOperationalDestinationV1.serializer(),
-            json.encodeToString(SavedOperationalDestinationV1.serializer(), SavedOperationalDestinationV1.capture(grouped))).restore()
-        assertEquals(grouped, restored)
-        assertThrows(IllegalArgumentException::class.java) {
-            role.copy(minimumTrainLengthMeters = 50.0, maximumTrainLengthMeters = 40.0)
-        }
-    }
 
     @Test
     fun `line snapshot requires explicit up and down patterns`() {

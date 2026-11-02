@@ -51,7 +51,7 @@ export interface RailMapFile { formatVersion:number;world:string;runtimeId:strin
 export interface RailMapTrainCar { id:string;lengthMeters:number;x:number;y:number;z:number;directionX:number;directionZ:number }
 export interface RailMapTrain { id:string;name:string;revision:number;speedMetersPerSecond:number;derailed:boolean;reversed:boolean;railId:string;arcLengthMeters:number;facing:'AB'|'BA';cars:RailMapTrainCar[] }
 export interface StationBerthMetadata {
-  stoppingAreaId?:string;minimumTrainLengthMeters?:number;maximumTrainLengthMeters?:number;usableLengthMeters?:number; stationId:string; stationDisplayName?:string; berthId:string; destinationId:string }
+  usableLengthMeters?:number; stationId:string; stationDisplayName?:string; berthId:string; destinationId:string }
 export interface DepotMetadata { id:string; displayName?:string; stablingPoints:{id:string;destinationId:string}[] }
 export interface SimulationProfileDescriptor { type:'WORLD_TRAIN'|'TRAIN_TEMPLATE'; id:string; displayName:string; carCount:number }
 export interface ProgramSimulationWayPoint {id:string;railId:string;direction:'AB'|'BA';directionSource:'WAYPOINT'|'RAIL'}
@@ -133,7 +133,8 @@ export type StationProgramStep=
  | {id:string;type:'SELECT_STOP';stationId:StationProgramValue<string>;berthIds:StationProgramValue<string[]>;selectionPolicy:'FIXED_PREFERENCE'|'AVAILABLE_PRIORITY'}
  | {id:string;type:'BRANCH';typeId:string;version:number;parameters:StationProgramValue<ProgramJsonObject>;thenSteps:StationProgramStep[];elseSteps:StationProgramStep[]}
  | {id:string;type:'EXTENSION';typeId:string;version:number;parameters:StationProgramJsonValue}
- | {id:string;type:'REVERSE'|'OPEN_DOORS'|'CLOSE_DOORS'|'END'}
+ | {id:string;type:'OPEN_DOORS';doorSideOverride?:StationProgramValue<string>|null}
+ | {id:string;type:'REVERSE'|'CLOSE_DOORS'|'END'}
  | {id:string;type:'ASYNC';taskId:string;steps:StationProgramStep[]}
  | {id:string;type:'AWAIT';taskId:string}
  | {id:string;type:'MOVE';destinationId:StationProgramValue<string>;viaIds:StationProgramValue<string[]>}

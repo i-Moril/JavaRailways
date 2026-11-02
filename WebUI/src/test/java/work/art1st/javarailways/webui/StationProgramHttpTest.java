@@ -55,6 +55,9 @@ class StationProgramHttpTest {
             JsonNode definition=mapper.readTree("{\"parameters\":[],\"steps\":[{\"id\":\"reverse\",\"type\":\"REVERSE\"},{\"id\":\"action\",\"type\":\"EXTENSION\",\"typeId\":\"demo:action\",\"version\":1,\"parameters\":{\"value\":{\"one\":1.0,\"zero\":-0.0,\"nested\":[null,true,0.25]}}}]}");
             var sourceStep = ((ObjectNode)definition).withArray("steps").addObject().put("id", "info").put("type", "SET_DISPLAY");
             sourceStep.putObject("values").putObject("trainInfo").put("name", "NAME").put("cars", "CAR_COUNT").put("direction", "DIRECTION");
+            ((ObjectNode) definition).withArray("steps").addObject().put("id", "open-default").put("type", "OPEN_DOORS");
+            ((ObjectNode) definition).withArray("steps").addObject().put("id", "open-override").put("type", "OPEN_DOORS").putObject("doorSideOverride").put("value", "LEFT");
+            ((ObjectNode) definition).withArray("steps").addObject().put("id", "close").put("type", "CLOSE_DOORS");
             ObjectNode create=mapper.createObjectNode().put("id","turnback").put("name","Turnback").put("estimatedDurationTicks",80);create.set("definition",definition);
             var created=send(client,root,base,"POST",create.toString(),cookie);assertEquals(201,created.statusCode());
             JsonNode first=mapper.readTree(created.body());
@@ -119,6 +122,38 @@ class StationProgramHttpTest {
         }
         var valid = mapper.createObjectNode();var items = valid.putArray("items");for (int i=0;i<4094;i++)items.addNull();ProgramJsonValidator.object(valid);items.addNull();assertThrows(IllegalArgumentException.class, () -> ProgramJsonValidator.object(valid));
         var strings = mapper.createObjectNode().put("s", "x".repeat(8193));assertThrows(IllegalArgumentException.class, () -> ProgramJsonValidator.object(strings));
+    }
+
+    @Test void ordinaryDoorDefinitionsAllowExplicitSidesAndStrictDefaults() throws Exception {
+        for (String field : java.util.List.of("", ",\"doorSideOverride\":null", ",\"doorSideOverride\":{\"value\":\"LEFT\"}", ",\"doorSideOverride\":{\"value\":\"RIGHT\"}", ",\"doorSideOverride\":{\"value\":\"BOTH\"}")) {
+            StationProgramValidator.validate(mapper.readTree("{\"parameters\":[],\"steps\":[{\"id\":\"open\",\"type\":\"OPEN_DOORS\"" + field + "},{\"id\":\"close\",\"type\":\"CLOSE_DOORS\"}]}"));
+        }
+        for (String step : java.util.List.of("{\"id\":\"x\",\"type\":\"OPEN_DOORS\",\"doorSideOverride\":{\"value\":\"NONE\"}}",
+            "{\"id\":\"x\",\"type\":\"OPEN_DOORS\",\"doorSideOverride\":1}", "{\"id\":\"x\",\"type\":\"CLOSE_DOORS\",\"doorSideOverride\":{\"value\":\"LEFT\"}}")) {
+            assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(mapper.readTree("{\"parameters\":[],\"steps\":[" + step + "]}")));
+        }
+        assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateStation(mapper.readTree("{\"parameters\":[],\"steps\":[{\"id\":\"open\",\"type\":\"OPEN_DOORS\",\"doorSideOverride\":{\"value\":\"LEFT\"}},{\"id\":\"end\",\"type\":\"END\"}]}")));
+    }
+
+    @Test void ordinaryDoorOverrideReferencesMustResolveToExplicitSides() throws Exception {
+        var computed = mapper.readTree("""
+            {"parameters":[],"steps":[{"id":"open","type":"OPEN_DOORS","doorSideOverride":{"operation":{"type":"CONCAT","operands":[{"value":"LE"},{"value":"FT"}]}}}]}
+            """);
+        StationProgramValidator.validateArguments(computed, mapper.createObjectNode());
+        assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(mapper.readTree(computed.toString().replace("LE", "NO").replace("FT", "NE"))));
+
+        var definition = mapper.readTree("""
+            {"parameters":[{"id":"side","type":"STRING"}],"steps":[
+              {"id":"open","type":"OPEN_DOORS","doorSideOverride":{"parameterId":"side"}}]}
+            """);
+        StationProgramValidator.validateArguments(definition, mapper.readTree("{\"side\":\"RIGHT\"}"));
+        for (String side : java.util.List.of("NONE", "right", "station")) {
+            assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateArguments(definition, mapper.createObjectNode().put("side", side)));
+        }
+        assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(mapper.readTree("""
+            {"parameters":[{"id":"side","type":"JSON_OBJECT"}],"steps":[
+              {"id":"open","type":"OPEN_DOORS","doorSideOverride":{"parameterId":"side"}}]}
+            """)));
     }
 
     @Test void strictDefinitionRejectsUnknownTypesParametersAndInvalidDurations() throws Exception {

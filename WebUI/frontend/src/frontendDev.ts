@@ -34,22 +34,22 @@ const metadataSeed:WorldMetadata={
 };
 
 const documentSeed:TimetableAuthoringDocumentV1={
-  formatVersion:1,id:'weekday-demo',formalScriptName:'weekday-demo.js',periodDays:1,
+  formatVersion:1,id:'weekday-demo',formalScriptName:'weekday-demo.js',periodDays:1,minimumDwellTicks:100,
   diagramLines:lineSeed.map(({id,upStationIds,downStationIds})=>({id,upStationIds,downStationIds})),
   arrivalOverrides:[],
   runs:[
     {id:'AP101',type:'PASSENGER',diagramLineId:'airport-line',lineDirection:'UP',originDepartureMode:'AUTO',calls:[
       {id:'AP101-1',stationId:'harbour',berthId:'harbour-platform-1',status:'ORIGIN',targetId:'harbour-destination',departureTick:1200},
-      {id:'AP101-2',stationId:'old-town',berthId:'old-town-platform-1',status:'STOP',targetId:'old-town-destination',arrivalTick:2000,departureTick:2100,minimumDwellTicks:100},
-      {id:'AP101-3',stationId:'central',berthId:'central-platform-1',status:'STOP',targetId:'central-destination',arrivalTick:2900,departureTick:3020,minimumDwellTicks:120},
+      {id:'AP101-2',stationId:'old-town',berthId:'old-town-platform-1',status:'STOP',targetId:'old-town-destination',arrivalTick:2000,departureTick:2100},
+      {id:'AP101-3',stationId:'central',berthId:'central-platform-1',status:'STOP',targetId:'central-destination',arrivalTick:2900,departureTick:3020},
       {id:'AP101-4',stationId:'university',berthId:'university-platform-1',status:'PASS',targetId:'university-destination',arrivalTick:3700},
       {id:'AP101-5',stationId:'airport-t2',berthId:'airport-t2-platform-1',status:'TERMINAL',targetId:'airport-t2-destination',arrivalTick:4700},
     ]},
     {id:'AP102',type:'PASSENGER',diagramLineId:'airport-line',lineDirection:'DOWN',originDepartureMode:'AUTO',calls:[
       {id:'AP102-1',stationId:'airport-t2',berthId:'airport-t2-platform-1',status:'ORIGIN',targetId:'airport-t2-destination',departureTick:5600},
-      {id:'AP102-2',stationId:'university',berthId:'university-platform-1',status:'STOP',targetId:'university-destination',arrivalTick:6500,departureTick:6600,minimumDwellTicks:100},
-      {id:'AP102-3',stationId:'central',berthId:'central-platform-1',status:'STOP',targetId:'central-destination',arrivalTick:7300,departureTick:7420,minimumDwellTicks:120},
-      {id:'AP102-4',stationId:'old-town',berthId:'old-town-platform-1',status:'STOP',targetId:'old-town-destination',arrivalTick:8200,departureTick:8300,minimumDwellTicks:100},
+      {id:'AP102-2',stationId:'university',berthId:'university-platform-1',status:'STOP',targetId:'university-destination',arrivalTick:6500,departureTick:6600},
+      {id:'AP102-3',stationId:'central',berthId:'central-platform-1',status:'STOP',targetId:'central-destination',arrivalTick:7300,departureTick:7420},
+      {id:'AP102-4',stationId:'old-town',berthId:'old-town-platform-1',status:'STOP',targetId:'old-town-destination',arrivalTick:8200,departureTick:8300},
       {id:'AP102-5',stationId:'harbour',berthId:'harbour-platform-1',status:'TERMINAL',targetId:'harbour-destination',arrivalTick:9100},
     ]},
   ],
@@ -89,6 +89,7 @@ function lineSimulation(lineId:string,profile:SimulationProfile):LineSimulationR
 export const demoApi={
   async issues(_worldId:string){return [];},
   async session(){return {authenticated:true,playerName:'Frontend Developer',worldId:'demo-world',expiresAtEpochMillis:Date.now()+86_400_000};},
+  async renewSession(_signal?:AbortSignal){return {authenticated:true,playerName:'Frontend Developer',worldId:'demo-world',expiresAtEpochMillis:Date.now()+86_400_000};},
   async worlds(){return [{id:'demo-world',name:'Frontend Demo World'}];},
   async metadata(_worldId:string){return clone(metadataSeed);},async railMap(_worldId:string){return clone(railMapSeed);},
   async scripts(_worldId:string):Promise<TimetableScriptSummary[]>{return [{name:'weekday-demo.js',sizeBytes:3480,modifiedAtEpochMillis:Date.now()-3600000}];},

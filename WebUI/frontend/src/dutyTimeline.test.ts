@@ -2,7 +2,7 @@ import {describe,it,expect} from 'vitest';
 import {emptyAuthoringDocument,generateTimetableSource,type TimetableAuthoringDocumentV1} from './authoring';
 import {defaultDutyProgramArguments,projectDutyTimeline,sortDutyTasks} from './dutyTimeline';
 import type {TimetableSimulationResult} from './types';
-const fixture=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),id:'test',runs:[{id:'R',type:'PASSENGER',lineDirection:'UP',calls:[{id:'a',stationId:'a',targetId:'a',status:'ORIGIN',departureTick:100},{id:'b',stationId:'b',targetId:'b',status:'TERMINAL',arrivalTick:200,departureTick:220,minimumDwellTicks:10}]}],boundPrograms:[{programId:'1',revision:1,contentIdentity:`sha256:${'a'.repeat(64)}`,definition:{parameters:[],steps:[]}}],duties:[{id:'D',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'r',type:'RUN',runId:'R'},{id:'p',type:'PROGRAM',tick:230,program:{programId:'1',arguments:{}}}]}]});
+const fixture=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),id:'test',minimumDwellTicks:10,runs:[{id:'R',type:'PASSENGER',lineDirection:'UP',calls:[{id:'a',stationId:'a',targetId:'a',status:'ORIGIN',departureTick:100},{id:'b',stationId:'b',targetId:'b',status:'TERMINAL',arrivalTick:200,departureTick:220}]}],boundPrograms:[{programId:'1',revision:1,contentIdentity:`sha256:${'a'.repeat(64)}`,definition:{parameters:[],steps:[]}}],duties:[{id:'D',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'r',type:'RUN',runId:'R'},{id:'p',type:'PROGRAM',tick:230,program:{programId:'1',arguments:{}}}]}]});
 describe('duty timeline projection',()=>{
  it('uses effective terminal arrival, dwell and departure without mutating the document',()=>{
   const doc=fixture();doc.arrivalOverrides=[{runId:'R',callId:'b',tick:215}];const before=JSON.stringify(doc);
@@ -51,4 +51,13 @@ it('orders tasks after run time edits in one transaction and preserves equal-tim
 
 it('initializes numeric program and simulation arguments with valid numeric defaults',()=>{
  expect(defaultDutyProgramArguments([{id:'number',type:'NUMBER'},{id:'duration',type:'DURATION'},{id:'tick',type:'TICK'},{id:'text',type:'STRING'}])).toEqual({number:0,duration:1,tick:0,text:''});
+});
+it('uses the document minimum for all run endpoints and defaults missing minimum to zero',()=>{
+ const doc=fixture();doc.runs[0].calls[1].departureTick=null;
+ doc.minimumDwellTicks=40;
+ expect(projectDutyTimeline(doc,doc.duties[0])[0].endTick).toBe(240);
+ doc.minimumDwellTicks=80;
+ expect(projectDutyTimeline(doc,doc.duties[0])[0].endTick).toBe(280);
+ delete doc.minimumDwellTicks;
+ expect(projectDutyTimeline(doc,doc.duties[0])[0].endTick).toBe(200);
 });

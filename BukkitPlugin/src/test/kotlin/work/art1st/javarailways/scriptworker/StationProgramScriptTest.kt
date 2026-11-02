@@ -14,6 +14,37 @@ class StationProgramScriptTest {
       {id:'store',type:'STORE_AT_DEPOT',depotId:{value:'other-depot'},stablingPointIds:{value:[]}}
     ]}"""
 
+    @Test fun `ordinary door instructions compile to real saved actions and retain program source addresses`() {
+        val result = compile("""
+          timetable.service('s','train',t=>{t.check('A');t.at(20).program('doors',{parameters:[],steps:[
+            {id:'inherit',type:'OPEN_DOORS'}, {id:'left',type:'OPEN_DOORS',doorSideOverride:{value:'LEFT'}},
+            {id:'right',type:'OPEN_DOORS',doorSideOverride:{value:'RIGHT'}}, {id:'both',type:'OPEN_DOORS',doorSideOverride:{value:'BOTH'}},
+            {id:'close',type:'CLOSE_DOORS'}]},{});});
+        """)
+        val actions = result.services.single().steps.drop(1).map { it.action!! }
+        assertEquals(listOf("OPEN_DOORS", "OPEN_DOORS", "OPEN_DOORS", "OPEN_DOORS", "CLOSE_DOORS"), actions.map { it.type.name })
+        assertEquals(listOf(null, "LEFT", "RIGHT", "BOTH", null), actions.map { it.doorSideOverride })
+        assertEquals((1..5).toList(), result.compilationTrace.map { it.stepIndex })
+        assertTrue(result.compilationTrace.last().origin.endsWith("program:doors/step:close"))
+        val restored = work.art1st.javarailways.simpleato.persistence.TimetableSnapshotCodec.decode(
+            Json.encodeToString(SavedTimetableV1.serializer(), result)).restore()
+        assertEquals("OpenDoors", (restored.services.single().steps[1] as work.art1st.javarailways.simpleato.timetable.TimetableStep.At).action::class.simpleName)
+        for (bad in listOf("{id:'x',type:'OPEN_DOORS',doorSideOverride:{value:'NONE'}}", "{id:'x',type:'OPEN_DOORS',doorSideOverride:{value:'left'}}",
+            "{id:'x',type:'OPEN_DOORS',doorSideOverride:5}", "{id:'x',type:'CLOSE_DOORS',doorSideOverride:{value:'LEFT'}}")) {
+            assertThrows(Throwable::class.java) { compile("timetable.service('s','train',t=>{t.check('A');t.program('p',{parameters:[],steps:[$bad]},{});});") }
+        }
+    }
+
+    @Test fun `ordinary open override resolves declared string arguments and rejects invalid sides`() {
+        fun source(side: String) = """timetable.service('s','train',t=>{t.check('A');t.program('p',
+          {parameters:[{id:'side',type:'STRING'}],steps:[{id:'open',type:'OPEN_DOORS',doorSideOverride:{parameterId:'side'}}]}, {side:'$side'});});"""
+        assertEquals("RIGHT", compile(source("RIGHT")).services.single().steps.last().action!!.doorSideOverride)
+        for (invalid in listOf("NONE", "right", "station")) {
+            val failure = assertThrows(Throwable::class.java) { compile(source(invalid)) }
+            assertTrue(failure.message.orEmpty().contains("program:p/step:open"), failure.message)
+        }
+    }
+
     @Test fun `task boundaries retain empty calls and selected program source provenance`() {
         val result = compile("""
           timetable.service('s','train',t=>{t.check('A');t.origin('duty:s/element:1', scoped=>{

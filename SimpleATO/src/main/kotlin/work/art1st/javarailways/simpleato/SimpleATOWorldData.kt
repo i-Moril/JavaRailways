@@ -11,6 +11,7 @@ import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.api.depot.DepotStore
 import work.art1st.javarailways.simpleato.api.line.LineStore
 import work.art1st.javarailways.simpleato.api.station.StationStore
+import work.art1st.javarailways.simpleato.api.station.StationCallResolverRegistry
 import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionRegistry
 import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
@@ -37,6 +38,7 @@ data class SimpleATOWorldData(
     val timetables: TimetableStore = TimetableStore(),
     val timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry(),
     val routePlanningRestrictions: RoutePlanningRestrictionRuntime = RoutePlanningRestrictionRuntime(),
+    val stationCallResolvers: StationCallResolverRegistry = StationCallResolverRegistry(),
     val operationalRuntime: OperationalWorldRuntime? = null
 ) {
     // Capabilities are process-local. Saved event identities, never saved tokens, rebuild these.

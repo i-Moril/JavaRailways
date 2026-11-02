@@ -21,6 +21,7 @@ import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmi
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
 import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
 import work.art1st.javarailways.simpleato.timetable.Timetable
+import work.art1st.javarailways.simpleato.api.station.StationCallResolverRegistry
 import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionRegistry
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotProvider
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
@@ -247,6 +248,7 @@ class IsolatedTimetableSimulationWorld private constructor(
             workerThreads: Int,
             basicDataFactory: (CoreWorld, (Set<java.util.UUID>) -> Unit) -> BasicWorldData,
             timetableExtensions: (CoreWorld) -> TimetableExtensionRegistry = { TimetableExtensionRegistry() },
+            stationCallResolvers: (CoreWorld) -> StationCallResolverRegistry = { StationCallResolverRegistry() },
             speedSafety: SpeedSafetyMonitor.Config = SpeedSafetyMonitor.Config(false, 0.0, 1),
             preparedFeatures: List<PreparedSimulationFeature> = emptyList(),
             operationResourceFactory: (CoreWorld) -> AutoCloseable? = { null },
@@ -297,6 +299,7 @@ class IsolatedTimetableSimulationWorld private constructor(
                             isolatedWorld, isolatedWorld.runtimeId,
                             basicDataFactory = { changes -> basicDataFactory(isolatedWorld, changes) },
                             timetableExtensions = timetableExtensions(isolatedWorld),
+                            stationCallResolvers = stationCallResolvers(isolatedWorld),
                             dispatcherFactory = { runtime ->
                                 val admission = SimulationRouteAdmissionHost(isolatedWorld, runtime)
                                 routeAdmissionHost = admission

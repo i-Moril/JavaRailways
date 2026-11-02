@@ -1,5 +1,11 @@
 package work.art1st.javarailways.bukkit
 
+import work.art1st.javarailways.bukkit.api.station.StationCallResolverService
+
+import work.art1st.javarailways.bukkit.api.internal.StationCallResolverOwnerLifecycleListener
+
+import work.art1st.javarailways.bukkit.api.internal.DefaultStationCallResolverService
+
 import work.art1st.javarailways.diagnostics.PluginErrorLog
 
 import org.bukkit.plugin.java.JavaPlugin
@@ -97,6 +103,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var infrastructureResourceService: InfrastructureResourceService
         private set
     private lateinit var infrastructureResourceServiceImpl: DefaultInfrastructureResourceService
+    private lateinit var stationCallResolverServiceImpl: DefaultStationCallResolverService
+    lateinit var stationCallResolverService: StationCallResolverService
+        private set
     lateinit var simulationFeatureService: SimulationFeatureService
         private set
     private lateinit var simulationFeatureServiceImpl: DefaultSimulationFeatureService
@@ -234,6 +243,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         playerOperationService = playerOperationServiceImpl
         railwayObservationServiceImpl = DefaultRailwayObservationService(logger)
         railwayObservationService = railwayObservationServiceImpl
+        stationCallResolverServiceImpl = DefaultStationCallResolverService()
+        stationCallResolverService = stationCallResolverServiceImpl
         simulationFeatureServiceImpl = DefaultSimulationFeatureService()
         simulationFeatureService = simulationFeatureServiceImpl
         signalEpochSourceServiceImpl = DefaultSignalEpochSourceService()
@@ -253,6 +264,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             observationService = railwayObservationServiceImpl,
             infrastructureResourceService = infrastructureResourceServiceImpl,
             signalEpochSourceService = signalEpochSourceServiceImpl,
+            stationCallResolverService = stationCallResolverServiceImpl,
             modelPresentationService = modelPresentationServiceImpl,
             releaseManualControl = { world ->
                 if (::trainControlManager.isInitialized) trainControlManager.releaseWorldOnOwner(world)
@@ -275,8 +287,10 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             routePlanningSources = routePlanningRestrictionSourceService,
             modelPresentations = modelPresentationService,
             editorTexts = editorTextService,
-            simulationFeatures = simulationFeatureService
+            simulationFeatures = simulationFeatureService,
+            stationCallResolvers = stationCallResolverService
         )
+        server.pluginManager.registerEvents(StationCallResolverOwnerLifecycleListener(stationCallResolverServiceImpl), this)
         server.pluginManager.registerEvents(SimulationFeatureOwnerLifecycleListener(simulationFeatureServiceImpl), this)
         server.pluginManager.registerEvents(OperationOwnerLifecycleListener(playerOperationServiceImpl), this)
         server.pluginManager.registerEvents(ObservationOwnerLifecycleListener(railwayObservationServiceImpl), this)
@@ -398,6 +412,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         }
         if (::infrastructureResourceServiceImpl.isInitialized) {
             runShutdownStep("infrastructure resource service") { infrastructureResourceServiceImpl.close() }
+        }
+        if (::stationCallResolverServiceImpl.isInitialized) {
+            runShutdownStep("station call resolver service") { stationCallResolverServiceImpl.close() }
         }
         if (::signalEpochSourceServiceImpl.isInitialized) {
             runShutdownStep("signal epoch source service") { signalEpochSourceServiceImpl.close() }

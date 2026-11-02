@@ -3,8 +3,13 @@ import type { LineV1, SavedTimetableV1, TimetableActionV1, WorldMetadata } from 
 const DARK_SERVICE_COLORS=['#56c5ff','#ffb454','#8bd17c','#d28cff','#ff718b','#54d6c5'];
 const LIGHT_SERVICE_COLORS=['#0076a8','#a94f00','#247a39','#7138ad','#b72b47','#00776c'];
 export const graphServiceColors=(theme:'dark'|'light')=>theme==='light'?LIGHT_SERVICE_COLORS:DARK_SERVICE_COLORS;
-export const graphServiceColor=(theme:'dark'|'light',serviceIndex:number,lineColor?:string|null,runColor?:string)=>
-  runColor||lineColor||graphServiceColors(theme)[serviceIndex%graphServiceColors(theme).length];
+
+/** Use the complete document order so diagram, direction and search filters keep run colors stable. */
+export function graphServiceColor(theme:'dark'|'light',serviceId:string,serviceIds:readonly string[],lineColor?:string|null,runColor?:string):string {
+  if(runColor)return runColor;
+  const palette=graphServiceColors(theme);
+  return lineColor||palette[Math.max(0,serviceIds.indexOf(serviceId))%palette.length];
+}
 
 export interface GraphPoint {
   serviceIndex: number;

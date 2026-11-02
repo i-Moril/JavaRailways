@@ -2886,7 +2886,7 @@ class TimetableDispatcherTest {
         for ((id, arc) in listOf("short" to 60.0, "long" to 60.0)) {
             OperationalDestinationService(world).register(OperationalDestination("station@$id", rail.id, arc,
                 ViewDirection.AB, DestinationRole.StationBerthRole(station, berthId = id, doorSide = DoorSide.NONE,
-                    usableLengthMeters = 20.0, maximumTrainLengthMeters = if (id == "short") 5.0 else 20.0)))
+                    usableLengthMeters = if (id == "short") 5.0 else 20.0)))
         }
         val selection = work.art1st.javarailways.simpleato.api.station.StationStopSelection(station,
             listOf(work.art1st.javarailways.simpleato.api.station.StationStopCandidate("short", 0),
@@ -2939,7 +2939,7 @@ class TimetableDispatcherTest {
         for ((id, branch) in listOf("short" to shortBranch, "long" to longBranch)) {
             OperationalDestinationService(world).register(OperationalDestination("station@$id", branch.id, 30.0,
                 ViewDirection.AB, DestinationRole.StationBerthRole(station, berthId = id, doorSide = DoorSide.NONE,
-                    usableLengthMeters = 20.0, maximumTrainLengthMeters = 20.0)))
+                    usableLengthMeters = 20.0)))
         }
         world.onOwnerForTest {
             val head = RailLocationWithFacing(longBranch.viewAB, 35.0)
@@ -2999,7 +2999,7 @@ class TimetableDispatcherTest {
         for ((id, arc) in listOf("short" to 60.0, "long" to 60.0)) {
             OperationalDestinationService(world).register(OperationalDestination("station@$id", rail.id, arc,
                 ViewDirection.AB, DestinationRole.StationBerthRole(station, berthId = id, doorSide = DoorSide.NONE,
-                    usableLengthMeters = 20.0, maximumTrainLengthMeters = if (id == "short") 5.0 else 20.0)))
+                    usableLengthMeters = if (id == "short") 5.0 else 20.0)))
         }
         val selection = work.art1st.javarailways.simpleato.api.station.StationStopSelection(station,
             listOf(work.art1st.javarailways.simpleato.api.station.StationStopCandidate("short", 0),
@@ -3014,10 +3014,10 @@ class TimetableDispatcherTest {
         assertEquals(StationBerthRef(station, "long"), dispatcher.status(id)?.selectedBerthRef)
         assertFalse(checkNotNull(dispatcher.status(id)).selectedBerthCommitted)
         assertNull(dispatcher.status(id)?.stationCallId, "controller call must wait for physical admission")
-        val area = checkNotNull(world.simpleAtoWorldData.stations.berth(StationBerthRef(station, "long"))).stoppingAreaRef
-        assertTrue(dispatcher.hasStationStoppingAreaAllocation(area))
+        val berthRef = StationBerthRef(station, "long")
+        assertTrue(dispatcher.hasStationBerthAllocation(berthRef))
         assertTrue(world.onOwnerForTest { dispatcher.stopService(world, id) })
-        assertFalse(dispatcher.hasStationStoppingAreaAllocation(area))
+        assertFalse(dispatcher.hasStationBerthAllocation(berthRef))
         assertNull(dispatcher.status(id)?.selectedBerthRef)
         assertNull(dispatcher.status(id)?.stationCallId)
         assertEquals(0.0, train.publishedFrame.speedMetersPerSecond)
@@ -3043,7 +3043,7 @@ class TimetableDispatcherTest {
         for ((id, arc) in listOf("short" to 60.0, "long" to 60.0)) {
             OperationalDestinationService(world).register(OperationalDestination("station@$id", rail.id, arc,
                 ViewDirection.AB, DestinationRole.StationBerthRole(station, berthId = id, doorSide = DoorSide.NONE,
-                    usableLengthMeters = 20.0, maximumTrainLengthMeters = if (id == "short") 5.0 else 20.0)))
+                    usableLengthMeters = if (id == "short") 5.0 else 20.0)))
         }
         val selection = work.art1st.javarailways.simpleato.api.station.StationStopSelection(station,
             listOf(work.art1st.javarailways.simpleato.api.station.StationStopCandidate("short", 0),
@@ -3060,18 +3060,18 @@ class TimetableDispatcherTest {
         assertNull(dispatcher.status(id)?.stationCallId, "controller call must wait for physical admission")
         val ato = train.controller as SimpleATO
         val initialHead = train.publishedFrame.head
-        val area = checkNotNull(world.simpleAtoWorldData.stations.berth(StationBerthRef(station, "long"))).stoppingAreaRef
+        val berthRef = StationBerthRef(station, "long")
         repeat(12) { tickAndPublish(ato); world.onOwnerForTest { dispatcher.tick(world) } }
         assertEquals(1, starts, "one pending preparation is observed rather than resubmitted")
         assertFalse(checkNotNull(dispatcher.status(id)).selectedBerthCommitted)
-        assertTrue(dispatcher.hasStationStoppingAreaAllocation(area))
+        assertTrue(dispatcher.hasStationBerthAllocation(berthRef))
         assertTrue(world.onOwnerForTest { dispatcher.stopService(world, id) })
         repeat(3) { tickAndPublish(ato); world.onOwnerForTest { dispatcher.tick(world) } }
-        assertTrue(dispatcher.hasStationStoppingAreaAllocation(area), "pending candidate keeps its exact reservation until settled")
+        assertTrue(dispatcher.hasStationBerthAllocation(berthRef), "pending candidate keeps its exact reservation until settled")
         ticketState = work.art1st.javarailways.basic.api.route.ResourcePreparationState.ABORTED_SAFE
         repeat(3) { tickAndPublish(ato); world.onOwnerForTest { dispatcher.tick(world) } }
         assertEquals(1, starts)
-        assertFalse(dispatcher.hasStationStoppingAreaAllocation(area))
+        assertFalse(dispatcher.hasStationBerthAllocation(berthRef))
         assertNull(dispatcher.status(id)?.selectedBerthRef)
         assertNull(dispatcher.status(id)?.stationCallId)
         assertEquals(TimetableServiceRunState.STOPPED, dispatcher.status(id)?.state)

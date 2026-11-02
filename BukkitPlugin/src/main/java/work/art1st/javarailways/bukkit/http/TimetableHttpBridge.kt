@@ -381,9 +381,6 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                         put("stationId", role.stationId.value)
                         put("stationDisplayName", role.stationDisplayName)
                         put("berthId", role.berthId)
-                        put("stoppingAreaId", role.stoppingAreaId)
-                        role.minimumTrainLengthMeters?.let { put("minimumTrainLengthMeters", it) }
-                        role.maximumTrainLengthMeters?.let { put("maximumTrainLengthMeters", it) }
                         role.usableLengthMeters?.let { put("usableLengthMeters", it) }
                         put("destinationId", destination.id)
                     }

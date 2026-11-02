@@ -69,6 +69,6 @@ it('gates following duty actions with terminal departure and effective arrival d
  expect(generateTimetableSource(value,lines).issues.some((issue)=>issue.message.includes('previous'))).toBe(true);
  value.runs[1].calls[0].departureTick=300;
  expect(generateTimetableSource(value,lines).issues).toEqual([]);
- value.runs[0].calls[1].minimumDwellTicks=20;value.arrivalOverrides=[{runId:'r',callId:'b',tick:290}];
+ value.minimumDwellTicks=20;value.arrivalOverrides=[{runId:'r',callId:'b',tick:290}];
  expect(generateTimetableSource(value,lines).issues.some((issue)=>issue.message.includes('previous'))).toBe(true);
 });

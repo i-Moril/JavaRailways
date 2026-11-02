@@ -506,7 +506,7 @@ class StructuralTimetableValidationTest {
             val stationRoute = stationResult.structural.routes.entries.single { it.key.outputId == "first" }.value
             assertDoesNotThrow { stationRoute.requireCurrent(world) }
             service.remove(destination.id)
-            service.register(destination.copy(role = (destination.role as DestinationRole.StationBerthRole).copy(stoppingAreaId = "changed-area")))
+            service.register(destination.copy(role = (destination.role as DestinationRole.StationBerthRole).copy(usableLengthMeters = 90.0)))
             assertSame(topology, world.topologyState)
             assertThrows(IllegalArgumentException::class.java) { stationRoute.requireCurrent(world) }
         }

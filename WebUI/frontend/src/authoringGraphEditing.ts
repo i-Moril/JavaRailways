@@ -1,4 +1,4 @@
-import type { TimetableAuthoringDocumentV1 } from './authoring';
+import { authoringMinimumDwell,type TimetableAuthoringDocumentV1 } from './authoring';
 import type { GraphPoint } from './graph';
 
 export interface GraphSuffixShift {
@@ -63,7 +63,7 @@ export function shiftAuthoringGraphSuffix(
     const events=[effectiveArrival,call.departureTick].filter((tick):tick is number=>tick!=null);
     if(callIndex>=index){
       if(call.status==='PASS'&&call.departureTick!=null)throw new Error('Pass rows have one passage time');
-      const minimumDwell=call.minimumDwellTicks??0;
+      const minimumDwell=call.status==='PASS'?0:authoringMinimumDwell(document);
       if(!Number.isSafeInteger(minimumDwell)||minimumDwell<0)throw new Error('Minimum dwell must be a non-negative integer');
       if(effectiveArrival!=null&&call.departureTick!=null&&call.departureTick-effectiveArrival<minimumDwell)throw new Error('Departure violates arrival or minimum dwell');
     }
@@ -92,7 +92,7 @@ export function editAuthoringGraphTime(
   const currentArrival=document.arrivalOverrides.find((item)=>item.runId===runId&&item.callId===call.id)?.tick??call.arrivalTick;
   const editsArrival=kind==='ARRIVAL';
   const nextArrival=editsArrival?tick:currentArrival,nextDeparture=editsArrival?call.departureTick:tick;
-  const minimumDwell=call.minimumDwellTicks??0;
+  const minimumDwell=call.status==='PASS'?0:authoringMinimumDwell(document);
   if(!Number.isSafeInteger(minimumDwell)||minimumDwell<0)throw new Error('Minimum dwell must be a non-negative integer');
   if(nextArrival!=null&&nextDeparture!=null&&nextDeparture-nextArrival<minimumDwell)throw new Error('Departure violates arrival or minimum dwell');
   if(tick===(editsArrival?currentArrival:call.departureTick))return document;

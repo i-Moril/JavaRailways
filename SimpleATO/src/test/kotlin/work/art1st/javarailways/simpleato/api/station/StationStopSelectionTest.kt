@@ -29,14 +29,13 @@ class StationStopSelectionTest {
                 val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(300.0, 1))
                 val train = createTrainWithConfig("physical", rail, world, listOf(length))
                 data.wayPoints.add(WayPoint("start", rail.id, train.head.location.arcLength))
-                fun berth(id: String, area: String = id, min: Double? = null, max: Double? = null, direction: ViewDirection = ViewDirection.AB) = StationBerth(
+                fun berth(id: String, usableLength: Double = 100.0, direction: ViewDirection = ViewDirection.AB) = StationBerth(
                     StationBerthRef(stationId, id), train.head.location.forward(if (id == "p2") 100.0 else 60.0)!!,
-                    approachDirection = direction, usableLengthMeters = 100.0, stoppingAreaId = area,
-                    minimumTrainLengthMeters = min, maximumTrainLengthMeters = max)
-                val berths = listOf(berth("p1", "shared"), berth("same-area", "shared"), berth("p2"),
-                    berth("short", max = 10.0), berth("long", min = 20.0), berth("wrong-direction", direction = ViewDirection.BA))
+                    approachDirection = direction, usableLengthMeters = usableLength)
+                val berths = listOf(berth("p1"), berth("p2"),
+                    berth("short", usableLength = 10.0), berth("long"), berth("wrong-direction", direction = ViewDirection.BA))
                 world.simpleAtoWorldData.stations.register(Station(stationId, "Central", berths.map { it.berthRef }), berths)
-                val allocator = StationBerthAllocator { ref -> berths.single { it.berthRef == ref }.stoppingAreaRef }
+                val allocator = StationBerthAllocator()
                 val resolver = StationCallResolver(world)
                 body(allocator) { selection, owner, revision -> selection.candidates.associate { candidate ->
                     candidate.berthId to resolver.resolve(StationCallRequest(owner.serviceRunId, WayPointRef("start"),
@@ -59,26 +58,26 @@ class StationStopSelectionTest {
         }
     }
 
-    @Test fun `fixed preference waits while available priority chooses one unoccupied area`() = fixture { allocator, resolve ->
+    @Test fun `fixed preference waits while available priority chooses one unoccupied berth`() = fixture { allocator, resolve ->
         val occupied = StationBerthAllocationKey(owner("other"), StationBerthRef(stationId, "p1"), 1)
         allocator.allocate(occupied)
-        val fixed = selection(StationStopSelectionPolicy.FIXED_PREFERENCE, "same-area", "p2")
+        val fixed = selection(StationStopSelectionPolicy.FIXED_PREFERENCE, "p1", "p2")
         val selector = StationStopSelector(allocator)
         val waiting = selector.select(fixed, owner(), 1, resolve(fixed, owner(), 1)) as StationStopSelectionResult.Waiting
         assertEquals(occupied, waiting.conflicts.single().heldBy)
         assertEquals(listOf(occupied), allocator.allocations())
-        val available = selection(StationStopSelectionPolicy.AVAILABLE_PRIORITY, "same-area", "p2")
+        val available = selection(StationStopSelectionPolicy.AVAILABLE_PRIORITY, "p1", "p2")
         val selected = selector.select(available, owner(), 1, resolve(available, owner(), 1)) as StationStopSelectionResult.Selected
         assertEquals("p2", selected.key.berthRef.berthId)
         assertEquals(2, allocator.allocations().size)
     }
 
     @Test fun `all busy differs from no eligible candidates and neither creates reservations`() = fixture { allocator, resolve ->
-        val busy = selection(StationStopSelectionPolicy.AVAILABLE_PRIORITY, "p1", "same-area", "p2")
+        val busy = selection(StationStopSelectionPolicy.AVAILABLE_PRIORITY, "p1", "p2")
         listOf("p1", "p2").forEach { allocator.allocate(StationBerthAllocationKey(owner(it), StationBerthRef(stationId, it), 1)) }
         val before = allocator.allocations()
         val waiting = StationStopSelector(allocator).select(busy, owner(), 1, resolve(busy, owner(), 1)) as StationStopSelectionResult.Waiting
-        assertEquals(3, waiting.conflicts.size)
+        assertEquals(2, waiting.conflicts.size)
         val invalid = selection(StationStopSelectionPolicy.AVAILABLE_PRIORITY, "short", "wrong-direction")
         val rejected = StationStopSelector(allocator).select(invalid, owner(), 1, resolve(invalid, owner(), 1)) as StationStopSelectionResult.NoEligibleCandidate
         assertEquals(2, rejected.rejections.size)

@@ -36,9 +36,6 @@ data class SavedOperationalDestinationV1(
     val stablingPointId: String? = null,
     val depotDisplayName: String? = null,
     val allowedTags: Set<String> = emptySet(),
-    val stoppingAreaId: String? = null,
-    val minimumTrainLengthMeters: Double? = null,
-    val maximumTrainLengthMeters: Double? = null
 ) {
     fun restore(): OperationalDestination = OperationalDestination(
         id = id,
@@ -54,9 +51,6 @@ data class SavedOperationalDestinationV1(
             stationId = StationId(requireNotNull(stationId)),
             stationDisplayName = requireNotNull(stationDisplayName),
             berthId = requireNotNull(berthId),
-            stoppingAreaId = stoppingAreaId ?: requireNotNull(berthId),
-            minimumTrainLengthMeters = minimumTrainLengthMeters,
-            maximumTrainLengthMeters = maximumTrainLengthMeters,
             doorSide = requireNotNull(doorSide),
             stoppingOffsetMetersBefore = stoppingOffsetMetersBefore,
             positionToleranceMeters = positionToleranceMeters,
@@ -86,9 +80,6 @@ data class SavedOperationalDestinationV1(
                 stationId = station?.stationId?.value,
                 stationDisplayName = station?.stationDisplayName,
                 berthId = station?.berthId,
-                stoppingAreaId = station?.stoppingAreaId,
-                minimumTrainLengthMeters = station?.minimumTrainLengthMeters,
-                maximumTrainLengthMeters = station?.maximumTrainLengthMeters,
                 doorSide = station?.doorSide,
                 stoppingOffsetMetersBefore = station?.stoppingOffsetMetersBefore ?: 0.0,
                 positionToleranceMeters = station?.positionToleranceMeters

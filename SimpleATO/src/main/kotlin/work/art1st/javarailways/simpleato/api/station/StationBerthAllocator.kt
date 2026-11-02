@@ -31,12 +31,10 @@ sealed interface StationBerthAllocationResult {
 }
 
 /** World-local, non-preemptive ownership of explicit Station berths. */
-class StationBerthAllocator(private val stoppingArea: (StationBerthRef) -> StationStoppingAreaRef) {
+class StationBerthAllocator {
     private val lock = Any()
     private val allocations = LinkedHashMap<StationBerthAllocationKey, StationBerthAllocationKey>()
     private val berthOwners = HashMap<StationBerthRef, StationBerthAllocationKey>()
-    private val areaOwners = HashMap<StationStoppingAreaRef, StationBerthAllocationKey>()
-    private val allocatedAreas = HashMap<StationBerthAllocationKey, StationStoppingAreaRef>()
 
     @MainThread
     fun allocate(key: StationBerthAllocationKey): StationBerthAllocationResult = synchronized(lock) {
@@ -44,15 +42,8 @@ class StationBerthAllocator(private val stoppingArea: (StationBerthRef) -> Stati
         berthOwners[key.berthRef]?.let { current ->
             return@synchronized StationBerthAllocationResult.Conflict(key.berthRef, current)
         }
-        val area = stoppingArea(key.berthRef)
-        require(area.stationId == key.berthRef.stationId)
-        areaOwners[area]?.let { current ->
-            return@synchronized StationBerthAllocationResult.Conflict(key.berthRef, current)
-        }
         allocations[key] = key
-        areaOwners[area] = key
         berthOwners[key.berthRef] = key
-        allocatedAreas[key] = area
         StationBerthAllocationResult.Confirmed(key)
     }
 
@@ -81,12 +72,11 @@ class StationBerthAllocator(private val stoppingArea: (StationBerthRef) -> Stati
     @MainThread
     fun release(key: StationBerthAllocationKey): Boolean = synchronized(lock) {
         if (allocations.remove(key) == null) return@synchronized false
-        areaOwners.remove(checkNotNull(allocatedAreas.remove(key)), key)
         berthOwners.remove(key.berthRef, key)
         true
     }
 
-    fun isAllocated(area: StationStoppingAreaRef): Boolean = synchronized(lock) { area in areaOwners }
+    fun isAllocated(berthRef: StationBerthRef): Boolean = synchronized(lock) { berthRef in berthOwners }
 
     fun allocations(): List<StationBerthAllocationKey> = synchronized(lock) {
         allocations.keys.toList()

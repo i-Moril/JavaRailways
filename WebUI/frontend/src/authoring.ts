@@ -15,7 +15,6 @@ export interface AuthoringRunCallV1 {
   targetId:string;
   arrivalTick?:number|null;
   departureTick?:number|null;
-  minimumDwellTicks?:number|null;
   stoppingOffsetMetersBefore?:number|null;
   doorSide?:AuthoringDoorSide|null;
   viaIds?:string[];
@@ -54,6 +53,7 @@ export interface TimetableAuthoringDocumentV1 {
   id:string;
   formalScriptName?:string;
   periodDays:number;
+  minimumDwellTicks?:number;
   runs:AuthoringRunV1[];
   duties:AuthoringDutyV1[];
   diagramLines:DiagramLineV1[];
@@ -66,8 +66,17 @@ export interface TimetableAuthoringDocumentV1 {
 }
 /** Serialize only the current editor contract, never derived runtime line caps. */
 export function authoringDocumentForSave(document:TimetableAuthoringDocumentV1):TimetableAuthoringDocumentV1 {
-  const {formatVersion,id,formalScriptName,periodDays,runs,duties,diagramLines,arrivalOverrides,boundPrograms,formationEvents,operationalTrips,stationPrograms,events}=document;
-  return {formatVersion,id,formalScriptName,periodDays,runs,duties,diagramLines,arrivalOverrides,boundPrograms,formationEvents,operationalTrips,stationPrograms,events};
+  const {formatVersion,id,formalScriptName,periodDays,minimumDwellTicks,runs,duties,diagramLines,arrivalOverrides,boundPrograms,formationEvents,operationalTrips,stationPrograms,events}=document;
+  return {formatVersion,id,formalScriptName,periodDays,minimumDwellTicks,runs:runs.map((run)=>({...run,calls:run.calls.map(authoringCallForSave)})),duties,diagramLines,arrivalOverrides,boundPrograms,formationEvents,operationalTrips,stationPrograms,events};
+}
+/** Project only the current call contract at the persistence and generated-metadata boundaries. */
+function authoringCallForSave(call:AuthoringRunCallV1):AuthoringRunCallV1 {
+  const {id,stationId,berthId,status,targetId,arrivalTick,departureTick,stoppingOffsetMetersBefore,doorSide,viaIds}=call;
+  return {id,stationId,berthId,status,targetId,arrivalTick,departureTick,stoppingOffsetMetersBefore,doorSide,viaIds};
+}
+/** One timetable-wide minimum, in ticks. A missing field has the explicit default zero. */
+export function authoringMinimumDwell(document:Pick<TimetableAuthoringDocumentV1,'minimumDwellTicks'>):number {
+  return document.minimumDwellTicks??0;
 }
 export interface AuthoringIssue {path:string;message:string;severity:'error'|'warning'}
 export interface GeneratedTimetableSource {
@@ -166,7 +175,7 @@ function newRunCall(
   const berth=stationBerths(metadata,stationId)[0];
   return {
     id:idFactory(stationId,index),stationId,berthId:berth?.berthId??null,status,
-    targetId:berth?.destinationId??'',arrivalTick:null,departureTick:null,minimumDwellTicks:null,
+    targetId:berth?.destinationId??'',arrivalTick:null,departureTick:null,
     doorSide:null,stoppingOffsetMetersBefore:null,
   };
 }
@@ -196,9 +205,9 @@ export function resizeRunRoute(
     const existing=existingByStation.get(station);
     const status:AuthoringRunCallStatusV1=index===0?'ORIGIN':index===selectedStations.length-1?'TERMINAL':existing?.status==='PASS'?'PASS':'STOP';
     const call=existing?{...existing,status}:newRunCall(station,index,status,metadata,idFactory);
-    if(status==='ORIGIN') return {...call,arrivalTick:null,minimumDwellTicks:null};
+    if(status==='ORIGIN') return {...call,arrivalTick:null};
     if(status==='TERMINAL') return call;
-    if(status==='PASS') return {...call,departureTick:null,minimumDwellTicks:null};
+    if(status==='PASS') return {...call,departureTick:null};
     return call;
   });
   return {...run,diagramLineId:line.id,lineDirection:direction,calls};
@@ -223,7 +232,7 @@ export function resetRunTimings(
   if(!Number.isInteger(fixedDwellTicks)||fixedDwellTicks<0) throw new Error('fixed dwell ticks must be a non-negative integer');
   if(run.calls.length<2||simulation.legs.length!==run.calls.length-1) throw new Error('simulation does not match route table');
   const calls=run.calls.map((call)=>({...call}));
-  calls[0]={...calls[0],status:'ORIGIN',arrivalTick:null,departureTick:firstDepartureTick,minimumDwellTicks:null};
+  calls[0]={...calls[0],status:'ORIGIN',arrivalTick:null,departureTick:firstDepartureTick};
   let cursor=firstDepartureTick;
   simulation.legs.forEach((leg,index)=>{
     const from=calls[index];
@@ -234,9 +243,9 @@ export function resetRunTimings(
     if(index===simulation.legs.length-1) {
       calls[index+1]={...to,status:'TERMINAL',arrivalTick:cursor};
     } else if(to.status==='PASS') {
-      calls[index+1]={...to,arrivalTick:cursor,departureTick:null,minimumDwellTicks:null};
+      calls[index+1]={...to,arrivalTick:cursor,departureTick:null};
     } else {
-      calls[index+1]={...to,status:'STOP',arrivalTick:cursor,departureTick:cursor+fixedDwellTicks,minimumDwellTicks:fixedDwellTicks};
+      calls[index+1]={...to,status:'STOP',arrivalTick:cursor,departureTick:cursor+fixedDwellTicks};
       cursor+=fixedDwellTicks;
     }
   });
@@ -250,8 +259,9 @@ export type RunMoveMode='OFFSET'|'ABSOLUTE';
 
 /** Moves every timestamp in a run by one delta derived from a selected call timestamp. */
 export function moveRunFromCall(
-  run:AuthoringRunV1,anchorCallId:string,event:RunMoveEvent,mode:RunMoveMode,value:number,periodTicks:number,
+  run:AuthoringRunV1,anchorCallId:string,event:RunMoveEvent,mode:RunMoveMode,value:number,periodTicks:number,minimumDwellTicks=0,
 ):ShiftedRunPreview {
+  requireRunMinimumDwell(run,minimumDwellTicks);
   const anchor=run.calls.find((call)=>call.id===anchorCallId);
   if(!anchor)throw new Error('move anchor does not exist');
   const anchorTick=event==='ARRIVAL'?anchor.arrivalTick:anchor.departureTick;
@@ -272,14 +282,14 @@ export function moveRunFromCall(
 }
 
 export function shiftRunFromDeparture(
-  run:AuthoringRunV1,anchorCallId:string,targetDepartureTick:number,periodTicks:number,
+  run:AuthoringRunV1,anchorCallId:string,targetDepartureTick:number,periodTicks:number,minimumDwellTicks=0,
 ):ShiftedRunPreview {
   const anchorIndex=run.calls.findIndex((call)=>call.id===anchorCallId);
   if(anchorIndex<0)throw new Error('shift departure anchor does not exist');
   const anchor=run.calls[anchorIndex];
   if(anchor.departureTick==null)throw new Error('shift anchor requires a departure time');
   if(!Number.isSafeInteger(targetDepartureTick)||targetDepartureTick<0)throw new Error('target departure must be a non-negative integer');
-  const earliestDeparture=(anchor.arrivalTick??0)+(anchor.minimumDwellTicks??0);
+  const earliestDeparture=(anchor.arrivalTick??0)+(anchor.status==='PASS'?0:minimumDwellTicks);
   if(anchor.arrivalTick!=null&&targetDepartureTick<earliestDeparture)throw new Error('target departure violates minimum dwell');
   const deltaTicks=targetDepartureTick-anchor.departureTick;
   let affectedTimeCount=1;
@@ -290,6 +300,7 @@ export function shiftRunFromDeparture(
     if(call.departureTick!=null)affectedTimeCount++;
     return {...call,arrivalTick:shiftedTick(call.arrivalTick,deltaTicks),departureTick:shiftedTick(call.departureTick,deltaTicks)};
   });
+  requireRunMinimumDwell({...run,calls},minimumDwellTicks);
   if(calls.some((call)=>[call.arrivalTick,call.departureTick].some((tick)=>tick!=null&&(tick<0||tick>=periodTicks)))) {
     throw new Error('shifted time is outside the timetable period');
   }
@@ -298,16 +309,23 @@ export function shiftRunFromDeparture(
 
 export function copyRunShifted(
   run:AuthoringRunV1,newId:string,offsetTicks:number,
-  idFactory:RunCallIdFactory=(station,index)=>`${newId}-call-${index}-${station}`,
+  idFactory:RunCallIdFactory=(station,index)=>`${newId}-call-${index}-${station}`,minimumDwellTicks=0,
 ):AuthoringRunV1 {
+  requireRunMinimumDwell(run,minimumDwellTicks);
   if(!newId.trim()) throw new Error('copied run id is required');
   if(!Number.isInteger(offsetTicks)) throw new Error('copy offset must be an integer');
-  let stepIndex=0;
   return {...run,id:newId,calls:run.calls.map((call,index)=>({
     ...call,id:idFactory(call.stationId,index),arrivalTick:shiftedTick(call.arrivalTick,offsetTicks),
     departureTick:shiftedTick(call.departureTick,offsetTicks),
 
   }))};
+}
+
+function requireRunMinimumDwell(run:AuthoringRunV1,minimumDwellTicks:number):void {
+  if(!Number.isSafeInteger(minimumDwellTicks)||minimumDwellTicks<0)throw new Error('Minimum dwell must be a non-negative integer');
+  if(run.calls.some((call)=>call.status!=='PASS'&&call.arrivalTick!=null&&call.departureTick!=null&&call.departureTick-call.arrivalTick<minimumDwellTicks)) {
+    throw new Error('Departure violates minimum dwell');
+  }
 }
 
 const issue=(path:string,message:string):AuthoringIssue=>({path,message,severity:'error'});
@@ -321,6 +339,8 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
   if(document.formatVersion!==1) issues.push(issue('formatVersion','Unsupported editor document version'));
   if(!document.id.trim()) issues.push(issue('id','Timetable ID is required'));
   if(!Number.isSafeInteger(document.periodDays)||document.periodDays<1) issues.push(issue('periodDays','Period days must be a positive integer'));
+  if(document.minimumDwellTicks!==undefined&&!nonNegativeInteger(document.minimumDwellTicks)) issues.push(issue('minimumDwellTicks','Minimum dwell must be a non-negative integer'));
+  const minimumDwellTicks=authoringMinimumDwell(document);
   const periodTicks=Math.max(0,document.periodDays*24_000);
   const diagramLineIds=new Set<string>();
   document.diagramLines.forEach((line,lineIndex)=>{
@@ -375,9 +395,9 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
         if(value!=null&&(!nonNegativeInteger(value)||value>=periodTicks)) issues.push(issue(`${callPath}.${name}`,`${name} must be inside the timetable period`));
       }
       if(call.viaIds&&(!Array.isArray(call.viaIds)||call.viaIds.some((id)=>typeof id!=='string'||!id.trim())||new Set(call.viaIds).size!==call.viaIds.length))issues.push(issue(`${callPath}.viaIds`,'Invalid ordered via waypoints'));
-      if(call.minimumDwellTicks!=null&&!nonNegativeInteger(call.minimumDwellTicks)) issues.push(issue(`${callPath}.minimumDwellTicks`,'Minimum dwell must be a non-negative integer'));
       if(call.stoppingOffsetMetersBefore!=null&&(!Number.isFinite(call.stoppingOffsetMetersBefore)||call.stoppingOffsetMetersBefore<0)) issues.push(issue(`${callPath}.stoppingOffsetMetersBefore`,'Stopping offset must be finite and non-negative'));
-      if(call.arrivalTick!=null&&call.departureTick!=null&&call.departureTick<call.arrivalTick) issues.push(issue(callPath,'Departure must not be earlier than arrival'));
+      const effectiveArrival=document.arrivalOverrides.find((override)=>override.runId===run.id&&override.callId===call.id)?.tick??call.arrivalTick;
+      if(effectiveArrival!=null&&call.departureTick!=null&&call.departureTick-effectiveArrival<(call.status==='PASS'?0:minimumDwellTicks)) issues.push(issue(callPath,'Departure violates arrival or minimum dwell'));
       if(call.status==='PASS'&&call.departureTick!=null) issues.push(issue(`${callPath}.departureTick`,'Pass rows cannot have a departure tick'));
       if(callIndex<run.calls.length-1&&call.status!=='PASS'&&call.departureTick==null) issues.push(issue(`${callPath}.departureTick`,'Every stopping non-terminal call requires a departure tick'));
     });
@@ -434,7 +454,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
           if(previousTerminal&&nextOrigin&&previousTerminal!==nextOrigin) issues.push(issue(elementPath,`Run location discontinuity: ${previousTerminal} -> ${nextOrigin}`));
           const terminal=previousRun.calls.at(-1);
           const previousArrival=document.arrivalOverrides.find((override)=>override.runId===previousRun!.id&&override.callId===terminal?.id)?.tick??terminal?.arrivalTick;
-          const previousEnd=Math.max(previousArrival==null?0:previousArrival+(terminal?.minimumDwellTicks??0),terminal?.departureTick??0);
+          const previousEnd=Math.max(previousArrival==null?0:previousArrival+minimumDwellTicks,terminal?.departureTick??0);
           const nextStart=run.calls[0]?.departureTick;
           if(previousEnd!=null&&nextStart!=null&&nextStart<previousEnd) issues.push(issue(elementPath,`Run overlaps previous run by ${previousEnd-nextStart} ticks`));
         }
@@ -442,7 +462,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
           const runStart=run.calls[0]?.departureTick;
           const terminal=run.calls.at(-1);
           const arrival=document.arrivalOverrides.find((override)=>override.runId===run.id&&override.callId===terminal?.id)?.tick??terminal?.arrivalTick;
-          const runEnd=Math.max(arrival==null?0:arrival+(terminal?.minimumDwellTicks??0),terminal?.departureTick??0);
+          const runEnd=Math.max(arrival==null?0:arrival+minimumDwellTicks,terminal?.departureTick??0);
           if(previousElementEndTick!=null&&runStart!=null&&runStart<previousElementEndTick) issues.push(issue(elementPath,`Run starts before the previous duty element completes by ${previousElementEndTick-runStart} ticks`));
           if(runEnd!=null) previousElementEndTick=Math.max(previousElementEndTick??0,runEnd);
           previousRun=run;
@@ -583,8 +603,9 @@ function stopOptions(document:TimetableAuthoringDocumentV1,duty:AuthoringDutyV1,
  const periodTicks=document.periodDays*24000;
  return {stationId:call.stationId,callId:call.id,callRole:call.status,departureTick:call.departureTick??undefined,stationProgram:{arrival:resolveEventWaits(shared.arrival,document.events??[],periodTicks),departurePreparation:resolveEventWaits(shared.departurePreparation,document.events??[],periodTicks),preparationLead:shared.preparationLead},plannedContext:{runId:run.id,runType:run.type,lineId:run.lineId??'',lineDirection:run.lineDirection,stationId:call.stationId,callStatus:call.status,dutyId:duty.id}};
 }
+const runDoorSide=(run:AuthoringRunV1,call:AuthoringRunCallV1)=>call.doorSide??(run.type==='DEADHEAD'?'NONE':undefined);
 function destinationOptions(document:TimetableAuthoringDocumentV1,duty:AuthoringDutyV1,run:AuthoringRunV1,call:AuthoringRunCallV1,override?:number):string {
- return `, JSON.parse(${quote(JSON.stringify({...stopOptions(document,duty,run,call),arrivalTick:override??call.arrivalTick??undefined,minimumDwellTicks:call.minimumDwellTicks??undefined,stoppingOffsetMetersBefore:call.stoppingOffsetMetersBefore??undefined,doorSide:call.doorSide??undefined}))})`;
+ return `, JSON.parse(${quote(JSON.stringify({...stopOptions(document,duty,run,call),arrivalTick:override??call.arrivalTick??undefined,minimumDwellTicks:call.status==='PASS'?undefined:authoringMinimumDwell(document),stoppingOffsetMetersBefore:call.stoppingOffsetMetersBefore??undefined,doorSide:runDoorSide(run,call)}))})`;
 }
 
 export function generateTimetableSource(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[]):GeneratedTimetableSource {
@@ -635,7 +656,7 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1,in
         const run=document.runs.find((candidate)=>candidate.id===element.runId);
         if(!run) continue;
         const scoped='runScope';
-        const segment={runId:run.id,lineId:run.lineId,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,calls:run.calls.map(({targetId,berthId:_,minimumDwellTicks:__,stoppingOffsetMetersBefore:___,doorSide:____,...call})=>({...call,destinationId:targetId,arrivalTick:document.arrivalOverrides.find((o)=>o.runId===run.id&&o.callId===call.id)?.tick??call.arrivalTick}))};
+        const segment={runId:run.id,lineId:run.lineId,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,calls:run.calls.map(authoringCallForSave).map(({targetId,berthId:_,stoppingOffsetMetersBefore:__,doorSide:___,...call})=>({...call,destinationId:targetId,arrivalTick:document.arrivalOverrides.find((o)=>o.runId===run.id&&o.callId===call.id)?.tick??call.arrivalTick}))};
         lines.push(`        t.origin(${quote(origin(duty.id,element.id,run.id))}, scoped => {`, `          scoped.runSegment(JSON.parse(${quote(JSON.stringify(segment))}), ${scoped} => {`);
         if(!emittedCheck&&duty.selector.type==='TRAIN_NAME'&&run.calls[0]?.targetId) {
           lines.push(`            ${scoped}.check(${quote(run.calls[0].targetId)})`);
@@ -643,7 +664,7 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1,in
         }
         const first=run.calls[0];
         if(first?.departureTick!=null){
-          const options={...stopOptions(document,duty,run,first),doorSide:first.doorSide??undefined,minimumDwellTicks:first.minimumDwellTicks??undefined};
+          const options={...stopOptions(document,duty,run,first),doorSide:runDoorSide(run,first),minimumDwellTicks:authoringMinimumDwell(document)};
           lines.push(`            ${scoped}.beginStationStop(${quote(first.targetId)}, JSON.parse(${quote(JSON.stringify(options))}))`);
         }
         let routeAnchor=run.calls[0];
@@ -707,7 +728,7 @@ export function editRunConnection(document:TimetableAuthoringDocumentV1,fromRunI
   const from=document.runs.find((r)=>r.id===fromRunId),to=document.runs.find((r)=>r.id===toRunId);
   const linked=document.duties.some((d)=>d.elements.some((e,i)=>e.type==='RUN'&&e.runId===fromRunId&&d.elements[i+1]?.type==='RUN'&&(d.elements[i+1] as {runId:string}).runId===toRunId));
   if(!from||!to||!linked||from.calls.at(-1)?.targetId!==to.calls[0]?.targetId)throw new Error('Connection is no longer current');
-  if([arrivalTick,departureTick].some((v)=>v!=null&&(!Number.isSafeInteger(v)||v<0||v>=document.periodDays*24000))||arrivalTick!=null&&departureTick!=null&&departureTick<arrivalTick+(from.calls.at(-1)?.minimumDwellTicks??0))throw new Error('Connection violates timetable period or minimum dwell');
+  if([arrivalTick,departureTick].some((v)=>v!=null&&(!Number.isSafeInteger(v)||v<0||v>=document.periodDays*24000))||arrivalTick!=null&&departureTick!=null&&departureTick<arrivalTick+authoringMinimumDwell(document))throw new Error('Connection violates timetable period or minimum dwell');
   return {...document,runs:document.runs.map((r)=>r===from?{...r,calls:r.calls.map((c,i)=>i===r.calls.length-1?{...c,arrivalTick}:c)}:r===to?{...r,calls:r.calls.map((c,i)=>i===0?{...c,departureTick}:c)}:r),arrivalOverrides:document.arrivalOverrides.filter((o)=>o.runId!==fromRunId||o.callId!==from.calls.at(-1)?.id)};
 }
 export function validateOperationalTrips(document:TimetableAuthoringDocumentV1):AuthoringIssue[] {

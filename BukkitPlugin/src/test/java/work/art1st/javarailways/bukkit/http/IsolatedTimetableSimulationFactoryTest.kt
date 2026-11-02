@@ -23,7 +23,8 @@ import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.api.line.Line
 import work.art1st.javarailways.simpleato.api.line.LineId
 import work.art1st.javarailways.basic.api.operation.DoorSide
-import work.art1st.javarailways.simpleato.api.station.StationId
+import work.art1st.javarailways.simpleato.api.station.*
+import work.art1st.javarailways.simpleato.api.mission.WayPointRef
 import work.art1st.javarailways.simpleato.timetable.Timetable
 import work.art1st.javarailways.simpleato.timetable.TimetableFormationCatalog
 import work.art1st.javarailways.simpleato.timetable.TimetableFormationEvent
@@ -727,7 +728,7 @@ class IsolatedTimetableSimulationFactoryTest {
         for ((id, arc) in listOf("short" to 120.0, "long" to 120.0)) {
             OperationalDestinationService(source).register(OperationalDestination("central@$id", rail.id, arc,
                 ViewDirection.AB, DestinationRole.StationBerthRole(station, berthId = id, doorSide = DoorSide.NONE,
-                    usableLengthMeters = 30.0, maximumTrainLengthMeters = if (id == "short") 5.0 else 30.0,
+                    usableLengthMeters = if (id == "short") 5.0 else 30.0,
                     defaultDwellTicks = 10)))
         }
         val selection = work.art1st.javarailways.simpleato.api.station.StationStopSelection(station,
@@ -1119,6 +1120,101 @@ class IsolatedTimetableSimulationFactoryTest {
         assertTrue(failure.message!!.contains("equivalent selectors"))
         source.physicsCoordinator.close()
         (source.tickManager as? AutoCloseable)?.close()
+    }
+
+    @Test
+    fun `capture rejects a station resolver without detached simulation preparation`() {
+        val source = createTestWorld()
+        registerWorldData(source)
+        try {
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(200.0, 1))
+            OperationalDestinationService(source).register(OperationalDestination("origin", rail.id, 30.0,
+                ViewDirection.AB, DestinationRole.Regular))
+            source.onOwnerForTest {
+                source.simpleAtoWorldData.stationCallResolvers.register(StationCallResolutionProvider {
+                    StationCallResolutionResult.Success(it.defaultResolution)
+                })
+            }
+            val failure = assertThrows(IllegalArgumentException::class.java) {
+                testSimulationFactory().capture(source, standaloneCall(listOf(TimetableAction.Stop(1))),
+                    templateSelection(), standaloneServices())
+            }
+            assertTrue(failure.message.orEmpty().contains("station call resolver"), failure.toString())
+        } finally {
+            source.physicsCoordinator.close()
+            (source.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
+    fun `captured station resolver installs independent policies and never calls live policy again`() {
+        val source = createTestWorld()
+        registerWorldData(source)
+        try {
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(200.0, 1))
+            OperationalDestinationService(source).register(OperationalDestination("origin", rail.id, 30.0,
+                ViewDirection.AB, DestinationRole.Regular))
+            val station = StationId("central")
+            OperationalDestinationService(source).register(OperationalDestination("central@one", rail.id, 120.0,
+                ViewDirection.AB, DestinationRole.StationBerthRole(station, berthId = "one", doorSide = DoorSide.NONE,
+                    usableLengthMeters = 30.0)))
+            var liveReleaseDistance = 2.0
+            var preparations = 0
+            var liveCalls = 0
+            val targetCalls = mutableListOf<Int>()
+            val targetProviders = mutableListOf<StationCallResolutionProvider>()
+            val liveProvider = object : StationCallResolutionProvider, StationCallResolutionSimulationFactory {
+                override fun resolve(context: StationCallResolutionContext): StationCallResolutionResult {
+                    liveCalls++
+                    return StationCallResolutionResult.Success(context.defaultResolution.copy(releaseDistanceMetersAfter = liveReleaseDistance))
+                }
+                override fun prepareSimulation(): StationCallResolutionSimulationPreparation {
+                    preparations++
+                    val capturedReleaseDistance = liveReleaseDistance
+                    return StationCallResolutionSimulationPreparation {
+                        val index = targetCalls.size
+                        targetCalls += 0
+                        StationCallResolutionProvider { context ->
+                            targetCalls[index]++
+                            StationCallResolutionResult.Success(context.defaultResolution.copy(releaseDistanceMetersAfter = capturedReleaseDistance))
+                        }.also { targetProviders += it }
+                    }
+                }
+            }
+            source.onOwnerForTest { source.simpleAtoWorldData.stationCallResolvers.register(liveProvider) }
+            val factory = testSimulationFactory()
+            val timetable = standaloneCall(listOf(TimetableAction.Stop(1)))
+            val captured = factory.capture(source, timetable, templateSelection(), standaloneServices())
+            liveReleaseDistance = 7.0
+            factory.create(captured, 1).use { first ->
+                factory.create(captured, 1).use { second ->
+                    assertNotSame(first.world.simpleAtoWorldData.stationCallResolvers,
+                        second.world.simpleAtoWorldData.stationCallResolvers)
+                    assertEquals(2, targetProviders.size)
+                    assertNotSame(targetProviders[0], targetProviders[1])
+                    assertTrue(targetProviders.none { it === liveProvider })
+                    fun resolve(world: CoreWorld): ResolvedStationCall = world.onOwnerForTest {
+                        val result = StationCallResolver(world).resolve(StationCallRequest("detached-test",
+                            WayPointRef("origin"), StationCall("call", 1L, station, StationBerthRef(station, "one"),
+                                dwellPlan = DwellPlan(0L))), trainLengthMeters = 10.0,
+                            requiredStartDirection = ViewDirection.AB)
+                        assertTrue(result is StationCallResolutionResult.Success, result.toString())
+                        (result as StationCallResolutionResult.Success).resolved
+                    }
+                    assertEquals(2.0, resolve(first.world).releaseDistanceMetersAfter)
+                    assertEquals(2.0, resolve(first.world).releaseDistanceMetersAfter)
+                    assertEquals(listOf(2, 0), targetCalls)
+                    assertEquals(2.0, resolve(second.world).releaseDistanceMetersAfter)
+                    assertEquals(listOf(2, 1), targetCalls)
+                    assertEquals(1, preparations)
+                    assertEquals(0, liveCalls)
+                }
+            }
+            assertTrue(source.allTrains.isEmpty())
+        } finally {
+            source.physicsCoordinator.close()
+            (source.tickManager as AutoCloseable).close()
+        }
     }
 
     @Test

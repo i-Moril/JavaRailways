@@ -65,7 +65,10 @@ enum class StationCallResolutionFailure {
     BERTH_DIRECTION_UNAVAILABLE,
     ROUTE_UNAVAILABLE,
     TRAIN_TOO_LONG,
-    TRAIN_LENGTH_INELIGIBLE,
+    POLICY_REJECTED,
+    RESOLVER_UNAVAILABLE,
+    RESOLVER_ERROR,
+    RESOLVER_INVALID_RESULT,
     MISSION_REVISION_MISMATCH
 }
 
@@ -135,16 +138,6 @@ class StationCallResolver(private val world: World) {
             )
         }
 
-        if (trainLengthMeters != null &&
-            (berth.minimumTrainLengthMeters?.let { trainLengthMeters < it } == true ||
-                berth.maximumTrainLengthMeters?.let { trainLengthMeters > it } == true)
-        ) {
-            return failure(
-                StationCallResolutionFailure.TRAIN_LENGTH_INELIGIBLE,
-                "train length $trainLengthMeters is outside marker ${request.call.berthRef} eligibility"
-            )
-        }
-
         val target = WayPoint(
             id = "station-call:${request.call.callId}:${request.call.berthRef}",
             railId = berth.location.rail.id,
@@ -185,18 +178,22 @@ class StationCallResolver(private val world: World) {
             revision = request.call.missionRevision,
             expandedRoute = expanded
         )
-        return StationCallResolutionResult.Success(
-            ResolvedStationCall(
-                request = request,
-                plannedRoute = planned,
-                stoppingOffsetMetersBefore = request.call.stoppingOffsetMetersBeforeOverride
-                    ?: berth.stoppingOffsetMetersBefore,
-                positionToleranceMeters = berth.positionToleranceMeters,
-                usableLengthMeters = berth.usableLengthMeters,
-                releaseDistanceMetersAfter = berth.releaseDistanceMetersAfter,
-                doorSide = request.call.doorSideOverride ?: berth.doorSide
-            )
+        val defaults = ResolvedStationCall(
+            request = request,
+            plannedRoute = planned,
+            stoppingOffsetMetersBefore = request.call.stoppingOffsetMetersBeforeOverride
+                ?: berth.stoppingOffsetMetersBefore,
+            positionToleranceMeters = berth.positionToleranceMeters,
+            usableLengthMeters = berth.usableLengthMeters,
+            releaseDistanceMetersAfter = berth.releaseDistanceMetersAfter,
+            doorSide = request.call.doorSideOverride ?: berth.doorSide
         )
+        return operationalData.stationCallResolvers.resolve(StationCallResolutionContext(
+            defaults,
+            StationCallBerthSnapshot(berth.berthRef, berth.location.rail.id,
+                berth.location.arcLengthIn(ViewDirection.AB), berth.approachDirection),
+            trainLengthMeters, requiredStartDirection, retainedTopology ?: world.topologyState
+        ))
     }
 
     private fun failure(

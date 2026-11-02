@@ -644,8 +644,7 @@ class TimetableFormationDispatcherTest {
                     OperationalDestinationService(world).register(OperationalDestination("marker@$id", rail.id, arc,
                         work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB,
                         DestinationRole.StationBerthRole(station, berthId = id, doorSide = DoorSide.NONE,
-                            usableLengthMeters = 30.0, minimumTrainLengthMeters = if (id == "long") 16.0 else null,
-                            maximumTrainLengthMeters = if (id == "short") 15.0 else 25.0)))
+                            usableLengthMeters = if (id == "short") 15.0 else 25.0)))
                 }
                 world.simpleAtoWorldData.timetableExtensions.registerAction(object : TimetableActionProvider {
                     override val typeId = "test:published-output-observation"

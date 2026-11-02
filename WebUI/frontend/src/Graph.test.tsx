@@ -81,12 +81,12 @@ describe('running graph styling',()=>{
     expect(selected.match(/<polyline[^>]*stroke-width="2"/g)).toHaveLength(1);
     expect(selected.match(/<polyline[^>]*stroke-width="1"/g)).toHaveLength(1);
     expect(selected).toContain('opacity="0.28"');
-    expect(selected).toContain('r="6"');expect(selected).toContain('r="4.5"');
+    expect(selected).not.toContain('data-graph-point-preview');expect(selected).toContain('fill="transparent" stroke="none"');
   });
   it('uses the shared automatic color resolver for each service when no line color is specified',()=>{
     const paths=render().match(/<polyline[^>]*>/g)!;
-    expect(paths[0]).toContain(`stroke="${graphServiceColor('dark',0)}"`);
-    expect(paths[1]).toContain(`stroke="${graphServiceColor('dark',1)}"`);
+    expect(paths[0]).toContain(`stroke="${graphServiceColor('dark','run-0',['run-0','run-1'])}"`);
+    expect(paths[1]).toContain(`stroke="${graphServiceColor('dark','run-1',['run-0','run-1'])}"`);
   });
   it('uses the run color before line color, preserves fallback and preview styling',()=>{
     const html=render({line:{id:'airport',displayName:'Airport',upStationIds:['harbour','airport'],downStationIds:[],color:'#123456'},serviceColors:new Map([['AP101','#abcdef']]),previewServiceIds:new Set(['AP101'])});

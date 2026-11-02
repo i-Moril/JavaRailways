@@ -40,11 +40,6 @@ data class StationBerthRef(
     }
 }
 
-/** Logical capacity shared by explicitly grouped stopping markers at one station. */
-data class StationStoppingAreaRef(val stationId: StationId, val areaId: String) {
-    init { requireValidId("stoppingAreaId", areaId) }
-}
-
 /**
  * Passive rail marker for one head-aligned stopping position.
  *
@@ -61,9 +56,6 @@ class StationBerth(
     val defaultDwellTicks: Long? = null,
     val releaseDistanceMetersAfter: Double = 0.0,
     val doorSide: DoorSide = DoorSide.NONE,
-    val stoppingAreaId: String = berthRef.berthId,
-    val minimumTrainLengthMeters: Double? = null,
-    val maximumTrainLengthMeters: Double? = null
 ) : RailObject {
     init {
         require(stoppingOffsetMetersBefore.isFinite() && stoppingOffsetMetersBefore >= 0.0)
@@ -72,14 +64,6 @@ class StationBerth(
             usableLengthMeters.isFinite() && usableLengthMeters > 0.0)
         require(defaultDwellTicks == null || defaultDwellTicks >= 0L)
         require(releaseDistanceMetersAfter.isFinite() && releaseDistanceMetersAfter >= 0.0)
-    }
-
-    val stoppingAreaRef = StationStoppingAreaRef(berthRef.stationId, stoppingAreaId)
-
-    init {
-        require(minimumTrainLengthMeters == null || minimumTrainLengthMeters.isFinite() && minimumTrainLengthMeters > 0.0)
-        require(maximumTrainLengthMeters == null || maximumTrainLengthMeters.isFinite() && maximumTrainLengthMeters > 0.0)
-        require(minimumTrainLengthMeters == null || maximumTrainLengthMeters == null || minimumTrainLengthMeters <= maximumTrainLengthMeters)
     }
 
     override val ref: RailObjectRef = berthRef.railObjectRef

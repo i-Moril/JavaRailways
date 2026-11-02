@@ -87,19 +87,6 @@ class StationCallResolverTest {
             retainedRoute = route, retainedTopology = topology) is StationCallResolutionResult.Failure)
     }
 
-    @Test
-    fun `marker eligibility differs from platform length and includes boundaries`() {
-        val fixture = fixture(minimumTrainLengthMeters = 20.0, maximumTrainLengthMeters = 40.0)
-        val resolver = StationCallResolver(fixture.world)
-        val request = StationCallRequest("run", WayPointRef("A"), fixture.call(1L))
-        for (length in listOf(19.0, 41.0)) {
-            val result = resolver.resolve(request, trainLengthMeters = length) as StationCallResolutionResult.Failure
-            assertEquals(StationCallResolutionFailure.TRAIN_LENGTH_INELIGIBLE, result.reason)
-        }
-        for (length in listOf(20.0, 40.0)) {
-            assertTrue(resolver.resolve(request, trainLengthMeters = length) is StationCallResolutionResult.Success)
-        }
-    }
 
     @Test
     fun `resolves explicit berth direction offset and route revision`() {
@@ -203,8 +190,6 @@ class StationCallResolverTest {
     private fun fixture(
         approachDirection: ViewDirection = ViewDirection.AB,
         registerStation: Boolean = true,
-        minimumTrainLengthMeters: Double? = null,
-        maximumTrainLengthMeters: Double? = null
     ): Fixture {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val data = BasicWorldData()
@@ -225,8 +210,6 @@ class StationCallResolverTest {
             stoppingOffsetMetersBefore = 1.0,
             positionToleranceMeters = 0.2,
             usableLengthMeters = 100.0,
-            minimumTrainLengthMeters = minimumTrainLengthMeters,
-            maximumTrainLengthMeters = maximumTrainLengthMeters,
             defaultDwellTicks = 40L,
             releaseDistanceMetersAfter = 4.0,
             doorSide = DoorSide.LEFT

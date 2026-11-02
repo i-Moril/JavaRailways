@@ -27,6 +27,29 @@ class StationStopProgramSnapshotTest {
         }
     }
 
+    @Test fun `ordinary door actions round trip with nullable explicit side and reject NONE override`() {
+        val actions = listOf(TimetableAction.OpenDoors(),
+            TimetableAction.OpenDoors(work.art1st.javarailways.basic.api.operation.DoorSide.LEFT),
+            TimetableAction.OpenDoors(work.art1st.javarailways.basic.api.operation.DoorSide.RIGHT),
+            TimetableAction.OpenDoors(work.art1st.javarailways.basic.api.operation.DoorSide.BOTH), TimetableAction.CloseDoors)
+        for (action in actions) {
+            val saved = SavedTimetableActionV1.capture(action)
+            val json = Json.encodeToString(SavedTimetableActionV1.serializer(), saved)
+            assertEquals(action, Json.decodeFromString(SavedTimetableActionV1.serializer(), json).restore())
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            TimetableAction.OpenDoors(work.art1st.javarailways.basic.api.operation.DoorSide.NONE)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            SavedTimetableActionV1(SavedTimetableActionTypeV1.OPEN_DOORS,
+                doorSideOverride = work.art1st.javarailways.basic.api.operation.DoorSide.NONE)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            SavedTimetableActionV1(SavedTimetableActionTypeV1.CLOSE_DOORS,
+                doorSideOverride = work.art1st.javarailways.basic.api.operation.DoorSide.LEFT)
+        }
+    }
+
     @Test fun `invalid task graphs and termination cannot enter current model`() {
         fun create(actions: List<StationProgramAction>) = StationStopPrograms("s", "c", StationStopRole.STOP,
             actions, listOf(StationProgramAction.End), StationPreparationLead.constant(0), 10)

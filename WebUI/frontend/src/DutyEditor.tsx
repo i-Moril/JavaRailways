@@ -17,13 +17,14 @@ import { adoptStationProgram } from './stationPrograms';
 import { api } from './api';
 import { frontendDemoEnabled } from './frontendDev';
 import {
-  authoringGraphTimetable,authoringSelectorKey,createRunFromLine,deleteRunFromDocument,emptyAuthoringDocument,generateTimetableSource,moveRunToDuty,copyRunShifted,lineSimulationRoute,resetRunTimings,renameAuthoringRun,resolveAuthoringRunSelection,authoringResetProfile,
+  authoringMinimumDwell,authoringGraphTimetable,authoringSelectorKey,createRunFromLine,deleteRunFromDocument,emptyAuthoringDocument,generateTimetableSource,moveRunToDuty,copyRunShifted,lineSimulationRoute,resetRunTimings,renameAuthoringRun,resolveAuthoringRunSelection,authoringResetProfile,
   type AuthoringDutyV1,type AuthoringRunV1,type RunMoveMode,
   type TimetableAuthoringDocumentV1,
 } from './authoring';
 import {loadLastAuthoringDocument,rememberAuthoringDocument,resumeAuthoringWorkspace} from './authoringResume';
 import { clearAuthoringRecovery,loadAuthoringRecovery,saveAuthoringRecovery } from './authoringRecovery';
 import { useDocumentHistory } from './documentHistory';
+import { DocumentAutosave,type AutosaveState } from './documentAutosave';
 import { Graph,type GraphDutyOperationContext } from './Graph';
 import { getProgramBlockDraftValidity } from './ProgramBlockEditor';
 import { RunRouteEditor } from './RunRouteEditor';
@@ -102,18 +103,25 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   const [compiledState,setCompiledState]=useState<{result:CompiledTimetableSource;documentHashInput:string}>();
   const [compileFailure,setCompileFailure]=useState<{message:string;key:string}>();
   const [resetProfile,setResetProfile]=useState('');
-  const [fixedDwell,setFixedDwell]=useState(200);
   const [copyOffset,setCopyOffset]=useState(1200);
   const [copyCount,setCopyCount]=useState(1);
   const [focusedCall,setFocusedCall]=useState('');
   const [busy,setBusy]=useState(false);
+  const [resumeReady,setResumeReady]=useState(false);
+  const [autosaveState,setAutosaveState]=useState<AutosaveState>({status:'idle'});
+  const autosaveHandlers=useRef<{write:(id:string,document:TimetableAuthoringDocumentV1)=>Promise<{id:string}>;saved:(id:string,document:TimetableAuthoringDocumentV1)=>void}>({write:async()=>({id:''}),saved:()=>undefined});
+  const [autosave]=useState(()=>new DocumentAutosave<TimetableAuthoringDocumentV1>({
+    write:(id,document)=>autosaveHandlers.current.write(id,document),
+    onSaved:(id,document)=>autosaveHandlers.current.saved(id,document),
+    onState:(state)=>setAutosaveState((old)=>old.status===state.status&&old.error===state.error?old:state),
+  }));
   const profileAssignments=Object.fromEntries(value.duties.filter((duty)=>duty.referenceVehicle).map((duty)=>[duty.id,`${duty.referenceVehicle!.type}:${duty.referenceVehicle!.id}`]));
   const [delayThresholdTicks,setDelayThresholdTicks]=useState(initialRecovery?.delayThresholdTicks??1_200);
   const [executionTimeoutMillis,setExecutionTimeoutMillis]=useState(DEFAULT_SIMULATION_TIMEOUT_MILLIS);
   const simulationGeneration=useRef(0);
   const [simulationSetup,setSimulationSetup]=useState<{kind:'TIMETABLE'|'LINE';scope:string}>();
   const [simulationState,setSimulationState]=useState<{result:TimetableSimulationResult;inputKey:string}>();
-  const programDraftScope=JSON.stringify([recoveryOwner,world,documentId||blockDraftKey.current]);
+  const programDraftScope=JSON.stringify([recoveryOwner,world,blockDraftKey.current]);
   const editorDraftInvalid=reportedEditorDraftInvalid;
   const sharedStations=[...new Set(value.runs.flatMap((run)=>run.calls.filter((call)=>call.status!=='PASS').map((call)=>call.stationId)))].map((stationId)=>value.stationPrograms?.find((program)=>program.stationId===stationId)??defaultStationStopProgram(stationId));
   const arrivalDraftsInvalid=sharedStations.some((program)=>(['arrival','departurePreparation'] as const).some((phase)=>!getProgramBlockDraftValidity(`${programDraftScope}/station/${program.stationId}/${phase}`,program[phase],'arrival')));
@@ -167,7 +175,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   const pointSelectionValid=Boolean(selectedPoint&&selectedPoint.routeSignature===pointRouteSignature);
   const pointCall=pointSelectionValid?pointRun?.calls.find((call)=>call.id===selectedPoint?.callId):undefined;
   const pointTick=selectedPoint?.kind==='ARRIVAL'?pointCall?.arrivalTick:pointCall?.departureTick;
-  const nodeMinimumDwell=pointCall?.minimumDwellTicks??0;
+  const nodeMinimumDwell=pointCall?.status==='PASS'?0:authoringMinimumDwell(value);
   const nodeMinimumTick=selectedPoint?.kind==='DEPARTURE'&&pointCall?.arrivalTick!=null?Math.max(0,pointCall.arrivalTick+nodeMinimumDwell):0;
   const nodeMaximumTick=selectedPoint?.kind==='ARRIVAL'&&pointCall?.departureTick!=null?Math.min(value.periodDays*24000-1,pointCall.departureTick-nodeMinimumDwell):value.periodDays*24000-1;
   const moveCalculation=useMemo(()=>{
@@ -196,6 +204,19 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     if(JSON.stringify(state.document)===state.savedDocumentJson){clearAuthoringRecovery(state.owner,state.world);return;}
     saveAuthoringRecovery(state);
   };
+  autosaveHandlers.current={
+    write:async(id,document)=>{if(id){await api.saveEditorDocument(world,id,document);return {id};}return api.createEditorDocument(world,document);},
+    saved:(id,document)=>{
+      const snapshot=JSON.stringify(document);setDocumentId(id);savedDocumentJson.current=snapshot;
+      latestRecovery.current={...latestRecovery.current,documentId:id,savedDocumentJson:snapshot};
+      rememberAuthoringDocument(recoveryOwner,world,id);
+      if(liveInputs.current.documentJson===snapshot)clearAuthoringRecovery(recoveryOwner,world);else persistRecovery();
+      setDocuments((current)=>current.some((item)=>item.id===id)?current:[...current,{id,formalScriptName:document.formalScriptName??null}]);
+    },
+  };
+  useEffect(()=>{
+    autosave.update({scope:`${ownerIdentity.current}/${ownerEpoch.current}`,id:documentId,value,baseline:savedDocumentJson.current,enabled:resumeReady&&!!world});
+  },[autosave,value,documentId,resumeReady,world,busy,recoveryOwner]);
   const acceptLoadedDocument=(id:string,loaded:TimetableAuthoringDocumentV1)=>{
     blockDraftKey.current=id||loaded.id;invalidDrafts.current.clear();editorDraftValidity.current={valid:true,revision:editorDraftValidity.current.revision+1};setEditorDraftInvalid(false);
     previousSelectedRun.current=undefined;setDocumentId(id);setCompiledState(undefined);setSimulationState(undefined);setCompileFailure(undefined);
@@ -216,9 +237,10 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   useEffect(()=>{if(initialRecovery)onError(t('duties.recoveredLocalDraft'));},[]);
   useEffect(()=>{const timer=window.setTimeout(persistRecovery,250);return()=>window.clearTimeout(timer);},[value,documentId,formalScriptName,persistedFormalScriptName,selectedRun,selectedDuty,sidebarTab,graphLineId,delayThresholdTicks]);
   useEffect(()=>{
+    autosave.activate();
     const preserve=()=>persistRecovery();
     window.addEventListener('javarailways:unauthorized',preserve);window.addEventListener('beforeunload',preserve);
-    return()=>{preserve();ownerEpoch.current++;operationSerial.current++;window.removeEventListener('javarailways:unauthorized',preserve);window.removeEventListener('beforeunload',preserve);};
+    return()=>{preserve();autosave.dispose();ownerEpoch.current++;operationSerial.current++;window.removeEventListener('javarailways:unauthorized',preserve);window.removeEventListener('beforeunload',preserve);};
   },[]);
   useEffect(()=>{
     const epoch=ownerEpoch.current,input=liveInputs.current,serial=operationSerial.current;
@@ -228,11 +250,13 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
       documentId:loadLastAuthoringDocument(recoveryOwner,world),hasRecovery:Boolean(initialRecovery),demoAutoload:frontendDemoEnabled,isOwnerCurrent:()=>active,isCurrent,
       list:()=>api.editorDocuments(world),load:(id)=>api.editorDocument(world,id),onList:setDocuments,
       onMissing:()=>rememberAuthoringDocument(recoveryOwner,world,''),onResume:acceptLoadedDocument,
-    }).catch((error)=>{if(isCurrent())onError(String(error));});
+    }).catch((error)=>{if(isCurrent())onError(String(error));}).finally(()=>{if(active)setResumeReady(true);});
+    else setResumeReady(true);
     return()=>{active=false;};
   },[]);
-  const execute=async(operation:()=>Promise<void>,reportCurrent:()=>boolean=()=>true)=>{const serial=++operationSerial.current,identity=ownerIdentity.current;setBusy(true);onError('');try{await operation();}catch(error){if(reportCurrent()&&ownerIdentity.current===identity&&serial===operationSerial.current)onError(error instanceof Error?error.message:String(error));}finally{if(serial===operationSerial.current)setBusy(false);}};
+  const execute=async(operation:()=>Promise<void>,reportCurrent:()=>boolean=()=>true)=>{const serial=++operationSerial.current,identity=ownerIdentity.current;setBusy(true);onError('');try{await autosave.pause();if(ownerIdentity.current===identity)await operation();}catch(error){if(reportCurrent()&&ownerIdentity.current===identity&&serial===operationSerial.current)onError(error instanceof Error?error.message:String(error));}finally{const state=latestRecovery.current;autosave.update({scope:`${ownerIdentity.current}/${ownerEpoch.current}`,id:state.documentId,value:state.document,baseline:state.savedDocumentJson,enabled:resumeReady&&!!world});autosave.resume();if(serial===operationSerial.current)setBusy(false);}};
   const load=async(id:string)=>execute(async()=>{
+    if(!await autosave.flush())return;
     const epoch=++ownerEpoch.current,input=liveInputs.current;
     const loaded=id?await api.editorDocument(world,id):emptyAuthoringDocument();
     if(ownerEpoch.current!==epoch||liveInputs.current.revision!==input.revision)return;
@@ -241,12 +265,13 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   const save=async()=>execute(async()=>{
     if(!editorDraftValidity.current.valid||arrivalDraftsInvalid)throw new Error(t('programs.invalidDraft'));
     const epoch=ownerEpoch.current,snapshot=JSON.stringify(value);
-    const created=documentId?undefined:await api.createEditorDocument(world,value);
-    if(documentId)await api.saveEditorDocument(world,documentId,value);
+    const currentId=latestRecovery.current.documentId;
+    const created=currentId?undefined:await api.createEditorDocument(world,value);
+    if(currentId)await api.saveEditorDocument(world,currentId,value);
     if(ownerEpoch.current!==epoch)return;
     if(created)setDocumentId(created.id);
     savedDocumentJson.current=snapshot;
-    const savedId=created?.id??documentId;
+    const savedId=created?.id??currentId;
     latestRecovery.current={...latestRecovery.current,documentId:savedId,savedDocumentJson:snapshot};
     rememberAuthoringDocument(recoveryOwner,world,savedId);
     if(liveInputs.current.documentJson===snapshot)clearAuthoringRecovery(recoveryOwner,world);
@@ -256,7 +281,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     if(!editorDraftValidity.current.valid||arrivalDraftsInvalid)throw new Error(t('programs.invalidDraft'));
     if(persistedFormalScriptName&&formalScriptName!==persistedFormalScriptName)throw new Error(t('duties.renameFirst'));
     const epoch=ownerEpoch.current,snapshot=JSON.stringify(value),document={...value,formalScriptName};
-    let targetDocumentId=documentId;
+    let targetDocumentId=latestRecovery.current.documentId;
     if(!targetDocumentId){const created=await api.createEditorDocument(world,document);if(ownerEpoch.current!==epoch)return;targetDocumentId=created.id;setDocumentId(created.id);}
     try{await api.saveFormalScript(world,targetDocumentId,formalScriptName,generated.source,document,false);}
     catch(error){
@@ -468,19 +493,19 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
       const result=await api.simulateLine(world,run.lineId!,authoringResetProfile(lines,run,{profileType:profile.type,profileId:profile.id}),confirmedTimeoutMillis);
       if(!current())return;
       if(ownerEpoch.current!==epoch||liveInputs.current.world!==input.world||liveInputs.current.documentJson!==input.documentJson||liveInputs.current.documentHashInput!==input.documentHashInput)throw new Error(t('duties.resetChanged'));
-      const next=resetRunTimings(run,result,firstDeparture,fixedDwell);
+      const next=resetRunTimings(run,result,firstDeparture,authoringMinimumDwell(value));
       if(next.calls.some((call)=>[call.arrivalTick,call.departureTick].some((tick)=>tick!=null&&tick>=value.periodDays*24000)))throw new Error(t('duties.outsidePeriod'));
       replaceRun(next,true);
     },current);
   };
   const copyRuns=()=>{
     if(!selectedRunValue||copyInvalid||editorDraftInvalid||arrivalDraftsInvalid)return;
-    try{if(!Number.isSafeInteger(copyCount)||copyCount<1||copyCount>100||!Number.isSafeInteger(copyOffset))throw new Error(t('ui.invalidNumber'));const copies=allocateAuthoringIds(value,'RUN',copyCount).map((id,index)=>copyRunShifted(selectedRunValue,id,copyOffset*(index+1),()=>uid('call')));
+    try{if(!Number.isSafeInteger(copyCount)||copyCount<1||copyCount>100||!Number.isSafeInteger(copyOffset))throw new Error(t('ui.invalidNumber'));const copies=allocateAuthoringIds(value,'RUN',copyCount).map((id,index)=>copyRunShifted(selectedRunValue,id,copyOffset*(index+1),()=>uid('call'),authoringMinimumDwell(value)));
       if(copies.some((run)=>run.calls.some((call)=>[call.arrivalTick,call.departureTick].some((tick)=>tick!=null&&(tick<0||tick>=value.periodDays*24000)))))throw new Error(t('duties.outsidePeriod'));
       addCopiedRuns(copies);setCopyOpen(false);
     }catch(error){onError(error instanceof Error?error.message:String(error));}
   };
-  const fieldScope=`${ownerIdentity.current}/${ownerEpoch.current}/${documentId}/${value.id}`;
+  const fieldScope=`${ownerIdentity.current}/${ownerEpoch.current}/${blockDraftKey.current}/${value.id}`;
   const eventScope=JSON.stringify([fieldScope,graphLineId,page]);
   const eventStationIds=[...new Set(lines.flatMap((line)=>[...line.upStationIds,...line.downStationIds]))];
   const currentGraphLine=lines.find((line)=>line.id===graphLineId);
@@ -514,7 +539,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   const openDutyOperation=(dutyId:string,elementId:string)=>{const duty=value.duties.find((item)=>item.id===dutyId),element=duty?.elements.find((item)=>item.id===elementId);if(!duty||element?.type!=='PROGRAM')return;setSelectedDuty(duty.id);setFocusedDutyElement({dutyId,elementId,scope:fieldScope});const snapshot=value.boundPrograms?.find((item)=>item.programId===element.program.programId);if(snapshot)setFocusedProgram({epoch:ownerEpoch.current,target:{dutyId,elementId,callId:elementId,programId:snapshot.programId,revision:snapshot.revision,contentIdentity:snapshot.contentIdentity}});onPageChange?.('duties');};
 
 
-  const simulationSetupScope=JSON.stringify([fieldScope,world,generated.documentHashInput,delayThresholdTicks,selectedRun,resetProfile,fixedDwell]);
+  const simulationSetupScope=JSON.stringify([fieldScope,world,generated.documentHashInput,delayThresholdTicks,selectedRun,resetProfile,authoringMinimumDwell(value)]);
   useEffect(()=>{setSimulationSetup(undefined);},[simulationSetupScope]);
   const openSimulationSetup=(kind:'TIMETABLE'|'LINE')=>{
     if(busy)return;
@@ -528,7 +553,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     <label>{t('duties.originDepartureMode')}<Select value={selectedRunValue?.originDepartureMode??'AUTO'} options={(['AUTO','CONTINUE','REVERSE'] as const).map((mode)=>({value:mode,label:t(`duties.originDeparture.${mode}`)}))} onChange={(originDepartureMode)=>selectedRunValue&&replaceRun({...selectedRunValue,originDepartureMode})}/><Typography.Text type="secondary">{t('duties.originDepartureHelp')}</Typography.Text></label>
     <label>{t('simulation.profile')}<Select value={resetProfile||undefined} onChange={setResetProfile} options={simulationProfiles.map((profile)=>({value:`${profile.type}:${profile.id}`,label:profile.displayName}))}/></label>
     <Typography.Text type="secondary">{selectedRunValue?.calls[0]?.departureTick==null?t('ui.originRequired'):`${t('ui.departure')}: ${selectedRunValue.calls[0].departureTick}`}</Typography.Text>
-    <label>{t('duties.fixedDwell')}<CommittedNumberInput fieldKey={`${fieldScope}/${selectedRun}/reset-dwell`} allowEmpty={false} min={0} precision={0} value={fixedDwell} onCommit={(tick)=>setFixedDwell(tick??0)}/></label>
+    <Typography.Text type="secondary">{t('editor.globalMinimumDwell')}: {authoringMinimumDwell(value)}</Typography.Text>
     <Button disabled={busy||!resetProfile||!selectedRunValue?.diagramLineId||selectedRunValue.calls[0]?.departureTick==null} onClick={resetTimes}>{t('duties.resetTimes')}</Button>
   </div></section>;
 
@@ -537,10 +562,12 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     <label>{t('duties.document')}<Select value={documentId||'__new__'} onChange={(id)=>void load(id==='__new__'?'':id)} options={[{value:'__new__',label:t('common.newDraft')},...documents.map((item)=>({value:item.id,label:item.id}))]}/></label>
     <label>{t('editor.timetableId')}<Input value={value.id} onChange={(event)=>{const id=event.target.value;if(!persistedFormalScriptName&&formalScriptName===defaultScriptName(value.id))setFormalScriptName(defaultScriptName(id));setValue({...value,id});}}/></label>
     <label>{t('editor.periodDays')}<CommittedNumberInput fieldKey={`${fieldScope}/period`} allowEmpty={false} min={1} precision={0} value={value.periodDays} onCommit={(period)=>{if(period!=null)setValue({...value,periodDays:period});}}/></label>
+    <label>{t('editor.globalMinimumDwell')}<CommittedNumberInput aria-label={t('editor.globalMinimumDwell')} fieldKey={`${fieldScope}/minimum-dwell`} allowEmpty={false} min={0} max={Number.MAX_SAFE_INTEGER} precision={0} value={authoringMinimumDwell(value)} onValidityChange={(valid)=>onDraftValidityChange('document/minimum-dwell',valid)} onCommit={(ticks)=>{if(ticks!=null)setValue({...value,minimumDwellTicks:ticks});}}/><Typography.Text type="secondary">{t('editor.globalMinimumDwellHint')}</Typography.Text></label>
     <label>{t('duties.scriptFile')}<Input value={formalScriptName} onChange={(event)=>setFormalScriptName(event.target.value)}/></label>
     <label>{t('duties.delayThreshold')}<CommittedNumberInput fieldKey={`${fieldScope}/delay`} allowEmpty={false} min={1} precision={0} value={delayThresholdTicks} onCommit={(ticks)=>{if(ticks!=null)setDelayThresholdTicks(ticks);}}/></label>
     <Flex gap={6} wrap><Button icon={<EditOutlined/>} onClick={()=>void renameFormalScript()} disabled={busy||!persistedFormalScriptName||formalScriptName===persistedFormalScriptName}>{t('duties.renameScript')}</Button><Button danger icon={<DeleteOutlined/>} onClick={()=>void deleteFormalScript()} disabled={busy||!persistedFormalScriptName}>{t('duties.deleteScript')}</Button><Button danger onClick={()=>void remove()} disabled={!documentId||busy||!!persistedFormalScriptName}>{t('common.deleteDocument')}</Button></Flex>
   </div>;
+  const autosaveStatus=<Space role="status" aria-live="polite"><Tag color={autosaveState.status==='failed'?'red':autosaveState.status==='saving'?'blue':JSON.stringify(value)===savedDocumentJson.current?'green':'gold'} title={autosaveState.error}>{autosaveState.status==='failed'?t('common.autosaveFailed'):autosaveState.status==='saving'?t('common.autosaving'):JSON.stringify(value)===savedDocumentJson.current?t('common.saved'):t('common.unsaved')}</Tag>{autosaveState.status==='failed'&&<Button size="small" onClick={()=>void save()} disabled={busy}>{t('common.retrySave')}</Button>}</Space>;
   return <section className="duty-page studio-timetable-page">
     {simulationSetup?.scope===simulationSetupScope&&<SimulationSetupDialog fieldKey={`${fieldScope}/simulation-setup/${simulationSetup.kind}`} line={simulationSetup.kind==='LINE'} value={executionTimeoutMillis} disabled={busy||(simulationSetup.kind==='TIMETABLE'?!!simulationReason:!resetProfile||!selectedRunValue?.diagramLineId||selectedRunValue.calls[0]?.departureTick==null)} onClose={closeSimulationSetup} onConfirm={confirmedTimeoutMillis=>{
       if(busy||simulationSetup.scope!==simulationSetupScope)return;
@@ -548,6 +575,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
       if(simulationSetup.kind==='TIMETABLE')void runTimetableSimulation(confirmedTimeoutMillis);else runLineSimulation(confirmedTimeoutMillis);
     }}/>}
 
+    {page!=='graph'&&autosaveStatus}
     {page==='duties'?<DutyManagement programSimulation={{world,owner:fieldScope,metadata,events:value.events}} focusedDutyElement={focusedDutyElement?.scope===fieldScope?focusedDutyElement:undefined} onOperationValidityChange={(dutyId,elementId,valid)=>onDraftValidityChange(`duty/${dutyId}/${elementId}`,valid)} onReferenceEvent={referenceEvent} onOpenGraphEvent={(id)=>{setPendingGraphEvent({id,scope:fieldScope});onPageChange?.('graph');}} simulation={simulation} onSimulate={()=>void simulate()} simulationReason={simulationReason} busy={busy} document={value} onDocumentChange={setValue} onOpenFormation={(dutyId,eventId)=>{setSelectedDuty(dutyId);const element=value.duties.find(d=>d.id===dutyId)?.elements.find(e=>e.type==='FORMATION'&&e.eventId===eventId);if(element)setFocusedDutyElement({dutyId,elementId:element.id,scope:fieldScope});}} onAddFormation={addFormation} onPatchFormation={patchFormation} onFormationSource={setFormationSource} focusedProgram={visibleFocusedProgram} onOpenProgramLibrary={onOpenProgramLibrary} programLibrary={programLibrary} boundPrograms={value.boundPrograms} programError={programError} programLoading={programLoading} onRefreshPrograms={()=>void loadPrograms()} onAddProgram={addProgram} onAdoptProgram={adoptProgram} onPatchProgram={patchProgram} fieldScope={fieldScope} duties={value.duties} runs={value.runs} selectedId={selectedDuty} metadata={metadata} onSelect={setSelectedDuty} onAdd={addDuty}
       onDelete={()=>{if(!selectedDutyValue||!window.confirm(t('ui.confirmDuty')))return;setValue((current)=>({...current,operationalTrips:current.operationalTrips?.map((trip)=>({...trip,segments:trip.segments.filter((s)=>s.serviceId!==selectedDutyValue.id)})),duties:current.duties.filter((duty)=>duty.id!==selectedDutyValue.id)}));setSelectedDuty('');}}
       onPatch={patchTimelineDuty} onAssign={assignRun} onRemove={removeElement} onViewRun={viewRun}/>:page==='validation'?<AuthoringValidation fieldScope={fieldScope} duties={value.duties} issues={generated.issues} compiled={compiled} compileError={compileFailure?.key===generated.documentHashInput?compileFailure.message:''}
@@ -555,14 +583,14 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
       onCompile={()=>void compile()} onSimulate={()=>void simulate()} onAssignment={(id,profile)=>{const separator=profile.indexOf(':');if(separator>0)setValue((current)=>({...current,duties:current.duties.map((duty)=>duty.id===id?{...duty,referenceVehicle:{type:profile.slice(0,separator) as 'WORLD_TRAIN'|'TRAIN_TEMPLATE',id:profile.slice(separator+1)}}:duty)}));}} onThreshold={setDelayThresholdTicks} onNavigate={navigateIssue} canNavigate={(path)=>!!programTarget(path)||!!resolveArrivalSourceTarget(value,path,generated.documentHashInput,compiled?{input:compiledState!.documentHashInput,timetable:compiled.timetable}:undefined)}/>:<>
 
     <TimetableWorkspace
-      lines={lines} activeLineId={graphLineId} runs={lineRuns} selectedRunId={selectedRun} search={runSearch} direction={runDirection}
+      saveStatus={autosaveStatus} serviceColorIds={value.runs.map(run=>run.id)} lines={lines} activeLineId={graphLineId} runs={lineRuns} selectedRunId={selectedRun} search={runSearch} direction={runDirection}
       onLineChange={(lineId)=>{setGraphLineId(lineId);const first=value.runs.find((run)=>run.diagramLineId===lineId&&run.lineDirection===runDirection);setSelectedRun(first?.id??'');}}
       onDirectionChange={(direction)=>{setRunDirection(direction);const first=value.runs.find((run)=>run.diagramLineId===graphLineId&&run.lineDirection===direction);setSelectedRun(first?.id??'');}}
       onSearchChange={setRunSearch} onSelectRun={(id)=>{setSelectedRun(id);setFocusedCall('');}} onAddRun={addRun} assignmentFor={(runId)=>assigned.get(runId)}
-      graph={<Graph onEditEvent={openGraphEvent} onEventContext={(context)=>{setEventDraft(undefined);setSelectedPoint(undefined);setDutyOperationMenu(undefined);setEventMenu({...context,scope:eventScope});}} operations={projectedOperations} onDutyOperationContext={(context)=>{setEventMenu(undefined);setEventDraft(undefined);setSelectedPoint(undefined);setDutyOperationMenu({...context,scope:eventScope});}} onOpenDutyOperation={openDutyOperation} value={graphValue} metadata={metadata} line={lines.find((line)=>line.id===graphLineId)} graphLineId={graphLineId||undefined}
+      graph={<Graph serviceColorIds={value.runs.map(run=>run.id)} onEditEvent={openGraphEvent} onEventContext={(context)=>{setEventDraft(undefined);setSelectedPoint(undefined);setDutyOperationMenu(undefined);setEventMenu({...context,scope:eventScope});}} operations={projectedOperations} onDutyOperationContext={(context)=>{setEventMenu(undefined);setEventDraft(undefined);setSelectedPoint(undefined);setDutyOperationMenu({...context,scope:eventScope});}} onOpenDutyOperation={openDutyOperation} value={graphValue} metadata={metadata} line={lines.find((line)=>line.id===graphLineId)} graphLineId={graphLineId||undefined}
         serviceColors={graphServiceColors} highlightedServiceIds={highlightedRunIds} previewServiceIds={previewRunIds} onSelectPoint={selectPoint} onDismissPoint={()=>{if(!moveOpen)setSelectedPoint(undefined);setEventMenu(undefined);setDutyOperationMenu(undefined);}}/>}
-      inspector={!selectedRunValue?<p className="empty inspector-empty">{t('duties.selectRun')}</p>:<RunRouteEditor events={value.events} stationPrograms={value.stationPrograms} automaticColor={graphServiceColor(theme,Math.max(0,graphValue.services.findIndex((service)=>service.id===selectedRunValue.id)),lines.find((line)=>line.id===graphLineId)?.color)} onStationProgramChange={(program)=>setValue((current)=>({...current,stationPrograms:[...(current.stationPrograms??[]).filter((item)=>item.stationId!==program.stationId),program]}))} programDraftScope={programDraftScope} onArrivalValidityChange={onArrivalValidityChange} focusedArrivalStep={focusedArrivalStep} onUndo={documentHistory.undo} onRedo={documentHistory.redo} onRename={renameRun} fieldScope={fieldScope} focusedCallId={focusedCall} tools={runTools} issues={generated.issues.filter((issue)=>issue.path.startsWith(`runs[${value.runs.findIndex((run)=>run.id===selectedRunValue.id)}]`))} run={selectedRunValue} lines={lines} metadata={metadata} busy={busy} onError={onError} onChange={replaceRun} onDelete={deleteSelectedRun}/>}
-      graphActions={<><Button icon={<PlusOutlined/>} onClick={()=>{void loadPrograms();openGraphEvent();}}>{t('events.add')}</Button><Popover trigger="click" placement="bottomRight" title={t('common.documentSettings')} content={documentSettings}><Button type="text" icon={<SettingOutlined/>}/></Popover></>}
+      inspector={!selectedRunValue?<p className="empty inspector-empty">{t('duties.selectRun')}</p>:<RunRouteEditor events={value.events} stationPrograms={value.stationPrograms} automaticColor={graphServiceColor(theme,selectedRunValue.id,value.runs.map(run=>run.id),lines.find((line)=>line.id===graphLineId)?.color)} onStationProgramChange={(program)=>setValue((current)=>({...current,stationPrograms:[...(current.stationPrograms??[]).filter((item)=>item.stationId!==program.stationId),program]}))} programDraftScope={programDraftScope} onArrivalValidityChange={onArrivalValidityChange} focusedArrivalStep={focusedArrivalStep} onUndo={documentHistory.undo} onRedo={documentHistory.redo} onRename={renameRun} fieldScope={fieldScope} focusedCallId={focusedCall} tools={runTools} issues={generated.issues.filter((issue)=>issue.path.startsWith(`runs[${value.runs.findIndex((run)=>run.id===selectedRunValue.id)}]`))} run={selectedRunValue} lines={lines} metadata={metadata} busy={busy} onError={onError} onChange={replaceRun} onDelete={deleteSelectedRun}/>}
+      graphActions={<><Button icon={<PlusOutlined/>} onClick={()=>{void loadPrograms();openGraphEvent();}}>{t('events.add')}</Button><Popover trigger="click" placement="bottomRight" title={t('common.documentSettings')} content={documentSettings}><Button aria-label={t('common.documentSettings')} type="text" icon={<SettingOutlined/>}/></Popover></>}
       graphPreviewActive={Boolean(previewRun)} saved={JSON.stringify(value)===savedDocumentJson.current}/><TimetableEventsEditor operations={projectedOperations} onEdit={openGraphEvent} onOpenDuty={openDutyOperation} stationNames={stationNames}/></>}
 
     {visibleEventMenu&&<Dropdown open autoFocus trigger={['click']} placement="bottomLeft" onOpenChange={(open)=>{if(!open)setEventMenu(undefined);}} menu={{'aria-label':t('events.menu'),items:[{key:'edit',label:t('events.edit'),icon:<EditOutlined/>},{key:'delete',label:t('common.delete'),icon:<DeleteOutlined/>,danger:true}],onClick:({key})=>{

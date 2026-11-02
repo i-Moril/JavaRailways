@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit.api.internal
 
+import work.art1st.javarailways.bukkit.api.station.StationCallResolverService
+
 import org.bukkit.plugin.Plugin
 import org.bukkit.plugin.ServicePriority
 import org.bukkit.plugin.ServicesManager
@@ -27,8 +29,10 @@ internal fun ServicesManager.registerJavaRailwaysServices(
     routePlanningSources: RoutePlanningRestrictionSourceService,
     modelPresentations: ModelPresentationService,
     editorTexts: EditorTextService,
-    simulationFeatures: SimulationFeatureService
+    simulationFeatures: SimulationFeatureService,
+    stationCallResolvers: StationCallResolverService
 ) {
+    register(StationCallResolverService::class.java, stationCallResolvers, owner, ServicePriority.Normal)
     register(SimulationFeatureService::class.java, simulationFeatures, owner, ServicePriority.Normal)
     register(RailTargetService::class.java, railTargets, owner, ServicePriority.Normal)
     register(PlayerOperationService::class.java, playerOperations, owner, ServicePriority.Normal)

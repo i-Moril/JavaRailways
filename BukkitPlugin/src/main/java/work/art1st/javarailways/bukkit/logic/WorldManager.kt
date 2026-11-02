@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit.logic
 
+import work.art1st.javarailways.bukkit.api.internal.DefaultStationCallResolverService
+
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 import org.bukkit.Location
 import org.bukkit.World as BukkitWorld
@@ -74,6 +76,7 @@ class WorldManager internal constructor(
     private val observationService: DefaultRailwayObservationService? = null,
     private val infrastructureResourceService: DefaultInfrastructureResourceService? = null,
     private val signalEpochSourceService: DefaultSignalEpochSourceService? = null,
+    private val stationCallResolverService: DefaultStationCallResolverService? = null,
     private val loadedWorlds: LoadedRailWorldRegistry = LoadedRailWorldRegistry(railWorlds),
     private val modelPresentationService: DefaultModelPresentationService? = null,
     private val releaseManualControl: (CoreWorld) -> Unit = {},
@@ -229,6 +232,7 @@ class WorldManager internal constructor(
                             stallWorldRuntime(bukkitWorld, railWorld, reason, failure)
                         }
                     )
+                    stationCallResolverService?.registerWorld(bukkitWorld.uid, simpleAtoData.stationCallResolvers, railWorld.executionOwner)
                     val config = BukkitPlugin.INSTANCE.physicsConfig.overspeed
                     requireNotNull(simpleAtoData.operationalRuntime).attachSpeedSafety(
                         SpeedSafetyMonitor.Config(
@@ -265,6 +269,7 @@ class WorldManager internal constructor(
                         attemptCleanup { (coreWorld.tickManager as TickManagerImpl).closeAndAwaitTermination(coreWorld.runtimeId) }
                     }
                     attemptCleanup { modelPresentationService?.removeWorld(bukkitWorld.uid, bukkitWorld) }
+                    attemptCleanup { stationCallResolverService?.removeWorld(bukkitWorld.uid) }
                     attemptCleanup { signalEpochSourceService?.removeWorld(bukkitWorld.uid) }
                     attemptCleanup { infrastructureResourceService?.removeWorld(bukkitWorld.uid) }
                     attemptCleanup { observationService?.removeWorld(bukkitWorld.uid) }
@@ -450,6 +455,7 @@ class WorldManager internal constructor(
                         attempt { coreWorld.simpleAtoWorldDataOrNull?.operationalRuntime?.close() }
                     }
                     attempt { infrastructureResourceService?.removeWorld(bukkitWorld.uid) }
+                    attempt { stationCallResolverService?.removeWorld(bukkitWorld.uid) }
                     attempt { signalEpochSourceService?.removeWorld(bukkitWorld.uid) }
                     attempt { observationService?.removeWorld(bukkitWorld.uid) }
                     attempt { closeModelOperations(ownedWorld) }

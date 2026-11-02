@@ -7,33 +7,25 @@ import org.junit.jupiter.api.Test
 
 class StationBerthAllocatorTest {
     @Test
-    fun `markers share area capacity and release uses the acquired area`() {
+    fun `different berths in one station have independent logical ownership`() {
+        val allocator = StationBerthAllocator()
         val station = StationId("central")
-        var sharedArea = "platform-one"
-        val allocator = StationBerthAllocator {
-            StationStoppingAreaRef(it.stationId, if (it.berthId == "independent") "other" else sharedArea)
-        }
-        fun key(marker: String, train: String) = StationBerthAllocationKey(
-            StationBerthOwner(train, train, "call"), StationBerthRef(station, marker), 1L
+        val first = StationBerthAllocationKey(
+            StationBerthOwner("first", "T1", "call"), StationBerthRef(station, "short"), 1L
         )
-        val short = key("short", "T1")
-        val long = key("long", "T2")
-        val independent = key("independent", "T3")
-        assertEquals(StationBerthAllocationResult.Confirmed(short), allocator.allocate(short))
-        assertEquals(StationBerthAllocationResult.Conflict(long.berthRef, short), allocator.allocate(long))
-        assertEquals(StationBerthAllocationResult.Confirmed(independent), allocator.allocate(independent))
-        assertFalse(allocator.release(short.copy(missionRevision = 2L)))
-        sharedArea = "renamed"
-        assertEquals(StationBerthAllocationResult.Conflict(short.berthRef, short),
-            allocator.allocate(short.copy(owner = long.owner)))
-        assertTrue(allocator.release(short))
-        sharedArea = "platform-one"
-        assertEquals(StationBerthAllocationResult.Confirmed(long), allocator.allocate(long))
+        val second = StationBerthAllocationKey(
+            StationBerthOwner("second", "T2", "call"), StationBerthRef(station, "long"), 1L
+        )
+        assertEquals(StationBerthAllocationResult.Confirmed(first), allocator.allocate(first))
+        assertEquals(StationBerthAllocationResult.Confirmed(second), allocator.allocate(second))
+        assertTrue(allocator.release(first))
+        assertTrue(allocator.isAllocated(second.berthRef))
+        assertEquals(listOf(second), allocator.allocations())
     }
 
     @Test
     fun `berth allocation is non-preemptive idempotent and explicit release`() {
-        val allocator = StationBerthAllocator { StationStoppingAreaRef(it.stationId, it.berthId) }
+        val allocator = StationBerthAllocator()
         val berth = StationBerthRef(StationId("central"), "one")
         val first = StationBerthAllocationKey(
             StationBerthOwner("tt/first", "T1", "call-1"),
@@ -53,8 +45,12 @@ class StationBerthAllocatorTest {
             allocator.allocate(second)
         )
         assertEquals(listOf(first), allocator.allocations())
+        assertTrue(allocator.isAllocated(berth))
+        assertFalse(allocator.release(first.copy(missionRevision = 3L)))
+        assertTrue(allocator.isAllocated(berth))
 
         assertTrue(allocator.release(first))
+        assertFalse(allocator.isAllocated(berth))
         assertFalse(allocator.release(first))
         assertEquals(StationBerthAllocationResult.Confirmed(second), allocator.allocate(second))
     }

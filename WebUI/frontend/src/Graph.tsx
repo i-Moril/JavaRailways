@@ -1,4 +1,4 @@
-import { useMemo,useRef,useState } from 'react';
+import { useEffect,useMemo,useRef,useState } from 'react';
 import { Button,Tooltip } from 'antd';
 import { graphServiceColor,layoutGraph,type GraphPoint } from './graph';
 import { useI18n } from './i18n';
@@ -16,11 +16,10 @@ type Pan={x:number;y:number};
 type DragState={pointerId:number;x:number;y:number;originX:number;originY:number};
 type ServicePath={serviceIndex:number;serviceId:string;points:GraphPoint[]};
 
-const pointKey=(point:GraphPoint)=>`${point.serviceIndex}:${point.stepIndex}:${point.kind}:${point.location}`;
 const clamp=(value:number)=>Math.min(3.2,Math.max(.55,value));
 
 export function Graph({
-  operations=[],onOpenDutyOperation,onDutyOperationContext,value,onSelect,metadata,line,graphLineId,serviceColors,highlightedServiceIds,previewServiceIds,onSelectPoint,onDismissPoint,onEditEvent,onEventContext,
+  operations=[],onOpenDutyOperation,onDutyOperationContext,value,onSelect,metadata,line,graphLineId,serviceColors,serviceColorIds,highlightedServiceIds,previewServiceIds,onSelectPoint,onDismissPoint,onEditEvent,onEventContext,
 }:{
   operations?:ProjectedTimedOperation[];onDutyOperationContext?:(context:GraphDutyOperationContext)=>void;onOpenDutyOperation?:(dutyId:string,elementId:string)=>void;
   value:SavedTimetableV1;
@@ -28,6 +27,7 @@ export function Graph({
   line?:LineV1;
   graphLineId?:string;
   serviceColors?:ReadonlyMap<string,string>;
+  serviceColorIds?:readonly string[];
   highlightedServiceIds?:ReadonlySet<string>;
   previewServiceIds?:ReadonlySet<string>;
   onSelect?:(service:number,step:number)=>void;
@@ -42,6 +42,10 @@ export function Graph({
   const [scaleX,setScaleX]=useState(1);
   const [scaleY,setScaleY]=useState(1);
   const [hoveredPoint,setHoveredPoint]=useState<string|null>(null);
+  const [focusedPoint,setFocusedPoint]=useState<string|null>(null);
+  const serviceIdentity=JSON.stringify(value.services.map((service)=>service.id));
+  useEffect(()=>{setHoveredPoint(null);setFocusedPoint(null);},[serviceIdentity]);
+  const pointKey=(point:GraphPoint)=>JSON.stringify([value.services[point.serviceIndex]?.id,point.runId,point.stepIndex,point.kind,point.location]);
   const [panning,setPanning]=useState(false);
   const drag=useRef<DragState|null>(null);
   const sheetWidth=Math.round(1_000*scaleX);
@@ -64,11 +68,12 @@ export function Graph({
     });
     return [...grouped.values()].map((path)=>({...path,points:path.points.sort((a,b)=>a.tick-b.tick)}));
   },[layout.paths]);
+  const colorIds=serviceColorIds??value.services.map((service)=>service.id);
   const period=Math.max(1,value.periodDays*24_000);
   const tickInterval=scaleX>=2?1_000:scaleX>=1.25?2_000:4_000;
   const ticks:Array<{tick:number;x:number}>=[];
   for(let tick=0;tick<=period;tick+=tickInterval)ticks.push({tick,x:layout.tickToX(tick)});
-  const graphColor=(service:ServicePath)=>graphServiceColor(theme,service.serviceIndex,line?.color,serviceColors?.get(service.serviceId));
+  const graphColor=(service:ServicePath)=>graphServiceColor(theme,service.serviceId,colorIds,line?.color,serviceColors?.get(service.serviceId));
   const reset=()=>{onDismissPoint?.();setPan({x:28,y:24});setScaleX(1);setScaleY(1);};
   const zoom=(axis:'x'|'y',factor:number)=>{onDismissPoint?.();(axis==='x'?setScaleX:setScaleY)((current)=>clamp(current*factor));};
 
@@ -117,13 +122,17 @@ export function Graph({
                 onSelect?.(point.serviceIndex,point.stepIndex);
                 onSelectPoint?.(point,{x:bounds.left+bounds.width/2,y:bounds.top+bounds.height/2});
               };
-              return <circle key={pointKey(point)} data-graph-point cx={point.x} cy={point.y} r={visible?6:4.5} fill="var(--ant-color-bg-container)" stroke={color} strokeWidth={selected?2:1.25}
+              return <g key={pointKey(point)}>
+                <circle data-graph-point cx={point.x} cy={point.y} r={12} fill="transparent" stroke="none"
                 role={onSelectPoint||onSelect?'button':undefined} tabIndex={onSelectPoint||onSelect?0:undefined} aria-label={label}
                 style={{cursor:onSelectPoint||onSelect?'pointer':undefined}}
                 onPointerDown={(event)=>event.stopPropagation()}
                 onClick={(event)=>select(event.currentTarget)}
-                onKeyDown={(event)=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(event.currentTarget);}}}
-                onMouseEnter={()=>setHoveredPoint(pointKey(point))} onMouseLeave={()=>setHoveredPoint(null)}><title>{label}</title></circle>;
+                onKeyDown={(event)=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();setFocusedPoint(pointKey(point));select(event.currentTarget);}}}
+                onMouseEnter={()=>setHoveredPoint(pointKey(point))} onMouseLeave={()=>setHoveredPoint(null)}
+                onFocus={(event)=>setFocusedPoint(event.currentTarget.matches(':focus-visible')?pointKey(point):null)} onBlur={()=>setFocusedPoint(null)}><title>{label}</title></circle>
+                {(hoveredPoint===pointKey(point)||focusedPoint===pointKey(point))&&<circle data-graph-point-preview cx={point.x} cy={point.y} r={6} fill="var(--ant-color-bg-container)" stroke={color} strokeWidth={3} pointerEvents="none" aria-hidden="true"/>}
+              </g>;
             })}
           </g>;
         })}
@@ -151,7 +160,7 @@ export function Graph({
             <title>{label}</title>{endTick!==undefined&&endTick>event.tick&&<rect x={0} y={-6} width={Math.max(2,layout.tickToX(endTick)-layout.tickToX(event.tick))} height={12} rx={3} fill="var(--ant-color-primary-bg)" stroke="var(--ant-color-primary)" strokeDasharray={owner==='DUTY'?'4 3':undefined}/>}{endTick===undefined&&<text x={10} y={14} fill="currentColor">{t('timeline.unknown')}</text>}<path d="M 0 -7 L 7 0 L 0 7 L -7 0 Z" fill="var(--ant-color-primary)"/><text x={10} y={-9} fill="currentColor">{name}{owner==='DUTY'?` · ${dutyId}`:''}</text>
           </g>;
         })}
-        {hoveredPoint&&layout.points.filter((point)=>pointKey(point)===hoveredPoint).map((point)=><g className="graph-point-tooltip" key={`tooltip-${pointKey(point)}`} transform={`translate(${point.x+10} ${point.y-30})`}><rect width="158" height="24" rx="5"/><text x="8" y="16">{stationNames.get(point.location)||point.location} · {point.tick}</text></g>)}
+        {(hoveredPoint||focusedPoint)&&layout.points.filter((point)=>pointKey(point)===(hoveredPoint??focusedPoint)).map((point)=><g className="graph-point-tooltip" key={`tooltip-${pointKey(point)}`} transform={`translate(${point.x+10} ${point.y-30})`}><rect width="158" height="24" rx="5"/><text x="8" y="16">{stationNames.get(point.location)||point.location} · {point.tick}</text></g>)}
       </svg>
     </div>
   </div>;

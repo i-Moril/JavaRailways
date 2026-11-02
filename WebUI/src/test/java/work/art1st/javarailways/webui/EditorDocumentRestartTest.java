@@ -33,7 +33,7 @@ class EditorDocumentRestartTest {
         HttpClient client = HttpClient.newHttpClient();
         ObjectMapper mapper = new ObjectMapper();
         String document = """
-            {"formatVersion":1,"id":"weekday","formalScriptName":"weekday.js","periodDays":2,
+            {"formatVersion":1,"id":"weekday","formalScriptName":"weekday.js","periodDays":2,"minimumDwellTicks":80,
              "runs":[{"id":"run","type":"PASSENGER","lineDirection":"UP","color":"#12aBcD","calls":[
                 {"id":"call","stationId":"central","status":"TERMINAL","targetId":"central@one"}
              ] }],"duties":[

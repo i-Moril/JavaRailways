@@ -8,6 +8,7 @@ import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.simpleato.SimpleATOWorldData
 import work.art1st.javarailways.simpleato.api.ato.AtoStallReport
 import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
+import work.art1st.javarailways.simpleato.api.station.StationCallResolverRegistry
 import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionRegistry
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
@@ -80,6 +81,7 @@ class OperationalWorldRuntime private constructor(
             worldId: String,
             basicDataFactory: ((Set<UUID>) -> Unit) -> BasicWorldData,
             timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry(),
+            stationCallResolvers: StationCallResolverRegistry = StationCallResolverRegistry(),
             reportStall: (AtoStallReport) -> Unit = {},
             dispatcherFactory: (OperationalWorldRuntime) -> TimetableDispatcher
         ): OperationalWorldRuntime {
@@ -98,7 +100,7 @@ class OperationalWorldRuntime private constructor(
                 runtime.data = SimpleATOWorldData(
                     runtime.atoCoordinator, dispatcherFactory(runtime), signal, restrictions, inspection,
                     basic.railObjects, basic.safetyInterlock,
-                    timetableExtensions = timetableExtensions, operationalRuntime = runtime
+                    timetableExtensions = timetableExtensions, stationCallResolvers = stationCallResolvers, operationalRuntime = runtime
                 )
                 world.registerExtensionData(SimpleATOPlugin.INSTANCE, runtime.data)
                 runtime.topologySubscription = world.registerTopologyChangeListener { change ->

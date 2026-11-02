@@ -42,7 +42,7 @@ public final class WebUiApplication {
     private final DraftRepository editorDocuments;
     private final VisualProgramRepository stationPrograms;
     private final BridgeClient bridge;
-    private final WebUiSessions sessions = new WebUiSessions(Duration.ofMinutes(30));
+    private final WebUiSessions sessions;
     private final ConcurrentHashMap<String, Queue<TrainSubscriber>> trainStreamClients = new ConcurrentHashMap<>();
     private final ScheduledExecutorService trainStreamExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread thread = new Thread(r, "JavaRailways-webui-train-stream");
@@ -81,7 +81,12 @@ public final class WebUiApplication {
     }
 
     WebUiApplication(WebUiConfig config, ObjectMapper mapper) {
+        this(config, mapper, new WebUiSessions(Duration.ofMinutes(30)));
+    }
+
+    WebUiApplication(WebUiConfig config, ObjectMapper mapper, WebUiSessions sessions) {
         this.config = config;
+        this.sessions = sessions;
         this.logReader = new DiskLogReader(Map.of("webui-errors", new DiskLogReader.Location(
             "WebUI errors", config.draftDirectory().toAbsolutePath().getParent().resolve("logs/errors.log"))));
         this.mapper = mapper;
@@ -120,6 +125,7 @@ public final class WebUiApplication {
         });
         app.get("/health", context -> context.json(Map.of("status", "ok")));
         app.get("/auth/session", this::sessionStatus);
+        app.post("/auth/session", this::renewSession);
         app.post("/auth/exchange", this::exchangeLoginToken);
         app.before(context -> {
             if ((context.path().equals("/api/v1") || context.path().startsWith("/api/v1/"))
@@ -261,26 +267,39 @@ public final class WebUiApplication {
             return;
         }
         WebUiSessions.CreatedSession created = sessions.create(response.body());
-        long maxAge = Math.max(1L,
-            (created.session().expiresAtEpochMillis() - System.currentTimeMillis()) / 1000L);
+        setSessionCookie(context, created.id());
+        context.status(204);
+    }
+
+    private void setSessionCookie(Context context, String id) {
         String secure = config.secureCookies() ? "; Secure" : "";
         context.header(
             "Set-Cookie",
-            WebUiSessions.COOKIE_NAME + "=" + created.id() + "; Path=/; HttpOnly; SameSite=Strict; Max-Age=" + maxAge + secure
+            WebUiSessions.COOKIE_NAME + "=" + id + "; Path=/; HttpOnly; SameSite=Strict; Max-Age=" + sessions.cookieMaxAgeSeconds() + secure
         );
-        context.status(204);
+    }
+
+    private void renewSession(Context context) {
+        String id = context.cookie(WebUiSessions.COOKIE_NAME);
+        WebUiSessions.Session session = sessions.renew(id).orElseThrow(UnauthorizedResponse::new);
+        setSessionCookie(context, id);
+        authenticatedSessionStatus(context, session);
     }
 
     private void sessionStatus(Context context) {
         sessions.find(context.cookie(WebUiSessions.COOKIE_NAME)).ifPresentOrElse(
-            session -> context.json(Map.of(
-                "authenticated", true,
-                "playerName", session.playerName(),
-                "worldId", session.worldId(),
-                "expiresAtEpochMillis", session.expiresAtEpochMillis()
-            )),
+            session -> authenticatedSessionStatus(context, session),
             () -> context.json(Map.of("authenticated", false))
         );
+    }
+
+    private void authenticatedSessionStatus(Context context, WebUiSessions.Session session) {
+        context.json(Map.of(
+            "authenticated", true,
+            "playerName", session.playerName(),
+            "worldId", session.worldId(),
+            "expiresAtEpochMillis", session.expiresAtEpochMillis()
+        ));
     }
 
     private boolean isPublicMapRequest(Context context) {

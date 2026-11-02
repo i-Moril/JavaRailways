@@ -301,7 +301,11 @@ private fun reverseTraversal(spans: List<Span>) = spans.asReversed().map {
 private fun normalize(spans: List<Span>): List<Span> = buildList {
     for (next in spans) {
         val previous = lastOrNull()
-        if (previous != null && end(previous) == start(next)) {
+        // Edge-coordinate conversion can round the shared endpoint by a few ULPs.
+        // Normalize only an adjacent, equally oriented physical rail seam, using the same
+        // geometric EPS as path equality; unrelated/repeated occurrences remain ambiguous.
+        if (previous != null && previous.railId == next.railId && previous.facing == next.facing &&
+            abs(previous.endArcLengthInAbMeters - next.startArcLengthInAbMeters) <= EPS) {
             removeAt(lastIndex)
             add(previous.copy(endArcLengthInAbMeters = next.endArcLengthInAbMeters))
         } else add(next)

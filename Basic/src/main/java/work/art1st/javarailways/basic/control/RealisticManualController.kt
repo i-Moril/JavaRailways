@@ -1,6 +1,7 @@
 package work.art1st.javarailways.basic.control
 
 import work.art1st.javarailways.basic.basicWorldData
+import work.art1st.javarailways.basic.api.ato.VehicleControlCommand
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.control.PreparedControllerStateUpdate
 import work.art1st.javarailways.core.api.physics.train.Car
@@ -22,7 +23,8 @@ class RealisticManualController(
     carProfiles: List<TrainDynamics.CarProfile>,
     gravityMetersPerSecondSquared: Double,
     initialSpeedMetersPerSecond: Double = train.speed,
-    profileResolver: ((Car) -> TrainDynamics.CarProfile?)? = null
+    profileResolver: ((Car) -> TrainDynamics.CarProfile?)? = null,
+    initialDeviceSource: DynamicsProfileSource? = null
 ) : TrainController(train), DynamicsProfileSource {
     private val dynamics = TrainDynamicsExecutor(
         train,
@@ -30,7 +32,8 @@ class RealisticManualController(
         carProfiles,
         gravityMetersPerSecondSquared,
         initialSpeedMetersPerSecond,
-        profileResolver
+        profileResolver,
+        initialDeviceSource
     )
     private val controlProfile: TrainDynamics.TrainProfile get() = dynamics.trainProfile
     private val handleRef = AtomicReference(NEUTRAL_HANDLE)
@@ -129,9 +132,22 @@ class RealisticManualController(
         handleRef.set(NEUTRAL_HANDLE)
     }
 
+    val isAtpAcknowledgementRequired: Boolean
+        get() = controlledTrain.world.basicWorldData.commandSupervisor?.isAcknowledgementRequired(controlledTrain) ?: false
+
+    fun acknowledgeAtp(): CompletableFuture<Boolean> {
+        val controlled = controlledTrain as? CoreTrain ?: return CompletableFuture.completedFuture(false)
+        return controlled.world.physicsCoordinator.submitBetweenFrames {
+            check(controlled.world.getTrain(controlled.id) === controlled && controlled.controller === this)
+            controlled.world.basicWorldData.commandSupervisor?.acknowledge(controlled) ?: false
+        }
+    }
+
     override fun tick(deltaT: Double) {
-        if (controlledTrain.world.basicWorldData.safetyInterlock.isEngaged) emergencyBrake()
+        require(deltaT.isFinite())
         val deltaSeconds = deltaT.coerceAtLeast(0.0) * 0.001
+        if (deltaSeconds == 0.0) return
+        if (controlledTrain.world.basicWorldData.safetyInterlock.isEngaged) emergencyBrake()
         val currentHandle = if (
             directionRef.get() == TrainDriveDirection.NEUTRAL &&
             controlProfile.normalizedPowerScale(handleRef.get()) > 0.0
@@ -140,7 +156,11 @@ class RealisticManualController(
         } else {
             handleRef.get()
         }
-        val result = dynamics.step(activeSpeed, currentHandle, deltaSeconds)
+        val proposed = TrainDynamics.commandForHandle(controlProfile, currentHandle)
+        val command = if (controlledTrain.world.basicWorldData.safetyInterlock.isEngaged) VehicleControlCommand.EMERGENCY_BRAKE
+            else controlledTrain.world.basicWorldData.commandSupervisor?.supervise(controlledTrain,
+                dynamics.controlState(activeSpeed), dynamics.controlCapabilities(activeSpeed), proposed, deltaSeconds) ?: proposed
+        val result = dynamics.step(activeSpeed, command, deltaSeconds)
         speed = result.state.speed
         moveControlledTrain(result.distance, result.state.speed)
     }

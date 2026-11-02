@@ -74,19 +74,18 @@ sealed interface DestinationRole {
         val berthId: String,
         val doorSide: DoorSide,
         val stoppingOffsetMetersBefore: Double = 0.0,
-        val positionToleranceMeters: Double = 1.0,
         val usableLengthMeters: Double? = null,
         val defaultDwellTicks: Long = 0L,
         val releaseDistanceMetersAfter: Double = 0.0,
     ) : DestinationRole {
+        val positionToleranceMeters: Double get() = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS
         override val type: DestinationRoleType = DestinationRoleType.STATION_BERTH
 
         init {
             require(stationDisplayName.isNotBlank() && stationDisplayName == stationDisplayName.trim())
             StationBerthRef(stationId, berthId)
             require(stoppingOffsetMetersBefore.isFinite() && stoppingOffsetMetersBefore >= 0.0)
-            require(positionToleranceMeters.isFinite() && positionToleranceMeters > 0.0)
-            require(usableLengthMeters == null || usableLengthMeters.isFinite() && usableLengthMeters > 0.0)
+                require(usableLengthMeters == null || usableLengthMeters.isFinite() && usableLengthMeters > 0.0)
             require(defaultDwellTicks >= 0L)
             require(releaseDistanceMetersAfter.isFinite() && releaseDistanceMetersAfter >= 0.0)
         }
@@ -117,7 +116,7 @@ sealed interface DestinationRole {
     }
 
     companion object {
-        const val DEFAULT_POSITION_TOLERANCE_METERS = 0.25
+        const val DEFAULT_POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS
     }
 }
 
@@ -462,7 +461,7 @@ class OperationalDestinationService(private val world: World) {
             location = view.getRailLocationAt(arcInView),
             approachDirection = destination.approachDirection,
             stoppingOffsetMetersBefore = role.stoppingOffsetMetersBefore,
-            positionToleranceMeters = role.positionToleranceMeters,
+
             usableLengthMeters = role.usableLengthMeters,
             defaultDwellTicks = role.defaultDwellTicks,
             releaseDistanceMetersAfter = role.releaseDistanceMetersAfter,

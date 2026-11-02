@@ -189,7 +189,8 @@ object RailWorldFactory {
                             train,
                             world,
                             HandleTrainActuator(train, trainProfile, carProfiles, gravity,
-                                profileResolver = { car -> car.carRendererOrNull?.resolveCarControl() }),
+                                profileResolver = { car -> car.carRendererOrNull?.resolveCarControl() },
+                                initialDeviceSource = (train as? work.art1st.javarailways.core.physics.train.CoreTrain)?.controller as? work.art1st.javarailways.basic.control.DynamicsProfileSource),
                             profile,
                             inspectionRuntime::maximumDeclaredLeadTimeSeconds
                         )

@@ -147,7 +147,7 @@ class AdmittedCouplingPhysicalIntegrationTest {
         val ato = SimpleATO(moving, world, actuator,
             AtoSafetyProfile(accelerationMetersPerSecondSquared = 1.0,
                 serviceDecelerationMetersPerSecondSquared = 2.0, reactionTimeSeconds = 0.0,
-                safetyDistanceMeters = 0.1, stopToleranceMeters = 0.01), inspectionMaximumLeadTimeSeconds = { 0.0 })
+                safetyDistanceMeters = 0.1), inspectionMaximumLeadTimeSeconds = { 0.0 })
         init {
             moving.setControllerForTest(ato)
             target.setControllerForTest(SimpleATO(target, world,

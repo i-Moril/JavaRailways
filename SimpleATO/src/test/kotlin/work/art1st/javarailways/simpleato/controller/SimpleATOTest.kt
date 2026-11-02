@@ -102,9 +102,38 @@ class SimpleATOTest {
         accelerationMetersPerSecondSquared = 1.0,
         serviceDecelerationMetersPerSecondSquared = 1.0,
         reactionTimeSeconds = 0.0,
-        safetyDistanceMeters = 2.0,
-        stopToleranceMeters = 0.25
+        safetyDistanceMeters = 2.0
     )
+
+    @Test
+    fun `permission hold remains distinct from an issued zero authority behind the actual head`() {
+        val fixture = fixture("hold-versus-issued-zero")
+        val rail = fixture.train.head.location.rail
+        val head = fixture.train.head.location.arcLength
+        // Initial placement is valid within the shared origin tolerance, but is already 0.1m
+        // past mission coordinate zero. A waiting permission is not a physical boundary there.
+        fixture.data.wayPoints.add(WayPoint("hold-origin", rail.id, head - 0.1))
+        fixture.data.wayPoints.add(WayPoint("hold-target", rail.id, head + 40.0))
+        val accepted = fixture.ato.submitMission(AtoMissionRequest("hold-zero", 1L,
+            WayPointRef("hold-origin"), listOf(AtoMissionPoint.Stop(WayPointRef("hold-target")))))
+            as AtoMissionSubmissionResult.Accepted
+        fixture.ato.holdForMovementAuthority(accepted.mission.revision)
+        tickAndPublish(fixture.ato, 50.0)
+        val runtime = fixture.world.simpleAtoWorldData.controlRuntime
+        assertEquals(0.0, fixture.train.speed)
+        assertTrue(runtime.incidents.isEmpty(), runtime.incidents.toString())
+        assertFalse(fixture.coordinator.isStalled)
+
+        fixture.ato.setMovementAuthority(accepted.mission.revision, 0.0)
+        tickAndPublish(fixture.ato, 50.0)
+
+        val incident = requireNotNull(runtime.latestIntervention).event
+        val authority = incident.targets.single { it.id.contains("authority/1") }
+        assertEquals(-0.1, authority.distanceMeters, 1e-9)
+        assertEquals(0.0, authority.targetSpeedMetersPerSecond)
+        assertEquals(0.0, incident.state.speedMetersPerSecond)
+        assertTrue(incident.judgement.status != work.art1st.javarailways.simpleato.api.atp.AtpStatus.SAFE)
+    }
 
     @Test
     fun `resource admission reuses the controller forward perception horizon`() {
@@ -649,12 +678,13 @@ class SimpleATOTest {
         val safety = AtoSafetyProfile(
             serviceDecelerationMetersPerSecondSquared = work.art1st.javarailways.basic.control.TrainDynamics.flatServiceDeceleration(dynamics, listOf(car), 9.80665),
             reactionTimeSeconds = work.art1st.javarailways.basic.control.HandleTrainActuator.serviceBrakeReactionTimeSeconds(dynamics, listOf(car), 9.80665),
-            safetyDistanceMeters = 5.0, stopToleranceMeters = 0.05)
+            safetyDistanceMeters = 5.0)
         lateinit var actuator: work.art1st.javarailways.basic.control.HandleTrainActuator
         val fixture = fixture("equipment-station", atoProfile = safety, actuatorFactory = { train ->
             work.art1st.javarailways.basic.control.HandleTrainActuator(train, dynamics, listOf(car), 9.80665).also { made ->
                 actuator = made
-                repeat(80) { made.step(0.0, work.art1st.javarailways.basic.api.ato.ControlDemand(0.0), 0.05) }
+                repeat(80) { made.step(0.0, work.art1st.javarailways.basic.control.TrainDynamics.commandForHandle(dynamics,
+                    work.art1st.javarailways.basic.control.TrainDynamics.strongestServiceBrakeHandle(dynamics)), 0.05) }
             }
         })
         val source = fixture.train.cars.single()

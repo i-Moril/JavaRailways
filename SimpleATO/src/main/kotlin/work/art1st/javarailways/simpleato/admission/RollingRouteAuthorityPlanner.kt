@@ -42,5 +42,5 @@ internal object RollingRouteAuthorityPlanner {
     }
 
     private const val EPSILON_METERS = 1.0e-6
-    private const val POSITION_TOLERANCE_METERS = 0.5
+    private const val POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS
 }

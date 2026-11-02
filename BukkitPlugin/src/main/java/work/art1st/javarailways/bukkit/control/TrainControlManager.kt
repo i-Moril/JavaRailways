@@ -176,7 +176,8 @@ class TrainControlManager internal constructor(
                 carControls,
                 plugin.physicsConfig.track.gravityMetersPerSecondSquared,
                 initialSpeedMetersPerSecond = transferSpeedMetersPerSecond,
-                profileResolver = { car -> car.carRendererOrNull?.resolveCarControl() }
+                profileResolver = { car -> car.carRendererOrNull?.resolveCarControl() },
+                initialDeviceSource = coreTrain.controller as? work.art1st.javarailways.basic.control.DynamicsProfileSource
             ).also { coreTrain.setController(it) }
         }
         controller.markCurrentPhysicalDirectionAsForward()
@@ -374,6 +375,7 @@ class TrainControlManager internal constructor(
 
     @EventHandler
     fun onPlayerQuit(event: PlayerQuitEvent) {
+        work.art1st.javarailways.bukkit.command.TrainCommand.revokePendingAtpAcknowledgement(event.player.uniqueId)
         bindingScanTasks.remove(event.player.uniqueId)?.cancel()
         releaseManualControl(event.player.uniqueId)
     }

@@ -10,7 +10,10 @@ import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.ato.ActuationStep
 import work.art1st.javarailways.basic.api.ato.BrakingGradeSegment
-import work.art1st.javarailways.basic.api.ato.ControlDemand
+import work.art1st.javarailways.basic.api.ato.*
+import work.art1st.javarailways.simplesignals.testing.StationaryTrainActuator as StationaryActuator
+import work.art1st.javarailways.basic.control.TrainDynamics
+import work.art1st.javarailways.basic.control.VehicleControlCapabilityModel
 import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
 import work.art1st.javarailways.basic.api.ato.TrainActuator
 import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest
@@ -142,7 +145,7 @@ class ProtectionSignalControllerHandoffTest {
         }
         val profile = AtoSafetyProfile(
             accelerationMetersPerSecondSquared = 1.0, serviceDecelerationMetersPerSecondSquared = 1.0,
-            reactionTimeSeconds = 0.0, safetyDistanceMeters = 2.0, stopToleranceMeters = 0.25
+            reactionTimeSeconds = 0.0, safetyDistanceMeters = 2.0
         )
         val actuator = StationaryActuator()
         val dispatcher = TimetableDispatcher(
@@ -351,7 +354,7 @@ class ProtectionSignalControllerHandoffTest {
                 .single { it.sourceId == FIXED_BLOCK_SIGNAL_SOURCE_ID }.restrictions.single()
                 as RouteSpeedRestriction).maximumSpeedMetersPerSecond, 1e-9)
             assertEquals(2.0, ato.runtimeDiagnostics.permittedSpeedMetersPerSecond, 1e-9)
-            assertEquals(2.0, actuator.lastDemand!!.targetSpeedMetersPerSecond, 1e-9)
+            assertFalse(actuator.lastCommand.emergencyBrake)
             advanceEpoch()
             tickController()
             assertEquals(approachLimit, ato.runtimeDiagnostics.permittedSpeedMetersPerSecond, 1e-9)
@@ -383,22 +386,4 @@ class ProtectionSignalControllerHandoffTest {
         }
     }
 
-    /** Captures the real controller demand while leaving geometry fixed for exact entry assertions. */
-    private class StationaryActuator : TrainActuator {
-        var steps = 0
-        var lastDemand: ControlDemand? = null
-        override val maximumSpeedMetersPerSecond = 10.0
-        override fun step(currentSpeedMetersPerSecond: Double, demand: ControlDemand, deltaTimeSeconds: Double): ActuationStep {
-            steps++
-            lastDemand = demand
-            return ActuationStep(0.0, 0.0)
-        }
-
-        override fun brakingEnvelope(
-            segments: List<BrakingGradeSegment>,
-            deltaTimeSeconds: Double,
-            maximumControlDeltaSeconds: Double
-        ): GradeAwareBrakingEnvelope =
-            GradeAwareBrakingEnvelope.constant(1.0, segments)
-    }
 }

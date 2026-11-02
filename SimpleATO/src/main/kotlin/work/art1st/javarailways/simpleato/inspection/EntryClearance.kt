@@ -106,8 +106,13 @@ internal fun entryClearanceState(
             if (exactSelfRed) false else when (constraint) {
                 is MovementAuthorityConstraint ->
                     constraint.remainingDistanceMeters - (constraint.stoppingMarginMeters ?: profile.safetyDistanceMeters) < remaining - EPSILON
-                is StopConstraint -> stopsInside(constraint.remainingDistanceMeters -
-                    (constraint.stoppingMarginMeters ?: profile.stopToleranceMeters))
+                is StopConstraint -> {
+                    // Arrival tolerance is uncertainty of the accepted position, never an aim offset.
+                    // A window straddling the entry can still leave the train stopped inside it.
+                    val aim = constraint.remainingDistanceMeters - (constraint.stoppingMarginMeters ?: 0.0)
+                    val latest = aim + if (constraint.operatingTarget) profile.stopToleranceMeters else 0.0
+                    latest >= entryRemaining - EPSILON && aim - profile.stopToleranceMeters < remaining - EPSILON
+                }
                 is FollowConstraint -> stopsInside(constraint.gapMeters - profile.safetyDistanceMeters)
                 is RouteSpeedLimitConstraint -> constraint.maximumSpeedMetersPerSecond == 0.0 &&
                     stopsInside(constraint.distanceToStartMeters)

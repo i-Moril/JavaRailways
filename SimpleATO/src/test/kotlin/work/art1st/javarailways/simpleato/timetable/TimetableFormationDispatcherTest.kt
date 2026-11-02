@@ -75,8 +75,9 @@ class TimetableFormationDispatcherTest {
             val applied = f.dependencies.applied.values.single {
                 it.owner.ownerId.startsWith("simpleato:timetable/")
             }
-            assertTrue(marginRail.id in applied.dependencies.railIds,
-                "the static output target is at248m; its5m margin crosses the250m ordinary connection")
+            assertEquals(setOf(f.rail.id, marginRail.id), applied.dependencies.railIds,
+                "the decimal 0.3m source envelope must join the retained onward path once, " +
+                    "and the target at248m plus5m margin must cover the250m ordinary connection")
             assertTrue(f.outputRequests.isEmpty(), "dependency protection precedes physical output departure")
         }
     }
@@ -608,7 +609,7 @@ class TimetableFormationDispatcherTest {
         private val inspection = InspectionRuntime(signals) { _, _, failure -> throw failure }
         private val profile = AtoSafetyProfile(accelerationMetersPerSecondSquared = 1.0,
             serviceDecelerationMetersPerSecondSquared = 2.0, reactionTimeSeconds = 0.0,
-            safetyDistanceMeters = safetyDistanceMeters, stopToleranceMeters = 0.1)
+            safetyDistanceMeters = safetyDistanceMeters)
         val dependencies = RecordingInfrastructureDependencyService()
         val dispatcher = TimetableDispatcher(authorityStoppingMarginMeters = profile.safetyDistanceMeters,
             routeAdmissionContextProvider = TimetableRouteAdmissionContextProvider { TimetableRouteAdmissionContext(observation, service) },

@@ -16,13 +16,11 @@ sealed interface StationCallSubmissionResult {
 object StationBerthDetector {
     fun isBerthed(
         headPositionErrorMeters: Double,
-        speedMetersPerSecond: Double,
-        positionToleranceMeters: Double
+        speedMetersPerSecond: Double
     ): Boolean {
         require(headPositionErrorMeters.isFinite())
         require(speedMetersPerSecond.isFinite() && speedMetersPerSecond >= 0.0)
-        require(positionToleranceMeters.isFinite() && positionToleranceMeters > 0.0)
-        return kotlin.math.abs(headPositionErrorMeters) <= positionToleranceMeters &&
+        return kotlin.math.abs(headPositionErrorMeters) <= work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS &&
             speedMetersPerSecond == 0.0
     }
 }

@@ -1439,8 +1439,7 @@ class IsolatedTimetableSimulationFactoryTest {
             val destinations = OperationalDestinationService(source)
             destinations.register(OperationalDestination("origin", platform.id, origin, direction, DestinationRole.Regular))
             destinations.register(OperationalDestination("terminal@one", platform.id, nominalStop, direction,
-                DestinationRole.StationBerthRole(StationId("terminal"), berthId = "one", doorSide = DoorSide.NONE,
-                    positionToleranceMeters = 0.1, usableLengthMeters = 130.0)))
+                DestinationRole.StationBerthRole(StationId("terminal"), berthId = "one", doorSide = DoorSide.NONE, usableLengthMeters = 130.0)))
             if (reverseAfter) destinations.register(OperationalDestination("return", platform.id, origin,
                 if (direction == ViewDirection.AB) ViewDirection.BA else ViewDirection.AB, DestinationRole.Regular))
             val originalDirections = source.basicWorldData.operatingDirections.snapshot(source.topologyState,

@@ -28,7 +28,6 @@ data class SavedOperationalDestinationV1(
     val berthId: String? = null,
     val doorSide: DoorSide? = null,
     val stoppingOffsetMetersBefore: Double = 0.0,
-    val positionToleranceMeters: Double = DestinationRole.DEFAULT_POSITION_TOLERANCE_METERS,
     val usableLengthMeters: Double? = null,
     val defaultDwellTicks: Long = 0L,
     val releaseDistanceMetersAfter: Double = 0.0,
@@ -53,7 +52,7 @@ data class SavedOperationalDestinationV1(
             berthId = requireNotNull(berthId),
             doorSide = requireNotNull(doorSide),
             stoppingOffsetMetersBefore = stoppingOffsetMetersBefore,
-            positionToleranceMeters = positionToleranceMeters,
+
             usableLengthMeters = usableLengthMeters,
             defaultDwellTicks = defaultDwellTicks,
             releaseDistanceMetersAfter = releaseDistanceMetersAfter
@@ -82,8 +81,7 @@ data class SavedOperationalDestinationV1(
                 berthId = station?.berthId,
                 doorSide = station?.doorSide,
                 stoppingOffsetMetersBefore = station?.stoppingOffsetMetersBefore ?: 0.0,
-                positionToleranceMeters = station?.positionToleranceMeters
-                    ?: DestinationRole.DEFAULT_POSITION_TOLERANCE_METERS,
+
                 usableLengthMeters = station?.usableLengthMeters ?: depot?.usableLengthMeters,
                 defaultDwellTicks = station?.defaultDwellTicks ?: 0L,
                 releaseDistanceMetersAfter = station?.releaseDistanceMetersAfter ?: 0.0,

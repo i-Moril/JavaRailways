@@ -88,6 +88,6 @@ class MissionRouteLayout(
     }
 
     private companion object {
-        const val POSITION_TOLERANCE_METERS = 0.5
+        const val POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS
     }
 }

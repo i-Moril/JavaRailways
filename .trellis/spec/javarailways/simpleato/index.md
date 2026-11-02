@@ -18,6 +18,7 @@ SimpleATO 规划时读取公共配置并组合其他选路限制；目标选择�
 | [实际运行方向限制](./operating-direction-enforcement.md) | 改方向验证、完整保护后缀与可行驶边界、相关方向失效 | Basic 公共方向的 ATO 消费、绑定路线的独立方向约束 |
 | [ATO policy runtime](./ato-policy-runtime.md) | 改mission、constraint、world Stall或route progress | SimpleATO唯一policy owner及Basic safety interlock桥接 |
 | [Controller runtime](./controller-runtime.md) | 改SimpleATO physics tick、mission/constraint状态或publication | 具体`SimpleATO` controller及其唯一可写运行状态 |
+| [Reference control](./reference-control.md) | 改理想参考曲线、逐车名义响应、行车/停车选挡或运营精度状态 | SimpleATO 普通控制，独立于硬保护 |
 | [入口整列车净空](./entry-clearance.md) | 改中立入口要求、当前停车约束证明及信号交接 | SimpleATO 单次感知、共享保守长度及入口停车检查 |
 | [响应式信号epoch](./reactive-signal-epochs.md) | 改监测区更新路由、信号callback或同步restriction publication | 平台无关source host、校验、fail-closed epoch顺序 |
 | [Dispatcher runtime](./dispatcher-runtime.md) | 改 timetable clock/run state、车次推进、车站/车辆段动作或恢复 | `SimpleATOWorldData.dispatcher` |

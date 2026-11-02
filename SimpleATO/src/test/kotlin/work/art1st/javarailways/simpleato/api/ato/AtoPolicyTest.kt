@@ -23,7 +23,7 @@ import work.art1st.javarailways.simpleato.api.constraint.StopConstraint
 import kotlin.math.sqrt
 
 class AtoPolicyTest {
-    private val profile = AtoSafetyProfile(reactionTimeSeconds = 0.0, stopToleranceMeters = 0.0)
+    private val profile = AtoSafetyProfile(reactionTimeSeconds = 0.0)
 
     @Test
     fun `distance constraints forward current speed and reaction once to the shared envelope`() {
@@ -51,11 +51,10 @@ class AtoPolicyTest {
         }
         val envelope = GradeAwareBrakingEnvelope.fromDynamics(trainProfile, listOf(carProfile), 9.81,
             listOf(BrakingGradeSegment(100.0, -0.02)), 1.2)
-        val safety = AtoSafetyProfile(reactionTimeSeconds = 0.4, safetyDistanceMeters = 5.0,
-            stopToleranceMeters = 0.25)
+        val safety = AtoSafetyProfile(reactionTimeSeconds = 0.4, safetyDistanceMeters = 5.0)
         val key = ConstraintKey("test", "reaction")
         listOf(
-            StopConstraint(key, 20.25) to 0.0,
+            StopConstraint(key, 20.0) to 0.0,
             MovementAuthorityConstraint(key, 25.0) to 0.0,
             FollowConstraint(key, 25.0, 2.0) to 2.0,
             RouteSpeedLimitConstraint(key, 20.0, 2.0) to 2.0
@@ -80,8 +79,8 @@ class AtoPolicyTest {
     }
 
     @Test
-    fun `stop constraint can override the profile stopping margin for precise berthing`() {
-        val berthProfile = AtoSafetyProfile(reactionTimeSeconds = 0.0, stopToleranceMeters = 0.5)
+    fun `stop constraint aims at its physical mark unless a margin is explicit`() {
+        val berthProfile = AtoSafetyProfile(reactionTimeSeconds = 0.0)
         val defaultStop = StopConstraint(
             ConstraintKey("test", "default-stop"),
             remainingDistanceMeters = 0.25
@@ -89,11 +88,11 @@ class AtoPolicyTest {
         val preciseStop = StopConstraint(
             ConstraintKey("test", "precise-stop"),
             remainingDistanceMeters = 0.25,
-            stoppingMarginMeters = 0.0
+            stoppingMarginMeters = 0.25
         )
 
-        assertEquals(0.0, defaultStop.permittedSpeedMetersPerSecond(0.0, berthProfile))
-        assertTrue(preciseStop.permittedSpeedMetersPerSecond(0.0, berthProfile) > 0.0)
+        assertTrue(defaultStop.permittedSpeedMetersPerSecond(0.0, berthProfile) > 0.0)
+        assertEquals(0.0, preciseStop.permittedSpeedMetersPerSecond(0.0, berthProfile))
     }
 
     @Test

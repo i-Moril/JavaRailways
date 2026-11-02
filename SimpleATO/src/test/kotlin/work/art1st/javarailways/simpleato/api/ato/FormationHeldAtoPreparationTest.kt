@@ -28,14 +28,14 @@ class FormationHeldAtoPreparationTest {
                     val train = createTrainWithConfig("output", rail, world, listOf(10.0))
                     val profile = AtoSafetyProfile(accelerationMetersPerSecondSquared = 1.0,
                         serviceDecelerationMetersPerSecondSquared = 1.0, reactionTimeSeconds = 0.0,
-                        safetyDistanceMeters = 0.0, stopToleranceMeters = 0.1)
+                        safetyDistanceMeters = 0.0)
                     val delegate = KinematicTrainActuator(10.0, profile)
                     var steps = 0
                     var freezes = 0
                     val actuator = object : TrainActuator by delegate {
-                        override fun step(currentSpeedMetersPerSecond: Double, demand: ControlDemand, deltaTimeSeconds: Double): ActuationStep {
+                        override fun step(currentSpeedMetersPerSecond: Double, command: work.art1st.javarailways.basic.api.ato.VehicleControlCommand, deltaTimeSeconds: Double): ActuationStep {
                             steps++
-                            return delegate.step(currentSpeedMetersPerSecond, demand, deltaTimeSeconds)
+                            return delegate.step(currentSpeedMetersPerSecond, command, deltaTimeSeconds)
                         }
                         override fun freeze() { freezes++ }
                     }

@@ -92,8 +92,7 @@ class TimetableDispatcherSharedAdmissionTest {
         accelerationMetersPerSecondSquared = 1.0,
         serviceDecelerationMetersPerSecondSquared = 1.0,
         reactionTimeSeconds = 0.0,
-        safetyDistanceMeters = 2.0,
-        stopToleranceMeters = 0.25
+        safetyDistanceMeters = 2.0
     )
 
     @AfterEach
@@ -748,6 +747,16 @@ class TimetableDispatcherSharedAdmissionTest {
         assertEquals(TimetableControlMode.MANUAL_ROUTED, fixture.status().controlMode)
         assertSame(manual, fixture.train.controller)
         assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        // Exercise the registered routed-manual source, not the detached ATO as a driver.
+        // This existing dispatcher fixture uses an explicit ideal actuator for control contracts.
+        val plant = KinematicTrainActuator(10.0, profile)
+        val proposed = work.art1st.javarailways.basic.api.ato.VehicleControlCommand(tractionRatio = 1.0)
+        val runtime = fixture.world.simpleAtoWorldData.controlRuntime
+        val accepted = AsyncTickTestSupport.run {
+            runtime.supervise(fixture.train, plant.controlState(0.0), plant.controlCapabilities(0.0), proposed, 0.05)
+        }
+        assertEquals(proposed, accepted, "a real route grant must remove the initial mission hold in MANUAL_ROUTED")
+        assertTrue(runtime.incidents.isEmpty(), runtime.incidents.toString())
     }
 
     @Test

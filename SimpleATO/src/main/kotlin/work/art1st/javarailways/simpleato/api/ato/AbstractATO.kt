@@ -2,6 +2,9 @@ package work.art1st.javarailways.simpleato.api.ato
 
 import work.art1st.javarailways.basic.api.ato.ControlDemand
 import work.art1st.javarailways.basic.api.ato.TrainActuator
+import work.art1st.javarailways.simpleato.control.*
+import work.art1st.javarailways.simpleato.api.atp.AtpTarget
+import work.art1st.javarailways.simpleato.simpleAtoWorldDataOrNull
 import work.art1st.javarailways.basic.api.ato.snapshot.PerceptionSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.core.api.control.TrainController
@@ -28,6 +31,9 @@ abstract class AbstractATO(
     protected val atoCoordinator: AtoWorldCoordinator
 ) : TrainController(train) {
     private val consistSafety = ControllerConsistState(safetyProfile)
+    private val unboundControlRuntime by lazy { RailwayControlRuntime(atoCoordinator.worldId) }
+    protected val railwayControlRuntime: RailwayControlRuntime
+        get() = world.simpleAtoWorldDataOrNull?.controlRuntime ?: unboundControlRuntime
     protected val safetyProfile: AtoSafetyProfile get() = consistSafety.value
 
     /**
@@ -97,6 +103,7 @@ abstract class AbstractATO(
 
     init {
         atoCoordinator.recordInitialTrain(publishedState.trainSnapshot)
+        railwayControlRuntime.prepare(train, actuator.controlCapabilities(train.speed))
     }
 
     final override fun tick(deltaT: Double) {
@@ -115,7 +122,10 @@ abstract class AbstractATO(
                 freeze()
                 return
             }
-            val step = actuator.step(activeSpeed, demand, deltaTimeSeconds)
+            if (deltaTimeSeconds <= 0.0) return
+            val command = railwayControlRuntime.automatic(train, actuator.controlState(activeSpeed),
+                actuator.controlCapabilities(activeSpeed), motionControlFrame(demand), deltaTimeSeconds, controlMissionRevision())
+            val step = actuator.step(activeSpeed, command, deltaTimeSeconds)
             val distance = constrainMovementDistance(step.distanceMeters)
             check(distance.isFinite() && distance >= 0.0 && distance <= step.distanceMeters) {
                 "controller movement boundary may only shorten the actuator step"
@@ -152,6 +162,24 @@ abstract class AbstractATO(
     protected open fun processPendingCommands() = Unit
 
     protected abstract fun plan(deltaTimeSeconds: Double): ControlDemand
+
+    /** Adapters with route semantics override this; the generic controller owns only its demand. */
+    protected open fun motionControlFrame(demand: ControlDemand): TrainControlFrame = TrainControlFrame(
+        listOf(MotionReferenceConstraint("planner/demand", 0.0, demand.targetSpeedMetersPerSecond)),
+        listOf(AtpTarget("vehicle/maximum", 0.0, actuator.maximumSpeedMetersPerSecond)),
+        actuator.controlCapabilities(activeSpeed).worstCurrentGrade)
+
+    protected open fun controlMissionRevision(): Long? = null
+
+    /** Refresh a routed manual transfer using current geometry, without integrating motion. */
+    protected fun refreshTransferredProtection(deltaSeconds: Double): TrainControlFrame {
+        speed = train.speed
+        lastTravelDistanceMeters = 0.0
+        processPendingCommands()
+        val demand = plan(deltaSeconds)
+        validateBeforeMovement()
+        return motionControlFrame(demand)
+    }
 
     protected open fun validateBeforeMovement() = Unit
 

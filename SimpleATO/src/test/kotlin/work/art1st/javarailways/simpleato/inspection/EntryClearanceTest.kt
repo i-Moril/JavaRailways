@@ -16,7 +16,7 @@ class EntryClearanceTest {
     private val own = ConstraintKey("test:signals", "test:entrance")
     private val requirement = InspectionEntryClearance("test:clearance", 10.0, 25.0,
         listOf(InspectionRestrictionIdentity(own.namespace, own.value)))
-    private val profile = AtoSafetyProfile(safetyDistanceMeters = 5.0, stopToleranceMeters = 0.1)
+    private val profile = AtoSafetyProfile(safetyDistanceMeters = 5.0)
     private fun state(vararg constraints: AtoConstraint, length: Double? = 10.0, routeLength: Double = 100.0,
         observed: Double = 80.0) = entryClearanceState(requirement, length, 0.0, routeLength, observed,
         profile, constraints.toList())

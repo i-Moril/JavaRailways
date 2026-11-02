@@ -10,7 +10,7 @@ import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import kotlin.math.abs
 
-private const val POSITION_TOLERANCE_METERS = 0.5
+private const val POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS
 
 /**
  * One Dispatcher mission adapted to Basic's tail-started admission coordinate.

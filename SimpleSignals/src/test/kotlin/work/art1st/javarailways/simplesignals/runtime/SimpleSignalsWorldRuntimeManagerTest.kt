@@ -7141,17 +7141,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         store().save(id, definition)
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(id).status)
         val feature = manager.prepareSimulation(id)
-        val actuator = object : work.art1st.javarailways.basic.api.ato.TrainActuator {
-            override val maximumSpeedMetersPerSecond = 30.0
-            override fun step(currentSpeedMetersPerSecond: Double, demand: work.art1st.javarailways.basic.api.ato.ControlDemand,
-                deltaTimeSeconds: Double) = work.art1st.javarailways.basic.api.ato.ActuationStep(0.0, 0.0)
-            override fun brakingEnvelope(
-                segments: List<work.art1st.javarailways.basic.api.ato.BrakingGradeSegment>,
-                deltaTimeSeconds: Double,
-                maximumControlDeltaSeconds: Double
-            ) =
-                work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope.constant(1.0, segments)
-        }
+        val actuator = work.art1st.javarailways.simplesignals.testing.StationaryTrainActuator(30.0)
         actualSimulation(source, feature, actuator) { world ->
             seedActualTrain(world)
             world.onOwnerForTest {
@@ -7484,7 +7474,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             dispatcherFactory = { _, admission, restrictions, inspection, dependencies ->
                 val profile = work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile(
                     accelerationMetersPerSecondSquared = 1.0, serviceDecelerationMetersPerSecondSquared = 1.0,
-                    reactionTimeSeconds = 0.0, safetyDistanceMeters = 2.0, stopToleranceMeters = 0.25)
+                    reactionTimeSeconds = 0.0, safetyDistanceMeters = 2.0)
                 work.art1st.javarailways.simpleato.timetable.TimetableDispatcher(admission, restrictions, inspection, dependencies,
                     authorityStoppingMarginMeters = profile.safetyDistanceMeters,
                     atoFactory = actuator?.let { selectedActuator -> work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory { train, world ->

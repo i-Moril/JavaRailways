@@ -43,26 +43,31 @@ class AtoStoppingAccuracyExperiment {
         val configuredStep = System.getenv("JR_ATO_ACCURACY_STEP_MS")?.toDouble() ?: 50.0
         val jitter = System.getenv("JR_ATO_ACCURACY_JITTER") == "1"
         val onlyStop = System.getenv("JR_ATO_ACCURACY_ONLY_STOP") == "1"
-        val berthTolerance = System.getenv("JR_ATO_ACCURACY_BERTH_TOLERANCE")?.toDouble() ?: 0.1
         BasicPlugin.instanceOrNull() ?: BasicPlugin(0).also { BasicPlugin.INSTANCE = it }
         SimpleATOPlugin.instanceOrNull() ?: SimpleATOPlugin(101).also { SimpleATOPlugin.INSTANCE = it }
-        val source = File("../models/s100").canonicalFile
+        val source = File(System.getenv("JR_ATO_ACCURACY_MODEL_DIR") ?:
+            "/tmp/jr-ato-deploy-20261102-2b9ec9d1/live-s100-model").canonicalFile
         val loaded = requireNotNull(PackageLoader(source).loadTrainPackage())
         val composition = loaded.train.composition.map { requireNotNull(loaded.cars[it.substringAfterLast('/')]) }
+        require(composition.size == 5) { "expected frozen five-car S100 composition: ${loaded.train.composition}" }
         val output = File(destination)
-        output.writeText("mode,cars,cap_mps,grade_per_mille,direction,distance_m,step_ms,advance_m,status,ticks,peak_mps,final_error_m,max_error_m,drift_m,arrival,reason\n")
+        val failures = mutableListOf<String>()
+        output.writeText("mode,cars,cap_mps,grade_per_mille,direction,distance_m,step_ms,advance_m,status,ticks,simulated_seconds,wall_seconds,peak_mps,operating_error_m,physical_target_error_m,max_error_m,drift_m,arrival,last_meter_switches,last_meter_traction,precision_state,reason\n")
         val grades = if (full || longRun) listOf(-35.0, 0.0, 35.0) else listOf(0.0)
-        val caps = System.getenv("JR_ATO_ACCURACY_CAP")?.toDouble()?.let { listOf(it) } ?: if (longRun) listOf(33.3) else if (full) listOf(2.0, 10.0, 25.0, 33.3) else listOf(10.0)
-        val lengths = System.getenv("JR_ATO_ACCURACY_DISTANCE")?.toDouble()?.let { listOf(it) } ?: if (longRun) listOf(2000.0) else if (full) listOf(30.0, 500.0) else listOf(100.0)
+        val caps = System.getenv("JR_ATO_ACCURACY_CAP")?.toDouble()?.let { listOf(it) } ?: if (longRun) listOf(33.3) else listOf(10.0)
+        val lengths = System.getenv("JR_ATO_ACCURACY_DISTANCE")?.toDouble()?.let { listOf(it) } ?: if (longRun) listOf(2000.0) else listOf(100.0)
         val repeats = if (full || longRun) listOf(1, 2) else listOf(1)
-        for (mode in if (onlyStop) listOf("STOP") else listOf("STOP", "STATION", "AUTHORITY")) for (count in repeats) for (cap in caps)
-            for (grade in grades) for (direction in ViewDirection.entries) for (distance in lengths)
+        for (mode in if (onlyStop) listOf("STOP") else listOf("STOP", "STATION_RUN", "AUTHORITY")) for (count in repeats) for (cap in caps)
+            for (grade in grades) for (direction in ViewDirection.entries) for (baseDistance in lengths)
+            for (variableStep in if (full) listOf(false, true) else listOf(jitter))
             for (step in if (longRun) listOf(25.0, 50.0, 100.0, 200.0) else listOf(configuredStep)) {
+            val distance = if (mode == "STATION_RUN" && System.getenv("JR_ATO_ACCURACY_DISTANCE") == null) max(500.0, baseDistance) else baseDistance
             val models = List(count) { composition }.flatten()
             val carProfiles = models.map { it.control }
             val config = loaded.control.copy(maxSpeed = cap)
-            val row = mutableListOf<Any>(mode, models.size, cap, grade, direction, distance, if (jitter) "jitter25-200" else step, advance)
-            PhysicsCoordinator(1, automaticFallback = false).use { physics ->
+            val row = mutableListOf<Any>(mode, models.size, cap, grade, direction, distance, if (variableStep) "jitter25-200" else step, advance)
+            val started = System.nanoTime()
+            try { PhysicsCoordinator(1, automaticFallback = false).use { physics ->
                 TestWorldFixture.create(physics).use { fixture ->
                     val world = fixture.world
                     val coordinator = AtoWorldCoordinator("accuracy", reportSink = {})
@@ -94,10 +99,12 @@ class AtoStoppingAccuracyExperiment {
                             if (direction == ViewDirection.AB) startArc else railLength - startArc))
                         train.commit()
                     }
+                    world.simpleAtoWorldData.controlRuntime.simulation = true
                     val safety = AtoSafetyProfile(serviceDecelerationMetersPerSecondSquared =
                         TrainDynamics.flatServiceDeceleration(config, carProfiles, 9.8),
                         reactionTimeSeconds = HandleTrainActuator.serviceBrakeReactionTimeSeconds(config, carProfiles, 9.8))
-                    val ato = SimpleATO(train, world, HandleTrainActuator(train, config, carProfiles, 9.8), safety, { 0.0 })
+                    val actuator = HandleTrainActuator(train, config, carProfiles, 9.8)
+                    val ato = SimpleATO(train, world, actuator, safety, { 0.0 })
                     train.setControllerForTest(ato)
                     val actualStart = train.publishedFrame.head.arcLengthInAbMeters
                     val targetArc = actualStart + sign * distance
@@ -109,13 +116,13 @@ class AtoStoppingAccuracyExperiment {
                         val result = ato.submitMission(AtoMissionRequest("accuracy", 1, WayPointRef("origin"),
                             listOf(AtoMissionPoint.Stop(WayPointRef("target"), offsetMetersBefore = if (mode == "STOP") advance else 0.0)), requiredStartDirection = direction))
                         assertInstanceOf(AtoMissionSubmissionResult.Accepted::class.java, result)
-                        if (mode == "STATION") {
+                        if (mode == "STATION_RUN") {
                             val stationId = StationId("station")
                             val berthRef = StationBerthRef(stationId, "berth")
                             val berth = StationBerth(berthRef, RailLocationWithFacing(
                                 if (direction == ViewDirection.AB) rail.viewAB else rail.viewBA,
                                 if (direction == ViewDirection.AB) targetArc else railLength - targetArc),
-                                approachDirection = direction, positionToleranceMeters = berthTolerance)
+                                approachDirection = direction)
                             world.simpleAtoWorldData.stations.register(Station(stationId, "station", listOf(berthRef)), listOf(berth))
                             val call = ato.submitStationCall(StationCallRequest("accuracy", WayPointRef("origin"),
                                 StationCall("accuracy", 1, stationId, berthRef, dwellPlan = DwellPlan(0))))
@@ -125,31 +132,63 @@ class AtoStoppingAccuracyExperiment {
                     }
                     physics.start()
                     var peak = 0.0; var farthest = 0.0; var ticks = 0; var status = "TIMEOUT"
+                    val runtime = world.simpleAtoWorldData.controlRuntime
+                    val operatingDistance = if (mode == "AUTHORITY") distance - safety.safetyDistanceMeters else distance - if (mode == "STOP") advance else 0.0
+                    var previousCommand = actuator.controlState(train.speed).lastCommand
+                    var lastMeterSwitches = 0
+                    var lastMeterTraction = 0
+                    var simulatedMillis = 0.0
                     var quietMillis = 0.0
-                    val maxTicks = ((distance / max(0.1, cap) + 180.0) * 1000.0 / if (jitter) 25.0 else step).toInt()
+                    val maxTicks = ((distance / max(0.1, cap) + 180.0) * 1000.0 / if (variableStep) 25.0 else step).toInt()
                     while (ticks < maxTicks) {
-                        val delta = if (jitter) listOf(25.0, 200.0, 50.0, 100.0, 25.0, 50.0)[ticks % 6] else step
-                        physics.stepSimulation(delta).await(); ticks++
+                        val delta = if (variableStep) listOf(25.0, 200.0, 50.0, 100.0, 25.0, 50.0)[ticks % 6] else step
+                        physics.stepSimulation(delta).await(); ticks++; simulatedMillis += delta
                         val frame = train.publishedFrame
                         assertFalse(frame.derailed, "physical derailment")
+                        assertNull(runtime.latestIntervention, "ATP abort: ${runtime.latestIntervention}")
                         assertFalse(coordinator.isStalled, coordinator.lastStall.toString())
+                        val command = actuator.controlState(frame.speedMetersPerSecond).lastCommand
+                        val travelled = sign * (frame.head.arcLengthInAbMeters - actualStart)
+                        if (operatingDistance - travelled <= 1.0) {
+                            if (command != previousCommand) lastMeterSwitches++
+                            if (command.tractionRatio > 0.0) lastMeterTraction++
+                        }
+                        previousCommand = command
                         peak = max(peak, frame.speedMetersPerSecond)
                         farthest = max(farthest, sign * (frame.head.arcLengthInAbMeters - actualStart))
                         quietMillis = if (frame.speedMetersPerSecond == 0.0 && peak > 0.0) quietMillis + delta else 0.0
                         if (quietMillis >= 2000.0) { status = "STOPPED"; break }
                     }
-                    val final = sign * (train.publishedFrame.head.arcLengthInAbMeters - targetArc)
-                    val arrival = if (mode == "STATION") ato.drainStationCallNotifications().any {
+                    val physicalError = sign * (train.publishedFrame.head.arcLengthInAbMeters - targetArc)
+                    val final = sign * (train.publishedFrame.head.arcLengthInAbMeters - actualStart) - operatingDistance
+                    val arrival = if (mode == "STATION_RUN") ato.drainStationCallNotifications().any {
                         it.type == StationCallNotificationType.BERTHED
                     } else abs(final) <= safety.stopToleranceMeters
                     val before = train.publishedFrame.head.arcLengthInAbMeters
-                    repeat(40) { physics.stepSimulation(step).await() }
+                    repeat(40) {
+                        physics.stepSimulation(step).await()
+                        assertNull(runtime.latestIntervention, "ATP after rest: ${runtime.latestIntervention}")
+                        assertFalse(coordinator.isStalled, coordinator.lastStall.toString())
+                    }
                     val drift = sign * (train.publishedFrame.head.arcLengthInAbMeters - before)
-                    row.addAll(listOf(status, ticks, peak, final, farthest - distance, drift, arrival, ""))
+                    val precision = runtime.latestDecision(train)?.precisionStatus?.name ?: "NONE"
+                    row.addAll(listOf(status, ticks, simulatedMillis / 1000.0, (System.nanoTime()-started)/1e9,
+                        peak, final, physicalError, farthest - operatingDistance, drift, arrival,
+                        lastMeterSwitches, lastMeterTraction, precision, ""))
+                    if (status != "STOPPED" || abs(final) > .05 || abs(drift) > 1e-6 || !arrival || lastMeterTraction != 0)
+                        failures += "mode=$mode cars=${models.size} grade=$grade direction=$direction jitter=$variableStep status=$status error=$final drift=$drift arrival=$arrival terminalTraction=$lastMeterTraction"
 
                 }
             }
-            output.appendText(row.joinToString(",") + "\n")
+            } catch (failure: Throwable) {
+                if (failure is VirtualMachineError || failure is ThreadDeath) throw failure
+                val reason = "${failure.javaClass.simpleName}: ${failure.message}"
+                failures += "mode=$mode cars=${models.size} grade=$grade direction=$direction jitter=$variableStep $reason"
+                row.addAll(listOf("ABORTED", "", "", (System.nanoTime()-started)/1e9,
+                    "", "", "", "", "", false, "", "", "", reason))
+            }
+            output.appendText(row.joinToString(",") { value -> "\"" + value.toString().replace("\"", "\"\"") + "\"" } + "\n")
         }
+        assertTrue(failures.isEmpty(), failures.joinToString("\n"))
     }
 }

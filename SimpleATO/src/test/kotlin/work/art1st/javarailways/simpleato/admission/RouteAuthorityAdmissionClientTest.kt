@@ -137,7 +137,7 @@ class RouteAuthorityAdmissionClientTest {
         service.onProgress = { RouteAdmissionResult.Granted(held) }
 
         client.request(limited, RouteBoundary(100.0))
-        assertEquals(0.0, publisher.authorities().last())
+        assertEquals(0.0, publisher.authorityOrHoldValues().last())
         client.progress()
 
         assertSame(held, client.committedGrantSnapshot)
@@ -238,7 +238,7 @@ class RouteAuthorityAdmissionClientTest {
         val result = client.request(40.0)
 
         assertSame(grant, (result as RouteAdmissionResult.Granted).grant)
-        assertEquals(listOf(0.0, 40.0), publisher.authorities())
+        assertEquals(listOf(0.0, 40.0), publisher.authorityOrHoldValues())
         assertEquals(1, service.intents.size)
         assertEquals(selection.route, service.intents.single().route)
         assertEquals(selection.observationStamp, service.intents.single().observationStamp)
@@ -254,12 +254,12 @@ class RouteAuthorityAdmissionClientTest {
 
         client.request(route.totalLengthMeters)
 
-        assertEquals(listOf(0.0, route.totalLengthMeters), publisher.authorities())
+        assertEquals(listOf(0.0, route.totalLengthMeters), publisher.authorityOrHoldValues())
         assertEquals(RouteBoundary(route.totalLengthMeters), client.state.committedAuthority)
     }
 
     @Test
-    fun `first pending request retains zero authority until progress commits a grant`() {
+    fun `first pending request holds speed without inventing a physical authority until a grant`() {
         val handle = RouteAdmissionTestFixtures.handle()
         val grant = grant(35.0)
         service.onRequest = { RouteAdmissionResult.Pending(handle, null) }
@@ -271,14 +271,16 @@ class RouteAuthorityAdmissionClientTest {
         val pending = client.request(35.0)
 
         assertSame(handle, (pending as RouteAdmissionResult.Pending).handle)
-        assertEquals(listOf(0.0), publisher.authorities())
+        assertEquals(listOf(0.0), publisher.authorityOrHoldValues())
+        assertTrue(publisher.snapshots.last().restrictions.none { it is MovementAuthorityRestriction })
+        assertEquals(0.0, (publisher.snapshots.last().restrictions.single() as CurrentSpeedRestriction).maximumSpeedMetersPerSecond)
         assertTrue(client.state.pending)
         assertEquals(null, client.state.committedAuthority)
 
         val ready = client.progress()
 
         assertSame(grant, (ready as RouteAdmissionResult.Granted).grant)
-        assertEquals(listOf(0.0, 35.0), publisher.authorities())
+        assertEquals(listOf(0.0, 35.0), publisher.authorityOrHoldValues())
         assertFalse(client.state.pending)
         assertEquals(RouteBoundary(35.0), client.state.committedAuthority)
     }
@@ -297,7 +299,7 @@ class RouteAuthorityAdmissionClientTest {
         val pending = client.request(60.0, stamp.copy(physicsEpoch = 11L))
 
         assertSame(grant, (pending as RouteAdmissionResult.Pending).committedGrant)
-        assertEquals(listOf(0.0, 30.0), publisher.authorities())
+        assertEquals(listOf(0.0, 30.0), publisher.authorityOrHoldValues())
     }
 
     @Test
@@ -334,7 +336,7 @@ class RouteAuthorityAdmissionClientTest {
         assertSame(grantId, ready.grantId)
         assertEquals(appendedRoute.revision, publisher.snapshots.last().route.routeRevision)
         assertEquals(appendedRoute.totalLengthMeters, publisher.snapshots.last().route.totalLengthMeters)
-        assertEquals(140.0, publisher.authorities().last())
+        assertEquals(140.0, publisher.authorityOrHoldValues().last())
     }
 
     @Test
@@ -374,7 +376,7 @@ class RouteAuthorityAdmissionClientTest {
         assertEquals(RouteBoundary(10.0), client.state.committedAuthority)
         assertFalse(client.state.reversalPending)
         assertEquals(reversedRoute.revision, publisher.snapshots.last().route.routeRevision)
-        assertEquals(listOf(0.0, 80.0, 10.0), publisher.authorities())
+        assertEquals(listOf(0.0, 80.0, 10.0), publisher.authorityOrHoldValues())
     }
 
     @Test
@@ -399,7 +401,7 @@ class RouteAuthorityAdmissionClientTest {
             RouteAdmissionFailureCode.INVALID_BOUNDARY,
             (denied as RouteAdmissionResult.Rejected).failure.code
         )
-        assertEquals(listOf(0.0, 30.0), publisher.authorities())
+        assertEquals(listOf(0.0, 30.0), publisher.authorityOrHoldValues())
         assertEquals(route.revision, publisher.snapshots.last().route.routeRevision)
         assertEquals(route.totalLengthMeters, publisher.snapshots.last().route.totalLengthMeters)
     }
@@ -419,7 +421,7 @@ class RouteAuthorityAdmissionClientTest {
             RouteAdmissionFailureCode.PREPARATION_ABORTED_SAFE,
             (aborted as RouteAdmissionResult.Rejected).failure.code
         )
-        assertEquals(listOf(0.0), publisher.authorities())
+        assertEquals(listOf(0.0), publisher.authorityOrHoldValues())
         assertTrue(client.end())
         assertTrue(publisher.snapshots.last().restrictions.isEmpty())
         assertTrue(service.ended.isEmpty())
@@ -437,9 +439,9 @@ class RouteAuthorityAdmissionClientTest {
             RouteAdmissionFailureCode.WORLD_STALLED,
             (stalled as RouteAdmissionResult.Rejected).failure.code
         )
-        assertEquals(listOf(0.0), publisher.authorities())
+        assertEquals(listOf(0.0), publisher.authorityOrHoldValues())
         assertFalse(client.end())
-        assertEquals(listOf(0.0), publisher.authorities())
+        assertEquals(listOf(0.0), publisher.authorityOrHoldValues())
 
         service.onRequest = { RouteAdmissionResult.Granted(grant(60.0)) }
         val retry = client.request(60.0)
@@ -448,7 +450,7 @@ class RouteAuthorityAdmissionClientTest {
             (retry as RouteAdmissionResult.Rejected).failure.code
         )
         assertEquals(1, service.intents.size)
-        assertEquals(listOf(0.0), publisher.authorities())
+        assertEquals(listOf(0.0), publisher.authorityOrHoldValues())
     }
 
     @Test
@@ -459,7 +461,7 @@ class RouteAuthorityAdmissionClientTest {
         client.request(45.0)
 
         assertFalse(client.end())
-        assertEquals(listOf(0.0, 45.0), publisher.authorities())
+        assertEquals(listOf(0.0, 45.0), publisher.authorityOrHoldValues())
 
         service.endResult = true
         assertTrue(client.end())
@@ -477,7 +479,7 @@ class RouteAuthorityAdmissionClientTest {
 
         assertThrows(IllegalStateException::class.java) { client.end() }
         assertEquals(1, service.ended.size)
-        assertEquals(45.0, publisher.authorities().last())
+        assertEquals(45.0, publisher.authorityOrHoldValues().last())
 
         assertTrue(client.end())
         assertEquals(1, service.ended.size)
@@ -537,7 +539,7 @@ class RouteAuthorityAdmissionClientTest {
         )
         assertEquals(2, service.intents.size)
         assertEquals(malformedSameRevision, service.intents.last().route)
-        assertEquals(listOf(0.0, 30.0), publisher.authorities())
+        assertEquals(listOf(0.0, 30.0), publisher.authorityOrHoldValues())
     }
 
     @Test
@@ -554,7 +556,7 @@ class RouteAuthorityAdmissionClientTest {
             (result as RouteAdmissionResult.Rejected).failure.code
         )
         assertEquals(staleStamp, service.intents.single().observationStamp)
-        assertEquals(listOf(0.0), publisher.authorities())
+        assertEquals(listOf(0.0), publisher.authorityOrHoldValues())
     }
 
     @Test
@@ -569,7 +571,7 @@ class RouteAuthorityAdmissionClientTest {
             (result as RouteAdmissionResult.Rejected).failure.code
         )
         assertTrue(service.intents.isEmpty())
-        assertEquals(listOf(0.0), publisher.authorities())
+        assertEquals(listOf(0.0), publisher.authorityOrHoldValues())
         assertTrue(client.end())
         assertTrue(publisher.snapshots.last().restrictions.isEmpty())
     }
@@ -761,9 +763,14 @@ class RouteAuthorityAdmissionClientTest {
             )
         }
 
-        fun authorities(): List<Double> = snapshots.mapNotNull { snapshot ->
-            snapshot.restrictions.filterIsInstance<MovementAuthorityRestriction>()
-                .singleOrNull { it.restrictionId == "simpleato:committed-authority" }?.routeDistanceMeters
+        /** Numeric trace convention: 0 denotes a no-grant speed hold, never a physical MA. */
+        fun authorityOrHoldValues(): List<Double> = snapshots.mapNotNull { snapshot ->
+            val value = snapshot.restrictions.singleOrNull { it.restrictionId == "simpleato:committed-authority" }
+            when (value) {
+                is MovementAuthorityRestriction -> value.routeDistanceMeters
+                is CurrentSpeedRestriction -> 0.0.also { assertEquals(0.0, value.maximumSpeedMetersPerSecond) }
+                else -> null
+            }
         }
     }
 

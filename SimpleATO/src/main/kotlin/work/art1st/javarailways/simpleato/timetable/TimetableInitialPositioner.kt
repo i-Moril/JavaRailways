@@ -164,6 +164,6 @@ class TimetableInitialPositioner(private val world: World) {
     }
 
     private companion object {
-        const val POSITION_TOLERANCE_METERS = 0.25
+        const val POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS
     }
 }

@@ -309,6 +309,7 @@ class IsolatedTimetableSimulationWorld private constructor(
                                 )
                             }
                         )
+                        domain.data.controlRuntime.simulation = true
                         operationalRuntime = domain
                         basicInfrastructure.restore(isolatedWorld)
                         simpleAtoInfrastructure.restore(isolatedWorld)

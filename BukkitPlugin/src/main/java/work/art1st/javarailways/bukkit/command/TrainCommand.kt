@@ -42,9 +42,12 @@ object TrainCommand {
     /** 玩家 UUID -> 手动控制器 */
     private val playerControllers = ConcurrentHashMap<UUID, RealisticManualController>()
     private val heavyOperationGate = PlayerOperationGate()
+    // Seat events revoke requests before their owner-side operation runs; no Bukkit entity reads on physics.
+    private val pendingAtpAcknowledgements = ConcurrentHashMap<UUID, Any>()
 
     init {
         SeatModel.SeatInteractionListener.addDriverSeatVacatedHandler { player, train ->
+            pendingAtpAcknowledgements.remove(player.uniqueId)
             val controller = playerControllers[player.uniqueId] ?: return@addDriverSeatVacatedHandler
             if (controller.controlledTrain === train) {
                 controller.coast()
@@ -65,12 +68,53 @@ object TrainCommand {
             "anim", "animation" -> return handleAnim(sender, args.drop(1))
             "action" -> return handleAction(sender, args.drop(1))
             "behavior" -> return handleBehavior(sender, args.drop(1))
+            "atp" -> return handleAtp(sender, args.drop(1))
             "info" -> return handleInfo(sender)
             "list" -> return handleList(sender)
             "delete" -> return handleDelete(sender, args.drop(1))
             "sit" -> return handleSit(sender)
             "stand" -> return handleStand(sender)
             else -> sender.sendMessage("未知子命令: ${args[0]}")
+        }
+        return true
+    }
+
+    internal fun revokePendingAtpAcknowledgement(playerId: UUID) {
+        pendingAtpAcknowledgements.remove(playerId)
+    }
+
+    private fun handleAtp(sender: CommandSender, args: List<String>): Boolean {
+        if (sender !is Player) { sender.sendMessage("此命令需要玩家执行"); return true }
+        val world = getPlayerWorld(sender) ?: return true
+        val train = findDrivenTrain(sender, world as? CoreWorld ?: return true) ?: run {
+            sender.sendMessage("请先坐在驾驶座上"); return true
+        }
+        val runtime = world.simpleAtoWorldDataOrNull?.controlRuntime ?: return true
+        when (args.firstOrNull()?.lowercase() ?: "status") {
+            "status" -> sender.sendMessage(if (runtime.isAcknowledgementRequired(train)) "ATP 制动保持中" else "ATP 正常")
+            "release" -> {
+                val manager = BukkitPlugin.INSTANCE.trainControlManager
+                val session = manager.sessionFor(sender)
+                val controller = session?.controller ?: playerControllers[sender.uniqueId]
+                if (controller == null || controller.controlledTrain !== train) {
+                    sender.sendMessage("请先取得本列车的手动驾驶控制权")
+                    return true
+                }
+                val playerId = sender.uniqueId
+                val request = Any()
+                pendingAtpAcknowledgements[playerId] = request
+                reportControllerOperation(sender, (world as CoreWorld).physicsCoordinator.submitBetweenFrames {
+                    try {
+                        check(pendingAtpAcknowledgements[playerId] === request &&
+                            world.getTrain(train.id) === train && train.controller === controller &&
+                            (if (session != null) manager.sessionFor(train) === session && session.playerId == playerId
+                             else playerControllers[playerId] === controller)) { "驾驶员或控制器已变化，请重新请求" }
+                        if (runtime.acknowledge(train)) listOf("已请求解除 ATP；下一次安全检查通过且停车后解除")
+                        else listOf("没有可解除的 ATP 干预")
+                    } finally { pendingAtpAcknowledgements.remove(playerId, request) }
+                })
+            }
+            else -> sender.sendMessage("用法: /jr train atp <status|release>")
         }
         return true
     }
@@ -387,7 +431,8 @@ object TrainCommand {
             val controller = RealisticManualController(
                 train, controlConfig, carControls,
                 BukkitPlugin.INSTANCE.physicsConfig.track.gravityMetersPerSecondSquared,
-                profileResolver = { car -> car.carRendererOrNull?.resolveCarControl() }
+                profileResolver = { car -> car.carRendererOrNull?.resolveCarControl() },
+                initialDeviceSource = train.controller as? work.art1st.javarailways.basic.control.DynamicsProfileSource
             )
             train.setController(controller)
             playerControllers[playerId] = controller

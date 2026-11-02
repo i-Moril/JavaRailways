@@ -22,8 +22,7 @@ class AbstractATOMotionPublicationTest {
         accelerationMetersPerSecondSquared = 1.0,
         serviceDecelerationMetersPerSecondSquared = 1.0,
         reactionTimeSeconds = 0.0,
-        safetyDistanceMeters = 2.0,
-        stopToleranceMeters = 0.25
+        safetyDistanceMeters = 2.0
     )
 
     @Test

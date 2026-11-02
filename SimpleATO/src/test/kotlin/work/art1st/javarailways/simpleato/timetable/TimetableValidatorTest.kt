@@ -545,8 +545,7 @@ class TimetableValidatorTest {
             accelerationMetersPerSecondSquared = 1.0,
             serviceDecelerationMetersPerSecondSquared = 1.0,
             reactionTimeSeconds = 0.0,
-            safetyDistanceMeters = 1.0,
-            stopToleranceMeters = 0.25
+            safetyDistanceMeters = 1.0
         )
         val inspectionRuntime = emptyInspectionRuntime()
         val dispatcher = TimetableDispatcher(

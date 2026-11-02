@@ -48,6 +48,7 @@ class OperationalWorldRuntime private constructor(
         if (closed) throw work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt.halt(
             "A live world consumed a closed operational runtime: $worldId")
         work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt.ensureRunning()
+        data.controlRuntime.retireMissing(world.allTrains)
         publishObservation()
         world.publishPendingDerailEvents()
         speedMonitor?.drainRequests(physicsEpoch).orEmpty().forEach { request ->
@@ -69,6 +70,8 @@ class OperationalWorldRuntime private constructor(
             }
         }
         if (this::data.isInitialized) attempt { data.dispatcher.cancelPendingActionsForShutdown(world) }
+        if (this::data.isInitialized) attempt { data.controlRuntime.close() }
+        basicData.commandSupervisor = null
         attempt { topologySubscription?.close() }
         attempt { speedMonitor?.let(world.physicsCoordinator::unregisterPublishedFrameProcessor) }
 
@@ -103,6 +106,7 @@ class OperationalWorldRuntime private constructor(
                     timetableExtensions = timetableExtensions, stationCallResolvers = stationCallResolvers, operationalRuntime = runtime
                 )
                 world.registerExtensionData(SimpleATOPlugin.INSTANCE, runtime.data)
+                basic.commandSupervisor = runtime.data.controlRuntime
                 runtime.topologySubscription = world.registerTopologyChangeListener { change ->
                     inspection.invalidateTopology(change)
                     signal.invalidateTopology(change)

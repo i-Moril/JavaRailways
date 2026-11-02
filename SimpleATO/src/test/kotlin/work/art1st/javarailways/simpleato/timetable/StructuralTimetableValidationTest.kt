@@ -59,7 +59,7 @@ class StructuralTimetableValidationTest {
                 val frame = if (key.outputId == "first") first.publishedFrame else rest.publishedFrame
                 val resolved = evidence.proof.resolve(frame, world.topologyState, evidence.outputCarIds, evidence.expectedReversed)
                 assertTrue(resolved.admission.totalLengthMeters > resolved.movement.totalLengthMeters)
-                assertEquals(1.0, evidence.stoppingOffsetFromRetainedEndMeters)
+                assertEquals(0.3, evidence.stoppingOffsetFromRetainedEndMeters, 1e-12)
             }
         }
     }
@@ -85,8 +85,8 @@ class StructuralTimetableValidationTest {
             val result = TimetableValidator(world).validate(timetable(sourceSteps = steps))
             assertTrue(result.isSuccess, result.errors.toString())
             val ingress = result.structural.sources.values.single()
-            assertEquals(101.0, ingress.window.forwardBoundary.arcLengthInAbMeters)
-            assertEquals(101.0, ingress.envelope.retainedPath.segments.last().endArcLengthMeters)
+            assertEquals(100.3, ingress.window.forwardBoundary.arcLengthInAbMeters)
+            assertEquals(100.3, ingress.envelope.retainedPath.segments.last().endArcLengthMeters)
             assertTrue(ingress.envelope.retainedPath.segments.first().startArcLengthMeters > 40.0,
                 "Core-certified stop envelope may remove distant historical source body")
             assertEquals(2, result.structural.routes.size)
@@ -373,7 +373,7 @@ class StructuralTimetableValidationTest {
                         val unsafeResult = TimetableValidator(world).validate(unsafe)
                         assertFalse(unsafeResult.isSuccess)
                         assertTrue(unsafeResult.errors.any { it.contains("not every future stopped-window pair") }, unsafeResult.errors.toString())
-                        for (aHead in listOf(futureA - 1.0, futureA + 1.0)) for (bHead in listOf(futureB - 1.0, futureB + 1.0)) {
+                        for (aHead in listOf(futureA - .3, futureA + .3)) for (bHead in listOf(futureB - .3, futureB + .3)) {
                             moving.setLocation(rail.viewAB.getRailLocationAt(aHead)); moving.commitMaintenancePlacement()
                             stationary.setLocation(rail.viewAB.getRailLocationAt(bHead + if (stationaryReversed) 10.0 else 0.0))
                             stationary.commitMaintenancePlacement()

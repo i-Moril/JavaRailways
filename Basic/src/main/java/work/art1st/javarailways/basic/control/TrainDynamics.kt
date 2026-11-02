@@ -1,6 +1,7 @@
 package work.art1st.javarailways.basic.control
 
 import kotlin.math.abs
+import work.art1st.javarailways.basic.api.ato.VehicleControlCommand
 import kotlin.math.min
 import kotlin.math.max
 import kotlinx.serialization.Serializable
@@ -16,6 +17,8 @@ object TrainDynamics {
         val adhesionCoefficient: Double
         val tractionJerk: Double
         val brakeJerk: Double
+        val nominalOperatingAcceleration: Double get() = 1.0
+        val nominalOperatingDeceleration: Double get() = 1.0
         fun normalizedPowerScale(handle: String): Double
         fun normalizedBrakeScale(handle: String): Double
         fun resistanceForceAt(speed: Double): Double
@@ -23,17 +26,17 @@ object TrainDynamics {
 
     @Serializable
     data class Equipment(
-        val nominalCylinderPressureKpa: Double = 350.0,
-        val commandDelaySeconds: Double = 0.1,
-        val electricBrakeMaxPowerWatts: Double = 400000.0,
-        val electricBrakeFadeSpeedMetersPerSecond: Double = 3.0,
-        val electricBrakeApplyRateNewtonsPerSecond: Double = 100000.0,
-        val electricBrakeReleaseRateNewtonsPerSecond: Double = 100000.0,
-        val tractionApplyRateNewtonsPerSecond: Double = 80000.0,
-        val tractionReleaseRateNewtonsPerSecond: Double = 160000.0,
-        val tractionReleasePressureKpa: Double = 5.0,
-        val electricReleaseForceThresholdNewtons: Double = 1.0
-    ) {
+        override val nominalCylinderPressureKpa: Double = 350.0,
+        override val commandDelaySeconds: Double = 0.1,
+        override val electricBrakeMaxPowerWatts: Double = 400000.0,
+        override val electricBrakeFadeSpeedMetersPerSecond: Double = 3.0,
+        override val electricBrakeApplyRateNewtonsPerSecond: Double = 100000.0,
+        override val electricBrakeReleaseRateNewtonsPerSecond: Double = 100000.0,
+        override val tractionApplyRateNewtonsPerSecond: Double = 80000.0,
+        override val tractionReleaseRateNewtonsPerSecond: Double = 160000.0,
+        override val tractionReleasePressureKpa: Double = 5.0,
+        override val electricReleaseForceThresholdNewtons: Double = 1.0
+    ) : VehicleDeviceEquipment {
         init {
             require(nominalCylinderPressureKpa.isFinite() && nominalCylinderPressureKpa > 0.0)
             require(commandDelaySeconds.isFinite() && commandDelaySeconds >= 0.0)
@@ -56,6 +59,8 @@ object TrainDynamics {
         val brakeAdhesionMassRatio: Double
         val electricBrakeMaxForce: Double get() = 0.0
         val equipment: Equipment get() = DEFAULT_EQUIPMENT
+        /** Proven unit-traction force ceiling over all speeds; null retains the adhesion ceiling. */
+        val maximumMotorForceUpperBound: Double? get() = null
         fun motorForceAt(speed: Double): Double
         fun resistanceForceAt(speed: Double, defaultResistance: (Double) -> Double): Double
     }
@@ -87,25 +92,35 @@ object TrainDynamics {
         val electricBrakeForceNewtons: Double = 0.0,
         val tractionForceNewtons: Double = 0.0,
         val commandAgeSeconds: Double = 0.0,
-        val previousDemand: Double = 0.0
+        val previousDemand: Double = 0.0,
+        val previousTractionRatio: Double = previousDemand.coerceAtLeast(0.0),
+        val previousBrakeRatio: Double = (-previousDemand).coerceAtLeast(0.0),
+        val previousEmergencyBrake: Boolean = false
     )
 
     /** Stable owned storage: no public mutable arrays, and no view of a speculative workspace. */
     class DeviceSnapshot private constructor(internal val values: DeviceArrays) {
         val size: Int get() = values.pressure.size
         operator fun get(index: Int) = CarDeviceState(values.pressure[index], values.electric[index],
-            values.traction[index], values.age[index], values.previous[index])
+            values.traction[index], values.age[index], values.previous[index], values.previousPower[index],
+            values.previousBrake[index], values.previousEmergency[index])
         fun toList(): List<CarDeviceState> = (0 until size).map(::get)
         override fun equals(other: Any?): Boolean = other is DeviceSnapshot &&
             values.pressure.contentEquals(other.values.pressure) && values.electric.contentEquals(other.values.electric) &&
             values.traction.contentEquals(other.values.traction) && values.age.contentEquals(other.values.age) &&
-            values.previous.contentEquals(other.values.previous)
+            values.previous.contentEquals(other.values.previous) &&
+            values.previousPower.contentEquals(other.values.previousPower) &&
+            values.previousBrake.contentEquals(other.values.previousBrake) &&
+            values.previousEmergency.contentEquals(other.values.previousEmergency)
         override fun hashCode(): Int {
             var hash = values.pressure.contentHashCode()
             hash = 31 * hash + values.electric.contentHashCode()
             hash = 31 * hash + values.traction.contentHashCode()
             hash = 31 * hash + values.age.contentHashCode()
-            return 31 * hash + values.previous.contentHashCode()
+            hash = 31 * hash + values.previous.contentHashCode()
+            hash = 31 * hash + values.previousPower.contentHashCode()
+            hash = 31 * hash + values.previousBrake.contentHashCode()
+            return 31 * hash + values.previousEmergency.contentHashCode()
         }
         companion object {
             private val EMPTY = DeviceSnapshot(DeviceArrays(0))
@@ -120,6 +135,11 @@ object TrainDynamics {
                     arrays.traction[i] = s.tractionForceNewtons
                     arrays.age[i] = s.commandAgeSeconds
                     arrays.previous[i] = s.previousDemand
+                    require(s.previousTractionRatio.isFinite() && s.previousTractionRatio >= 0.0)
+                    require(s.previousBrakeRatio.isFinite() && s.previousBrakeRatio >= 0.0)
+                    arrays.previousPower[i] = s.previousTractionRatio
+                    arrays.previousBrake[i] = s.previousBrakeRatio
+                    arrays.previousEmergency[i] = s.previousEmergencyBrake
                 }
                 return DeviceSnapshot(arrays)
             }
@@ -133,6 +153,9 @@ object TrainDynamics {
         val traction = DoubleArray(n)
         val age = DoubleArray(n)
         val previous = DoubleArray(n)
+        val previousPower = DoubleArray(n)
+        val previousBrake = DoubleArray(n)
+        val previousEmergency = BooleanArray(n)
     }
     internal class PreviewWorkspace(n: Int) {
         val destination = DeviceArrays(n)
@@ -161,31 +184,47 @@ object TrainDynamics {
         private val stable = initialized(state, cars)
         val seed = TrialState(stable, stable.devices.values)
         fun trial(handle: String): TrialResult = compute(
-            seed, workspace.destination, profile, cars, handle, gravity, delta
+            seed, workspace.destination, profile, cars, commandForHandle(profile, handle), gravity, delta
         )
     }
 
+    fun commandForHandle(config: TrainProfile, handle: String): VehicleControlCommand = VehicleControlCommand(
+        config.normalizedPowerScale(handle.uppercase()), config.normalizedBrakeScale(handle.uppercase()),
+        handle.equals("EB", true), handle.uppercase())
+
+    fun maximumTractionRatio(config: TrainProfile): Double =
+        config.powerHandles.maxOfOrNull(config::normalizedPowerScale) ?: 0.0
+
+    fun emergencyBrakeScale(config: TrainProfile): Double = config.normalizedBrakeScale("EB").takeIf { it > 0.0 }
+        ?: config.normalizedBrakeScale(strongestServiceBrakeHandle(config))
+
     fun step(state: State, config: TrainProfile, cars: List<CarInput>, handle: String,
+             gravityMetersPerSecondSquared: Double, deltaSeconds: Double): StepResult =
+        step(state, config, cars, commandForHandle(config, handle), gravityMetersPerSecondSquared, deltaSeconds)
+
+    fun step(state: State, config: TrainProfile, cars: List<CarInput>, command: VehicleControlCommand,
              gravityMetersPerSecondSquared: Double, deltaSeconds: Double): StepResult {
         require(gravityMetersPerSecondSquared.isFinite() && gravityMetersPerSecondSquared > 0.0)
-        require(deltaSeconds.isFinite())
-        if (deltaSeconds <= 0.0 || cars.isEmpty()) return StepResult(state, 0.0, 0.0, 0.0, 0.0, 0.0)
+        require(deltaSeconds.isFinite() && deltaSeconds >= 0.0)
+        require(command.emergencyBrake || command.tractionRatio <= maximumTractionRatio(config)) {
+            "traction demand exceeds the authored physical control range"
+        }
+        if (deltaSeconds == 0.0 || cars.isEmpty()) return StepResult(state, 0.0, 0.0, 0.0, 0.0, 0.0)
         val source = initialized(state, cars)
         val destination = DeviceArrays(cars.size)
-        val result = compute(TrialState(source, source.devices.values), destination, config, cars, handle,
+        val result = compute(TrialState(source, source.devices.values), destination, config, cars, command,
             gravityMetersPerSecondSquared, deltaSeconds)
         return StepResult(result.state.motion.copy(devices = DeviceSnapshot.own(destination)), result.distance,
             result.tractionForce, result.brakeForce, result.resistanceForce, result.gradeForce)
     }
 
     private fun compute(source: TrialState, destination: DeviceArrays, config: TrainProfile,
-                        cars: List<CarInput>, handle: String, gravity: Double, delta: Double): TrialResult {
+                        cars: List<CarInput>, command: VehicleControlCommand, gravity: Double, delta: Double): TrialResult {
         require(gravity.isFinite() && gravity > 0.0)
         require(delta.isFinite() && delta >= 0.0)
         if (delta == 0.0 || cars.isEmpty()) return TrialResult(source, 0.0, 0.0, 0.0, 0.0, 0.0)
-        val normalized = handle.uppercase()
-        val brake = config.normalizedBrakeScale(normalized)
-        val power = config.normalizedPowerScale(normalized)
+        val brake = if (command.emergencyBrake) emergencyBrakeScale(config) else command.brakeRatio
+        val power = if (command.emergencyBrake) 0.0 else command.tractionRatio
         val speed = source.motion.speed.coerceIn(0.0, config.maxSpeed)
         var traction = 0.0
         var braking = 0.0
@@ -201,28 +240,23 @@ object TrainDynamics {
             require(car.mass.isFinite() && car.mass > 0.0 && car.effectiveMass.isFinite() && car.effectiveMass > 0.0)
             require(car.electricBrakeMaxForce.isFinite() && car.electricBrakeMaxForce >= 0.0)
             val demand = if (brake > 0.0) - brake else power
-            destination.age[i] = if (demand != old.previous[i]) 0.0 else old.age[i] + delta
-            destination.previous[i] = demand
-            val enabled = destination.age[i] >= equipment.commandDelaySeconds
-            val electricTarget = if (enabled && brake > 0.0 && normalized != "EB") {
-                min(car.electricBrakeMaxForce, equipment.electricBrakeMaxPowerWatts / max(speed, 0.5))*
-                    min(1.0, speed / equipment.electricBrakeFadeSpeedMetersPerSecond) * min(brake, 1.0)
-            } else 0.0
-            destination.electric[i] = approach(old.electric[i], electricTarget,
-                (if (electricTarget>old.electric[i]) equipment.electricBrakeApplyRateNewtonsPerSecond else equipment.electricBrakeReleaseRateNewtonsPerSecond) * delta)
-            val pressureTarget = if (enabled) {
-                if (car.brakeMaxForce > 0.0) ((car.brakeMaxForce * brake - destination.electric[i]).coerceAtLeast(0.0) / car.brakeMaxForce) * equipment.nominalCylinderPressureKpa
-                else 0.0
-            } else old.pressure[i]
-            val airTime = if (pressureTarget>old.pressure[i]) config.brakeApplyTime else config.brakeReleaseTime
-            destination.pressure[i] = if (airTime <= 0.0) pressureTarget else approach(old.pressure[i], pressureTarget,
-                equipment.nominalCylinderPressureKpa / airTime * delta)
             val motorAdhesion = car.mass * car.motorAdhesionMassRatio * gravity * config.adhesionCoefficient
-            val targetTraction = if (enabled && power > 0.0 && speed<config.maxSpeed &&
-                destination.pressure[i] <= equipment.tractionReleasePressureKpa &&
-                destination.electric[i] <= equipment.electricReleaseForceThresholdNewtons)(car.motorForceAt(speed) * power).coerceIn(0.0, motorAdhesion) else 0.0
-            destination.traction[i] = approach(old.traction[i], targetTraction,
-                (if (targetTraction>old.traction[i]) equipment.tractionApplyRateNewtonsPerSecond else equipment.tractionReleaseRateNewtonsPerSecond) * delta)
+            VehicleDeviceDynamics.advance(old.pressure[i], old.electric[i], old.traction[i], old.age[i],
+                old.previousPower[i], old.previousBrake[i], old.previousEmergency[i], power, brake,
+                command.emergencyBrake, equipment, car.electricBrakeMaxForce, car.brakeMaxForce,
+                { car.motorForceAt(speed) }, motorAdhesion,
+                if (config.brakeApplyTime <= 0.0) Double.POSITIVE_INFINITY else equipment.nominalCylinderPressureKpa / config.brakeApplyTime,
+                if (config.brakeReleaseTime <= 0.0) Double.POSITIVE_INFINITY else equipment.nominalCylinderPressureKpa / config.brakeReleaseTime,
+                speed, config.maxSpeed, delta) { pressure, electric, tractionForce, age ->
+                destination.pressure[i] = pressure
+                destination.electric[i] = electric
+                destination.traction[i] = tractionForce
+                destination.age[i] = age
+            }
+            destination.previous[i] = demand
+            destination.previousPower[i] = power
+            destination.previousBrake[i] = brake
+            destination.previousEmergency[i] = command.emergencyBrake
             val brakeAdhesion = car.mass * car.brakeAdhesionMassRatio * gravity * config.adhesionCoefficient
             traction += destination.traction[i].coerceIn(0.0, motorAdhesion)
             braking += (destination.electric[i] + car.brakeMaxForce * destination.pressure[i] / equipment.nominalCylinderPressureKpa).coerceIn(0.0, brakeAdhesion)
@@ -240,7 +274,6 @@ object TrainDynamics {
         return TrialResult(TrialState(motion, destination), ((speed + nextSpeed) * 0.5 * delta).coerceAtLeast(0.0), traction, braking, resistance, grade)
     }
 
-    private fun approach(current: Double, target: Double, maxDelta: Double): Double = current + (target - current).coerceIn(-maxDelta, maxDelta)
     private val DEFAULT_EQUIPMENT = Equipment()
 
     fun strongestServiceBrakeHandle(config: TrainProfile): String = config.brakeHandles.asSequence()
@@ -270,7 +303,14 @@ object TrainDynamics {
     ): Double {
         require(cars.isNotEmpty()) { "at least one car profile is required" }
         val effectiveMass = totalEffectiveMass(cars)
-        return steadyServiceBrakeForce(config, cars, gravityMetersPerSecondSquared) / effectiveMass
+        require(gravityMetersPerSecondSquared.isFinite() && gravityMetersPerSecondSquared > 0.0)
+        val scale = config.normalizedBrakeScale(strongestServiceBrakeHandle(config))
+        return cars.sumOf { car ->
+            minOf(VehicleDeviceDynamics.guaranteedSustainedServiceForceNewtons(car.brakeMaxForce, scale,
+                car.electricBrakeMaxForce, config.brakeApplyTime,
+                car.equipment.electricBrakeReleaseRateNewtonsPerSecond),
+                car.mass * car.brakeAdhesionMassRatio * gravityMetersPerSecondSquared * config.adhesionCoefficient)
+        } / effectiveMass
     }
 
     internal fun totalEffectiveMass(cars: List<CarProfile>): Double {

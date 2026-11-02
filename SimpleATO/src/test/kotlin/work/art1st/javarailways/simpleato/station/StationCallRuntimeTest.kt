@@ -74,16 +74,15 @@ class StationCallRuntimeTest {
         serviceDecelerationMetersPerSecondSquared = 1.0,
         // The test actuator integrates in 50ms steps; include its discrete control response.
         reactionTimeSeconds = 0.1,
-        safetyDistanceMeters = 1.0,
-        stopToleranceMeters = 0.25
+        safetyDistanceMeters = 1.0
     )
 
     @Test
     fun `berth detector requires position and speed together`() {
-        assertFalse(StationBerthDetector.isBerthed(0.05, 1.0, 0.1))
-        assertFalse(StationBerthDetector.isBerthed(0.05, Double.MIN_VALUE, 0.1))
-        assertFalse(StationBerthDetector.isBerthed(0.2, 0.0, 0.1))
-        assertTrue(StationBerthDetector.isBerthed(0.05, 0.0, 0.1))
+        assertFalse(StationBerthDetector.isBerthed(0.05, 1.0))
+        assertFalse(StationBerthDetector.isBerthed(0.05, Double.MIN_VALUE))
+        assertFalse(StationBerthDetector.isBerthed(0.31, 0.0))
+        assertTrue(StationBerthDetector.isBerthed(0.05, 0.0))
     }
 
     @Test
@@ -229,7 +228,6 @@ class StationCallRuntimeTest {
             berthRef = berthRef,
             location = train.head.location.forward(25.0)!!,
             approachDirection = ViewDirection.AB,
-            positionToleranceMeters = 0.15,
             defaultDwellTicks = 20L
         )
         val station = Station(stationId, "Central", listOf(berthRef))

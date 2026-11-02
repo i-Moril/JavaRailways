@@ -23,8 +23,9 @@ SimpleATO同时拥有`AbstractATO`、mission、constraint与world Stall coordina
    然后读取最新immutable restriction snapshots，按owner原子替换constraints并取所有候选中最严格速度；
    入口净空门控在基础线路、mission、station及信号约束合成以后、最终planner以前检查同一份约束；
    未就绪时安装该入口停车约束，同时交接不可变结果，不阻止Dispatcher继续准备资源；
-5. SimpleATO `AbstractATO`先执行invariant validation，再调用Basic真实手柄actuator；它逐级选择配置中的P/N/B档并通过共享
-   `TrainDynamicsExecutor`得到同一次step的distance与post-step speed，再经protected controller seam移动Core train；
+5. `AbstractATO`先验证不变量，将实际设备状态和 `TrainControlFrame` 交给 world-local `RailwayControlRuntime`。
+   `VehicleControlExecutor`每物理tick检查ATP，按行车/停车参考策略选择数字牵引/制动指令；Basic actuator只执行该指令，
+   由现有逐车 `TrainDynamicsExecutor`积分一次，再经protected seam移动Core train；
 6. 成功epoch结束时`AbstractATO`原子发布train snapshot、累计距离和controller value state，Dispatcher只读取这份publication。
 
 Mission、constraint和station-call的mutable集合都只存在于该controller实例，不在
@@ -54,10 +55,12 @@ inspection runtime读取编译好的声明及最大提前时间；controller按�
 Stop、MA、跟车和前方限速约束把各自扣除显式空间余量后的目标距离、当前速度及反应时间一次交给同一包络；
 反应距离由包络统一扣除，不能调用方先扣一次再让包络重复扣除。无包络的运动学单元测试仍使用原常减速度公式。
 真实设备响应、正加速度消退与坡段门控归上述Basic契约，不在SimpleATO复制动力学。
-同一`AtoConstraint.brakingLimit(profile)`提供标量规划与实际候选验收的空间目标，保持原显式margin；
-`MinimumConstraintPlanner`将这些目标、已捕获坡度和所属世界真实最大步长投影为Basic不可变`BrakingConstraints`。
-当前速度上限和发车hold仍直接限制标量需求，不构造另一份可写约束集合。
-`brakingEnvelope`接收本次实际delta和`World.maximumPhysicsDeltaSeconds`，不能默认未来每步50ms。
+既有标量planner与解析work envelope仍用于perception/入口净空及兼容现有诊断，不能把其动态permitted speed
+当作新策略的恒定速度上限。`TrainControlFrame`直接从同一已捕获约束集合构造原始空间目标：运营停车mark与
+物理MA分开，Stop使用显式`operatingTarget`语义而不是猜key namespace；MA传入ATP时保留未扣margin的真实
+signed边界，越界不得clamp为0。普通策略使用扣除明确运营margin的目标。`StopConstraint`默认瞄准mark，不扣到站容差。
+巡航策略默认0.2s重算，停车末段/目标变化/保持指令不安全时提前；ATP与实际积分每tick执行。不得在在线
+ATO/ATP路径调用未来多tick的真实动力学预演。参考策略见[参考控制](reference-control.md)。
 
 普通mission和车站终点仍是零速目标；只有通过当前接触证明、mission/MA revision及精确边界校验的重联终点，
 才以准入grant携带的接近速度为目标。接近速度与grant上限必须一致；Core仍夹紧实际接触位移。
@@ -161,3 +164,19 @@ service deceleration与reaction time，保留其他safety覆盖值。全部成�
 平台按车型完成所有实例准备后，在排除worker的边界通过Core安装整批tokens。
 
 Formation output installation retires the consumed source mission with `SimpleATO.retireMissionForFormation(): Long`, not reverse preparation. Enqueue requires the current controller under an actual Core structural hold, a stopped published frame and no active/queued StationCall. The serialized command removes only consumed mission/layout/progress/authority constraints, preserving controller identity and external restrictions. A later accepted mission revision survives retirement even when submitted before consumption. See the fixed-formation handoff contract in `../basic/route-resource-admission.md`.
+
+
+## 新版逐车控制接线与异常
+
+`OperationalWorldRuntime`安装Basic `VehicleCommandSupervisor`，使人工/自动共用同一物理Train的ATP latch。
+替换controller不能清除人工触发的手动确认要求；新物理Train实例不能通过同字符串ID继承旧latch。
+自动模式异常记录实际位置/速度/加速度/设备、路径目标、拓扑/mission版本及安全witness，并在停稳和新鲜安全判断后自动解除。
+人工模式还需玩家 `/jr train atp release` 明确请求；请求在worker下一次新鲜检查消费。模拟模式在异常发生时中断，
+不能继续产出成功运行时间。`IsolatedTimetableSimulationWorld`默认设置此模式，真实物理线预览也调用同一执行器。
+名义mark的精确预测无解是 `OperatingPrecisionStatus`，不能仅凭这一条件制造ATP异常；所有执行候选仍须通过硬安全检查。
+
+到站、起点匹配与插件解析结果的位置容差由Basic `AtoSpatialPolicy`唯一给出0.3m，不是参考曲线的提前停车量。
+去除destination持久化的独立容差字段使用 `ai_tasks/migrations/remove_authored_stop_tolerance.py`，只做离线单向转换，
+不增加旧格式runtime reader或schema版本。运行数据写入前必须dry-run、停止owner并保留独立恢复点。
+
+待授权的 mission 使用显式速度保持（`holdForMovementAuthority`），不能把路线原点当作物理授权终点。真实 `setMovementAuthority(0)` 仍是物理边界，并保留已越过边界的有符号距离。实际 grant 同步至 AUTOMATIC 与 MANUAL_ROUTED 的同一 mission；FULL_MANUAL 已解除该路线保护源。

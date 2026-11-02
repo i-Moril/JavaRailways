@@ -70,9 +70,13 @@ interface TrainActuator {
 
     fun step(
         currentSpeedMetersPerSecond: Double,
-        demand: ControlDemand,
+        command: VehicleControlCommand,
         deltaTimeSeconds: Double
     ): ActuationStep
+
+    fun controlState(currentSpeedMetersPerSecond: Double): VehicleControlState
+
+    fun controlCapabilities(currentSpeedMetersPerSecond: Double): VehicleControlCapabilities
 
     /** Adjusts the actuator's internal braking state; motion freezing remains the controller's job. */
     fun freeze() = Unit

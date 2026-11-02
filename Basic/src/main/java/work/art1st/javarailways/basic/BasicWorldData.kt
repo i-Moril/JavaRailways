@@ -20,7 +20,10 @@ data class BasicWorldData(
     val railObjects: RailObjectStore = RailObjectStore(),
     val railMetadata: RailInfrastructureMetadataStore = RailInfrastructureMetadataStore(),
     val trainSpeedProfiles: TrainSpeedProfileStore = TrainSpeedProfileStore(),
-    val operatingDirections: OperatingDirectionStore = OperatingDirectionStore()
+    val operatingDirections: OperatingDirectionStore = OperatingDirectionStore(),
+    val trainDynamicsHistory: work.art1st.javarailways.basic.control.WorldTrainDynamicsHistory =
+        work.art1st.javarailways.basic.control.WorldTrainDynamicsHistory(),
+    @Volatile var commandSupervisor: work.art1st.javarailways.basic.api.ato.VehicleCommandSupervisor? = null
 )
 
 /** 轨道上的路径点。第一版只保存可持久化引用，不直接持有 Core 内部 location 对象。 */

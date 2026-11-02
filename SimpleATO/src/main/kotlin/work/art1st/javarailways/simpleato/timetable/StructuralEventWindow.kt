@@ -7,7 +7,7 @@ import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import kotlin.math.abs
 
 /** Existing Dispatcher Check/acquisition tolerance; structural eligibility shares this exact bound. */
-internal const val TIMETABLE_ORIGIN_TOLERANCE_METERS = 1.0
+internal const val TIMETABLE_ORIGIN_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS
 
 /**
  * An explicit same-rail structural eligibility window, independent of a controller's arrival

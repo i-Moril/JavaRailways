@@ -27,7 +27,7 @@ import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionResult
  *
  * The client never compiles or inspects infrastructure resources. It submits the selected frozen
  * route unchanged, owns at most one pending handle, and publishes only the authority boundary from
- * a committed Basic grant. Before the first grant, zero route metres is the fail-closed authority.
+ * a committed Basic grant. Before the first grant, a zero-speed hold expresses the absence of permission; route origin is not a physical stop boundary.
  * Full-route grants retain their physical boundary and any explicit speed ceiling; the mission's
  * operational stop remains a separate constraint.
  */
@@ -445,7 +445,8 @@ internal class RouteAuthorityAdmissionClient(
                 route.committedGrant != null && boundaryMeters >= it.requiredEndRouteDistanceMeters &&
                     route.directionEndMeters >= it.requiredEndRouteDistanceMeters
             }?.let { AtoSafetyProfile.STATION_AUTHORITY_MARGIN_METERS }
-            if (contact == null) add(MovementAuthorityRestriction(AUTHORITY_RESTRICTION_ID, boundaryMeters, stationMargin))
+            if (route.committedGrant == null) add(CurrentSpeedRestriction(AUTHORITY_RESTRICTION_ID, 0.0))
+            else if (contact == null) add(MovementAuthorityRestriction(AUTHORITY_RESTRICTION_ID, boundaryMeters, stationMargin))
             else {
                 check(contact.contactBoundary.distanceFromRouteStartMeters == boundaryMeters &&
                     route.restrictionRoute == FrozenRouteBinding.from(route.selection.route)) {

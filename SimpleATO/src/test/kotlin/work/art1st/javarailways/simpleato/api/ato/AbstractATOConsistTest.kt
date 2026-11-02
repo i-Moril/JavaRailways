@@ -60,13 +60,12 @@ class AbstractATOConsistTest {
                         accelerationMetersPerSecondSquared = 3.0,
                         serviceDecelerationMetersPerSecondSquared = 5.0 / 3.0,
                         reactionTimeSeconds = 7.0,
-                        safetyDistanceMeters = 17.0,
-                        stopToleranceMeters = 0.07
+                        safetyDistanceMeters = 17.0
                     )
                     val actuator = HandleTrainActuator(train, TrainProfile, listOf(heavy, light), 10.0)
                     val controller = TestATO(train, actuator, safety)
                     train.setControllerForTest(controller)
-                    actuator.step(0.0, ControlDemand(30.0), 0.1)
+                    actuator.step(0.0, TrainDynamics.commandForHandle(TrainProfile, TrainProfile.powerHandles.last()), 0.1)
                     val history = actuator.lastDynamicsResult
                     val firstDevice = actuator.dynamicsDeviceStateFor(first)
                     val secondDevice = actuator.dynamicsDeviceStateFor(second)
@@ -122,7 +121,7 @@ class AbstractATOConsistTest {
                     val safety = AtoSafetyProfile(safetyDistanceMeters = 17.0)
                     val controller = TestATO(train, actuator, safety)
                     train.setControllerForTest(controller)
-                    actuator.step(0.0, ControlDemand(30.0), 0.1)
+                    actuator.step(0.0, TrainDynamics.commandForHandle(TrainProfile, TrainProfile.powerHandles.last()), 0.1)
                     val history = actuator.lastDynamicsResult
                     val device = actuator.dynamicsDeviceStateFor(train.cars.single())
                     assertNotNull(device)

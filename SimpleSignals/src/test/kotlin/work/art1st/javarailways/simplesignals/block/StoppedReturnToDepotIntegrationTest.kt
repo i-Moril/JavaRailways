@@ -214,7 +214,7 @@ class StoppedReturnToDepotIntegrationTest {
             val safety = AtoSafetyProfile(1.0,
                 TrainDynamics.flatServiceDeceleration(profile, listOf(carProfile), 9.81),
                 HandleTrainActuator.serviceBrakeReactionTimeSeconds(profile, listOf(carProfile), 9.81),
-                safetyDistanceMeters = 2.0, stopToleranceMeters = stopToleranceMeters)
+                safetyDistanceMeters = 2.0)
             val dispatcher = TimetableDispatcher(
                 TimetableRouteAdmissionContextProvider { observation?.let { TimetableRouteAdmissionContext(it, service) } },
                 restrictions, inspection, dependencies,

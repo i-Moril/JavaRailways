@@ -11,12 +11,12 @@
 
 正常实时流程是：Bukkit从当前有效模型解析`TrainProfile`和逐车`CarProfile`，注入
 `physics.yml`的`track.gravity`，然后构造Basic controller/actuator。人工控制把玩家选择的
-P/N/B手柄交给`TrainDynamicsExecutor`；SimpleATO先归约许可速度，再由`HandleTrainActuator`选择一个配置中
-存在的手柄。两者最终都只调用`TrainDynamics.step`，再把同一个`StepResult`的距离和post-step速度通过
+P/N/B手柄映射为数字指令交给`TrainDynamicsExecutor`；SimpleATO策略和监督器决定最终数字指令，
+`HandleTrainActuator`仅执行。两者最终都只调用`TrainDynamics.step`，再把同一个`StepResult`的距离和post-step速度通过
 `TrainController.moveControlledTrain`交给Core；不得绕回公开的distance-only `Train.moveTrainForward`而丢失本epoch速度。
 
 隔离时刻表模拟在capture时冻结同一profile和重力，克隆世界中不得回查Bukkit renderer或live service。
-详细行程预览也调用同一纯函数，但其“最大牵引/最大常用制动”驾驶策略仍是独立的粗略策略。
+详细行程预览使用同一逐车物理函数；策略与ATP判断由SimpleATO负责，不能在Basic复制一套驾驶策略。
 
 ## 3. 内部机制与关键算法
 
@@ -26,8 +26,11 @@ P/N/B手柄交给`TrainDynamicsExecutor`；SimpleATO先归约许可速度，再�
 电制动受最大力、功率和低速衰减约束；空气制动承担目标制动力与当前电制动力的差额。压力或残余电制动力
 未低于联锁阈值时不得建立牵引力。停止初始化持有空气制动，起步必须经历真实缓解过程。
 
-公开`State.devices`是独立拥有存储的稳定快照，不能引用内部预演工作区。executor为每个当前编组绑定一个
-逐车数组工作区；同一预演会话冻结profile、坡度与初始状态，各候选从同一初始状态试算并复用该工作区。借用的内部结果不得逃逸为公开`State`或`StepResult`，实际提交仍创建独立快照。
+公开`State.devices`是独立拥有存储的稳定快照，不暴露可变数组。
+`CarDeviceState`包含压力、实际电制动力、实际牵引力、指令年龄及上次独立牵引/制动/EB身份，
+只有有效数字指令改变才重置延迟，诊断handle变化不能重启设备延迟。
+实际kernel与`VehicleDeviceDynamics.advanceDeviceState`共用同一个内联设备代数；后者只更新已知当前区间设备，
+不积分运动、不循环未来tick。旧PreviewSession限离线或物理测试，不得进入生产ATO热路径；旧`ServiceBrakingResponse`只保留在test source作为离线物理对照。
 
 坡度输入是`sin(theta)`：正值表示当前物理运行方向上坡。实时输入必须读取
 `Car.operatingDirection.y()`，禁止读取模型朝向`Car.direction.y()`。
@@ -48,9 +51,10 @@ executor构造时把当前每个实际`Car`实例与输入的`CarProfile`配对�
 
 这些Basic capability只供第一方controller/actuator协作，不是另一个公开插件注册接口。
 
-`HandleTrainActuator`只考虑配置中的正作用P档、N和非EB制动档，并每Tick向目标档移动一级。正常停车上限是
-最强非EB制动；只有目标为零且最强常用制动预演不能减速时才允许EB。每个候选只预演一次当前Tick，预演不得
-修改executor state。
+`HandleTrainActuator`执行`VehicleControlCommand`，不选择档位或进行候选试算。
+`TrainDynamics.step`保留人工字符串映射便利入口，最终进入同一个数字执行路径。
+比例可以超过1，但牵引不得超过配置最大正牵引比例；EB强制选择配置EB比例并请求切除牵引。
+所有设备联锁和实际退出速率仍有效，不能把请求误当实际设备状态。
 
 坡度制动包络把已扫描路线切成有限`BrakingGradeSegment`，用可保证的常用空气制动力下界和
 `a=(F_brake + m*g*grade)/m_effective`计算每段保证减速度；有利的Davis阻力不计入保证值。包络预先线性累计
@@ -59,26 +63,27 @@ executor构造时把当前每个实际`Car`实例与输入的`CarProfile`配对�
 `max(0, brakeMaxForce * serviceScale - electricBrakeMaxForce)`，再施加制动黏着上限。
 该下界不代表实际制动力，实际执行始终使用完整逐车设备状态。
 
-### 实际候选与可变物理步长
+### 持续混合制动保证与当前设备状态
 
-规划包络从当前真实设备状态预测立即进入最强常用制动的备份。执行前再对实际选择的下一档验收：
-同一个`ControlDemand`携带SimpleATO现有空间约束的不可变目标（目标距离、目标速度及显式反应时间），
-不复制route/resource策略，也不把未选中的更强P档当作当前必然动作。
+旧规划work包络保持`max(B*r-Emax,0)`空气下界，不代表新ATP能力，也不参与数字指令选择。
+`VehicleControlCapabilityModel`的持续常用制动能力使用唯一helper
+`VehicleDeviceDynamics.guaranteedSustainedServiceForceNewtons`：令F=B*r、Ra=B/airApplyTime、
+Re为电制动释放速率，k=min(1,Ra/Re)、L=F-(1-k)*min(Emax,F)，最终按逐车黏着截断。
+它是恒定普通制动指令delay结束且建立不变量`A+k*min(E,F)>=L`之后的持续保证，**不是当前瞬时制动力**。
+电制动释放每步至多Re*h，而空气可补足k*Re*h；空气释放时A_new>=F-E_new，同样保持不变量。
+建立前、命令切换或重载后实际电制动力高于新配置Emax时，调用者须单独计算响应阶段，不能直接信用L。
+EB等待残余牵引/电制动释放及空气建立，不能把全EB空气能力直接套到当前帧。
 
-`ServiceBrakingResponse`先用实际本次delta试算一个候选，再解析上界未来逐级常用制动过程：逐车残余牵引
-上界、空气制动力下界、最坏坡度、指令与档位行程延迟和jerk消退。加速度峰值同时受真实牵引jerk上升斜率与单调力上界限制，不能把残余牵引瞬间换算成可达加速度；
-再按制动jerk求消退上界。数值积分使用单调上界的左端矩形，
-不是假定未来固定50ms或200ms的动力学滚动；最终速度截断的离散距离另作保守预留。
-未来步长上限来自`World.maximumPhysicsDeltaSeconds`，保留Core原wall-clock/clamp/drop语义。
-当前静止且设备无法产生位移时，不凭空制造牵引力或固定停车死区。
+控制能力按immutable配置和精确编组准备/惰性构造，复用速度性能样本与设备系数。
+全速度牵引上界优先使用`CarProfile.maximumMotorForceUpperBound`的声明证明，再按最大牵引比例和黏着限制；
+未知曲线使用黏着上界，不用速度采样推断全区间上界。样本和各档净加速度只供名义操作参考。
 
-响应覆盖的空间从路线制动work起点扣除，不能把已经经过的有利上坡work移到之后使用；显式反应时间只补足
-响应未覆盖的部分。实际Handle对整列车使用当前逐车与已观察前方坡度中的保守下界，避免车头已上坡而车尾
-仍在下坡时乐观估计。无正保证减速度或有界证明预算内不能确认安全时，不继续加牵引，进入真实逐级制动。
-
-零速度目标要求能在该目标前制停；非零限速目标允许以不超过目标速度通过。重联使用已验证接触准入的速度
-目标和Core接触距离clamp，不能把普通车站的零速终点语义直接套到接触点，独立红灯/授权约束仍生效。
-不改写动力学输出速度或添加固定提前停车距离来掩盖无法兑现的目标。
+`BasicWorldData.trainDynamicsHistory`在成功step保存精确Train/Car的设备状态与最后指令，使用弱身份关联避免保活删除实体。
+替换控制器和复用原ATO每次活动查询/执行都检查最新历史引用，自己发布的同一快照无需反复适配。
+真实step还更新world-local弱精确Car设备索引，使controllerless split新Train无需旧controller即可继承压力/电力/指令年龄；
+初始化优先显式source、再查单车历史，活动owner不重复采用单车历史覆盖状态。
+构造和候选准备只读；设备按确切车厢重排，不能按ID或位置索引串车。公开强制静止只清除残余运动学状态，
+保留真实压力/电制动力/牵引状态，不能凭空补满空气制动。
 
 ## 4. 接口、数据结构与单位
 
@@ -87,7 +92,7 @@ fun TrainDynamics.step(
     state: TrainDynamics.State,
     config: TrainDynamics.TrainProfile,
     cars: List<TrainDynamics.CarInput>,
-    handle: String,
+    command: VehicleControlCommand,
     gravityMetersPerSecondSquared: Double,
     deltaSeconds: Double
 ): TrainDynamics.StepResult
@@ -116,10 +121,9 @@ fun permittedSpeedMetersPerSecond(targetSpeedMetersPerSecond: Double, distanceMe
 速度为m/s、加速度与重力为m/s²、距离为m、质量为kg、力为N、时间为s。`grade`是无量纲正弦值。
 `TrainDynamicsExecutor.preview`不提交状态，`step`提交`State`和`lastResult`。
 
-`TrainActuator.brakingEnvelope(segments, deltaTimeSeconds, maximumControlDeltaSeconds)`显式接收真实步长与
-上限。`BrakingConstraints`与`BrakingLimit`只携带运行时不可变值；SimpleATO规划和候选验收共用扣除原显式
-空间余量后的目标。`serviceBrakeReactionTimeSeconds`仍提供工厂和粗略预览的保守反应参数；真实Handle的
-设备响应证明独立使用所属世界的真实最大步长，不依赖该函数默认的名义周期。
+`TrainActuator.brakingEnvelope(segments, deltaTimeSeconds, maximumControlDeltaSeconds)`保留现有解析work规划接口，
+不调用未来物理试算。最终安全判断由SimpleATO ATP使用完整逐车能力/状态完成。
+`ControlDemand`/`BrakingConstraints`暂留为上层值，Basic执行器不提供旧目标速度自动驾驶fallback。
 
 ## 5. 不变量、生命周期、线程与版本
 
@@ -158,10 +162,9 @@ fun permittedSpeedMetersPerSecond(targetSpeedMetersPerSecond: Double, distanceMe
 
 ## 7. 性能、复杂度与退化行为
 
-单次动力学step为`O(cars)`，配置手柄候选是小型有界集合。内部候选逐车数组复用，公开已提交快照独立拥有存储。
+单次动力学step为`O(cars)`，实际kernel内联写入独立拥有的数组，公开已提交快照独立拥有存储。
 路线坡度切片最多256段；累计制动work构造为`O(route samples)`，每个空间目标查询为`O(log segments)`。
-逐车响应上界积分有明确时间预算，超预算返回未证明，不放宽限制；该成本不同于旧的单步标量模型，必须用
-实际生产执行器单独测量，不能借用独立原型的数组优化百分比。不得对每个候选重新扫描物理路线。
+能力表按配置/编组身份构造一次，热路径不重新采样整条性能曲线、不扫描未来物理tick。
 
 实例绑定构造与存储为`O(initial cars)`，单次查表平均`O(1)`；当前参数列表投影和一次动力学输入构造均为`O(current cars)`。
 结构准备为`O(result cars)`加缺项来源解析成本，安装为引用替换；不在每tick读取模型包或文件。
@@ -186,7 +189,9 @@ fun permittedSpeedMetersPerSecond(targetSpeedMetersPerSecond: Double, distanceMe
 - 实例绑定：不同质量/制动力的车辆换序后参数不串车；只保留一车时参数投影和力计算排除移出车，改变该车坡度后重新读取。
 - 未知实例：相同car ID的新对象查询/preview/step失败，原state和lastResult身份保持；此单元边界不替代真实联结/解编测试。
 - manual publication：真实50 ms physics epoch的head位移、train frame speed及全部car/bogie frame velocity与同一次dynamics step一致。
-- actuator：逐级P/N/B、最弱安全档、EB边界、preview不提交状态、反应时间覆盖换档/apply/jerk。
+- actuator：只执行数字指令；手柄映射等价、真实设备延迟/联锁、EB请求、preview不提交状态。
+- 设备helper逐区间对照kernel；持续混合制动不变量在变dt、低速淡出和强电制动下保持。
+- 历史：延迟安装、A→B→原A复用、真实逐车换序、只读构造不覆盖历史。
 - 包络：分段边界、扫描截断、无正减速度fail-closed和256段上限。
 - 正加速度消退：非零坡度下的解析位移/速度增量、非正加速度/禁用jerk的原行为、距离耗尽返回0，以及额外扣除不能绕过原不可制停坡段门控。
 - composition：生产和隔离均无`KinematicTrainActuator`，捕获后不访问live renderer/Bukkit。
@@ -195,9 +200,8 @@ fun permittedSpeedMetersPerSecond(targetSpeedMetersPerSecond: Double, distanceMe
 
 迁移已删除Bukkit中的`RealisticManualController`实现，不保留runtime兼容alias。`physics.yml`从schema 1升级到2时，
 使用`scripts/migrate_physics_config.py`先dry-run审查，再用`--apply`在保留`.bak`恢复点后把旧重力键单向改名。
-本批接入解编保留侧的参数准备/安装、逐车来源解析及ATO安全参数重算；分离侧沿用新train不自动继承controller且速度归零的合同，
-以后安装新controller时由该侧车厢来源装配并初始化静止持有空气制动，不跨controllerless间隔保存完整设备历史。联结参数准备调用点已写入CR-030草稿，
-但碰撞入口和接触位置处理仍未完成，不能宣称完整联结可用。
+编组结构变化通过准备/安装合同保存精确车厢设备；新controller优先采用世界历史及装配处显式传入`initialDeviceSource`的逐车设备来源，
+无来源时才使用初始状态。不得把新controller构造误当全部设备瞬间复位。
 不得用成功事件后的临时补齐或同ID回退冒充结构参数事务，也不能仅凭列表投影正确就宣称ATO安全参数同步。
 未来是否把共享ATO primitive从Basic进一步拆分仍独立待定，不为此预先增加抽象层。
 

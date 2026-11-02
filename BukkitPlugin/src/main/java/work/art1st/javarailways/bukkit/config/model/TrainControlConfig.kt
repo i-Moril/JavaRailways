@@ -30,9 +30,13 @@ data class TrainControlConfig(
     override val brakeReleaseTime: Double = 1.8,
     val resistance: DavisResistanceConfig = DavisResistanceConfig(),
     val adhesion: AdhesionConfig = AdhesionConfig(),
-    val jerk: JerkLimitConfig = JerkLimitConfig()
+    val jerk: JerkLimitConfig = JerkLimitConfig(),
+    override val nominalOperatingAcceleration: Double = 1.0,
+    override val nominalOperatingDeceleration: Double = 1.0
 ) : TrainDynamics.TrainProfile {
     init {
+        require(nominalOperatingAcceleration.isFinite() && nominalOperatingAcceleration > 0.0)
+        require(nominalOperatingDeceleration.isFinite() && nominalOperatingDeceleration > 0.0)
         maxSpeed.requireNonNegative("maxSpeed")
         brakeApplyTime.requireNonNegative("brakeApplyTime")
         brakeReleaseTime.requireNonNegative("brakeReleaseTime")
@@ -56,7 +60,7 @@ data class TrainControlConfig(
             source.requireOnlyKeys(
                 setOf(
                     "config-version", "max-speed", "curve-speed-limit-offset", "controller",
-                    "traction", "brake", "resistance", "adhesion", "jerk"
+                    "traction", "brake", "resistance", "adhesion", "jerk", "ato"
                 ),
                 "train control"
             )
@@ -64,6 +68,8 @@ data class TrainControlConfig(
             require(version == PartRegistry.CONFIG_VERSION) {
                 "Unsupported train control config-version: $version"
             }
+            val ato = source.optionalMap("ato", "train control")
+            ato?.requireOnlyKeys(setOf("operating-acceleration", "operating-deceleration"), "train control.ato")
             val controller = source.requireMap("controller", "train control")
             val traction = source.requireMap("traction", "train control")
             val brake = source.requireMap("brake", "train control")
@@ -78,6 +84,8 @@ data class TrainControlConfig(
             validateNotchScales("brake-notches", brakeNotches, brakeScales, "train control.brake.notch-scales")
             return TrainControlConfig(
                 maxSpeed = source.requireDouble("max-speed", "train control"),
+                nominalOperatingAcceleration = ato?.double("operating-acceleration") ?: 1.0,
+                nominalOperatingDeceleration = ato?.double("operating-deceleration") ?: 1.0,
                 curveSpeedLimitOffset = source.double("curve-speed-limit-offset") ?: 0.0,
                 powerNotches = powerNotches,
                 brakeNotches = brakeNotches,
@@ -138,6 +146,11 @@ data class CarControlConfig(
     override val brakeMaxForce: Double get() = brake.maxForce
     override val electricBrakeMaxForce: Double get() = brake.regenerativeForce
     override val brakeAdhesionMassRatio: Double get() = brake.adhesionMassRatio
+    override val maximumMotorForceUpperBound: Double get() = when {
+        !motor.enabled -> 0.0
+        motor.forceCurve.isNotEmpty() -> motor.forceCurve.maxOf { it.force }
+        else -> motor.maxForce
+    }
     override fun motorForceAt(speed: Double): Double = motor.forceAt(speed)
     override fun resistanceForceAt(speed: Double, defaultResistance: (Double) -> Double): Double =
         resistance?.forceAt(speed) ?: defaultResistance(speed)

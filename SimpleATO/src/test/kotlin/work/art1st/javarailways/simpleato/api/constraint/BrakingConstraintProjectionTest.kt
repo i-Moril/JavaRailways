@@ -10,19 +10,19 @@ import work.art1st.javarailways.simpleato.api.ato.MinimumConstraintPlanner
 class BrakingConstraintProjectionTest {
     private val key = ConstraintKey("test", "limit")
     private val profile = AtoSafetyProfile(reactionTimeSeconds = 0.7,
-        safetyDistanceMeters = 5.0, stopToleranceMeters = 0.1)
+        safetyDistanceMeters = 5.0)
 
     @Test
     fun `physical targets retain station protection following and explicit margins`() {
         val cases = listOf(
-            StopConstraint(key, 100.0) to (99.9 to 0.0),
+            StopConstraint(key, 100.0) to (100.0 to 0.0),
             StopConstraint(key, 100.0, 0.0) to (100.0 to 0.0),
             MovementAuthorityConstraint(key, 100.3, 0.0) to (100.3 to 0.0),
             MovementAuthorityConstraint(key, 100.0) to (95.0 to 0.0),
             MovementAuthorityConstraint(key, 100.0, 0.3) to (99.7 to 0.0),
             FollowConstraint(key, 30.0, 2.0) to (25.0 to 2.0),
             RouteSpeedLimitConstraint(key, 12.0, 3.0) to (12.0 to 3.0),
-            StopConstraint(key, 0.01) to (0.0 to 0.0)
+            StopConstraint(key, 0.01) to (0.01 to 0.0)
         )
         cases.forEach { (constraint, expected) ->
             val limit = requireNotNull(constraint.brakingLimit(profile))

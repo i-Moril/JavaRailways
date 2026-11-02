@@ -697,8 +697,7 @@ class TimetableDispatcherTest {
         accelerationMetersPerSecondSquared = 1.0,
         serviceDecelerationMetersPerSecondSquared = 1.0,
         reactionTimeSeconds = 0.0,
-        safetyDistanceMeters = 2.0,
-        stopToleranceMeters = 0.25
+        safetyDistanceMeters = 2.0
     )
 
 
@@ -1485,7 +1484,6 @@ class TimetableDispatcherTest {
                     berthRef,
                     returnRail.viewAB.getRailLocationAt(25.0),
                     approachDirection = ViewDirection.AB,
-                    positionToleranceMeters = 0.6,
                     usableLengthMeters = 20.0,
                     defaultDwellTicks = 3L,
                     doorSide = DoorSide.NONE

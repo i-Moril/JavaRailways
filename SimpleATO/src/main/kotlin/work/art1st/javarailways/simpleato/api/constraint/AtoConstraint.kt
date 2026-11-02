@@ -78,10 +78,12 @@ data class RouteSpeedLimitConstraint(
 data class StopConstraint(
     override val key: ConstraintKey,
     val remainingDistanceMeters: Double,
-    val stoppingMarginMeters: Double? = null
+    val stoppingMarginMeters: Double? = null,
+    /** An operating mark is not the end of protected physical track. */
+    val operatingTarget: Boolean = false
 ) : AtoConstraint {
     init {
-        require(remainingDistanceMeters >= 0.0 && remainingDistanceMeters.isFinite())
+        require(remainingDistanceMeters.isFinite())
         require(stoppingMarginMeters == null ||
             stoppingMarginMeters >= 0.0 && stoppingMarginMeters.isFinite())
     }
@@ -93,7 +95,7 @@ data class StopConstraint(
     ): Double = brakingLimit(profile).permittedSpeed(currentSpeedMetersPerSecond, profile, brakingEnvelope)
 
     override fun brakingLimit(profile: AtoSafetyProfile): BrakingLimit = BrakingLimit(
-        distanceMeters = (remainingDistanceMeters - (stoppingMarginMeters ?: profile.stopToleranceMeters)).coerceAtLeast(0.0),
+        distanceMeters = (remainingDistanceMeters - (stoppingMarginMeters ?: 0.0)).coerceAtLeast(0.0),
         targetSpeedMetersPerSecond = 0.0,
         reactionTimeSeconds = profile.reactionTimeSeconds
     )
@@ -129,7 +131,7 @@ data class MovementAuthorityConstraint(
 ) : AtoConstraint {
     init {
         require(stoppingMarginMeters == null || stoppingMarginMeters.isFinite() && stoppingMarginMeters >= 0.0)
-        require(remainingDistanceMeters >= 0.0 && remainingDistanceMeters.isFinite())
+        require(remainingDistanceMeters.isFinite())
     }
 
     override fun permittedSpeedMetersPerSecond(

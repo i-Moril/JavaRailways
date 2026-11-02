@@ -35,15 +35,14 @@ class StationCallResolverRegistryTest {
         var observed: StationCallResolutionContext? = null
         world.simpleAtoWorldData.stationCallResolvers.register { context ->
             observed = context
-            StationCallResolutionResult.Success(context.defaultResolution.copy(doorSide = DoorSide.RIGHT,
-                positionToleranceMeters = 0.1, usableLengthMeters = 50.0))
+            StationCallResolutionResult.Success(context.defaultResolution.copy(doorSide = DoorSide.RIGHT, usableLengthMeters = 50.0))
         }
         val result = StationCallResolver(world).resolve(request, 12.0) as StationCallResolutionResult.Success
         assertEquals(12.0, observed!!.trainLengthMeters)
         assertEquals(request.call.berthRef, observed!!.berth.berthRef)
         assertSame(world.topologyState, observed!!.topology)
         assertEquals(DoorSide.RIGHT, result.resolved.doorSide)
-        assertEquals(0.1, result.resolved.positionToleranceMeters)
+        assertEquals(0.3, result.resolved.positionToleranceMeters)
         assertEquals(50.0, result.resolved.usableLengthMeters)
         StationCallResolver(world).resolve(request)
         assertNull(observed!!.trainLengthMeters)
@@ -91,7 +90,6 @@ class StationCallResolverRegistryTest {
             { it.copy(request = it.request.copy(serviceRunId = "different")) },
             { it.copy(plannedRoute = it.plannedRoute.copy(routeId = "different")) },
             { it.copy(stoppingOffsetMetersBefore = 2.0) },
-            { it.copy(positionToleranceMeters = 2.0) },
             { it.copy(usableLengthMeters = null) },
             { it.copy(usableLengthMeters = 101.0) }
         )
@@ -211,7 +209,7 @@ class StationCallResolverRegistryTest {
         basic.wayPoints.add(WayPoint("origin", rail.id, train.head.location.arcLength))
         val ref = StationBerthRef(StationId("station"), "berth")
         val berth = StationBerth(ref, train.head.location.forward(35.0)!!, approachDirection = ViewDirection.AB,
-            stoppingOffsetMetersBefore = 1.0, positionToleranceMeters = 0.2, usableLengthMeters = 100.0)
+            stoppingOffsetMetersBefore = 1.0, usableLengthMeters = 100.0)
         world.simpleAtoWorldData.stations.register(Station(ref.stationId, "Station", listOf(ref)), listOf(berth))
         return world to StationCallRequest("run", WayPointRef("origin"),
             StationCall("call", 1L, ref.stationId, ref, dwellPlan = DwellPlan(0)))

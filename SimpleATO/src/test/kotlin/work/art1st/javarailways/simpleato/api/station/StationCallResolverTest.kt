@@ -208,7 +208,6 @@ class StationCallResolverTest {
             location = train.head.location.forward(35.0)!!,
             approachDirection = approachDirection,
             stoppingOffsetMetersBefore = 1.0,
-            positionToleranceMeters = 0.2,
             usableLengthMeters = 100.0,
             defaultDwellTicks = 40L,
             releaseDistanceMetersAfter = 4.0,

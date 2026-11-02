@@ -10,7 +10,7 @@ import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 class KinematicTrainActuatorTest {
     @Test
     fun `kinematic actuator respects train maximum speed and freezes`() {
-        val profile = AtoSafetyProfile(reactionTimeSeconds = 0.0, stopToleranceMeters = 0.0)
+        val profile = AtoSafetyProfile(reactionTimeSeconds = 0.0)
         val actuator = KinematicTrainActuator(10.0, profile)
         val step = actuator.step(0.0, ControlDemand(20.0), 1.0)
 

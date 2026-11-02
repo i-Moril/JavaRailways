@@ -51,15 +51,14 @@ class StationBerth(
     override val location: RailLocation,
     val approachDirection: ViewDirection? = null,
     val stoppingOffsetMetersBefore: Double = 0.0,
-    val positionToleranceMeters: Double = DEFAULT_POSITION_TOLERANCE_METERS,
     val usableLengthMeters: Double? = null,
     val defaultDwellTicks: Long? = null,
     val releaseDistanceMetersAfter: Double = 0.0,
     val doorSide: DoorSide = DoorSide.NONE,
 ) : RailObject {
+    val positionToleranceMeters: Double get() = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS
     init {
         require(stoppingOffsetMetersBefore.isFinite() && stoppingOffsetMetersBefore >= 0.0)
-        require(positionToleranceMeters.isFinite() && positionToleranceMeters > 0.0)
         require(usableLengthMeters == null ||
             usableLengthMeters.isFinite() && usableLengthMeters > 0.0)
         require(defaultDwellTicks == null || defaultDwellTicks >= 0L)
@@ -77,7 +76,7 @@ class StationBerth(
     }
 
     companion object {
-        const val DEFAULT_POSITION_TOLERANCE_METERS = 1.0
+        const val DEFAULT_POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS
     }
 }
 

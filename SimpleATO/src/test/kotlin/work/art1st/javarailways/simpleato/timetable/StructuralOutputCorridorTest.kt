@@ -131,6 +131,27 @@ class StructuralOutputCorridorTest {
     }
 
     @Test
+    fun `adjacent corridor seams retain one occurrence despite edge coordinate roundoff`() = withStraight { topology, rail, initial ->
+        val head = initial.head.arcLengthInAbMeters
+        val seam = head + work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS
+        val incoming = RouteSnapshot("decimal-origin", 0, topology.revision,
+            listOf(RouteSegmentSnapshot(rail, ViewDirection.AB, head, seam)))
+        // A route edge containing several physical rails may reconstruct a local endpoint
+        // through subtraction from the far end. Test both gap and overlap rounding directions.
+        for (rounded in listOf(Math.nextUp(seam), Math.nextDown(seam))) {
+            assertNotEquals(seam, rounded)
+            val onward = RouteSnapshot("decimal-onward", 0, topology.revision, listOf(
+                RouteSegmentSnapshot(rail, ViewDirection.AB, initial.tail.arcLengthInAbMeters, seam),
+                RouteSegmentSnapshot(rail, ViewDirection.AB, rounded, 90.0)))
+            val proof = StructuralOutputCorridor.prove(initial, incoming, onward, topology,
+                RoutePlanningRestrictions.unrestricted(topology), false)
+            val resolved = proof.resolve(initial, topology, initial.cars.map { it.carId }, initial.reversed)
+            assertEquals(90.0 - head, resolved.movement.totalLengthMeters, 1e-12)
+            assertEquals(90.0 - initial.tail.arcLengthInAbMeters, resolved.admission.totalLengthMeters, 1e-12)
+        }
+    }
+
+    @Test
     fun `rejects duplicated traversal and forbidden direction`() = withStraight { topology, rail, initial ->
         fun route(segments: List<RouteSegmentSnapshot>) = RouteSnapshot("selected", 0, topology.revision, segments)
         val incoming = route(listOf(RouteSegmentSnapshot(rail, ViewDirection.AB, 30.0, 40.0)))

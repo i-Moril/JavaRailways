@@ -42,3 +42,44 @@ mission resolve和stale revision是typed rejection，不Stall；controller/invar
   --tests '*MissionRouteProgressTest' --tests '*SimpleATOTest'
 ./gradlew :Basic:test
 ```
+
+## 逐车 ATP 与执行器边界
+
+`ConservativeAtpModel`读取真实、按编组顺序排列的设备快照；设备缺失、非有限输入、
+无有效紧急气制动、超出能力速度域或无法保证下坡减速均返回typed `UNAVAILABLE`。
+禁止用旧聚合制动比例或理想即时响应替代生产设备状态。
+
+- ATP只返回判断与证据，不操作手柄。`emergency`检查当前立即发EB的可停性；
+  `afterCandidate`用`VehicleDeviceDynamics.advanceDeviceState`计算唯一已知的当前interval设备更新，
+  以忽略阻力、最不利坡度和原kernel jerk/限速夹紧求位移上界，然后检查EB或持续最大常用制动。
+  当前interval使用实际dt，未来未知interval使用world声明的最大dt；不把二者混为指令延迟。
+- 编组能力按configuration identity缓存；逐帧candidate的电机力系数来自本帧capabilities，
+  不从缓存模型创建时的速度取值。真实动力积分仍仅由Basic执行一次。
+- 查表内容是恒定保证制动下的坡度系数`1/(2b)`，不是完整设备状态表。
+  速度连续代入`(v-vTarget)*(v+vTarget)`；grade选不大于输入的格点，系数和距离向保守方向舍入。
+  准备阶段是有限的解析牵引释放、指令剩余延迟、电制动释放、气制动建立和jerk阶段；
+  不调用未来真实动力学tick，不逐tick展开预测。
+- EB恒定保证只信用气制动力并按逐车adhesion上限裁剪。普通制动使用Basic统一的
+  `guaranteedSustainedServiceForceNewtons`，其电/气混合不变量成立后才信用恒定保证；
+  初始设备状态和建立期限仍分别计算。不得把随速度fade的电制动当恒定EB保证。
+- 向上jerk采用最大interval领先界覆盖离散设备采样；下降jerk即使经过force catch也不得跳过。
+  kernel最终速度夹零后仍对整个interval使用梯形距离，连续模型须加入由最大dt及最大实际减速度
+  推导的末步正部拐角积分误差界`bMax*dtMax²/8`，并可用`v*dtMax/2`进一步收紧。
+  不修改停车空间容差来掩盖积分差异。
+- `distance<=0`的正限速是持续当前限速；candidate跨越未来正限速点时也须检查已知interval峰值，
+  不得把负距离误当零速停车点，也不得丢弃已越过的限速约束。
+
+`VehicleControlExecutor`每tick检查当前EB和继续当前candidate的硬证书；普通巡航策略最多每0.2s
+重新选挡，目标/模式变化、硬证书不通过、名义停车可达性将丢失时提前重选。停车模式每实际interval
+更新。纯名义停车误差或名义预测不可达只产生`OperatingPrecisionStatus`，不能转换为ATP事件；
+仅硬安全candidate集合为空或输入/模型不可用时触发异常。
+
+AUTO在停稳且新鲜安全输入允许候选时自动解除；MANUAL触发的人工确认要求跨controller/mode保留，
+ack仅排队，下一次新鲜安全检查成功才解除。SIMULATION记录不可变事件后中断，已有latch也必须中断。
+事件记录原状态、候选、判断、能力identity、坡度、所有硬目标和调用方immutable world/head/epoch上下文。
+
+额外`planningReserve`与上述硬证书分开：它为一次service→EB设备转换保留真实指令重置、
+电制动释放和补气期限，并随实际保留气制动力建立而消退，完整气制动时为零。
+执行器优先使用拥有该额外余量的候选；余量集合为空时仅在通过当前EB、candidate后EB及
+raw held-service硬检查的普通制动/惰行中选择，禁止继续牵引，也禁止盲选未通过检查的新最大制动。
+此时`planningReserveAvailable=false`独立记录，不能将其当作ATP异常或混入停车精度状态。

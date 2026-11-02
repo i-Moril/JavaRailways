@@ -53,7 +53,7 @@ class AdmittedSpeedPhysicalIntegrationTest {
                         val inspection = InspectionRuntime(signals) { _, _, failure -> throw failure }
                         val profile = AtoSafetyProfile(accelerationMetersPerSecondSquared = 1.0,
                             serviceDecelerationMetersPerSecondSquared = 2.0, reactionTimeSeconds = 0.0,
-                            safetyDistanceMeters = 2.0, stopToleranceMeters = 0.25)
+                            safetyDistanceMeters = 2.0)
                         val dispatcher = TimetableDispatcher(
                             authorityStoppingMarginMeters = profile.safetyDistanceMeters,
                             routeAdmissionContextProvider = TimetableRouteAdmissionContextProvider {

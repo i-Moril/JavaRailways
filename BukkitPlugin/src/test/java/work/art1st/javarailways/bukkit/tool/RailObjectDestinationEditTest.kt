@@ -22,7 +22,6 @@ class RailObjectDestinationEditTest {
             berthId = "one",
             doorSide = DoorSide.LEFT,
             stoppingOffsetMetersBefore = 2.5,
-            positionToleranceMeters = 0.4,
             usableLengthMeters = 95.0,
             defaultDwellTicks = 80L,
             releaseDistanceMetersAfter = 6.0
@@ -53,7 +52,7 @@ class RailObjectDestinationEditTest {
         assertEquals("central@one", updated.id)
         assertEquals("Central Station", role.stationDisplayName)
         assertEquals(2.5, role.stoppingOffsetMetersBefore)
-        assertEquals(0.4, role.positionToleranceMeters)
+        assertEquals(0.3, role.positionToleranceMeters)
         assertEquals(95.0, role.usableLengthMeters)
         assertEquals(80L, role.defaultDwellTicks)
         assertEquals(6.0, role.releaseDistanceMetersAfter)

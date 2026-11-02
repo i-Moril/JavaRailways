@@ -46,8 +46,7 @@ internal fun applyRailObjectDestinationEdit(
                 berthId = edit.berthId.trim(),
                 doorSide = edit.doorSide,
                 stoppingOffsetMetersBefore = previous?.stoppingOffsetMetersBefore ?: 0.0,
-                positionToleranceMeters = previous?.positionToleranceMeters
-                    ?: DestinationRole.DEFAULT_POSITION_TOLERANCE_METERS,
+
                 usableLengthMeters = previous?.usableLengthMeters,
                 defaultDwellTicks = previous?.defaultDwellTicks ?: 0L,
                 releaseDistanceMetersAfter = previous?.releaseDistanceMetersAfter ?: 0.0,

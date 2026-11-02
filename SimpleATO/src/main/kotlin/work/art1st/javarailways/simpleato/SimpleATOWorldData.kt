@@ -39,7 +39,9 @@ data class SimpleATOWorldData(
     val timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry(),
     val routePlanningRestrictions: RoutePlanningRestrictionRuntime = RoutePlanningRestrictionRuntime(),
     val stationCallResolvers: StationCallResolverRegistry = StationCallResolverRegistry(),
-    val operationalRuntime: OperationalWorldRuntime? = null
+    val operationalRuntime: OperationalWorldRuntime? = null,
+    val controlRuntime: work.art1st.javarailways.simpleato.control.RailwayControlRuntime =
+        work.art1st.javarailways.simpleato.control.RailwayControlRuntime(atoCoordinator.worldId)
 ) {
     // Capabilities are process-local. Saved event identities, never saved tokens, rebuild these.
     private val formationRecoveryMovementHolds = LinkedHashMap<String, List<FormationMovementHold>>()

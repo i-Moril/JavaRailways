@@ -649,8 +649,7 @@ class TimetableStationCallDispatcherTest {
         serviceDecelerationMetersPerSecondSquared = 1.0,
         // The test actuator integrates in 50ms steps; include its discrete control response.
         reactionTimeSeconds = 0.1,
-        safetyDistanceMeters = 1.0,
-        stopToleranceMeters = 0.25
+        safetyDistanceMeters = 1.0
     )
 
     @BeforeEach
@@ -1849,7 +1848,6 @@ class TimetableStationCallDispatcherTest {
             berthRef = berthRef,
             location = train.head.location.forward(40.0)!!,
             approachDirection = ViewDirection.AB,
-            positionToleranceMeters = 0.15,
             usableLengthMeters = 100.0,
             defaultDwellTicks = 5L,
             releaseDistanceMetersAfter = releaseDistanceMetersAfter,

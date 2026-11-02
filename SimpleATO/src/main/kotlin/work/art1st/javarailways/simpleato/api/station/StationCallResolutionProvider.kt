@@ -126,9 +126,6 @@ class StationCallResolverRegistry {
         if (resolved.stoppingOffsetMetersBefore != defaults.stoppingOffsetMetersBefore) {
             return invalid("custom resolution cannot move the authored stopping position")
         }
-        if (resolved.positionToleranceMeters > defaults.positionToleranceMeters) {
-            return invalid("custom resolution cannot widen the authored stopping tolerance")
-        }
         val usable = resolved.usableLengthMeters
         if (defaults.usableLengthMeters?.let { usable == null || usable > it } == true) {
             return invalid("custom resolution cannot weaken the berth usable length")

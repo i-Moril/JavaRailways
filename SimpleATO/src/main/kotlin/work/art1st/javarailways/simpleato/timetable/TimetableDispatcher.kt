@@ -1060,6 +1060,7 @@ class TimetableDispatcher(
             run.controlTransferOwner == null
         ) {
             run.controlTransferOwner = transferOwner
+            run.train.world.simpleAtoWorldData.controlRuntime.detachProtectionSource(run.train)
             run.controlMode = TimetableControlMode.FULL_MANUAL
             run.manualController = null
             run.state = TimetableServiceRunState.SUSPENDED
@@ -1119,6 +1120,7 @@ class TimetableDispatcher(
             return TimetableControlTransferResult.Failure(it)
         }
         cancelStationCallForControlTransfer(run)
+        run.train.world.simpleAtoWorldData.controlRuntime.detachProtectionSource(run.train)
         run.controlMode = TimetableControlMode.FULL_MANUAL
         run.manualController = null
         run.state = TimetableServiceRunState.SUSPENDED
@@ -1153,6 +1155,7 @@ class TimetableDispatcher(
             run.controlTransferOwner == null
         ) {
             run.controlTransferOwner = transferOwner
+            run.train.world.simpleAtoWorldData.controlRuntime.detachProtectionSource(run.train)
             run.controlMode = TimetableControlMode.FULL_MANUAL
             run.manualController = null
             run.state = TimetableServiceRunState.SUSPENDED
@@ -1170,6 +1173,7 @@ class TimetableDispatcher(
         cancelStationCallForControlTransfer(run)
         if (run.train.controller === run.ato) run.train.setController(null)
         run.controlTransferOwner = transferOwner
+        run.train.world.simpleAtoWorldData.controlRuntime.detachProtectionSource(run.train)
         run.controlMode = TimetableControlMode.FULL_MANUAL
         run.manualController = null
         run.state = TimetableServiceRunState.SUSPENDED
@@ -1187,6 +1191,7 @@ class TimetableDispatcher(
         } ?: return false
         if (run.controlTransferOwner != transferOwner) return false
         run.controlTransferOwner = null
+        run.train.world.simpleAtoWorldData.controlRuntime.detachProtectionSource(run.train)
         run.controlMode = TimetableControlMode.FULL_MANUAL
         run.manualController = null
         run.state = TimetableServiceRunState.REPLAN_REQUIRED
@@ -3362,7 +3367,7 @@ class TimetableDispatcher(
                 candidate.missionAuthorityMeters(it.distanceFromRouteStartMeters, runtime)
             }
             if (runtime.publishedAuthorityMeters <= 0.0 && retainedMissionAuthority != null &&
-                retainedMissionAuthority > 0.0 && run.controlMode == TimetableControlMode.AUTOMATIC
+                retainedMissionAuthority > 0.0 && run.controlMode != TimetableControlMode.FULL_MANUAL
             ) {
                 // The Basic-backed restriction above still ends at the old grant. Advancing the
                 // operating target merely lets the train use that existing prefix while the next
@@ -3431,7 +3436,7 @@ class TimetableDispatcher(
                     result.grant.committedAuthority.distanceFromRouteStartMeters,
                     runtime
                 )
-                if (run.controlMode == TimetableControlMode.AUTOMATIC) {
+                if (run.controlMode != TimetableControlMode.FULL_MANUAL) {
                     run.ato.setMovementAuthority(
                         runtime.mission.revision,
                         run.ato.terminalMovementAuthorityLimitMeters(runtime.layout.totalLengthMeters,
@@ -3865,7 +3870,7 @@ class TimetableDispatcher(
 
     private fun publishInitialMovementAuthority(run: ActiveRun, runtime: MissionRuntime) {
         runtime.publishedAuthorityMeters = 0.0
-        run.ato.setMovementAuthority(runtime.mission.revision, 0.0)
+        run.ato.holdForMovementAuthority(runtime.mission.revision)
     }
 
     private fun updateTailProgress(run: ActiveRun, snapshot: TrainSnapshot) {
@@ -6684,11 +6689,11 @@ class TimetableDispatcher(
 
     private companion object {
         val LOGGER = java.util.logging.Logger.getLogger(TimetableDispatcher::class.java.name)
-        const val POSITION_TOLERANCE_METERS = 0.5
+        const val POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS
         const val RELEASE_EPSILON_METERS = 1.0e-6
         const val DEPOT_DEPARTURE_RELEASE_EPSILON_METERS = 1.0e-6
         const val DEFAULT_OPERATION_TIMEOUT_TICKS = 100L
-        const val MANUAL_PROTECTION_TOLERANCE_METERS = 0.5
+        const val MANUAL_PROTECTION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS
         const val MANUAL_NAVIGATION_PREFIX = "manual-navigate-"
         const val POWER_OFF_ACTION = "power-off"
     }

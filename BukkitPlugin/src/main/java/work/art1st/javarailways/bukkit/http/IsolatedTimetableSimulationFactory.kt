@@ -255,7 +255,8 @@ internal class IsolatedTimetableSimulationFactory(
                                 profile,
                                 carProfiles,
                                 gravity,
-                                profileResolver = ::carProfile
+                                profileResolver = ::carProfile,
+                                initialDeviceSource = (train as? work.art1st.javarailways.core.physics.train.CoreTrain)?.controller as? work.art1st.javarailways.basic.control.DynamicsProfileSource
                             ),
                             safety,
                             inspectionRuntime::maximumDeclaredLeadTimeSeconds

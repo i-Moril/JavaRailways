@@ -46,9 +46,7 @@ class StationModelTest {
         assertThrows(IllegalArgumentException::class.java) {
             StationBerthRef(stationId, "bad/id")
         }
-        assertThrows(IllegalArgumentException::class.java) {
-            StationBerth(berthRef, location, positionToleranceMeters = 0.0)
-        }
+        assertEquals(0.3, StationBerth(berthRef, location).positionToleranceMeters)
         assertThrows(IllegalArgumentException::class.java) {
             StationBerth(berthRef, location, usableLengthMeters = Double.NaN)
         }
@@ -112,7 +110,6 @@ class StationModelTest {
             location = fixture.location,
             approachDirection = ViewDirection.AB,
             stoppingOffsetMetersBefore = 1.5,
-            positionToleranceMeters = 0.2,
             usableLengthMeters = 120.0,
             defaultDwellTicks = 100L,
             releaseDistanceMetersAfter = 5.0,

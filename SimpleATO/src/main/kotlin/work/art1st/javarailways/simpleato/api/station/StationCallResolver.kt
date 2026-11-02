@@ -31,7 +31,6 @@ data class ResolvedStationCall(
     val request: StationCallRequest,
     val plannedRoute: PlannedRoute,
     val stoppingOffsetMetersBefore: Double,
-    val positionToleranceMeters: Double,
     val usableLengthMeters: Double?,
     val releaseDistanceMetersAfter: Double,
     val doorSide: DoorSide
@@ -39,10 +38,11 @@ data class ResolvedStationCall(
     init {
         require(plannedRoute.revision == request.call.missionRevision)
         require(stoppingOffsetMetersBefore.isFinite() && stoppingOffsetMetersBefore >= 0.0)
-        require(positionToleranceMeters.isFinite() && positionToleranceMeters > 0.0)
         require(usableLengthMeters == null || usableLengthMeters.isFinite() && usableLengthMeters > 0.0)
         require(releaseDistanceMetersAfter.isFinite() && releaseDistanceMetersAfter >= 0.0)
     }
+
+    val positionToleranceMeters: Double get() = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS
 
     val call: StationCall
         get() = request.call
@@ -183,7 +183,7 @@ class StationCallResolver(private val world: World) {
             plannedRoute = planned,
             stoppingOffsetMetersBefore = request.call.stoppingOffsetMetersBeforeOverride
                 ?: berth.stoppingOffsetMetersBefore,
-            positionToleranceMeters = berth.positionToleranceMeters,
+
             usableLengthMeters = berth.usableLengthMeters,
             releaseDistanceMetersAfter = berth.releaseDistanceMetersAfter,
             doorSide = request.call.doorSideOverride ?: berth.doorSide

@@ -190,12 +190,12 @@ class TrainRestrictionConstraintAdapter(
             )
             is StopTrainRestriction -> StopConstraint(
                 key,
-                (routeDistanceMeters - routeProgressMeters).coerceAtLeast(0.0),
+                routeDistanceMeters - routeProgressMeters,
                 stoppingMarginMeters
             )
             is MovementAuthorityRestriction -> MovementAuthorityConstraint(
                 key,
-                (routeDistanceMeters - routeProgressMeters).coerceAtLeast(0.0),
+                routeDistanceMeters - routeProgressMeters,
                 stoppingMarginMeters
             )
             is CouplingContactRestriction -> RouteSpeedLimitConstraint(key,

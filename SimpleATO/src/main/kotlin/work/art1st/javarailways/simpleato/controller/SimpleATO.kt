@@ -6,6 +6,7 @@ import work.art1st.javarailways.simpleato.api.ato.AtoPlanningContext
 import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.basic.api.ato.BrakingGradeSegment
 import work.art1st.javarailways.basic.api.ato.ControlDemand
+import work.art1st.javarailways.simpleato.control.*
 import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
 import work.art1st.javarailways.simpleato.api.ato.MinimumConstraintPlanner
 import work.art1st.javarailways.basic.api.ato.TrainActuator
@@ -129,6 +130,7 @@ class SimpleATO(
         data class StopAt(val key: String, val target: RailObjectRef, val offsetMeters: Double) : Command
         data class Remove(val key: String) : Command
         data class SetMovementAuthority(val missionRevision: Long, val limitDistanceMeters: Double) : Command
+        data class HoldForMovementAuthority(val missionRevision: Long) : Command
         data class GrantStationDeparture(val callId: String, val missionRevision: Long) : Command
         data class RetireFormationMission(val throughMissionRevision: Long) : Command
         data class PrepareReverse(
@@ -209,6 +211,7 @@ class SimpleATO(
     private var activePreparedReverseRevision: Long = 0L
     private var movementAuthorityRevision = -1L
     private var movementAuthorityLimitMeters = 0.0
+    private var hasMovementAuthority = false
     private var activeStationCall: ActiveStationCall? = null
     private var stationPositionErrorMeters: Double? = null
 
@@ -365,6 +368,13 @@ class SimpleATO(
         ).revision
     }
 
+    /** Hold for permission without inventing a physical endpoint at the mission origin. */
+    @MainThread
+    fun holdForMovementAuthority(missionRevision: Long): Long {
+        require(missionRevision >= 0L)
+        return commands.enqueue(Command.HoldForMovementAuthority(missionRevision)).revision
+    }
+
     fun serviceBrakingDistanceMeters(speedMetersPerSecond: Double): Double {
         require(speedMetersPerSecond.isFinite() && speedMetersPerSecond >= 0.0)
         return brakingDistance(
@@ -519,6 +529,7 @@ class SimpleATO(
             missionProjectedProgressMeters = null
             movementAuthorityRevision = mission.revision
             movementAuthorityLimitMeters = 0.0
+            hasMovementAuthority = false
             activeMission = mission
         }
         stationCallCommands.drain().lastOrNull()?.command?.let { resolved ->
@@ -563,12 +574,25 @@ class SimpleATO(
                     speedLimits.remove(command.key)
                     stopTargets.remove(command.key)
                 }
+                is Command.HoldForMovementAuthority -> {
+                    val activeRevision = activeMission?.revision ?: -1L
+                    when {
+                        command.missionRevision == activeRevision -> {
+                            movementAuthorityRevision = command.missionRevision
+                            hasMovementAuthority = false
+                        }
+                        command.missionRevision > activeRevision -> error(
+                            "movement authority revision ${command.missionRevision} is newer than active Mission $activeRevision"
+                        )
+                    }
+                }
                 is Command.SetMovementAuthority -> {
                     val activeRevision = activeMission?.revision ?: -1L
                     when {
                         command.missionRevision == activeRevision -> {
                             movementAuthorityRevision = command.missionRevision
                             movementAuthorityLimitMeters = command.limitDistanceMeters
+                            hasMovementAuthority = true
                         }
                         command.missionRevision > activeRevision -> error(
                             "movement authority revision ${command.missionRevision} is newer than active Mission $activeRevision"
@@ -727,6 +751,24 @@ class SimpleATO(
                 maximumControlDeltaSeconds = world.maximumPhysicsDeltaSeconds
             )
         )
+    }
+
+    override fun controlMissionRevision(): Long? = activeMission?.revision
+
+    override fun motionControlFrame(demand: ControlDemand): TrainControlFrame {
+        val grade = RouteGradeBounds.mostAdverseRouteGrade(currentSegments,
+            actuator.controlCapabilities(activeSpeed).worstCurrentGrade)
+        val snapshot = constraintManager.snapshot()
+        val frame = controlFrame(snapshot, safetyProfile, grade)
+        val limits = mutableListOf(MotionReferenceConstraint("vehicle/maximum", 0.0, actuator.maximumSpeedMetersPerSecond))
+        val protection = mutableListOf(work.art1st.javarailways.simpleato.api.atp.AtpTarget(
+            "vehicle/maximum", 0.0, actuator.maximumSpeedMetersPerSecond))
+        if (activeMission == null) {
+            limits += MotionReferenceConstraint("mission/absent", 0.0, 0.0)
+        }
+        railwayControlRuntime.registerProtectionSource(train) { delta -> refreshTransferredProtection(delta) }
+        return frame.copy(referenceTargets = java.util.List.copyOf(frame.referenceTargets + limits),
+            protectionTargets = java.util.List.copyOf(frame.protectionTargets + protection))
     }
 
     /**
@@ -902,7 +944,7 @@ class SimpleATO(
                 add(
                     StopConstraint(
                         ConstraintKey("external", key),
-                        (observed.distanceMeters - target.offsetMeters).coerceAtLeast(0.0)
+                        observed.distanceMeters - target.offsetMeters
                     )
                 )
             }
@@ -923,10 +965,12 @@ class SimpleATO(
                 movementAuthorityRevision == mission.revision
             } ?: 0.0
             val authorityKey = ConstraintKey("mission", "authority/${mission.revision}")
-            val authorityRemaining = (authorityLimit - controlProgress).coerceAtLeast(0.0)
+            val authorityRemaining = authorityLimit - controlProgress
             val contact = activeContactAuthority
-            add(if (contact != null)
-                RouteSpeedLimitConstraint(authorityKey, authorityRemaining, contact.maximumApproachSpeedMetersPerSecond)
+            add(if (!hasMovementAuthority)
+                CurrentSpeedLimitConstraint(authorityKey, 0.0)
+            else if (contact != null)
+                RouteSpeedLimitConstraint(authorityKey, authorityRemaining.coerceAtLeast(0.0), contact.maximumApproachSpeedMetersPerSecond)
             else MovementAuthorityConstraint(authorityKey, authorityRemaining,
                 terminalAuthorityMarginMeters(mission.legs.sumOf { it.plannedRoute.expandedRoute.totalLength })))
             mission.legs.forEach { leg ->
@@ -942,7 +986,7 @@ class SimpleATO(
                     add(if (contact != null && leg === mission.legs.last() &&
                         kotlin.math.abs(stopTarget - authorityLimit) <= 1.0e-6)
                         RouteSpeedLimitConstraint(stopKey, remaining, contact.maximumApproachSpeedMetersPerSecond)
-                    else StopConstraint(stopKey, remaining, stoppingMarginMeters = 0.0))
+                    else StopConstraint(stopKey, stopTarget - stopProgress, stoppingMarginMeters = 0.0, operatingTarget = true))
                 }
             }
         }
@@ -996,8 +1040,7 @@ class SimpleATO(
         }
         if (!active.berthed && StationBerthDetector.isBerthed(
                 headPositionErrorMeters = positionError,
-                speedMetersPerSecond = activeSpeed,
-                positionToleranceMeters = effectivePositionTolerance
+                speedMetersPerSecond = activeSpeed
             )
         ) {
             active.berthed = true
@@ -1021,8 +1064,9 @@ class SimpleATO(
             else -> listOf(
                 StopConstraint(
                     ConstraintKey("station", "stop/${resolved.call.callId}"),
-                    positionError.coerceAtLeast(0.0),
-                    stoppingMarginMeters = 0.0
+                    positionError,
+                    stoppingMarginMeters = 0.0,
+                    operatingTarget = true
                 )
             )
         }

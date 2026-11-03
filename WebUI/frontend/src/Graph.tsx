@@ -13,13 +13,13 @@ import type { LineV1,SavedTimetableV1,WorldMetadata } from './types';
 export interface GraphDutyOperationContext {dutyId:string;elementId:string;operation:TimedOperation;anchor:{x:number;y:number}}
 
 type Pan={x:number;y:number};
-type DragState={pointerId:number;x:number;y:number;originX:number;originY:number};
+type DragState={pointerId:number;x:number;y:number;originX:number;originY:number;moved:boolean};
 type ServicePath={serviceIndex:number;serviceId:string;points:GraphPoint[]};
 
 const clamp=(value:number)=>Math.min(3.2,Math.max(.55,value));
 
 export function Graph({
-  operations=[],onOpenDutyOperation,onDutyOperationContext,value,onSelect,metadata,line,graphLineId,serviceColors,serviceColorIds,highlightedServiceIds,previewServiceIds,onSelectPoint,onDismissPoint,onEditEvent,onEventContext,
+  operations=[],onOpenDutyOperation,onDutyOperationContext,value,onSelect,metadata,line,graphLineId,serviceColors,serviceColorIds,highlightedServiceIds,previewServiceIds,onSelectPoint,onDismissPoint,onClearSelection,onEditEvent,onEventContext,
 }:{
   operations?:ProjectedTimedOperation[];onDutyOperationContext?:(context:GraphDutyOperationContext)=>void;onOpenDutyOperation?:(dutyId:string,elementId:string)=>void;
   value:SavedTimetableV1;
@@ -33,6 +33,7 @@ export function Graph({
   onSelect?:(service:number,step:number)=>void;
   onSelectPoint?:(point:GraphPoint,anchor:{x:number;y:number})=>void;
   onDismissPoint?:()=>void;
+  onClearSelection?:()=>void;
   onEditEvent?:(event:import('./types').TimetableEventPoint)=>void;
   onEventContext?:(context:GraphEventContext)=>void;
 }) {
@@ -82,10 +83,10 @@ export function Graph({
     onPointerDown={(event)=>{
       if(event.button!==0||(event.target as HTMLElement).closest('.canvas-controls,[data-graph-point],[data-event-id],[data-duty-operation]'))return;
       onDismissPoint?.();event.currentTarget.setPointerCapture(event.pointerId);
-      drag.current={pointerId:event.pointerId,x:event.clientX,y:event.clientY,originX:pan.x,originY:pan.y};setPanning(true);
+      drag.current={pointerId:event.pointerId,x:event.clientX,y:event.clientY,originX:pan.x,originY:pan.y,moved:false};setPanning(true);
     }}
-    onPointerMove={(event)=>{if(!drag.current||drag.current.pointerId!==event.pointerId)return;setPan({x:drag.current.originX+event.clientX-drag.current.x,y:drag.current.originY+event.clientY-drag.current.y});}}
-    onPointerUp={(event)=>{if(drag.current?.pointerId===event.pointerId)event.currentTarget.releasePointerCapture(event.pointerId);drag.current=null;setPanning(false);}}
+    onPointerMove={(event)=>{const state=drag.current;if(!state||state.pointerId!==event.pointerId)return;if(!state.moved&&(Math.abs(event.clientX-state.x)>3||Math.abs(event.clientY-state.y)>3))state.moved=true;setPan({x:state.originX+event.clientX-state.x,y:state.originY+event.clientY-state.y});}}
+    onPointerUp={(event)=>{const state=drag.current;if(state?.pointerId===event.pointerId)event.currentTarget.releasePointerCapture(event.pointerId);drag.current=null;setPanning(false);if(state&&!state.moved)onClearSelection?.();}}
     onPointerCancel={()=>{drag.current=null;setPanning(false);}}>
     <div className="canvas-controls" aria-label={t('editor.graphViewport')} onPointerDown={(event)=>event.stopPropagation()}>
       <Button.Group>

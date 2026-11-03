@@ -1,7 +1,7 @@
 import { describe,expect,it } from 'vitest';
 import {
   authoringMinimumDwell,authoringDocumentForSave,authoringGraphTimetable,authoringSelectorKey,copyRunShifted,createRunFromLine,deleteRunFromDocument,generateTimetableSource as generateWithLines,moveRunToDuty,
-  authoringResetProfile,renameAuthoringRun,resolveAuthoringRunSelection,lineSimulationRoute,moveRunFromCall,resetRunTimings,resizeRunRoute,shiftRunFromDeparture,validateAuthoringDocument as validateWithLines,type TimetableAuthoringDocumentV1,
+  authoringResetProfile,renameAuthoringRun,retainAuthoringRunSelection,resolveAuthoringRunSelection,lineSimulationRoute,moveRunFromCall,resetRunTimings,resizeRunRoute,shiftRunFromDeparture,validateAuthoringDocument as validateWithLines,type TimetableAuthoringDocumentV1,
 } from './authoring';
 import {createDocumentHistory,redoDocumentHistory,undoDocumentHistory,updateDocumentHistory} from './documentHistory';
 import {layoutGraph} from './graph';
@@ -70,6 +70,13 @@ describe('timetable editor document',()=>{
     expect(resolveAuthoringRunSelection([duplicateCallIds,document.runs[1]],'second-service',renamed.runs[1])?.id).toBe('down-01');
     const differentPrefix={...document.runs[1],id:'other-owner',calls:document.runs[1].calls.map((call)=>({...call,id:`${call.id}-different`}))};
     expect(resolveAuthoringRunSelection([differentPrefix,document.runs[1]],'second-service',renamed.runs[1])?.id).toBe('down-01');
+  });
+
+  it('keeps an explicit empty run focus instead of auto-selecting a scoped run',()=>{
+    const document=valid();
+    expect(retainAuthoringRunSelection(document.runs,'',undefined)).toBeUndefined();
+    expect(retainAuthoringRunSelection(document.runs,'',document.runs[0])).toBeUndefined();
+    expect(retainAuthoringRunSelection(document.runs,'up-01')).toMatchObject({id:'up-01'});
   });
 
   it('uses current line settings for generation and reset, ignoring stale document caps',()=>{

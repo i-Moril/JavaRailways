@@ -6,18 +6,18 @@ import {defaultDutyProgramArguments,orderDutyTimeline,projectDutyTimeline,sortDu
 import {TimedOperationFields} from './TimedOperationFields';
 import {projectTimetableOperations,validateTimedOperation} from './timedOperations';
 import {TimetableEventsEditor} from './TimetableEventsEditor';
-import {deleteTimetableEvent,saveTimetableEvent,withTimetableEventProgram,timetableEventUnchanged,referencedTimetableEventIds,type GraphEventContext} from './timetableEvents';
+import {copyTimetableEvents,deleteTimetableEvent,saveTimetableEvent,withTimetableEventProgram,timetableEventUnchanged,referencedTimetableEventIds,type GraphEventContext} from './timetableEvents';
 import {renameFormationDuty,createDutyFormation,updateDutyFormation,removeDutyFormation,setDutyVehicleSource,formationOutputs,type AuthoringFormationEvent} from './formationAuthoring';
 import {allocateAuthoringIds} from './authoringIds';
 import { useCallback,useEffect,useMemo,useRef,useState,type CSSProperties } from 'react';
 import { Button,Dropdown,Flex,Input,InputNumber,Modal,Popover,Segmented,Select,Space,Tag,Tooltip,Typography } from 'antd';
-import { DeleteOutlined,EditOutlined,LeftOutlined,PlusOutlined,RightOutlined,SettingOutlined } from '@ant-design/icons';
+import { CopyOutlined,DeleteOutlined,EditOutlined,LeftOutlined,PlusOutlined,RightOutlined,SettingOutlined } from '@ant-design/icons';
 import {resolveArrivalSourceTarget,resolveProgramSourceTarget,type ProgramSourceTarget} from './programNavigation';
 import { adoptStationProgram } from './stationPrograms';
 import { api } from './api';
 import { frontendDemoEnabled } from './frontendDev';
 import {
-  authoringMinimumDwell,authoringGraphTimetable,authoringSelectorKey,createRunFromLine,deleteRunFromDocument,emptyAuthoringDocument,generateTimetableSource,moveRunToDuty,copyRunShifted,lineSimulationRoute,resetRunTimings,renameAuthoringRun,resolveAuthoringRunSelection,authoringResetProfile,
+  authoringMinimumDwell,authoringGraphTimetable,authoringSelectorKey,createRunFromLine,deleteRunFromDocument,emptyAuthoringDocument,generateTimetableSource,moveRunToDuty,copyRunShifted,lineSimulationRoute,resetRunTimings,renameAuthoringRun,retainAuthoringRunSelection,authoringResetProfile,
   type AuthoringDutyV1,type AuthoringRunV1,type RunMoveMode,
   type TimetableAuthoringDocumentV1,
 } from './authoring';
@@ -80,6 +80,12 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   const [copyOffsetInvalid,setCopyOffsetInvalid]=useState(false);
   const [copyCountInvalid,setCopyCountInvalid]=useState(false);
   const copyInvalid=copyOffsetInvalid||copyCountInvalid;
+  const [copyEventSource,setCopyEventSource]=useState<TimetableEventPoint>();
+  const [eventCopyOffset,setEventCopyOffset]=useState(1200);
+  const [eventCopyCount,setEventCopyCount]=useState(1);
+  const [eventCopyOffsetInvalid,setEventCopyOffsetInvalid]=useState(false);
+  const [eventCopyCountInvalid,setEventCopyCountInvalid]=useState(false);
+  const eventCopyInvalid=eventCopyOffsetInvalid||eventCopyCountInvalid;
   const [moveMode,setMoveMode]=useState<RunMoveMode>('OFFSET');
   const [moveValue,setMoveValue]=useState<number|''>(0);
   const [focusedProgram,setFocusedProgram]=useState<{epoch:number;target:ProgramSourceTarget}>();
@@ -103,6 +109,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   const [compiledState,setCompiledState]=useState<{result:CompiledTimetableSource;documentHashInput:string}>();
   const [compileFailure,setCompileFailure]=useState<{message:string;key:string}>();
   const [resetProfile,setResetProfile]=useState('');
+  const [resetDwellTicks,setResetDwellTicks]=useState(200);
   const [copyOffset,setCopyOffset]=useState(1200);
   const [copyCount,setCopyCount]=useState(1);
   const [focusedCall,setFocusedCall]=useState('');
@@ -233,7 +240,14 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   useEffect(()=>{setSelectedPoint((current)=>current?.runId===selectedRun?current:undefined);setMoveOpen(false);setCopyOpen(false);},[selectedRun]);
   useEffect(()=>{if(selectedPoint&&!pointSelectionValid){setSelectedPoint(undefined);setMoveOpen(false);setPreviewRun(undefined);}},[selectedPoint,pointSelectionValid]);
   useEffect(()=>{if(!lines.some((line)=>line.id===graphLineId))setGraphLineId(lines[0]?.id??'');},[graphLineId,lines]);
-  useEffect(()=>{const scoped=value.runs.filter((run)=>run.diagramLineId===graphLineId&&run.lineDirection===runDirection);const resolved=resolveAuthoringRunSelection(scoped,selectedRun,previousSelectedRun.current)??scoped[0];previousSelectedRun.current=resolved;if((resolved?.id??'')!==selectedRun)setSelectedRun(resolved?.id??'');},[value.runs,selectedRun,graphLineId,runDirection]);
+  useEffect(()=>{
+    const scoped=value.runs.filter((run)=>run.diagramLineId===graphLineId&&run.lineDirection===runDirection);
+    if(!selectedRun){previousSelectedRun.current=undefined;return;}
+    const resolved=retainAuthoringRunSelection(scoped,selectedRun,previousSelectedRun.current);
+    previousSelectedRun.current=resolved;
+    if(resolved){if(resolved.id!==selectedRun)setSelectedRun(resolved.id);}
+    else if(!scoped.some((run)=>run.id===selectedRun))setSelectedRun('');
+  },[value.runs,selectedRun,graphLineId,runDirection]);
   useEffect(()=>{if(initialRecovery)onError(t('duties.recoveredLocalDraft'));},[]);
   useEffect(()=>{const timer=window.setTimeout(persistRecovery,250);return()=>window.clearTimeout(timer);},[value,documentId,formalScriptName,persistedFormalScriptName,selectedRun,selectedDuty,sidebarTab,graphLineId,delayThresholdTicks]);
   useEffect(()=>{
@@ -493,7 +507,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
       const result=await api.simulateLine(world,run.lineId!,authoringResetProfile(lines,run,{profileType:profile.type,profileId:profile.id}),confirmedTimeoutMillis);
       if(!current())return;
       if(ownerEpoch.current!==epoch||liveInputs.current.world!==input.world||liveInputs.current.documentJson!==input.documentJson||liveInputs.current.documentHashInput!==input.documentHashInput)throw new Error(t('duties.resetChanged'));
-      const next=resetRunTimings(run,result,firstDeparture,authoringMinimumDwell(value));
+      const next=resetRunTimings(run,result,firstDeparture,resetDwellTicks);
       if(next.calls.some((call)=>[call.arrivalTick,call.departureTick].some((tick)=>tick!=null&&tick>=value.periodDays*24000)))throw new Error(t('duties.outsidePeriod'));
       replaceRun(next,true);
     },current);
@@ -510,7 +524,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   const eventStationIds=[...new Set(lines.flatMap((line)=>[...line.upStationIds,...line.downStationIds]))];
   const currentGraphLine=lines.find((line)=>line.id===graphLineId);
   const newEventStationId=currentGraphLine?.upStationIds[0]??currentGraphLine?.downStationIds[0];
-  useEffect(()=>{setEventDraft(undefined);setEventMenu(undefined);setDutyOperationMenu(undefined);},[eventScope]);
+  useEffect(()=>{setEventDraft(undefined);setEventMenu(undefined);setDutyOperationMenu(undefined);setCopyEventSource(undefined);},[eventScope]);
   const openGraphEvent=(original?:TimetableEventPoint)=>{
     if(original&&!timetableEventUnchanged(value.events??[],original)){onError(t('events.changed'));return;}
     setSelectedPoint(undefined);setEventMenu(undefined);
@@ -519,6 +533,25 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   const deleteEvent=(original:TimetableEventPoint)=>{
     try{const events=deleteTimetableEvent(value.events??[],original);setValue((current)=>({...current,events}));setEventDraft(undefined);setEventMenu(undefined);}
     catch{onError(t('events.changed'));}
+  };
+  const copyEventError=(error:unknown)=>{
+    const message=error instanceof Error?error.message:String(error);
+    if(message==='Copied event is outside the timetable period')return t('duties.outsidePeriod');
+    if(message==='Event changed'||message==='Unknown timed event')return t('events.changed');
+    return t('ui.invalidNumber');
+  };
+  const openCopyEvent=(original:TimetableEventPoint)=>{
+    if(!timetableEventUnchanged(value.events??[],original)){onError(t('events.changed'));return;}
+    setEventDraft(undefined);setEventMenu(undefined);setSelectedPoint(undefined);
+    setEventCopyOffsetInvalid(false);setEventCopyCountInvalid(false);setCopyEventSource(original);
+  };
+  const copyEvents=()=>{
+    if(!copyEventSource||eventCopyInvalid||editorDraftInvalid||arrivalDraftsInvalid)return;
+    if(!timetableEventUnchanged(value.events??[],copyEventSource)){onError(t('events.changed'));setCopyEventSource(undefined);return;}
+    try{
+      const events=copyTimetableEvents(value.events??[],copyEventSource.id,eventCopyOffset,eventCopyCount,value.periodDays*24000,referencedTimetableEventIds(value),value.boundPrograms);
+      setValue((current)=>({...current,events}));setCopyEventSource(undefined);
+    }catch(error){onError(copyEventError(error));}
   };
   const applyGraphEvent=()=>{
     if(eventDraft?.scope!==eventScope||!eventDraft?.valid)return;
@@ -539,7 +572,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   const openDutyOperation=(dutyId:string,elementId:string)=>{const duty=value.duties.find((item)=>item.id===dutyId),element=duty?.elements.find((item)=>item.id===elementId);if(!duty||element?.type!=='PROGRAM')return;setSelectedDuty(duty.id);setFocusedDutyElement({dutyId,elementId,scope:fieldScope});const snapshot=value.boundPrograms?.find((item)=>item.programId===element.program.programId);if(snapshot)setFocusedProgram({epoch:ownerEpoch.current,target:{dutyId,elementId,callId:elementId,programId:snapshot.programId,revision:snapshot.revision,contentIdentity:snapshot.contentIdentity}});onPageChange?.('duties');};
 
 
-  const simulationSetupScope=JSON.stringify([fieldScope,world,generated.documentHashInput,delayThresholdTicks,selectedRun,resetProfile,authoringMinimumDwell(value)]);
+  const simulationSetupScope=JSON.stringify([fieldScope,world,generated.documentHashInput,delayThresholdTicks,selectedRun,resetProfile,resetDwellTicks]);
   useEffect(()=>{setSimulationSetup(undefined);},[simulationSetupScope]);
   const openSimulationSetup=(kind:'TIMETABLE'|'LINE')=>{
     if(busy)return;
@@ -553,7 +586,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     <label>{t('duties.originDepartureMode')}<Select value={selectedRunValue?.originDepartureMode??'AUTO'} options={(['AUTO','CONTINUE','REVERSE'] as const).map((mode)=>({value:mode,label:t(`duties.originDeparture.${mode}`)}))} onChange={(originDepartureMode)=>selectedRunValue&&replaceRun({...selectedRunValue,originDepartureMode})}/><Typography.Text type="secondary">{t('duties.originDepartureHelp')}</Typography.Text></label>
     <label>{t('simulation.profile')}<Select value={resetProfile||undefined} onChange={setResetProfile} options={simulationProfiles.map((profile)=>({value:`${profile.type}:${profile.id}`,label:profile.displayName}))}/></label>
     <Typography.Text type="secondary">{selectedRunValue?.calls[0]?.departureTick==null?t('ui.originRequired'):`${t('ui.departure')}: ${selectedRunValue.calls[0].departureTick}`}</Typography.Text>
-    <Typography.Text type="secondary">{t('editor.globalMinimumDwell')}: {authoringMinimumDwell(value)}</Typography.Text>
+    <label>{t('duties.fixedDwell')}<CommittedNumberInput fieldKey={`${fieldScope}/${selectedRun}/reset-dwell`} allowEmpty={false} min={0} precision={0} value={resetDwellTicks} onCommit={(tick)=>setResetDwellTicks(tick??0)}/><Typography.Text type="secondary">{t('duties.fixedDwellHint')}</Typography.Text></label>
     <Button disabled={busy||!resetProfile||!selectedRunValue?.diagramLineId||selectedRunValue.calls[0]?.departureTick==null} onClick={resetTimes}>{t('duties.resetTimes')}</Button>
   </div></section>;
 
@@ -588,15 +621,15 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
       onDirectionChange={(direction)=>{setRunDirection(direction);const first=value.runs.find((run)=>run.diagramLineId===graphLineId&&run.lineDirection===direction);setSelectedRun(first?.id??'');}}
       onSearchChange={setRunSearch} onSelectRun={(id)=>{setSelectedRun(id);setFocusedCall('');}} onAddRun={addRun} assignmentFor={(runId)=>assigned.get(runId)}
       graph={<Graph serviceColorIds={value.runs.map(run=>run.id)} onEditEvent={openGraphEvent} onEventContext={(context)=>{setEventDraft(undefined);setSelectedPoint(undefined);setDutyOperationMenu(undefined);setEventMenu({...context,scope:eventScope});}} operations={projectedOperations} onDutyOperationContext={(context)=>{setEventMenu(undefined);setEventDraft(undefined);setSelectedPoint(undefined);setDutyOperationMenu({...context,scope:eventScope});}} onOpenDutyOperation={openDutyOperation} value={graphValue} metadata={metadata} line={lines.find((line)=>line.id===graphLineId)} graphLineId={graphLineId||undefined}
-        serviceColors={graphServiceColors} highlightedServiceIds={highlightedRunIds} previewServiceIds={previewRunIds} onSelectPoint={selectPoint} onDismissPoint={()=>{if(!moveOpen)setSelectedPoint(undefined);setEventMenu(undefined);setDutyOperationMenu(undefined);}}/>}
+        serviceColors={graphServiceColors} highlightedServiceIds={highlightedRunIds} previewServiceIds={previewRunIds} onSelectPoint={selectPoint} onDismissPoint={()=>{if(!moveOpen)setSelectedPoint(undefined);setEventMenu(undefined);setDutyOperationMenu(undefined);}} onClearSelection={()=>{setSelectedRun('');setFocusedCall('');setSelectedPoint(undefined);setMoveOpen(false);setCopyOpen(false);}}/>}
       inspector={!selectedRunValue?<p className="empty inspector-empty">{t('duties.selectRun')}</p>:<RunRouteEditor events={value.events} stationPrograms={value.stationPrograms} automaticColor={graphServiceColor(theme,selectedRunValue.id,value.runs.map(run=>run.id),lines.find((line)=>line.id===graphLineId)?.color)} onStationProgramChange={(program)=>setValue((current)=>({...current,stationPrograms:[...(current.stationPrograms??[]).filter((item)=>item.stationId!==program.stationId),program]}))} programDraftScope={programDraftScope} onArrivalValidityChange={onArrivalValidityChange} focusedArrivalStep={focusedArrivalStep} onUndo={documentHistory.undo} onRedo={documentHistory.redo} onRename={renameRun} fieldScope={fieldScope} focusedCallId={focusedCall} tools={runTools} issues={generated.issues.filter((issue)=>issue.path.startsWith(`runs[${value.runs.findIndex((run)=>run.id===selectedRunValue.id)}]`))} run={selectedRunValue} lines={lines} metadata={metadata} busy={busy} onError={onError} onChange={replaceRun} onDelete={deleteSelectedRun}/>}
       graphActions={<><Button icon={<PlusOutlined/>} onClick={()=>{void loadPrograms();openGraphEvent();}}>{t('events.add')}</Button><Popover trigger="click" placement="bottomRight" title={t('common.documentSettings')} content={documentSettings}><Button aria-label={t('common.documentSettings')} type="text" icon={<SettingOutlined/>}/></Popover></>}
-      graphPreviewActive={Boolean(previewRun)} saved={JSON.stringify(value)===savedDocumentJson.current}/><TimetableEventsEditor operations={projectedOperations} onEdit={openGraphEvent} onOpenDuty={openDutyOperation} stationNames={stationNames}/></>}
+      graphPreviewActive={Boolean(previewRun)} saved={JSON.stringify(value)===savedDocumentJson.current}/><TimetableEventsEditor operations={projectedOperations} onEdit={openGraphEvent} onCopy={openCopyEvent} onOpenDuty={openDutyOperation} stationNames={stationNames}/></>}
 
-    {visibleEventMenu&&<Dropdown open autoFocus trigger={['click']} placement="bottomLeft" onOpenChange={(open)=>{if(!open)setEventMenu(undefined);}} menu={{'aria-label':t('events.menu'),items:[{key:'edit',label:t('events.edit'),icon:<EditOutlined/>},{key:'delete',label:t('common.delete'),icon:<DeleteOutlined/>,danger:true}],onClick:({key})=>{
+    {visibleEventMenu&&<Dropdown open autoFocus trigger={['click']} placement="bottomLeft" onOpenChange={(open)=>{if(!open)setEventMenu(undefined);}} menu={{'aria-label':t('events.menu'),items:[{key:'edit',label:t('events.edit'),icon:<EditOutlined/>},{key:'copy',label:t('events.copy'),icon:<CopyOutlined/>},{key:'delete',label:t('common.delete'),icon:<DeleteOutlined/>,danger:true}],onClick:({key})=>{
       if(eventMenu?.scope!==eventScope)return;
       if(!timetableEventUnchanged(value.events??[],eventMenu.event)){onError(t('events.changed'));setEventMenu(undefined);return;}
-      if(key==='edit')openGraphEvent(eventMenu.event);else if(key==='delete')deleteEvent(eventMenu.event);
+      if(key==='edit')openGraphEvent(eventMenu.event);else if(key==='copy')openCopyEvent(eventMenu.event);else if(key==='delete')deleteEvent(eventMenu.event);
     }}}><span className="graph-event-menu-anchor" style={{left:visibleEventMenu.anchor.x,top:visibleEventMenu.anchor.y}}/></Dropdown>}
 
     {visibleDutyOperationMenu&&<Dropdown open autoFocus trigger={['click']} placement="bottomLeft" onOpenChange={(open)=>{if(!open)setDutyOperationMenu(undefined);}} menu={{'aria-label':t('events.menu'),items:[{key:'owner',label:t('timed.openDuty')}],onClick:()=>{openDutyOperation(visibleDutyOperationMenu.dutyId,visibleDutyOperationMenu.elementId);setDutyOperationMenu(undefined);}}}><span className="graph-event-menu-anchor" style={{left:visibleDutyOperationMenu.anchor.x,top:visibleDutyOperationMenu.anchor.y}}/></Dropdown>}
@@ -621,6 +654,12 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
         {moveMode==='ABSOLUTE'&&moveValue!==''&&<Typography.Text type="secondary">{formatTimetableTick(moveValue,locale)}</Typography.Text>}
         {moveCalculation.preview&&<div className="move-preview"><Typography.Text strong>{t('move.preview')}</Typography.Text><Typography.Text>{t('move.delta')}: {moveCalculation.preview.delta>0?'+':''}{moveCalculation.preview.delta} ticks · {t('move.affected')}: {moveCalculation.preview.affectedEvents}</Typography.Text><Typography.Text>{moveCalculation.preview.anchorTick} → {moveCalculation.preview.targetTick}</Typography.Text></div>}
         {moveCalculation.error&&<Typography.Text type="danger">{moveCalculation.error}</Typography.Text>}
+      </div>
+    </Modal>
+    <Modal title={t('events.copy')} open={Boolean(copyEventSource)} onCancel={()=>setCopyEventSource(undefined)} onOk={copyEvents} okText={t('duties.copyShift')} okButtonProps={{disabled:busy||!copyEventSource||eventCopyInvalid}} destroyOnHidden>
+      <div className="move-dialog"><Typography.Text strong>{copyEventSource?.label||copyEventSource?.program?.programId||copyEventSource?.id}</Typography.Text><Typography.Text type="secondary">{t('events.copyHint')}</Typography.Text>
+        <label>{t('duties.copyOffset')}<CommittedNumberInput fieldKey={`${fieldScope}/event-copy/${copyEventSource?.id??''}/offset`} allowEmpty={false} precision={0} value={eventCopyOffset} onValidityChange={(valid)=>setEventCopyOffsetInvalid(!valid)} onCommit={(tick)=>{if(tick!=null)setEventCopyOffset(tick);}}/></label>
+        <label>{t('duties.copyCount')}<CommittedNumberInput fieldKey={`${fieldScope}/event-copy/${copyEventSource?.id??''}/count`} allowEmpty={false} min={1} max={100} precision={0} value={eventCopyCount} onValidityChange={(valid)=>setEventCopyCountInvalid(!valid)} onCommit={(count)=>{if(count!=null)setEventCopyCount(count);}}/></label>
       </div>
     </Modal>
     <Modal title={t('ui.copyRun')} open={copyOpen} onCancel={()=>setCopyOpen(false)} onOk={copyRuns} okText={t('duties.copyShift')} okButtonProps={{disabled:busy||!selectedRunValue||copyInvalid}} destroyOnHidden>

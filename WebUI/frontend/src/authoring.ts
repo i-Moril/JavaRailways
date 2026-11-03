@@ -125,6 +125,12 @@ export function resolveAuthoringRunSelection(runs:AuthoringRunV1[],selectedId:st
   return candidates.length===1?candidates[0]:undefined;
 }
 
+/** An empty run focus is intentional; never invent a selection or recover from the previous run. */
+export function retainAuthoringRunSelection(runs:AuthoringRunV1[],selectedId:string,previous?:AuthoringRunV1):AuthoringRunV1|undefined {
+  if(!selectedId)return undefined;
+  return resolveAuthoringRunSelection(runs,selectedId,previous);
+}
+
 /** Runtime caps are snapshots of the authoritative infrastructure line settings. */
 export function authoringLineSpeedLimits(lines:LineV1[],document:TimetableAuthoringDocumentV1) {
   const usedLineIds=new Set(document.runs.map((run)=>run.lineId));

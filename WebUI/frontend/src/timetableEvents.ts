@@ -44,6 +44,26 @@ export function deleteTimetableEvent(events:TimetableEventPoint[],original:Timet
  return events.filter((event)=>event.id!==original.id);
 }
 
+/** Copy one timed operation into fresh identities, shifting the whole batch cumulatively. */
+export function copyTimetableEvents(
+  events:TimetableEventPoint[],sourceId:string,offsetTicks:number,count:number,periodTicks:number,
+  reservedIds:readonly string[]=[],bindings:readonly BoundStationProgram[]=[],
+):TimetableEventPoint[] {
+  if(!Number.isSafeInteger(offsetTicks))throw new Error('Copy offset must be an integer');
+  if(!Number.isSafeInteger(count)||count<1||count>100)throw new Error('Copy count must be an integer from 1 to 100');
+  const source=events.find((event)=>event.id===sourceId);
+  if(!source)throw new Error('Unknown timed event');
+  const next=[...events];
+  for(let index=1;index<=count;index++){
+    const tick=source.tick+offsetTicks*index;
+    if(!Number.isSafeInteger(tick)||tick<0||tick>=periodTicks)throw new Error('Copied event is outside the timetable period');
+    const event={...structuredClone(source),id:nextTimetableEventId(next,reservedIds),tick};
+    if(validateTimedOperation(event,periodTicks,bindings).length>0)throw new Error('Invalid copied event');
+    next.push(event);
+  }
+  return next;
+}
+
 /** A dangling wait keeps its identity: adding a point must not silently rebind it. */
 export function referencedTimetableEventIds(document:Pick<TimetableAuthoringDocumentV1,'stationPrograms'|'boundPrograms'> & Partial<Pick<TimetableAuthoringDocumentV1,'duties'>>):string[] {
   const ids=new Set<string>();

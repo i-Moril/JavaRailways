@@ -96,6 +96,23 @@ describe('graph preview identity',()=>{
   });
 });
 
+describe('graph blank-canvas focus',()=>{
+  it('clears the selected run on a blank click without clearing it on a pan drag',async()=>{
+    const clear=vi.fn();
+    await act(async()=>root.render(<I18nProvider><ThemeProvider><Graph value={value} metadata={metadata} graphLineId="diagram" serviceColorIds={ids} highlightedServiceIds={new Set(['second'])} onClearSelection={clear}/></ThemeProvider></I18nProvider>));
+    const wrap=container.querySelector<HTMLElement>('.graph-wrap')!;
+    Object.defineProperties(wrap,{setPointerCapture:{configurable:true,value:vi.fn()},releasePointerCapture:{configurable:true,value:vi.fn()}});
+    const pointer=(type:string,x:number,y:number)=>new MouseEvent(type,{bubbles:true,button:0,clientX:x,clientY:y});
+    await act(async()=>wrap.dispatchEvent(pointer('pointerdown',10,10)));
+    await act(async()=>wrap.dispatchEvent(pointer('pointerup',10,10)));
+    expect(clear).toHaveBeenCalledTimes(1);
+    await act(async()=>wrap.dispatchEvent(pointer('pointerdown',10,10)));
+    await act(async()=>wrap.dispatchEvent(pointer('pointermove',30,30)));
+    await act(async()=>wrap.dispatchEvent(pointer('pointerup',30,30)));
+    expect(clear).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('run library and graph colors',()=>{
   it.each(['dark','light'] as const)('uses the same stable document palette color in %s despite filtering and different diagram/infrastructure IDs',async theme=>{
     localStorage.setItem('javarailways.theme',theme);

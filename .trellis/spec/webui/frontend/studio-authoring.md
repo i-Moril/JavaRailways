@@ -39,7 +39,7 @@ shiftAuthoringGraphSuffix(document, runId, point, mode: 'OFFSET'|'ABSOLUTE', val
 
 单点菜单提交到达时写 `arrivalOverrides`，发车时写对应 run call 的 `departureTick`；PASS 的离开投影也编辑通过到达时刻。有效 arrival override 参与到发和最小停站校验。节点后续平移和复制整批各形成一次文档/history 更新；本地输入草稿、预览、busy、报错不进入 history；交路 referenceVehicle 为文档字段，变更进入 history。
 
-Reset 仅重生选中运行线的时刻，始发 Tick 来自该运行线原有首站 departureTick，没有另一个始发输入；缺少始发时刻则提示先填写。独立 Copy run ribbon 打开间隔/数量弹窗，复制使用 effective run，按 D、2D、…、ND 平移并生成全新 run/call ID，不分配交路。运行选项不再混入复制设置。线路和方向共同限制选中运行线，删除后不得选中其他线路 inspector。
+Reset 仅重生选中运行线的时刻，始发 Tick 来自该运行线原有首站 departureTick，没有另一个始发输入；缺少始发时刻则提示先填写。线路模拟重置的停站间隔来自运行选项中的独立“模拟用停站时间”输入，由玩家手填；全局最短停站只参与文档校验，不得作为模拟生成参数。独立 Copy run ribbon 打开间隔/数量弹窗，复制使用 effective run，按 D、2D、…、ND 平移并生成全新 run/call ID，不分配交路。运行选项不再混入复制设置。线路和方向共同限制选中运行线，删除后不得选中其他线路 inspector。
 
 本地未保存草稿沿用已有 owner/world 隔离和 shape；已保存文档另用同样隔离的最后打开文档指针恢复，详见下文。不新增旧格式迁移链或持久 panel 偏好。
 
@@ -159,6 +159,8 @@ CURRENT：`authoringResume.ts` 保存 owner/world 隔离的最后文档 ID；内
 
 事件仍为文档级上下行共享数据，不复制给每条运行线。删除被WAIT_EVENT引用的事件保留引用并产生现有issue；不得通过悄悄删除等待动作或重用悬空事件ID掩盖问题。保存仍遵循周期内整数tick校验，未改变schema或调度语义。
 
+运行图所属定时作业提供与复制运行线一致的间隔/数量批量复制，入口同时存在于事件列表和图上对象菜单。复制保留源作业的程序、参数、标记和耗时，分配新的数字ID，按 D、2D、…、ND 平移；任一份越周期或失败时整批不写入，不自动分配到交路。交路所属只读作业不提供复制入口。
+
 ## 定时作业归属与复用（CURRENT）
 
 共用TimedOperation字段：id、tick、可选stationId/label/duration/program；program为{programId,arguments}。程序体和已采用快照仍由库/绑定定义持有；不复制为作业的可编辑程序体。
@@ -174,7 +176,7 @@ TimedOperationFields 的调用参数使用可缩到容器宽度的190px最小网
 
 ## 运行图线宽与运行线颜色
 
-默认无选择的运行线按1.25px绘制；明确选中的运行线2px，其余淡化运行线1px，不再把“无选择”当作所有线都选中，也不叠加描边光晕。节点命中半径和键盘入口保持原合同。
+默认无选择的运行线按1.25px绘制并保留各自颜色和标签；明确选中的运行线2px，其余淡化运行线1px，不再把“无选择”当作所有线都选中，也不叠加描边光晕。空白处单击清除运行线焦点，拖动平移不清除；空焦点不得被自动回退到同范围第一条运行线。节点命中半径和键盘入口保持原合同。
 
 `AuthoringRunV1.color?:string`仅为编辑显示属性，值为完整`#RRGGBB`（大小写均可），省略表示自动配色；恢复自动应删除字段，不写null。运行选项中提供独立颜色控件与恢复按钮，经同一文档history更新，保存、复制、Undo/Redo及重开保留。浏览器和Java保存端都验证形状；新增有明确缺省的可选字段不改变formatVersion，不增加迁移或runtime颜色DTO。
 

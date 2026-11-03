@@ -1,0 +1,12 @@
+{
+  "phase": "preflight",
+  "files": 156,
+  "installed": {
+    "plugins/JavaRailways.jar": "fc6de4b22a9a2cc590f541da33bc0279e289230a2d209c06c2fbb7379f84c622"
+  },
+  "candidate": {
+    "plugins/JavaRailways.jar": "463bd5f2250fe70a75a8f002336c32c92d3f5dae1612b9311fab0434002103f9"
+  },
+  "targetPid": 859289,
+  "onlinePlayersAtShutdown": 1
+}

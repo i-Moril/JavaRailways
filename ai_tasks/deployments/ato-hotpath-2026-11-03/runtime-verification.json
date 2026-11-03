@@ -1,0 +1,33 @@
+{
+  "checkedAt": "2026-11-03T14:55:40+00:00",
+  "sourceCommit": "b60df86b92dc6b9e55253a29ae23f26d6e766a5f",
+  "serverPid": 862047,
+  "mainJarSha256": "463bd5f2250fe70a75a8f002336c32c92d3f5dae1612b9311fab0434002103f9",
+  "mainJarMode": "root:root 644",
+  "mainJarBytes": 67472590,
+  "bridgeHealth": true,
+  "webuiLocalStatus": 200,
+  "webuiPublicStatus": 200,
+  "onlinePlayers": 0,
+  "tps20": true,
+  "atoWorlds": {
+    "world": "RUNNING",
+    "world_nether": "RUNNING",
+    "world_the_end": "RUNNING"
+  },
+  "simpleSignals": {
+    "loaded": true,
+    "primaryDefinitionRevision": 117
+  },
+  "serverErrorsSinceRestart": 0,
+  "javaRailwaysErrorsSinceRestart": 0,
+  "simpleSignalsErrorsSinceRestart": 0,
+  "webuiErrorsSinceRestart": 0,
+  "atpEventsSinceRestart": 0,
+  "physicsStall": false,
+  "startupPhysicsOverloadMillis": 344.881726,
+  "startupDeltaClampedEpochs": 1,
+  "doneAt": "2026-11-03T14:54:11+00:00",
+  "startupSeconds": 27.094,
+  "knownTerraTheUnsafeError": true
+}

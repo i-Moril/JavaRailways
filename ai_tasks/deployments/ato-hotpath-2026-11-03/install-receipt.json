@@ -1,0 +1,11 @@
+{
+  "installedAt": "2026-11-03T14:53:33.957066+00:00",
+  "sourceCommit": "b60df86b92dc6b9e55253a29ae23f26d6e766a5f",
+  "branch": "codex/ato-per-car-rebuild",
+  "replacements": {
+    "plugins/JavaRailways.jar": "463bd5f2250fe70a75a8f002336c32c92d3f5dae1612b9311fab0434002103f9"
+  },
+  "preservedFiles": 155,
+  "recoveryDirectory": "/opt/mcsmanager/backups/javarailways/ato-hotpath-20261103-7l3fqgpl",
+  "archiveSha256": "f1464adf631fe14ab9b97e5de43b6e16f0ec12dd8e2884b537e0920ebfef2713"
+}

@@ -1,0 +1,8 @@
+{
+  "sourceCommit": "b60df86b92dc6b9e55253a29ae23f26d6e766a5f",
+  "branch": "codex/ato-per-car-rebuild",
+  "old": {"plugins/JavaRailways.jar": "fc6de4b22a9a2cc590f541da33bc0279e289230a2d209c06c2fbb7379f84c622"},
+  "new": {"plugins/JavaRailways.jar": "463bd5f2250fe70a75a8f002336c32c92d3f5dae1612b9311fab0434002103f9"},
+  "retainSimpleSignalsSha256": "0346443a02bfd0a7a14a11cd6b3893e4c321005e732fc7db5e427a336f35ac39",
+  "retainTunnelBridgeBuilderSha256": "831a0c25179c9c98f2a7135256080c9f402713b18215781976ab2eb5fce3d722"
+}

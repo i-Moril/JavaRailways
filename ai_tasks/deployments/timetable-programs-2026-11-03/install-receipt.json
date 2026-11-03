@@ -1,0 +1,12 @@
+{
+  "installedAt": "2026-11-03T16:04:17.697412+00:00",
+  "sourceCommit": "a397ac7d1b2dc42acf0cc711be73b74c26f20a84",
+  "branch": "codex/ato-per-car-rebuild",
+  "replacements": {
+    "plugins/JavaRailways.jar": "9eb8d3668e07730b764d3a454329df4ac11d39c14dfab5fcf221914b19d645a0"
+  },
+  "preservedFiles": 147,
+  "recoveryDirectory": "/opt/mcsmanager/backups/javarailways/timed-ops-20261103-bowf9hu9",
+  "archiveSha256": "9e42e865fcb24c0794c6eaa8ce92284a11eea02c4e8176939af6a911a7e47553",
+  "migrationAppliedBeforeInstall": true
+}

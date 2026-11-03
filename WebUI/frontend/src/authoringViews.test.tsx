@@ -96,7 +96,7 @@ describe('authoring workspace views',()=>{
  it('exposes duty selectors and timeline instead of a scratch canvas',()=>{
   const duty={id:'duty-a',selector:{type:'TAKE_FROM_DEPOT' as const,depotId:'depot-a',tick:50,tags:['commuter']},elements:[]};
   const document={formatVersion:1 as const,id:'doc',periodDays:1,runs:[],duties:[duty],diagramLines:[],arrivalOverrides:[]};
-  const html=render(<DutyManagement graph={null} document={document} duties={[duty]} runs={[]} selectedId="duty-a" metadata={{depots:['depot-a']}} onSelect={noop} onAdd={noop} onDelete={noop} onPatch={noop} onRemove={noop} onViewRun={noop}/>);
+  const html=render(<DutyManagement graph={null} document={document} duties={[duty]} runs={[]} selectedId="duty-a" metadata={{depots:['depot-a']}} onSelect={noop} onDelete={noop} onPatch={noop} onRemove={noop} onViewRun={noop}/>);
   expect(html).toContain('Take from depot');expect(html).toContain('Duty timeline');expect(html).toContain('Duty ID');expect(html).toContain('Click a run to add it to the duty');expect(html).not.toContain('blockly');expect(html).not.toContain('PLACE_INITIAL');
  });
  it('run inspector renders actual local errors instead of unconditional success',()=>{

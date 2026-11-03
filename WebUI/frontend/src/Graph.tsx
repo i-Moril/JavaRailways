@@ -106,38 +106,6 @@ export function Graph({
         <rect x={layout.left} width={Math.max(0,sheetWidth-layout.left)} height={sheetHeight} fill="url(#timetable-minor-grid)"/>
         {ticks.map(({tick,x})=><g key={tick}><line className="time-grid-line" x1={x} y1={42} x2={x} y2={sheetHeight}/><text className="time-axis tick-label" x={x+5} y={16}>{tick}</text><text className="time-axis translated-time" x={x+5} y={31}>{formatTimetableTick(tick,locale)}</text></g>)}
         {layout.lanes.map((lane)=><g key={lane.id}><line className="station-grid-line" x1={layout.left} y1={lane.y} x2={sheetWidth} y2={lane.y}/><text className="station-label" x={layout.left-12} y={lane.y+4} textAnchor="end">{stationNames.get(lane.id)||lane.id}</text></g>)}
-        {services.map((service)=>{
-          const color=graphColor(service);
-          const hasSelection=(highlightedServiceIds?.size??0)>0;
-          const selected=highlightedServiceIds?.has(service.serviceId)??false;
-          const visible=!hasSelection||selected;
-          const preview=previewServiceIds?.has(service.serviceId)??false;
-          const first=service.points[0];
-          const labelWidth=Math.max(58,service.serviceId.length*7+18);
-          return <g key={`${service.serviceIndex}:${service.serviceId}`} opacity={visible?1:.28}>
-            {service.points.length>1&&<polyline points={service.points.map((point)=>`${point.x},${point.y}`).join(' ')} fill="none" stroke={color} strokeWidth={selected?2:hasSelection?1:1.25} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={preview?'10 7':undefined} className={selected?'selected-path':undefined} style={{cursor:onSelect?'pointer':undefined}} onPointerDown={(event)=>{if(onSelect)event.stopPropagation();}} onClick={()=>onSelect?.(service.serviceIndex,0)}/>}
-            {first&&visible&&<g transform={`translate(${first.x+12} ${Math.max(43,first.y-34)})`}><rect width={labelWidth} height="25" rx="5" fill={color}/><text x={labelWidth/2} y="17" textAnchor="middle" fill="#fff" fontWeight="700" fontSize="12">{service.serviceId}</text></g>}
-            {service.points.map((point)=>{
-              const label=`${service.serviceId} · ${stationNames.get(point.location)||point.location} · ${t(point.kind==='ARRIVAL'?'editor.arrivalTime':'editor.departureTime')} · ${point.tick} · ${formatTimetableTick(point.tick,locale)}`;
-              const select=(element:SVGCircleElement)=>{
-                const bounds=element.getBoundingClientRect();
-                onSelect?.(point.serviceIndex,point.stepIndex);
-                onSelectPoint?.(point,{x:bounds.left+bounds.width/2,y:bounds.top+bounds.height/2});
-              };
-              return <g key={pointKey(point)}>
-                <circle data-graph-point cx={point.x} cy={point.y} r={12} fill="transparent" stroke="none"
-                role={onSelectPoint||onSelect?'button':undefined} tabIndex={onSelectPoint||onSelect?0:undefined} aria-label={label}
-                style={{cursor:onSelectPoint||onSelect?'pointer':undefined}}
-                onPointerDown={(event)=>event.stopPropagation()}
-                onClick={(event)=>select(event.currentTarget)}
-                onKeyDown={(event)=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();setFocusedPoint(pointKey(point));select(event.currentTarget);}}}
-                onMouseEnter={()=>setHoveredPoint(pointKey(point))} onMouseLeave={()=>setHoveredPoint(null)}
-                onFocus={(event)=>setFocusedPoint(event.currentTarget.matches(':focus-visible')?pointKey(point):null)} onBlur={()=>setFocusedPoint(null)}><title>{label}</title></circle>
-                {(hoveredPoint===pointKey(point)||focusedPoint===pointKey(point))&&<circle data-graph-point-preview cx={point.x} cy={point.y} r={6} fill="var(--ant-color-bg-container)" stroke={color} strokeWidth={3} pointerEvents="none" aria-hidden="true"/>}
-              </g>;
-            })}
-          </g>;
-        })}
         {operations.map(({operation:event,owner,dutyId,elementId,endTick})=>{
           const lane=layout.lanes.find((lane)=>lane.id===event.stationId);if(!lane)return null;
           const name=event.label||event.program?.programId||event.id;
@@ -159,7 +127,39 @@ export function Graph({
               if(key.key==='ContextMenu'||(key.key==='F10'&&key.shiftKey)){key.preventDefault();key.stopPropagation();menu(key.currentTarget);}
               else if(key.key==='Enter'||key.key===' '){key.preventDefault();key.stopPropagation();open();}
             }}>
-            <title>{label}</title>{endTick!==undefined&&endTick>event.tick&&<rect x={0} y={-6} width={Math.max(2,layout.tickToX(endTick)-layout.tickToX(event.tick))} height={12} rx={3} fill="var(--ant-color-primary-bg)" stroke="var(--ant-color-primary)" strokeDasharray={owner==='DUTY'?'4 3':undefined}/>}{endTick===undefined&&<text x={10} y={14} fill="currentColor">{t('timeline.unknown')}</text>}<path d="M 0 -7 L 7 0 L 0 7 L -7 0 Z" fill="var(--ant-color-primary)"/><text x={10} y={-9} fill="currentColor">{name}{owner==='DUTY'?` · ${dutyId}`:''}</text>
+            <title>{label}</title>{endTick!==undefined&&endTick>event.tick&&<line x1={0} y1={0} x2={Math.max(2,layout.tickToX(endTick)-layout.tickToX(event.tick))} y2={0} stroke="var(--ant-color-primary)" strokeWidth={1.25} strokeDasharray={owner==='DUTY'?'4 3':undefined}/>}{endTick===undefined&&<text x={10} y={12} fill="currentColor">{t('timeline.unknown')}</text>}<circle r={9} fill="transparent"/><path d="M 0 -4 L 4 0 L 0 4 L -4 0 Z" fill="var(--ant-color-primary)"/><text x={10} y={-7} fill="currentColor">{name}{owner==='DUTY'?` · ${dutyId}`:''}</text>
+          </g>;
+        })}
+        {services.map((service)=>{
+          const color=graphColor(service);
+          const hasSelection=(highlightedServiceIds?.size??0)>0;
+          const selected=highlightedServiceIds?.has(service.serviceId)??false;
+          const visible=!hasSelection||selected;
+          const preview=previewServiceIds?.has(service.serviceId)??false;
+          const first=service.points[0];
+          const labelWidth=Math.max(20,service.serviceId.length*6.5+8);
+          return <g key={`${service.serviceIndex}:${service.serviceId}`} opacity={visible?1:.28}>
+            {service.points.length>1&&<><polyline points={service.points.map((point)=>`${point.x},${point.y}`).join(' ')} fill="none" stroke={color} strokeWidth={selected?2:hasSelection?1:1.25} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={preview?'10 7':undefined} className={selected?'selected-path':undefined} pointerEvents="none"/>{onSelect&&<polyline points={service.points.map((point)=>`${point.x},${point.y}`).join(' ')} fill="none" stroke="transparent" strokeWidth={12} strokeLinecap="round" strokeLinejoin="round" pointerEvents="stroke" style={{cursor:'pointer'}} onPointerDown={(event)=>event.stopPropagation()} onClick={()=>onSelect(service.serviceIndex,0)}/>}</>}
+            {first&&visible&&(()=>{const above=first.y>54;const labelX=Math.min(Math.max(first.x,labelWidth/2+4),sheetWidth-labelWidth/2-4);const labelY=above?first.y-24:first.y+24;const lineEnd=above?labelY+8:labelY-8;return <g><line x1={first.x} y1={first.y} x2={labelX} y2={lineEnd} stroke={color} strokeWidth={1}/><rect x={labelX-labelWidth/2} y={labelY-8} width={labelWidth} height="16" rx="3" fill={color}/><text x={labelX} y={labelY+3} textAnchor="middle" fill="#fff" fontWeight="700" fontSize="10">{service.serviceId}</text></g>;})()}
+            {service.points.map((point)=>{
+              const label=`${service.serviceId} · ${stationNames.get(point.location)||point.location} · ${t(point.kind==='ARRIVAL'?'editor.arrivalTime':'editor.departureTime')} · ${point.tick} · ${formatTimetableTick(point.tick,locale)}`;
+              const select=(element:SVGCircleElement)=>{
+                const bounds=element.getBoundingClientRect();
+                onSelect?.(point.serviceIndex,point.stepIndex);
+                onSelectPoint?.(point,{x:bounds.left+bounds.width/2,y:bounds.top+bounds.height/2});
+              };
+              return <g key={pointKey(point)}>
+                <circle data-graph-point cx={point.x} cy={point.y} r={12} fill="transparent" stroke="none"
+                role={onSelectPoint||onSelect?'button':undefined} tabIndex={onSelectPoint||onSelect?0:undefined} aria-label={label}
+                style={{cursor:onSelectPoint||onSelect?'pointer':undefined}}
+                onPointerDown={(event)=>event.stopPropagation()}
+                onClick={(event)=>select(event.currentTarget)}
+                onKeyDown={(event)=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();setFocusedPoint(pointKey(point));select(event.currentTarget);}}}
+                onMouseEnter={()=>setHoveredPoint(pointKey(point))} onMouseLeave={()=>setHoveredPoint(null)}
+                onFocus={(event)=>setFocusedPoint(event.currentTarget.matches(':focus-visible')?pointKey(point):null)} onBlur={()=>setFocusedPoint(null)}><title>{label}</title></circle>
+                {(hoveredPoint===pointKey(point)||focusedPoint===pointKey(point))&&<circle data-graph-point-preview cx={point.x} cy={point.y} r={6} fill="var(--ant-color-bg-container)" stroke={color} strokeWidth={3} pointerEvents="none" aria-hidden="true"/>}
+              </g>;
+            })}
           </g>;
         })}
         {(hoveredPoint||focusedPoint)&&layout.points.filter((point)=>pointKey(point)===(hoveredPoint??focusedPoint)).map((point)=><g className="graph-point-tooltip" key={`tooltip-${pointKey(point)}`} transform={`translate(${point.x+10} ${point.y-30})`}><rect width="158" height="24" rx="5"/><text x="8" y="16">{stationNames.get(point.location)||point.location} · {point.tick}</text></g>)}

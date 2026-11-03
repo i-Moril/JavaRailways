@@ -1,0 +1,31 @@
+{
+  "checkedAt": "2026-11-03T15:34:15+00:00",
+  "sourceCommit": "e97875ae6df17a484bc1d0c65d694c061819809e",
+  "serverPid": 864359,
+  "mainJarSha256": "d02282d369e642343c10ac6bffb936f6c603635474b90fb586aa2752a0dd3e3a",
+  "webuiSha256": "02829835d323d0fe18e888e7b56bf1bc199ce258df6d43fa9d5e5dd4dc469b60",
+  "mainScript": "/assets/index-dEJzqrcw.js",
+  "mainScriptSha256": "c1e0300e9b5a17144dd74afac0dbaa5b6737308ba10ea3d2d0e25b6c44eb2253",
+  "bridgeHealth": true,
+  "webuiLocalStatus": 200,
+  "webuiPublicStatus": 200,
+  "publicAssetSha256": "c1e0300e9b5a17144dd74afac0dbaa5b6737308ba10ea3d2d0e25b6c44eb2253",
+  "liveBundleContainsAdoptionUi": true,
+  "onlinePlayers": 0,
+  "tps20": true,
+  "simpleSignals": {
+    "primaryDefinitionRevision": 117,
+    "backupDefinitionRevision": 116
+  },
+  "javaRailwaysErrorsSinceRestart": 0,
+  "webuiErrorsSinceRestart": 0,
+  "simpleSignalsErrorsSinceRestart": 0,
+  "physicsStartup": {
+    "maxOverloadMillis": 293.762515,
+    "overloadCountInFirst10s": 2,
+    "deltaClampedEpochs": 1,
+    "stall": false
+  },
+  "doneAt": "2026-11-03T15:33:43+00:00",
+  "startupSeconds": 25.953
+}

@@ -22,7 +22,7 @@ export interface DutyTimelineProps {
   onSimulate?:()=>void;onRefreshPrograms?:()=>void;onAssign:(id:string)=>void;onAddProgram?:(id:string)=>void;
   onPatch:(patch:Partial<AuthoringDutyV1>)=>void;onPatchProgram?:(id:string,patch:Partial<TimedOperation>)=>void;
   onReferenceEvent?:(id:string)=>void;onOpenGraphEvent?:(id:string)=>void;onOperationValidityChange?:(elementId:string,valid:boolean)=>void;stationNames:ReadonlyMap<string,string>;stationIds:string[];
-  onRemove:(id:string)=>void;onViewRun:(id:string)=>void;onOpenProgramLibrary?:(id:string,stepId?:string)=>void;
+  onRemove:(id:string)=>void;onViewRun:(id:string)=>void;onOpenProgramLibrary?:(id:string,stepId?:string)=>void;onAdoptProgram?:(id:string)=>void;
 }
 export function DutyTimeline(p:DutyTimelineProps) {
   const {t}=useI18n();
@@ -126,7 +126,7 @@ export function DutyTimeline(p:DutyTimelineProps) {
         <Typography.Paragraph type="secondary">{t('timed.graphOwned')}</Typography.Paragraph>
         {(()=>{const operation=resolveDutyTimedOperation(p.document,selectedElement);return operation?.program?<TimedOperationFields programSimulation={p.programSimulation} key={`${p.fieldScope}/${selectedElement.id}/reference`} fieldScope={`${p.fieldScope}/${selectedElement.id}/reference`} operation={operation} onChange={()=>{}} stationNames={p.stationNames} stationIds={p.stationIds} bindings={p.document.boundPrograms??[]} library={p.library} readOnly measuredTicks={task?.measured&&task.endTick!==undefined?task.endTick-task.startTick:undefined}/>:<Alert type="error" title={t('timed.missing')}/>;})()}
         <Button onClick={()=>p.onOpenGraphEvent?.(selectedElement.eventId)} disabled={!p.onOpenGraphEvent}>{t('timed.openGraph')}</Button>
-      </>:<TimedOperationFields programSimulation={p.programSimulation} key={`${p.fieldScope}/${selectedElement.id}`} fieldScope={`${p.fieldScope}/${selectedElement.id}`} operation={selectedElement} onChange={(operation)=>p.onPatchProgram?.(selectedElement.id,operation)} stationNames={p.stationNames} stationIds={p.stationIds} bindings={p.document.boundPrograms??[]} library={p.library} onValidityChange={(valid)=>p.onOperationValidityChange?.(selectedElement.id,valid)} measuredTicks={task?.measured&&task.endTick!==undefined?task.endTick-task.startTick:undefined} onSimulate={p.onSimulate} simulationReason={p.simulationReason} busy={p.busy} onOpenProgramLibrary={p.onOpenProgramLibrary}/>}
+      </>:<TimedOperationFields programSimulation={p.programSimulation} key={`${p.fieldScope}/${selectedElement.id}`} fieldScope={`${p.fieldScope}/${selectedElement.id}`} operation={selectedElement} onChange={(operation)=>p.onPatchProgram?.(selectedElement.id,operation)} stationNames={p.stationNames} stationIds={p.stationIds} bindings={p.document.boundPrograms??[]} library={p.library} onValidityChange={(valid)=>p.onOperationValidityChange?.(selectedElement.id,valid)} measuredTicks={task?.measured&&task.endTick!==undefined?task.endTick-task.startTick:undefined} onSimulate={p.onSimulate} simulationReason={p.simulationReason} busy={p.busy} onOpenProgramLibrary={p.onOpenProgramLibrary} onAdoptProgram={p.onAdoptProgram}/>}
 
     </section>}
   </section>;

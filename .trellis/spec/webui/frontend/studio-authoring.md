@@ -78,7 +78,7 @@ Reset 仅重生选中运行线的时刻，始发 Tick 来自该运行线原有�
 
 世界共享库使用已认证的 `station-programs` API，库编辑状态和时刻表文档分离。新记录以稳定 ID、revision、definition 和内容哈希保存；更新/删除必须提供 expectedRevision，冲突409不能覆盖本地草稿或伪装成功。程序库使用左侧文件列表进行新建、重命名和真实删除；内部 ID 隐藏且稳定，不能复用已删除程序的身份。默认显示名为数字。重命名只更新名称，不隐式保存尚未提交的程序定义，也不能因 revision 改变丢失未完成画布。删除移除库文件，不改写任何文档中的绑定快照；删除确认应说明这一边界。当前记录不包含 archived 字段或归档状态；旧开发库数据仅通过 ai_tasks/migrations/remove_program_library_archived.py 停服离线转换，运行时仅按当前模型做通用字段校验，不识别旧字段或输出专项迁移提示。世界切换/卸载使迟到响应失效。
 
-时刻表通过可选 `boundPrograms`（缺省空）保存 `{programId,revision,contentIdentity,definition}`，一个程序一个不可变快照。首次选择复制定义；后续调用沿用绑定版本，库刷新不写文档。采用更新是显式按钮且只产生一次现有 document/history 事务，参数变化需重新校验，旧编译/模拟结果因输入变化失效。既有绑定即使库删除仍可生成。无新 editor/recovery schema version 或任意 JS 反向解析。
+时刻表通过可选 `boundPrograms`（缺省空）保存 `{programId,revision,contentIdentity,definition}`，一个程序一个不可变快照。首次选择复制定义；后续调用沿用绑定版本，库刷新不写文档。采用更新是显式按钮且只产生一次现有 document/history 事务，参数变化需重新校验，旧编译/模拟结果因输入变化失效。既有绑定即使库删除仍可生成。定时作业编辑器在绑定快照落后于程序库 revision/contentIdentity/estimatedDurationTicks 时显示“采用新版本”入口；采用后同一事务切换到最新快照，预计耗时提示随之更新。无新 editor/recovery schema version 或任意 JS 反向解析。
 
 绑定另复制可选estimatedDurationTicks：缺省未知、0为点；它不是definition内容identity的一部分，estimate-only修改仍有新revision和显式采用入口。新函数调用默认duration PROGRAM使用绑定估计；既有省略duration的点事件保持原样。MANUAL和SIMULATED分别保留手动计划及真实测量语义。图和交路共用耗时解析和区间投影；预计耗时仅用于计划跨度/冲突与周期检查，不产生额外运行等待。runtime生成只序列化snapshot.definition；editor和本地恢复保持当前格式版本，通用校验允许该可选字段及稳定PROGRAM类型，不新增旧数据兼容路径。
 

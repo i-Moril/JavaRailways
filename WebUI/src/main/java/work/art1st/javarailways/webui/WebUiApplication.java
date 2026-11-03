@@ -40,7 +40,8 @@ public final class WebUiApplication {
     private final ObjectMapper mapper;
     private final DraftRepository drafts;
     private final DraftRepository editorDocuments;
-    private final VisualProgramRepository stationPrograms;
+    private final TimetableProgramRepository timetablePrograms;
+    private final TimetableLockManager documentLocks;
     private final BridgeClient bridge;
     private final WebUiSessions sessions;
     private final ConcurrentHashMap<String, Queue<TrainSubscriber>> trainStreamClients = new ConcurrentHashMap<>();
@@ -92,7 +93,8 @@ public final class WebUiApplication {
         this.mapper = mapper;
         this.drafts = new DraftRepository(config.draftDirectory(), mapper);
         this.editorDocuments = new DraftRepository(config.draftDirectory().resolve("editor-documents"), mapper);
-        this.stationPrograms = new VisualProgramRepository(config.draftDirectory().resolve("station-programs"), mapper, StationProgramValidator::validate);
+        this.timetablePrograms = new TimetableProgramRepository(config.draftDirectory().resolve("timetable-programs"), mapper);
+        this.documentLocks = new TimetableLockManager();
         this.bridge = new BridgeClient(config, mapper);
     }
 
@@ -180,13 +182,14 @@ public final class WebUiApplication {
         app.get("/api/v1/worlds/{world}/drafts/{draft}", this::getDraft);
         app.put("/api/v1/worlds/{world}/drafts/{draft}", this::putDraft);
         app.delete("/api/v1/worlds/{world}/drafts/{draft}", this::deleteDraft);
-        app.get("/api/v1/worlds/{world}/station-programs", context -> context.json(stationPrograms.list(context.pathParam("world"))));
-        app.get("/api/v1/worlds/{world}/station-programs/{program}", context ->
-            stationPrograms.find(context.pathParam("world"), context.pathParam("program"))
-                .ifPresentOrElse(context::json, () -> error(context, 404, "program not found")));
-        app.post("/api/v1/worlds/{world}/station-programs", this::createStationProgram);
-        app.put("/api/v1/worlds/{world}/station-programs/{program}", this::updateStationProgram);
-        app.delete("/api/v1/worlds/{world}/station-programs/{program}", this::deleteStationProgram);
+        app.get("/api/v1/worlds/{world}/editor-documents/{document}/programs", this::listTimetablePrograms);
+        app.post("/api/v1/worlds/{world}/editor-documents/{document}/programs", this::createTimetableProgram);
+        app.post("/api/v1/worlds/{world}/editor-documents/{document}/programs/import", this::importTimetablePrograms);
+        app.put("/api/v1/worlds/{world}/editor-documents/{document}/programs/{program}", this::updateTimetableProgram);
+        app.delete("/api/v1/worlds/{world}/editor-documents/{document}/programs/{program}", this::deleteTimetableProgram);
+        app.post("/api/v1/worlds/{world}/editor-documents/{document}/lock", this::acquireEditorLock);
+        app.post("/api/v1/worlds/{world}/editor-documents/{document}/lock/heartbeat", this::heartbeatEditorLock);
+        app.delete("/api/v1/worlds/{world}/editor-documents/{document}/lock", this::releaseEditorLock);
         app.get("/api/v1/worlds/{world}/editor-documents", this::listEditorDocuments);
         app.post("/api/v1/worlds/{world}/editor-documents", this::createEditorDocument);
         app.get("/api/v1/worlds/{world}/editor-documents/{document}", this::getEditorDocument);
@@ -208,8 +211,8 @@ public final class WebUiApplication {
         });
         app.exception(UnauthorizedResponse.class,
             (exception, context) -> error(context, 401, "login required or session expired"));
-        app.exception(VisualProgramRepository.Conflict.class,
-            (exception, context) -> error(context, 409, exception.getMessage()));
+        app.exception(TimetableLockManager.Locked.class,
+            (exception, context) -> error(context, 409, "DOCUMENT_LOCKED", exception.getMessage()));
         app.exception(IllegalArgumentException.class,
             (exception, context) -> error(context, 400, exception.getMessage()));
         app.exception(IllegalStateException.class,
@@ -543,32 +546,112 @@ public final class WebUiApplication {
         context.status(204);
     }
 
-    private void createStationProgram(Context context) throws IOException {
-        JsonNode request = requestJson(context);
-        StationProgramValidator.fields(request, java.util.Set.of("id", "name", "definition"), java.util.Set.of("estimatedDurationTicks"), "create program request");
-        context.status(201).json(stationPrograms.create(context.pathParam("world"),
-            StationProgramValidator.text(request.path("id"), "program id"),
-            StationProgramValidator.text(request.path("name"), "program name"), request.path("definition"), request.get("estimatedDurationTicks")));
+    private void listTimetablePrograms(Context context) throws IOException {
+        context.json(timetablePrograms.list(context.pathParam("world"), context.pathParam("document")));
     }
 
-    private void updateStationProgram(Context context) throws IOException {
+    private void createTimetableProgram(Context context) throws IOException {
+        String world = context.pathParam("world"), document = context.pathParam("document");
+        requireEditorLock(context, world, document);
         JsonNode request = requestJson(context);
-        StationProgramValidator.fields(request, java.util.Set.of("expectedRevision", "name", "definition"), java.util.Set.of("estimatedDurationTicks"), "update program request");
-        stationPrograms.update(context.pathParam("world"), context.pathParam("program"),
-            StationProgramValidator.revision(request.path("expectedRevision")),
-            StationProgramValidator.text(request.path("name"), "program name"), request.path("definition"), request.get("estimatedDurationTicks"))
+        StationProgramValidator.fields(request, java.util.Set.of("id", "name", "definition"), java.util.Set.of("estimatedDurationTicks"), "create timetable program request");
+        context.status(201).json(timetablePrograms.create(world, document,
+            StationProgramValidator.text(request.path("id"), "program id"),
+            StationProgramValidator.text(request.path("name"), "program name"),
+            request.path("definition"), request.get("estimatedDurationTicks")));
+    }
+
+    private void updateTimetableProgram(Context context) throws IOException {
+        String world = context.pathParam("world"), document = context.pathParam("document");
+        requireEditorLock(context, world, document);
+        JsonNode request = requestJson(context);
+        StationProgramValidator.fields(request, java.util.Set.of("name", "definition"), java.util.Set.of("estimatedDurationTicks"), "update timetable program request");
+        timetablePrograms.save(world, document, context.pathParam("program"),
+            StationProgramValidator.text(request.path("name"), "program name"),
+            request.path("definition"), request.get("estimatedDurationTicks"))
             .ifPresentOrElse(context::json, () -> error(context, 404, "program not found"));
     }
 
-    private void deleteStationProgram(Context context) throws IOException {
-        JsonNode request = requestJson(context);
-        StationProgramValidator.fields(request, java.util.Set.of("expectedRevision"), "delete program request");
-        if (!stationPrograms.delete(context.pathParam("world"), context.pathParam("program"),
-            StationProgramValidator.revision(request.path("expectedRevision")))) {
+    private void deleteTimetableProgram(Context context) throws IOException {
+        String world = context.pathParam("world"), document = context.pathParam("document"), program = context.pathParam("program");
+        requireEditorLock(context, world, document);
+        if (programInUse(world, document, program)) {
+            error(context, 409, "PROGRAM_IN_USE", "program is still referenced by this timetable");
+            return;
+        }
+        if (!timetablePrograms.delete(world, document, program)) {
             error(context, 404, "program not found");
             return;
         }
         context.json(Map.of("removed", true));
+    }
+
+    private void importTimetablePrograms(Context context) throws IOException {
+        String world = context.pathParam("world"), document = context.pathParam("document");
+        requireEditorLock(context, world, document);
+        JsonNode request = requestJson(context);
+        StationProgramValidator.fields(request, java.util.Set.of("sourceDocumentId"), java.util.Set.of("programIds"), "import timetable programs request");
+        String source = StationProgramValidator.text(request.path("sourceDocumentId"), "source timetable id");
+        java.util.List<String> ids = null;
+        if (request.has("programIds")) {
+            if (!request.path("programIds").isArray()) throw new IllegalArgumentException("programIds must be an array");
+            ids = new java.util.ArrayList<>();
+            for (JsonNode id : request.path("programIds")) ids.add(StationProgramValidator.text(id, "program id"));
+        }
+        context.json(timetablePrograms.importPrograms(world, document, source, ids));
+    }
+
+    private void acquireEditorLock(Context context) throws IOException {
+        String world = context.pathParam("world"), document = context.pathParam("document");
+        if (editorDocuments.find(world, document).isEmpty()) {
+            error(context, 404, "editor document not found");
+            return;
+        }
+        if (!documentLocks.acquire(world, document, lockOwner(context))) throw new TimetableLockManager.Locked();
+        context.status(204);
+    }
+
+    private void heartbeatEditorLock(Context context) {
+        if (!documentLocks.heartbeat(context.pathParam("world"), context.pathParam("document"), lockOwner(context))) {
+            throw new TimetableLockManager.Locked();
+        }
+        context.status(204);
+    }
+
+    private void releaseEditorLock(Context context) {
+        documentLocks.release(context.pathParam("world"), context.pathParam("document"), lockOwner(context));
+        context.status(204);
+    }
+
+    private String lockOwner(Context context) {
+        String owner = context.cookie(WebUiSessions.COOKIE_NAME);
+        if (owner == null || owner.isBlank()) throw new UnauthorizedResponse();
+        return owner;
+    }
+
+    private void requireEditorLock(Context context, String world, String document) {
+        if (!documentLocks.heartbeat(world, document, lockOwner(context))) throw new TimetableLockManager.Locked();
+    }
+
+    private boolean programInUse(String world, String document, String program) throws IOException {
+        var found = editorDocuments.find(world, document);
+        if (found.isEmpty()) return false;
+        JsonNode value = found.get();
+        for (JsonNode event : value.path("events")) {
+            if (program.equals(event.path("program").path("programId").asText())) return true;
+        }
+        for (JsonNode duty : value.path("duties")) {
+            for (JsonNode element : duty.path("elements")) {
+                if (program.equals(element.path("program").path("programId").asText())) return true;
+            }
+        }
+        return false;
+    }
+
+    private java.util.Map<String, JsonNode> programsFor(String world, String document) throws IOException {
+        java.util.Map<String, JsonNode> programs = new java.util.HashMap<>();
+        for (JsonNode program : timetablePrograms.list(world, document)) programs.put(program.path("id").asText(), program);
+        return programs;
     }
 
     private void listEditorDocuments(Context context) throws IOException {
@@ -578,7 +661,12 @@ public final class WebUiApplication {
     private void createEditorDocument(Context context) throws IOException {
         JsonNode document = requestJson(context);
         requireEditorDocument(document);
-        String id = editorDocuments.create(context.pathParam("world"), document);
+        String world = context.pathParam("world");
+        String id = editorDocuments.create(world, document);
+        if (!documentLocks.acquire(world, id, lockOwner(context))) {
+            editorDocuments.delete(world, id);
+            throw new TimetableLockManager.Locked();
+        }
         context.status(201).json(Map.of("id", id));
     }
 
@@ -589,23 +677,31 @@ public final class WebUiApplication {
 
     private void putEditorDocument(Context context) throws IOException {
         JsonNode document = requestJson(context);
-        requireEditorDocument(document);
-        editorDocuments.save(context.pathParam("world"), context.pathParam("document"), document);
+        String world = context.pathParam("world"), id = context.pathParam("document");
+        requireEditorLock(context, world, id);
+        EditorDocumentValidator.validate(document, programsFor(world, id));
+        editorDocuments.save(world, id, document);
         context.status(204);
     }
 
     private void deleteEditorDocument(Context context) throws IOException {
-        if (!editorDocuments.delete(context.pathParam("world"), context.pathParam("document"))) {
+        String world = context.pathParam("world"), id = context.pathParam("document");
+        requireEditorLock(context, world, id);
+        if (!editorDocuments.delete(world, id)) {
             error(context, 404, "editor document not found");
             return;
         }
+        timetablePrograms.deleteAll(world, id);
+        documentLocks.release(world, id, lockOwner(context));
         context.status(204);
     }
 
     private void saveFormalScript(Context context) throws IOException, InterruptedException {
         JsonNode request = requestJson(context);
         JsonNode document = request.path("document");
-        requireEditorDocument(document);
+        String lockWorld = context.pathParam("world"), lockDocument = context.pathParam("document");
+        requireEditorLock(context, lockWorld, lockDocument);
+        EditorDocumentValidator.validate(document, programsFor(lockWorld, lockDocument));
         String fileName = requiredScriptName(request.path("fileName").asText(""));
         if (!fileName.equals(document.path("formalScriptName").asText())) {
             throw new IllegalArgumentException("document formalScriptName must match fileName");
@@ -638,7 +734,9 @@ public final class WebUiApplication {
     private void renameFormalScript(Context context) throws IOException, InterruptedException {
         JsonNode request = requestJson(context);
         JsonNode document = request.path("document");
-        requireEditorDocument(document);
+        String lockWorld = context.pathParam("world"), lockDocument = context.pathParam("document");
+        requireEditorLock(context, lockWorld, lockDocument);
+        EditorDocumentValidator.validate(document, programsFor(lockWorld, lockDocument));
         String sourceName = requiredScriptName(request.path("sourceName").asText(""));
         String targetName = requiredScriptName(request.path("targetName").asText(""));
         if (!targetName.equals(document.path("formalScriptName").asText())) {
@@ -670,6 +768,7 @@ public final class WebUiApplication {
         String fileName = requiredScriptName(request.path("fileName").asText(""));
         String world = context.pathParam("world");
         String documentId = context.pathParam("document");
+        requireEditorLock(context, world, documentId);
         var previous = editorDocuments.find(world, documentId);
         if (previous.isEmpty()) {
             error(context, 404, "editor document not found");
@@ -679,6 +778,8 @@ public final class WebUiApplication {
             throw new IllegalArgumentException("fileName does not match the editor document formal script");
         }
         editorDocuments.delete(world, documentId);
+        timetablePrograms.deleteAll(world, documentId);
+        documentLocks.release(world, documentId, lockOwner(context));
         BridgeClient.Response response;
         try {
             response = bridge.delete(

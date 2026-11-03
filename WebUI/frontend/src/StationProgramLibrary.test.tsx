@@ -4,7 +4,7 @@ import {I18nProvider,translate} from './i18n';
 import {libraryHasChanges,newLibraryProgram,StationProgramLibrary} from './StationProgramLibrary';
 import type {StationProgramDefinition,StationProgramRecord} from './types';
 const definition:StationProgramDefinition={parameters:[],steps:[]};
-const record=(id:string,name=id):StationProgramRecord=>({formatVersion:1,id,name,definition,revision:1,contentIdentity:'hash'});
+const record=(id:string,name=id):StationProgramRecord=>({formatVersion:1,id,name,definition});
 
 describe('program library file management',()=>{
  it('uses 128-bit numeric identities and retries collisions without depending on the wall clock',()=>{
@@ -30,11 +30,12 @@ describe('program library file management',()=>{
   expect(libraryHasChanges(estimated,definition,true,undefined)).toBe(true);
  });
  it('remounts all editor and request state for each owner/world pair',()=>{
-  expect(StationProgramLibrary({world:'a',recoveryOwner:'player'}).key).not.toBe(StationProgramLibrary({world:'b',recoveryOwner:'player'}).key);
-  expect(StationProgramLibrary({world:'a',recoveryOwner:'player'}).key).not.toBe(StationProgramLibrary({world:'a',recoveryOwner:'other'}).key);
+  expect(StationProgramLibrary({world:'a',documentId:'doc',recoveryOwner:'player'}).key).not.toBe(StationProgramLibrary({world:'b',documentId:'doc',recoveryOwner:'player'}).key);
+  expect(StationProgramLibrary({world:'a',documentId:'doc',recoveryOwner:'player'}).key).not.toBe(StationProgramLibrary({world:'a',documentId:'doc',recoveryOwner:'other'}).key);
+  expect(StationProgramLibrary({world:'a',documentId:'doc',recoveryOwner:'player'}).key).not.toBe(StationProgramLibrary({world:'a',documentId:'other',recoveryOwner:'player'}).key);
  });
  it('renders a file list with no large manual ID/name creation form',()=>{
-  const html=renderToStaticMarkup(<I18nProvider><StationProgramLibrary world="world" recoveryOwner="player"/></I18nProvider>);
+  const html=renderToStaticMarkup(<I18nProvider><StationProgramLibrary world="world" documentId="doc" recoveryOwner="player"/></I18nProvider>);
   expect(html).toContain('program-library-files');expect(html).toContain('role="list"');
   expect(html).toContain(translate('en-US','programs.new'));
   expect(html).not.toContain(`aria-label="${translate('en-US','programs.id')}"`);

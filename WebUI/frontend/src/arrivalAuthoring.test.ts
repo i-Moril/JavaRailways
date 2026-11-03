@@ -3,7 +3,7 @@ import {authoringDocumentForSave,emptyAuthoringDocument,generateTimetableSource,
 import {defaultStationStopProgram,resolveEventWaits,validateStopProgram} from './stationPlans';
 import {parseAuthoringRecovery} from './authoringRecovery';
 import {definitionToBlocks,blocksToDefinition} from './programBlocks';
-import type {StationProgramDefinition} from './types';
+import type {StationProgramDefinition,StationProgramRecord} from './types';
 const document=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),id:'tt',diagramLines:[{id:'L',upStationIds:['a','b'],downStationIds:['b','a']}],runs:[{id:'r',type:'PASSENGER',lineId:'L',diagramLineId:'L',lineDirection:'UP',calls:[{id:'a',stationId:'a',targetId:'a',status:'ORIGIN',departureTick:100},{id:'b',stationId:'b',targetId:'b',status:'TERMINAL',arrivalTick:200}]}],stationPrograms:[defaultStationStopProgram('b')],duties:[{id:'d',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'e',type:'RUN',runId:'r'}]}]});
 const lines=[{id:'L',displayName:'Line',upStationIds:['a','b'],downStationIds:['b','a'],maximumSpeedMetersPerSecond:20}];
 describe('shared station programs',()=>{
@@ -41,11 +41,11 @@ describe('shared station programs',()=>{
  });
  it('keeps the editor alive when event references are deleted or shifted outside the period',()=>{
   for(const use of ['station','library'] as const){
-   const value=document(),definition:StationProgramDefinition={parameters:[],steps:[{id:'wait-event',type:'WAIT_EVENT',eventId:'missing',offsetTicks:0}]};
+   const value=document(),definition:StationProgramDefinition={parameters:[],steps:[{id:'wait-event',type:'WAIT_EVENT',eventId:'missing',offsetTicks:0}]},programs:StationProgramRecord[]=[];
    if(use==='station')value.stationPrograms![0].arrival.steps.unshift(definition.steps[0]);
-   if(use==='library'){value.boundPrograms=[{programId:'library',revision:1,contentIdentity:`sha256:${'a'.repeat(64)}`,definition}];value.duties[0].elements.unshift({id:'library',type:'PROGRAM',tick:0,program:{programId:'library',arguments:{}}});}
+   if(use==='library'){programs.push({formatVersion:1,id:'library',name:'library',definition});value.duties[0].elements.unshift({id:'library',type:'PROGRAM',tick:0,program:{programId:'library',arguments:{}}});}
    let generated:ReturnType<typeof generateTimetableSource>|undefined;
-   expect(()=>{generated=generateTimetableSource(value,lines);}).not.toThrow();expect(generated!.source).toBe('');expect(generated!.issues.some((issue)=>issue.message.includes('Unknown event'))).toBe(true);
+   expect(()=>{generated=generateTimetableSource(value,lines,programs);}).not.toThrow();expect(generated!.source).toBe('');expect(generated!.issues.some((issue)=>issue.message.includes('Unknown event'))).toBe(true);
   }
  });
  it('rejects dynamic train conditions from station authoring',()=>{

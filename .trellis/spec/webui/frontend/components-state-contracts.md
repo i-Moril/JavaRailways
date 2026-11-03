@@ -24,7 +24,7 @@
 
 模拟执行超时由界面当前调用选择，秒为展示单位、请求必填整数executionTimeoutMillis（1..3600000）。共享SimulationTimeoutInput默认60秒，明确区别于模拟tick推进上限。函数dialog持本次值；完整时刻表/线路重算按钮先打开SimulationSetupDialog，超时及valid草稿仅由弹窗拥有，确认才提交预算并开始编译/模拟。页顶无常驻超时控件，取消或owner变化关闭不清已完成结果、不遗留invalid禁用；不写文档或恢复存储。确认预算显式传入run方法，并据此构造请求结果身份；generation/docRevision/ownerEpoch/scenario共同隔离迟到响应，不能setState后从旧闭包读预算。后端及bridge HTTP等待读取同一请求预算，不新增simulation配置文件项。
 
-函数模拟无开始tick输入；程序库内部从0开始，调用端有计划时刻则隐式传入。库提供estimatedDurationTicks手填或从成功模拟采用，只在保存后更新server baseline；采用值与原提交值相同也必须重置无效数字草稿，仅重建预计耗时输入，不重建程序画布或丢失未保存code。
+函数模拟无开始tick输入；程序库内部从0开始，调用端有计划时刻则隐式传入。程序库属于当前时刻表，estimatedDurationTicks 是普通可编辑字段，手填或从成功模拟采用后随程序保存；采用值与原提交值相同也必须重置无效数字草稿，仅重建预计耗时输入，不重建程序画布或丢失未保存code。
 
 ## Authoring 与 validation
 

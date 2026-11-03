@@ -9,6 +9,10 @@ final class EditorDocumentValidator {
     private EditorDocumentValidator() {}
 
     static void validate(JsonNode document) {
+        validate(document, java.util.Map.of());
+    }
+
+    static void validate(JsonNode document, java.util.Map<String, JsonNode> programs) {
         if (document == null || !document.isObject()) fail("editor document must be an object");
         if (document.path("formatVersion").asInt(-1) != 1) fail("unsupported editor document version");
         if (document.path("id").asText("").isBlank()) fail("editor document id is required");
@@ -35,20 +39,6 @@ final class EditorDocumentValidator {
                 StationProgramValidator.validateStation(record.path("arrival"));
                 StationProgramValidator.validateStation(record.path("departurePreparation"));
                 StationPreparationLeadValidator.validate(record.path("preparationLead"));
-            }
-        }
-        java.util.Map<String, JsonNode> programs = new java.util.HashMap<>();
-        if (document.has("boundPrograms")) {
-            requireObjectArray(document, "boundPrograms");
-            for (JsonNode snapshot : document.path("boundPrograms")) {
-                StationProgramValidator.fields(snapshot, java.util.Set.of("programId", "revision", "contentIdentity", "definition"), java.util.Set.of("estimatedDurationTicks"), "bound program");
-                String id = StationProgramValidator.text(snapshot.path("programId"), "bound program id");
-                if (!id.matches("[A-Za-z0-9][A-Za-z0-9_-]{0,127}")) fail("invalid bound program id");
-                if (programs.put(id, snapshot) != null) fail("duplicate bound program");
-                StationProgramValidator.revision(snapshot.path("revision"));
-                StationProgramValidator.validate(snapshot.path("definition"));
-                VisualProgramRepository.validateEstimatedDuration(snapshot.get("estimatedDurationTicks"));
-                if (!ProgramContentIdentity.of(snapshot.path("definition")).equals(snapshot.path("contentIdentity").asText())) fail("bound program content identity mismatch");
             }
         }
         if (document.has("events")) {

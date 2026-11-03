@@ -76,15 +76,9 @@ Reset 仅重生选中运行线的时刻，始发 Tick 来自该运行线原有�
 
 ## 共享站内程序（顺序子集）
 
-世界共享库使用已认证的 `station-programs` API，库编辑状态和时刻表文档分离。新记录以稳定 ID、revision、definition 和内容哈希保存；更新/删除必须提供 expectedRevision，冲突409不能覆盖本地草稿或伪装成功。程序库使用左侧文件列表进行新建、重命名和真实删除；内部 ID 隐藏且稳定，不能复用已删除程序的身份。默认显示名为数字。重命名只更新名称，不隐式保存尚未提交的程序定义，也不能因 revision 改变丢失未完成画布。删除移除库文件，不改写任何文档中的绑定快照；删除确认应说明这一边界。当前记录不包含 archived 字段或归档状态；旧开发库数据仅通过 ai_tasks/migrations/remove_program_library_archived.py 停服离线转换，运行时仅按当前模型做通用字段校验，不识别旧字段或输出专项迁移提示。世界切换/卸载使迟到响应失效。
+每个时刻表拥有独立程序库，存储于 `timetable-programs/<world>/<documentId>/<programId>.json`，程序文件只含 `formatVersion:1`、`id`、`name`、`definition` 和可选 `estimatedDurationTicks`；没有程序 revision、contentIdentity 或 `boundPrograms` 快照。事件、交路 PROGRAM 和站停程序只引用本时刻表内的程序 ID。程序编辑与时刻表共享同一 document 锁。程序库页面从其他时刻表导入时执行一次性复制；目标内 ID 冲突时只重命名副本，不建立跨时刻表引用。删除仍被事件或交路 PROGRAM 引用的程序返回 409；删除时刻表级联删除其程序目录。文档或程序输入变化会使旧编译/模拟失效。
 
-时刻表通过可选 `boundPrograms`（缺省空）保存 `{programId,revision,contentIdentity,definition}`，一个程序一个不可变快照。首次选择复制定义；后续调用沿用绑定版本，库刷新不写文档。采用更新是显式按钮且只产生一次现有 document/history 事务，参数变化需重新校验，旧编译/模拟结果因输入变化失效。既有绑定即使库删除仍可生成。定时作业编辑器在绑定快照落后于程序库 revision/contentIdentity/estimatedDurationTicks 时显示“采用新版本”入口；采用后同一事务切换到最新快照，预计耗时提示随之更新。无新 editor/recovery schema version 或任意 JS 反向解析。
-
-绑定另复制可选estimatedDurationTicks：缺省未知、0为点；它不是definition内容identity的一部分，estimate-only修改仍有新revision和显式采用入口。新函数调用默认duration PROGRAM使用绑定估计；既有省略duration的点事件保持原样。MANUAL和SIMULATED分别保留手动计划及真实测量语义。图和交路共用耗时解析和区间投影；预计耗时仅用于计划跨度/冲突与周期检查，不产生额外运行等待。runtime生成只序列化snapshot.definition；editor和本地恢复保持当前格式版本，通用校验允许该可选字段及稳定PROGRAM类型，不新增旧数据兼容路径。
-
-`PROGRAM` duty element 的 call 为 `{id,programId,tick,arguments}`。参数类型为 TICK/DURATION/DESTINATION/DEPOT/STRING/ID_LIST；引用的声明类型必须精确匹配字段，不能用 STRING 参数替代目的地/车库。有限顺序步骤为 WAIT_UNTIL、WAIT_DURATION、REVERSE、MOVE、STORE_AT_DEPOT；表达式只接受 `{value}` 或 `{parameterId}`。数值为安全整数，时长严格正数。生成只读 JS 时每个已用绑定定义声明一次，现有 origin scope 加上 call/program/step 身份。完整展开先校验，再一次性追加到 ScriptWorker builder，拒绝错误后不能留下部分动作。
-
-绝对等待是实际 WAIT_UNTIL gate，不是只改变编译游标；其他动作继承当前 schedule cursor。出库仍由既有交路 acquisition selector 唯一拥有；程序要求此前 CHECK/acquisition，不暴露伪造的 callback 出库。分支、动态选站、重联/解编和库内 acquisition 尚不属于此顺序子集。具体接口与测试证据在活动任务 research/library-transport-contract-2026-10-22.md、b2-sequential-library-validation-2026-10-22.md；不能把局部132项前端测试当作完整五批功能或游戏验收。
+`estimatedDurationTicks` 是程序库的普通计划字段：缺省未知，0 为时间点，非负安全整数；`PROGRAM` 耗时直接读取本地程序记录，`MANUAL` 和 `SIMULATED` 语义不变。只有被交路引用且完整模拟成功时才产生图作业的测量耗时，未引用作业保持未知。程序定义、参数与事件等待仍使用当前 `StationProgramDefinition`，不增加旧开发格式 runtime reader。editor document 和程序文件都保持 `formatVersion:1`，本次为未发布开发格式的一次性迁移，不升版。
 
 ### 扩展动作与来源定位
 
@@ -92,7 +86,7 @@ Reset 仅重生选中运行线的时刻，始发 Tick 来自该运行线原有�
 
 JSON 对象允许{}；拒绝空文本/非对象、不有限数字和超出安全整数范围的整数值。三端统一深度16、节点4096、单个 key/string8192 UTF-16 单元上限。内容身份先校验再归一有限 IEEE754 数值，1/1.0 和正负零等价；生成的定义及参数用 JSON.parse(quoted JSON) 保留 __proto__ 等合法 JSON key，不能直接用会改变这些字段语义的 JS 对象 literal。JSON 输入只在 blur/Ctrl+Enter 提交，Escape 丢弃，身份改变/卸载禁止旧回调写文档。
 
-来源导航先验证当前文档输入及实际 trace，再匹配稳定 call/program/step。交路页显示已绑定步骤只读，可显式打开共享库对应步骤编辑，再由用户采用更新；不提供就地修改绑定快照的第二 owner。无法在当前绑定找到的步骤、不同调用及过期编译 trace 不得猜测定位。ScriptWorker 保留 captured timed builder 的 Tick，并在完整展开前严格检查表达式原始 keyset，不能让 nullable decode 把额外的 parameterId:null 当作字段不存在。
+来源导航先验证当前文档输入及实际 trace，再匹配稳定 call/program/step。交路页显示本时刻表程序步骤只读，可直接打开程序库对应步骤编辑；不提供就地修改的第二 owner。无法在当前绑定找到的步骤、不同调用及过期编译 trace 不得猜测定位。ScriptWorker 保留 captured timed builder 的 Tick，并在完整展开前严格检查表达式原始 keyset，不能让 nullable decode 把额外的 parameterId:null 当作字段不存在。
 
 ### 交路重联／解编任务
 
@@ -147,7 +141,7 @@ CURRENT：`authoringResume.ts` 保存 owner/world 隔离的最后文档 ID；内
 任务按指定 tick 排序，相同时刻保持元素顺序；运行时等待指定时刻及前序真实完成。已知静态时序冲突仍遵循编译器单调约束；已知规划区间重叠产生 authoring error 阻止编译，同时保留时间轴警告及交集标记供修正。未知测量不能据此证明无冲突。
 生成器为起点发出无显式时刻的 beginStationStop，避免把“准备提前量”插入已前进的计划游标；准备开始由执行器调度。目的地携带具体 role、stationProgram、plannedContext 和 departureTick；条件在 worker 按可静态确定的上下文选分支。缺省与自定义共享程序都必须通过所有当前步骤验证后生成；不保留旧格式专项判断、生成门禁或迁移提示。
 
-`arrivalAuthoring.test`、`dutyTimeline.test`、`DutyTimeline.test` 与 `programBlocks.test` 覆盖共享停站、终点时间、任务区间、模拟未知及草稿映射；Java SharedStationProgramValidatorTest 和 EditorDocumentRestartTest 检查持久边界。浏览器另验时间轴拖动/调整长度、右键移除、程序库导航、保存重开；真实执行计时另由 isolated simulation/dispatcher 测试证明。
+`arrivalAuthoring.test`、`dutyTimeline.test`、`DutyTimeline.test` 与 `programBlocks.test` 覆盖共享停站、终点时间、任务区间、模拟未知及草稿映射；Java TimetableProgramHttpTest、SharedStationProgramValidatorTest 和 EditorDocumentRestartTest 检查程序归属、锁与持久边界。浏览器另验时间轴拖动/调整长度、右键移除、程序库导航、保存重开；真实执行计时另由 isolated simulation/dispatcher 测试证明。
 
 ## 可见运行线与交路编号
 

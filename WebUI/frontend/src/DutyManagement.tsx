@@ -1,7 +1,7 @@
 import {EditableIdSelect,EditableIdList} from './EditableIdSelect';
 import {waypointOptions} from './idOptions';
 import {useEffect,useRef,useState} from 'react';
-import {Alert,Button,Collapse,Flex,Input,Select,Typography} from 'antd';
+import {Alert,Button,Flex,Input,Select,Typography} from 'antd';
 import {DeleteOutlined,PlusOutlined} from '@ant-design/icons';
 import type {AuthoringDutyV1,AuthoringRunV1,TimetableAuthoringDocumentV1} from './authoring';
 import {DutyTimeline} from './DutyTimeline';
@@ -10,7 +10,7 @@ import {orphanDisplayPlans,removeDisplayPlan} from './displayPlans';
 import {FormationSourceFields} from './FormationEventsEditor';
 import {type AuthoringFormationEvent} from './formationAuthoring';
 import type {ProgramSourceTarget} from './programNavigation';
-import type {BoundStationProgram,TimedOperation,StationProgramRecord,TimetableSimulationResult,WorldMetadata} from './types';
+import type {TimedOperation,StationProgramRecord,TimetableSimulationResult,WorldMetadata} from './types';
 import {CommittedNumberInput} from './CommittedNumberInput';
 import {useI18n} from './i18n';
 
@@ -20,9 +20,9 @@ export interface DutyManagementProps {
   document?:TimetableAuthoringDocumentV1;onDocumentChange?:(document:TimetableAuthoringDocumentV1)=>void;
   onAddFormation?:(kind:AuthoringFormationEvent['kind'])=>void;onPatchFormation?:(event:AuthoringFormationEvent)=>void;onFormationSource?:(eventId:string,outputId:string)=>void;onOpenFormation?:(dutyId:string,eventId:string)=>void;
   focusedDutyElement?:{dutyId:string;elementId:string};fieldScope?:string;focusedProgram?:ProgramSourceTarget;onOpenProgramLibrary?:(programId:string,stepId?:string)=>void;
-  programLibrary?:StationProgramRecord[];boundPrograms?:BoundStationProgram[];programError?:string;programLoading?:boolean;
+  programLibrary?:StationProgramRecord[];programError?:string;programLoading?:boolean;
   onReferenceEvent?:(id:string)=>void;onOpenGraphEvent?:(id:string)=>void;
-  onRefreshPrograms?:()=>void;onAddProgram?:(id:string)=>void;onAdoptProgram?:(id:string)=>void;onPatchProgram?:(id:string,patch:Partial<TimedOperation>)=>void;
+  onRefreshPrograms?:()=>void;onAddProgram?:(id:string)=>void;onPatchProgram?:(id:string,patch:Partial<TimedOperation>)=>void;
   duties:AuthoringDutyV1[];runs:AuthoringRunV1[];selectedId:string;metadata:WorldMetadata;
   onSelect:(id:string)=>void;onAdd:()=>void;onDelete:()=>void;
   onPatch:(patch:Partial<AuthoringDutyV1>)=>void;onAssign:(runId:string)=>void;
@@ -55,8 +55,7 @@ export function DutyManagement(p:DutyManagementProps) {
 
       {selector.type==='TRAIN_NAME'&&<label className="duty-initial-position">{t('duties.initialWaypoint')}<EditableIdSelect fieldKey={`${p.fieldScope}/${duty.id}/initialPosition`} allowClear aria-label={t('duties.initialWaypoint')} value={duty.initialPosition} options={waypointOptions(p.metadata)} onCommit={(initialPosition)=>p.onPatch({initialPosition:initialPosition||undefined})}/><Typography.Text type="secondary">{t('timeline.initialHint')}</Typography.Text></label>}
       {p.programError&&<Typography.Paragraph type="danger" role="alert">{p.programError}</Typography.Paragraph>}
-      {p.document&&<DutyTimeline programSimulation={p.programSimulation?{...p.programSimulation,profile:duty.referenceVehicle,plannedContext:{dutyId:duty.id}}:undefined} onDocumentChange={p.onDocumentChange} onOpenFormation={p.onOpenFormation} onAddFormation={p.onAddFormation} onPatchFormation={p.onPatchFormation} onSelectDuty={p.onSelect} destinations={p.metadata.wayPoints??[]} key={duty.id} document={p.document} duty={duty} focusedElementId={p.focusedDutyElement?.dutyId===duty.id?p.focusedDutyElement.elementId:undefined} fieldScope={p.fieldScope??''} library={p.programLibrary??[]} stationNames={new Map((p.metadata.stations??[]).map((station)=>[station.stationId,station.stationDisplayName||station.stationId]))} stationIds={[...new Set((p.metadata.stations??[]).map((station)=>station.stationId))]} onReferenceEvent={p.onReferenceEvent} onOpenGraphEvent={p.onOpenGraphEvent} onOperationValidityChange={(elementId,valid)=>p.onOperationValidityChange?.(duty.id,elementId,valid)} simulation={p.simulation} simulationReason={p.simulationReason} busy={p.busy} onSimulate={p.onSimulate} onAssign={p.onAssign} onAddProgram={p.onAddProgram} onPatch={p.onPatch} onPatchProgram={p.onPatchProgram} onRemove={p.onRemove} onViewRun={p.onViewRun} onOpenProgramLibrary={p.onOpenProgramLibrary} onRefreshPrograms={p.onRefreshPrograms} programLoading={p.programLoading} focusedProgram={p.focusedProgram} onAdoptProgram={p.onAdoptProgram}/>}
-      {!!p.boundPrograms?.length&&<Collapse className="duty-advanced" items={[{key:'bindings',label:t('programs.bound'),children:<><Typography.Paragraph type="secondary">{t('programs.snapshotHint')}</Typography.Paragraph><div className="duty-bound-programs">{p.boundPrograms.map((snapshot)=>{const latest=p.programLibrary?.find((record)=>record.id===snapshot.programId);return <Flex className="duty-bound-program-row" wrap gap={8} align="center" key={snapshot.programId}><Typography.Text className="duty-bound-program-name">{latest?.name??snapshot.programId} · r{snapshot.revision}{!latest&&` · ${t('programs.snapshotOnly')}`}</Typography.Text>{latest&&latest.revision!==snapshot.revision?<Button onClick={()=>p.onAdoptProgram?.(snapshot.programId)}>{t('programs.adopt')} r{latest.revision}</Button>:null}</Flex>;})}</div></>}]} />}
+      {p.document&&<DutyTimeline programSimulation={p.programSimulation?{...p.programSimulation,profile:duty.referenceVehicle,plannedContext:{dutyId:duty.id}}:undefined} onDocumentChange={p.onDocumentChange} onOpenFormation={p.onOpenFormation} onAddFormation={p.onAddFormation} onPatchFormation={p.onPatchFormation} onSelectDuty={p.onSelect} destinations={p.metadata.wayPoints??[]} key={duty.id} document={p.document} duty={duty} focusedElementId={p.focusedDutyElement?.dutyId===duty.id?p.focusedDutyElement.elementId:undefined} fieldScope={p.fieldScope??''} library={p.programLibrary??[]} stationNames={new Map((p.metadata.stations??[]).map((station)=>[station.stationId,station.stationDisplayName||station.stationId]))} stationIds={[...new Set((p.metadata.stations??[]).map((station)=>station.stationId))]} onReferenceEvent={p.onReferenceEvent} onOpenGraphEvent={p.onOpenGraphEvent} onOperationValidityChange={(elementId,valid)=>p.onOperationValidityChange?.(duty.id,elementId,valid)} simulation={p.simulation} simulationReason={p.simulationReason} busy={p.busy} onSimulate={p.onSimulate} onAssign={p.onAssign} onAddProgram={p.onAddProgram} onPatch={p.onPatch} onPatchProgram={p.onPatchProgram} onRemove={p.onRemove} onViewRun={p.onViewRun} onOpenProgramLibrary={p.onOpenProgramLibrary} onRefreshPrograms={p.onRefreshPrograms} programLoading={p.programLoading} focusedProgram={p.focusedProgram}/>}
     </>}</section></div>
     {p.document&&p.onDocumentChange&&orphanDisplayPlans(p.document).length>0&&<Alert className="display-plan-orphans" type="warning" showIcon title={t('displayPlan.orphans')} description={<>{orphanDisplayPlans(p.document).map(plan=><details key={plan.id}><summary>{t('displayPlan.plan')} {plan.id}</summary><pre>{JSON.stringify({defaults:plan.defaults,segments:plan.segments},null,2)}</pre><Button danger onClick={()=>{if(p.document&&currentDocument.current===p.document)p.onDocumentChange?.(removeDisplayPlan(p.document,plan.id));}}>{t('displayPlan.delete')}</Button></details>)}</>}/>}
 

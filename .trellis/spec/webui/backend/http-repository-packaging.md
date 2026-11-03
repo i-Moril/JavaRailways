@@ -41,11 +41,18 @@ editor document 在 create/save 前必须通过 `EditorDocumentValidator`，不�
 
 Draft/editor document 是独立持久化边界；shape breaking 时升级其最小 `formatVersion`。开发期 local recovery 可丢弃，不为任意旧草稿积累永久 runtime reader。
 
-## 程序库删除
+## 每时刻表程序库、导入与编辑锁
 
-`DELETE /api/v1/worlds/{world}/station-programs/{program}` 使用有效 session 和严格 JSON `{expectedRevision}`；成功真实删除库文件并返回 `{removed:true}`。缺失404、revision冲突409、无效输入400，不能用归档标记替代删除。检查 revision 与文件删除由同步 repository 方法统一拥有。删除不扫描或改写 editor documents／已发布 runtime 的嵌入快照。当前库记录字段为 formatVersion、id、name、revision、definition、contentIdentity；字段集合只描述当前模型；未知字段通过通用校验报错，不建立旧字段黑名单或专项迁移提示。开发期保持 formatVersion1，旧记录必须在停服后用 ai_tasks/migrations/remove_program_library_archived.py 做有 hash 计划和恢复备份的一次性转换，运行时不提供兼容读取。
+程序库属于 editor document，不再有 world 级共享库。路径为 `timetable-programs/<world>/<documentId>/<programId>.json`，记录字段只含 `formatVersion:1`、`id`、`name`、`definition` 和可选 `estimatedDurationTicks`；没有 revision、contentIdentity 或 bound snapshot。`TimetableProgramRepository` 是唯一 owner，负责 world/document/program ID allowlist、原子写入、目录删除和导入复制。
 
-库记录、create/update请求及bound snapshot另有可选`estimatedDurationTicks`，省略表示未知，0表示计划时间点，值必须为非负JS安全整数；JSON null、字符串、浮点和越界均拒绝。update为完整替换，省略即清除；rename发送已有server baseline值，不覆盖未保存本地编辑。修改估计仍递增revision，但contentIdentity只对definition计算。预计耗时不进入runtime程序定义；绑定更新明确复制元数据，库删除不修改已有绑定。新增可选字段保持现有formatVersion1，无运行时迁移。`StationProgramValidator.fields(required,optional)`显式区分必填/可选，普通三参数调用保留所有字段必填；不能为可选字段给固定缺字段fixture补值来掩盖校验错误。
+路由：
+
+- `GET/POST /api/v1/worlds/{world}/editor-documents/{document}/programs`
+- `PUT/DELETE .../programs/{program}`
+- `POST .../programs/import`，body `{sourceDocumentId, programIds?}`，只复制源时刻表程序；目标 ID 冲突时重命名副本，不建立跨时刻表引用。
+- `POST .../lock`、`POST .../lock/heartbeat`、`DELETE .../lock`。
+
+所有程序 mutation 与 editor document create/save/delete/formal-script mutation 必须持有该 document 的锁；无锁或他人持锁返回 409 `DOCUMENT_LOCKED`。锁以当前 HttpOnly session cookie 为 owner，内存 lease 默认 2 分钟，前端每 30 秒 heartbeat；同 session 重入幂等，server 重启丢失锁。GET 仍可读，但前端打开/编辑前必须 acquire。删除时刻表时级联删除程序目录并释放锁；删除仍被事件或交路 PROGRAM 引用的程序返回 409 `PROGRAM_IN_USE`。current program file 与 editor document 均保持 `formatVersion:1`；这是一次性开发数据迁移，不增加 runtime 旧格式 reader。
 
 ## 独立函数耗时模拟
 
@@ -55,7 +62,7 @@ Draft/editor document 是独立持久化边界；shape breaking 时升级其最�
 
 开始tick也不是函数模拟的用户输入：独立程序库调用内部使用0，图/交路调用保留真实计划调用tick供绝对等待求值。该内部字段仍在模拟wire中，不为去掉输入而另建执行器或改变绝对时间语义。
 
-响应 `status` 为 COMPLETED/FAILED/LIMIT_REACHED，含 simulatedTicks 和实际初始点/方向/是否反转；只有完成才有 durationTicks/startTick/endTick。失败保留 reason/failedProgramStepId，不以最大tick或下一任务开始伪造完成。该请求/响应是临时运行边界，不改变 editor document、程序库或持久化版本。后端不得重新按 programId 读取库内容替换请求的 exact definition：来源可以是未保存的有效画布或已绑定且来源删除的固定快照。
+响应 `status` 为 COMPLETED/FAILED/LIMIT_REACHED，含 simulatedTicks 和实际初始点/方向/是否反转；只有完成才有 durationTicks/startTick/endTick。失败保留 reason/failedProgramStepId，不以最大tick或下一任务开始伪造完成。该请求/响应是临时运行边界，不改变 editor document、程序库或持久化版本。后端不得重新按 programId 读取库内容替换请求的 exact definition：来源可以是未保存的有效画布或当前时刻表程序记录。
 
 非完成报告另含`reasonCode`，按真实result类型输出`SIMULATION_FAILED/SIMULATION_LIMIT_REACHED/SIMULATION_TIMING_UNAVAILABLE`，供前端翻译摘要；原reason保留为诊断细节，不按英文子串猜故障类型。
 
@@ -96,7 +103,7 @@ EditorDocumentValidator 校验可选 operationalTrips（唯一 id、受限 defau
 
 events与交路PROGRAM共用时刻、可选stationId/label/duration/program结构，program为{programId,arguments}；交路PROGRAM的program必需，EVENT元素仅{id,type,eventId}引用图所属作业。Java复用同一当前结构验证，不读取旧PROGRAM.call，未发布格式继续1。持久化层允许保存缺失事件引用，由authoring内容校验显示问题；不把内容issue升级为无法保存草稿。程序参数继续按已绑定快照验证。旧开发数据只由一次性dry-run/hash校验/恢复点迁移工具转换，不在HTTP或业务层upcast。
 
-作业duration的PROGRAM类型表示采用bound snapshot估计，MANUAL采用显式ticks，SIMULATED只采用完整真实测量，省略仍是既有POINT。PROGRAM无估计则未知，不能伪造成0或测量值。前端图/交路共用operationDuration解析；首次图事件选择程序的预览与保存共用候选绑定，估计跨周期在确定前拒绝。该计划类型不扩展编组事件的耗时能力。
+作业duration的PROGRAM类型表示采用当前时刻表程序记录的估计，MANUAL采用显式ticks，SIMULATED只采用完整真实测量，省略仍是既有POINT。PROGRAM无估计则未知，不能伪造成0或测量值。前端图/交路共用operationDuration解析；首次图事件选择程序直接使用本地程序记录，估计跨周期在确定前拒绝。该计划类型不扩展编组事件的耗时能力。
 
 
 ## 数字与字符串表达式

@@ -22,22 +22,18 @@ class TimedOperationValidatorTest {
             {"parameters":[{"id":"delay","type":"DURATION"}],
              "steps":[{"id":"wait","type":"WAIT_DURATION","durationTicks":{"parameterId":"delay"}}]}
             """);
-        var snapshot = mapper.createObjectNode().put("programId", "1").put("revision", 1)
-            .put("contentIdentity", ProgramContentIdentity.of(definition));
-        snapshot.set("definition", definition);
-        document.putArray("boundPrograms").add(snapshot);
         return document;
     }
 
     @Test void bothOwnersAndPureMarkersRoundTripWithOptionalStationAndDuration() throws Exception {
         var document = document();
-        assertDoesNotThrow(() -> EditorDocumentValidator.validate(document));
+        assertDoesNotThrow(() -> validate(document));
         var restored = mapper.readTree(mapper.writeValueAsBytes(document));
         assertEquals(document, restored);
-        assertDoesNotThrow(() -> EditorDocumentValidator.validate(restored));
+        assertDoesNotThrow(() -> validate(restored));
         var operation = (ObjectNode) document.path("events").get(1);
         operation.putObject("duration").put("type", "SIMULATED");
-        assertDoesNotThrow(() -> EditorDocumentValidator.validate(document));
+        assertDoesNotThrow(() -> validate(document));
     }
 
     @Test void bothOwnersSharePeriodArgumentsAndDurationValidation() throws Exception {
@@ -54,7 +50,7 @@ class TimedOperationValidatorTest {
                     case "program" -> ((ObjectNode) operation.path("program")).put("programId", "missing");
                     case "unknown" -> operation.put("typo", true);
                 }
-                assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(document), event + " " + fault);
+                assertThrows(IllegalArgumentException.class, () -> validate(document), event + " " + fault);
             }
         }
     }
@@ -63,20 +59,25 @@ class TimedOperationValidatorTest {
         var document = document();
         var reference = (ObjectNode) document.path("duties").get(0).path("elements").get(1);
         reference.put("eventId", "missing");
-        assertDoesNotThrow(() -> EditorDocumentValidator.validate(document));
+        assertDoesNotThrow(() -> validate(document));
         reference.put("eventId", "marker");
-        assertDoesNotThrow(() -> EditorDocumentValidator.validate(document));
+        assertDoesNotThrow(() -> validate(document));
         reference.put("tick", 300);
-        assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(document));
+        assertThrows(IllegalArgumentException.class, () -> validate(document));
     }
 
     @Test void currentProgramRequiresInvocationAndUniqueElementIdentity() throws Exception {
         var document = document();
         var element = (ObjectNode) document.path("duties").get(0).path("elements").get(0);
         element.remove("program");
-        assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(document));
+        assertThrows(IllegalArgumentException.class, () -> validate(document));
         var duplicate = document();
         ((ObjectNode) duplicate.path("duties").get(0).path("elements").get(1)).put("id", "local");
         assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(duplicate));
+    }
+    private void validate(com.fasterxml.jackson.databind.JsonNode document) throws Exception {
+        var definition = mapper.readTree("{\"parameters\":[{\"id\":\"delay\",\"type\":\"DURATION\"}],\"steps\":[]}");
+        var program = mapper.createObjectNode();program.set("definition", definition);
+        EditorDocumentValidator.validate(document, java.util.Map.of("1", program));
     }
 }

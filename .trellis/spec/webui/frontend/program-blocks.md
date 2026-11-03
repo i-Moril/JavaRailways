@@ -2,7 +2,7 @@
 
 ## 范围与数据权威
 
-程序库与到站动作使用同一个 Blockly/Zelos 编辑组件。页面仍使用既有 Ant Design、i18n 和 theme；Blockly 只负责积木交互，不拥有服务器执行引擎。铁路语义定义仍为 `StationProgramDefinition`，库 revision、绑定快照与内容身份规则保持独立；库条目可以真实删除，已绑定快照不随之移除。
+程序库与到站动作使用同一个 Blockly/Zelos 编辑组件。页面仍使用既有 Ant Design、i18n 和 theme；Blockly 只负责积木交互，不拥有服务器执行引擎。铁路语义定义仍为 `StationProgramDefinition`，程序库属于当前时刻表，条目可真实删除；删除仍被作业引用的程序由 server 拒绝。
 
 正常编辑流程是从定义建立唯一入口和有序连接积木，玩家从工具箱添加动作、连接顺序并在分支内部编辑两臂；参数插槽区分 literal 与声明引用。只在得到完整、合法的语义定义时向所属文档提交变更，经既有 validation、JS生成和服务器编译后执行。绝不使用通用 JavaScript generator 绕过铁路模型。
 
@@ -34,11 +34,11 @@
 
 ## 程序库删除与交路资源同步
 
-CURRENT。程序库文件由 `VisualProgramRepository` 直接删除；交路文档的 `boundPrograms` 是显式绑定的固定快照，既不是库文件，也不是归档记录。已有调用和本地恢复文档保留其快照，删除共享库来源不暗中改写文档、生成代码或撤销历史。
+CURRENT。程序库文件由 `TimetableProgramRepository` 直接删除，路径按 `world/documentId` 隔离；事件、交路 PROGRAM 与站停程序直接引用本时刻表程序记录，不再保存绑定快照。删除被引用程序返回 409；删除时刻表级联删除程序目录。
 
-`StationProgramLibrary.onLibraryChange` 在新建、保存、重命名和删除请求成功后通知 App。通知必须在库页面卸载后仍能送达：用户可以在删除请求完成前切到交路页。组件自身列表与选中状态仍只接受当前 owner/world 的响应；失败请求不发布成功通知。App 增加临时 `programLibraryRevision`，它是资源失效信号，不是存档版本或程序 revision。
+`StationProgramLibrary.onLibraryChange` 在新建、保存、重命名和删除请求成功后通知 App。通知必须在库页面卸载后仍能送达：用户可以在删除请求完成前切到交路页。组件自身列表与选中状态只接受当前 owner/world/document 的响应；失败请求不发布成功通知。App 增加临时 `programLibraryRevision`，它是资源失效信号，不是存档版本或程序 revision。
 
-保留挂载的 DutyEditor 使用 `useStationProgramLibrary(world,page,revision)` 读取服务器列表。世界、页面或失效信号改变时清空旧缓存并重新查询，递增请求编号；旧编号及已卸载请求不得更新列表、错误或 loading。查询失败保留错误且不把失效列表恢复为可用来源。每次失效一次列表查询，存储空间与返回库条目数成正比，不触及文档持久化。
+保留挂载的 DutyEditor 使用 `useTimetablePrograms(world,documentId,revision)` 读取当前时刻表列表。世界、时刻表或失效信号改变时清空旧缓存并重新查询，递增请求编号；旧编号及已卸载请求不得更新列表、错误或 loading。查询失败保留错误且不把失效列表恢复为可用来源。每次失效一次列表查询，存储空间与返回库条目数成正比，不触及文档持久化。
 
 新增交路动作和运行图事件只能选择当前库条目。来源已删除的快照仅作为现有调用的当前值展示，标注“仅绑定快照”，禁用为新选择，并隐藏无效的编辑来源入口。例如删除程序后仍保留现有折返动作，但新增折返不能再从库中选到它。不得将所有绑定快照合并进新增程序选项来伪装成库仍存在。
 
@@ -46,7 +46,7 @@ CURRENT。程序库文件由 `VisualProgramRepository` 直接删除；交路文�
 
 ## 函数耗时模拟
 
-程序库和时间轴调用复用 `ProgramSimulationDialog` 与 `programSimulation.ts`。库发送当前有效且已接受的画布定义，原始无效草稿阻止模拟；时间轴发送 exact bound snapshot/arguments，来源删除不改变快照。选择真实参考车辆、metadata 中已声明方向的起点，并显式选择保持方向或放置后原地反转，不自动选择反转值。
+程序库和时间轴调用复用 `ProgramSimulationDialog` 与 `programSimulation.ts`。库发送当前有效且已接受的画布定义，原始无效草稿阻止模拟；时间轴发送当前时刻表程序定义和 arguments。选择真实参考车辆、metadata 中已声明方向的起点，并显式选择保持方向或放置后原地反转，不自动选择反转值。
 
 表单为临时状态，按 owner/world/source 隔离；任意输入变化使结果失效，请求 epoch 阻止 A→B→A、关闭、卸载、世界变化后的迟到结果。WAIT_EVENT 只从当前文档解析，无文档的库不伪造事件。模拟推进上限包括取车与准备换向，函数耗时取真实任务边界；未完成/失败不能生成耗时或假造全时刻表模拟报告。
 

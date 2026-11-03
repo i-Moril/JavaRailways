@@ -42,6 +42,7 @@ export default function App() {
   const [world, setWorld] = useState('');
   const [worldResources,setWorldResources]=useState<WorldResources>(emptyWorldResources);
   const [programLibraryRevision,setProgramLibraryRevision]=useState(0);
+  const [authoringDocumentId,setAuthoringDocumentId]=useState('');
   const [programFocus,setProgramFocus]=useState<{world:string;programId:string;stepId?:string}>();
   const [view, setView] = useState<View>(DEFAULT_VIEW);
   const [authenticated,setAuthenticated]=useState<boolean|null>(null);
@@ -107,6 +108,8 @@ export default function App() {
     return()=>window.clearInterval(timer);
   },[authenticated]);
 
+  useEffect(()=>{setAuthoringDocumentId('');},[world,authenticatedPlayer]);
+
   useEffect(() => {
     if (!world||!authenticated) return;
     let cancelled=false;
@@ -166,8 +169,8 @@ export default function App() {
       {error && <div className="error" role="alert">{error}</div>}
     </section>
 
-    {authenticated&&<section className="persistent-graph-view" hidden={!['graph','duties','validation'].includes(view)}><DutyEditor programLibraryRevision={programLibraryRevision} key={JSON.stringify([authenticatedPlayer,world])} onOpenProgramLibrary={(programId,stepId)=>{setProgramFocus({world,programId,stepId});setView('programs');}} onCommandState={setAuthoringState} page={view==='duties'?'duties':view==='validation'?'validation':'graph'} onPageChange={setView} world={world} recoveryOwner={authenticatedPlayer} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>}
-    {authenticated&&<section className="persistent-graph-view" hidden={view!=='programs'}><StationProgramLibrary metadata={metadata} onLibraryChange={()=>setProgramLibraryRevision((revision)=>revision+1)} key={`${authenticatedPlayer}::${world}`} world={world} recoveryOwner={authenticatedPlayer} extensions={metadata.extensions?.actions} conditions={metadata.extensions?.conditions} focus={programFocus?.world===world?programFocus:undefined}/></section>}
+    {authenticated&&<section className="persistent-graph-view" hidden={!['graph','duties','validation'].includes(view)}><DutyEditor programLibraryRevision={programLibraryRevision} key={JSON.stringify([authenticatedPlayer,world])} onActiveDocument={setAuthoringDocumentId} onOpenProgramLibrary={(programId,stepId)=>{setProgramFocus({world,programId,stepId});setView('programs');}} onCommandState={setAuthoringState} page={view==='duties'?'duties':view==='validation'?'validation':'graph'} onPageChange={setView} world={world} recoveryOwner={authenticatedPlayer} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>}
+    {authenticated&&<section className="persistent-graph-view" hidden={view!=='programs'}><StationProgramLibrary metadata={metadata} onLibraryChange={()=>setProgramLibraryRevision((revision)=>revision+1)} key={`${authenticatedPlayer}::${world}`} world={world} documentId={authoringDocumentId} recoveryOwner={authenticatedPlayer} extensions={metadata.extensions?.actions} conditions={metadata.extensions?.conditions} focus={programFocus?.world===world?programFocus:undefined}/></section>}
     {authenticated&&view === 'logs' && <LogsPage />}
     {authenticated&&view === 'issues' && <IssuesPage key={world} world={world} />}
     {view === 'map' && <RailMap key={world} world={world} onError={setError} />}

@@ -1,8 +1,9 @@
 import {describe,it,expect} from 'vitest';
 import {emptyAuthoringDocument,generateTimetableSource,type TimetableAuthoringDocumentV1} from './authoring';
 import {defaultDutyProgramArguments,projectDutyTimeline,sortDutyTasks} from './dutyTimeline';
-import type {TimetableSimulationResult} from './types';
-const fixture=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),id:'test',minimumDwellTicks:10,runs:[{id:'R',type:'PASSENGER',lineDirection:'UP',calls:[{id:'a',stationId:'a',targetId:'a',status:'ORIGIN',departureTick:100},{id:'b',stationId:'b',targetId:'b',status:'TERMINAL',arrivalTick:200,departureTick:220}]}],boundPrograms:[{programId:'1',revision:1,contentIdentity:`sha256:${'a'.repeat(64)}`,definition:{parameters:[],steps:[]}}],duties:[{id:'D',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'r',type:'RUN',runId:'R'},{id:'p',type:'PROGRAM',tick:230,program:{programId:'1',arguments:{}}}]}]});
+import type {StationProgramRecord,TimetableSimulationResult} from './types';
+const programs:StationProgramRecord[]=[{formatVersion:1,id:'1',name:'P',definition:{parameters:[],steps:[]}}];
+const fixture=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),id:'test',minimumDwellTicks:10,runs:[{id:'R',type:'PASSENGER',lineDirection:'UP',calls:[{id:'a',stationId:'a',targetId:'a',status:'ORIGIN',departureTick:100},{id:'b',stationId:'b',targetId:'b',status:'TERMINAL',arrivalTick:200,departureTick:220}]}],duties:[{id:'D',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'r',type:'RUN',runId:'R'},{id:'p',type:'PROGRAM',tick:230,program:{programId:'1',arguments:{}}}]}]});
 describe('duty timeline projection',()=>{
  it('uses effective terminal arrival, dwell and departure without mutating the document',()=>{
   const doc=fixture();doc.arrivalOverrides=[{runId:'R',callId:'b',tick:215}];const before=JSON.stringify(doc);
@@ -29,13 +30,13 @@ describe('duty timeline projection',()=>{
  });
  it('validates current planning duration boundaries',()=>{
   const doc=fixture(),element=doc.duties[0].elements[1];if(element.type!=='PROGRAM')throw Error();doc.runs=[];doc.duties[0].initialPosition='a';doc.duties[0].elements=[element];
-  for(const ticks of [-1,1.5,Number.MAX_SAFE_INTEGER]){element.duration={type:'MANUAL',ticks};expect(generateTimetableSource(doc).issues.some((issue)=>issue.message.includes('duration'))).toBe(true);}
-  element.duration={type:'MANUAL',ticks:0};expect(generateTimetableSource(doc).issues).toEqual([]);
+  for(const ticks of [-1,1.5,Number.MAX_SAFE_INTEGER]){element.duration={type:'MANUAL',ticks};expect(generateTimetableSource(doc,[],programs).issues.some((issue)=>issue.message.includes('duration'))).toBe(true);}
+  element.duration={type:'MANUAL',ticks:0};expect(generateTimetableSource(doc,[],programs).issues).toEqual([]);
  });
  it('excludes planning duration from generated source and runtime identity',()=>{
   const doc=fixture(),element=doc.duties[0].elements[1];if(element.type!=='PROGRAM')throw Error();
   doc.runs=[];doc.duties[0].initialPosition='a';doc.duties[0].elements=[element];
-  const first=generateTimetableSource(doc);expect(first.issues).toEqual([]);element.duration={type:'MANUAL',ticks:100};const second=generateTimetableSource(doc);
+  const first=generateTimetableSource(doc,[],programs);expect(first.issues).toEqual([]);element.duration={type:'MANUAL',ticks:100};const second=generateTimetableSource(doc,[],programs);
   expect(first.source).toBe(second.source);expect(first.documentHashInput).toBe(second.documentHashInput);expect(first.source).toContain('scoped.task("p", 230, taskScope => taskScope.program');
  });
 });

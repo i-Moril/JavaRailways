@@ -1,7 +1,6 @@
 import {evaluateProgramExpression,validateProgramExpression} from './programExpressions';
 import {trainInfoError} from './trainInfo';
-import type { TimetableAuthoringDocumentV1 } from './authoring';
-import type { BoundStationProgram,StationProgramCall,StationProgramDefinition,StationProgramLiteral,StationProgramParameterType,StationProgramRecord,StationProgramStep,StationProgramValue } from './types';
+import type { StationProgramCall,StationProgramDefinition,StationProgramLiteral,StationProgramParameterType,StationProgramRecord,StationProgramStep,StationProgramValue } from './types';
 
 const clone=<T,>(value:T):T=>JSON.parse(JSON.stringify(value)) as T;
 const validId=(value:string)=>/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value);
@@ -99,7 +98,7 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
 }
 export const resolveProgramValue=<T extends StationProgramLiteral>(value:StationProgramValue<T>,args:Record<string,StationProgramLiteral>):T=>evaluateProgramExpression(value,args) as T;
 
-export function validateStationProgramCall(snapshot:BoundStationProgram,call:StationProgramCall,periodTicks:number):string[] {
+export function validateStationProgramCall(snapshot:Pick<StationProgramRecord,'definition'>,call:StationProgramCall,periodTicks:number):string[] {
   if(!call||typeof call.arguments!=='object'||!call.arguments||Array.isArray(call.arguments))return ['Invalid program call arguments'];
   const errors=validateStationProgram(snapshot.definition,call.arguments);
   if(!validId(call.id))errors.push('Invalid program call ID');
@@ -131,17 +130,6 @@ export function stationProgramSchedule(steps:StationProgramStep[],args:Record<st
   const [,earliest]=visit(steps,startTick,startTick);
   return {errors,earliest};
 }
-export function adoptStationProgram(document:TimetableAuthoringDocumentV1,record:StationProgramRecord):TimetableAuthoringDocumentV1 {
-  if(!validId(record.id)||!Number.isSafeInteger(record.revision)||record.revision<1||!/^sha256:[a-f0-9]{64}$/.test(record.contentIdentity))throw new Error('Invalid program library record');
-  if(record.estimatedDurationTicks!==undefined&&(!Number.isSafeInteger(record.estimatedDurationTicks)||record.estimatedDurationTicks<0))throw new Error('Invalid program estimated duration');
-  const errors=validateStationProgram(record.definition);
-  if(errors.length)throw new Error(errors.join('; '));
-  const existing=document.boundPrograms?.find((item)=>item.programId===record.id);
-  if(existing?.revision===record.revision&&existing.contentIdentity===record.contentIdentity)return document;
-  const snapshot:BoundStationProgram={programId:record.id,revision:record.revision,contentIdentity:record.contentIdentity,definition:clone(record.definition),...(record.estimatedDurationTicks!==undefined?{estimatedDurationTicks:record.estimatedDurationTicks}:{})};
-  return {...document,boundPrograms:[...(document.boundPrograms??[]).filter((item)=>item.programId!==record.id),snapshot]};
-}
-
 /** Finite JSON data, with no JavaScript or recursive parameter interpolation. */
 export function programJsonObjectError(value:unknown):string {
   if(!value||typeof value!=='object'||Array.isArray(value))return 'JSON_OBJECT must be a JSON object';

@@ -158,10 +158,7 @@ export interface ProgramSimulationResult {
  initialPosition:{wayPointId:string;direction:'AB'|'BA';directionSource:'WAYPOINT'|'RAIL';reverseTrain:boolean};
 }
 export interface StationProgramRecord {
- formatVersion:1;id:string;name:string;revision:number;contentIdentity:string;definition:StationProgramDefinition;estimatedDurationTicks?:number;
-}
-export interface BoundStationProgram {
- programId:string;revision:number;contentIdentity:string;definition:StationProgramDefinition;estimatedDurationTicks?:number;
+ formatVersion:1;id:string;name:string;definition:StationProgramDefinition;estimatedDurationTicks?:number;
 }
 export interface StationProgramCall {
  id:string;programId:string;tick:number;arguments:Record<string,StationProgramLiteral>;

@@ -8,8 +8,8 @@ import {createDocumentHistory,updateDocumentHistory,undoDocumentHistory,redoDocu
 import {displayValuesError,validateStationProgram} from './stationPrograms';
 import type {SavedTimetableV1,TimetableServiceV1} from './types';
 const infrastructureLines=[{"id": "main", "displayName": "main", "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 20}, {"id": "branch", "displayName": "branch", "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 10}];
-const generateTimetableSource=(document:TimetableAuthoringDocumentV1)=>generateWithLines(document,infrastructureLines);
-const validateAuthoringDocument=(document:TimetableAuthoringDocumentV1)=>validateWithLines(document,infrastructureLines);
+const generateTimetableSource=(document:TimetableAuthoringDocumentV1,programs=[] as import('./types').StationProgramRecord[])=>generateWithLines(document,infrastructureLines,programs);
+const validateAuthoringDocument=(document:TimetableAuthoringDocumentV1,programs=[] as import('./types').StationProgramRecord[])=>validateWithLines(document,infrastructureLines,programs);
 const document=():TimetableAuthoringDocumentV1=>({formatVersion:1,id:'through',periodDays:1,minimumDwellTicks:20,arrivalOverrides:[],diagramLines:[{id:'main',upStationIds:['A','B','C','D'],downStationIds:['D','C','B','A']},{id:'branch',upStationIds:['C','E'],downStationIds:['E','C']}],runs:[
  {id:'M01',lineId:'main',diagramLineId:'main',lineDirection:'UP',type:'PASSENGER',calls:[{id:'a',stationId:'A',status:'ORIGIN',targetId:'A@1',departureTick:100},{id:'b',stationId:'B',status:'PASS',targetId:'B@1',arrivalTick:200},{id:'c',stationId:'C',status:'TERMINAL',targetId:'C@1',arrivalTick:300,doorSide:'LEFT'}]},
  {id:'B01',lineId:'branch',diagramLineId:'branch',lineDirection:'UP',type:'PASSENGER',calls:[{id:'c2',stationId:'C',status:'ORIGIN',targetId:'C@1',departureTick:350},{id:'e',stationId:'E',status:'TERMINAL',targetId:'E@1',arrivalTick:500}]},
@@ -36,9 +36,9 @@ describe('one-document through running and unit trips',()=>{
  });
  it('establishes a named train origin before its initial display program without a second run check',()=>{
   const d=document();
-  d.boundPrograms=[{programId:'display',revision:1,contentIdentity:'sha256:'+'a'.repeat(64),definition:{parameters:[],steps:[{id:'set',type:'SET_DISPLAY',values:{value:{destination:'E'}}}]}}];
+  const programs=[{formatVersion:1 as const,id:'display',name:'display',definition:{parameters:[],steps:[{id:'set' as const,type:'SET_DISPLAY' as const,values:{value:{destination:'E'}}}]}}];
   d.duties[0].elements.unshift({id:'initial-display',type:'PROGRAM',tick:50,program:{programId:'display',arguments:{}}});
-  const generated=generateTimetableSource(d);
+  const generated=generateTimetableSource(d,programs);
   expect(generated.issues).toEqual([]);
   expect(generated.source.match(/\.check\(/g)).toHaveLength(1);
   expect(generated.source.indexOf('.check("A@1")')).toBeLessThan(generated.source.indexOf('.program("display"'));

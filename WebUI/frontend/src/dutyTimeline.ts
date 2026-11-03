@@ -1,7 +1,7 @@
 import {formationPlannedEnd} from './formationAuthoring';
 import {resolveDutyTimedOperation,measuredOperationDuration,operationDuration} from './timedOperations';
 import {authoringMinimumDwell,type AuthoringDutyElementV1,type AuthoringDutyV1,type TimetableAuthoringDocumentV1} from './authoring';
-import type {StationProgramDefinition,StationProgramLiteral,TimetableSimulationResult} from './types';
+import type {StationProgramDefinition,StationProgramLiteral,StationProgramRecord,TimetableSimulationResult} from './types';
 
 export interface DutyTimelineTask {
  id:string;type:'RUN'|'PROGRAM'|'EVENT'|'FORMATION';label:string;startTick:number;endTick?:number;
@@ -30,7 +30,7 @@ export function orderDutyTimeline(document:TimetableAuthoringDocumentV1):Timetab
  return changed?{...document,duties}:document;
 }
 /** Measurements belong to the caller's current simulation input; no result is persisted here. */
-export function projectDutyTimeline(document:TimetableAuthoringDocumentV1,duty:AuthoringDutyV1,simulation?:TimetableSimulationResult):DutyTimelineTask[] {
+export function projectDutyTimeline(document:TimetableAuthoringDocumentV1,duty:AuthoringDutyV1,simulation?:TimetableSimulationResult,programs:readonly StationProgramRecord[]=[]):DutyTimelineTask[] {
  const tasks:DutyTimelineTask[]=duty.elements.map((element)=>{
   const startTick=dutyTaskStart(document,element);
   if(element.type==='RUN'){
@@ -48,7 +48,7 @@ export function projectDutyTimeline(document:TimetableAuthoringDocumentV1,duty:A
   const mode=operation?.duration?.type??'POINT';
   const measurement=measuredOperationDuration(simulation,duty.id,element.id);
   const measured=mode==='SIMULATED'&&measurement!==undefined;
-  const duration=operation?operationDuration(operation,measurement,document.boundPrograms):undefined;
+  const duration=operation?operationDuration(operation,measurement,programs):undefined;
   return {id:element.id,type:element.type,label:operation?.label??operation?.program?.programId??(element.type==='EVENT'?element.eventId:element.id),startTick,endTick:duration===undefined?undefined:startTick+duration,durationMode:mode,measured:measured||undefined,overlaps:[]};
  });
  for(let i=0;i<tasks.length;i++)for(let j=i+1;j<tasks.length;j++){

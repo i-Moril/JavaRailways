@@ -114,13 +114,12 @@ class ProgramExpressionValidatorTest {
 
     @Test void libraryRoundTripKeepsExpressionTreesAndIdentity(@TempDir Path directory) throws Exception {
         JsonNode definition = definition(operation("MULTIPLY", literal(2), literal(20)));
-        var repository = new VisualProgramRepository(directory, mapper, StationProgramValidator::validate);
-        JsonNode created = repository.create("world", "1", "1", definition, null);
-        var reopened = new VisualProgramRepository(directory, mapper, StationProgramValidator::validate);
-        JsonNode loaded = reopened.find("world", "1").orElseThrow();
+        var repository = new TimetableProgramRepository(directory, mapper);
+        JsonNode created = repository.create("world", "doc", "1", "1", definition, null);
+        var reopened = new TimetableProgramRepository(directory, mapper);
+        JsonNode loaded = reopened.find("world", "doc", "1").orElseThrow();
         assertEquals(created, loaded);
         assertEquals(definition, loaded.path("definition"));
-        assertEquals(ProgramContentIdentity.of(definition), loaded.path("contentIdentity").asText());
     }
 
     @Test void oneStringParameterFeedsIdentifiersAndTextAndPersists(@TempDir Path directory) throws Exception {
@@ -133,9 +132,9 @@ class ProgramExpressionValidatorTest {
               {"id":"store","type":"STORE_AT_DEPOT","depotId":{"parameterId":"place"},"stablingPointIds":{"value":[]}}]}
             """);
         assertDoesNotThrow(() -> StationProgramValidator.validateArguments(definition, mapper.createObjectNode().put("place", "central")));
-        var repository = new VisualProgramRepository(directory, mapper, StationProgramValidator::validate);
-        var created = repository.create("world", "2", "2", definition, null);
-        var loaded = new VisualProgramRepository(directory, mapper, StationProgramValidator::validate).find("world", "2").orElseThrow();
+        var repository = new TimetableProgramRepository(directory, mapper);
+        var created = repository.create("world", "doc", "2", "2", definition, null);
+        var loaded = new TimetableProgramRepository(directory, mapper).find("world", "doc", "2").orElseThrow();
         assertEquals(created, loaded);
         assertEquals("STRING", loaded.path("definition").path("parameters").get(0).path("type").asText());
         StationProgramValidator.validateArguments(loaded.path("definition"), mapper.createObjectNode().put("place", "central"));

@@ -14,7 +14,7 @@ function document():TimetableAuthoringDocumentV1{return {
   ]})),duties:[
     {id:'1',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'a',type:'RUN',runId:'1'}]},
     {id:'2',selector:{type:'TRAIN_NAME',name:'other'},elements:[{id:'b',type:'RUN',runId:'2'}]},
-  ],events:[{id:'event',tick:500}],boundPrograms:[],stationPrograms:[],
+  ],events:[{id:'event',tick:500}],stationPrograms:[],
 };}
 const lines=[{id:'main',displayName:'Main',upStationIds:['a','b'],downStationIds:['b','a'],maximumSpeedMetersPerSecond:20}];
 
@@ -33,7 +33,7 @@ describe('timeline-owned continuous display plans',()=>{
     expect(next.operationalTrips?.map((plan)=>plan.id)).toEqual(['old-name','0009','10']);
     expect(next.operationalTrips?.at(-1)?.segments).toEqual([{...first,unitSlots:[2,1]}]);
     expect(d.operationalTrips).toHaveLength(2);
-    for(const key of ['runs','duties','events','boundPrograms','stationPrograms','diagramLines','arrivalOverrides'] as const)expect(next[key]).toBe(d[key]);
+    for(const key of ['runs','duties','events','stationPrograms','diagramLines','arrivalOverrides'] as const)expect(next[key]).toBe(d[key]);
     const large={...d,operationalTrips:[{id:'9007199254740993',defaults:{},segments:[]}]};
     expect(createDisplayPlan(large,first).operationalTrips?.at(-1)?.id).toBe('9007199254740994');
   });

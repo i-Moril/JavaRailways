@@ -18,7 +18,7 @@ class SharedStationProgramValidatorTest {
              "duties":[{"id":"d","selector":{"type":"TRAIN_NAME","name":"train"},"elements":[],
                "referenceVehicle":{"type":"TRAIN_TEMPLATE","id":"emu"}}]}
             """);
-        assertDoesNotThrow(() -> EditorDocumentValidator.validate(document));
+        assertDoesNotThrow(() -> EditorDocumentValidator.validate(document, java.util.Map.of()));
         assertEquals(document, mapper.readTree(mapper.writeValueAsString(document)));
     }
 
@@ -41,17 +41,16 @@ class SharedStationProgramValidatorTest {
              "duties":[{"id":"d","selector":{"type":"TRAIN_NAME","name":"train"},"initialPosition":"A","elements":[
                {"id":"1","type":"PROGRAM","tick":100,"program":{"programId":"1","arguments":{}},"duration":{"type":"MANUAL","ticks":20}}]}]}
             """);
-        var snapshot = mapper.createObjectNode().put("programId", "1").put("revision", 1).put("contentIdentity", ProgramContentIdentity.of(definition));
-        snapshot.set("definition", definition);
-        document.putArray("boundPrograms").add(snapshot);
-        assertDoesNotThrow(() -> EditorDocumentValidator.validate(document));
+        var program = mapper.createObjectNode();program.set("definition",definition);
+        var programs = java.util.Map.<String, com.fasterxml.jackson.databind.JsonNode>of("1", program);
+        assertDoesNotThrow(() -> EditorDocumentValidator.validate(document, programs));
         var duration = (com.fasterxml.jackson.databind.node.ObjectNode) document.path("duties").get(0).path("elements").get(0).path("duration");
         duration.put("ticks", -1);
-        assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(document));
+        assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(document, programs));
         duration.remove("ticks");duration.put("type", "SIMULATED");
-        assertDoesNotThrow(() -> EditorDocumentValidator.validate(document));
+        assertDoesNotThrow(() -> EditorDocumentValidator.validate(document, programs));
         duration.put("ticks", 20);
-        assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(document));
+        assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(document, programs));
     }
 
     @Test void asynchronousEndCannotReleaseStationScope() {

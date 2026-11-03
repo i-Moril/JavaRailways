@@ -3,7 +3,7 @@ import {resolveDutyTimedOperation,timedOperationCall,validateTimedOperation} fro
 import {defaultStationStopProgram,resolveEventWaits,validateStopProgram} from './stationPlans';
 import {validateFormationAuthoring,formationPlannedEnd,type AuthoringFormationEvent} from './formationAuthoring';
 import { copyStationProgram,validateArrivalProgram,stationProgramSchedule,resolveProgramValue,displayValuesError,validateStationProgram,validateStationProgramCall } from './stationPrograms';
-import type { StationStopProgram,TimetableEventPoint,OperationalTrip,BoundStationProgram,TimedOperation,TimedOperationProgram,TimedOperationDuration,DiagramLineV1, LineDirection, LineSimulationResult, LineV1, SavedTimetableV1, SimulationProfile, TimetableActionV1, WorldMetadata } from './types';
+import type { StationStopProgram,TimetableEventPoint,OperationalTrip,StationProgramRecord,TimedOperation,TimedOperationProgram,TimedOperationDuration,DiagramLineV1, LineDirection, LineSimulationResult, LineV1, SavedTimetableV1, SimulationProfile, TimetableActionV1, WorldMetadata } from './types';
 
 export type AuthoringDoorSide = 'NONE'|'LEFT'|'RIGHT'|'BOTH';
 export type AuthoringRunCallStatusV1 = 'ORIGIN'|'STOP'|'PASS'|'TERMINAL';
@@ -60,14 +60,13 @@ export interface TimetableAuthoringDocumentV1 {
   arrivalOverrides:ArrivalOverrideV1[];
   stationPrograms?:StationStopProgram[];
   events?:TimetableEventPoint[];
-  boundPrograms?:BoundStationProgram[];
   formationEvents?:AuthoringFormationEvent[];
   operationalTrips?:OperationalTrip[];
 }
 /** Serialize only the current editor contract, never derived runtime line caps. */
 export function authoringDocumentForSave(document:TimetableAuthoringDocumentV1):TimetableAuthoringDocumentV1 {
-  const {formatVersion,id,formalScriptName,periodDays,minimumDwellTicks,runs,duties,diagramLines,arrivalOverrides,boundPrograms,formationEvents,operationalTrips,stationPrograms,events}=document;
-  return {formatVersion,id,formalScriptName,periodDays,minimumDwellTicks,runs:runs.map((run)=>({...run,calls:run.calls.map(authoringCallForSave)})),duties,diagramLines,arrivalOverrides,boundPrograms,formationEvents,operationalTrips,stationPrograms,events};
+  const {formatVersion,id,formalScriptName,periodDays,minimumDwellTicks,runs,duties,diagramLines,arrivalOverrides,formationEvents,operationalTrips,stationPrograms,events}=document;
+  return {formatVersion,id,formalScriptName,periodDays,minimumDwellTicks,runs:runs.map((run)=>({...run,calls:run.calls.map(authoringCallForSave)})),duties,diagramLines,arrivalOverrides,formationEvents,operationalTrips,stationPrograms,events};
 }
 /** Project only the current call contract at the persistence and generated-metadata boundaries. */
 function authoringCallForSave(call:AuthoringRunCallV1):AuthoringRunCallV1 {
@@ -340,7 +339,8 @@ const quote=(value:string)=>JSON.stringify(value);
 const origin=(dutyId:string,elementId:string,runId?:string,functionId?:string)=>
   [`duty:${dutyId}`,`element:${elementId}`,runId&&`run:${runId}`,functionId&&`function:${functionId}`].filter(Boolean).join('/');
 
-export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[]):AuthoringIssue[] {
+export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[],programs:readonly StationProgramRecord[]=[]):AuthoringIssue[] {
+  const programMap=new Map(programs.map((program)=>[program.id,program]));
   const issues:AuthoringIssue[]=[];
   if(document.formatVersion!==1) issues.push(issue('formatVersion','Unsupported editor document version'));
   if(!document.id.trim()) issues.push(issue('id','Timetable ID is required'));
@@ -426,7 +426,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
       if(!duty.selector.wayPointIds.length||duty.selector.wayPointIds.some((id)=>!id.trim())) issues.push(issue(`${path}.selector.wayPointIds`,'At least one waypoint is required'));
       if(!nonNegativeInteger(duty.selector.tick)||duty.selector.tick>=periodTicks) issues.push(issue(`${path}.selector.tick`,'Acquisition tick must be inside the timetable period'));
     }
-    const plannedTasks=projectDutyTimeline(document,duty);
+    const plannedTasks=projectDutyTimeline(document,duty,undefined,programs);
     for(let index=0;index<plannedTasks.length;index++){
       const task=plannedTasks[index];
       if(plannedTasks.slice(0,index).some((prior)=>prior.endTick!==undefined&&prior.endTick>task.startTick))issues.push(issue(`${path}.elements[${index}]`,'Task starts before a previous planned task completes'));
@@ -486,8 +486,8 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
         const operation=resolveDutyTimedOperation(document,element);
         if(!operation?.program){issues.push(issue(elementPath,`Missing program operation: ${element.type==='EVENT'?element.eventId:element.id}`));return;}
         const call=timedOperationCall(operation,element.id);
-        for(const message of validateTimedOperation(operation,periodTicks,document.boundPrograms))issues.push(issue(elementPath,message));
-        const snapshot=document.boundPrograms?.find((item)=>item.programId===call.programId);
+        for(const message of validateTimedOperation(operation,periodTicks,programs))issues.push(issue(elementPath,message));
+        const snapshot=programMap.get(call.programId);
         if(!snapshot)issues.push(issue(elementPath,`Missing bound program: ${call.programId}`));
         else {
           const callIssues=validateStationProgramCall(snapshot,call,periodTicks);
@@ -518,20 +518,20 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
   }
   const eventIds=new Set<string>();
   for(const [index,event] of (document.events??[]).entries()){
-    if(!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(event.id)||eventIds.has(event.id)||validateTimedOperation(event,periodTicks,document.boundPrograms).length>0)issues.push(issue(`events[${index}]`,'Invalid or duplicate timed event'));
+    if(!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(event.id)||eventIds.has(event.id)||validateTimedOperation(event,periodTicks,programs).length>0)issues.push(issue(`events[${index}]`,'Invalid or duplicate timed event'));
     eventIds.add(event.id);
     if(event.program){
-      const snapshot=document.boundPrograms?.find((item)=>item.programId===event.program!.programId);
+      const snapshot=event.program?programMap.get(event.program.programId):undefined;
       if(!snapshot)issues.push(issue(`events[${index}]`,`Missing bound program: ${event.program.programId}`));
       else for(const message of validateStationProgramCall(snapshot,timedOperationCall(event,event.id),periodTicks))issues.push(issue(`events[${index}]`,message));
     }
   }
-  for(const [index,snapshot] of (document.boundPrograms??[]).entries()){
-    if(programIds.has(snapshot.programId))issues.push(issue(`boundPrograms[${index}]`,'Duplicate bound program'));
-    programIds.add(snapshot.programId);
-    if(snapshot.estimatedDurationTicks!==undefined&&(!Number.isSafeInteger(snapshot.estimatedDurationTicks)||snapshot.estimatedDurationTicks<0))issues.push(issue(`boundPrograms[${index}]`,'Invalid program estimated duration'));
-    for(const message of validateStationProgram(snapshot.definition))issues.push(issue(`boundPrograms[${index}]`,message));
-    try{resolveEventWaits(snapshot.definition,document.events??[],periodTicks);}catch(error){issues.push(issue(`boundPrograms[${index}]`,String(error)));}
+  for(const [index,program] of programs.entries()){
+    if(programIds.has(program.id))issues.push(issue(`programs[${index}]`,'Duplicate program'));
+    programIds.add(program.id);
+    if(program.estimatedDurationTicks!==undefined&&(!Number.isSafeInteger(program.estimatedDurationTicks)||program.estimatedDurationTicks<0))issues.push(issue(`programs[${index}]`,'Invalid program estimated duration'));
+    for(const message of validateStationProgram(program.definition))issues.push(issue(`programs[${index}]`,message));
+    try{resolveEventWaits(program.definition,document.events??[],periodTicks);}catch(error){issues.push(issue(`programs[${index}]`,String(error)));}
   }
   const overrideKeys=new Set<string>();
   document.arrivalOverrides.forEach((override,overrideIndex)=>{
@@ -614,19 +614,20 @@ function destinationOptions(document:TimetableAuthoringDocumentV1,duty:Authoring
  return `, JSON.parse(${quote(JSON.stringify({...stopOptions(document,duty,run,call),arrivalTick:override??call.arrivalTick??undefined,minimumDwellTicks:call.status==='PASS'?undefined:authoringMinimumDwell(document),stoppingOffsetMetersBefore:call.stoppingOffsetMetersBefore??undefined,doorSide:runDoorSide(run,call)}))})`;
 }
 
-export function generateTimetableSource(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[]):GeneratedTimetableSource {
-  const issues=validateAuthoringDocument(document,infrastructureLines);
+export function generateTimetableSource(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[],programs:readonly StationProgramRecord[]=[]):GeneratedTimetableSource {
+  const orderedPrograms=[...programs].sort((a,b)=>a.id.localeCompare(b.id));
+  const issues=validateAuthoringDocument(document,infrastructureLines,orderedPrograms);
   const {formalScriptName:ignoredName,...savedInput}=authoringDocumentForSave(document);
   const semanticInput={...savedInput,runs:savedInput.runs.map(({color:_,...run})=>run),formationEvents:savedInput.formationEvents?.map(({duration:_,stationId:__,...event})=>event),events:savedInput.events?.map(({id,tick})=>({id,tick})),duties:savedInput.duties.map((duty)=>({...duty,elements:duty.elements.map((element)=>{
     if(element.type==='RUN'||element.type==='FORMATION')return element;
     const operation=resolveDutyTimedOperation(document,element);
     return {id:element.id,type:element.type,...(element.type==='EVENT'?{eventId:element.eventId}:{}),tick:operation?.tick,program:operation?.program};
   })}))};
-  const documentHashInput=JSON.stringify({document:semanticInput,lineSpeedLimits:authoringLineSpeedLimits(infrastructureLines,document)});
+  const documentHashInput=JSON.stringify({document:semanticInput,programs:orderedPrograms.map((program)=>({id:program.id,definition:program.definition})),lineSpeedLimits:authoringLineSpeedLimits(infrastructureLines,document)});
   if(issues.some((issue)=>issue.severity==='error'))return {source:'',issues,documentHashInput};
   const lines:string[]=['// Generated by JavaRailways WebUI. Do not edit in structured mode.','function main(timetable) {',`    timetable.setPeriodDays(${document.periodDays})`];
-  for(const [index,snapshot] of (document.boundPrograms??[]).entries()) {
-    if(document.duties.some((duty)=>duty.elements.some((element)=>resolveDutyTimedOperation(document,element)?.program?.programId===snapshot.programId)))lines.push(`    const program${index} = JSON.parse(${quote(JSON.stringify(resolveEventWaits(snapshot.definition,document.events??[],document.periodDays*24000)))})`);
+  for(const [index,snapshot] of orderedPrograms.entries()) {
+    if(document.duties.some((duty)=>duty.elements.some((element)=>resolveDutyTimedOperation(document,element)?.program?.programId===snapshot.id)))lines.push(`    const program${index} = JSON.parse(${quote(JSON.stringify(resolveEventWaits(snapshot.definition,document.events??[],document.periodDays*24000)))})`);
   }
   for(const event of document.formationEvents??[]) {
     const {id,tick:_,duration:__,stationId:___,...definition}=event;
@@ -705,7 +706,7 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1,in
         const operation=resolveDutyTimedOperation(document,element);
         if(!operation?.program)continue;
         const call=timedOperationCall(operation,element.id);
-        const index=(document.boundPrograms??[]).findIndex((item)=>item.programId===call.programId);
+        const index=orderedPrograms.findIndex((item)=>item.id===call.programId);
         const argumentsSource=`JSON.parse(${quote(JSON.stringify(call.arguments))})`;
         if(index>=0){
           lines.push(`        t.origin(${quote(`${origin(duty.id,element.id)}/call:${call.id}`)}, scoped => {`);

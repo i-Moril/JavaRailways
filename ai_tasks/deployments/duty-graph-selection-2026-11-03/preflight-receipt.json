@@ -1,0 +1,11 @@
+{
+  "capturedAt": "2026-11-03T16:52:35+00:00",
+  "status": "PASSED",
+  "files": 148,
+  "installed": {"plugins/JavaRailways.jar": "9eb8d3668e07730b764d3a454329df4ac11d39c14dfab5fcf221914b19d645a0"},
+  "candidate": {"plugins/JavaRailways.jar": "dd161b8f4431ecaad811a59ea3d4c5fb6525639f59004d1c9ab28f0ce98873dc"},
+  "webuiSha256": "a15f6d5ee87cdbd0d5b841dc393a2f152b522f700987db5983ef4359fca959b1",
+  "mainScript": "/assets/index-DTo70vgn.js",
+  "mainScriptEntry": "public/assets/index-DTo70vgn.js",
+  "mainScriptSha256": "e4b468fcbb09be06a6f5102684570e4840902fc466080baa37277235de814c0b"
+}

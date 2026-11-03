@@ -71,23 +71,12 @@ class ConservativeAtpModel(val capabilities: VehicleControlCapabilities) {
         if (!deltaSeconds.isFinite() || deltaSeconds <= 0.0 || deltaSeconds > maximumDeltaSeconds)
             return unavailable(AtpReason.INVALID_STATE, "invalid known interval")
         val prefix = prefix(state, command, deltaSeconds, grade, currentCapabilities.deviceCapabilities)
-        val shifted = targets.map { target ->
-            val distance = target.distanceMeters - prefix.second
-            if (target.targetSpeedMetersPerSecond > 0.0 && target.distanceMeters <= prefix.second) {
-                val prefixPeak = max(state.speedMetersPerSecond, prefix.first.speedMetersPerSecond)
-                if (prefixPeak > target.targetSpeedMetersPerSecond) return AtpJudgement(
-                    AtpStatus.INTERVENTION, AtpReason.CURRENT_OVERSPEED,
-                    "known candidate interval crosses a hard speed boundary above its limit",
-                    AtpWitness(target, prefix.second, target.distanceMeters, prefixPeak))
-                target.copy(distanceMeters = 0.0)
-            } else target.copy(distanceMeters = distance)
-        }
-        val result = check(prefix.first, shifted, grade, maximumDeltaSeconds, serviceRecovery, planningReserve)
-        return result.copy(witness = result.witness?.let { witness ->
-            witness.copy(target = targets.first { it.id == witness.target.id },
-                requiredDistanceMeters = up(witness.requiredDistanceMeters + prefix.second),
-                availableDistanceMeters = targets.first { it.id == witness.target.id }.distanceMeters)
-        })
+        // The prefix state has already been validated through its source state and the shared
+        // device algebra. Shift target distances in place instead of allocating a candidate
+        // list and copying every target for each handle.
+        return check(prefix.first, targets, grade, maximumDeltaSeconds, serviceRecovery,
+            planningReserve, distanceShift = prefix.second, stateValidated = true,
+            prefixPeakSpeed = max(state.speedMetersPerSecond, prefix.first.speedMetersPerSecond))
     }
 
     private fun validation(state: VehicleControlState, grade: Double, maximumDelta: Double): AtpJudgement? {
@@ -99,30 +88,43 @@ class ConservativeAtpModel(val capabilities: VehicleControlCapabilities) {
             return unavailable(AtpReason.INVALID_STATE, "invalid motion or missing ordered devices")
         if (state.speedMetersPerSecond > capabilities.maximumSpeedMetersPerSecond)
             return unavailable(AtpReason.OUTSIDE_MODEL_DOMAIN, "speed exceeds compiled domain")
-        if (state.devices.any { device -> listOf(device.pressureKpa, device.electricBrakeForceNewtons,
-                device.tractionForceNewtons, device.commandAgeSeconds, device.previousTractionRatio, device.previousBrakeRatio).any { !it.isFinite() || it < 0.0 } })
+        if (state.devices.any { device ->
+                !device.pressureKpa.isFinite() || device.pressureKpa < 0.0 ||
+                    !device.electricBrakeForceNewtons.isFinite() || device.electricBrakeForceNewtons < 0.0 ||
+                    !device.tractionForceNewtons.isFinite() || device.tractionForceNewtons < 0.0 ||
+                    !device.commandAgeSeconds.isFinite() || device.commandAgeSeconds < 0.0 ||
+                    !device.previousTractionRatio.isFinite() || device.previousTractionRatio < 0.0 ||
+                    !device.previousBrakeRatio.isFinite() || device.previousBrakeRatio < 0.0
+            })
             return unavailable(AtpReason.INVALID_STATE, "invalid device state")
         return null
     }
 
     private fun check(state: VehicleControlState, targets: List<AtpTarget>, grade: Double,
-        maximumDelta: Double, service: Boolean, planningReserve: Boolean): AtpJudgement {
-        validation(state, grade, maximumDelta)?.let { return it }
+        maximumDelta: Double, service: Boolean, planningReserve: Boolean,
+        distanceShift: Double = 0.0, stateValidated: Boolean = false,
+        prefixPeakSpeed: Double = Double.NEGATIVE_INFINITY): AtpJudgement {
+        if (!stateValidated) validation(state, grade, maximumDelta)?.let { return it }
         if (targets.any { it.id.isEmpty() || !it.distanceMeters.isFinite() ||
                 !it.targetSpeedMetersPerSecond.isFinite() || it.targetSpeedMetersPerSecond < 0.0 })
             return unavailable(AtpReason.INVALID_STATE, "invalid hard target")
         val response = response(state, grade, maximumDelta, service, planningReserve)
-        if (listOf(response.distanceMeters, response.endSpeedMetersPerSecond,
-                response.peakSpeedMetersPerSecond, response.preparationSeconds).any { !it.isFinite() || it < 0.0 })
+        if (!response.distanceMeters.isFinite() || response.distanceMeters < 0.0 ||
+            !response.endSpeedMetersPerSecond.isFinite() || response.endSpeedMetersPerSecond < 0.0 ||
+            !response.peakSpeedMetersPerSecond.isFinite() || response.peakSpeedMetersPerSecond < 0.0 ||
+            !response.preparationSeconds.isFinite() || response.preparationSeconds < 0.0)
             return unavailable(AtpReason.INVALID_MODEL, "non-finite analytic response")
         val table = if (service) serviceTable else emergencyTable
         for (target in targets) {
-            val currentLimit = target.distanceMeters <= 0.0 && target.targetSpeedMetersPerSecond > 0.0
+            val available = target.distanceMeters - distanceShift
+            val currentLimit = available <= 0.0 && target.targetSpeedMetersPerSecond > 0.0
             if (currentLimit) {
-                if (response.peakSpeedMetersPerSecond > target.targetSpeedMetersPerSecond)
+                val peak = maxOf(response.peakSpeedMetersPerSecond, prefixPeakSpeed)
+                if (peak > target.targetSpeedMetersPerSecond)
                     return AtpJudgement(AtpStatus.INTERVENTION, AtpReason.CURRENT_OVERSPEED,
-                        "response peak exceeds current hard speed limit", AtpWitness(target, 0.0, 0.0,
-                            response.peakSpeedMetersPerSecond), response)
+                        "response peak exceeds current hard speed limit", AtpWitness(target,
+                            if (distanceShift > 0.0) distanceShift else 0.0,
+                            if (distanceShift > 0.0) target.distanceMeters else 0.0, peak), response)
                 continue
             }
             // A positive speed point constrains speed, not completion of device preparation.
@@ -140,9 +142,10 @@ class ConservativeAtpModel(val capabilities: VehicleControlCapabilities) {
             val terminalDistance = up(distance + terminalRounding)
             val required = if (response.distanceMeters == 0.0 && terminalDistance == 0.0) 0.0 else
                 up(response.distanceMeters + terminalDistance)
-            if (required > target.distanceMeters) return AtpJudgement(AtpStatus.INTERVENTION,
+            if (required > available) return AtpJudgement(AtpStatus.INTERVENTION,
                 AtpReason.INSUFFICIENT_DISTANCE, if (service) "ordinary recovery unavailable" else "emergency stopping boundary",
-                AtpWitness(target, required, target.distanceMeters, response.peakSpeedMetersPerSecond), response)
+                AtpWitness(target, up(required + distanceShift), target.distanceMeters,
+                    response.peakSpeedMetersPerSecond), response)
         }
         return AtpJudgement(AtpStatus.SAFE, AtpReason.CLEAR, response = response)
     }

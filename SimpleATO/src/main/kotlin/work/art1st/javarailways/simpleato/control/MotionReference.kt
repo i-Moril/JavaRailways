@@ -46,14 +46,17 @@ class NominalMotionReference private constructor(
     val operatingAccelerationMetersPerSecondSquared: Double,
     val operatingDecelerationMetersPerSecondSquared: Double,
     val stoppingReleaseJerkMetersPerSecondCubed: Double,
+    val preparationSeconds: Double,
     private val gradeVariants: Array<NominalMotionReference?>?
 ) {
-    constructor(acceleration: Double, deceleration: Double, releaseJerk: Double) :
-        this(acceleration, deceleration, releaseJerk, null)
+    constructor(acceleration: Double, deceleration: Double, releaseJerk: Double,
+        preparationSeconds: Double = 0.0) :
+        this(acceleration, deceleration, releaseJerk, preparationSeconds, null)
     init {
         require(operatingAccelerationMetersPerSecondSquared.isFinite() && operatingAccelerationMetersPerSecondSquared > 0.0)
         require(operatingDecelerationMetersPerSecondSquared.isFinite() && operatingDecelerationMetersPerSecondSquared > 0.0)
         require(stoppingReleaseJerkMetersPerSecondCubed.isFinite() && stoppingReleaseJerkMetersPerSecondCubed > 0.0)
+        require(preparationSeconds.isFinite() && preparationSeconds >= 0.0)
     }
     private val releaseTime = operatingDecelerationMetersPerSecondSquared / stoppingReleaseJerkMetersPerSecondCubed
     private val releaseSpeed = stoppingReleaseJerkMetersPerSecondCubed * releaseTime * releaseTime / 2.0
@@ -61,9 +64,22 @@ class NominalMotionReference private constructor(
 
     fun at(targetSpeedMetersPerSecond: Double, distanceMeters: Double): ReferenceMotionSample {
         val distance = max(0.0, distanceMeters)
-        if (targetSpeedMetersPerSecond > 0.0) return ReferenceMotionSample(
-            sqrt(targetSpeedMetersPerSecond.pow(2) + 2.0 * operatingDecelerationMetersPerSecondSquared * distance),
-            if (distance == 0.0) 0.0 else -operatingDecelerationMetersPerSecondSquared)
+        if (targetSpeedMetersPerSecond > 0.0) {
+            // Reserve a conservative constant-speed preparation interval before the nominal
+            // deceleration begins. The largest reachable speed at distance d solves
+            // d >= v*T + (v^2 - target^2) / (2a), so v = -aT + sqrt((aT)^2 + target^2 + 2ad).
+            // Below the resulting curve the train may simply run at the target speed; never
+            // report less than the actual target at the target point.
+            val deceleration = operatingDecelerationMetersPerSecondSquared
+            val preparation = preparationSeconds
+            val speed = if (preparation <= 0.0)
+                sqrt(targetSpeedMetersPerSecond.pow(2) + 2.0 * deceleration * distance)
+            else max(targetSpeedMetersPerSecond,
+                -deceleration * preparation + sqrt((deceleration * preparation).pow(2) +
+                    targetSpeedMetersPerSecond.pow(2) + 2.0 * deceleration * distance))
+            return ReferenceMotionSample(speed,
+                if (distance == 0.0) 0.0 else -deceleration)
+        }
         if (distance <= stoppingTransitionDistanceMeters) {
             val time = Math.cbrt(6.0 * distance / stoppingReleaseJerkMetersPerSecondCubed)
             return ReferenceMotionSample(stoppingReleaseJerkMetersPerSecondCubed * time * time / 2.0,
@@ -106,12 +122,23 @@ class NominalMotionReference private constructor(
                 capabilities.tractionJerkMetersPerSecondCubed).filter { it > 0.0 }
             val releaseJerk = min(0.5, (finiteJerks.minOrNull() ?: 1.0) * 0.5)
             val gravity = capabilities.gravityMetersPerSecondSquared * capabilities.massToEffectiveMassRatio
+            val maxDelay = capabilities.deviceCapabilities.maxOfOrNull { it.commandDelaySeconds } ?: 0.0
+            val maxElectricRelease = capabilities.deviceCapabilities.maxOfOrNull { car ->
+                val rate = car.electricBrakeReleaseRateNewtonsPerSecond
+                if (rate.isFinite() && rate > 0.0) car.electricBrakeMaxForceNewtons / rate else 0.0
+            } ?: 0.0
+            // Emergency pneumatic build can require 1.25x the nominal apply time. The extra
+            // margin covers one maximum supervision interval and rounding.
+            val preparation = maxOf(maxDelay, maxElectricRelease) +
+                1.25 * capabilities.brakeApplyTimeSeconds + PREPARATION_MARGIN_SECONDS
+            require(preparation.isFinite() && preparation >= 0.0) { "invalid brake preparation interval" }
             val variants = Array<NominalMotionReference?>(81) { index ->
                 val available = deceleration + (MIN_GRADE + index * GRADE_STEP) * gravity
-                if (available <= 0.0) null else NominalMotionReference(acceleration, available, releaseJerk)
+                if (available <= 0.0) null else NominalMotionReference(acceleration, available, releaseJerk, preparation)
             }
-            return NominalMotionReference(acceleration, deceleration, releaseJerk, variants)
+            return NominalMotionReference(acceleration, deceleration, releaseJerk, preparation, variants)
         }
+        private const val PREPARATION_MARGIN_SECONDS = 0.25
     }
 }
 

@@ -84,6 +84,33 @@ class VehicleControlExecutorTest {
         assertEquals(AtpReason.INPUT_UNAVAILABLE, executor.intervention!!.judgement.reason)
     }
 
+    @Test fun `far hard targets are recognized as outside the protection horizon`() {
+        val fixture = ReferenceEquipmentFixture()
+        val state = TrainDynamics.initialState(fixture.cars, 5.0)
+        val far = fixture.input(state, VehicleControlCommand.COAST, 5_000.0, .05)
+        val model = work.art1st.javarailways.simpleato.atp.ConservativeAtpModel(far.capabilities)
+        val farTarget = listOf(AtpTarget("stop", 5_000.0, 0.0))
+        val safe = model.emergency(far.state, farTarget, 0.0, far.maximumControlDeltaSeconds)
+        assertEquals(AtpStatus.SAFE, safe.status)
+        assertTrue(hardTargetsBeyondProtection(far, farTarget, safe))
+        val near = far.copy(constraints = listOf(MotionReferenceConstraint("stop", 1.0, 0.0)))
+        assertFalse(hardTargetsBeyondProtection(near, listOf(AtpTarget("stop", 1.0, 0.0)), safe))
+    }
+
+    @Test fun `relaxed far-target selection still commits only a hard-safe command`() {
+        val fixture = ReferenceEquipmentFixture()
+        val settled = TrainDynamics.initialState(fixture.cars)
+        val state = settled.copy(devices = TrainDynamics.DeviceSnapshot.of(
+            settled.devices.toList().map { it.copy(commandAgeSeconds = 1.0) }))
+        val input = fixture.input(state, VehicleControlCommand.COAST, 20.0, .05)
+        val targets = listOf(AtpTarget("stop", 20.0, 0.0))
+        val executor = VehicleControlExecutor()
+        val chosen = executor.choose(input, targets, 0.0)
+        assertNull(executor.intervention)
+        assertFalse(chosen.emergencyBrake)
+        assertTrue(executor.lastDecision!!.ordinaryCommandAdmissible)
+    }
+
     @Test fun `simulation cannot continue an existing intervention`() {
         val input = input()
         val executor = VehicleControlExecutor()

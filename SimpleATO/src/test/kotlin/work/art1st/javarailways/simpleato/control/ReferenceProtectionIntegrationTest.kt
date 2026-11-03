@@ -30,6 +30,37 @@ class ReferenceProtectionIntegrationTest {
             variable = false, initialSpeed = 0.0)
     }
 
+    @Test fun `positive speed limit is met without ATP intervention`() {
+        val fixture = ReferenceEquipmentFixture()
+        val executor = VehicleControlExecutor()
+        var state = TrainDynamics.initialState(fixture.cars, 8.0)
+        var command = VehicleControlCommand.COAST
+        var position = 0.0
+        val limitAt = 40.0
+        val limit = 7.7505
+        var crossed = false
+        for (tick in 0 until 3000) {
+            val remaining = limitAt - position
+            val base = fixture.input(state, command, 100.0 - position, .05)
+            val input = base.copy(constraints = listOf(
+                MotionReferenceConstraint("limit", remaining, limit),
+                MotionReferenceConstraint("stop", 100.0 - position, 0.0)))
+            val targets = listOf(AtpTarget("limit", remaining, limit),
+                AtpTarget("speed", 0.0, fixture.profile.maxSpeed),
+                AtpTarget("stop", 100.0 - position, 0.0))
+            command = executor.choose(input, targets, 0.0, VehicleExecutionMode.SIMULATION)
+            val result = TrainDynamics.step(state, fixture.profile, fixture.carInputs, command, 9.80665, .05)
+            state = result.state; position += result.distance
+            if (!crossed && position >= limitAt) {
+                assertTrue(state.speed <= limit + 1e-9, "speed=${state.speed} at $position")
+                crossed = true
+            }
+            if (crossed && position > limitAt + 10.0) break
+        }
+        assertTrue(crossed)
+        assertNull(executor.intervention)
+    }
+
     @Test fun `immediate ideal equipment parks at an exact hard boundary`() {
         val fixture=ImmediateEquipmentFixture()
         val executor=VehicleControlExecutor()

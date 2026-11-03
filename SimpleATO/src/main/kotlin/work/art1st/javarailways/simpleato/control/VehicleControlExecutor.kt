@@ -21,10 +21,13 @@ class VehicleControlExecutor(private val onEvent: (AtpControlEvent) -> Unit = {}
     private val stopping = StoppingReferenceStrategy()
     private var stopId: String? = null
     private var stopDistance: Double? = null
-    private var signature: List<Pair<String, Double>> = emptyList()
+    private var signature: Long = 0L
     private var decisionAge = Double.POSITIVE_INFINITY
     private var manualAcknowledgementRequired = false
     @Volatile private var acknowledgementRequested = false
+    private val reserveJudgements = HashMap<VehicleControlCommand, AtpJudgement>()
+    private val plainJudgements = HashMap<VehicleControlCommand, AtpJudgement>()
+    private val emergencyJudgements = HashMap<VehicleControlCommand, AtpJudgement>()
     var intervention: AtpControlEvent? = null; private set
     var lastDecision: ReferenceControlDecision? = null; private set
     var planningReserveAvailable: Boolean = true; private set
@@ -46,23 +49,26 @@ class VehicleControlExecutor(private val onEvent: (AtpControlEvent) -> Unit = {}
         inputUnavailableReason: String? = null): VehicleControlCommand {
         prepare(input.capabilities)
         val protection = model!!
+        reserveJudgements.clear(); plainJudgements.clear(); emergencyJudgements.clear()
         val current = if (inputUnavailableReason != null) AtpJudgement(AtpStatus.UNAVAILABLE,
             AtpReason.INPUT_UNAVAILABLE, inputUnavailableReason) else protection.emergency(input.state,
                 targets, mostAdverseGrade, input.maximumControlDeltaSeconds)
         var assessment = "CURRENT_EMERGENCY"
         var judgement = current
         var candidate = proposedCommand ?: lastDecision?.command ?: input.state.lastCommand
-        val checked = HashMap<Pair<VehicleControlCommand, Boolean>, AtpJudgement>()
-        val emergencyChecked = HashMap<VehicleControlCommand, AtpJudgement>()
-        fun candidateJudgement(command: VehicleControlCommand, withReserve: Boolean = false): AtpJudgement = checked.getOrPut(command to withReserve) {
-            val eb = emergencyChecked.getOrPut(command) {
-                protection.afterCandidate(input.state, command, input.deltaSeconds, targets,
-                    mostAdverseGrade, input.maximumControlDeltaSeconds, currentCapabilities = input.capabilities)
-            }
-            if (eb.status != AtpStatus.SAFE || command.emergencyBrake) eb else if (withReserve &&
+        fun candidateJudgement(command: VehicleControlCommand, withReserve: Boolean = false): AtpJudgement {
+            val cache = if (withReserve) reserveJudgements else plainJudgements
+            cache[command]?.let { return it }
+            val eb = emergencyJudgements[command] ?: protection.afterCandidate(input.state, command,
+                input.deltaSeconds, targets, mostAdverseGrade, input.maximumControlDeltaSeconds,
+                currentCapabilities = input.capabilities).also { emergencyJudgements[command] = it }
+            val result = if (eb.status != AtpStatus.SAFE || command.emergencyBrake) eb else if (withReserve &&
                 candidateJudgement(command, false).status != AtpStatus.SAFE) candidateJudgement(command, false) else
                 protection.afterCandidate(input.state, command, input.deltaSeconds, targets,
-                    mostAdverseGrade, input.maximumControlDeltaSeconds, serviceRecovery = true, currentCapabilities = input.capabilities, planningReserve = withReserve)
+                    mostAdverseGrade, input.maximumControlDeltaSeconds, serviceRecovery = true,
+                    currentCapabilities = input.capabilities, planningReserve = withReserve)
+            cache[command] = result
+            return result
         }
         if (current.status == AtpStatus.SAFE) {
             if (mode == VehicleExecutionMode.MANUAL) {
@@ -79,37 +85,58 @@ class VehicleControlExecutor(private val onEvent: (AtpControlEvent) -> Unit = {}
                     assessment = "OPERATING_MODEL"
                 } else {
                     val target = ReferenceStrategyMode.stoppingTarget(ideal, input, stopId, stopDistance)
-                    val nextSignature = input.constraints.map { it.id to it.targetSpeedMetersPerSecond }
+                    val nextSignature = constraintSignature(input.constraints)
                     val targetChanged = target?.id != stopId || nextSignature != signature
                     if (targetChanged) stopping.reset()
                     stopId = target?.id; stopDistance = target?.distanceMeters; signature = nextSignature
                     decisionAge += input.deltaSeconds
-                    val heldSafe = lastDecision?.let { candidateJudgement(it.command, true).status == AtpStatus.SAFE } ?: false
-                    val operatingStops = input.constraints.filter { it.targetSpeedMetersPerSecond == 0.0 }
-                    val nominalHeldDistance = if (heldSafe && operatingStops.isNotEmpty())
-                        NominalServiceBrakeModel.stoppingDistanceMeters(input, lastDecision!!.command) else 0.0
+                    val heldCommand = lastDecision?.command
+                    val heldJudgement = heldCommand?.let { candidateJudgement(it, true) }
+                    val heldSafe = heldJudgement?.status == AtpStatus.SAFE
+                    val relaxedProtection = hardTargetsBeyondProtection(input, targets, current)
+                    var nearestOperatingStop = Double.POSITIVE_INFINITY
+                    for (constraint in input.constraints)
+                        if (constraint.targetSpeedMetersPerSecond == 0.0)
+                            nearestOperatingStop = minOf(nearestOperatingStop, constraint.distanceMeters)
                     // A cached cruising command may lose operating reachability before the next 0.2 s decision.
                     // This only requests a fresh ordinary decision; it is not a protection intervention.
-                    val operatingReconsider = operatingStops.any {
-                        !nominalHeldDistance.isFinite() || nominalHeldDistance >= it.distanceMeters
+                    // The target must first be inside a generous multiple of the ideal zero-speed
+                    // distance; far targets cannot become reachable-loss events in one interval.
+                    val operatingReconsider = if (!nearestOperatingStop.isFinite()) false else {
+                        val nearEnough = nearestOperatingStop <=
+                            ideal.stoppingDistanceMeters(input.state.speedMetersPerSecond) * 4.0 +
+                            input.state.speedMetersPerSecond * 2.0 + 50.0
+                        if (!nearEnough) false else {
+                            val nominalHeldDistance = if (heldSafe)
+                                NominalServiceBrakeModel.stoppingDistanceMeters(input, lastDecision!!.command) else 0.0
+                            !nominalHeldDistance.isFinite() || nominalHeldDistance >= nearestOperatingStop
+                        }
                     }
                     // Terminal control follows actual intervals; cruise reuses a checked demand for up to 0.2 s.
                     if (targetChanged || decisionAge >= 0.2 || target != null || !heldSafe || operatingReconsider) {
-                        fun select(withReserve: Boolean): ReferenceControlDecision {
+                        fun select(withReserve: Boolean, relaxed: Boolean = false): ReferenceControlDecision {
                             val admissible: (VehicleControlCommand) -> Boolean = { command ->
                                 (withReserve || command.tractionRatio == 0.0) &&
-                                    candidateJudgement(command, withReserve).status == AtpStatus.SAFE
+                                    (relaxed || candidateJudgement(command, withReserve).status == AtpStatus.SAFE)
                             }
                             return if (target != null) stopping.select(ideal, input, target, admissible)
                                 else driving.select(ideal, input, admissible)
                         }
-                        val planned = select(true)
-                        planningReserveAvailable = planned.ordinaryCommandAdmissible
-                        lastDecision = if (planningReserveAvailable) planned else select(false)
+                        val planned = select(true, relaxedProtection)
+                        // The relaxed catalogue still commits only a command that passes the
+                        // normal hard check. A failure restores the strict per-candidate path.
+                        val relaxedChosen = if (relaxedProtection &&
+                            candidateJudgement(planned.command, true).status != AtpStatus.SAFE)
+                            select(true, false) else planned
+                        planningReserveAvailable = relaxedChosen.ordinaryCommandAdmissible
+                        lastDecision = if (planningReserveAvailable) relaxedChosen else select(false, false)
                         decisionAge = 0.0
                     }
                     candidate = lastDecision!!.command
-                    judgement = candidateJudgement(candidate)
+                    // A reserve-safe judgement for the same command is also safe without the
+                    // extra planning reserve; reuse it instead of running the model twice.
+                    judgement = if (heldJudgement != null && heldJudgement.status == AtpStatus.SAFE &&
+                        candidate == heldCommand) heldJudgement else candidateJudgement(candidate)
                     assessment = "ORDINARY_RECOVERY"
                     if (!lastDecision!!.ordinaryCommandAdmissible && judgement.status == AtpStatus.SAFE)
                         judgement = AtpJudgement(AtpStatus.INTERVENTION, AtpReason.NO_ORDINARY_RECOVERY,
@@ -144,4 +171,36 @@ class VehicleControlExecutor(private val onEvent: (AtpControlEvent) -> Unit = {}
         grade: Double, context: Any?, assessment: String) = AtpControlEvent(kind, mode,
         input.state.copy(devices = input.state.devices.toList()), candidate, judgement, lastDecision,
         input.capabilities.configurationIdentity, grade, targets.toList(), context, assessment)
+}
+
+/** Stable O(constraints) target-shape signature without allocating a list of pairs. */
+private fun constraintSignature(constraints: List<MotionReferenceConstraint>): Long {
+    var hash = -0x340d631b7bdddcdbL
+    for (constraint in constraints) {
+        hash = (hash xor constraint.id.hashCode().toLong()) * 0x100000001b3L
+        hash = (hash xor constraint.targetSpeedMetersPerSecond.toRawBits()) * 0x100000001b3L
+    }
+    return hash
+}
+
+/**
+ * True while the current emergency certificate is safe and every hard target lies beyond a
+ * conservative horizon for any ordinary command in the next known interval. This only
+ * authorizes skipping per-candidate protection evaluation; the chosen command is still
+ * hard-checked and a failure falls back to the strict predicate.
+ */
+internal fun hardTargetsBeyondProtection(input: MotionReferenceInput, targets: List<AtpTarget>,
+    current: AtpJudgement): Boolean {
+    if (current.status != AtpStatus.SAFE) return false
+    if (targets.isEmpty()) return true
+    val response = current.response ?: return false
+    val h = input.maximumControlDeltaSeconds
+    val downhill = maxOf(0.0, -input.capabilities.worstCurrentGrade) *
+        input.capabilities.gravityMetersPerSecondSquared * input.capabilities.massToEffectiveMassRatio
+    val speedAfter = input.state.speedMetersPerSecond +
+        maxOf(0.0, input.capabilities.maximumTractionAccelerationMetersPerSecondSquared + downhill) * h
+    // Two current emergency responses cover a traction interval, brake release and a
+    // slower re-establishment; the interval terms cover the decision cache.
+    val horizon = response.distanceMeters * 2.0 + speedAfter * h * 2.0 + 10.0
+    return targets.all { it.distanceMeters > horizon }
 }

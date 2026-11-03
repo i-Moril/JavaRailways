@@ -74,6 +74,20 @@ mission resolve和stale revision是typed rejection，不Stall；controller/invar
 更新。纯名义停车误差或名义预测不可达只产生`OperatingPrecisionStatus`，不能转换为ATP事件；
 仅硬安全candidate集合为空或输入/模型不可用时触发异常。
 
+当前EB判断为SAFE且全部硬目标都超出一个保守保护视界时，执行器允许普通策略直接使用完整档位
+catalogue，跳过逐候选ATP恢复计算。视界由当前EB响应距离、下一已知区间最大牵引增量和决策缓存
+覆盖；它只用于放宽候选筛选，选中命令仍必须通过同一`candidateJudgement`硬检查。检查失败时
+执行器立即回退到严格逐候选筛选，再按既有planning-reserve/no-ordinary-recovery语义提交。
+因此该快速路径不能免除任何实际执行命令的硬证书，也不能把ATP异常转换为运营精度状态。
+
+同一`choose`内的candidate judgement按命令和reserve标志复用，map在每次调用开始时清空；不分配
+`Pair`键。`afterCandidate`已对源状态做一次validation，派生的prefix状态来自共享设备代数，
+不再重复validation；候选目标通过距离偏移在原地检查，不构造shifted target列表。若继续命令与
+已缓存的reserve-safe judgement一致，最终无reserve硬判断复用该judgement（reserve-safe蕴含
+无reserve-safe）；命令改变时仍重新检查。目标形状用无分配64位签名比较。
+普通巡航在离最近零速目标很远时跳过每tick的名义停车模型；该预检查只决定是否提前重选，
+0.2s的正常决策周期和逐tick硬证书保持不变。
+
 AUTO在停稳且新鲜安全输入允许候选时自动解除；MANUAL触发的人工确认要求跨controller/mode保留，
 ack仅排队，下一次新鲜安全检查成功才解除。SIMULATION记录不可变事件后中断，已有latch也必须中断。
 事件记录原状态、候选、判断、能力identity、坡度、所有硬目标和调用方immutable world/head/epoch上下文。

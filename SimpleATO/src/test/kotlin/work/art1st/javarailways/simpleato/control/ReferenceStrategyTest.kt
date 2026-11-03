@@ -150,6 +150,56 @@ class ReferenceStrategyTest {
         assertTrue(stopped);assertEquals(20.0,position,.05)
     }
 
+    @Test fun `positive speed targets reserve physical brake preparation`() {
+        val fixture = ReferenceEquipmentFixture()
+        val state = TrainDynamics.initialState(fixture.cars, 8.0)
+        val input = fixture.input(state, VehicleControlCommand.COAST, 7.2467, .05)
+        val reference = NominalMotionReference.fromCapabilities(input.capabilities)
+        assertTrue(reference.preparationSeconds > 0.0)
+        val immediate = NominalMotionReference(reference.operatingAccelerationMetersPerSecondSquared,
+            reference.operatingDecelerationMetersPerSecondSquared,
+            reference.stoppingReleaseJerkMetersPerSecondCubed)
+        val target = 7.7505
+        val distance = 7.2467
+        val reserved = reference.at(target, distance)
+        assertTrue(reserved.speedMetersPerSecond < immediate.at(target, distance).speedMetersPerSecond)
+        assertTrue(reserved.speedMetersPerSecond < 8.2394)
+        assertEquals(target, reference.at(target, 0.0).speedMetersPerSecond, 1e-9)
+        assertEquals(immediate.at(0.0, distance), reference.at(0.0, distance))
+    }
+
+    @Test fun `strongest traction bounds the ordinary nominal stopping catalogue`() {
+        for (speed in listOf(0.0, 1.0, 5.0, 9.0)) for (grade in listOf(-.02, 0.0, .02))
+            for (pressure in listOf(0.0, .5, 1.0)) {
+                val fixture = ReferenceEquipmentFixture(grade = grade)
+                val state = TrainDynamics.initialState(fixture.cars, speed, brakeScale = pressure)
+                val input = fixture.input(state, VehicleControlCommand.COAST, 5_000.0, .05)
+                val ordinary = input.capabilities.handles.filter { !it.command.emergencyBrake }
+                val bound = nominalStopUpperBound(input, ordinary)
+                assertTrue(bound.isFinite(), "speed=$speed grade=$grade pressure=$pressure")
+                ordinary.forEach { handle ->
+                    val distance = NominalServiceBrakeModel.stoppingDistanceMeters(input, handle.command)
+                    if (distance.isFinite())
+                        assertTrue(distance <= bound + 1e-9,
+                            "handle=${handle.handle} distance=$distance bound=$bound speed=$speed grade=$grade")
+                }
+            }
+    }
+
+    @Test fun `far zero target is beyond the nominal catalogue bound`() {
+        val fixture = ReferenceEquipmentFixture()
+        val settled = TrainDynamics.initialState(fixture.cars, 1.0)
+        val state = settled.copy(devices = TrainDynamics.DeviceSnapshot.of(
+            settled.devices.toList().map { it.copy(commandAgeSeconds = 1.0) }))
+        val input = fixture.input(state, VehicleControlCommand.COAST, 5_000.0, .05)
+        val reference = NominalMotionReference.fromCapabilities(input.capabilities)
+        val ordinary = input.capabilities.handles.filter { !it.command.emergencyBrake }
+        assertTrue(input.constraints.single().distanceMeters > nominalStopUpperBound(input, ordinary))
+        val decision = DrivingReferenceStrategy().select(reference, input)
+        assertEquals(OperatingPrecisionStatus.TRACKING, decision.precisionStatus)
+        assertTrue(decision.command.tractionRatio > 0.0, "command=${decision.command}")
+    }
+
     @Test fun `constant device event distances match the current kernel`() {
         var count = 0
         for (adhesion in listOf(.08, .4)) for ((jerk, upwardJerk) in listOf(.2 to .2, 1.0 to 1.0, .2 to 1.0, 1.0 to .2)) for (grade in listOf(-.01, 0.0, .01)) {

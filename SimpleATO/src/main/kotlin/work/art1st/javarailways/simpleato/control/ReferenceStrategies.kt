@@ -64,15 +64,23 @@ private fun decide(reference: NominalMotionReference, input: MotionReferenceInpu
     // stopping model must never be turned into a hard protection failure.
     val operatingStop = stop ?: input.constraints.asSequence()
         .filter { it.targetSpeedMetersPerSecond == 0.0 }.minByOrNull { it.distanceMeters }
-    val stopDistances = if (operatingStop == null) emptyMap() else candidates.associateWith {
+    // Every candidate uses the same maximum-service-brake continuation; the strongest
+    // traction candidate reaches the highest speed in the known interval, so its nominal
+    // stopping distance bounds the whole ordinary catalogue. One maximum supervision
+    // interval covers a cached decision before the next re-evaluation.
+    val farBeyondStop = operatingStop != null && stop == null &&
+        operatingStop.distanceMeters > reference.stoppingDistanceMeters(input.state.speedMetersPerSecond) &&
+        operatingStop.distanceMeters > nominalStopUpperBound(input, candidates)
+    val stopDistances = if (operatingStop == null || farBeyondStop) emptyMap() else candidates.associateWith {
         NominalServiceBrakeModel.stoppingDistanceMeters(input, it.command)
     }
     var precision = when {
+        farBeyondStop -> OperatingPrecisionStatus.TRACKING
         stopDistances.values.any { it.isNaN() } -> OperatingPrecisionStatus.MODEL_UNAVAILABLE
         operatingStop != null && stopDistances.values.none { it.isFinite() && it <= operatingStop.distanceMeters } -> OperatingPrecisionStatus.TARGET_UNREACHABLE
         else -> OperatingPrecisionStatus.TRACKING
     }
-    val nominallyReachable = if (operatingStop == null) candidates else candidates.filter {
+    val nominallyReachable = if (operatingStop == null || farBeyondStop) candidates else candidates.filter {
         stopDistances.getValue(it).isNaN() || stopDistances.getValue(it) <= operatingStop.distanceMeters
     }
     var choices = nominallyReachable.ifEmpty {
@@ -165,4 +173,19 @@ private fun brakeRatioForAcceleration(handles: List<VehicleHandleCapability>, ac
             change * (b.command.brakeRatio - a.command.brakeRatio)
     }
     return curve.last().command.brakeRatio
+}
+
+/**
+ * Conservative upper bound on the nominal stopping distance of every candidate in
+ * [candidates]. All candidates share the same maximum-service-brake continuation; only the
+ * known interval differs. A command with the most traction and no brake cannot leave that
+ * interval slower than any other ordinary command, so one probe bounds the catalogue.
+ * Returns infinity when the probe cannot establish a finite bound.
+ */
+internal fun nominalStopUpperBound(input: MotionReferenceInput, candidates: List<VehicleHandleCapability>): Double {
+    val probe = candidates.maxByOrNull { it.command.tractionRatio - it.command.brakeRatio }
+        ?: return Double.POSITIVE_INFINITY
+    val distance = NominalServiceBrakeModel.stoppingDistanceMeters(input, probe.command)
+    if (!distance.isFinite()) return Double.POSITIVE_INFINITY
+    return distance + max(0.0, input.state.speedMetersPerSecond) * input.maximumControlDeltaSeconds + 1.0
 }

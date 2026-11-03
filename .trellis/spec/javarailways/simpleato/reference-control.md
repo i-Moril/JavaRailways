@@ -27,6 +27,16 @@ jerk is bounded by half the positive physical acceleration slews and 0.5 m/s³. 
 use square/cube roots and translate the same profile to every target; they do not integrate
 future dynamics or construct a new profile every tick. Runtime curve work is O(targets).
 
+Positive speed targets reserve a conservative brake-preparation interval before the nominal
+deceleration begins. For target speed `vt` at distance `d`, the allowed speed is
+`max(vt, -aT + sqrt((aT)^2 + vt^2 + 2ad))`, where `T` is the largest per-car command delay or
+electric-brake release time, plus 1.25x the nominal air apply time, plus one supervision
+margin. The formula treats preparation as constant speed, so it over-reserves distance; at the
+target point it never reports less than `vt`. Zero-speed stopping keeps the existing terminal
+jerk curve and `stoppingDistanceMeters` inverse. This closes the observed gap where a nominal
+positive-limit curve allowed a speed from which no ordinary service-brake interval remained
+hard-safe; the nominal curve is still not a safety certificate.
+
 `ReferenceStrategyMode.stoppingTarget` selects only an actual zero-speed target whose braking
 curve is intercepted, at no more than 20 km/h. It also enters when a moving train has already
 begun ordinary braking for a governing zero-target reference; actuator response or passive uphill
@@ -66,6 +76,15 @@ consuming the response distance before the ideal speed curve becomes restrictive
 candidate reaches the exact operating goal, the strategy still chooses the strongest hard-safe
 ordinary brake and reports `TARGET_UNREACHABLE`. `MODEL_UNAVAILABLE` and `TARGET_UNREACHABLE`
 are operating accuracy states, never ATP failures.
+
+A far-target fast path avoids evaluating every candidate model when the nearest zero target is
+already beyond the whole catalogue's nominal stopping distance. The bound probes the
+strongest-traction ordinary command: every candidate shares the same maximum-service-brake
+continuation, and that command cannot leave the known interval slower than another, so the
+probe bounds the catalogue. One maximum supervision interval is added to cover a cached
+decision. Beyond the bound all candidates are nominally reachable, precision stays `TRACKING`,
+and no per-candidate model is built. Near the target the complete per-candidate evaluation is
+unchanged. A non-finite probe disables the fast path.
 
 Every notch is compared to one common response-adjusted reference, with feedforward acceleration,
 velocity feedback and a 0.025 m/s² score hysteresis. Candidate-specific reference horizons are

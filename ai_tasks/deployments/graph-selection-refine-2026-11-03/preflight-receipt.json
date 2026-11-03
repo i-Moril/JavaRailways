@@ -1,0 +1,11 @@
+{
+  "capturedAt": "2026-11-03T17:04:15+00:00",
+  "status": "PASSED",
+  "files": 148,
+  "installed": {"plugins/JavaRailways.jar": "dd161b8f4431ecaad811a59ea3d4c5fb6525639f59004d1c9ab28f0ce98873dc"},
+  "candidate": {"plugins/JavaRailways.jar": "a946a169474a7ccf30d8b52553f60c2485aa957ddda97b80add0f33c244e8c9c"},
+  "webuiSha256": "157c660fd74148daf568b4c8f600f505b0c259ed1875c91ec5a5373459fa2c29",
+  "mainScript": "/assets/index-Cn2u6Zkx.js",
+  "mainScriptEntry": "public/assets/index-Cn2u6Zkx.js",
+  "mainScriptSha256": "05fd06bdb770404d9e6937877703cb94c849044e851c11718c1665c1d0743544"
+}

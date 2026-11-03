@@ -1,0 +1,22 @@
+{
+  "checkedAt": "2026-11-03T17:05:40+00:00",
+  "sourceCommit": "ce6693e1b9450a89370c3ca6f84caf631e541d47",
+  "serverPid": 868263,
+  "mainJarSha256": "a946a169474a7ccf30d8b52553f60c2485aa957ddda97b80add0f33c244e8c9c",
+  "webuiSha256": "157c660fd74148daf568b4c8f600f505b0c259ed1875c91ec5a5373459fa2c29",
+  "mainScript": "/assets/index-Cn2u6Zkx.js",
+  "mainScriptSha256": "05fd06bdb770404d9e6937877703cb94c849044e851c11718c1665c1d0743544",
+  "bridgeHealth": true,
+  "webuiLocalStatus": 200,
+  "webuiPublicStatus": 200,
+  "publicAssetSha256": "05fd06bdb770404d9e6937877703cb94c849044e851c11718c1665c1d0743544",
+  "liveBundleContainsTimedOperationToolbar": true,
+  "onlinePlayers": 0,
+  "tps20": true,
+  "javaRailwaysErrorsSinceRestart": 0,
+  "webuiErrorsSinceRestart": 0,
+  "simpleSignalsErrorsSinceRestart": 0,
+  "physicsStartup": {"maxOverloadMillis": 351.113224, "deltaClampedEpochs": 1, "stall": false},
+  "doneAt": "2026-11-03T17:05:02+00:00",
+  "startupSeconds": 26.845
+}

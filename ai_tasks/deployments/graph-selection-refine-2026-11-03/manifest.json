@@ -1,0 +1,13 @@
+{
+  "sourceCommit": "ce6693e1b9450a89370c3ca6f84caf631e541d47",
+  "branch": "codex/ato-per-car-rebuild",
+  "old": {"plugins/JavaRailways.jar": "dd161b8f4431ecaad811a59ea3d4c5fb6525639f59004d1c9ab28f0ce98873dc"},
+  "new": {"plugins/JavaRailways.jar": "a946a169474a7ccf30d8b52553f60c2485aa957ddda97b80add0f33c244e8c9c"},
+  "retainSimpleSignalsSha256": "0346443a02bfd0a7a14a11cd6b3893e4c321005e732fc7db5e427a336f35ac39",
+  "retainTunnelBridgeBuilderSha256": "831a0c25179c9c98f2a7135256080c9f402713b18215781976ab2eb5fce3d722",
+  "webuiSha256": "157c660fd74148daf568b4c8f600f505b0c259ed1875c91ec5a5373459fa2c29",
+  "mainScript": "/assets/index-Cn2u6Zkx.js",
+  "mainScriptEntry": "public/assets/index-Cn2u6Zkx.js",
+  "mainScriptSha256": "05fd06bdb770404d9e6937877703cb94c849044e851c11718c1665c1d0743544",
+  "candidateSize": 67476294
+}

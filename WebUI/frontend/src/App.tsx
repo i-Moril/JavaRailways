@@ -1,7 +1,7 @@
 import type { AuthoringCommand,AuthoringCommandState } from './authoringCommands';
 import { useEffect, useState, type ReactNode } from 'react';
 import { App as AntApp, Button, ConfigProvider, Flex, Layout, Select, Switch, Tabs, Tag, Tooltip, Typography } from 'antd';
-import { CodeOutlined, GlobalOutlined, MoonOutlined, NodeIndexOutlined, PlayCircleOutlined, PlusOutlined, RedoOutlined, SaveOutlined, SunOutlined, CopyOutlined, UndoOutlined } from '@ant-design/icons';
+import { CodeOutlined, DisconnectOutlined, GlobalOutlined, LinkOutlined, MoonOutlined, NodeIndexOutlined, PlayCircleOutlined, PlusOutlined, RedoOutlined, SaveOutlined, SunOutlined, CopyOutlined, UndoOutlined } from '@ant-design/icons';
 import { api } from './api';
 import { trackSessionActivity } from './sessionActivity';
 import { frontendDemoEnabled } from './frontendDev';
@@ -154,15 +154,20 @@ export default function App() {
       </Flex>
     </Layout.Header>
 
-    <section className={`studio-ribbon ${['graph','duties','validation'].includes(view)?'has-commands':''}`} aria-label={t('nav.primary')}>
+    <section className={`studio-ribbon ${['graph','duties'].includes(view)?'has-commands':''}`} aria-label={t('nav.primary')}>
       <Tabs activeKey={view} onChange={(key)=>setView(key as View)} items={navigation.map((item)=>({key:item,label:t(`nav.${item}`)}))}/>
-      {['graph','duties','validation'].includes(view)?<div className="ribbon-commands">
+      {view==='graph'?<div className="ribbon-commands">
         <RibbonGroup label={t('ribbon.create')}><RibbonCommand icon={<PlusOutlined/>} label={t('ribbon.newRun')} command="new-run" reason={authoringState?.['new-run']??t('ui.working')}/></RibbonGroup>
         <RibbonGroup label={t('ribbon.history')}><RibbonCommand icon={<UndoOutlined/>} label={t('common.undo')} command="undo" reason={authoringState?.['undo']??t('ui.working')}/><RibbonCommand icon={<RedoOutlined/>} label={t('common.redo')} command="redo" reason={authoringState?.['redo']??t('ui.working')}/></RibbonGroup>
         <RibbonGroup label={t('ribbon.tools')}><RibbonCommand icon={<CopyOutlined/>} label={t('ui.copyRun')} command="copy-run" reason={authoringState?.['copy-run']??t('ui.working')}/></RibbonGroup>
         <RibbonGroup label={t('ribbon.tools')}><RibbonCommand icon={<CodeOutlined/>} label={t('duties.compile')} command="compile" reason={authoringState?.['compile']??t('ui.working')}/><RibbonCommand icon={<PlayCircleOutlined/>} label={t('duties.simulate')} command="simulate" reason={authoringState?.['simulate']??t('ui.working')}/></RibbonGroup>
         <RibbonGroup label={t('ribbon.document')}><RibbonCommand icon={<SaveOutlined/>} label={t('common.save')} command="save" reason={authoringState?.['save']??t('ui.working')}/><RibbonCommand icon={<CodeOutlined/>} label={t('duties.saveScript')} command="save-formal" reason={authoringState?.['save-formal']??t('ui.working')}/><RibbonCommand icon={<NodeIndexOutlined/>} label={t('common.publish')} command="publish" reason={authoringState?.['publish']??t('ui.working')}/></RibbonGroup>
-      </div>:<div className="studio-contextbar"><Tag variant="filled">{t(`nav.${view}`)}</Tag><Typography.Text type="secondary">{workspaceNotice}</Typography.Text></div>}
+      </div>:view==='duties'?<div className="ribbon-commands">
+        <RibbonGroup label={t('ribbon.tools')}><RibbonCommand icon={<PlusOutlined/>} label={t('duties.addProgram')} command="add-duty-program" reason={authoringState?.['add-duty-program']??t('ui.working')}/></RibbonGroup>
+        <RibbonGroup label={t('duties.formationGroup')}><RibbonCommand icon={<LinkOutlined/>} label={t('duties.reconnect')} command="add-formation-couple" reason={authoringState?.['add-formation-couple']??t('ui.working')}/><RibbonCommand icon={<DisconnectOutlined/>} label={t('duties.uncouple')} command="add-formation-split" reason={authoringState?.['add-formation-split']??t('ui.working')}/></RibbonGroup>
+        <RibbonGroup label={t('ribbon.history')}><RibbonCommand icon={<UndoOutlined/>} label={t('common.undo')} command="undo" reason={authoringState?.['undo']??t('ui.working')}/><RibbonCommand icon={<RedoOutlined/>} label={t('common.redo')} command="redo" reason={authoringState?.['redo']??t('ui.working')}/></RibbonGroup>
+        <RibbonGroup label={t('ribbon.document')}><RibbonCommand icon={<SaveOutlined/>} label={t('common.save')} command="save" reason={authoringState?.['save']??t('ui.working')}/></RibbonGroup>
+      </div>:view==='validation'?null:<div className="studio-contextbar"><Tag variant="filled">{t(`nav.${view}`)}</Tag><Typography.Text type="secondary">{workspaceNotice}</Typography.Text></div>}
     </section>
 
     <section className="notice-strip">

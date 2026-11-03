@@ -13,6 +13,6 @@ it('exposes shared defaults and all leg identities, including stale legs, withou
 });
 it('keeps unattached defaults and references inspectable/removable after removing the independent graph editor',()=>{
  const value=document();value.operationalTrips[1].segments=[{serviceId:'gone',runId:'gone-run',unitSlots:[3]}];
- const html=renderToStaticMarkup(<I18nProvider><DutyManagement document={value} onDocumentChange={noop} duties={value.duties} runs={value.runs} selectedId="1" metadata={{}} onSelect={noop} onAdd={noop} onDelete={noop} onPatch={noop} onAssign={noop} onRemove={noop} onViewRun={noop}/></I18nProvider>);
+ const html=renderToStaticMarkup(<I18nProvider><DutyManagement graph={null} document={value} onDocumentChange={noop} duties={value.duties} runs={value.runs} selectedId="1" metadata={{}} onSelect={noop} onAdd={noop} onDelete={noop} onPatch={noop} onRemove={noop} onViewRun={noop}/></I18nProvider>);
  expect(html).toContain('Some display plans have no valid run');expect(html).toContain('Orphan destination');expect(html).toContain('gone-run');expect(html).toContain('gone');expect(html).not.toContain('Formation duty graph');expect(html).not.toContain('Advanced: operational trips');
 });

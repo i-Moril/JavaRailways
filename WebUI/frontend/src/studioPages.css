@@ -147,8 +147,15 @@
 }
 
 /* Management pages share the approved studio surfaces and panel spacing. */
-.duty-admin-grid { display:grid; grid-template-columns:270px minmax(0,1fr); gap:12px; min-height:calc(100% - 68px); }
+.duty-admin-grid { display:grid; grid-template-columns:270px minmax(0,1fr) 320px; gap:12px; min-height:calc(100% - 68px); }
 .duty-detail { overflow:auto; }
+.duty-sidebar { padding:12px; display:flex; flex-direction:column; gap:14px; overflow:auto; }
+.duty-side-section { display:grid; gap:10px; padding:12px; border:1px solid var(--ant-color-border-secondary); border-radius:8px; background:var(--ant-color-fill-quaternary); }
+.duty-side-section .ant-select,.duty-side-section .ant-input,.duty-side-section .ant-input-number { width:100%; }
+.duty-side-section label { display:grid; gap:6px; color:var(--ant-color-text-secondary); font-size:12px; }
+.duty-graph-picker { height:360px; margin:0 18px; border:1px solid var(--ant-color-border-secondary); border-radius:8px; overflow:hidden; }
+.duty-graph-hint { margin:12px 18px 0; }
+.duty-graph-picker .graph-wrap { border-radius:8px; }
 .duty-properties,.function-fields,.simulation-setup { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; padding:16px 18px; }
 .duty-properties label,.function-fields label,.simulation-setup label { display:grid; gap:6px; color:var(--ant-color-text-secondary); font-size:12px; }
 .duty-properties .ant-input-number,.function-fields .ant-input-number,.simulation-setup .ant-input-number { width:100%; }
@@ -170,7 +177,8 @@
 .simulation-details { padding:16px 18px; }
 .generated-source { padding:16px 18px; }
 .generated-source pre { overflow:auto; max-height:380px; }
-@media (max-width:900px) { .duty-admin-grid { grid-template-columns:190px minmax(0,1fr); } .validation-summary { grid-template-columns:1fr; } }
+@media (max-width:1100px) { .duty-admin-grid { grid-template-columns:230px minmax(0,1fr) 290px; } }
+@media (max-width:900px) { .duty-admin-grid { grid-template-columns:190px minmax(0,1fr); } .duty-sidebar { grid-column:1/-1; } .validation-summary { grid-template-columns:1fr; } }
 @media (max-width:640px) { .duty-admin-grid { grid-template-columns:1fr; } .duty-admin-grid > aside { max-height:200px; } .duty-properties,.function-fields,.simulation-setup { grid-template-columns:1fr; } }
 
 /* Constrain grid min-content sizing so narrower desktops keep page actions reachable. */

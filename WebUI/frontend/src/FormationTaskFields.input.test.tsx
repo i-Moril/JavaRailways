@@ -17,7 +17,7 @@ beforeEach(()=>{Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});contai
 afterEach(async()=>{await act(async()=>root.unmount());container.remove();});
 it('filters both rendezvous fields by the supplied waypoint IDs and commits each selection once',async()=>{
  const patch=vi.fn();let latest=initial;
- function Harness(){const [document,setDocument]=useState(initial);return <I18nProvider><DutyTimeline document={document} duty={document.duties[0]} fieldScope="world/document/duty1" library={[]} destinations={['approach@1','stationary@2']} stationNames={new Map()} stationIds={[]} onAssign={()=>{}} onPatch={()=>{}} onRemove={()=>{}} onViewRun={()=>{}} onPatchFormation={event=>{patch(event);latest={...document,formationEvents:[event]};setDocument(latest);}}/></I18nProvider>;}
+ function Harness(){const [document,setDocument]=useState(initial);return <I18nProvider><DutyTimeline document={document} duty={document.duties[0]} fieldScope="world/document/duty1" library={[]} destinations={['approach@1','stationary@2']} stationNames={new Map()} stationIds={[]} onPatch={()=>{}} onRemove={()=>{}} onViewRun={()=>{}} onPatchFormation={event=>{patch(event);latest={...document,formationEvents:[event]};setDocument(latest);}}/></I18nProvider>;}
  await act(async()=>root.render(<Harness/>));
  const fields=()=>[...container.querySelectorAll<HTMLInputElement>('input')];
  expect(fields()).toHaveLength(2);expect(fields().map(input=>input.value)).toEqual(['old-a','old-b']);

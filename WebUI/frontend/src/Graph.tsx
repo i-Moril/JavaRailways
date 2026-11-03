@@ -19,7 +19,7 @@ type ServicePath={serviceIndex:number;serviceId:string;points:GraphPoint[]};
 const clamp=(value:number)=>Math.min(3.2,Math.max(.55,value));
 
 export function Graph({
-  operations=[],onOpenDutyOperation,onDutyOperationContext,value,onSelect,metadata,line,graphLineId,serviceColors,serviceColorIds,highlightedServiceIds,previewServiceIds,onSelectPoint,onDismissPoint,onClearSelection,onEditEvent,onEventContext,
+  operations=[],onOpenDutyOperation,onDutyOperationContext,value,onSelect,metadata,line,graphLineId,serviceColors,serviceColorIds,highlightedServiceIds,previewServiceIds,onSelectPoint,onDismissPoint,onClearSelection,onSelectEvent,onEditEvent,onEventContext,
 }:{
   operations?:ProjectedTimedOperation[];onDutyOperationContext?:(context:GraphDutyOperationContext)=>void;onOpenDutyOperation?:(dutyId:string,elementId:string)=>void;
   value:SavedTimetableV1;
@@ -34,6 +34,7 @@ export function Graph({
   onSelectPoint?:(point:GraphPoint,anchor:{x:number;y:number})=>void;
   onDismissPoint?:()=>void;
   onClearSelection?:()=>void;
+  onSelectEvent?:(event:import('./types').TimetableEventPoint)=>void;
   onEditEvent?:(event:import('./types').TimetableEventPoint)=>void;
   onEventContext?:(context:GraphEventContext)=>void;
 }) {
@@ -99,7 +100,7 @@ export function Graph({
       </Button.Group>
     </div>
     <div className="canvas-sheet" style={{width:sheetWidth,height:sheetHeight,transform:`translate(${pan.x}px,${pan.y}px)`}}>
-      <svg className="diagram-svg" width={sheetWidth} height={sheetHeight} viewBox={`0 0 ${sheetWidth} ${sheetHeight}`} role={onSelectPoint||onSelect||onEditEvent||onEventContext||onOpenDutyOperation?'group':'img'} aria-label={t('editor.graph')}>
+      <svg className="diagram-svg" width={sheetWidth} height={sheetHeight} viewBox={`0 0 ${sheetWidth} ${sheetHeight}`} role={onSelectPoint||onSelect||onSelectEvent||onEditEvent||onEventContext||onOpenDutyOperation?'group':'img'} aria-label={t('editor.graph')}>
 
         <defs><pattern id="timetable-minor-grid" width="40" height="22" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 22" className="minor-grid-line"/></pattern></defs>
         <rect x={layout.left} width={Math.max(0,sheetWidth-layout.left)} height={sheetHeight} fill="url(#timetable-minor-grid)"/>
@@ -114,7 +115,7 @@ export function Graph({
           const first=service.points[0];
           const labelWidth=Math.max(58,service.serviceId.length*7+18);
           return <g key={`${service.serviceIndex}:${service.serviceId}`} opacity={visible?1:.28}>
-            {service.points.length>1&&<polyline points={service.points.map((point)=>`${point.x},${point.y}`).join(' ')} fill="none" stroke={color} strokeWidth={selected?2:hasSelection?1:1.25} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={preview?'10 7':undefined} className={selected?'selected-path':undefined}/>}
+            {service.points.length>1&&<polyline points={service.points.map((point)=>`${point.x},${point.y}`).join(' ')} fill="none" stroke={color} strokeWidth={selected?2:hasSelection?1:1.25} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={preview?'10 7':undefined} className={selected?'selected-path':undefined} style={{cursor:onSelect?'pointer':undefined}} onPointerDown={(event)=>{if(onSelect)event.stopPropagation();}} onClick={()=>onSelect?.(service.serviceIndex,0)}/>}
             {first&&visible&&<g transform={`translate(${first.x+12} ${Math.max(43,first.y-34)})`}><rect width={labelWidth} height="25" rx="5" fill={color}/><text x={labelWidth/2} y="17" textAnchor="middle" fill="#fff" fontWeight="700" fontSize="12">{service.serviceId}</text></g>}
             {service.points.map((point)=>{
               const label=`${service.serviceId} · ${stationNames.get(point.location)||point.location} · ${t(point.kind==='ARRIVAL'?'editor.arrivalTime':'editor.departureTime')} · ${point.tick} · ${formatTimetableTick(point.tick,locale)}`;
@@ -141,8 +142,8 @@ export function Graph({
           const lane=layout.lanes.find((lane)=>lane.id===event.stationId);if(!lane)return null;
           const name=event.label||event.program?.programId||event.id;
           const label=`${name} · ${stationNames.get(event.stationId!)||event.stationId} · ${formatTimetableTick(event.tick,locale)}${endTick!==undefined&&endTick!==event.tick?`–${formatTimetableTick(endTick,locale)}`:''}${owner==='DUTY'?` · ${t('timed.dutyOwned')} ${dutyId}`:''}`;
-          const editable=owner==='DUTY'?!!onOpenDutyOperation:!!onEditEvent||!!onEventContext;
-          const open=()=>{onDismissPoint?.();if(owner==='DUTY')onOpenDutyOperation?.(dutyId!,elementId!);else onEditEvent?.(structuredClone(event));};
+          const editable=owner==='DUTY'?!!onOpenDutyOperation:!!onSelectEvent||!!onEditEvent||!!onEventContext;
+          const open=()=>{onDismissPoint?.();if(owner==='DUTY')onOpenDutyOperation?.(dutyId!,elementId!);else if(onSelectEvent)onSelectEvent(structuredClone(event));else onEditEvent?.(structuredClone(event));};
           const menu=(element:SVGGElement,anchor?:{x:number;y:number})=>{
             const bounds=element.getBoundingClientRect();
             if(owner==='DUTY'){onDismissPoint?.();onDutyOperationContext?.({dutyId:dutyId!,elementId:elementId!,operation:structuredClone(event),anchor:anchor??{x:bounds.left+bounds.width/2,y:bounds.top+bounds.height/2}});return;}if(!onEventContext)return;

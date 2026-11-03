@@ -1,7 +1,7 @@
 import {RunDisplayPlansEditor} from './RunDisplayPlansEditor';
 import {useEffect,useRef,useState,type PointerEvent} from 'react';
-import {Alert,Button,Dropdown,Flex,Select,Space,Typography} from 'antd';
-import {DeleteOutlined,PlusOutlined} from '@ant-design/icons';
+import {Alert,Button,Dropdown,Flex,Select,Typography} from 'antd';
+import {DeleteOutlined} from '@ant-design/icons';
 import type {AuthoringDutyV1,TimetableAuthoringDocumentV1} from './authoring';
 import {projectDutyTimeline} from './dutyTimeline';
 import type {ProgramSourceTarget} from './programNavigation';
@@ -18,16 +18,15 @@ export interface DutyTimelineProps {
   programSimulation?:ProgramSimulationContext;
   document:TimetableAuthoringDocumentV1;onDocumentChange?:(document:TimetableAuthoringDocumentV1)=>void;duty:AuthoringDutyV1;fieldScope:string;library:StationProgramRecord[];
   simulation?:TimetableSimulationResult;simulationReason?:string;busy?:boolean;programLoading?:boolean;focusedElementId?:string;focusedProgram?:ProgramSourceTarget;
-  onAddFormation?:(kind:AuthoringFormationEvent['kind'])=>void;onPatchFormation?:(event:AuthoringFormationEvent)=>void;onSelectDuty?:(id:string)=>void;onOpenFormation?:(dutyId:string,eventId:string)=>void;destinations?:string[];
-  onSimulate?:()=>void;onRefreshPrograms?:()=>void;onAssign:(id:string)=>void;onAddProgram?:(id:string)=>void;
+  onPatchFormation?:(event:AuthoringFormationEvent)=>void;onSelectDuty?:(id:string)=>void;onOpenFormation?:(dutyId:string,eventId:string)=>void;destinations?:string[];
+  onSimulate?:()=>void;onRefreshPrograms?:()=>void;
   onPatch:(patch:Partial<AuthoringDutyV1>)=>void;onPatchProgram?:(id:string,patch:Partial<TimedOperation>)=>void;
-  onReferenceEvent?:(id:string)=>void;onOpenGraphEvent?:(id:string)=>void;onOperationValidityChange?:(elementId:string,valid:boolean)=>void;stationNames:ReadonlyMap<string,string>;stationIds:string[];
+  onOpenGraphEvent?:(id:string)=>void;onOperationValidityChange?:(elementId:string,valid:boolean)=>void;stationNames:ReadonlyMap<string,string>;stationIds:string[];
   onRemove:(id:string)=>void;onViewRun:(id:string)=>void;onOpenProgramLibrary?:(id:string,stepId?:string)=>void;
 }
 export function DutyTimeline(p:DutyTimelineProps) {
   const {t}=useI18n();
   const [selected,setSelected]=useState(p.duty.elements[0]?.id??''),[zoom,setZoom]=useState(1);
-  const [runId,setRunId]=useState<string>(),[programId,setProgramId]=useState<string>(),[eventId,setEventId]=useState<string>();
   const [preview,setPreview]=useState<{id:string;tick:number;ticks?:number}>();
   const drag=useRef<{id:string;x:number;tick:number;ticks?:number;resize:boolean;signature:string;scale:number}|undefined>(undefined);
   const latest=useRef(p);latest.current=p;
@@ -37,8 +36,6 @@ export function DutyTimeline(p:DutyTimelineProps) {
   const tasks=projectDutyTimeline(p.document,p.duty,p.simulation,p.library).map(task=>{if(task.type!=='FORMATION')return task;const element=p.duty.elements.find(e=>e.id===task.id),event=element?.type==='FORMATION'?p.document.formationEvents?.find(e=>e.id===element.eventId):undefined;return {...task,label:event?t(`programs.step.${event.kind}`):t('formation.missingTask')};});
   const selectedElement=p.duty.elements.find((item)=>item.id===selected)??p.duty.elements[0];
   const task=tasks.find((item)=>item.id===selectedElement?.id);
-  const availableRuns=p.document.runs.filter((run)=>!p.document.duties.some((d)=>d.elements.some((e)=>e.type==='RUN'&&e.runId===run.id)));
-  const programOptions=p.library.map((record)=>({value:record.id,label:record.name}));
   const min=Math.max(0,Math.floor((tasks.length?Math.min(...tasks.map((item)=>item.startTick)):0)/100)*100);
   const max=Math.max(min+1200,...tasks.map((item)=>item.endTick??item.startTick));
   const span=Math.max(1200,max-min)*1.08,width=900*zoom,scale=width/span;
@@ -91,10 +88,6 @@ export function DutyTimeline(p:DutyTimelineProps) {
   }));
   return <section className="duty-timeline" aria-label={t('timeline.title')}>
     <Flex wrap gap={12} align="center" className="duty-timeline-toolbar">
-      <Space.Compact><Select aria-label={t('timeline.run')} placeholder={t('timeline.run')} value={availableRuns.some((r)=>r.id===runId)?runId:undefined} options={availableRuns.map((run)=>({value:run.id,label:run.id}))} onChange={setRunId}/><Button icon={<PlusOutlined/>} disabled={!runId||!availableRuns.some((r)=>r.id===runId)} onClick={()=>{if(runId)p.onAssign(runId);setRunId(undefined);}}>{t('common.add')}</Button></Space.Compact>
-      <Space.Compact><Select aria-label={t('timeline.program')} placeholder={t('timeline.program')} value={programOptions.some((o)=>o.value===programId)?programId:undefined} options={programOptions} onChange={setProgramId}/><Button icon={<PlusOutlined/>} disabled={!programId||!p.onAddProgram||!programOptions.some((o)=>o.value===programId)} onClick={()=>{if(programId)p.onAddProgram?.(programId);setProgramId(undefined);}}>{t('common.add')}</Button></Space.Compact>
-      <Space.Compact><Select aria-label={t('timed.reference')} placeholder={t('timed.reference')} value={(p.document.events??[]).some((event)=>event.id===eventId&&event.program)?eventId:undefined} options={(p.document.events??[]).filter((event)=>event.program).map((event)=>({value:event.id,label:event.label||event.id}))} onChange={setEventId}/><Button icon={<PlusOutlined/>} disabled={!eventId||!p.onReferenceEvent} onClick={()=>{if(eventId)p.onReferenceEvent?.(eventId);setEventId(undefined);}}>{t('common.add')}</Button></Space.Compact>
-      {p.onAddFormation&&(['SPLIT','COUPLE'] as const).map(kind=><Button key={kind} icon={<PlusOutlined/>} onClick={()=>p.onAddFormation?.(kind)}>{t(`programs.step.${kind}`)}</Button>)}
       <Button loading={p.programLoading} onClick={p.onRefreshPrograms}>{t('programs.refresh')}</Button>
       <label>{t('timeline.zoom')}<Select aria-label={t('timeline.zoom')} value={zoom} options={[1,2,4,8].map((value)=>({value,label:`${value}×`}))} onChange={setZoom}/></label>
     </Flex>

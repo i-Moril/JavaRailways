@@ -4,7 +4,7 @@ import { useEffect,useMemo,useState,type ReactNode } from 'react';
 import { Button,Flex,Input,Modal,Segmented,Select,Space,Switch,Table,Tabs,Tag,Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { ArrowLeftOutlined,CheckCircleOutlined,DeleteOutlined } from '@ant-design/icons';
-import { resizeRunRoute,type AuthoringIssue,type AuthoringRunCallV1,type AuthoringRunV1 } from './authoring';
+import { clearDeadheadTerminalDeparture,resizeRunRoute,type AuthoringIssue,type AuthoringRunCallV1,type AuthoringRunV1 } from './authoring';
 import {StationStopProgramEditor} from './StationStopProgramEditor';
 import {defaultStationStopProgram} from './stationPlans';
 import { RunTitleEditor } from './RunTitleEditor';
@@ -107,7 +107,7 @@ export function RunRouteEditor({automaticColor,events=[],stationPrograms=[],onSt
   const options=<div className="run-options-page">
 
     {tools}
-    <section className="option-section"><label>{t('editor.passengerOperation')}<Switch aria-label={t('editor.passengerOperation')} checked={run.type==='PASSENGER'} disabled={busy} onChange={(passenger)=>onChange({...run,type:passenger?'PASSENGER':'DEADHEAD'})}/></label><Typography.Paragraph type="secondary">{t('editor.passengerOperationHint')}</Typography.Paragraph></section>
+    <section className="option-section"><label>{t('editor.passengerOperation')}<Switch aria-label={t('editor.passengerOperation')} checked={run.type==='PASSENGER'} disabled={busy} onChange={(passenger)=>onChange(passenger?{...run,type:'PASSENGER'}:clearDeadheadTerminalDeparture({...run,type:'DEADHEAD'}))}/></label><Typography.Paragraph type="secondary">{t('editor.passengerOperationHint')}</Typography.Paragraph></section>
     <section className="option-section"><Typography.Title level={5}>{t('editor.runColor')}</Typography.Title><Flex gap={12} align="center" wrap><Input type="color" aria-label={t('editor.runColor')} value={run.color??automaticColor} disabled={busy} style={{width:64,height:36,padding:4}} onChange={(event)=>onChange({...run,color:event.target.value})}/><Button disabled={busy||!run.color} onClick={()=>{const {color:_,...next}=run;onChange(next);}}>{t('editor.runColorAuto')}</Button></Flex><Typography.Text type="secondary">{t('editor.runColorHint')}</Typography.Text></section>
     <section className="option-section"><Typography.Title level={5}>{t('editor.runEndpoints')}</Typography.Title><Typography.Text type="secondary">{t('editor.runEndpointsHint')}</Typography.Text><div className="endpoint-options"><label>{t('status.origin')}<Select value={run.calls[0]?.stationId} onChange={(station)=>resize(station,run.calls.at(-1)!.stationId)} options={routeStations.map((station,index)=>({value:station,label:labelStation(station),disabled:index>=terminalIndex}))}/></label><label>{t('status.terminal')}<Select value={run.calls.at(-1)?.stationId} onChange={(station)=>resize(run.calls[0].stationId,station)} options={routeStations.map((station,index)=>({value:station,label:labelStation(station),disabled:index<=originIndex}))}/></label></div></section>
     <section className="option-section danger-zone"><div><Typography.Title level={5}>{t('editor.deleteRun')}</Typography.Title><Typography.Text type="secondary">{t('editor.deleteRunHint')}</Typography.Text></div><Button danger type="primary" icon={<DeleteOutlined/>} disabled={busy} onClick={onDelete}>{t('editor.deleteRun')}</Button></section>

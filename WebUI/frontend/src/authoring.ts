@@ -66,7 +66,7 @@ export interface TimetableAuthoringDocumentV1 {
 /** Serialize only the current editor contract, never derived runtime line caps. */
 export function authoringDocumentForSave(document:TimetableAuthoringDocumentV1):TimetableAuthoringDocumentV1 {
   const {formatVersion,id,formalScriptName,periodDays,minimumDwellTicks,runs,duties,diagramLines,arrivalOverrides,formationEvents,operationalTrips,stationPrograms,events}=document;
-  return {formatVersion,id,formalScriptName,periodDays,minimumDwellTicks,runs:runs.map((run)=>({...run,calls:run.calls.map(authoringCallForSave)})),duties,diagramLines,arrivalOverrides,formationEvents,operationalTrips,stationPrograms,events};
+  return {formatVersion,id,formalScriptName,periodDays,minimumDwellTicks,runs:runs.map((run)=>clearDeadheadTerminalDeparture({...run,calls:run.calls.map(authoringCallForSave)})),duties,diagramLines,arrivalOverrides,formationEvents,operationalTrips,stationPrograms,events};
 }
 /** Project only the current call contract at the persistence and generated-metadata boundaries. */
 function authoringCallForSave(call:AuthoringRunCallV1):AuthoringRunCallV1 {
@@ -80,6 +80,17 @@ export function authoringMinimumDwell(document:Pick<TimetableAuthoringDocumentV1
 /** Minimum dwell applies to revenue stops only; deadhead movements may depart immediately. */
 export function authoringMinimumDwellForRun(document:Pick<TimetableAuthoringDocumentV1,'minimumDwellTicks'>,run:Pick<AuthoringRunV1,'type'>):number {
   return run.type==='DEADHEAD'?0:authoringMinimumDwell(document);
+}
+/** Deadhead terminal calls must not retain a passenger departure/dwell tick. */
+export function clearDeadheadTerminalDeparture(run:AuthoringRunV1):AuthoringRunV1 {
+  if(run.type!=='DEADHEAD'||run.calls.length===0)return run;
+  const terminal=run.calls[run.calls.length-1];
+  if(terminal.departureTick==null)return run;
+  return {...run,calls:run.calls.map((call,index)=>index===run.calls.length-1?{...call,departureTick:null}:call)};
+}
+export function normalizeAuthoringDocument(document:TimetableAuthoringDocumentV1):TimetableAuthoringDocumentV1 {
+  const runs=document.runs.map(clearDeadheadTerminalDeparture);
+  return runs.every((run,index)=>run===document.runs[index])?document:{...document,runs};
 }
 export interface AuthoringIssue {path:string;message:string;severity:'error'|'warning'}
 export interface GeneratedTimetableSource {
@@ -219,7 +230,7 @@ export function resizeRunRoute(
     if(status==='PASS') return {...call,departureTick:null};
     return call;
   });
-  return {...run,diagramLineId:line.id,lineDirection:direction,calls};
+  return clearDeadheadTerminalDeparture({...run,diagramLineId:line.id,lineDirection:direction,calls});
 }
 
 export function lineSimulationRoute(run:AuthoringRunV1):Pick<SimulationProfile,'originStationId'|'terminalStationId'|'stopStationIds'|'destinationIds'|'originDepartureMode'|'viaIds'> {
@@ -323,11 +334,11 @@ export function copyRunShifted(
   requireRunMinimumDwell(run,minimumDwellTicks);
   if(!newId.trim()) throw new Error('copied run id is required');
   if(!Number.isInteger(offsetTicks)) throw new Error('copy offset must be an integer');
-  return {...run,id:newId,calls:run.calls.map((call,index)=>({
+  return clearDeadheadTerminalDeparture({...run,id:newId,calls:run.calls.map((call,index)=>({
     ...call,id:idFactory(call.stationId,index),arrivalTick:shiftedTick(call.arrivalTick,offsetTicks),
     departureTick:shiftedTick(call.departureTick,offsetTicks),
 
-  }))};
+  }))});
 }
 
 function requireRunMinimumDwell(run:AuthoringRunV1,minimumDwellTicks:number):void {
@@ -345,6 +356,7 @@ const origin=(dutyId:string,elementId:string,runId?:string,functionId?:string)=>
   [`duty:${dutyId}`,`element:${elementId}`,runId&&`run:${runId}`,functionId&&`function:${functionId}`].filter(Boolean).join('/');
 
 export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[],programs:readonly StationProgramRecord[]=[]):AuthoringIssue[] {
+  document=normalizeAuthoringDocument(document);
   const programMap=new Map(programs.map((program)=>[program.id,program]));
   const issues:AuthoringIssue[]=[];
   if(document.formatVersion!==1) issues.push(issue('formatVersion','Unsupported editor document version'));
@@ -464,7 +476,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
           if(previousTerminal&&nextOrigin&&previousTerminal!==nextOrigin) issues.push(issue(elementPath,`Run location discontinuity: ${previousTerminal} -> ${nextOrigin}`));
           const terminal=previousRun.calls.at(-1);
           const previousArrival=document.arrivalOverrides.find((override)=>override.runId===previousRun!.id&&override.callId===terminal?.id)?.tick??terminal?.arrivalTick;
-          const previousEnd=previousRun.type==='DEADHEAD'?(previousArrival??terminal?.departureTick??0):Math.max(previousArrival==null?0:previousArrival+authoringMinimumDwellForRun(document,previousRun),terminal?.departureTick??0);
+          const previousEnd=Math.max(previousArrival==null?0:previousArrival+authoringMinimumDwellForRun(document,previousRun),terminal?.departureTick??0);
           const nextStart=run.calls[0]?.departureTick;
           if(previousEnd!=null&&nextStart!=null&&nextStart<previousEnd) issues.push(issue(elementPath,`Run overlaps previous run by ${previousEnd-nextStart} ticks`));
         }
@@ -472,7 +484,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
           const runStart=run.calls[0]?.departureTick;
           const terminal=run.calls.at(-1);
           const arrival=document.arrivalOverrides.find((override)=>override.runId===run.id&&override.callId===terminal?.id)?.tick??terminal?.arrivalTick;
-          const runEnd=run.type==='DEADHEAD'?(arrival??terminal?.departureTick??0):Math.max(arrival==null?0:arrival+authoringMinimumDwellForRun(document,run),terminal?.departureTick??0);
+          const runEnd=Math.max(arrival==null?0:arrival+authoringMinimumDwellForRun(document,run),terminal?.departureTick??0);
           if(previousElementEndTick!=null&&runStart!=null&&runStart<previousElementEndTick) issues.push(issue(elementPath,`Run starts before the previous duty element completes by ${previousElementEndTick-runStart} ticks`));
           if(runEnd!=null) previousElementEndTick=Math.max(previousElementEndTick??0,runEnd);
           previousRun=run;
@@ -615,10 +627,11 @@ function stopOptions(document:TimetableAuthoringDocumentV1,duty:AuthoringDutyV1,
 }
 const runDoorSide=(run:AuthoringRunV1,call:AuthoringRunCallV1)=>call.doorSide??(run.type==='DEADHEAD'?'NONE':undefined);
 function destinationOptions(document:TimetableAuthoringDocumentV1,duty:AuthoringDutyV1,run:AuthoringRunV1,call:AuthoringRunCallV1,override?:number):string {
- return `, JSON.parse(${quote(JSON.stringify({...stopOptions(document,duty,run,call),arrivalTick:override??call.arrivalTick??undefined,departureTick:run.type==='DEADHEAD'?undefined:call.departureTick??undefined,minimumDwellTicks:call.status==='PASS'?undefined:authoringMinimumDwellForRun(document,run),stoppingOffsetMetersBefore:call.stoppingOffsetMetersBefore??undefined,doorSide:runDoorSide(run,call)}))})`;
+ return `, JSON.parse(${quote(JSON.stringify({...stopOptions(document,duty,run,call),arrivalTick:override??call.arrivalTick??undefined,minimumDwellTicks:call.status==='PASS'?undefined:authoringMinimumDwellForRun(document,run),stoppingOffsetMetersBefore:call.stoppingOffsetMetersBefore??undefined,doorSide:runDoorSide(run,call)}))})`;
 }
 
 export function generateTimetableSource(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[],programs:readonly StationProgramRecord[]=[]):GeneratedTimetableSource {
+  document=normalizeAuthoringDocument(document);
   const orderedPrograms=[...programs].sort((a,b)=>a.id.localeCompare(b.id));
   const issues=validateAuthoringDocument(document,infrastructureLines,orderedPrograms);
   const {formalScriptName:ignoredName,...savedInput}=authoringDocumentForSave(document);

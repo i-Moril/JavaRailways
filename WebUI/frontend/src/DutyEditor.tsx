@@ -16,7 +16,7 @@ import {resolveArrivalSourceTarget,resolveProgramSourceTarget,type ProgramSource
 import { api } from './api';
 import { frontendDemoEnabled } from './frontendDev';
 import {
-  authoringMinimumDwell,authoringMinimumDwellForRun,authoringGraphTimetable,authoringSelectorKey,createRunFromLine,deleteRunFromDocument,emptyAuthoringDocument,generateTimetableSource,moveRunToDuty,copyRunShifted,lineSimulationRoute,resetRunTimings,renameAuthoringRun,retainAuthoringRunSelection,authoringResetProfile,
+  authoringMinimumDwell,authoringMinimumDwellForRun,normalizeAuthoringDocument,authoringGraphTimetable,authoringSelectorKey,createRunFromLine,deleteRunFromDocument,emptyAuthoringDocument,generateTimetableSource,moveRunToDuty,copyRunShifted,lineSimulationRoute,resetRunTimings,renameAuthoringRun,retainAuthoringRunSelection,authoringResetProfile,
   type AuthoringDutyV1,type AuthoringRunV1,type RunMoveMode,
   type TimetableAuthoringDocumentV1,
 } from './authoring';
@@ -48,7 +48,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   const {locale,t}=useI18n();
   const {theme}=useTheme();
   const [initialRecovery]=useState(()=>{const recovered=loadAuthoringRecovery(recoveryOwner,world);return recovered&&JSON.stringify(recovered.document)!==recovered.savedDocumentJson?recovered:undefined;});
-  const initialDocument=initialRecovery?.document??emptyAuthoringDocument();
+  const initialDocument=normalizeAuthoringDocument(initialRecovery?.document??emptyAuthoringDocument());
   const savedDocumentJson=useRef(initialRecovery?.savedDocumentJson??JSON.stringify(initialDocument));
   const ownerEpoch=useRef(0);
   const ownerIdentity=useRef(`${recoveryOwner}::${world}`);
@@ -245,11 +245,12 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     autosave.update({scope:`${ownerIdentity.current}/${ownerEpoch.current}`,id:documentId,value,baseline:savedDocumentJson.current,enabled:resumeReady&&!!world});
   },[autosave,value,documentId,resumeReady,world,busy,recoveryOwner]);
   const acceptLoadedDocument=(id:string,loaded:TimetableAuthoringDocumentV1)=>{
-    blockDraftKey.current=id||loaded.id;invalidDrafts.current.clear();editorDraftValidity.current={valid:true,revision:editorDraftValidity.current.revision+1};setEditorDraftInvalid(false);
+    const normalized=normalizeAuthoringDocument(loaded);
+    blockDraftKey.current=id||normalized.id;invalidDrafts.current.clear();editorDraftValidity.current={valid:true,revision:editorDraftValidity.current.revision+1};setEditorDraftInvalid(false);
     previousSelectedRun.current=undefined;setDocumentId(id);setCompiledState(undefined);setSimulationState(undefined);setCompileFailure(undefined);
-    const loadedScriptName=loaded.formalScriptName||defaultScriptName(loaded.id);
-    savedDocumentJson.current=JSON.stringify(loaded);clearAuthoringRecovery(recoveryOwner,world);documentHistory.reset(loaded);setFormalScriptName(loadedScriptName);setPersistedFormalScriptName(loaded.formalScriptName||'');setSelectedRun(loaded.runs[0]?.id||'');setSelectedDuty(loaded.duties[0]?.id||'');
-    latestRecovery.current={...latestRecovery.current,documentId:id,blockDraftKey:blockDraftKey.current,document:loaded,savedDocumentJson:savedDocumentJson.current,formalScriptName:loadedScriptName,persistedFormalScriptName:loaded.formalScriptName||'',selectedRun:loaded.runs[0]?.id||'',selectedDuty:loaded.duties[0]?.id||''};
+    const loadedScriptName=normalized.formalScriptName||defaultScriptName(normalized.id);
+    savedDocumentJson.current=JSON.stringify(normalized);clearAuthoringRecovery(recoveryOwner,world);documentHistory.reset(normalized);setFormalScriptName(loadedScriptName);setPersistedFormalScriptName(normalized.formalScriptName||'');setSelectedRun(normalized.runs[0]?.id||'');setSelectedDuty(normalized.duties[0]?.id||'');
+    latestRecovery.current={...latestRecovery.current,documentId:id,blockDraftKey:blockDraftKey.current,document:normalized,savedDocumentJson:savedDocumentJson.current,formalScriptName:loadedScriptName,persistedFormalScriptName:normalized.formalScriptName||'',selectedRun:normalized.runs[0]?.id||'',selectedDuty:normalized.duties[0]?.id||''};
     rememberAuthoringDocument(recoveryOwner,world,id);
   };
 

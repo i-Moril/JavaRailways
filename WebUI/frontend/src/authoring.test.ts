@@ -1,6 +1,6 @@
 import { describe,expect,it } from 'vitest';
 import {
-  authoringMinimumDwell,authoringDocumentForSave,authoringGraphTimetable,authoringSelectorKey,copyRunShifted,createRunFromLine,deleteRunFromDocument,generateTimetableSource as generateWithLines,moveRunToDuty,
+  authoringMinimumDwell,authoringDocumentForSave,normalizeAuthoringDocument,authoringGraphTimetable,authoringSelectorKey,copyRunShifted,createRunFromLine,deleteRunFromDocument,generateTimetableSource as generateWithLines,moveRunToDuty,
   authoringResetProfile,renameAuthoringRun,retainAuthoringRunSelection,resolveAuthoringRunSelection,lineSimulationRoute,moveRunFromCall,resetRunTimings,resizeRunRoute,shiftRunFromDeparture,validateAuthoringDocument as validateWithLines,type TimetableAuthoringDocumentV1,
 } from './authoring';
 import {createDocumentHistory,redoDocumentHistory,undoDocumentHistory,updateDocumentHistory} from './documentHistory';
@@ -429,6 +429,18 @@ describe('timetable-wide minimum dwell',()=>{
     expect(destinations.map((options)=>options.minimumDwellTicks)).toEqual([40,40]);
     expect(passes).toEqual(['c']);
     expect(document.runs[0].calls.every((call)=>!Object.hasOwn(call,'minimumDwellTicks'))).toBe(true);
+  });
+
+  it('clears a stale terminal departure when a run becomes deadhead',()=>{
+    const document=valid();
+    document.runs=[{id:'deadhead',type:'DEADHEAD',lineDirection:'UP',calls:[
+      {id:'a',stationId:'a',targetId:'a',status:'ORIGIN',departureTick:100},
+      {id:'b',stationId:'b',targetId:'b',status:'TERMINAL',arrivalTick:200,departureTick:260},
+    ]}];
+    expect(normalizeAuthoringDocument(document).runs[0].calls[1].departureTick).toBeNull();
+    expect(authoringDocumentForSave(document).runs[0].calls[1].departureTick).toBeNull();
+    const passenger={...document,runs:[{...document.runs[0],type:'PASSENGER' as const}]};
+    expect(normalizeAuthoringDocument(passenger)).toBe(passenger);
   });
 
   it('does not apply the global minimum dwell to deadhead runs',()=>{

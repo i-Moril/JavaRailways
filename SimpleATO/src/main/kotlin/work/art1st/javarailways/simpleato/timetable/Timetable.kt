@@ -1177,7 +1177,6 @@ class TimetableValidator(
             }
             is TimetableAction.BeginStationStop -> {
                 if (action.stopPrograms.role != StationStopRole.ORIGIN) errors += "$prefix origin stop requires ORIGIN role"
-                if (action.stopPrograms.destinationId != null && currentWayPointId != null && action.stopPrograms.destinationId != currentWayPointId) errors += "$prefix origin stop does not match acquired/checked waypoint: acquired=$currentWayPointId requested=${action.stopPrograms.destinationId}"
                 currentWayPointId
             }
             is TimetableAction.DestinationOptions -> currentWayPointId

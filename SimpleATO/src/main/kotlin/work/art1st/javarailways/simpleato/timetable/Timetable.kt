@@ -1108,8 +1108,7 @@ class TimetableValidator(
                             errors,
                             routes,
                             routeStoppingOffsets,
-                            requiredStartDirection = requiredStartDirection,
-                            pruneNonTargetWaypoints = false
+                            requiredStartDirection = requiredStartDirection
                         )
                     }
                     candidatePoints.firstOrNull()?.point?.destinationId

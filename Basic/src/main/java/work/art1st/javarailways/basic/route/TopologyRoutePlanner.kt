@@ -152,6 +152,11 @@ object TopologyRoutePlanner {
         val endDirection = input.endFacing?.let { facing -> end.edgeDirection(facing) }
         val starts = startDirections.map { direction -> OrientedPoint(start.edgeId, start.edgeDistanceMeters, direction) }
             .filterNot(graph::isForbidden)
+        if (starts.isEmpty()) return rejected(
+            TopologyRoutePlanningRejection.UNREACHABLE,
+            "start facing ${input.startFacing?.name ?: "ANY"} is forbidden at start location " +
+                "${start.edgeId}@${start.edgeDistanceMeters}; no permitted departure direction"
+        )
         val path = if (input.requireUniquePath) {
             when (val result = UniqueSearch(topology, graph, end, endDirection, input.uniqueSearchLimit).run(starts)) {
                 is UniqueSearchResult.Unique -> result.path

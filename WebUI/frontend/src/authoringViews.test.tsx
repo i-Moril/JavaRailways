@@ -18,6 +18,11 @@ describe('authoring workspace views',()=>{
    const runHtml=render(<RunRouteEditor automaticColor="#56c5ff" run={run} lines={[line]} metadata={{}} busy={false} onError={noop} onChange={noop} onDelete={noop}/>);
    expect(runHtml).not.toContain('aria-label="'+translate('en-US','ui.lineCap')+'"');
  });
+ it('names the failing duty and run in a global simulation',()=>{
+  const html=render(<AuthoringValidation {...props} duties={[{id:'duty-a',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'run-element',type:'RUN',runId:'run-7'}]}]} simulation={{status:'FAILED',simulatedTicks:100,reason:'simulation stopped',runs:[{timetableId:'t',serviceId:'duty-a',trainId:'train',state:'FAILED',timetableElapsedTicks:100,lastLatenessTicks:0,nextStepIndex:3,currentRunId:'run-7',message:'door failure'}]}}/>);
+  expect(html).toContain('Simulation failure location');expect(html).toContain('duty-a');expect(html).toContain('run-7');expect(html).toContain('door failure');
+ });
+
  it('distinguishes a tentative platform from an admitted selection and shows the active branch',()=>{
   for(const committed of [false,true]){
    const html=render(<AuthoringValidation {...props} simulation={{status:'PERIOD_ENDED',simulatedTicks:100,runs:[{timetableId:'t',serviceId:'duty-a',trainId:'train',state:'WAITING_ROUTE',timetableElapsedTicks:100,lastLatenessTicks:0,nextStepIndex:4,activeStepIndex:2,activeStepBranchPath:[{arm:'ELSE',index:1}],selectedBerthRef:{stationId:'central',berthId:'long'},selectedBerthCommitted:committed}]}}/>);

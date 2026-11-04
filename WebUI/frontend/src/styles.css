@@ -23,7 +23,7 @@ button, input, select, textarea { font: inherit; }
 h1, h2, p { margin-top: 0; }
 
 /* Shared studio shell: use the same Ant Design tokens as every non-map workspace. */
-.app-shell { height: 100dvh; display: grid; grid-template-rows: 44px auto auto minmax(0,1fr); color: var(--ant-color-text); background: var(--ant-color-bg-layout); }
+.app-shell { height: 100dvh; display: grid; grid-template-rows: 44px auto minmax(0,1fr); color: var(--ant-color-text); background: var(--ant-color-bg-layout); }
 .studio-topbar { height: 44px; min-height: 44px; padding: 0 14px; line-height: normal; background: var(--ant-color-bg-container); border-bottom: 1px solid var(--ant-color-border-secondary); }
 .studio-topbar > .ant-flex { height: 100%; }
 .studio-brand { min-width: 0; }
@@ -49,11 +49,9 @@ h1, h2, p { margin-top: 0; }
 .ribbon-command.ant-btn { height: 50px; min-width: 68px; padding: 4px 8px; display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
 .ribbon-command .anticon { margin: 0 !important; font-size: 18px; }
 .group-label { color: var(--ant-color-text-tertiary); text-align: center; font-size: 10px; line-height: 12px; }
-.notice-strip { max-height: 100px; overflow: auto; padding: 5px 16px; background: var(--ant-color-bg-container); border-bottom: 1px solid var(--ant-color-border-secondary); }
-.notice-strip:empty { max-height: 0; padding-block: 0; border-bottom: 0; }
-.notice-strip .error { color: var(--ant-color-error); }
-.notice-strip .success { color: var(--ant-color-success); }
-.notice-strip code { color: var(--ant-color-warning); }
+.error-toast { position: fixed; z-index: 1200; right: 18px; bottom: 18px; width: min(560px, calc(100vw - 36px)); max-height: 42vh; overflow: auto; filter: drop-shadow(0 12px 28px rgb(15 23 42 / .22)); }
+.error-toast .ant-alert { align-items: flex-start; }
+.error-toast .ant-alert-title { white-space: pre-wrap; overflow-wrap: anywhere; }
 .persistent-graph-view { min-height: 0; overflow: hidden; }
 
 /* Legacy map controls and canvas palette are intentionally isolated from the studio. */

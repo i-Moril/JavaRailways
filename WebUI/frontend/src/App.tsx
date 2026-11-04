@@ -1,6 +1,6 @@
 import type { AuthoringCommand,AuthoringCommandState } from './authoringCommands';
 import { useEffect, useState, type ReactNode } from 'react';
-import { App as AntApp, Button, ConfigProvider, Flex, Layout, Select, Switch, Tabs, Tag, Tooltip, Typography } from 'antd';
+import { Alert, App as AntApp, Button, ConfigProvider, Flex, Layout, Select, Switch, Tabs, Tag, Tooltip, Typography } from 'antd';
 import { CodeOutlined, DisconnectOutlined, GlobalOutlined, LinkOutlined, MoonOutlined, NodeIndexOutlined, PlayCircleOutlined, PlusOutlined, RedoOutlined, SaveOutlined, SunOutlined, CopyOutlined, UndoOutlined } from '@ant-design/icons';
 import { api } from './api';
 import { trackSessionActivity } from './sessionActivity';
@@ -171,10 +171,6 @@ export default function App() {
       </div>:view==='validation'?null:<div className="studio-contextbar"><Tag variant="filled">{t(`nav.${view}`)}</Tag><Typography.Text type="secondary">{workspaceNotice}</Typography.Text></div>}
     </section>
 
-    <section className="notice-strip">
-      {error && <div className="error" role="alert">{error}</div>}
-    </section>
-
     {authenticated&&<section className="persistent-graph-view" hidden={!['graph','duties','validation'].includes(view)}><DutyEditor programLibraryRevision={programLibraryRevision} key={JSON.stringify([authenticatedPlayer,world])} onActiveDocument={setAuthoringDocumentId} onOpenProgramLibrary={(programId,stepId)=>{setProgramFocus({world,programId,stepId});setView('programs');}} onCommandState={setAuthoringState} page={view==='duties'?'duties':view==='validation'?'validation':'graph'} onPageChange={setView} world={world} recoveryOwner={authenticatedPlayer} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>}
     {authenticated&&<section className="persistent-graph-view" hidden={view!=='programs'}><StationProgramLibrary metadata={metadata} onLibraryChange={()=>setProgramLibraryRevision((revision)=>revision+1)} key={`${authenticatedPlayer}::${world}`} world={world} documentId={authoringDocumentId} recoveryOwner={authenticatedPlayer} extensions={metadata.extensions?.actions} conditions={metadata.extensions?.conditions} focus={programFocus?.world===world?programFocus:undefined}/></section>}
     {authenticated&&view === 'logs' && <LogsPage />}
@@ -183,6 +179,6 @@ export default function App() {
     {authenticated&&<section className="persistent-graph-view" hidden={view!=='lines'}><LinesPage key={JSON.stringify([authenticatedPlayer,world])} world={world} metadata={metadata} collection={lineCollection}
       onCollection={setLineCollection} run={run} /></section>}
 
-
+    {error&&<div className="error-toast" role="alert" aria-live="assertive"><Alert type="error" showIcon closable title={error} onClose={()=>setError('')}/></div>}
   </main></AntApp></ConfigProvider>;
 }

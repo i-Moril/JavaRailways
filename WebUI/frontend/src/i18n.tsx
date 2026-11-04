@@ -78,6 +78,7 @@ const zh = {
 
   'programSimulation.cancel':'取消',
   'simulation.setup':'模拟设置',
+  'simulation.failureAt':'模拟失败位置',
   'simulation.lineSetup':'运行线模拟设置',
   'simulation.timeout':'模拟执行超时（真实秒）',
   'simulation.timeoutHint':'限制服务器实际计算的等待时间，与模拟推进的 tick 数不同；仅用于本次模拟，不保存到时刻表。',
@@ -861,6 +862,7 @@ const en: Record<TranslationKey, string> = {
 
   'programSimulation.cancel':'Cancel',
   'simulation.setup':'Simulation setup',
+  'simulation.failureAt':'Simulation failure location',
   'simulation.lineSetup':'Line simulation setup',
   'simulation.timeout':'Simulation timeout (real seconds)',
   'simulation.timeoutHint':'Limits real computation time, separately from simulated ticks. Used for this simulation only; not saved in the timetable.',

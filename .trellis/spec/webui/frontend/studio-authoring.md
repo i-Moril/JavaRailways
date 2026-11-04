@@ -130,7 +130,9 @@ CURRENT：`authoringResume.ts` 保存 owner/world 隔离的最后文档 ID；内
 
 `events?: TimedOperation[]`为运行图所属定时作业，使用与交路程序作业相同的时刻、程序调用、可选车站/标记与规划耗时模型。可无程序保留纯时间锚点，WAIT_EVENT只引用此集合，生成前仍将tick+offsetTicks解析为绝对等待。缺失或越周期产生authoring issue、返回空source，不抛渲染异常。
 
-交路页使用页面专属顶部 ribbon：新建交路、添加作业程序、重联、解编、撤销/重做与保存；校验页不显示命令 ribbon，编译/模拟由校验面板拥有。交路页中央复用渲染后的运行图选择 RUN 和运行图作业 EVENT：点击运行线把该 RUN 原子移入当前交路，点击带程序的 EVENT 添加唯一引用；不再用下拉菜单选择。交路页不渲染页面标题和副标题，三栏铺满页面并各自滚动；左侧交路列表、中央运行图/时间轴、右侧属性栏独立滚动。右侧栏采用与时刻表检查器一致的 inspector panel/标题样式，分“交路”和“初始位置”两个输入区，分别承载交路 ID、选择器/模拟参考车辆以及初始路径点/取得时刻等字段。
+交路页使用页面专属顶部 ribbon：新建交路、添加作业程序、重联、解编、撤销/重做与保存；校验页不显示命令 ribbon，编译/模拟由校验面板拥有。交路页中央复用渲染后的运行图选择 RUN 和运行图作业 EVENT：点击运行线把该 RUN 原子移入当前交路，点击带程序的 EVENT 添加唯一引用；不再用下拉菜单选择。所有会生成列车或从路径点取得列车的编辑入口都必须使用“有方向”的路径点：函数模拟起点、TRAIN_NAME 的 initialPosition、TAKE_FROM_WAYPOINT 的每个候选点。UI 只提供 `programSimulationWayPoints`（点自身 approachDirection 或所属轨道 operatingDirections 已配置）；`validateAuthoringDocument(..., metadata)` 同时对照真实 `metadata.wayPoints` 报“点不存在”和对照 directed set 报“未配置方向”。是否真的能唯一放置车身仍由运行期 `prepareUniquePlacement` / initial positioner 决定，编辑期不伪造唯一性结论。保存/校验必须传 metadata，不能只在生成 source 时绕过；已存在的旧点不符合实际世界时在校验页报错。
+
+交路页不渲染页面标题和副标题，三栏铺满页面并各自滚动；左侧交路列表、中央运行图/时间轴、右侧属性栏独立滚动。右侧栏采用与时刻表检查器一致的 inspector panel/标题样式，分“交路”和“初始位置”两个输入区，分别承载交路 ID、选择器/模拟参考车辆以及初始路径点/取得时刻等字段。
 
 交路 `referenceVehicle?: {type:'WORLD_TRAIN'|'TRAIN_TEMPLATE',id}`持久保存于duty，模拟由此取参数，不限制实际运营列车。元素支持RUN、交路所属PROGRAM、运行图作业EVENT及共享编组作业FORMATION引用。PROGRAM复用TimedOperation字段，program必需；EVENT／FORMATION只存{id,type,eventId}，不复制时刻、参数或耗时，分别引用运行图作业和编组目录。来自编组输出的交路不重新指定模拟车辆。初始位置仍为duty.initialPosition，不作为执行任务。当前未发布格式仍为1；旧PROGRAM.call结构只由离线迁移处理，不在运行时兼容。
 

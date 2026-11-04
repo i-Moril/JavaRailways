@@ -1,5 +1,5 @@
 import {EditableIdSelect,EditableIdList} from './EditableIdSelect';
-import {waypointOptions} from './idOptions';
+import {directedWaypointOptions} from './idOptions';
 import {useEffect,useRef,useState} from 'react';
 import {Alert,Button,Flex,Input,Select,Typography} from 'antd';
 import {DeleteOutlined} from '@ant-design/icons';
@@ -58,11 +58,11 @@ export function DutyManagement(p:DutyManagementProps) {
       <section className="duty-side-section"><Typography.Title level={5}>{t('duties.initialSection')}</Typography.Title>
         {selector.type==='TAKE_FROM_FORMATION_OUTPUT'?p.document&&<FormationSourceFields document={p.document} dutyId={duty.id} eventId={selector.eventId} outputId={selector.outputId} onSelectDuty={id=>p.onOpenFormation?.(id,selector.eventId)} onChange={(eventId,outputId)=>p.onFormationSource?.(eventId,outputId)}/>:selector.type==='TRAIN_NAME'?<>
           <label>{t('ui.trainName')}<Input value={selector.name} onChange={(event)=>p.onPatch({selector:{...selector,name:event.target.value}})}/></label>
-          <label>{t('duties.initialWaypoint')}<EditableIdSelect fieldKey={`${p.fieldScope}/${duty.id}/initialPosition`} allowClear aria-label={t('duties.initialWaypoint')} value={duty.initialPosition} options={waypointOptions(p.metadata)} onCommit={(initialPosition)=>p.onPatch({initialPosition:initialPosition||undefined})}/></label>
+          <label>{t('duties.initialWaypoint')}<EditableIdSelect fieldKey={`${p.fieldScope}/${duty.id}/initialPosition`} allowClear aria-label={t('duties.initialWaypoint')} value={duty.initialPosition} options={directedWaypointOptions(p.metadata)} onCommit={(initialPosition)=>p.onPatch({initialPosition:initialPosition||undefined})}/></label>
           <Typography.Text type="secondary">{t('timeline.initialHint')}</Typography.Text>
         </>:<>
           <label>{t('duties.acquireTick')}<CommittedNumberInput fieldKey={`${p.fieldScope}/${duty.id}/selector/${selector.type}/tick`} allowEmpty={false} min={0} precision={0} value={selector.tick} onCommit={(tick)=>p.onPatch({selector:{...selector,tick:tick??0}})}/></label>
-          {selector.type==='TAKE_FROM_DEPOT'?<><label>{t('duties.depot')}<Select value={selector.depotId||undefined} options={options(p.metadata.depots??[])} onChange={(depotId)=>p.onPatch({selector:{...selector,depotId}})}/></label><label>{t('duties.requiredTags')}<Select mode="tags" value={selector.tags} onChange={(tags)=>p.onPatch({selector:{...selector,tags}})}/></label></>:<label>{t('duties.waypoints')}<EditableIdList fieldKey={`${p.fieldScope}/${duty.id}/waypoints`} aria-label={t('duties.waypoints')} value={selector.wayPointIds} options={waypointOptions(p.metadata)} onChange={(wayPointIds)=>p.onPatch({selector:{...selector,wayPointIds}})}/></label>}
+          {selector.type==='TAKE_FROM_DEPOT'?<><label>{t('duties.depot')}<Select value={selector.depotId||undefined} options={options(p.metadata.depots??[])} onChange={(depotId)=>p.onPatch({selector:{...selector,depotId}})}/></label><label>{t('duties.requiredTags')}<Select mode="tags" value={selector.tags} onChange={(tags)=>p.onPatch({selector:{...selector,tags}})}/></label></>:<label>{t('duties.waypoints')}<EditableIdList fieldKey={`${p.fieldScope}/${duty.id}/waypoints`} aria-label={t('duties.waypoints')} value={selector.wayPointIds} options={directedWaypointOptions(p.metadata)} onChange={(wayPointIds)=>p.onPatch({selector:{...selector,wayPointIds}})}/></label>}
         </>}
       </section>
       </div>}

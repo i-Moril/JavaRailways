@@ -128,6 +128,23 @@ describe('timetable editor document',()=>{
     expect(validateAuthoringDocument(document).map((item)=>item.message)).toContain('Initial placement requires a named-train selector');
   });
 
+  it('validates configured spawn waypoints against existence and explicit direction metadata',()=>{
+    const world:WorldMetadata={wayPoints:['a@1','b@1','undirected'],programSimulationWayPoints:[
+      {id:'a@1',railId:'rail-a',direction:'AB',directionSource:'WAYPOINT'},
+      {id:'b@1',railId:'rail-b',direction:'BA',directionSource:'RAIL'},
+    ]};
+    const document=valid();
+    expect(validateWithLines(document,infrastructureLines,[],world)).toEqual([]);
+    document.duties[0].initialPosition='missing';
+    expect(validateWithLines(document,infrastructureLines,[],world).some((item)=>item.message.includes('Initial placement waypoint not found'))).toBe(true);
+    document.duties[0].initialPosition='undirected';
+    expect(validateWithLines(document,infrastructureLines,[],world).some((item)=>item.message.includes('Initial placement waypoint has no configured direction'))).toBe(true);
+    document.duties[0].selector={type:'TAKE_FROM_WAYPOINT',wayPointIds:['a@1','undirected'],tick:0};
+    expect(validateWithLines(document,infrastructureLines,[],world).some((item)=>item.message.includes('Selector waypoint has no configured direction'))).toBe(true);
+    document.duties[0].selector={type:'TAKE_FROM_WAYPOINT',wayPointIds:['missing'],tick:0};
+    expect(generateWithLines(document,infrastructureLines,[],world).issues.some((item)=>item.message.includes('Selector waypoint not found'))).toBe(true);
+  });
+
   it('deterministically generates one service per duty with origin trace scopes',()=>{
     const first=generateTimetableSource(valid());
     const second=generateTimetableSource(valid());

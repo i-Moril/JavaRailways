@@ -355,8 +355,11 @@ const quote=(value:string)=>JSON.stringify(value);
 const origin=(dutyId:string,elementId:string,runId?:string,functionId?:string)=>
   [`duty:${dutyId}`,`element:${elementId}`,runId&&`run:${runId}`,functionId&&`function:${functionId}`].filter(Boolean).join('/');
 
-export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[],programs:readonly StationProgramRecord[]=[]):AuthoringIssue[] {
+export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[],programs:readonly StationProgramRecord[]=[],metadata?:WorldMetadata):AuthoringIssue[] {
   document=normalizeAuthoringDocument(document);
+  const actualWaypoints=metadata?.wayPoints?new Set(metadata.wayPoints):undefined;
+  const directedWaypoints=metadata?.programSimulationWayPoints?new Set(metadata.programSimulationWayPoints.map((point)=>point.id)):undefined;
+  const validateWaypoint=(id:string,path:string,label:string)=>{if(!id.trim())return;if(actualWaypoints&&!actualWaypoints.has(id))issues.push(issue(path,`${label} waypoint not found: ${id}`));else if(directedWaypoints&&!directedWaypoints.has(id))issues.push(issue(path,`${label} waypoint has no configured direction: ${id}`));};
   const programMap=new Map(programs.map((program)=>[program.id,program]));
   const issues:AuthoringIssue[]=[];
   if(document.formatVersion!==1) issues.push(issue('formatVersion','Unsupported editor document version'));
@@ -442,6 +445,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
       if(!duty.selector.wayPointIds.length||duty.selector.wayPointIds.some((id)=>!id.trim())) issues.push(issue(`${path}.selector.wayPointIds`,'At least one waypoint is required'));
       if(!nonNegativeInteger(duty.selector.tick)||duty.selector.tick>=periodTicks) issues.push(issue(`${path}.selector.tick`,'Acquisition tick must be inside the timetable period'));
     }
+    if(duty.selector.type==='TAKE_FROM_WAYPOINT') duty.selector.wayPointIds.forEach((id,index)=>validateWaypoint(id,`${path}.selector.wayPointIds[${index}]`,'Selector'));
     const plannedTasks=projectDutyTimeline(document,duty,undefined,programs);
     for(let index=0;index<plannedTasks.length;index++){
       const task=plannedTasks[index];
@@ -454,6 +458,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
     if(duty.initialPosition!==undefined){
       if(!duty.initialPosition.trim())issues.push(issue(`${path}.initialPosition`,'Initial placement waypoint is required'));
       if(duty.selector.type!=='TRAIN_NAME')issues.push(issue(`${path}.initialPosition`,'Initial placement requires a named-train selector'));
+      else validateWaypoint(duty.initialPosition,`${path}.initialPosition`,'Initial placement');
     }
     duty.elements.forEach((element,elementIndex)=>{
       const elementPath=`${path}.elements[${elementIndex}]`;
@@ -630,10 +635,10 @@ function destinationOptions(document:TimetableAuthoringDocumentV1,duty:Authoring
  return `, JSON.parse(${quote(JSON.stringify({...stopOptions(document,duty,run,call),arrivalTick:override??call.arrivalTick??undefined,minimumDwellTicks:call.status==='PASS'?undefined:authoringMinimumDwellForRun(document,run),stoppingOffsetMetersBefore:call.stoppingOffsetMetersBefore??undefined,doorSide:runDoorSide(run,call)}))})`;
 }
 
-export function generateTimetableSource(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[],programs:readonly StationProgramRecord[]=[]):GeneratedTimetableSource {
+export function generateTimetableSource(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[],programs:readonly StationProgramRecord[]=[],metadata?:WorldMetadata):GeneratedTimetableSource {
   document=normalizeAuthoringDocument(document);
   const orderedPrograms=[...programs].sort((a,b)=>a.id.localeCompare(b.id));
-  const issues=validateAuthoringDocument(document,infrastructureLines,orderedPrograms);
+  const issues=validateAuthoringDocument(document,infrastructureLines,orderedPrograms,metadata);
   const {formalScriptName:ignoredName,...savedInput}=authoringDocumentForSave(document);
   const semanticInput={...savedInput,runs:savedInput.runs.map(({color:_,...run})=>run),formationEvents:savedInput.formationEvents?.map(({duration:_,stationId:__,...event})=>event),events:savedInput.events?.map(({id,tick})=>({id,tick})),duties:savedInput.duties.map((duty)=>({...duty,elements:duty.elements.map((element)=>{
     if(element.type==='RUN'||element.type==='FORMATION')return element;

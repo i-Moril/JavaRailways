@@ -134,7 +134,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   const editorDraftInvalid=reportedEditorDraftInvalid;
   const sharedStations=[...new Set(value.runs.flatMap((run)=>run.calls.filter((call)=>call.status!=='PASS').map((call)=>call.stationId)))].map((stationId)=>value.stationPrograms?.find((program)=>program.stationId===stationId)??defaultStationStopProgram(stationId));
   const arrivalDraftsInvalid=sharedStations.some((program)=>(['arrival','departurePreparation'] as const).some((phase)=>!getProgramBlockDraftValidity(`${programDraftScope}/station/${program.stationId}/${phase}`,program[phase],'arrival')));
-  const generated=useMemo(()=>generateTimetableSource(value,lines,programLibrary),[value,lines,programLibrary]);
+  const generated=useMemo(()=>generateTimetableSource(value,lines,programLibrary,metadata),[value,lines,programLibrary,metadata]);
   const hasAuthoringErrors=generated.issues.some((issue)=>issue.severity==='error');
   const compiled=!hasAuthoringErrors&&!editorDraftInvalid&&!arrivalDraftsInvalid&&compiledState?.documentHashInput===generated.documentHashInput?compiledState.result:undefined;
   const simulationScenarioKey=JSON.stringify([world,generated.documentHashInput,delayThresholdTicks,Object.entries(profileAssignments).sort(([a],[b])=>a.localeCompare(b))]);

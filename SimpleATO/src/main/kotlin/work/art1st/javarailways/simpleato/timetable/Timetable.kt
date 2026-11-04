@@ -1108,7 +1108,8 @@ class TimetableValidator(
                             errors,
                             routes,
                             routeStoppingOffsets,
-                            requiredStartDirection = requiredStartDirection
+                            requiredStartDirection = requiredStartDirection,
+                            pruneNonTargetWaypoints = false
                         )
                     }
                     candidatePoints.firstOrNull()?.point?.destinationId
@@ -1244,7 +1245,8 @@ class TimetableValidator(
         routes: MutableList<ExpandedRoute>,
         routeStoppingOffsets: MutableList<Double?>,
         requiredStartDirection: ViewDirection? = null,
-        stoppingOffset: Double? = 0.0
+        stoppingOffset: Double? = 0.0,
+        pruneNonTargetWaypoints: Boolean = true
     ) {
         if (!wayPointExists(toWayPointId)) {
             errors.add("$prefix step#$stepIndex destination 路径点不存在: $toWayPointId")
@@ -1258,7 +1260,7 @@ class TimetableValidator(
             requiredStartDirection = requiredStartDirection
                 ?: destinationDirection(fromWayPointId),
             requireUniquePath = true,
-            pruneNonTargetWaypoints = true
+            pruneNonTargetWaypoints = pruneNonTargetWaypoints
         )) {
             is RouteBuildResult.Success -> {
                 routes.add(result.route)

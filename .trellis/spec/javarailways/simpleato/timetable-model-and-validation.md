@@ -22,7 +22,7 @@ data class Timetable(
 
 `periodDays>0`；一天固定`24_000` Tick；`periodTicks=Math.multiplyExact(periodDays,24000)`。`TimetableService.steps`是runtime authority；diagram line/arrival/compiler trace只presentation/authoring；旧 editorRows 模型已移除。分段 service 使用当前 `runSegments.lineId`，无分段时使用 `service.lineId` 作为 infrastructure identity。新增运行段、运营车次及显示动作契约见[停车跨线与单元显示](./through-running-and-unit-displays.md)。
 
-Step token：`Check(wayPointId)`、`At(tick,action)`。Action包括TakeFromDepot/Waypoint、StoreAtDepot、GoTo/GoVia、Stop、Extension/Conditional、Halt、Reverse、DestinationOptions、CallStation。`At.tick`为timetable-relative action/departure tick，nonnegative且period内、非降序。`StoreAtDepot` 的静态校验只证明到物理 StablingPoint 的经路覆盖；注册 rolling stock 的兼容集合为空时必须回退到物理点，实时编组兼容/分配留给运行期，不能用当前 depot 库存拒绝静态时刻表。
+Step token：`Check(wayPointId)`、`At(tick,action)`。Action包括TakeFromDepot/Waypoint、StoreAtDepot、GoTo/GoVia、Stop、Extension/Conditional、Halt、Reverse、DestinationOptions、CallStation。`At.tick`为timetable-relative action/departure tick，nonnegative且period内、非降序。`StoreAtDepot` 的静态校验只证明到物理 StablingPoint 的经路覆盖；注册 rolling stock 的兼容集合为空时必须回退到物理点，实时编组兼容/分配留给运行期，不能用当前 depot 库存拒绝静态时刻表。Depot 出入库移动可以正线穿过其他车站而不办客，因此该段静态经路校验关闭非目标 waypoint 剪枝；仍要求唯一路径和全局 route restrictions。
 
 ## 时刻表值的所有权（CURRENT，ATO-06 用户决策）
 

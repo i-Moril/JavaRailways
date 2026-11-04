@@ -84,7 +84,7 @@ export interface UnitStopSnapshot {serviceId:string;runId:string;call:TimetableR
 export interface UnitDisplaySnapshot {unitId:string;operationalTripId:string;cycleIndex:number;active?:boolean;values:ProgramJsonObject;plannedStops:UnitStopSnapshot[];completedStops:UnitStopSnapshot[];remainingStops:UnitStopSnapshot[];unresolvedRuns?:string[]}
 export interface TimetableSimulationResult {
   status:'COMPLETED'|'DELAY_EXCEEDED'|'FAILED'|'PERIOD_ENDED'; simulatedTicks:number;
-  thresholdTicks?:number; observedDelayTicks?:number; delayedServiceId?:string; delayedStepIndex?:number; delayedStepBranchPath?:TimetableBranchEntry[];
+  thresholdTicks?:number; observedDelayTicks?:number; delayedServiceId?:string; delayedRunId?:string|null; delayedTaskId?:string; delayedState?:string; delayedMessage?:string; delayedStepIndex?:number; delayedStepBranchPath?:TimetableBranchEntry[]; wallClockMillis?:number;
   reason?:string; runs:TimetableSimulationRunResult[];
   tasks?:{serviceId:string;taskId:string;startTick:number;endTick?:number}[];
 }

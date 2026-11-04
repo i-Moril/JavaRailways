@@ -101,8 +101,8 @@ describe('authoring workspace views',()=>{
   expect(html).toContain('Call target is required');expect(html).toContain('runs[0].calls[1]');expect(html).toContain('Compiler rejected source');expect(html).toContain('Duties sharing a selector');
  });
  it('shows the returned report and trace instead of fabricating successful trajectories',()=>{
-  const html=render(<AuthoringValidation {...props} simulation={{status:'DELAY_EXCEEDED',simulatedTicks:800,observedDelayTicks:201,delayedServiceId:'duty-a',delayedStepIndex:3,runs:[{timetableId:'t',serviceId:'duty-a',trainId:'train',state:'WAITING',timetableElapsedTicks:800,lastLatenessTicks:201,nextStepIndex:3,message:'Waiting for route'}]}} delayedOrigin="duty:duty-a/element:e/run:run-a"/>);
-  expect(html).toContain('Delay threshold exceeded');expect(html).toContain('Waiting for route');expect(html).toContain('duty:duty-a/element:e/run:run-a');expect(html).toContain('201');
+  const html=render(<AuthoringValidation {...props} taskLabels={{'duty-a/element-e':'任务A'}} simulation={{status:'DELAY_EXCEEDED',simulatedTicks:800,observedDelayTicks:201,delayedServiceId:'duty-a',delayedRunId:'run-a',delayedTaskId:'element-e',delayedStepIndex:3,wallClockMillis:400,runs:[{timetableId:'t',serviceId:'duty-a',trainId:'train',state:'WAITING',timetableElapsedTicks:800,lastLatenessTicks:201,currentRunId:'run-a',nextStepIndex:3,message:'Waiting for route'}]}}/>);
+  expect(html).toContain('Delay threshold exceeded');expect(html).toContain('Waiting for route');expect(html).toContain('run-a');expect(html).toContain('任务A');expect(html).toContain('2000.0');expect(html).toContain('0.50');expect(html).toContain('201');
  });
  it('exposes duty selectors and timeline instead of a scratch canvas',()=>{
   const duty={id:'duty-a',selector:{type:'TAKE_FROM_DEPOT' as const,depotId:'depot-a',tick:50,tags:['commuter']},elements:[]};

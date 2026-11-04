@@ -118,6 +118,11 @@ internal fun unitDisplayJson(display: work.art1st.javarailways.simpleato.timetab
     put("unresolvedRuns", JsonArray(display.unresolvedRuns.map { JsonPrimitive(it) }))
 }
 
+private data class TimedTimetableSimulation(
+    val result: work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationResult,
+    val wallClockNanos: Long
+)
+
 private data class LineSimulationSnapshot(
     val revision: Long,
     val profile: SimulationControlProfile,
@@ -651,21 +656,23 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 }
             }
             val task = try {
-                simulationExecutor.submit<IsolatedTimetableSimulationResult> {
+                simulationExecutor.submit<TimedTimetableSimulation> {
                     factory.create(
                             snapshot,
                             workerThreads = plugin.physicsConfig.workerThreads.coerceIn(1, 4)
                         ).use { simulation ->
-                            simulation.simulate(IsolatedTimetableSimulationRequest(
+                            val started = System.nanoTime()
+                            val result = simulation.simulate(IsolatedTimetableSimulationRequest(
                                 timetable,
                                 delayThresholdTicks = delayThreshold
                             ))
+                            TimedTimetableSimulation(result, System.nanoTime() - started)
                         }
                 }
             } catch (_: RejectedExecutionException) {
                 throw HttpFailure(429, "timetable simulation queue is full; retry later", "SIMULATION_QUEUE_FULL")
             }
-            val result = try {
+            val timed = try {
                 task.get(executionTimeoutMillis, TimeUnit.MILLISECONDS)
             } catch (failure: ExecutionException) {
                 val cause = failure.cause ?: failure
@@ -682,13 +689,13 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 Thread.currentThread().interrupt()
                 throw interrupted
             }
-            return simulationResultJson(result)
+            return simulationResultJson(timed.result, timed.wallClockNanos)
         }
 
         private fun branchPathJson(path: List<work.art1st.javarailways.simpleato.timetable.TimetableBranchEntry>) =
             JsonArray(path.map { entry -> buildJsonObject { put("arm", entry.arm.name); put("index", entry.index) } })
 
-        private fun simulationResultJson(result: IsolatedTimetableSimulationResult): String =
+        private fun simulationResultJson(result: IsolatedTimetableSimulationResult, wallClockNanos: Long): String =
             json.encodeToString(buildJsonObject {
                 put("status", when (result) {
                     is IsolatedTimetableSimulationResult.Completed -> "COMPLETED"
@@ -697,10 +704,18 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     is IsolatedTimetableSimulationResult.PeriodEnded -> "PERIOD_ENDED"
                 })
                 put("simulatedTicks", result.simulatedTicks)
+                put("wallClockMillis", wallClockNanos / 1_000_000.0)
                 if (result is IsolatedTimetableSimulationResult.DelayExceeded) {
                     put("thresholdTicks", result.thresholdTicks)
                     put("observedDelayTicks", result.observedDelayTicks)
                     put("delayedServiceId", result.delayedRun.id.serviceId)
+                    put("delayedRunId", result.delayedRun.currentRunId)
+                    put("delayedTaskId", result.delayedRun.taskTimings.lastOrNull { timing ->
+                        timing.startTick <= result.simulatedTicks &&
+                            (timing.endTick?.let { it >= result.simulatedTicks } ?: true)
+                    }?.taskId)
+                    put("delayedState", result.delayedRun.state.name)
+                    put("delayedMessage", result.delayedRun.message)
                     put("delayedStepIndex", result.delayedRun.activeStepIndex ?: result.delayedRun.nextStepIndex)
                     put("delayedStepBranchPath", branchPathJson(if (result.delayedRun.activeStepIndex != null) result.delayedRun.activeStepBranchPath else result.delayedRun.nextStepBranchPath))
                 }

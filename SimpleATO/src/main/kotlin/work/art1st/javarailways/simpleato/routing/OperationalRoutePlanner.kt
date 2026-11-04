@@ -99,6 +99,9 @@ class OperationalRoutePlanner(private val world: World) {
             (simpleAto.destinations[it]?.role as? DestinationRole.StationBerthRole)?.stationId
         }.toSet()
         return world.basicWorldData.wayPoints.all().mapNotNull { waypoint ->
+            // Endpoints are always traversable, including depot stabling points whose role has no
+            // stationId; otherwise a route to a depot target blocks its own destination.
+            if (waypoint.id == fromId || waypoint.id == toId) return@mapNotNull null
             val destination = simpleAto.destinations[waypoint.id]
             val station = (destination?.role as? DestinationRole.StationBerthRole)?.stationId
             if (station != null && station in endpointStations) null else OperationalRouteBlocker(

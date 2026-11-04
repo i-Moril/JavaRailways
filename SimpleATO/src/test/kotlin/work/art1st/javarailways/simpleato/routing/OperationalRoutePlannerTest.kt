@@ -72,6 +72,18 @@ class OperationalRoutePlannerTest {
     }
 
     @Test
+    fun `waypoint pruning never blocks query endpoints without station roles`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        listOf(WayPoint("from", rail.id, 10.0), WayPoint("to", rail.id, 90.0))
+            .forEach(world.basicWorldData.wayPoints::add)
+        val planner = OperationalRoutePlanner(world)
+        assertTrue(planner.buildRoute("from", "to", requireUniquePath = true, pruneNonTargetWaypoints = true)
+            is RouteBuildResult.Success)
+    }
+
+    @Test
     fun `same station alternative berths do not prune but unrelated directed destinations do`() {
         for (otherDirection in listOf(ViewDirection.AB, ViewDirection.BA, null)) {
             val world = TestWorldFixture.create().also(worldFixtures::add).world

@@ -99,6 +99,33 @@ class TerminalRouteMarginTest {
     }
 
     @Test
+    fun `BA margin generation keeps every canonical interval inside its rail`() {
+        val exit = RailEndpointRef(first, RailEndpoint.A)
+        val entrance = RailEndpointRef(second, RailEndpoint.B)
+        val topology = buildTestTopology(1L,
+            listOf(TestTopologyRail(first, 100.0), TestTopologyRail(second, 30.0)),
+            mapOf(exit to setOf(entrance), entrance to setOf(exit)))
+        val restrictions = RoutePlanningRestrictions.unrestricted(topology)
+        val lengths = mapOf(first to 100.0, second to 30.0)
+        for (start in listOf(0.0, 10.0, 80.0, 98.0)) {
+            for (required in listOf(90.0, 93.0, 110.0, 125.0)) {
+                val route = route(segment(first, ViewDirection.BA, start, 100.0))
+                val proposal = TerminalRouteMargin.propose(topology, restrictions, route, required)
+                proposal.route.segments.forEach { segment ->
+                    val length = checkNotNull(lengths[segment.railId])
+                    val lower = if (segment.facing == ViewDirection.AB) segment.startArcLengthMeters
+                        else length - segment.endArcLengthMeters
+                    val upper = if (segment.facing == ViewDirection.AB) segment.endArcLengthMeters
+                        else length - segment.startArcLengthMeters
+                    assertTrue(lower >= 0.0, "negative canonical lower for $segment")
+                    assertTrue(upper <= length, "canonical upper exceeds rail for $segment")
+                    assertTrue(upper > lower, "empty canonical interval for $segment")
+                }
+            }
+        }
+    }
+
+    @Test
     fun `already frozen margin and zero extra distance retain exact route instance`() {
         val topology = buildTestTopology(1L, listOf(TestTopologyRail(first, 100.0)), emptyMap())
         val route = route(segment(first, ViewDirection.AB, 10.0, 90.0))

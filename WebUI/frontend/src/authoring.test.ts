@@ -437,7 +437,7 @@ describe('timetable-wide minimum dwell',()=>{
     document.runs=[{id:'deadhead',type:'DEADHEAD',lineId:'line-1',diagramLineId:'line-1',lineDirection:'UP',calls:[
       {id:'a',stationId:'a',targetId:'a',status:'ORIGIN',departureTick:100},
       {id:'b',stationId:'b',targetId:'b',status:'STOP',arrivalTick:200,departureTick:201},
-      {id:'c',stationId:'c',targetId:'c',status:'TERMINAL',arrivalTick:300},
+      {id:'c',stationId:'c',targetId:'c',status:'TERMINAL',arrivalTick:300,departureTick:400},
     ]}];
     document.duties=[{id:'duty',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'run',type:'RUN',runId:'deadhead'}]}];
     expect(validateAuthoringDocument(document)).toEqual([]);
@@ -449,6 +449,7 @@ describe('timetable-wide minimum dwell',()=>{
     new Function('timetable',`${result.source}\nmain(timetable)`)(host);
     expect(origins.map((options)=>options.minimumDwellTicks)).toEqual([0]);
     expect(destinations.map((options)=>options.minimumDwellTicks)).toEqual([0,0]);
+    expect(destinations.at(-1)?.departureTick).toBeUndefined();
   });
 
   it('enforces the explicit document minimum for shift, copy and whole-run moves',()=>{

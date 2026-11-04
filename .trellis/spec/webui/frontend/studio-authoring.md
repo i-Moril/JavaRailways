@@ -39,7 +39,7 @@ shiftAuthoringGraphSuffix(document, runId, point, mode: 'OFFSET'|'ABSOLUTE', val
 
 单点菜单提交到达时写 `arrivalOverrides`，发车时写对应 run call 的 `departureTick`；PASS 的离开投影也编辑通过到达时刻。有效 arrival override 参与到发和最小停站校验。节点后续平移和复制整批各形成一次文档/history 更新；本地输入草稿、预览、busy、报错不进入 history；交路 referenceVehicle 为文档字段，变更进入 history。
 
-Reset 仅重生选中运行线的时刻，始发 Tick 来自该运行线原有首站 departureTick，没有另一个始发输入；缺少始发时刻则提示先填写。线路模拟重置的停站间隔来自运行选项中的独立“模拟用停站时间”输入，由玩家手填；全局最短停站只约束营运列车（PASSENGER）停站；DEADHEAD 在生成、校验、图编辑、连接和时间轴终点计算中一律使用0，不得作为模拟生成参数。独立 Copy run ribbon 打开间隔/数量弹窗，复制使用 effective run，按 D、2D、…、ND 平移并生成全新 run/call ID，不分配交路。运行选项不再混入复制设置。线路和方向共同限制选中运行线，删除后不得选中其他线路 inspector。
+Reset 仅重生选中运行线的时刻，始发 Tick 来自该运行线原有首站 departureTick，没有另一个始发输入；缺少始发时刻则提示先填写。线路模拟重置的停站间隔来自运行选项中的独立“模拟用停站时间”输入，由玩家手填；全局最短停站只约束营运列车（PASSENGER）停站；DEADHEAD 在生成、校验、图编辑、连接和时间轴终点计算中一律使用0，不得作为模拟生成参数；其终点占用只到实际/计划到达tick，若仍残留更晚的terminal departureTick也必须忽略，生成的destination options不携带该departureTick。独立 Copy run ribbon 打开间隔/数量弹窗，复制使用 effective run，按 D、2D、…、ND 平移并生成全新 run/call ID，不分配交路。运行选项不再混入复制设置。线路和方向共同限制选中运行线，删除后不得选中其他线路 inspector。
 
 本地未保存草稿沿用已有 owner/world 隔离和 shape；已保存文档另用同样隔离的最后打开文档指针恢复，详见下文。不新增旧格式迁移链或持久 panel 偏好。
 

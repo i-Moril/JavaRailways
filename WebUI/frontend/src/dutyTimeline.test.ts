@@ -9,6 +9,10 @@ describe('duty timeline projection',()=>{
   const doc=fixture();doc.arrivalOverrides=[{runId:'R',callId:'b',tick:215}];const before=JSON.stringify(doc);
   expect(projectDutyTimeline(doc,doc.duties[0])[0]).toMatchObject({startTick:100,endTick:225});expect(JSON.stringify(doc)).toBe(before);
  });
+ it('ends a deadhead run at terminal arrival instead of its later departure tick',()=>{
+  const doc=fixture();doc.runs[0]={...doc.runs[0],type:'DEADHEAD'};doc.minimumDwellTicks=400;
+  expect(projectDutyTimeline(doc,doc.duties[0])[0]).toMatchObject({startTick:100,endTick:200});
+ });
  it('distinguishes point, manual and unknown simulated duration',()=>{
   const doc=fixture(),duty=doc.duties[0],element=duty.elements[1];if(element.type!=='PROGRAM')throw Error();
   expect(projectDutyTimeline(doc,duty)[1]).toMatchObject({endTick:230,durationMode:'POINT'});

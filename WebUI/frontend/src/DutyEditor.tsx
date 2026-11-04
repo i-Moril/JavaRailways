@@ -4,7 +4,7 @@ import {useTimetablePrograms} from './useTimetablePrograms';
 import {defaultStationStopProgram} from './stationPlans';
 import {defaultDutyProgramArguments,orderDutyTimeline,projectDutyTimeline,sortDutyTasks} from './dutyTimeline';
 import {TimedOperationFields} from './TimedOperationFields';
-import {projectTimetableOperations,validateTimedOperation} from './timedOperations';
+import {projectTimetableOperations,resolveDutyTimedOperation,validateTimedOperation} from './timedOperations';
 import {TimetableEventsEditor} from './TimetableEventsEditor';
 import {copyTimetableEvents,deleteTimetableEvent,saveTimetableEvent,timetableEventUnchanged,referencedTimetableEventIds,type GraphEventContext} from './timetableEvents';
 import {renameFormationDuty,createDutyFormation,updateDutyFormation,removeDutyFormation,setDutyVehicleSource,formationOutputs,type AuthoringFormationEvent} from './formationAuthoring';
@@ -135,6 +135,18 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   const sharedStations=[...new Set(value.runs.flatMap((run)=>run.calls.filter((call)=>call.status!=='PASS').map((call)=>call.stationId)))].map((stationId)=>value.stationPrograms?.find((program)=>program.stationId===stationId)??defaultStationStopProgram(stationId));
   const arrivalDraftsInvalid=sharedStations.some((program)=>(['arrival','departurePreparation'] as const).some((phase)=>!getProgramBlockDraftValidity(`${programDraftScope}/station/${program.stationId}/${phase}`,program[phase],'arrival')));
   const generated=useMemo(()=>generateTimetableSource(value,lines,programLibrary,metadata),[value,lines,programLibrary,metadata]);
+  const taskLabels=useMemo(()=>{
+    const labels:Record<string,string>={};
+    for(const duty of value.duties)for(const element of duty.elements){
+      let label=element.id;
+      if(element.type==='RUN')label=element.runId;
+      else if(element.type==='PROGRAM'){const operation=resolveDutyTimedOperation(value,element);label=operation?.label??operation?.program?.programId??element.program.programId;}
+      else if(element.type==='EVENT')label=value.events?.find((event)=>event.id===element.eventId)?.label??element.eventId;
+      else if(element.type==='FORMATION')label=value.formationEvents?.find((event)=>event.id===element.eventId)?.kind??element.eventId;
+      labels[`${duty.id}/${element.id}`]=label;
+    }
+    return labels;
+  },[value]);
   const hasAuthoringErrors=generated.issues.some((issue)=>issue.severity==='error');
   const compiled=!hasAuthoringErrors&&!editorDraftInvalid&&!arrivalDraftsInvalid&&compiledState?.documentHashInput===generated.documentHashInput?compiledState.result:undefined;
   const simulationScenarioKey=JSON.stringify([world,generated.documentHashInput,delayThresholdTicks,Object.entries(profileAssignments).sort(([a],[b])=>a.localeCompare(b))]);
@@ -393,20 +405,27 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     const current=()=>simulationGeneration.current===generation&&liveInputs.current.revision===sourceRevision&&editorDraftValidity.current.valid&&editorDraftValidity.current.revision===draftRevision&&ownerEpoch.current===epoch&&liveInputs.current.simulationScenarioKey===simulationScenarioKey;
     setExecutionTimeoutMillis(confirmedTimeoutMillis);
     await execute(async()=>{
-      const assignments=profileDuties.map((duty)=>{
-        const selected=profileAssignments[duty.id],separator=selected.indexOf(':');
-        return {serviceId:duty.id,profileType:selected.slice(0,separator) as 'WORLD_TRAIN'|'TRAIN_TEMPLATE',profileId:selected.slice(separator+1)};
-      });
-      setSimulationState(undefined);setCompileFailure(undefined);
-      let candidate=compiled;
-      if(!candidate){
-        candidate=await api.compileSource(world,value.id,generated.source,hash(generated.documentHashInput));
+      try {
+        const assignments=profileDuties.map((duty)=>{
+          const selected=profileAssignments[duty.id],separator=selected.indexOf(':');
+          return {serviceId:duty.id,profileType:selected.slice(0,separator) as 'WORLD_TRAIN'|'TRAIN_TEMPLATE',profileId:selected.slice(separator+1)};
+        });
+        setSimulationState(undefined);setCompileFailure(undefined);
+        let candidate=compiled;
+        if(!candidate){
+          candidate=await api.compileSource(world,value.id,generated.source,hash(generated.documentHashInput));
+          if(!current())return;
+          setCompiledState({result:candidate,documentHashInput:generated.documentHashInput});
+        }
+        if(!candidate.validation.valid)throw new Error(candidate.validation.errors.join('; '));
+        const result=await api.simulateTimetable(world,candidate.timetable,assignments,delayThresholdTicks,confirmedTimeoutMillis);
+        if(current())setSimulationState({result,inputKey:requestInputKey});
+      } catch(error) {
         if(!current())return;
-        setCompiledState({result:candidate,documentHashInput:generated.documentHashInput});
+        const message=error instanceof Error?error.message:String(error);
+        setSimulationState({result:{status:'FAILED',simulatedTicks:0,reason:message,runs:[]},inputKey:requestInputKey});
+        onError(t('simulation.failedToast'));
       }
-      if(!candidate.validation.valid)throw new Error(candidate.validation.errors.join('; '));
-      const result=await api.simulateTimetable(world,candidate.timetable,assignments,delayThresholdTicks,confirmedTimeoutMillis);
-      if(current())setSimulationState({result,inputKey:requestInputKey});
     },current);
   };
   const replaceRun=(next:AuthoringRunV1,clearArrivalOverrides=false)=>{setPreviewRun(undefined);setValue((current)=>{
@@ -638,7 +657,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     {page==='duties'?<DutyManagement programSimulation={{world,owner:fieldScope,metadata,events:value.events}} focusedDutyElement={focusedDutyElement?.scope===fieldScope?focusedDutyElement:undefined} onOperationValidityChange={(dutyId,elementId,valid)=>onDraftValidityChange(`duty/${dutyId}/${elementId}`,valid)} onOpenGraphEvent={(id)=>{setPendingGraphEvent({id,scope:fieldScope});onPageChange?.('graph');}} simulation={simulation} onSimulate={()=>void simulate()} simulationReason={simulationReason} busy={busy} document={value} onDocumentChange={setValue} onOpenFormation={(dutyId,eventId)=>{setSelectedDuty(dutyId);const element=value.duties.find(d=>d.id===dutyId)?.elements.find(e=>e.type==='FORMATION'&&e.eventId===eventId);if(element)setFocusedDutyElement({dutyId,elementId:element.id,scope:fieldScope});}} graph={dutyGraph} onPatchFormation={patchFormation} onFormationSource={setFormationSource} focusedProgram={visibleFocusedProgram} onOpenProgramLibrary={onOpenProgramLibrary} programLibrary={programLibrary} programError={programError} programLoading={programLoading} onRefreshPrograms={()=>void loadPrograms()} onPatchProgram={patchProgram} fieldScope={fieldScope} duties={value.duties} runs={value.runs} selectedId={selectedDuty} metadata={metadata} onSelect={setSelectedDuty}
       onDelete={()=>{if(!selectedDutyValue||!window.confirm(t('ui.confirmDuty')))return;setValue((current)=>({...current,operationalTrips:current.operationalTrips?.map((trip)=>({...trip,segments:trip.segments.filter((s)=>s.serviceId!==selectedDutyValue.id)})),duties:current.duties.filter((duty)=>duty.id!==selectedDutyValue.id)}));setSelectedDuty('');}}
       onPatch={patchTimelineDuty} onRemove={removeElement} onViewRun={viewRun}/>:page==='validation'?<AuthoringValidation fieldScope={fieldScope} duties={value.duties} issues={generated.issues} compiled={compiled} compileError={compileFailure?.key===generated.documentHashInput?compileFailure.message:''}
-      simulation={simulation} profiles={simulationProfiles} assignments={profileAssignments} threshold={delayThresholdTicks} conflicting={hasConflictingProfiles} busy={busy} compileReason={compileReason} simulationReason={simulationReason} delayedOrigin={delayedOrigin} source={generated.source}
+      simulation={simulation} profiles={simulationProfiles} assignments={profileAssignments} threshold={delayThresholdTicks} conflicting={hasConflictingProfiles} busy={busy} compileReason={compileReason} simulationReason={simulationReason} delayedOrigin={delayedOrigin} source={generated.source} taskLabels={taskLabels}
       onCompile={()=>void compile()} onSimulate={()=>void simulate()} onAssignment={(id,profile)=>{const separator=profile.indexOf(':');if(separator>0)setValue((current)=>({...current,duties:current.duties.map((duty)=>duty.id===id?{...duty,referenceVehicle:{type:profile.slice(0,separator) as 'WORLD_TRAIN'|'TRAIN_TEMPLATE',id:profile.slice(separator+1)}}:duty)}));}} onThreshold={setDelayThresholdTicks} onNavigate={navigateIssue} canNavigate={(path)=>!!programTarget(path)||!!resolveArrivalSourceTarget(value,path,generated.documentHashInput,compiled?{input:compiledState!.documentHashInput,timetable:compiled.timetable}:undefined)}/>:<>
 
     <TimetableWorkspace

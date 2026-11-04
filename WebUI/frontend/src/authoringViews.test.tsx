@@ -18,6 +18,12 @@ describe('authoring workspace views',()=>{
    const runHtml=render(<RunRouteEditor automaticColor="#56c5ff" run={run} lines={[line]} metadata={{}} busy={false} onError={noop} onChange={noop} onDelete={noop}/>);
    expect(runHtml).not.toContain('aria-label="'+translate('en-US','ui.lineCap')+'"');
  });
+ it('labels compiled step errors with duty, run and task names',()=>{
+  const compiled={timetable:{id:'new-timetable',periodDays:1,services:[{id:'3',selectorType:'ANY',activation:{type:'SCHEDULED'},steps:[]}] as any,compilationTrace:[{serviceId:'3',stepIndex:26,origin:'duty:3/element:run-element/run:112N'}]},validation:{valid:false,errors:['[new-timetable/3] step#26 origin stop does not match acquired/checked waypoint']}};
+  const html=render(<AuthoringValidation {...props} taskLabels={{'3/run-element':'112N'}} duties={[{id:'3',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'run-element',type:'RUN',runId:'112N'}]}]} compiled={compiled}/>);
+  expect(html).toContain('Duties: 3');expect(html).toContain('Complete run: 112N');expect(html).toContain('tasks: 112N');expect(html).toContain('step#26');
+ });
+
  it('names the failing duty and run in a global simulation',()=>{
   const html=render(<AuthoringValidation {...props} duties={[{id:'duty-a',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'run-element',type:'RUN',runId:'run-7'}]}]} simulation={{status:'FAILED',simulatedTicks:100,reason:'simulation stopped',runs:[{timetableId:'t',serviceId:'duty-a',trainId:'train',state:'FAILED',timetableElapsedTicks:100,lastLatenessTicks:0,nextStepIndex:3,currentRunId:'run-7',message:'door failure'}]}}/>);
   expect(html).toContain('Simulation failure location');expect(html).toContain('duty-a');expect(html).toContain('run-7');expect(html).toContain('door failure');

@@ -50,7 +50,7 @@ Reset 仅重生选中运行线的时刻，始发 Tick 来自该运行线原有�
 - 缺少车型、车型不存在或相同 selector 映射不同 profile：阻止完整模拟；输入变化立即隐藏旧报告。
 - 图点不存在、step 奇偶不符、后续平移锚点缺少实际时刻、时间越界、后续事件跨越前一时刻或不足最小停站：拒绝事务，保留原文档。
 - Reset API 失败、文档变化或返回时刻超周期：保留原文档；复制整批任一越界时也不提交。
-App 级错误不再占用顶部 notice 行，而是右下角固定、可关闭且不挤压布局的 toast；页面内校验/模拟结果仍保留完整上下文。全局模拟失败必须在结果面板顶部列出交路、运行线、步骤/状态和原始 message，并提供 duty/run 定位入口；toast 只提示“模拟失败”，不复制完整异常。编译/世界错误中的 `[timetable/service] step#N` 必须通过 `compilationTrace.origin` 映射出交路、运行线和任务名称，再提供定位入口；编译错误还要从 compiled service step 的 tick（必要时向前取最近有 tick 的步骤）解析 Tick，并按 Tick 排序显示，不能只显示脚本 step 索引。
+App 级错误不再占用顶部 notice 行，而是右下角固定、可关闭且不挤压布局的 toast；页面内校验/模拟结果仍保留完整上下文。全局模拟必须显示服务器返回的 simulation wall-clock（`wallClockMillis`）派生的 TPS 和 MSPT；TPS = simulatedTicks / 秒，MSPT = 毫秒 / simulatedTick。首个延误必须列出交路、运行线、任务、Tick 和步骤，并提供 duty/run 定位入口；toast 只提示“模拟失败”，不复制完整异常。编译/世界错误中的 `[timetable/service] step#N` 必须通过 `compilationTrace.origin` 映射出交路、运行线和任务名称，再提供定位入口；编译错误还要从 compiled service step 的 tick（必要时向前取最近有 tick 的步骤）解析 Tick，并按 Tick 排序显示，不能只显示脚本 step 索引。
 
 - 服务器错误显示原错误详情；报告只显示返回字段和真实 trace，不生成虚构检查/轨迹。已知 UI 状态双语展示，未知运行状态保留原值。
 

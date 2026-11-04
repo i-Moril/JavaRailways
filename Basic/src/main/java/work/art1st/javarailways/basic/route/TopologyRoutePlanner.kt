@@ -160,7 +160,10 @@ object TopologyRoutePlanner {
         } else Search(graph, end, endDirection).run(starts)
         if (path == null) return rejected(
             TopologyRoutePlanningRejection.UNREACHABLE,
-            "no route satisfies topology and route-planning restrictions; endpoints inside atomic protected paths cannot split those paths"
+            "no route satisfies topology and route-planning restrictions " +
+                "(start=${start.edgeId}@${start.edgeDistanceMeters}, end=${end.edgeId}@${end.edgeDistanceMeters}, " +
+                "startFacing=${input.startFacing?.name ?: "ANY"}, endFacing=${input.endFacing?.name ?: "ANY"}, " +
+                "blocked=${blocked.size}, unique=${input.requireUniquePath})"
         )
 
         val plannedSegments = path.arcs.flatMap(GraphArc::segments).toMutableList()

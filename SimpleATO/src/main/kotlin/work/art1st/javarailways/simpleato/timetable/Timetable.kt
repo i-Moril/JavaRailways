@@ -1095,7 +1095,7 @@ class TimetableValidator(
                         errors.add("$prefix step#$stepIndex StablingPoint 不存在: ${action.depotId}/$missing")
                     }
                     if (candidatePoints.isEmpty()) {
-                        errors.add("$prefix step#$stepIndex 目标 Depot 没有兼容的 StablingPoint: ${action.depotId}")
+                        errors.add("$prefix step#$stepIndex 目标 Depot 没有兼容的 StablingPoint: ${action.depotId} (requested=${action.stablingPointIds.sorted()})")
                     }
                     candidatePoints.forEach { point ->
                         validateGoTo(
@@ -1177,7 +1177,7 @@ class TimetableValidator(
             }
             is TimetableAction.BeginStationStop -> {
                 if (action.stopPrograms.role != StationStopRole.ORIGIN) errors += "$prefix origin stop requires ORIGIN role"
-                if (action.stopPrograms.destinationId != null && currentWayPointId != null && action.stopPrograms.destinationId != currentWayPointId) errors += "$prefix origin stop does not match acquired/checked waypoint"
+                if (action.stopPrograms.destinationId != null && currentWayPointId != null && action.stopPrograms.destinationId != currentWayPointId) errors += "$prefix origin stop does not match acquired/checked waypoint: acquired=$currentWayPointId requested=${action.stopPrograms.destinationId}"
                 currentWayPointId
             }
             is TimetableAction.DestinationOptions -> currentWayPointId
@@ -1263,7 +1263,11 @@ class TimetableValidator(
                 routes.add(result.route)
                 routeStoppingOffsets.add(stoppingOffset)
             }
-            is RouteBuildResult.Failure -> errors.add("$prefix step#$stepIndex 经路不可达: $fromWayPointId -> $toWayPointId (${result.reason})")
+            is RouteBuildResult.Failure -> {
+                val startFacing = requiredStartDirection ?: destinationDirection(fromWayPointId)
+                val goalFacing = destinationDirection(toWayPointId)
+                errors.add("$prefix step#$stepIndex 经路不可达: $fromWayPointId -> $toWayPointId (${result.reason}; startFacing=${startFacing?.name ?: "ANY"}, goalFacing=${goalFacing?.name ?: "ANY"})")
+            }
         }
     }
 

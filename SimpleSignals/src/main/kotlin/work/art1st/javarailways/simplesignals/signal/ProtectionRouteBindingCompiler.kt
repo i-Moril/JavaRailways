@@ -8,6 +8,7 @@ import work.art1st.javarailways.simplesignals.region.ProtectionRegionRouteMatchR
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionRouteWindow
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTraversal
 import work.art1st.javarailways.simplesignals.region.protectionRegionAuthorityFloor
+import work.art1st.javarailways.simplesignals.route.DirectedRouteOccurrence
 import work.art1st.javarailways.simplesignals.route.DirectedRouteProjectionResult
 import work.art1st.javarailways.simplesignals.route.DirectedRouteProjector
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsRuntimePublication
@@ -24,6 +25,18 @@ internal data class ProtectionRouteBindingMatch(
     val invalidEntries: Set<String>,
     val diagnostics: List<String>
 )
+
+/** Clamp route-local canonical endpoints to the exact rail interval before constructing a traversal. */
+internal fun protectionRouteTraversal(
+    occurrence: DirectedRouteOccurrence,
+    first: Double,
+    last: Double,
+    railLength: Double
+): ProtectionRouteTraversal? {
+    val lower = minOf(first, last).coerceIn(0.0, railLength)
+    val upper = maxOf(first, last).coerceIn(0.0, railLength)
+    return if (upper > lower) ProtectionRouteTraversal(occurrence.railId, occurrence.facing, lower, upper) else null
+}
 
 /** Pure selected-route matching, shared by preparation, inspection and live selector binding. */
 internal class ProtectionRouteBindingCompiler(private val publication: SimpleSignalsRuntimePublication) {
@@ -78,7 +91,8 @@ internal class ProtectionRouteBindingCompiler(private val publication: SimpleSig
                     if (end - start > Curve.TOLERANCE) {
                         val first = occurrence.canonicalAt(start)
                         val last = occurrence.canonicalAt(end)
-                        path += ProtectionRouteTraversal(occurrence.railId, occurrence.facing, minOf(first, last), maxOf(first, last))
+                        val railLength = checkNotNull(regions.derivedTopology.rails[occurrence.railId]).lengthMeters
+                        protectionRouteTraversal(occurrence, first, last, railLength)?.let(path::add)
                     }
                 }
                 val candidates = routesByEntry[window.entry.boundaryId].orEmpty().filter { candidate ->

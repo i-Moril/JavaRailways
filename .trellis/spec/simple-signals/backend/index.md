@@ -133,7 +133,7 @@ best-effort把staged旧primary轮转为`.bak`。commit point之后的backup/clea
 - `ProtectionRegionCatalog.publish` 捕获一个不可变 `TopologyState` root 和 plugin definition revision，先完整派生候选 snapshot，全部通过后才原子替换；失败保留旧 snapshot；
 - graph resolver 在边界处分割临时 rail segments，从第一个 inward half-edge 做 BFS，验证所有 inward half-edge 同属一个连通内部、outside 不会绕路重连，并拒绝正长度区域重叠。实际内部包含平面交叉时，围合连通还包含交叉另一轨的对应片段；此关联只界定冲突保护范围，不进入真实通行连接或进路搜索；
 - published snapshot 保存 disposable interior slices、region lookup 和 rail-to-region reverse index。create/update/load publication 会先以 `O(V+E)` 派生拓扑，再为每个定义解析连通内部并检查区域两两重叠；这些工作不进入 Tick；
-- route matcher 只投影冻结路线一次，再通过 rail reverse index 把 occurrence 分发给实际候选 region；它把 facing-local segment 坐标转换为 canonical AB，逐次验证完整连续 entry-to-exit interval，并派生独立 route-metre windows。一个region可以在同路线中重复经过；缺失任一次entry/exit仍拒绝。成本包含路线 occurrence、索引命中、候选区域的 interior slices 以及交集排序，而不是 `regions × full route`；
+- route matcher 只投影冻结路线一次，再通过 rail reverse index 把 occurrence 分发给实际候选 region；它把 facing-local segment 坐标转换为 canonical AB，逐次验证完整连续 entry-to-exit interval，并派生独立 route-metre windows。窗边界落在 occurrence 端点时必须把 canonical 值 clamp 到 `[0, railLength]`；浮点减法产生的 `-epsilon` 不得进入 `ProtectionRouteTraversal.lowerAbMeters`，零宽度窗口跳过。一个region可以在同路线中重复经过；缺失任一次entry/exit仍拒绝。成本包含路线 occurrence、索引命中、候选区域的 interior slices 以及交集排序，而不是 `regions × full route`；
 - matcher 不搜索路径，也不复制 Basic 的结构连续性/turnout legality 校验。Basic 在资源申请时仍独立验证同一冻结路线并编译不可删除的物理资源底线。
 
 route-window只描述region entry/exit，不保存后继区间。world runtime通过稳定的

@@ -19,9 +19,9 @@ describe('authoring workspace views',()=>{
    expect(runHtml).not.toContain('aria-label="'+translate('en-US','ui.lineCap')+'"');
  });
  it('labels compiled step errors with duty, run and task names',()=>{
-  const compiled={timetable:{id:'new-timetable',periodDays:1,services:[{id:'3',selectorType:'ANY',activation:{type:'SCHEDULED'},steps:[]}] as any,compilationTrace:[{serviceId:'3',stepIndex:26,origin:'duty:3/element:run-element/run:112N'}]},validation:{valid:false,errors:['[new-timetable/3] step#26 origin stop does not match acquired/checked waypoint']}};
+  const compiled={timetable:{id:'new-timetable',periodDays:1,services:[{id:'3',selectorType:'ANY',activation:{type:'SCHEDULED'},steps:[{type:'AT',tick:1200}]}] as any,compilationTrace:[{serviceId:'3',stepIndex:26,origin:'duty:3/element:run-element/run:112N'}]},validation:{valid:false,errors:['[new-timetable/3] step#26 origin stop does not match acquired/checked waypoint']}};
   const html=render(<AuthoringValidation {...props} taskLabels={{'3/run-element':'112N'}} duties={[{id:'3',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'run-element',type:'RUN',runId:'112N'}]}]} compiled={compiled}/>);
-  expect(html).toContain('Duties: 3');expect(html).toContain('Complete run: 112N');expect(html).toContain('tasks: 112N');expect(html).toContain('step#26');
+  expect(html).toContain('Duties: 3');expect(html).toContain('Complete run: 112N');expect(html).toContain('tasks: 112N');expect(html).toContain('Tick: 1200');expect(html).toContain('step#26');
  });
 
  it('names the failing duty and run in a global simulation',()=>{

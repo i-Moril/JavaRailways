@@ -12,7 +12,7 @@ function interval(rendered:string,tick:number) {
 }
 describe('duty timeline presentation',()=>{
  it('renders derived run intervals and unknown simulated durations without a scratch workspace',()=>{
-  const rendered=html();expect(rendered).toContain('run-1 · 100–220');expect(rendered).toContain('Duration not measured');expect(rendered).toContain('Remove task reference');expect(rendered).not.toContain('blockly');
+  const rendered=html();expect(rendered).toContain('run-1 · 100–200');expect(rendered).toContain('Duration not measured');expect(rendered).toContain('Remove task reference');expect(rendered).not.toContain('blockly');
  });
  it('preserves point tasks and exposes manual resize only for manual durations',()=>{
   const document=fixture();document.duties[0].elements=[{id:'manual',type:'PROGRAM',tick:100,program:{programId:'1',arguments:{}},duration:{type:'MANUAL',ticks:30}},{id:'point',type:'PROGRAM',tick:200,program:{programId:'1',arguments:{}}}];
@@ -56,7 +56,7 @@ describe('duty timeline presentation',()=>{
   const document=fixture();document.duties[0].elements.push({id:'conflict',type:'PROGRAM',tick:150,program:{programId:'1',arguments:{}},duration:{type:'MANUAL',ticks:100}});
   const rendered=html(document);
   expect(rendered.match(/class="duty-timeline-conflict"/g)).toHaveLength(1);
-  expect(rendered).toContain('run-1 · 100–220; 1 · 150–250');
+  expect(rendered).toContain('run-1 · 100–200; 1 · 150–250');
   expect(rendered).toMatch(/class="[^"]*duty-timeline-task run selected conflict"/);
   expect(rendered).toMatch(/class="[^"]*duty-timeline-task program  conflict"/);
   expect(rendered.match(/class="duty-timeline-lane"/g)).toHaveLength(1);

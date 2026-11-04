@@ -7,7 +7,7 @@ const fixture=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),id:
 describe('duty timeline projection',()=>{
  it('uses effective terminal arrival, dwell and departure without mutating the document',()=>{
   const doc=fixture();doc.arrivalOverrides=[{runId:'R',callId:'b',tick:215}];const before=JSON.stringify(doc);
-  expect(projectDutyTimeline(doc,doc.duties[0])[0]).toMatchObject({startTick:100,endTick:225});expect(JSON.stringify(doc)).toBe(before);
+  expect(projectDutyTimeline(doc,doc.duties[0])[0]).toMatchObject({startTick:100,endTick:215});expect(JSON.stringify(doc)).toBe(before);
  });
  it('ends a deadhead run at terminal arrival instead of its later departure tick',()=>{
   const doc=fixture();doc.runs[0]={...doc.runs[0],type:'DEADHEAD'};doc.minimumDwellTicks=400;
@@ -57,12 +57,12 @@ it('orders tasks after run time edits in one transaction and preserves equal-tim
 it('initializes numeric program and simulation arguments with valid numeric defaults',()=>{
  expect(defaultDutyProgramArguments([{id:'number',type:'NUMBER'},{id:'duration',type:'DURATION'},{id:'tick',type:'TICK'},{id:'text',type:'STRING'}])).toEqual({number:0,duration:1,tick:0,text:''});
 });
-it('uses the document minimum for all run endpoints and defaults missing minimum to zero',()=>{
+it('ends run tasks at terminal arrival so terminal programs can start during dwell',()=>{
  const doc=fixture();doc.runs[0].calls[1].departureTick=null;
  doc.minimumDwellTicks=40;
- expect(projectDutyTimeline(doc,doc.duties[0])[0].endTick).toBe(240);
+ expect(projectDutyTimeline(doc,doc.duties[0])[0].endTick).toBe(200);
  doc.minimumDwellTicks=80;
- expect(projectDutyTimeline(doc,doc.duties[0])[0].endTick).toBe(280);
+ expect(projectDutyTimeline(doc,doc.duties[0])[0].endTick).toBe(200);
  delete doc.minimumDwellTicks;
  expect(projectDutyTimeline(doc,doc.duties[0])[0].endTick).toBe(200);
 });

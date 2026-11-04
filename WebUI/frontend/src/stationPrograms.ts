@@ -130,6 +130,33 @@ export function stationProgramSchedule(steps:StationProgramStep[],args:Record<st
   const [,earliest]=visit(steps,startTick,startTick);
   return {errors,earliest};
 }
+/** Earliest tick at which this program can first change location (move/store/select berth). */
+export function stationProgramFirstMovement(steps:StationProgramStep[],args:Record<string,StationProgramLiteral>,startTick:number,periodTicks:number):number|undefined {
+  let first:number|undefined;
+  const note=(tick:number)=>{first=first===undefined?tick:Math.min(first,tick);};
+  const visit=(entries:StationProgramStep[],tick:number,earliest:number):[number,number]=>{
+    for(const step of entries){
+      if(step.type==='WAIT_UNTIL'){
+        const next=resolveProgramValue(step.tick,args);
+        if(Number.isSafeInteger(next)&&next>=0&&next<periodTicks){tick=Math.max(tick,next);earliest=Math.max(earliest,next);}
+      }else if(step.type==='WAIT_DURATION'){
+        earliest+=resolveProgramValue(step.durationTicks,args);
+      }else if(step.type==='ASYNC'){
+        const child=visit(step.steps,tick,earliest);
+        earliest=Math.max(earliest,child[1]);
+      }else if(step.type==='BRANCH'){
+        const yes=visit(step.thenSteps,tick,earliest),no=visit(step.elseSteps,tick,earliest);
+        tick=Math.max(yes[0],no[0]);earliest=Math.max(yes[1],no[1]);
+      }else if(step.type==='MOVE'||step.type==='STORE_AT_DEPOT'||step.type==='SELECT_STOP'){
+        note(earliest);
+      }
+    }
+    return [tick,earliest];
+  };
+  visit(steps,startTick,startTick);
+  return first;
+}
+
 /** Finite JSON data, with no JavaScript or recursive parameter interpolation. */
 export function programJsonObjectError(value:unknown):string {
   if(!value||typeof value!=='object'||Array.isArray(value))return 'JSON_OBJECT must be a JSON object';

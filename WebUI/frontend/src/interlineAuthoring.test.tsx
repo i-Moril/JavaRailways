@@ -30,7 +30,7 @@ describe('one-document through running and unit trips',()=>{
  });
  it('rejects unsafe direct C offset, time, missing line and overlapping unit claims',()=>{
   const d=document();d.runs[1].calls[0].stoppingOffsetMetersBefore=5;expect(validateAuthoringDocument(d).some((i)=>i.message.includes('offset discontinuity'))).toBe(true);
-  d.runs[1].calls[0].stoppingOffsetMetersBefore=0;d.runs[1].calls[0].departureTick=310;expect(validateAuthoringDocument(d).some((i)=>i.message.includes('overlaps'))).toBe(true);
+  d.runs[1].calls[0].stoppingOffsetMetersBefore=0;d.runs[1].calls[0].departureTick=310;expect(validateAuthoringDocument(d).some((i)=>i.message.includes('terminal dwell'))).toBe(true);
   d.runs[1].lineId=null;expect(validateAuthoringDocument(d).some((i)=>i.message.includes('requires an infrastructure'))).toBe(true);
   d.operationalTrips![1].segments[0].unitSlots=[1];expect(validateAuthoringDocument(d).some((i)=>i.message.includes('multiple operational trips'))).toBe(true);
  });
@@ -46,7 +46,7 @@ describe('one-document through running and unit trips',()=>{
  });
  it('uses the effective overridden C arrival when checking departure and minimum dwell',()=>{
   const d=document();d.arrivalOverrides=[{runId:'M01',callId:'c',tick:340}];
-  expect(validateAuthoringDocument(d).some((issue)=>issue.message.includes('overlaps'))).toBe(true);
+  expect(validateAuthoringDocument(d).some((issue)=>issue.message.includes('terminal dwell'))).toBe(true);
   d.runs[1].calls[0].departureTick=360;
   expect(validateAuthoringDocument(d)).toEqual([]);
  });

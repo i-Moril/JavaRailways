@@ -132,6 +132,8 @@ CURRENT：`authoringResume.ts` 保存 owner/world 隔离的最后文档 ID；内
 
 交路页使用页面专属顶部 ribbon：新建交路、添加作业程序、重联、解编、撤销/重做与保存；校验页不显示命令 ribbon，编译/模拟由校验面板拥有。交路页中央复用渲染后的运行图选择 RUN 和运行图作业 EVENT：点击运行线把该 RUN 原子移入当前交路，点击带程序的 EVENT 添加唯一引用；不再用下拉菜单选择。所有会生成列车或从路径点取得列车的编辑入口都必须使用“有方向”的路径点：函数模拟起点、TRAIN_NAME 的 initialPosition、TAKE_FROM_WAYPOINT 的每个候选点。UI 只提供 `programSimulationWayPoints`（点自身 approachDirection 或所属轨道 operatingDirections 已配置）；`validateAuthoringDocument(..., metadata)` 同时对照真实 `metadata.wayPoints` 报“点不存在”和对照 directed set 报“未配置方向”。是否真的能唯一放置车身仍由运行期 `prepareUniquePlacement` / initial positioner 决定，编辑期不伪造唯一性结论。保存/校验必须传 metadata，不能只在生成 source 时绕过；已存在的旧点不符合实际世界时在校验页报错。
 
+临时限制（先按此实现，后续再替换）：RUN 在交路时间轴上的任务占用只到终点到达 tick，终点停站最短时间仍作为“下一次离开该停站”的门，不再延长前一段 RUN。到达后可执行不改变位置的终点程序（REVERSE、开关门、显示、等待）；若程序包含 MOVE/STORE/SELECT_STOP，按其最早移动 tick 检查门并消耗该门，之后下一段 RUN 不再受原停站窗口约束。纯 REVERSE 不设置/检查 programDestination；只有实际移动才要求下一段起点匹配。运行期 finalGate 仍是最终安全门。此模型没有 barrier，也没有跨任务的 dwellEnd/pending 状态，属于临时简化。
+
 交路页不渲染页面标题和副标题，三栏铺满页面并各自滚动；左侧交路列表、中央运行图/时间轴、右侧属性栏独立滚动。右侧栏采用与时刻表检查器一致的 inspector panel/标题样式，分“交路”和“初始位置”两个输入区，分别承载交路 ID、选择器/模拟参考车辆以及初始路径点/取得时刻等字段。
 
 交路 `referenceVehicle?: {type:'WORLD_TRAIN'|'TRAIN_TEMPLATE',id}`持久保存于duty，模拟由此取参数，不限制实际运营列车。元素支持RUN、交路所属PROGRAM、运行图作业EVENT及共享编组作业FORMATION引用。PROGRAM复用TimedOperation字段，program必需；EVENT／FORMATION只存{id,type,eventId}，不复制时刻、参数或耗时，分别引用运行图作业和编组目录。来自编组输出的交路不重新指定模拟车辆。初始位置仍为duty.initialPosition，不作为执行任务。当前未发布格式仍为1；旧PROGRAM.call结构只由离线迁移处理，不在运行时兼容。

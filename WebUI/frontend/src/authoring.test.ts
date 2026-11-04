@@ -5,7 +5,7 @@ import {
 } from './authoring';
 import {createDocumentHistory,redoDocumentHistory,undoDocumentHistory,updateDocumentHistory} from './documentHistory';
 import {layoutGraph} from './graph';
-import type { LineSimulationResult,LineV1,WorldMetadata } from './types';
+import type { LineSimulationResult,LineV1,StationProgramRecord,WorldMetadata } from './types';
 
 const infrastructureLines=[{"id": "line-1", "displayName": "line-1", "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 20}];
 const generateTimetableSource=(document:TimetableAuthoringDocumentV1)=>generateWithLines(document,infrastructureLines);
@@ -143,6 +143,27 @@ describe('timetable editor document',()=>{
     expect(validateWithLines(document,infrastructureLines,[],world).some((item)=>item.message.includes('Selector waypoint has no configured direction'))).toBe(true);
     document.duties[0].selector={type:'TAKE_FROM_WAYPOINT',wayPointIds:['missing'],tick:0};
     expect(generateWithLines(document,infrastructureLines,[],world).issues.some((item)=>item.message.includes('Selector waypoint not found'))).toBe(true);
+  });
+
+  it('ends terminal occupancy at arrival while keeping the dwell gate for the next departure',()=>{
+    const reverse:StationProgramRecord={formatVersion:1,id:'reverse',name:'reverse',definition:{parameters:[],steps:[{id:'rev',type:'REVERSE'}]}};
+    const move:StationProgramRecord={formatVersion:1,id:'move',name:'move',definition:{parameters:[],steps:[{id:'move',type:'MOVE',destinationId:{value:'b@1'},viaIds:{value:[]}}]}};
+    const document=valid();document.minimumDwellTicks=400;document.runs=[document.runs[0]];
+    document.duties[0].elements=[{id:'run',type:'RUN',runId:'up-01'},{id:'reverse',type:'PROGRAM',tick:850,program:{programId:'reverse',arguments:{}}}];
+    expect(validateWithLines(document,infrastructureLines,[reverse])).toEqual([]);
+    document.duties[0].elements[1]={id:'move',type:'PROGRAM',tick:900,program:{programId:'move',arguments:{}}};
+    expect(validateWithLines(document,infrastructureLines,[move]).some((item)=>item.message.includes('leaves stop before minimum dwell'))).toBe(true);
+    document.duties[0].elements[1]={id:'move',type:'PROGRAM',tick:1250,program:{programId:'move',arguments:{}}};
+    expect(validateWithLines(document,infrastructureLines,[move])).toEqual([]);
+    document.duties[0].elements=[{id:'run',type:'RUN',runId:'up-01'},{id:'reverse',type:'PROGRAM',tick:850,program:{programId:'reverse',arguments:{}}},{id:'next',type:'RUN',runId:'next'}];
+    document.runs.push({...document.runs[0],id:'next',lineDirection:'DOWN',calls:[
+      {id:'next-b',stationId:'b',targetId:'b@2',status:'ORIGIN',departureTick:1000},
+      {id:'next-a',stationId:'a',targetId:'a@1',status:'TERMINAL',arrivalTick:1800},
+    ]});
+    expect(validateWithLines(document,infrastructureLines,[reverse]).some((item)=>item.message.includes('terminal dwell'))).toBe(true);
+    document.runs[document.runs.length-1].calls[0].departureTick=1300;
+    expect(validateWithLines(document,infrastructureLines,[reverse]).some((item)=>item.message.includes('Program location discontinuity'))).toBe(false);
+    expect(validateWithLines(document,infrastructureLines,[reverse])).toEqual([]);
   });
 
   it('deterministically generates one service per duty with origin trace scopes',()=>{

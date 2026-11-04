@@ -1,6 +1,7 @@
 import {projectDutyTimeline} from './dutyTimeline';
 import {resolveDutyTimedOperation,timedOperationCall,validateTimedOperation} from './timedOperations';
 import {defaultStationStopProgram,resolveEventWaits,validateStopProgram} from './stationPlans';
+import {stationProgramFirstMovement} from './stationPrograms';
 import {validateFormationAuthoring,formationPlannedEnd,type AuthoringFormationEvent} from './formationAuthoring';
 import { copyStationProgram,validateArrivalProgram,stationProgramSchedule,resolveProgramValue,displayValuesError,validateStationProgram,validateStationProgramCall } from './stationPrograms';
 import type { StationStopProgram,TimetableEventPoint,OperationalTrip,StationProgramRecord,TimedOperation,TimedOperationProgram,TimedOperationDuration,DiagramLineV1, LineDirection, LineSimulationResult, LineV1, SavedTimetableV1, SimulationProfile, TimetableActionV1, WorldMetadata } from './types';
@@ -454,6 +455,10 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
     let previousRun:AuthoringRunV1|undefined;
     let programDestination:string|undefined=namedDutyInitialTarget(document,duty);
     let previousElementEndTick:number|undefined;
+    // Temporary limitation: a passenger terminal stop's minimum dwell gates the next departure,
+    // not the arrival/completion of programs during the stop. Pure REVERSE/doors/waits keep this
+    // gate alive; a location-changing program consumes it at its first movement.
+    let pendingDwellUntil:number|undefined;
     const elementIds=new Set<string>();
     if(duty.initialPosition!==undefined){
       if(!duty.initialPosition.trim())issues.push(issue(`${path}.initialPosition`,'Initial placement waypoint is required'));
@@ -479,19 +484,15 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
           if((previousRun.calls.at(-1)?.stoppingOffsetMetersBefore??0)!==(run.calls[0]?.stoppingOffsetMetersBefore??0))issues.push(issue(elementPath,'Run stopping offset discontinuity requires an explicit station program'));
           if(run.calls[0]?.doorSide&&run.calls[0].doorSide!=='NONE'&&run.calls[0].doorSide!==previousRun.calls.at(-1)?.doorSide)issues.push(issue(elementPath,'Connection departure must not configure a second conflicting door operation'));
           if(previousTerminal&&nextOrigin&&previousTerminal!==nextOrigin) issues.push(issue(elementPath,`Run location discontinuity: ${previousTerminal} -> ${nextOrigin}`));
-          const terminal=previousRun.calls.at(-1);
-          const previousArrival=document.arrivalOverrides.find((override)=>override.runId===previousRun!.id&&override.callId===terminal?.id)?.tick??terminal?.arrivalTick;
-          const previousEnd=Math.max(previousArrival==null?0:previousArrival+authoringMinimumDwellForRun(document,previousRun),terminal?.departureTick??0);
-          const nextStart=run.calls[0]?.departureTick;
-          if(previousEnd!=null&&nextStart!=null&&nextStart<previousEnd) issues.push(issue(elementPath,`Run overlaps previous run by ${previousEnd-nextStart} ticks`));
         }
         if(run) {
           const runStart=run.calls[0]?.departureTick;
           const terminal=run.calls.at(-1);
           const arrival=document.arrivalOverrides.find((override)=>override.runId===run.id&&override.callId===terminal?.id)?.tick??terminal?.arrivalTick;
-          const runEnd=Math.max(arrival==null?0:arrival+authoringMinimumDwellForRun(document,run),terminal?.departureTick??0);
+          if(pendingDwellUntil!=null&&runStart!=null&&runStart<pendingDwellUntil) issues.push(issue(elementPath,`Run departs before previous terminal dwell ends by ${pendingDwellUntil-runStart} ticks`));
           if(previousElementEndTick!=null&&runStart!=null&&runStart<previousElementEndTick) issues.push(issue(elementPath,`Run starts before the previous duty element completes by ${previousElementEndTick-runStart} ticks`));
-          if(runEnd!=null) previousElementEndTick=Math.max(previousElementEndTick??0,runEnd);
+          previousElementEndTick=arrival??terminal?.departureTick??runStart??undefined;
+          pendingDwellUntil=arrival==null?undefined:Math.max(arrival+authoringMinimumDwellForRun(document,run),terminal?.departureTick??0);
           previousRun=run;
         }
       } else if(element.type==='FORMATION'){
@@ -514,9 +515,14 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
           const callIssues=validateStationProgramCall(snapshot,call,periodTicks);
           for(const message of callIssues)issues.push(issue(elementPath,message));
           if(callIssues.length)return;
-          programDestination=programDestination??previousRun?.calls.at(-1)?.targetId;
+          const movementTick=stationProgramFirstMovement(snapshot.definition.steps,call.arguments,call.tick,periodTicks);
+          if(movementTick!=null&&pendingDwellUntil!=null&&movementTick<pendingDwellUntil)issues.push(issue(elementPath,`Program leaves stop before minimum dwell ends by ${pendingDwellUntil-movementTick} ticks`));
+          if(movementTick!=null)pendingDwellUntil=undefined;
+          // Pure REVERSE/doors/waits do not establish a new location; only a real movement
+          // consumes the previous terminal dwell gate and requires the next origin to match.
+          if(movementTick!=null)programDestination=programDestination??previousRun?.calls.at(-1)?.targetId;
           if(previousElementEndTick!=null&&call.tick<previousElementEndTick)issues.push(issue(elementPath,'Program starts before the previous duty element completes'));
-          if(duty.selector.type==='TRAIN_NAME'&&!previousRun&&!programDestination)issues.push(issue(elementPath,'Program requires a prior run or service-boundary acquisition'));
+          if(duty.selector.type==='TRAIN_NAME'&&!previousRun&&!programDestination&&movementTick==null)issues.push(issue(elementPath,'Program requires a prior run or service-boundary acquisition'));
           const lower=stationProgramSchedule(snapshot.definition.steps,call.arguments,call.tick,periodTicks).earliest;
           for(const step of snapshot.definition.steps){
             if(step.type==='BRANCH'||step.type==='SELECT_STOP')programDestination=undefined;

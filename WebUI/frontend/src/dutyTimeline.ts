@@ -1,6 +1,6 @@
 import {formationPlannedEnd} from './formationAuthoring';
 import {resolveDutyTimedOperation,measuredOperationDuration,operationDuration} from './timedOperations';
-import {authoringMinimumDwellForRun,normalizeAuthoringDocument,type AuthoringDutyElementV1,type AuthoringDutyV1,type TimetableAuthoringDocumentV1} from './authoring';
+import {normalizeAuthoringDocument,type AuthoringDutyElementV1,type AuthoringDutyV1,type TimetableAuthoringDocumentV1} from './authoring';
 import type {StationProgramDefinition,StationProgramLiteral,StationProgramRecord,TimetableSimulationResult} from './types';
 
 export interface DutyTimelineTask {
@@ -37,7 +37,9 @@ export function projectDutyTimeline(document:TimetableAuthoringDocumentV1,duty:A
   if(element.type==='RUN'){
    const run=document.runs.find((candidate)=>candidate.id===element.runId),terminal=run?.calls.at(-1);
    const arrival=document.arrivalOverrides.find((override)=>override.runId===run?.id&&override.callId===terminal?.id)?.tick??terminal?.arrivalTick;
-   const endTick=arrival==null&&terminal?.departureTick==null?undefined:Math.max(arrival==null?0:arrival+(terminal?.status==='PASS'?0:authoringMinimumDwellForRun(document,run??{type:'PASSENGER'})),terminal?.departureTick??0);
+   // Temporary limitation: terminal dwell is a departure gate, not RUN task occupancy.
+   // The run ends at terminal arrival; programs may execute during the dwell window.
+   const endTick=arrival??terminal?.departureTick??undefined;
    return {id:element.id,type:'RUN',label:element.runId,startTick,endTick,durationMode:'RUN',overlaps:[]};
   }
   if(element.type==='FORMATION'){

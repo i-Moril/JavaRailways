@@ -207,6 +207,18 @@ class StructuralTimetableValidationTest {
         return Timetable("storage", services = services, formationEvents = TimetableFormationCatalog(listOf(event)))
     }
 
+    @Test fun `store depot falls back to physical points when no rolling stock is registered`() {
+        fixture { world, _, _ ->
+            storagePoint(world, "point", "end")
+            val plan = Timetable("storage", services = listOf(TimetableService("source", steps = listOf(
+                at(TimetableAction.TakeFromDepot(DepotTrainSelector(DepotId("storage")))),
+                at(TimetableAction.GoTo("end")),
+                at(TimetableAction.StoreAtDepot(DepotId("storage"), setOf("point")))))))
+            val result = TimetableValidator(world).validate(plan)
+            assertTrue(result.isSuccess, result.errors.toString())
+        }
+    }
+
     @Test fun `output storage proves every compatible finite target including currently occupied alternatives`() {
         fixture { world, rail, train ->
             registerSource(world, train)

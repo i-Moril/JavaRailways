@@ -1079,7 +1079,9 @@ class TimetableValidator(
                         (action.stablingPointIds.isEmpty() ||
                             it.point.ref.pointId in action.stablingPointIds)
                 }
-                val candidatePoints = routePoints ?: points
+                // Static validation proves route coverage. Live rolling-stock compatibility is an
+                // allocation concern; an empty registered set must not hide physical points.
+                val candidatePoints = routePoints?.takeIf { it.isNotEmpty() } ?: points
                 if (allPoints.isEmpty()) {
                     errors.add("$prefix step#$stepIndex Depot 不存在或没有 StablingPoint: ${action.depotId}")
                     currentWayPointId

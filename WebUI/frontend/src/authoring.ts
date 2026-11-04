@@ -1,7 +1,7 @@
 import {projectDutyTimeline} from './dutyTimeline';
 import {resolveDutyTimedOperation,timedOperationCall,validateTimedOperation} from './timedOperations';
 import {defaultStationStopProgram,resolveEventWaits,validateStopProgram} from './stationPlans';
-import {stationProgramFirstMovement} from './stationPrograms';
+import {stationProgramFirstMovement,stationProgramReverses} from './stationPrograms';
 import {validateFormationAuthoring,formationPlannedEnd,type AuthoringFormationEvent} from './formationAuthoring';
 import { copyStationProgram,validateArrivalProgram,stationProgramSchedule,resolveProgramValue,displayValuesError,validateStationProgram,validateStationProgramCall } from './stationPrograms';
 import type { StationStopProgram,TimetableEventPoint,OperationalTrip,StationProgramRecord,TimedOperation,TimedOperationProgram,TimedOperationDuration,DiagramLineV1, LineDirection, LineSimulationResult, LineV1, SavedTimetableV1, SimulationProfile, TimetableActionV1, WorldMetadata } from './types';
@@ -520,15 +520,19 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
           if(movementTick!=null)pendingDwellUntil=undefined;
           // Pure REVERSE/doors/waits do not establish a new location; only a real movement
           // consumes the previous terminal dwell gate and requires the next origin to match.
-          if(movementTick!=null)programDestination=programDestination??previousRun?.calls.at(-1)?.targetId;
+          const reverses=stationProgramReverses(snapshot.definition.steps);
+          if(movementTick!=null||!reverses)programDestination=programDestination??previousRun?.calls.at(-1)?.targetId;
           if(previousElementEndTick!=null&&call.tick<previousElementEndTick)issues.push(issue(elementPath,'Program starts before the previous duty element completes'));
-          if(duty.selector.type==='TRAIN_NAME'&&!previousRun&&!programDestination&&movementTick==null)issues.push(issue(elementPath,'Program requires a prior run or service-boundary acquisition'));
+          if(elementIndex===0&&duty.selector.type==='TRAIN_NAME'&&!previousRun&&!programDestination)issues.push(issue(elementPath,'Program requires a prior run or service-boundary acquisition'));
           const lower=stationProgramSchedule(snapshot.definition.steps,call.arguments,call.tick,periodTicks).earliest;
           for(const step of snapshot.definition.steps){
             if(step.type==='BRANCH'||step.type==='SELECT_STOP')programDestination=undefined;
             if(step.type==='MOVE')programDestination=String(resolveProgramValue(step.destinationId,call.arguments));
             if(step.type==='STORE_AT_DEPOT'&&(elementIndex!==duty.elements.length-1||step!==snapshot.definition.steps.at(-1)))issues.push(issue(elementPath,'Store at depot must be the final duty action'));
           }
+          // Temporary simplification: REVERSE changes orientation, not location. Any REVERSE
+          // suppresses exact next-origin target equality even if the program moved first.
+          if(reverses)programDestination=undefined;
           previousElementEndTick=lower;
           previousRun=undefined;
         }

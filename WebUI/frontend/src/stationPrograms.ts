@@ -130,6 +130,16 @@ export function stationProgramSchedule(steps:StationProgramStep[],args:Record<st
   const [,earliest]=visit(steps,startTick,startTick);
   return {errors,earliest};
 }
+/** Temporary simplification: any REVERSE (including nested paths) suppresses next-origin target equality. */
+export function stationProgramReverses(steps:StationProgramStep[]):boolean {
+  for(const step of steps){
+    if(step.type==='REVERSE')return true;
+    if(step.type==='ASYNC'&&stationProgramReverses(step.steps))return true;
+    if(step.type==='BRANCH'&&(stationProgramReverses(step.thenSteps)||stationProgramReverses(step.elseSteps)))return true;
+  }
+  return false;
+}
+
 /** Earliest tick at which this program can first change location (move/store/select berth). */
 export function stationProgramFirstMovement(steps:StationProgramStep[],args:Record<string,StationProgramLiteral>,startTick:number,periodTicks:number):number|undefined {
   let first:number|undefined;

@@ -52,8 +52,9 @@ describe('timetable-owned station programs',()=>{
     expect(generateTimetableSource(value,programs).source).toContain(`JSON.parse(${JSON.stringify(JSON.stringify({target:'x"; injected() //'}))})`);
   });
   it('retains known run location through nonmoving and consecutive programs',()=>{
-    const value=document(),programs=[record()];value.duties[0].elements[1]={id:'program',type:'PROGRAM',tick:call.tick,program:{programId:call.programId,arguments:{target:'b@1'}}};
-    value.duties[0].elements.splice(2,0,{id:'again',type:'PROGRAM',tick:call.tick,program:{programId:call.programId,arguments:{target:'b@1'}}});
+    const still:StationProgramRecord={formatVersion:1,id:'still',name:'Still',definition:{parameters:[],steps:[{id:'reset',type:'RESET_DISPLAY'}]}};
+    const value=document(),programs=[still];value.duties[0].elements[1]={id:'program',type:'PROGRAM',tick:call.tick,program:{programId:'still',arguments:{}}};
+    value.duties[0].elements.splice(2,0,{id:'again',type:'PROGRAM',tick:call.tick,program:{programId:'still',arguments:{}}});
     expect(validateAuthoringDocument(value,programs)).toEqual([]);
     value.runs[1].calls[0].targetId='wrong-origin';expect(validateAuthoringDocument(value,programs).some((issue)=>issue.message.includes('Program location discontinuity'))).toBe(true);
   });

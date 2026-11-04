@@ -145,6 +145,22 @@ describe('timetable editor document',()=>{
     expect(generateWithLines(document,infrastructureLines,[],world).issues.some((item)=>item.message.includes('Selector waypoint not found'))).toBe(true);
   });
 
+  it('skips next-origin target equality for any program containing REVERSE',()=>{
+    const reverseMove:StationProgramRecord={formatVersion:1,id:'reverse-move',name:'reverse-move',definition:{parameters:[],steps:[
+      {id:'rev-1',type:'REVERSE'},
+      {id:'move',type:'MOVE',destinationId:{value:'b@1'},viaIds:{value:[]}},
+      {id:'doors',type:'OPEN_DOORS'},
+      {id:'rev-2',type:'REVERSE'},
+    ]}};
+    const document=valid();document.minimumDwellTicks=0;document.runs=[document.runs[0],
+      {id:'next',type:'PASSENGER',lineId:'line-1',diagramLineId:'line-1',lineDirection:'DOWN',calls:[
+        {id:'next-b',stationId:'b',targetId:'b@2',status:'ORIGIN',departureTick:1300},
+        {id:'next-a',stationId:'a',targetId:'a@1',status:'TERMINAL',arrivalTick:1800},
+      ]}];
+    document.duties[0].elements=[{id:'run',type:'RUN',runId:'up-01'},{id:'reverse-move',type:'PROGRAM',tick:850,program:{programId:'reverse-move',arguments:{}}},{id:'next',type:'RUN',runId:'next'}];
+    expect(validateWithLines(document,infrastructureLines,[reverseMove]).some((item)=>item.message.includes('Program location discontinuity'))).toBe(false);
+  });
+
   it('ends terminal occupancy at arrival while keeping the dwell gate for the next departure',()=>{
     const reverse:StationProgramRecord={formatVersion:1,id:'reverse',name:'reverse',definition:{parameters:[],steps:[{id:'rev',type:'REVERSE'}]}};
     const move:StationProgramRecord={formatVersion:1,id:'move',name:'move',definition:{parameters:[],steps:[{id:'move',type:'MOVE',destinationId:{value:'b@1'},viaIds:{value:[]}}]}};

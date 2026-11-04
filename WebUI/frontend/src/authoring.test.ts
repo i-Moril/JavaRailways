@@ -431,6 +431,26 @@ describe('timetable-wide minimum dwell',()=>{
     expect(document.runs[0].calls.every((call)=>!Object.hasOwn(call,'minimumDwellTicks'))).toBe(true);
   });
 
+  it('does not apply the global minimum dwell to deadhead runs',()=>{
+    const document=valid();document.minimumDwellTicks=40;
+    document.diagramLines=[{id:'line-1',upStationIds:['a','b','c'],downStationIds:['c','b','a']}];
+    document.runs=[{id:'deadhead',type:'DEADHEAD',lineId:'line-1',diagramLineId:'line-1',lineDirection:'UP',calls:[
+      {id:'a',stationId:'a',targetId:'a',status:'ORIGIN',departureTick:100},
+      {id:'b',stationId:'b',targetId:'b',status:'STOP',arrivalTick:200,departureTick:201},
+      {id:'c',stationId:'c',targetId:'c',status:'TERMINAL',arrivalTick:300},
+    ]}];
+    document.duties=[{id:'duty',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'run',type:'RUN',runId:'deadhead'}]}];
+    expect(validateAuthoringDocument(document)).toEqual([]);
+    const result=generateTimetableSource(document);expect(result.issues).toEqual([]);
+    const origins:Record<string,unknown>[]=[],destinations:Record<string,unknown>[]=[];
+    const timed={pass:()=>timed,destination:(_:string,options:Record<string,unknown>)=>{destinations.push(options);return timed;}};
+    const scope={origin:(_:string,callback:(value:unknown)=>void)=>callback(scope),runSegment:(_:unknown,callback:(value:unknown)=>void)=>callback(scope),check:()=>{},beginStationStop:(_:string,options:Record<string,unknown>)=>{origins.push(options);return scope;},at:()=>timed};
+    const host={setPeriodDays:()=>{},setInitialPosition:()=>{},lineSpeedLimit:()=>{},diagramLine:()=>{},named:(id:string)=>id,service:(_:unknown,__:unknown,options:unknown,callback?:(value:unknown)=>void)=>(callback??options as (value:unknown)=>void)(scope)};
+    new Function('timetable',`${result.source}\nmain(timetable)`)(host);
+    expect(origins.map((options)=>options.minimumDwellTicks)).toEqual([0]);
+    expect(destinations.map((options)=>options.minimumDwellTicks)).toEqual([0,0]);
+  });
+
   it('enforces the explicit document minimum for shift, copy and whole-run moves',()=>{
     const run=createRunFromLine('run',line,'UP',metadata);
     run.calls[0].departureTick=100;

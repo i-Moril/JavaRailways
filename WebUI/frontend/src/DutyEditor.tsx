@@ -16,7 +16,7 @@ import {resolveArrivalSourceTarget,resolveProgramSourceTarget,type ProgramSource
 import { api } from './api';
 import { frontendDemoEnabled } from './frontendDev';
 import {
-  authoringMinimumDwell,authoringGraphTimetable,authoringSelectorKey,createRunFromLine,deleteRunFromDocument,emptyAuthoringDocument,generateTimetableSource,moveRunToDuty,copyRunShifted,lineSimulationRoute,resetRunTimings,renameAuthoringRun,retainAuthoringRunSelection,authoringResetProfile,
+  authoringMinimumDwell,authoringMinimumDwellForRun,authoringGraphTimetable,authoringSelectorKey,createRunFromLine,deleteRunFromDocument,emptyAuthoringDocument,generateTimetableSource,moveRunToDuty,copyRunShifted,lineSimulationRoute,resetRunTimings,renameAuthoringRun,retainAuthoringRunSelection,authoringResetProfile,
   type AuthoringDutyV1,type AuthoringRunV1,type RunMoveMode,
   type TimetableAuthoringDocumentV1,
 } from './authoring';
@@ -184,7 +184,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   const pointSelectionValid=Boolean(selectedPoint&&selectedPoint.routeSignature===pointRouteSignature);
   const pointCall=pointSelectionValid?pointRun?.calls.find((call)=>call.id===selectedPoint?.callId):undefined;
   const pointTick=selectedPoint?.kind==='ARRIVAL'?pointCall?.arrivalTick:pointCall?.departureTick;
-  const nodeMinimumDwell=pointCall?.status==='PASS'?0:authoringMinimumDwell(value);
+  const nodeMinimumDwell=pointCall?.status==='PASS'||pointRun?.type==='DEADHEAD'?0:authoringMinimumDwell(value);
   const nodeMinimumTick=selectedPoint?.kind==='DEPARTURE'&&pointCall?.arrivalTick!=null?Math.max(0,pointCall.arrivalTick+nodeMinimumDwell):0;
   const nodeMaximumTick=selectedPoint?.kind==='ARRIVAL'&&pointCall?.departureTick!=null?Math.min(value.periodDays*24000-1,pointCall.departureTick-nodeMinimumDwell):value.periodDays*24000-1;
   const moveCalculation=useMemo(()=>{

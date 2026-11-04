@@ -39,7 +39,7 @@ shiftAuthoringGraphSuffix(document, runId, point, mode: 'OFFSET'|'ABSOLUTE', val
 
 单点菜单提交到达时写 `arrivalOverrides`，发车时写对应 run call 的 `departureTick`；PASS 的离开投影也编辑通过到达时刻。有效 arrival override 参与到发和最小停站校验。节点后续平移和复制整批各形成一次文档/history 更新；本地输入草稿、预览、busy、报错不进入 history；交路 referenceVehicle 为文档字段，变更进入 history。
 
-Reset 仅重生选中运行线的时刻，始发 Tick 来自该运行线原有首站 departureTick，没有另一个始发输入；缺少始发时刻则提示先填写。线路模拟重置的停站间隔来自运行选项中的独立“模拟用停站时间”输入，由玩家手填；全局最短停站只参与文档校验，不得作为模拟生成参数。独立 Copy run ribbon 打开间隔/数量弹窗，复制使用 effective run，按 D、2D、…、ND 平移并生成全新 run/call ID，不分配交路。运行选项不再混入复制设置。线路和方向共同限制选中运行线，删除后不得选中其他线路 inspector。
+Reset 仅重生选中运行线的时刻，始发 Tick 来自该运行线原有首站 departureTick，没有另一个始发输入；缺少始发时刻则提示先填写。线路模拟重置的停站间隔来自运行选项中的独立“模拟用停站时间”输入，由玩家手填；全局最短停站只约束营运列车（PASSENGER）停站；DEADHEAD 在生成、校验、图编辑、连接和时间轴终点计算中一律使用0，不得作为模拟生成参数。独立 Copy run ribbon 打开间隔/数量弹窗，复制使用 effective run，按 D、2D、…、ND 平移并生成全新 run/call ID，不分配交路。运行选项不再混入复制设置。线路和方向共同限制选中运行线，删除后不得选中其他线路 inspector。
 
 本地未保存草稿沿用已有 owner/world 隔离和 shape；已保存文档另用同样隔离的最后打开文档指针恢复，详见下文。不新增旧格式迁移链或持久 panel 偏好。
 
@@ -130,7 +130,7 @@ CURRENT：`authoringResume.ts` 保存 owner/world 隔离的最后文档 ID；内
 
 `events?: TimedOperation[]`为运行图所属定时作业，使用与交路程序作业相同的时刻、程序调用、可选车站/标记与规划耗时模型。可无程序保留纯时间锚点，WAIT_EVENT只引用此集合，生成前仍将tick+offsetTicks解析为绝对等待。缺失或越周期产生authoring issue、返回空source，不抛渲染异常。
 
-交路页使用页面专属顶部 ribbon：新建交路、添加作业程序、重联、解编、撤销/重做与保存；校验页不显示命令 ribbon，编译/模拟由校验面板拥有。交路页中央复用渲染后的运行图选择 RUN 和运行图作业 EVENT：点击运行线把该 RUN 原子移入当前交路，点击带程序的 EVENT 添加唯一引用；不再用下拉菜单选择。交路页三栏铺满页面并各自滚动；左侧交路列表、中央运行图/时间轴、右侧属性栏独立滚动。右侧栏采用与时刻表检查器一致的 inspector panel/标题样式，分“交路”和“初始位置”两个输入区，分别承载交路 ID、选择器/模拟参考车辆以及初始路径点/取得时刻等字段。
+交路页使用页面专属顶部 ribbon：新建交路、添加作业程序、重联、解编、撤销/重做与保存；校验页不显示命令 ribbon，编译/模拟由校验面板拥有。交路页中央复用渲染后的运行图选择 RUN 和运行图作业 EVENT：点击运行线把该 RUN 原子移入当前交路，点击带程序的 EVENT 添加唯一引用；不再用下拉菜单选择。交路页不渲染页面标题和副标题，三栏铺满页面并各自滚动；左侧交路列表、中央运行图/时间轴、右侧属性栏独立滚动。右侧栏采用与时刻表检查器一致的 inspector panel/标题样式，分“交路”和“初始位置”两个输入区，分别承载交路 ID、选择器/模拟参考车辆以及初始路径点/取得时刻等字段。
 
 交路 `referenceVehicle?: {type:'WORLD_TRAIN'|'TRAIN_TEMPLATE',id}`持久保存于duty，模拟由此取参数，不限制实际运营列车。元素支持RUN、交路所属PROGRAM、运行图作业EVENT及共享编组作业FORMATION引用。PROGRAM复用TimedOperation字段，program必需；EVENT／FORMATION只存{id,type,eventId}，不复制时刻、参数或耗时，分别引用运行图作业和编组目录。来自编组输出的交路不重新指定模拟车辆。初始位置仍为duty.initialPosition，不作为执行任务。当前未发布格式仍为1；旧PROGRAM.call结构只由离线迁移处理，不在运行时兼容。
 

@@ -10,7 +10,7 @@ import { findProgramStep,validateStationProgram } from './stationPrograms';
 import { useI18n } from './i18n';
 import type { WorldMetadata,TimetableExtensionDescriptor,StationProgramDefinition,StationProgramRecord,EditorDocumentSummary } from './types';
 
-type Props={metadata?:WorldMetadata;onLibraryChange?:()=>void;world:string;documentId:string;recoveryOwner:string;extensions?:TimetableExtensionDescriptor[];conditions?:TimetableExtensionDescriptor[];focus?:{programId:string;stepId?:string}};
+type Props={metadata?:WorldMetadata;onLibraryChange?:()=>void;world:string;documentId:string;recoveryOwner:string;extensions?:TimetableExtensionDescriptor[];focus?:{programId:string;stepId?:string}};
 export function newLibraryProgram(records:StationProgramRecord[],entropy=()=>crypto.getRandomValues(new Uint32Array(4))){
   let id:string;
   do{id=String(entropy().reduce((value,word)=>(value<<32n)|BigInt(word),0n));}while(records.some((record)=>record.id===id));
@@ -23,7 +23,7 @@ export function libraryHasChanges(record:StationProgramRecord|undefined,definiti
 }
 // A timetable owns its programs; switching timetable or owner starts a separate editor.
 export function StationProgramLibrary(props:Props){return <Library key={JSON.stringify([props.recoveryOwner,props.world,props.documentId])} {...props}/>;}
-function Library({world,documentId,recoveryOwner,metadata={},extensions=[],conditions=[],focus,onLibraryChange}:Props){
+function Library({world,documentId,recoveryOwner,metadata={},extensions=[],focus,onLibraryChange}:Props){
   const {t}=useI18n();
   const [records,setRecords]=useState<StationProgramRecord[]>([]);
   const [selected,setSelected]=useState<StationProgramRecord>();
@@ -135,7 +135,7 @@ function Library({world,documentId,recoveryOwner,metadata={},extensions=[],condi
       <Alert type="info" showIcon title={t('programs.executionHint')}/>
       <div className="timed-operation-grid"><label>{t('programs.estimatedDuration')}<CommittedNumberInput aria-label={t('programs.estimatedDuration')} fieldKey={`${recoveryOwner}/${world}/${documentId}/${selected.id}/${editorEpoch}/estimate/${estimateEpoch}`} value={estimatedDurationTicks} min={0} max={Number.MAX_SAFE_INTEGER} precision={0} disabled={busy&&!saving} onValidityChange={setDurationValid} onCommit={value=>setEstimatedDurationTicks(value??undefined)}/></label></div><Typography.Text type="secondary">{t('programs.estimatedDurationHint')}</Typography.Text>
       {focus?.programId===selected.id&&focus?.stepId&&!findProgramStep(selected.definition.steps,focus.stepId)&&<Alert type="info" title={t('programs.stepUnavailable')}/>}
-      <fieldset inert={busy&&!saving} disabled={busy&&!saving} className="program-editor-fields"><ProgramDefinitionEditor metadata={metadata} conditions={conditions} extensions={extensions} onValidityChange={setValid} focusedStep={focus?.programId===selected.id?focus.stepId:undefined} key={`${selected.id}/${editorEpoch}`} fieldScope={`${recoveryOwner}/${world}/${documentId}/${selected.id}`} value={definition} onChange={setDefinition}/></fieldset>
+      <fieldset inert={busy&&!saving} disabled={busy&&!saving} className="program-editor-fields"><ProgramDefinitionEditor metadata={metadata} extensions={extensions} onValidityChange={setValid} focusedStep={focus?.programId===selected.id?focus.stepId:undefined} key={`${selected.id}/${editorEpoch}`} fieldScope={`${recoveryOwner}/${world}/${documentId}/${selected.id}`} value={definition} onChange={setDefinition}/></fieldset>
       {!!errors.length&&<Alert type="warning" title={errors.join('; ')}/>}
       <Typography.Paragraph type="secondary">{t('programs.conflictHint')}</Typography.Paragraph>
     </>:<Typography.Paragraph type="secondary">{t('programs.selectFile')}</Typography.Paragraph>}</section></div>

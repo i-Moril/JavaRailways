@@ -226,17 +226,11 @@ class TimetableSimulationExtensions internal constructor(
 }
 
 /** Thread-safe registry. Duplicate type/version registrations fail instead of silently replacing plugins. */
-class TimetableExtensionRegistry(registerBuiltIns: Boolean = true) {
+class TimetableExtensionRegistry {
     private data class Key(val typeId: String, val version: Int)
 
     private val conditions = ConcurrentHashMap<Key, TimetableConditionProvider>()
     private val actions = ConcurrentHashMap<Key, TimetableActionProvider>()
-    private val builtInConditions: Map<Key, TimetableConditionProvider>
-
-    init {
-        if (registerBuiltIns) registerJavaRailwaysConditions()
-        builtInConditions = conditions.toMap()
-    }
 
     fun registerCondition(provider: TimetableConditionProvider) {
         val key = checkedKey(provider.typeId, provider.version)
@@ -277,8 +271,7 @@ class TimetableExtensionRegistry(registerBuiltIns: Boolean = true) {
      * Preparations must retain no live mutable state; missing domain factories fail immediately.
      */
     fun prepareSimulation(): TimetableSimulationExtensions {
-        val preparedConditions = conditionProviders().mapNotNull { provider ->
-            if (builtInConditions[Key(provider.typeId, provider.version)] === provider) return@mapNotNull null
+        val preparedConditions = conditionProviders().map { provider ->
             require(provider is TimetableConditionSimulationFactory) {
                 "simulation preparation unavailable for condition ${provider.typeId}@${provider.version}"
             }

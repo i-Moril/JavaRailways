@@ -16,7 +16,7 @@ const definition:StationProgramDefinition={parameters:[{id:'duration',type:'DURA
 {id:'select',type:'SELECT_STOP',stationId:{parameterId:'station'},berthIds:{value:['long']},selectionPolicy:'AVAILABLE_PRIORITY'},
 {id:'store',type:'STORE_AT_DEPOT',depotId:{value:'home'},stablingPointIds:{value:['one']}},
 {id:'extension',type:'EXTENSION',typeId:'demo:act',version:2,parameters:{value:{nested:{a:'b'}}}},
-{id:'branch',type:'BRANCH',typeId:'demo:condition',version:3,parameters:{value:{}},thenSteps:[{id:'inside',type:'WAIT_DURATION',durationTicks:{value:10}}],elseSteps:[{id:'nested',type:'BRANCH',typeId:'demo:condition',version:1,parameters:{value:{}},thenSteps:[],elseSteps:[{id:'reverse-inside',type:'REVERSE'}]}]},
+{id:'branch',type:'BRANCH',condition:{operation:{type:'EQUALS',operands:[{operation:{type:'PLAN_RUN_TYPE',operands:[]}},{value:'PASSENGER'}]}},thenSteps:[{id:'inside',type:'WAIT_DURATION',durationTicks:{value:10}}],elseSteps:[{id:'nested',type:'BRANCH',condition:{operation:{type:'EQUALS',operands:[{operation:{type:'PLAN_RUN_TYPE',operands:[]}},{value:'PASSENGER'}]}},thenSteps:[],elseSteps:[{id:'reverse-inside',type:'REVERSE'}]}]},
 ]};
 describe('rail program Blockly mapping',()=>{
  it('creates whole-train display actions without a formation selector',()=>{
@@ -75,13 +75,13 @@ describe('rail program Blockly mapping',()=>{
  });
  it('rejects duplicate block ids and over-deep graphs',()=>{
   const state=definitionToBlocks({parameters:[],steps:[{id:'a',type:'REVERSE'},{id:'a',type:'REVERSE'}]});expect(()=>blocksToDefinition(state,[])).toThrow('duplicate');
-  let steps:StationProgramStep[]=[];for(let i=0;i<18;i++)steps=[{id:`b${i}`,type:'BRANCH',typeId:'demo:c',version:1,parameters:{value:{}},thenSteps:steps,elseSteps:[]}];
+  let steps:StationProgramStep[]=[];for(let i=0;i<18;i++)steps=[{id:`b${i}`,type:'BRANCH',condition:{operation:{type:'EQUALS',operands:[{operation:{type:'PLAN_RUN_TYPE',operands:[]}},{value:'PASSENGER'}]}},thenSteps:steps,elseSteps:[]}];
   expect(()=>blocksToDefinition(definitionToBlocks({parameters:[],steps}),[])).toThrow('depth');
  });
  it('limits arrival actions recursively and rejects arrival parameter declarations',()=>{
   for(const type of programStepTypes){const step=defaultProgramStep(type);const convert=()=>blocksToDefinition(definitionToBlocks({parameters:[],steps:[step]}),[],'arrival');if(['MOVE','SELECT_STOP','STORE_AT_DEPOT'].includes(type))expect(convert).toThrow('unavailable');else expect(convert).not.toThrow();}
   expect(()=>blocksToDefinition(definitionToBlocks({parameters:[],steps:[]}),[{id:'p',type:'STRING'}],'arrival')).toThrow('declare');
-  const state=definitionToBlocks({parameters:[],steps:[{id:'b',type:'BRANCH',typeId:'demo:c',version:1,parameters:{value:{}},thenSteps:[{id:'r',type:'MOVE',destinationId:{value:'x'},viaIds:{value:[]}}],elseSteps:[]}]});expect(()=>blocksToDefinition(state,[],'arrival')).toThrow('unavailable');
+  const state=definitionToBlocks({parameters:[],steps:[{id:'b',type:'BRANCH',condition:{operation:{type:'EQUALS',operands:[{operation:{type:'PLAN_RUN_TYPE',operands:[]}},{value:'PASSENGER'}]}},thenSteps:[{id:'r',type:'MOVE',destinationId:{value:'x'},viaIds:{value:[]}}],elseSteps:[]}]});expect(()=>blocksToDefinition(state,[],'arrival')).toThrow('unavailable');
  });
 });
 describe('incomplete workspace draft safety',()=>{

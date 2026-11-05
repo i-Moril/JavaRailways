@@ -30,7 +30,6 @@ import work.art1st.javarailways.simpleato.api.line.LineId
 import work.art1st.javarailways.simpleato.api.line.LinePlanner
 import work.art1st.javarailways.simpleato.api.line.LineRevisionConflict
 import work.art1st.javarailways.simpleato.api.station.StationId
-import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionProvider
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.simpleato.persistence.SavedTimetableV1
 import work.art1st.javarailways.simpleato.persistence.TimetableSnapshotCodec
@@ -422,9 +421,6 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
 
         private fun extensionsJson(worldName: String) = withWorld(worldName) { _, world ->
             json.encodeToString(buildJsonObject {
-                put("conditions", JsonArray(
-                    world.simpleAtoWorldData.timetableExtensions.conditionProviders().map(::conditionDescriptorJson)
-                ))
                 put("actions", JsonArray(
                     world.simpleAtoWorldData.timetableExtensions.actionProviders().map { provider ->
                         descriptorJson(
@@ -1077,15 +1073,6 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             put("parameterSchema", parameterSchema)
         }
 
-        private fun conditionDescriptorJson(provider: TimetableConditionProvider) = buildJsonObject {
-            val descriptor = provider.descriptor
-            put("typeId", provider.typeId)
-            put("version", provider.version)
-            put("title", descriptor.title)
-            put("description", descriptor.description)
-            put("parameterSchema", descriptor.parameterSchema)
-            put("supportedScopes", JsonArray(provider.supportedScopes.map { JsonPrimitive(it.name) }))
-        }
         private fun authorized(exchange: HttpExchange): Boolean {
             val value = exchange.requestHeaders.getFirst("Authorization") ?: return false
             val prefix = "Bearer "

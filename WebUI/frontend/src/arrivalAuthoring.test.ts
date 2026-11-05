@@ -48,9 +48,6 @@ describe('shared station programs',()=>{
    expect(()=>{generated=generateTimetableSource(value,lines,programs);}).not.toThrow();expect(generated!.source).toBe('');expect(generated!.issues.some((issue)=>issue.message.includes('Unknown event'))).toBe(true);
   }
  });
- it('rejects dynamic train conditions from station authoring',()=>{
-  const value=defaultStationStopProgram('b');value.arrival.steps.unshift({id:'dynamic',type:'BRANCH',typeId:'javarailways:train_model',version:1,parameters:{value:{}},thenSteps:[],elseSteps:[]});expect(validateStopProgram(value,[],24000)).toContain('Conditions must use planned timetable context');
- });
 });
 
 it('shares task declarations between arrival and preparation but rejects duplicate symbols',()=>{

@@ -30,7 +30,7 @@ class TrainInfoProgramValidatorTest {
             String invalid = extension("{\"trainInfo\":"+bindings+"}");
             assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(definition(invalid)));
             assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateStation(definition(invalid)));
-            String branch = "{\"id\":\"branch\",\"type\":\"BRANCH\",\"typeId\":\"javarailways:plan_duty_id\",\"version\":1,\"parameters\":{\"value\":{\"values\":[\"d\"]}},\"thenSteps\":[],\"elseSteps\":["+invalid+"]}";
+            String branch = "{\"id\":\"branch\",\"type\":\"BRANCH\",\"condition\":{\"operation\":{\"type\":\"EQUALS\",\"operands\":[{\"operation\":{\"type\":\"PLAN_DUTY_ID\",\"operands\":[]}},{\"value\":\"d\"}]}},\"thenSteps\":[],\"elseSteps\":["+invalid+"]}";
             assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(definition(branch)));
         }
         var sixtyFive = mapper.createObjectNode();
@@ -41,7 +41,6 @@ class TrainInfoProgramValidatorTest {
         for (String step : new String[]{
             "{\"id\":\"wait\",\"type\":\"WAIT_DURATION\",\"durationTicks\":{\"trainInfo\":"+BINDINGS+"}}",
             "{\"id\":\"move\",\"type\":\"MOVE\",\"destinationId\":{\"trainInfo\":"+BINDINGS+"},\"viaIds\":{\"value\":[]}}",
-            "{\"id\":\"branch\",\"type\":\"BRANCH\",\"typeId\":\"javarailways:plan_duty_id\",\"version\":1,\"parameters\":{\"trainInfo\":"+BINDINGS+"},\"thenSteps\":[],\"elseSteps\":[]}",
             extension("{\"trainInfo\":"+BINDINGS+",\"value\":{}}")
         }) assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(definition(step)));
     }

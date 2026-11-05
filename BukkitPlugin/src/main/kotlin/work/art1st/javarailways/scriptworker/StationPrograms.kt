@@ -15,8 +15,8 @@ import kotlinx.serialization.json.*
     @Serializable @SerialName("WAIT_UNTIL") data class WaitUntil(override val id: String, val tick: StationProgramValue) : StationProgramStep()
     @Serializable @SerialName("WAIT_DURATION") data class WaitDuration(override val id: String, val durationTicks: StationProgramValue) : StationProgramStep()
     @Serializable @SerialName("EXTENSION") data class Extension(override val id: String, val typeId: String, val version: Int, val parameters: StationProgramValue) : StationProgramStep()
-    @Serializable @SerialName("BRANCH") data class Branch(override val id: String, val typeId: String, val version: Int,
-        val parameters: StationProgramValue, val thenSteps: List<StationProgramStep>, val elseSteps: List<StationProgramStep>) : StationProgramStep()
+    @Serializable @SerialName("BRANCH") data class Branch(override val id: String, val condition: StationProgramValue,
+        val thenSteps: List<StationProgramStep>, val elseSteps: List<StationProgramStep>) : StationProgramStep()
     @Serializable @SerialName("REVERSE") data class Reverse(override val id: String) : StationProgramStep()
     @Serializable @SerialName("OPEN_DOORS") data class OpenDoors(override val id: String, val doorSideOverride: StationProgramValue? = null) : StationProgramStep()
     @Serializable @SerialName("CLOSE_DOORS") data class CloseDoors(override val id: String) : StationProgramStep()
@@ -50,7 +50,7 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
         try { when (step["type"]?.jsonPrimitive?.content) {
             "SET_DISPLAY" -> { expressionShape(step.getValue("values"), true); step["removeKeys"]?.let { expressionShape(it) } }
             "BRANCH" -> {
-                expressionShape(step.getValue("parameters"))
+                expressionShape(step.getValue("condition"))
                 checkSteps(step.getValue("thenSteps").jsonArray, depth + 1)
                 checkSteps(step.getValue("elseSteps").jsonArray, depth + 1)
             }
@@ -79,7 +79,7 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
     parameters.forEach { (id, type) -> validateProgramLiteral(arguments.getValue(id), type) }
     require(definition.steps.map { it.id }.distinct().size == definition.steps.size) { "duplicate program step id" }
     fun value(expression: StationProgramValue, type: String): JsonElement =
-        ProgramExpressions.evaluate(expression, type, parameters, arguments)
+        ProgramExpressions.evaluate(expression, type, parameters, arguments, plannedContext)
     fun validateBoundSteps(steps: JsonArray) {
         steps.forEach { raw ->
             val step = raw.jsonObject
@@ -87,7 +87,8 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
             try {
                 val sinks = when (step.getValue("type").jsonPrimitive.content) {
                     "SET_DISPLAY" -> mapOf("values" to "JSON_OBJECT", "removeKeys" to "ID_LIST")
-                    "BRANCH", "EXTENSION" -> mapOf("parameters" to "JSON_OBJECT")
+                    "BRANCH" -> mapOf("condition" to "BOOLEAN")
+                    "EXTENSION" -> mapOf("parameters" to "JSON_OBJECT")
                     "WAIT_UNTIL" -> mapOf("tick" to "TICK")
                     "WAIT_DURATION" -> mapOf("durationTicks" to "DURATION")
                     "MOVE" -> mapOf("destinationId" to "STRING", "viaIds" to "ID_LIST")
@@ -149,7 +150,7 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
                     trainInfo = step.parameters.trainInfo.orEmpty()))
             }
             is StationProgramStep.Branch -> {
-                val chosen = evaluatePlannedCondition(step.typeId, step.version, value(step.parameters, "JSON_OBJECT").jsonObject, plannedContext)
+                val chosen = value(step.condition, "BOOLEAN").jsonPrimitive.boolean
                 val (expanded, nextTick) = expand(if (chosen) step.thenSteps else step.elseSteps, tick)
                 val offset = result.size
                 result += expanded.steps
@@ -202,6 +203,7 @@ internal fun validateProgramLiteral(value: JsonElement, type: String) {
             require(number != null && number.isFinite() && !(kotlin.math.floor(number) == number && kotlin.math.abs(number) > 9_007_199_254_740_991.0)) { "NUMBER must be finite and integral values must be safe integers" }
         }
         "STRING" -> require(value is JsonPrimitive && value.isString && value.content.length <= 8192) { "STRING must contain at most8192 characters" }
+        "BOOLEAN" -> require(value is JsonPrimitive && !value.isString && value.booleanOrNull != null) { "BOOLEAN must be true or false" }
         "TICK", "DURATION" -> {
             val primitive = value as? JsonPrimitive
             val number = primitive?.takeUnless { it.isString }?.doubleOrNull

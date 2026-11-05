@@ -23,7 +23,7 @@ describe('explicit current train information sources',()=>{
  });
  it('rejects sources in condition, routing, waits and other action fields',()=>{
   for(const step of [
-   {id:'condition',type:'BRANCH',typeId:'javarailways:plan_run_id',version:1,parameters:{trainInfo:bindings},thenSteps:[],elseSteps:[]},
+   {id:'condition',type:'BRANCH',condition:{trainInfo:bindings},thenSteps:[],elseSteps:[]},
    {id:'wait',type:'WAIT_UNTIL',tick:{trainInfo:bindings}},
    {id:'move',type:'MOVE',destinationId:{trainInfo:bindings},viaIds:{value:[]}},
   ]){

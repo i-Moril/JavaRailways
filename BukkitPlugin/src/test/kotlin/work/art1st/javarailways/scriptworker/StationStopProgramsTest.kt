@@ -60,7 +60,7 @@ class StationStopProgramsTest {
 
     @Test fun `station branches fold from planned properties and retain async order`() {
         val compiled = compileStationStopPrograms("central@1", options("""[
-          {"id":"choose","type":"BRANCH","typeId":"javarailways:plan_run_type","version":1,"parameters":{"value":{"values":["PASSENGER"]}},
+          {"id":"choose","type":"BRANCH","condition":{"operation":{"type":"EQUALS","operands":[{"operation":{"type":"PLAN_RUN_TYPE","operands":[]}},{"value":"PASSENGER"}]}},
             "thenSteps":[{"id":"open","type":"OPEN_DOORS"}],"elseSteps":[{"id":"close","type":"CLOSE_DOORS"}]},
           {"id":"launch","type":"ASYNC","taskId":"announcement","steps":[{"id":"delay","type":"WAIT_DURATION","durationTicks":{"value":5}}]},
           {"id":"end","type":"END"}]""", """[{"id":"join","type":"AWAIT","taskId":"announcement"},{"id":"endPrep","type":"END"}]"""))!!
@@ -70,9 +70,11 @@ class StationStopProgramsTest {
         assertEquals("announcement", compiled.departurePreparation.first().taskId)
     }
 
-    @Test fun `dynamic and absent planned context fail at compile time`() {
-        for (id in listOf("javarailways:train_model", "javarailways:plan_line_id")) assertThrows(RuntimeException::class.java) {
-            compileStationStopPrograms("B", options("""[{"id":"branch","type":"BRANCH","typeId":"$id","version":1,"parameters":{"value":{"values":["x"]}},"thenSteps":[],"elseSteps":[]},{"id":"end","type":"END"}]"""))
+    @Test fun `unknown planned field and absent planned context fail at compile time`() {
+        for (condition in listOf(
+            """{"operation":{"type":"EQUALS","operands":[{"operation":{"type":"PLAN_TRAIN_MODEL","operands":[]}},{"value":"x"}]}}""",
+            """{"operation":{"type":"EQUALS","operands":[{"operation":{"type":"PLAN_LINE_ID","operands":[]}},{"value":"x"}]}}""")) assertThrows(RuntimeException::class.java) {
+            compileStationStopPrograms("B", options("""[{"id":"branch","type":"BRANCH","condition":$condition,"thenSteps":[],"elseSteps":[]},{"id":"end","type":"END"}]"""))
         }
     }
 

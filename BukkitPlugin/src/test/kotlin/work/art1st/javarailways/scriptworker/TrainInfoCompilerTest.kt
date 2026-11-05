@@ -76,13 +76,13 @@ class TrainInfoCompilerTest {
             val step = extension("""{"trainInfo":$bindings}""")
             assertThrows(RuntimeException::class.java) { expand(step) }
             assertThrows(RuntimeException::class.java) { station(step) }
-            val branch = """{"id":"branch","type":"BRANCH","typeId":"javarailways:plan_duty_id","version":1,"parameters":{"value":{"values":["d"]}},"thenSteps":[],"elseSteps":[$step]}"""
+            val branch = """{"id":"branch","type":"BRANCH","condition":{"operation":{"type":"EQUALS","operands":[{"operation":{"type":"PLAN_DUTY_ID","operands":[]}},{"value":"d"}]}},"thenSteps":[],"elseSteps":[$step]}"""
             assertTrue(assertThrows(RuntimeException::class.java) { expand(branch) }.message!!.contains("step:action"))
             assertTrue(assertThrows(RuntimeException::class.java) { station(branch) }.message!!.contains("step:action"))
         }
         for (step in listOf(
             """{"id":"bad","type":"WAIT_DURATION","durationTicks":{"trainInfo":$bindings}}""",
-            """{"id":"bad","type":"BRANCH","typeId":"javarailways:plan_duty_id","version":1,"parameters":{"trainInfo":$bindings},"thenSteps":[],"elseSteps":[]}"""
+            """{"id":"bad","type":"BRANCH","condition":{"trainInfo":$bindings},"thenSteps":[],"elseSteps":[]}"""
         )) {
             assertThrows(RuntimeException::class.java) { expand(step) }
             assertThrows(RuntimeException::class.java) { station(step) }

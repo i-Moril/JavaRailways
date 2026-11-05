@@ -34,6 +34,25 @@ class ProgramExpressionsTest {
         assertEquals(" ", evaluate(op("CONCAT", literal(""), literal(" ")), "STRING").jsonPrimitive.content)
     }
 
+    @Test fun `planned field comparisons compose into boolean conditions`() {
+        val context = mapOf("callStatus" to JsonPrimitive("TERMINAL"), "lineDirection" to JsonPrimitive("UP"))
+        fun evaluate(raw: String, type: String) = ProgramExpressions.evaluate(expr(raw), type, context = context)
+
+        assertEquals("TERMINAL", evaluate(op("PLAN_CALL_STATUS"), "STRING").jsonPrimitive.content)
+        assertTrue(evaluate(op("EQUALS", op("PLAN_CALL_STATUS"), literal("TERMINAL")), "BOOLEAN").jsonPrimitive.boolean)
+        assertFalse(evaluate(op("EQUALS", op("PLAN_CALL_STATUS"), literal("STOP")), "BOOLEAN").jsonPrimitive.boolean)
+        assertTrue(evaluate(op("AND",
+            op("EQUALS", op("PLAN_CALL_STATUS"), literal("TERMINAL")),
+            op("NOT_EQUALS", op("PLAN_LINE_DIRECTION"), literal("DOWN"))), "BOOLEAN").jsonPrimitive.boolean)
+        assertTrue(evaluate(op("NOT", op("EQUALS", op("PLAN_LINE_DIRECTION"), literal("DOWN"))), "BOOLEAN").jsonPrimitive.boolean)
+        assertFalse(evaluate(op("OR",
+            op("EQUALS", op("PLAN_LINE_DIRECTION"), literal("DOWN")),
+            op("EQUALS", op("PLAN_CALL_STATUS"), literal("STOP"))), "BOOLEAN").jsonPrimitive.boolean)
+
+        assertThrows(RuntimeException::class.java) { ProgramExpressions.evaluate(expr(op("PLAN_CALL_STATUS")), "STRING") }
+        assertThrows(RuntimeException::class.java) { evaluate(op("EQUALS", literal("a"), literal("b")), "STRING") }
+    }
+
     @Test fun `bound numeric and text parameters compose into display object and waits`() {
         val definition = Json.parseToJsonElement("""{"parameters":[{"id":"seconds","type":"NUMBER"},{"id":"station","type":"STRING"}],"steps":[
             {"id":"display","type":"SET_DISPLAY","values":{"object":{"destination":${op("CONCAT", literal("Next: "), """{"parameterId":"station"}""")},"count":${op("ADD", literal(1), literal(2))}}}},
@@ -55,7 +74,7 @@ class ProgramExpressionsTest {
     @Test fun `zero duration parameter is valid for arithmetic but not a final wait even in unselected branches`() {
         fun definition(expression: String, branched: Boolean = false): JsonElement {
             val wait = """{"id":"wait","type":"WAIT_DURATION","durationTicks":$expression}"""
-            val step = if (branched) """{"id":"branch","type":"BRANCH","typeId":"javarailways:plan_duty_id","version":1,"parameters":{"value":{"values":["duty"]}},"thenSteps":[],"elseSteps":[$wait]}""" else wait
+            val step = if (branched) """{"id":"branch","type":"BRANCH","condition":{"operation":{"type":"EQUALS","operands":[{"operation":{"type":"PLAN_DUTY_ID","operands":[]}},{"value":"duty"}]}},"thenSteps":[],"elseSteps":[$wait]}""" else wait
             return Json.parseToJsonElement("""{"parameters":[{"id":"d","type":"DURATION"}],"steps":[$step]}""")
         }
         val args = buildJsonObject { put("d", 0) }
@@ -72,7 +91,7 @@ class ProgramExpressionsTest {
 
     @Test fun `pure errors in unselected branches are rejected with nested source identity`() {
         val definition = Json.parseToJsonElement("""{"parameters":[],"steps":[{"id":"branch","type":"BRANCH",
-          "typeId":"javarailways:plan_duty_id","version":1,"parameters":{"value":{"values":["duty"]}},
+          "condition":{"operation":{"type":"EQUALS","operands":[{"operation":{"type":"PLAN_DUTY_ID","operands":[]}},{"value":"duty"}]}},
           "thenSteps":[],"elseSteps":[{"id":"bad","type":"WAIT_DURATION","durationTicks":${op("DIVIDE",literal(1),literal(0))}}]}]}""")
         val failure = assertThrows(RuntimeException::class.java) { expandStationProgram(definition, JsonObject(emptyMap()), 0, mapOf("dutyId" to JsonPrimitive("duty"))) }
         assertTrue(failure.message!!.contains("step:bad"))
@@ -87,8 +106,8 @@ class ProgramExpressionsTest {
         val result = compileStationStopPrograms("s@1", options)!!
         assertEquals(40L, result.arrival[0].durationTicks)
         assertEquals("AB", result.arrival[1].values.getValue("text").jsonPrimitive.content)
-        val invalidWait = Json.parseToJsonElement("""{"id":"branch","type":"BRANCH","typeId":"javarailways:plan_duty_id","version":1,
-          "parameters":{"value":{"values":["duty"]}},"thenSteps":[],
+        val invalidWait = Json.parseToJsonElement("""{"id":"branch","type":"BRANCH",
+          "condition":{"operation":{"type":"EQUALS","operands":[{"operation":{"type":"PLAN_DUTY_ID","operands":[]}},{"value":"duty"}]}},"thenSteps":[],
           "elseSteps":[{"id":"invalidWait","type":"WAIT_DURATION","durationTicks":{"value":0}}]}""")
         val invalid = JsonObject(options + ("plannedContext" to buildJsonObject { put("dutyId", "duty") }) +
             ("stationProgram" to JsonObject(options.getValue("stationProgram").jsonObject +
@@ -123,7 +142,7 @@ class ProgramExpressionsTest {
             """{"id":"bad","type":"STORE_AT_DEPOT","depotId":{"parameterId":"id"},"stablingPointIds":{"value":[]}}""")
         for (step in operations) for (text in listOf("", " ", "x".repeat(257))) {
             for (branched in if (step.contains("STORE_AT_DEPOT")) listOf(false) else listOf(false, true)) {
-                val body = if (!branched) step else """{"id":"parent","type":"BRANCH","typeId":"javarailways:plan_duty_id","version":1,"parameters":{"value":{"values":["duty"]}},"thenSteps":[],"elseSteps":[$step]}"""
+                val body = if (!branched) step else """{"id":"parent","type":"BRANCH","condition":{"operation":{"type":"EQUALS","operands":[{"operation":{"type":"PLAN_DUTY_ID","operands":[]}},{"value":"duty"}]}},"thenSteps":[],"elseSteps":[$step]}"""
                 val definition = Json.parseToJsonElement("""{"parameters":[{"id":"id","type":"STRING"}],"steps":[$body]}""")
                 val failure = assertThrows(RuntimeException::class.java) {
                     expandStationProgram(definition, buildJsonObject { put("id", text) }, 0, mapOf("dutyId" to JsonPrimitive("duty")))

@@ -63,8 +63,7 @@ final class StationProgramValidator {
             if (type.equals("END")) { if (asynchronous) fail("END cannot occur in ASYNC"); ends = true; }
             if (type.equals("ASYNC")) validateStationSteps(step.path("steps"), true);
             if (type.equals("BRANCH")) {
-                String provider = step.path("typeId").asText();
-                if (!Set.of("javarailways:plan_run_type", "javarailways:plan_line_direction", "javarailways:plan_station_id", "javarailways:plan_run_id", "javarailways:plan_line_id", "javarailways:plan_call_status", "javarailways:plan_duty_id").contains(provider)) fail("station condition must be editable-plan deterministic");
+                if (!step.path("condition").isObject()) fail("branch condition must be an expression");
                 // Branch END reachability is checked after planned branches are folded per occurrence.
                 validateStationSteps(step.path("thenSteps"), asynchronous);
                 validateStationSteps(step.path("elseSteps"), asynchronous);
@@ -118,12 +117,8 @@ final class StationProgramValidator {
                     value(step.path("durationTicks"), "DURATION", parameters, true);
                 }
                 case "BRANCH" -> {
-                    fields(step, Set.of("id", "type", "typeId", "version", "parameters", "thenSteps", "elseSteps"), "BRANCH step");
-                    String typeId = text(step.path("typeId"), "condition typeId");
-                    if (!typeId.matches("[a-z0-9_.-]+:[a-z0-9_./-]+")) fail("condition typeId must be namespaced");
-                    if (!Set.of("javarailways:plan_run_type", "javarailways:plan_line_direction", "javarailways:plan_station_id", "javarailways:plan_run_id", "javarailways:plan_line_id", "javarailways:plan_call_status", "javarailways:plan_duty_id").contains(typeId)) fail("condition must be editable-plan deterministic");
-                    if (!step.path("version").isIntegralNumber() || !step.path("version").canConvertToInt() || step.path("version").asInt() < 1) fail("condition version must be a positive integer");
-                    value(step.path("parameters"), "JSON_OBJECT", parameters, false);
+                    fields(step, Set.of("id", "type", "condition", "thenSteps", "elseSteps"), "BRANCH step");
+                    if (!step.path("condition").isObject()) fail("branch condition must be an expression");
                     validateSteps(step.path("thenSteps"), parameters, steps, depth + 1);
                     validateSteps(step.path("elseSteps"), parameters, steps, depth + 1);
                 }

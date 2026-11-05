@@ -66,7 +66,7 @@ describe('numeric event identities',()=>{
   it('reserves dangling WAIT_EVENT references in nested station and bound programs',()=>{
     const wait={id:'wait',type:'WAIT_EVENT' as const,eventId:'1',offsetTicks:0};
     const program:StationStopProgram={stationId:'a',preparationLead:{value:0},arrival:{parameters:[],steps:[{id:'task',type:'ASYNC',taskId:'task',steps:[wait]}]},departurePreparation:{parameters:[],steps:[]}};
-    const reserved=referencedTimetableEventIds({stationPrograms:[program]},[{formatVersion:1,id:'lib',name:'lib',definition:{parameters:[],steps:[{id:'branch',type:'BRANCH',typeId:'test:condition',version:1,parameters:{value:{}},thenSteps:[{...wait,eventId:'2'}],elseSteps:[{...wait,eventId:'3'}]}]}}]);
+    const reserved=referencedTimetableEventIds({stationPrograms:[program]},[{formatVersion:1,id:'lib',name:'lib',definition:{parameters:[],steps:[{id:'branch',type:'BRANCH',condition:{operation:{type:'EQUALS',operands:[{operation:{type:'PLAN_RUN_TYPE',operands:[]}},{value:'PASSENGER'}]}},thenSteps:[{...wait,eventId:'2'}],elseSteps:[{...wait,eventId:'3'}]}]}}]);
     expect(reserved).toEqual(['1','2','3']);
     expect(nextTimetableEventId([],reserved)).toBe('4');
     const after=saveTimetableEvent([],{id:'',stationId:'a',tick:0},24000,['a'],undefined,reserved);

@@ -81,7 +81,7 @@ class StationProgramScriptTest {
     @Test fun `planned program branches fold and retain selected source addresses`() {
         val result = compile("""
           timetable.service('s','train',t=>{t.check('start');t.at(10).program('branch',{
-            parameters:[],steps:[{id:'choose',type:'BRANCH',typeId:'javarailways:plan_duty_id',version:1,parameters:{value:{values:['s']}},
+            parameters:[],steps:[{id:'choose',type:'BRANCH',condition:{operation:{type:'EQUALS',operands:[{operation:{type:'PLAN_DUTY_ID',operands:[]}},{value:'s'}]}},
               thenSteps:[{id:'later',type:'WAIT_UNTIL',tick:{value:80}},{id:'yes',type:'EXTENSION',typeId:'demo:action',version:1,parameters:{value:{}}}],
               elseSteps:[{id:'earlier',type:'WAIT_UNTIL',tick:{value:40}}]},
               {id:'after',type:'EXTENSION',typeId:'demo:action',version:1,parameters:{value:{}}}]},{},{dutyId:'s'});});
@@ -95,7 +95,7 @@ class StationProgramScriptTest {
         for (fixed in listOf("{id:'fixed',type:'STORE_AT_DEPOT',depotId:{value:'depot'},stablingPointIds:{value:[]}}")) {
             assertThrows(Throwable::class.java) { compile("""
               timetable.service('s','train',t=>{t.check('start');t.program('p',{parameters:[],steps:[
-                {id:'branch',type:'BRANCH',typeId:'demo:condition',version:1,parameters:{value:{}},thenSteps:[$fixed],elseSteps:[]}]},{});});
+                {id:'branch',type:'BRANCH',condition:{operation:{type:'EQUALS',operands:[{operation:{type:'PLAN_DUTY_ID',operands:[]}},{value:'s'}]}},thenSteps:[$fixed],elseSteps:[]}]},{});});
             """) }
         }
     }
@@ -208,7 +208,7 @@ class StationProgramScriptTest {
         val failure = assertThrows(Throwable::class.java) { compile("""
           timetable.service('s','train',t=>{t.check('start');
             t.origin('duty:s/element:e/call:c',s=>s.program('p',{parameters:[],steps:[
-              {id:'parent',type:'BRANCH',typeId:'javarailways:plan_duty_id',version:1,parameters:{value:{values:['s']}},
+              {id:'parent',type:'BRANCH',condition:{operation:{type:'EQUALS',operands:[{operation:{type:'PLAN_DUTY_ID',operands:[]}},{value:'s'}]}},
                 thenSteps:[{id:'child',type:'WAIT_DURATION',durationTicks:{value:0}}],elseSteps:[]}
             ]},{},{dutyId:'s'}));});
         """) }

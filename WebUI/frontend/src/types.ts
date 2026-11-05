@@ -56,7 +56,7 @@ export interface DepotMetadata { id:string; displayName?:string; stablingPoints:
 export interface SimulationProfileDescriptor { type:'WORLD_TRAIN'|'TRAIN_TEMPLATE'; id:string; displayName:string; carCount:number }
 export interface ProgramSimulationWayPoint {id:string;railId:string;direction:'AB'|'BA';directionSource:'WAYPOINT'|'RAIL'}
 export interface TimetableExtensionDescriptor { typeId:string; version:number; title:string; description:string; parameterSchema?:Record<string,unknown> }
-export interface WorldMetadata { wayPoints?: string[]; programSimulationWayPoints?:ProgramSimulationWayPoint[]; stations?: StationBerthMetadata[]; depots?: string[]; depotDetails?:DepotMetadata[]; trains?: string[]; simulationProfiles?:SimulationProfileDescriptor[]; extensions?:{ actions?:TimetableExtensionDescriptor[]; conditions?:TimetableExtensionDescriptor[] } }
+export interface WorldMetadata { wayPoints?: string[]; programSimulationWayPoints?:ProgramSimulationWayPoint[]; stations?: StationBerthMetadata[]; depots?: string[]; depotDetails?:DepotMetadata[]; trains?: string[]; simulationProfiles?:SimulationProfileDescriptor[]; extensions?:{ actions?:TimetableExtensionDescriptor[] } }
 export interface DraftSummary { id: string; updatedAt?: string; timetable?: SavedTimetableV1 }
 export interface EditorDocumentSummary { id:string; updatedAt?:string }
 export interface ValidationIssue { path?: string; message: string; severity?: string }
@@ -115,11 +115,11 @@ export interface ServerLogPage {
 }
 export interface ServerLogQuery { source:string; query?:string; cursor?:string }
 // Shared library records are authoring inputs; runtime uses bound embedded definitions.
-export type StationProgramParameterType='NUMBER'|'TICK'|'DURATION'|'STRING'|'ID_LIST'|'JSON_OBJECT';
+export type StationProgramParameterType='NUMBER'|'TICK'|'DURATION'|'STRING'|'ID_LIST'|'JSON_OBJECT'|'BOOLEAN';
 export type ProgramJsonValue=null|boolean|number|string|ProgramJsonValue[]|ProgramJsonObject;
 export interface ProgramJsonObject {[key:string]:ProgramJsonValue}
 export type StationProgramLiteral=ProgramJsonValue;
-export type StationProgramOperation='ADD'|'SUBTRACT'|'MULTIPLY'|'DIVIDE'|'MODULO'|'MIN'|'MAX'|'ROUND'|'FLOOR'|'CEIL'|'CONCAT'|'SUBSTRING'|'REPLACE'|'TEXT_LENGTH'|'TO_STRING'|'TO_NUMBER';
+export type StationProgramOperation='ADD'|'SUBTRACT'|'MULTIPLY'|'DIVIDE'|'MODULO'|'MIN'|'MAX'|'ROUND'|'FLOOR'|'CEIL'|'CONCAT'|'SUBSTRING'|'REPLACE'|'TEXT_LENGTH'|'TO_STRING'|'TO_NUMBER'|'EQUALS'|'NOT_EQUALS'|'AND'|'OR'|'NOT'|'PLAN_RUN_TYPE'|'PLAN_LINE_DIRECTION'|'PLAN_CALL_STATUS'|'PLAN_STATION_ID'|'PLAN_RUN_ID'|'PLAN_LINE_ID'|'PLAN_DUTY_ID';
 export type StationPreparationLead={value:number}|{doorCloseTicks:true}|{operation:{type:'ADD'|'SUBTRACT'|'MULTIPLY'|'DIVIDE'|'MODULO'|'MIN'|'MAX'|'ROUND'|'FLOOR'|'CEIL';operands:StationPreparationLead[]}};
 export type StationProgramExpression={operation:{type:StationProgramOperation;operands:StationProgramValue<StationProgramLiteral>[]}}|{object:Record<string,StationProgramValue<StationProgramLiteral>>};
 export type StationProgramValue<T>={value:T}|{parameterId:string}|StationProgramExpression;
@@ -131,7 +131,7 @@ export type StationProgramStep=
  | {id:string;type:'WAIT_EVENT';eventId:string;offsetTicks:number}
  | {id:string;type:'WAIT_DURATION';durationTicks:StationProgramValue<number>}
  | {id:string;type:'SELECT_STOP';stationId:StationProgramValue<string>;berthIds:StationProgramValue<string[]>;selectionPolicy:'FIXED_PREFERENCE'|'AVAILABLE_PRIORITY'}
- | {id:string;type:'BRANCH';typeId:string;version:number;parameters:StationProgramValue<ProgramJsonObject>;thenSteps:StationProgramStep[];elseSteps:StationProgramStep[]}
+ | {id:string;type:'BRANCH';condition:StationProgramValue<boolean>;thenSteps:StationProgramStep[];elseSteps:StationProgramStep[]}
  | {id:string;type:'EXTENSION';typeId:string;version:number;parameters:StationProgramJsonValue}
  | {id:string;type:'OPEN_DOORS';doorSideOverride?:StationProgramValue<string>|null}
  | {id:string;type:'REVERSE'|'CLOSE_DOORS'|'END'}

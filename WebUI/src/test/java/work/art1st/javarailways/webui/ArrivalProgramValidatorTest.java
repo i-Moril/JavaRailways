@@ -9,7 +9,7 @@ class ArrivalProgramValidatorTest {
     @Test void stationaryArrivalActionsValidateButMotionAndParametersFail() throws Exception {
         assertDoesNotThrow(() -> StationProgramValidator.validateArrival(mapper.readTree("""
           {"parameters":[],"steps":[{"id":"wait","type":"WAIT_DURATION","durationTicks":{"value":10}},
-           {"id":"branch","type":"BRANCH","typeId":"javarailways:plan_duty_id","version":1,"parameters":{"value":{"values":["d"]}},
+           {"id":"branch","type":"BRANCH","condition":{"operation":{"type":"EQUALS","operands":[{"operation":{"type":"PLAN_DUTY_ID","operands":[]}},{"value":"d"}]}},
             "thenSteps":[{"id":"until","type":"WAIT_UNTIL","tick":{"value":500}}],"elseSteps":[]}]}
           """)));
         for(String definition : new String[]{

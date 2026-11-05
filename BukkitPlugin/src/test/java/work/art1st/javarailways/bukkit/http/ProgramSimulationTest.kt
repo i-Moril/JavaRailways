@@ -164,7 +164,7 @@ class ProgramSimulationTest {
             assertTrue(programSimulationNeedsRegisteredUnits(compiled("""[{"id":"r","type":"RESET_DISPLAY"}]""")))
             assertFalse(programSimulationNeedsRegisteredUnits(compiled("""[{"id":"e","type":"EXTENSION","typeId":"demo:action","version":1,"parameters":{"trainInfo":{"name":"NAME"}}}]""")))
             assertFalse(programSimulationNeedsRegisteredUnits(compiled("""[{"id":"e","type":"EXTENSION","typeId":"demo:action","version":1,"parameters":{"value":{"type":"SET_DISPLAY","trainInfo":{"name":"NAME"}}}}]""")))
-            assertFalse(programSimulationNeedsRegisteredUnits(compiled("""[{"id":"b","type":"BRANCH","typeId":"javarailways:plan_duty_id","version":1,"parameters":{"value":{"values":["other"]}},"thenSteps":[{"id":"r","type":"RESET_DISPLAY"}],"elseSteps":[]}]""", """{"dutyId":"actual"}""")))
+            assertFalse(programSimulationNeedsRegisteredUnits(compiled("""[{"id":"b","type":"BRANCH","condition":{"operation":{"type":"EQUALS","operands":[{"operation":{"type":"PLAN_DUTY_ID","operands":[]}},{"value":"other"}]}},"thenSteps":[{"id":"r","type":"RESET_DISPLAY"}],"elseSteps":[]}]""", """{"dutyId":"actual"}""")))
         }
     }
 

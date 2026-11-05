@@ -1,8 +1,7 @@
 import {validatePreparationLead} from './stationPreparationLead';
-import type {StationProgramDefinition,StationProgramStep,StationStopProgram,TimetableEventPoint,TimetableExtensionDescriptor} from './types';
+import type {StationProgramDefinition,StationProgramStep,StationStopProgram,TimetableEventPoint} from './types';
 import {validateArrivalProgram} from './stationPrograms';
 
-export const plannedConditions:TimetableExtensionDescriptor[]=['run_type','line_direction','station_id','run_id','line_id','call_status','duty_id'].map((field)=>({typeId:`javarailways:plan_${field}`,version:1,title:field,description:'Matches planned values known when compiling this timetable.',parameterSchema:{type:'object',properties:{values:{type:'array',items:{type:'string'}}},required:['values'],additionalProperties:false}}));
 export function defaultStationStopProgram(stationId:string):StationStopProgram{return {stationId,preparationLead:{doorCloseTicks:true},arrival:{parameters:[],steps:[{id:'open',type:'OPEN_DOORS'},{id:'arrival-end',type:'END'}]},departurePreparation:{parameters:[],steps:[{id:'close',type:'CLOSE_DOORS'},{id:'preparation-end',type:'END'}]}};}
 export function resolveEventWaits(definition:StationProgramDefinition,events:TimetableEventPoint[],periodTicks:number):StationProgramDefinition{
  const visit=(steps:StationProgramStep[]):StationProgramStep[]=>steps.map((step)=>{
@@ -31,7 +30,6 @@ export function validateStopProgram(program:StationStopProgram,events:TimetableE
     if(step.type==='ASYNC'){if(tasks.has(step.taskId))errors.push(`Duplicate task: ${step.taskId}`);tasks.add(step.taskId);walk(step.steps,true);}
     if(step.type==='AWAIT')awaits.push(step.taskId);
     if(step.type==='BRANCH'){
-     if(!plannedConditions.some((condition)=>condition.typeId===step.typeId&&step.version===1))errors.push('Conditions must use planned timetable context');
      const thenEnd=walk(step.thenSteps,async),elseEnd=walk(step.elseSteps,async);ended=ended||(thenEnd&&elseEnd);
     }
    }return ended;

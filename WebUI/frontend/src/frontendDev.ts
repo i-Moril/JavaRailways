@@ -30,7 +30,7 @@ const metadataSeed:WorldMetadata={
   simulationProfiles:[
     {type:'WORLD_TRAIN',id:'demo-express',displayName:'Demo Express (6 cars)',carCount:6},
     {type:'TRAIN_TEMPLATE',id:'commuter-emu-6',displayName:'Commuter EMU (6 cars)',carCount:6},
-  ],extensions:{actions:[],conditions:[]},
+  ],extensions:{actions:[]},
 };
 
 const documentSeed:TimetableAuthoringDocumentV1={

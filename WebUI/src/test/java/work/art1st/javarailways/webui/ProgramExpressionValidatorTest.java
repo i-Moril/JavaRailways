@@ -103,9 +103,8 @@ class ProgramExpressionValidatorTest {
         ((ObjectNode) durationDefinition.path("steps").get(0)).set("durationTicks", parameter);
         assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateArguments(durationDefinition, zero));
 
-        var branch = mapper.createObjectNode().put("id", "branch").put("type", "BRANCH")
-            .put("typeId", "javarailways:plan_run_id").put("version", 1);
-        branch.putObject("parameters").putObject("value").putArray("values").add("never");
+        var branch = mapper.createObjectNode().put("id", "branch").put("type", "BRANCH");
+        branch.putObject("condition").put("value", true);
         branch.putArray("thenSteps").add(durationDefinition.path("steps").get(0));
         branch.putArray("elseSteps");
         durationDefinition.withArray("steps").removeAll().add(branch);

@@ -1,6 +1,5 @@
 package work.art1st.javarailways.simpleato.api.timetable
 
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -19,20 +18,6 @@ class TimetableExtensionRegistryTest {
         currentWayPointId = "central",
         train = TimetableTrainContext("train-1", modelPackageId = "metro")
     )
-
-    @Test
-    fun `built-in train model condition uses assigned train context`() {
-        val registry = TimetableExtensionRegistry()
-        val condition = TimetableCondition.Predicate(TimetableExtensionCall(
-            "javarailways:train_model",
-            parameters = JsonObject(mapOf(
-                "models" to JsonArray(listOf(JsonPrimitive("metro")))
-            ))
-        ))
-
-        assertEquals(TimetableConditionResult.True, registry.evaluate(condition, context))
-        assertEquals(emptyList<String>(), registry.validateCondition(condition))
-    }
 
     @Test
     fun `registers versions independently and rejects duplicate providers`() {

@@ -24,9 +24,9 @@ describe('timetable-owned station programs',()=>{
     expect(validateStationProgram({...selection,parameters:[{id:'station',type:'NUMBER'},{id:'berths',type:'ID_LIST'}]}).join(' ')).toContain('incompatible');
   });
   it('validates both timed branch arms and rejects conditional fixed obligations',()=>{
-    const branch:StationProgramDefinition={parameters:[],steps:[{id:'choose',type:'BRANCH',typeId:'javarailways:plan_run_type',version:1,parameters:{value:{values:['PASSENGER']}},thenSteps:[{id:'late',type:'WAIT_UNTIL',tick:{value:100}},{id:'dwell',type:'WAIT_DURATION',durationTicks:{value:20}}],elseSteps:[{id:'early',type:'WAIT_UNTIL',tick:{value:50}}]}]};
+    const branch:StationProgramDefinition={parameters:[],steps:[{id:'choose',type:'BRANCH',condition:{operation:{type:'EQUALS',operands:[{operation:{type:'PLAN_RUN_TYPE',operands:[]}},{value:'PASSENGER'}]}},thenSteps:[{id:'late',type:'WAIT_UNTIL',tick:{value:100}},{id:'dwell',type:'WAIT_DURATION',durationTicks:{value:20}}],elseSteps:[{id:'early',type:'WAIT_UNTIL',tick:{value:50}}]}]};
     expect(validateStationProgram(branch)).toEqual([]);
-    const dynamic=structuredClone(branch);if(dynamic.steps[0].type==='BRANCH')dynamic.steps[0].typeId='javarailways:train_model';expect(validateStationProgram(dynamic)).toContain('Conditions must use planned timetable context');
+    const invalid=structuredClone(branch);if(invalid.steps[0].type==='BRANCH')invalid.steps[0].condition={value:'PASSENGER' as unknown as boolean};expect(validateStationProgram(invalid).join(' ')).toContain('incompatible');
     expect(stationProgramSchedule(branch.steps,{},10,24000).earliest).toBe(120);
     expect(findProgramStep(branch.steps,'dwell')?.type).toBe('WAIT_DURATION');
     expect(validateStationProgramCall({definition:branch},{...call,tick:10,arguments:{}},110).join(' ')).toContain('crosses');

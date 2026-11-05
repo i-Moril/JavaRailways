@@ -30,7 +30,7 @@ describe('standalone program simulation contract',()=>{
   for(const args of [{},{duration:'wrong'},{duration:100,other:1}] as Record<string,StationProgramLiteral>[])expect(()=>buildProgramSimulationRequest({...request(),arguments:args},metadata)).toThrow('argument');
  });
  it('resolves document event waits recursively from the exact anchors and period',()=>{
-  const input=request();input.definition={parameters:[],steps:[{id:'branch',type:'BRANCH',typeId:'javarailways:plan_duty_id',version:1,parameters:{value:{values:['duty']}},thenSteps:[{id:'event',type:'WAIT_EVENT',eventId:'anchor',offsetTicks:-20}],elseSteps:[]}]};input.arguments={};input.plannedContext={dutyId:'duty'};
+  const input=request();input.definition={parameters:[],steps:[{id:'branch',type:'BRANCH',condition:{operation:{type:'EQUALS',operands:[{operation:{type:'PLAN_DUTY_ID',operands:[]}},{value:'duty'}]}},thenSteps:[{id:'event',type:'WAIT_EVENT',eventId:'anchor',offsetTicks:-20}],elseSteps:[]}]};input.arguments={};input.plannedContext={dutyId:'duty'};
   const built=buildProgramSimulationRequest(input,metadata,[{id:'anchor',tick:2000}]);expect(built.definition.steps[0]).toMatchObject({thenSteps:[{id:'event',type:'WAIT_UNTIL',tick:{value:1980}}]});expect(built.plannedContext).toEqual({dutyId:'duty'});expect(input.definition.steps[0]).toMatchObject({thenSteps:[{type:'WAIT_EVENT'}]});
   expect(()=>buildProgramSimulationRequest(input,metadata)).toThrow('Unknown event');expect(()=>buildProgramSimulationRequest(input,metadata,[{id:'anchor',tick:10}])).toThrow('outside timetable period');
  });

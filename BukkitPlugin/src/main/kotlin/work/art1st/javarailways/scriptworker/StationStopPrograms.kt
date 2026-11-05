@@ -33,7 +33,7 @@ internal fun compileStationStopPrograms(target: String, options: JsonObject): Sa
                 "SET_DISPLAY" -> setOf("id", "type", "values") + (if (step.containsKey("removeKeys")) setOf("removeKeys") else emptySet())
                 "RESET_DISPLAY" -> setOf("id", "type")
                 "EXTENSION" -> setOf("id", "type", "typeId", "version", "parameters")
-                "BRANCH" -> setOf("id", "type", "typeId", "version", "parameters", "thenSteps", "elseSteps")
+                "BRANCH" -> setOf("id", "type", "condition", "thenSteps", "elseSteps")
                 "ASYNC" -> setOf("id", "type", "taskId", "steps")
                 "AWAIT" -> setOf("id", "type", "taskId")
                 else -> error("station action is not allowed: $type")
@@ -44,25 +44,23 @@ internal fun compileStationStopPrograms(target: String, options: JsonObject): Sa
                 "WAIT_UNTIL" -> listOf("tick")
                 "WAIT_DURATION" -> listOf("durationTicks")
                 "SET_DISPLAY" -> listOf("values") + if (step.containsKey("removeKeys")) listOf("removeKeys") else emptyList()
-                "EXTENSION", "BRANCH" -> listOf("parameters")
+                "EXTENSION" -> listOf("parameters")
+                "BRANCH" -> listOf("condition")
                 else -> emptyList()
             }
             for (name in expressions) {
                 try { ProgramExpressions.validateShape(step.getValue(name), (type == "SET_DISPLAY" && name == "values") || type == "EXTENSION") }
                 catch (failure: RuntimeException) { throw IllegalArgumentException("step:$id: ${failure.message}", failure) }
                 if (step.getValue(name).jsonObject.keys != setOf("trainInfo")) {
-                    val sink = when (name) { "tick" -> "TICK"; "durationTicks" -> "DURATION"; "removeKeys" -> "ID_LIST"; else -> "JSON_OBJECT" }
+                    val sink = when (name) { "tick" -> "TICK"; "durationTicks" -> "DURATION"; "removeKeys" -> "ID_LIST"; "condition" -> "BOOLEAN"; else -> "JSON_OBJECT" }
                     try {
-                        val resolved = ProgramExpressions.evaluate(Json.decodeFromJsonElement<StationProgramValue>(step.getValue(name)), sink)
+                        val resolved = ProgramExpressions.evaluate(Json.decodeFromJsonElement<StationProgramValue>(step.getValue(name)), sink, context = context)
                         if (name == "durationTicks") require(resolved.jsonPrimitive.long > 0) { "wait duration must be positive" }
                     }
                     catch (failure: RuntimeException) { throw IllegalArgumentException("step:$id: ${failure.message}", failure) }
                 }
             }
             if (type == "BRANCH") {
-                val parameters = step.getValue("parameters").jsonObject
-                evaluatePlannedCondition(step.getValue("typeId").jsonPrimitive.content, step.getValue("version").jsonPrimitive.int,
-                    ProgramExpressions.evaluate(Json.decodeFromJsonElement<StationProgramValue>(parameters), "JSON_OBJECT").jsonObject, context)
                 validateSource(step.getValue("thenSteps"), depth + 1); validateSource(step.getValue("elseSteps"), depth + 1)
             }
             if (type == "ASYNC") validateSource(step.getValue("steps"), depth + 1)
@@ -82,10 +80,10 @@ internal fun compileStationStopPrograms(target: String, options: JsonObject): Sa
             val raw = step.getValue(name).jsonObject
             if (raw.keys == setOf("trainInfo") && name in setOf("values", "parameters")) return JsonObject(emptyMap())
             val expected = when (name) {
-                "tick" -> "TICK"; "durationTicks" -> "DURATION"; "removeKeys" -> "ID_LIST"
+                "tick" -> "TICK"; "durationTicks" -> "DURATION"; "removeKeys" -> "ID_LIST"; "condition" -> "BOOLEAN"
                 else -> "JSON_OBJECT"
             }
-            return try { ProgramExpressions.evaluate(Json.decodeFromJsonElement<StationProgramValue>(raw), expected) }
+            return try { ProgramExpressions.evaluate(Json.decodeFromJsonElement<StationProgramValue>(raw), expected, context = context) }
             catch (failure: RuntimeException) { throw IllegalArgumentException("step:${step["id"]?.jsonPrimitive?.content}: ${failure.message}", failure) }
         }
         for ((index, value) in steps.withIndex()) {
@@ -124,8 +122,7 @@ internal fun compileStationStopPrograms(target: String, options: JsonObject): Sa
                     SavedStationProgramAction(SavedStationProgramActionType.AWAIT, taskId = taskId)
                 }
                 "BRANCH" -> {
-                    val chosen = evaluatePlannedCondition(step.getValue("typeId").jsonPrimitive.content,
-                        step.getValue("version").jsonPrimitive.int, expression(step,"parameters").jsonObject, context)
+                    val chosen = expression(step, "condition").jsonPrimitive.boolean
                     result += compile(step.getValue(if (chosen) "thenSteps" else "elseSteps"), nested, available, ancestors, depth + 1)
                     continue
                 }
@@ -152,14 +149,3 @@ internal fun compileStationStopPrograms(target: String, options: JsonObject): Sa
     return SavedStationStopPrograms(stationId, callId, role, arrival, preparation, lead, departure, target, doorSide, dwell)
 }
 
-internal fun evaluatePlannedCondition(typeId: String, version: Int, parameters: JsonObject, context: Map<String, JsonElement>): Boolean {
-    val key = mapOf("javarailways:plan_run_type" to "runType", "javarailways:plan_line_direction" to "lineDirection",
-        "javarailways:plan_station_id" to "stationId", "javarailways:plan_run_id" to "runId", "javarailways:plan_line_id" to "lineId",
-        "javarailways:plan_call_status" to "callStatus", "javarailways:plan_duty_id" to "dutyId")[typeId]
-        ?: error("condition is not editable-plan deterministic: $typeId")
-    require(version == 1 && parameters.keys == setOf("values")) { "planned condition requires version1 and values" }
-    val values = parameters.getValue("values") as? JsonArray ?: error("planned condition values must be an array")
-    require(values.isNotEmpty() && values.all { it is JsonPrimitive && it.isString && it.content.isNotBlank() }) { "planned condition values must be nonblank strings" }
-    val actual = context[key]?.jsonPrimitive?.content ?: error("planned condition context is missing: $key")
-    return values.any { it.jsonPrimitive.content == actual }
-}

@@ -11,6 +11,7 @@ export function stationProgramLiteralValid(value:unknown,type:StationProgramPara
   if(type==='JSON_OBJECT')return programJsonObjectError(value)==='';
   if(type==='TICK'||type==='DURATION')return Number.isSafeInteger(value)&&Number(value)>=0;
   if(type==='ID_LIST')return Array.isArray(value)&&value.length<=256&&value.every((item)=>typeof item==='string'&&!!item.trim()&&item.length<=256);
+  if(type==='BOOLEAN')return typeof value==='boolean';
   return false;
 }
 export function validateStationProgram(definition:StationProgramDefinition,args?:Record<string,StationProgramLiteral>):string[] {
@@ -62,13 +63,12 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
       case 'WAIT_EVENT':if(!validId(step.eventId)||!Number.isSafeInteger(step.offsetTicks))errors.push('Invalid event wait');break;
       case 'WAIT_DURATION':check(step.durationTicks,'DURATION',true);break;
       case 'BRANCH':
-        if(!['run_type','line_direction','station_id','run_id','line_id','call_status','duty_id'].some((field)=>step.typeId===`javarailways:plan_${field}`)||step.version!==1)errors.push('Conditions must use planned timetable context');
-        visit(step.thenSteps,depth+1);visit(step.elseSteps,depth+1);
-      // Condition and action calls share the same typed provider-call shape.
+        check(step.condition,'BOOLEAN');
+        visit(step.thenSteps,depth+1);visit(step.elseSteps,depth+1);break;
       case 'EXTENSION':
         if(typeof step.typeId!=='string'||step.typeId.length>256||! /^[a-z0-9_.-]+:[a-z0-9_./-]+$/.test(step.typeId))errors.push('Extension typeId must be namespaced');
         if(!Number.isInteger(step.version)||step.version<1||step.version>2147483647)errors.push('Extension version must be a positive integer');
-        check(step.parameters as StationProgramValue<StationProgramLiteral>,'JSON_OBJECT',false,step.type==='EXTENSION');break;
+        check(step.parameters as StationProgramValue<StationProgramLiteral>,'JSON_OBJECT',false,true);break;
       case 'OPEN_DOORS':{
         if(step.doorSideOverride!=null){
           check(step.doorSideOverride,'STRING');

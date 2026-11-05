@@ -19,7 +19,7 @@ describe('visual program source navigation',()=>{
     expect(resolveProgramSourceTarget(value,'[tt/other] step#7 invalid','current',{input:'current',timetable},programs())).toBeUndefined();
   });
   it('distinguishes nested branch traces sharing one top-level index',()=>{
-    const value=document(),progs=programs();progs[0].definition.steps=[{id:'choose',type:'BRANCH',typeId:'demo:condition',version:1,parameters:{value:{}},thenSteps:[{id:'reverse',type:'REVERSE'}],elseSteps:[]}];
+    const value=document(),progs=programs();progs[0].definition.steps=[{id:'choose',type:'BRANCH',condition:{operation:{type:'EQUALS',operands:[{operation:{type:'PLAN_RUN_TYPE',operands:[]}},{value:'PASSENGER'}]}},thenSteps:[{id:'reverse',type:'REVERSE'}],elseSteps:[]}];
     const timetable:SavedTimetableV1={id:'tt',periodDays:1,services:[],compilationTrace:[{serviceId:'duty',stepIndex:7,origin:origin.replace('step:reverse','step:choose')},{serviceId:'duty',stepIndex:7,branchPath:[{arm:'THEN',index:0}],origin}]};
     expect(resolveProgramSourceTarget(value,'[tt/duty] step#7/then[0] invalid','current',{input:'current',timetable},progs)?.stepId).toBe('reverse');
     expect(resolveProgramSourceTarget(value,'[tt/duty] step#7 invalid','current',{input:'current',timetable},progs)?.stepId).toBe('choose');

@@ -95,7 +95,7 @@ describe('real Blockly expression sockets and serialization',()=>{
    const substring=workspace.newBlock('rail_operation_SUBSTRING'),replace=workspace.newBlock('rail_operation_REPLACE');
    expect(['ARG0','ARG1','ARG2'].map(name=>substring.getInput(name)!.fieldRow[0].getValue())).toEqual(locale==='zh-CN'?['原文本','起始位置（从 0 开始，含）','结束位置（不含）']:['Original text','Start index (zero-based, inclusive)','End index (exclusive)']);
    expect(['ARG0','ARG1','ARG2'].map(name=>replace.getInput(name)!.fieldRow[0].getValue())).toEqual(locale==='zh-CN'?['原文本','查找文本','替换为']:['Original text','Search text','Replacement text']);
-   for(const [type,spec] of Object.entries(operationTypes)){const block=workspace.newBlock(`rail_operation_${type}`);spec.inputs.forEach((_,index)=>expect(block.getInput(`ARG${index}`)!.fieldRow[0].getValue()).not.toMatch(/^programs\.|^Input [123]$|^输入 [123]$/));}
+   for(const [type,spec] of Object.entries(operationTypes)){const block=workspace.newBlock(`rail_operation_${type}`);spec.inputs.forEach((_,index)=>{const row=block.getInput(`ARG${index}`)!.fieldRow[0];if(row)expect(row.getValue()).not.toMatch(/^programs\.|^Input [123]$|^输入 [123]$/);});}
   }finally{workspace.dispose();defineBlocks(t);}
  });
  it('retains invalid duplicate and blank keys in workspace rather than dropping entries',()=>{const state=definitionToBlocks({parameters:[],steps:[{id:'show',type:'SET_DISPLAY',values:{object:{one:lit('a'),two:lit('b')}}}]});const builder=state.blocks!.blocks[0].next!.block.inputs!.values.block!;for(const key of ['one','']){builder.fields!.KEY1=key;expect(()=>blocksToDefinition(state,[])).toThrow('Invalid program expression');expect(builder.extraState!.count).toBe(2);}});

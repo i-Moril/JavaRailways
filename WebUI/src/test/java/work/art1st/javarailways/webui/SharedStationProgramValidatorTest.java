@@ -29,8 +29,7 @@ class SharedStationProgramValidatorTest {
               {"id":"join","type":"AWAIT","taskId":"announcement"},{"id":"end","type":"END"}]}
             """)));
         for (String step : new String[]{
-            "{\"id\":\"move\",\"type\":\"MOVE\",\"destinationId\":{\"value\":\"B\"},\"viaIds\":{\"value\":[]}}",
-            "{\"id\":\"dynamic\",\"type\":\"BRANCH\",\"typeId\":\"javarailways:train_model\",\"version\":1,\"parameters\":{\"value\":{}},\"thenSteps\":[],\"elseSteps\":[]}"
+            "{\"id\":\"move\",\"type\":\"MOVE\",\"destinationId\":{\"value\":\"B\"},\"viaIds\":{\"value\":[]}}"
         }) assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateStation(mapper.readTree("{\"parameters\":[],\"steps\":[" + step + "]}")));
     }
 

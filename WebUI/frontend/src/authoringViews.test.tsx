@@ -45,7 +45,7 @@ describe('authoring workspace views',()=>{
   expect(origin).toContain(translate('en-US','stationPrograms.hint'));expect(origin).toContain(translate('en-US','programs.editArrival'));
  });
  it('provides the shared block canvas with a compact accessible history toolbar',()=>{
-   const html=render(<ProgramDefinitionEditor fieldScope="branch" onChange={noop} value={{parameters:[],steps:[{id:'choose',type:'BRANCH',typeId:'demo:condition',version:1,parameters:{value:{}},thenSteps:[{id:'until',type:'WAIT_UNTIL',tick:{value:80}}],elseSteps:[{id:'pause',type:'WAIT_DURATION',durationTicks:{value:10}}]}]}}/>);
+   const html=render(<ProgramDefinitionEditor fieldScope="branch" onChange={noop} value={{parameters:[],steps:[{id:'choose',type:'BRANCH',condition:{operation:{type:'EQUALS',operands:[{operation:{type:'PLAN_RUN_TYPE',operands:[]}},{value:'PASSENGER'}]}},thenSteps:[{id:'until',type:'WAIT_UNTIL',tick:{value:80}}],elseSteps:[{id:'pause',type:'WAIT_DURATION',durationTicks:{value:10}}]}]}}/>);
    expect(html).toContain('program-block-canvas');
    expect(html).not.toContain('aria-label="'+translate('en-US','programs.blockInsertTarget')+'"');
    expect(html).not.toContain('aria-label="'+translate('en-US','programs.addStep')+'"');

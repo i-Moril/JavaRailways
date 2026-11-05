@@ -20,8 +20,27 @@ internal object ProgramExpressions {
         "ROUND" to listOf("NUMBER"), "FLOOR" to listOf("NUMBER"), "CEIL" to listOf("NUMBER"),
         "CONCAT" to listOf("STRING", "STRING"), "SUBSTRING" to listOf("STRING", "NUMBER", "NUMBER"),
         "REPLACE" to listOf("STRING", "STRING", "STRING"), "TEXT_LENGTH" to listOf("STRING"),
-        "TO_STRING" to listOf("NUMBER"), "TO_NUMBER" to listOf("STRING"))
+        "TO_STRING" to listOf("NUMBER"), "TO_NUMBER" to listOf("STRING"),
+        "EQUALS" to listOf("STRING", "STRING"), "NOT_EQUALS" to listOf("STRING", "STRING"),
+        "AND" to listOf("BOOLEAN", "BOOLEAN"), "OR" to listOf("BOOLEAN", "BOOLEAN"), "NOT" to listOf("BOOLEAN"),
+        "PLAN_RUN_TYPE" to emptyList(), "PLAN_LINE_DIRECTION" to emptyList(), "PLAN_CALL_STATUS" to emptyList(),
+        "PLAN_STATION_ID" to emptyList(), "PLAN_RUN_ID" to emptyList(), "PLAN_LINE_ID" to emptyList(),
+        "PLAN_DUTY_ID" to emptyList())
     private val textResults = setOf("CONCAT", "SUBSTRING", "REPLACE", "TO_STRING")
+    private val booleanResults = setOf("EQUALS", "NOT_EQUALS", "AND", "OR", "NOT")
+
+    /** Zero-operand reads of the compile-time plan; the value is the planned-context field name. */
+    private val planFields = mapOf(
+        "PLAN_RUN_TYPE" to "runType", "PLAN_LINE_DIRECTION" to "lineDirection",
+        "PLAN_CALL_STATUS" to "callStatus", "PLAN_STATION_ID" to "stationId",
+        "PLAN_RUN_ID" to "runId", "PLAN_LINE_ID" to "lineId", "PLAN_DUTY_ID" to "dutyId")
+
+    private fun outputOf(type: String): String = when (type) {
+        in textResults -> "STRING"
+        in booleanResults -> "BOOLEAN"
+        in planFields.keys -> "STRING"
+        else -> "NUMBER"
+    }
 
     /** The shortest round-tripping decimal, nearest to the exact binary value (ties to even). */
     private fun plainNumber(number: Double): String {
@@ -67,7 +86,7 @@ internal object ProgramExpressions {
         walk(raw, 0)
     }
 
-    fun evaluate(expression: StationProgramValue, type: String, parameters: Map<String, String> = emptyMap(), arguments: JsonObject = JsonObject(emptyMap())): JsonElement {
+    fun evaluate(expression: StationProgramValue, type: String, parameters: Map<String, String> = emptyMap(), arguments: JsonObject = JsonObject(emptyMap()), context: Map<String, JsonElement> = emptyMap()): JsonElement {
         validateShape(Json.encodeToJsonElement(expression))
         fun compatible(actual: String, expected: String): Boolean = actual == expected ||
             (actual in numericTypes && expected in numericTypes)
@@ -94,12 +113,24 @@ internal object ProgramExpressions {
                 }
                 expression.operation != null -> {
                     val op = expression.operation
-                    val resultType = if (op.type in textResults) "STRING" else "NUMBER"
+                    val resultType = outputOf(op.type)
                     require(compatible(resultType, expected)) { "${op.type} produces $resultType, not $expected" }
                     val args = op.operands.zip(inputs.getValue(op.type)).map { (child, input) -> resolve(child, input) }
                     fun n(i: Int) = args[i].jsonPrimitive.double
                     fun s(i: Int) = args[i].jsonPrimitive.content
+                    fun b(i: Int) = args[i].jsonPrimitive.boolean
                     when (op.type) {
+                        "EQUALS" -> JsonPrimitive(s(0) == s(1))
+                        "NOT_EQUALS" -> JsonPrimitive(s(0) != s(1))
+                        "AND" -> JsonPrimitive(b(0) && b(1))
+                        "OR" -> JsonPrimitive(b(0) || b(1))
+                        "NOT" -> JsonPrimitive(!b(0))
+                        in planFields.keys -> {
+                            val key = planFields.getValue(op.type)
+                            val value = context[key] ?: error("planned context is missing: $key")
+                            require(value is JsonPrimitive && value.isString) { "planned context $key must be a string" }
+                            value
+                        }
                         "CONCAT" -> JsonPrimitive(s(0) + s(1))
                         "SUBSTRING" -> {
                             val start = n(1); val end = n(2)

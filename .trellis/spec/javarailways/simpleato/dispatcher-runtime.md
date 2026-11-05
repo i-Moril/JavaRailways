@@ -248,7 +248,7 @@ A branch selected against a published child can reverse a still-held body before
 
 ## 共享停站程序与两个执行入口（CURRENT）
 
-同一时刻表每站一份作者定义，经 ScriptWorker 用当前运行线的静态计划上下文展开为 `StationStopPrograms`。ORIGIN 以 `BeginStationStop` 建立边界；编译期只校验 ORIGIN 结构与角色，不比较 destinationId 与当前 waypoint（避免不同编组长度折返后车头位置不同被静态拒绝）；运行期仍用 `validateAtWayPoint` 检查实际停车位置/朝向，不匹配即 stall，绝不传送列车。STOP/TERMINAL 随目标动作携带 stopPrograms。实际寻路、接近及停车继续由运行线负责，车站程序不执行到达运动。旧 arrivalSteps/arrivalProgram 执行链与 ARRIVAL 分支游标已删除；编辑／DSL／snapshot 只按当前模型做通用校验，不保留旧输入专项识别或回退执行。
+同一时刻表每站一份作者定义，经 ScriptWorker 用当前运行线的静态计划上下文展开为 `StationStopPrograms`。ORIGIN 以 `BeginStationStop` 建立边界；编译期校验 ORIGIN 结构与角色，但不比较 destinationId 与当前 waypoint。运行期进入 ORIGIN 程序或 `runSegment` 时也不把计划始发点重新解释为车头必须精确命中的物理门禁：不同编组长度原地折返后车头位置会改变，而这些边界本身不产生运动。初次取车和显式 `Check` 仍校验真实有向路径点；后续 Mission 从换向后的实际车头和朝向执行路线投影、方向与资源准入，车门等操作继续执行自身的实际状态门禁。STOP/TERMINAL 随目标动作携带 stopPrograms。实际寻路、接近及停车继续由运行线负责，车站程序不执行到达运动。旧 arrivalSteps/arrivalProgram 执行链与 ARRIVAL 分支游标已删除；编辑／DSL／snapshot 只按当前模型做通用校验，不保留旧输入专项识别或回退执行。
 
 `StationStopPrograms` 包含 stationId、callId、role、arrival、departurePreparation、preparationLead、plannedDepartureTick、destinationId、doorSide、minimumDwellTicks。时间为 timetable tick，1 day=24000 tick。正常停车确认后启动 arrival；ORIGIN 不执行 arrival，PASS 不建立停站程序。STOP 与 ORIGIN 的准备入口在计划发车时刻减 lead 到达后，且 arrival **主序列**完成时开始，不等待 arrival 的非阻塞子任务，也不额外等最小停站。TERMINAL 永不启动准备入口，缺省保持开门。
 

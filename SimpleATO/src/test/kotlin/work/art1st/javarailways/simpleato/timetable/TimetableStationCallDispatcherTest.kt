@@ -387,6 +387,37 @@ class TimetableStationCallDispatcherTest {
         assertEquals(0.0, fixture.train.speed, 1e-8)
     }
 
+    @Test fun `origin station program after reversal does not recheck the old head waypoint`() {
+        var starts = 0
+        val extension = StationProgramAction.Extension(TimetableExtensionCall("test:reversed-origin"))
+        val origin = programs(StationStopRole.ORIGIN, departure = 1_000L,
+            preparation = listOf(extension, StationProgramAction.End), lead = 1_000L, destination = "A")
+        val fixture = fixture(initialActions = listOf(TimetableAction.Reverse), originPrograms = origin,
+            stationMovementTick = 1_000L)
+        fixture.world.simpleAtoWorldData.timetableExtensions.registerAction(object : TimetableActionProvider {
+            override val typeId = "test:reversed-origin"
+            override val version = 1
+            override val descriptor = TimetableExtensionDescriptor("Reversed origin", "Origin program after reversal")
+            override fun start(parameters: JsonObject, context: TimetableRuntimeContext): TimetableExtensionActionStartResult {
+                starts++
+                return TimetableExtensionActionStartResult.Accepted(object : TimetableExtensionActionTicket {
+                    override fun snapshot() = TimetableExtensionActionSnapshot(TimetableExtensionActionState.SUCCEEDED)
+                    override fun cancel() = Unit
+                })
+            }
+        })
+
+        val id = TimetableServiceRunId("tt", "service")
+        val started = fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, id.timetableId, id.serviceId) }
+        assertTrue(started is TimetableServiceStartResult.Started, started.toString())
+        var ticks = 0
+        while (starts == 0 && ticks++ < 100) fixture.tick()
+
+        assertEquals(1, starts, fixture.dispatcher.status(id).toString())
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        assertFalse(fixture.dispatcher.status(id)?.state == TimetableServiceRunState.FAILED)
+    }
+
     @Test fun `station train information reads each published direction and validates before start`() {
         val bindings = mapOf("name" to TrainInfoField.NAME, "cars" to TrainInfoField.CAR_COUNT,
             "direction" to TrainInfoField.DIRECTION)

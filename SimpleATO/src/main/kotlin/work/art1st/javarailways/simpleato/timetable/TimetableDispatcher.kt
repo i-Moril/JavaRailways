@@ -4474,10 +4474,6 @@ class TimetableDispatcher(
                             return
                         }
                         val target = action.stopPrograms.destinationId ?: run.currentWayPointId
-                        validateAtWayPoint(world, run.train, target)?.let { reason ->
-                            stallRun(world, run, "StationProgramFailure", reason)
-                            return
-                        }
                         run.currentWayPointId = target
                         run.physicalOriginPending = false
                         run.programCursor = run.programCursor.advance()
@@ -6678,13 +6674,6 @@ class TimetableDispatcher(
         if (run.currentSegment === segment) return true
         val failure = runCatching {
             if (run.currentSegment != null) check(run.ato.isStopped(run.ato.publishedState.trainSnapshot.speedMetersPerSecond)) { "through-running requires a stopped boundary" }
-            segment.calls.firstOrNull()?.let { origin ->
-                val heldOrigin = run.stationCall?.let { call -> call.berthed && !call.departed &&
-                    OperationalDestinationIds.stationBerth(call.resolved.berthRef.stationId,call.resolved.berthRef.berthId) == origin.destinationId } == true
-                check(heldOrigin || validateAtWayPoint(world,run.train,origin.destinationId) == null) {
-                    "run ${segment.runId} does not start at its actual directed origin ${origin.destinationId}"
-                }
-            }
             val timetable = checkNotNull(world.simpleAtoWorldData.timetables[run.id.timetableId])
             applyTimetableLineSpeedLimit(run.ato,timetable,run.service,run.id,stepIndex)
             val relevant = timetable.operationalTrips.any { trip -> trip.segments.any { it.serviceId == run.service.id && it.runId == segment.runId } }

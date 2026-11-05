@@ -764,6 +764,69 @@ class TimetableDispatcherTest {
     }
 
     @Test
+    fun `run segment origin metadata does not recheck the head after an in-place reversal`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        val dispatcher = dispatcher()
+        val data = BasicWorldData()
+        TestSimpleATOWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        world.onOwnerForTest {
+            train.setLocation(RailLocationWithFacing(rail.viewAB, 60.0))
+            train.commitMaintenancePlacement()
+        }
+        val originStation = StationId("origin")
+        val terminalStation = StationId("terminal")
+        OperationalDestinationService(world).register(OperationalDestination(
+            "origin@one", rail.id, 60.0, ViewDirection.AB,
+            DestinationRole.StationBerthRole(originStation, berthId = "one", doorSide = DoorSide.NONE)
+        ))
+        OperationalDestinationService(world).register(OperationalDestination(
+            "terminal@one", rail.id, 20.0, ViewDirection.BA,
+            DestinationRole.StationBerthRole(terminalStation, berthId = "one", doorSide = DoorSide.NONE)
+        ))
+        val lineId = LineId("reverse-line")
+        world.simpleAtoWorldData.lines.put(Line(
+            lineId, "Reverse line", listOf(originStation, terminalStation),
+            listOf(terminalStation, originStation)
+        ), 0L)
+        val segment = TimetableRunSegment("152P", lineId, 2, 4, calls = listOf(
+            TimetableRunCall("152P-origin", originStation.value, "origin@one", TimetableServiceStopStatus.ORIGIN),
+            TimetableRunCall("152P-terminal", terminalStation.value, "terminal@one", TimetableServiceStopStatus.TERMINAL)
+        ))
+        world.simpleAtoWorldData.timetables.add(Timetable(
+            "reverse-origin",
+            services = listOf(TimetableService(
+                "service", TrainSelector.TrainId(train.id), listOf(
+                    TimetableStep.Check("origin@one"),
+                    TimetableStep.At(0L, TimetableAction.Reverse),
+                    TimetableStep.At(1_000L, TimetableAction.WaitUntil),
+                    TimetableStep.At(1_000L, TimetableAction.GoTo("terminal@one"))
+                ), runSegments = listOf(segment)
+            )),
+            lineSpeedLimits = listOf(TimetableLineSpeedLimit(lineId, 8.0))
+        ))
+
+        val id = TimetableServiceRunId("reverse-origin", "service")
+        val started = world.onOwnerForTest { dispatcher.startService(world, id.timetableId, id.serviceId) }
+        assertInstanceOf(TimetableServiceStartResult.Started::class.java, started, started.toString())
+        val ato = train.controller as SimpleATO
+        var ticks = 0
+        while (dispatcher.status(id)?.currentRunId == null && ticks++ < 100) {
+            tickAndPublish(ato)
+            world.onOwnerForTest { dispatcher.tick(world) }
+        }
+
+        val status = checkNotNull(dispatcher.status(id))
+        assertEquals("152P", status.currentRunId, status.toString())
+        assertEquals(TimetableServiceRunState.WAITING_TIMETABLE_TIME, status.state, status.toString())
+        assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
+    @Test
     fun `starts explicit train only after the first Basic route grant`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val dispatcher = dispatcher()

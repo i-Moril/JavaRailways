@@ -46,7 +46,7 @@ JS 支持 `runSegment(options,callback)`、`operationalTrip(id,definition)`，�
 
 - 未知线路、缺少正限速、段重叠/越界、方向站序错误：定义校验失败，未安装 controller。
 - 停站与 canonical berth 的 stationId 不符，PASS/STOP 与实际编译移动不符，伪造或非确定移动的固定 call 列表：拒绝。
-- 首版必须 ORIGIN/TERMINAL 停车边界；实际运行段入口不在已证明的 directed origin：保持失败状态，不放行。
+- 首版必须 ORIGIN/TERMINAL 停车边界；ORIGIN 是编译期计划事实和显示边界，不是运行段入口对换向后车头坐标的重复门禁。初次取车／显式 `Check` 与后续真实 Mission、方向和资源准入分别验证各自的实际物理前置。
 - 同一 `(service,run,slot)` 被两个车次认领、缺登记单元或槽位不存在：拒绝。不同车库等既有库存规则由原 owner 校验。
 - 车次顺序逆于物理交路、单元身份跳变、遗漏同单元中间运行段：拒绝。不能用相同槽位数字假装同一实体。
 - BEGIN 位于其他 RUN 内、不是下一 RUN 边界，或其后还有组成/方向变换：拒绝。分支内 BEGIN 由 branch guard 拒绝。

@@ -152,6 +152,10 @@ class StationCallRuntimeTest {
                 "stall=${fixture.world.simpleAtoWorldData.atoCoordinator.lastStall?.message}"
         )
         assertEquals(0.0, fixture.train.speed)
+        val held = fixture.actuator.controlState(fixture.train.speed)
+        assertTrue(held.lastCommand.brakeRatio > 0.0)
+        assertTrue(held.actualBrakeRatio > 0.999999)
+        assertTrue(held.devices.all { it.pressureKpa > 0.0 })
         assertEquals(
             fixture.berth.location.arcLengthIn(ViewDirection.AB),
             fixture.train.head.location.arcLengthIn(ViewDirection.AB),
@@ -232,9 +236,10 @@ class StationCallRuntimeTest {
         )
         val station = Station(stationId, "Central", listOf(berthRef))
         world.simpleAtoWorldData.stations.register(station, listOf(berth))
-        val ato = SimpleATO(train, world, KinematicTrainActuator(6.0, profile), profile) { 0.0 }
+        val actuator = KinematicTrainActuator(6.0, profile)
+        val ato = SimpleATO(train, world, actuator, profile) { 0.0 }
         train.setControllerForTest(ato)
-        return Fixture(world, data, train, station, berth, ato)
+        return Fixture(world, data, train, station, berth, ato, actuator)
     }
 
     private inner class Fixture(
@@ -243,7 +248,8 @@ class StationCallRuntimeTest {
         val train: CoreTrain,
         val station: Station,
         val berth: StationBerth,
-        val ato: SimpleATO
+        val ato: SimpleATO,
+        val actuator: KinematicTrainActuator
     ) {
         fun request(revision: Long): StationCallRequest = StationCallRequest(
             serviceRunId = "tt/service",

@@ -7,6 +7,21 @@ import work.art1st.javarailways.basic.control.*
 import kotlin.math.abs
 
 class ReferenceStrategyTest {
+    @Test fun `station holding brake requires commanded and established service pressure`() {
+        val fixture = ReferenceEquipmentFixture()
+        val released = TrainDynamics.initialState(fixture.cars, 0.0, brakeScale = 0.0)
+        val input = fixture.input(released, VehicleControlCommand.COAST, 0.0, .05)
+        assertFalse(serviceHoldingBrakeEstablished(input.state, input.capabilities))
+
+        val holding = input.capabilities.handles
+            .filter { !it.command.emergencyBrake && it.command.tractionRatio == 0.0 }
+            .maxBy { it.command.brakeRatio }.command
+        val established = TrainDynamics.initialState(fixture.cars, 0.0, brakeScale = holding.brakeRatio)
+        val held = fixture.input(established, holding, 0.0, .05)
+        assertTrue(serviceHoldingBrakeEstablished(held.state, held.capabilities))
+        assertFalse(serviceHoldingBrakeEstablished(held.state.copy(lastCommand = VehicleControlCommand.COAST), held.capabilities))
+    }
+
     @Test fun `ideal release curve joins and aims at the actual point`() {
         val profile = NominalMotionReference(0.8, 0.8, 0.4)
         val join = profile.stoppingTransitionDistanceMeters

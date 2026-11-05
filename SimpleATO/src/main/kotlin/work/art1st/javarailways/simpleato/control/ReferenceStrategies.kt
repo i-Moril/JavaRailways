@@ -1,6 +1,8 @@
 package work.art1st.javarailways.simpleato.control
 
 import work.art1st.javarailways.basic.api.ato.VehicleControlCommand
+import work.art1st.javarailways.basic.api.ato.VehicleControlCapabilities
+import work.art1st.javarailways.basic.api.ato.VehicleControlState
 import work.art1st.javarailways.basic.api.ato.VehicleHandleCapability
 import kotlin.math.*
 
@@ -28,6 +30,34 @@ class StoppingReferenceStrategy {
         return decision
     }
 }
+
+/**
+ * A station departure hold becomes a zero-distance hard target only after the ordinary holding
+ * command and every pneumatic brake have reached their strongest service demand. Until then the
+ * existing operating stop remains active so the strategy can establish the brake without asking
+ * ATP to prove an impossible instantaneous transition from a released brake.
+ */
+internal fun serviceHoldingBrakeEstablished(
+    state: VehicleControlState,
+    capabilities: VehicleControlCapabilities
+): Boolean {
+    if (state.speedMetersPerSecond != 0.0 || state.devices.size != capabilities.deviceCapabilities.size) return false
+    val holding = capabilities.handles.asSequence()
+        .filter { !it.command.emergencyBrake && it.command.tractionRatio == 0.0 }
+        .maxByOrNull { it.command.brakeRatio }
+        ?.command ?: return false
+    if (holding.brakeRatio <= 0.0 || state.lastCommand.tractionRatio > 0.0 ||
+        state.lastCommand.brakeRatio + BRAKE_RATIO_EPSILON < holding.brakeRatio
+    ) return false
+    return capabilities.deviceCapabilities.indices.all { index ->
+        val car = capabilities.deviceCapabilities[index]
+        car.brakeMaxForceNewtons == 0.0 || state.devices[index].pressureKpa + PRESSURE_EPSILON_KPA >=
+            car.nominalCylinderPressureKpa * holding.brakeRatio
+    }
+}
+
+private const val BRAKE_RATIO_EPSILON = 1.0e-9
+private const val PRESSURE_EPSILON_KPA = 1.0e-6
 
 private fun decide(reference: NominalMotionReference, input: MotionReferenceInput,
     stop: MotionReferenceConstraint?, admissible: (VehicleControlCommand) -> Boolean,

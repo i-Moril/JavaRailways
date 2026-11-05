@@ -1043,8 +1043,14 @@ class SimpleATO(
                 speedMetersPerSecond = activeSpeed
             )
         ) {
-            active.berthed = true
-            reportStationCall(active, StationCallNotificationType.BERTHED, positionError)
+            val holdingBrakeEstablished = serviceHoldingBrakeEstablished(
+                actuator.controlState(activeSpeed),
+                actuator.controlCapabilities(activeSpeed)
+            )
+            if (holdingBrakeEstablished) {
+                active.berthed = true
+                reportStationCall(active, StationCallNotificationType.BERTHED, positionError)
+            }
         }
         if (active.departureGranted && positionError < -effectivePositionTolerance) {
             active.departed = true

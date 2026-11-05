@@ -115,8 +115,13 @@ class VehicleControlExecutorTest {
         val input = input()
         val executor = VehicleControlExecutor()
         executor.choose(input, emptyList(), 0.0, inputUnavailableReason = "lost route")
-        assertThrows(AtpSimulationAbort::class.java) {
+        val failure = assertThrows(AtpSimulationAbort::class.java) {
             executor.choose(input, emptyList(), 0.0, VehicleExecutionMode.SIMULATION)
         }
+        assertSame(executor.intervention, failure.event)
+        assertTrue(failure.message!!.contains("INPUT_UNAVAILABLE"))
+        assertTrue(failure.message!!.contains("speedMetersPerSecond=0.0"))
+        assertFalse(failure.message!!.contains("VehicleControlCapabilities"))
+        assertTrue(failure.message!!.length < 512)
     }
 }

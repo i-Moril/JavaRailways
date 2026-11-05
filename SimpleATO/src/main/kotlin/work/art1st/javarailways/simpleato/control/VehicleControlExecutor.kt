@@ -11,7 +11,19 @@ data class AtpControlEvent(val kind: AtpEventKind, val mode: VehicleExecutionMod
     val judgement: AtpJudgement, val reference: ReferenceControlDecision?, val capabilityIdentity: Any,
     val mostAdverseGrade: Double, val targets: List<AtpTarget>, val context: Any?,
     val assessmentKind: String)
-class AtpSimulationAbort(val event: AtpControlEvent) : IllegalStateException("ATP simulation aborted: $event")
+class AtpSimulationAbort(val event: AtpControlEvent) : IllegalStateException(simulationAbortSummary(event))
+
+private fun simulationAbortSummary(event: AtpControlEvent): String = buildString {
+    append("ATP simulation intervention: ")
+    append(event.judgement.reason)
+    event.judgement.detail.takeIf(String::isNotBlank)?.let { append(" (").append(it).append(')') }
+    event.judgement.witness?.let { witness ->
+        append("; target=").append(witness.target.id)
+        append("; requiredMeters=").append(witness.requiredDistanceMeters)
+        append("; availableMeters=").append(witness.availableDistanceMeters)
+    }
+    append("; speedMetersPerSecond=").append(event.state.speedMetersPerSecond)
+}
 
 /** Physics-worker-owned executor. Only ordinary strategy decisions are throttled; protection is not. */
 class VehicleControlExecutor(private val onEvent: (AtpControlEvent) -> Unit = {}) {

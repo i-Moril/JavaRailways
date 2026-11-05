@@ -1,5 +1,6 @@
 import {DEFAULT_SIMULATION_TIMEOUT_MILLIS,validSimulationTimeout} from './SimulationTimeoutInput';
 import {SimulationSetupDialog} from './SimulationSetupDialog';
+import {SimulationProgressBar} from './SimulationProgressBar';
 import {useTimetablePrograms} from './useTimetablePrograms';
 import {defaultStationStopProgram} from './stationPlans';
 import {defaultDutyProgramArguments,orderDutyTimeline,projectDutyTimeline,sortDutyTasks} from './dutyTimeline';
@@ -129,6 +130,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   const [executionTimeoutMillis,setExecutionTimeoutMillis]=useState(DEFAULT_SIMULATION_TIMEOUT_MILLIS);
   const simulationGeneration=useRef(0);
   const [simulationSetup,setSimulationSetup]=useState<{kind:'TIMETABLE'|'LINE';scope:string}>();
+  const [simulationActivity,setSimulationActivity]=useState<{kind:'TIMETABLE'|'LINE';startedAt:number}>();
   const [simulationState,setSimulationState]=useState<{result:TimetableSimulationResult;inputKey:string}>();
   const programDraftScope=JSON.stringify([recoveryOwner,world,blockDraftKey.current]);
   const editorDraftInvalid=reportedEditorDraftInvalid;
@@ -403,6 +405,8 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     const requestInputKey=JSON.stringify([simulationScenarioKey,confirmedTimeoutMillis]);
     const current=()=>simulationGeneration.current===generation&&liveInputs.current.revision===sourceRevision&&editorDraftValidity.current.valid&&editorDraftValidity.current.revision===draftRevision&&ownerEpoch.current===epoch&&liveInputs.current.simulationScenarioKey===simulationScenarioKey;
     setExecutionTimeoutMillis(confirmedTimeoutMillis);
+    const activity={kind:'TIMETABLE' as const,startedAt:Date.now()};
+    setSimulationActivity(activity);
     await execute(async()=>{
       try {
         const assignments=profileDuties.map((duty)=>{
@@ -425,7 +429,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
         setSimulationState({result:{status:'FAILED',simulatedTicks:0,reason:message,runs:[]},inputKey:requestInputKey});
         onError(t('simulation.failedToast'));
       }
-    },current);
+    },current).finally(()=>setSimulationActivity((active)=>active===activity?undefined:active));
   };
   const replaceRun=(next:AuthoringRunV1,clearArrivalOverrides=false)=>{setPreviewRun(undefined);setValue((current)=>{
     const sourceLine=lines.find((line)=>line.id===next.diagramLineId);
@@ -543,6 +547,8 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     const generation=++simulationGeneration.current,requestEpoch=ownerEpoch.current,sourceRevision=liveInputs.current.revision;
     const current=()=>simulationGeneration.current===generation&&ownerEpoch.current===requestEpoch&&liveInputs.current.revision===sourceRevision&&liveInputs.current.simulationScenarioKey===simulationScenarioKey;
     setExecutionTimeoutMillis(confirmedTimeoutMillis);setSimulationState(undefined);
+    const activity={kind:'LINE' as const,startedAt:Date.now()};
+    setSimulationActivity(activity);
     void execute(async()=>{
       const run=selectedRunValue,profile=simulationProfiles.find((item)=>`${item.type}:${item.id}`===resetProfile);
       if(!run?.diagramLineId||!profile||run.calls.length<2)throw new Error(t('duties.resetMissing'));
@@ -555,7 +561,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
       const next=resetRunTimings(run,result,firstDeparture,resetDwellTicks);
       if(next.calls.some((call)=>[call.arrivalTick,call.departureTick].some((tick)=>tick!=null&&tick>=value.periodDays*24000)))throw new Error(t('duties.outsidePeriod'));
       replaceRun(next,true);
-    },current);
+    },current).finally(()=>setSimulationActivity((active)=>active===activity?undefined:active));
   };
   const copyRuns=()=>{
     if(!selectedRunValue||copyInvalid||editorDraftInvalid||arrivalDraftsInvalid)return;
@@ -646,6 +652,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   </div>;
   const autosaveStatus=<Space role="status" aria-live="polite"><Tag color={autosaveState.status==='failed'?'red':autosaveState.status==='saving'?'blue':JSON.stringify(value)===savedDocumentJson.current?'green':'gold'} title={autosaveState.error}>{autosaveState.status==='failed'?t('common.autosaveFailed'):autosaveState.status==='saving'?t('common.autosaving'):JSON.stringify(value)===savedDocumentJson.current?t('common.saved'):t('common.unsaved')}</Tag>{autosaveState.status==='failed'&&<Button size="small" onClick={()=>void save()} disabled={busy}>{t('common.retrySave')}</Button>}</Space>;
   return <section className="duty-page studio-timetable-page">
+    {simulationActivity&&<SimulationProgressBar {...simulationActivity}/>}
     {simulationSetup?.scope===simulationSetupScope&&<SimulationSetupDialog fieldKey={`${fieldScope}/simulation-setup/${simulationSetup.kind}`} line={simulationSetup.kind==='LINE'} value={executionTimeoutMillis} disabled={busy||(simulationSetup.kind==='TIMETABLE'?!!simulationReason:!resetProfile||!selectedRunValue?.diagramLineId||selectedRunValue.calls[0]?.departureTick==null)} onClose={closeSimulationSetup} onConfirm={confirmedTimeoutMillis=>{
       if(busy||simulationSetup.scope!==simulationSetupScope)return;
       setSimulationSetup(undefined);

@@ -715,7 +715,10 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     put("delayedStepIndex", result.delayedRun.activeStepIndex ?: result.delayedRun.nextStepIndex)
                     put("delayedStepBranchPath", branchPathJson(if (result.delayedRun.activeStepIndex != null) result.delayedRun.activeStepBranchPath else result.delayedRun.nextStepBranchPath))
                 }
-                if (result is IsolatedTimetableSimulationResult.Failed) put("reason", result.reason)
+                if (result is IsolatedTimetableSimulationResult.Failed) {
+                    put("reason", result.reason)
+                    result.reasonCode?.let { put("reasonCode", it) }
+                }
                 put("tasks", JsonArray(result.runs.flatMap { run -> run.taskTimings.map { timing -> buildJsonObject {
                     put("serviceId", run.id.serviceId)
                     put("taskId", timing.taskId)

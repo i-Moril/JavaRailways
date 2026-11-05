@@ -6,6 +6,7 @@ import { AuthoringValidation,simulationRunStateLabel,type AuthoringValidationPro
 import { DutyManagement } from './DutyManagement';
 import { I18nProvider,translate } from './i18n';
 import { RunRouteEditor } from './RunRouteEditor';
+import { SimulationProgressBar } from './SimulationProgressBar';
 const noop=()=>undefined;
 const props:AuthoringValidationProps={duties:[{id:'duty-a',selector:{type:'TRAIN_NAME',name:'train'},elements:[]}],issues:[],compileError:'',profiles:[{type:'WORLD_TRAIN',id:'train',displayName:'Train A',carCount:2}],assignments:{},threshold:1200,conflicting:false,busy:false,compileReason:'',simulationReason:'Compile the current document successfully first.',source:'// generated',onCompile:noop,onSimulate:noop,onAssignment:noop,onThreshold:noop,onNavigate:noop};
 const render=(element:React.ReactNode)=>renderToStaticMarkup(<I18nProvider>{element}</I18nProvider>);
@@ -28,6 +29,18 @@ describe('authoring workspace views',()=>{
   const html=render(<AuthoringValidation {...props} duties={[{id:'duty-a',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'run-element',type:'RUN',runId:'run-7'}]}]} simulation={{status:'FAILED',simulatedTicks:100,reason:'simulation stopped',runs:[{timetableId:'t',serviceId:'duty-a',trainId:'train',state:'FAILED',timetableElapsedTicks:100,lastLatenessTicks:0,nextStepIndex:3,currentRunId:'run-7',message:'door failure'}]}}/>);
   expect(html).toContain('Simulation failure location');expect(html).toContain('duty-a');expect(html).toContain('run-7');expect(html).toContain('door failure');
   expect(html.match(/simulation stopped/g)).toHaveLength(1);
+ });
+ it('localizes infrastructure simulation failures without exposing the internal exception name',()=>{
+  const html=render(<AuthoringValidation {...props} simulation={{status:'FAILED',simulatedTicks:100,reasonCode:'InfrastructureInvariantViolation',reason:'no compiled route matches duty 3, step step#10, shinkiba@2U -> kasaipark@1, leg 0, facing BA',runs:[]}}/>);
+  expect(html).toContain('runtime train state does not match a route validated at compile time');
+  expect(html).toContain('no compiled route matches duty 3');
+  expect(html).not.toContain('InfrastructureInvariantViolation');
+ });
+ it('renders bottom progress status for line and global simulations',()=>{
+  const line=render(<SimulationProgressBar kind="LINE" startedAt={Date.now()}/>);
+  const timetable=render(<SimulationProgressBar kind="TIMETABLE" startedAt={Date.now()}/>);
+  expect(line).toContain('role="progressbar"');expect(line).toContain('Line simulation in progress');
+  expect(timetable).toContain('Global simulation in progress');
  });
 
  it('distinguishes a tentative platform from an admitted selection and shows the active branch',()=>{

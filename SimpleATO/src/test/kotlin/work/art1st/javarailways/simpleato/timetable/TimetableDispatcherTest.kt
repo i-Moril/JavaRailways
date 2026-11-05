@@ -764,7 +764,7 @@ class TimetableDispatcherTest {
     }
 
     @Test
-    fun `run segment origin metadata does not recheck the head after an in-place reversal`() {
+    fun `run origin station metadata does not replace the route anchor after an in-place reversal`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val dispatcher = dispatcher()
         val data = BasicWorldData()
@@ -785,6 +785,10 @@ class TimetableDispatcherTest {
             DestinationRole.StationBerthRole(originStation, berthId = "one", doorSide = DoorSide.NONE)
         ))
         OperationalDestinationService(world).register(OperationalDestination(
+            "origin@metadata", rail.id, 60.0, ViewDirection.BA,
+            DestinationRole.StationBerthRole(originStation, berthId = "metadata", doorSide = DoorSide.NONE)
+        ))
+        OperationalDestinationService(world).register(OperationalDestination(
             "terminal@one", rail.id, 20.0, ViewDirection.BA,
             DestinationRole.StationBerthRole(terminalStation, berthId = "one", doorSide = DoorSide.NONE)
         ))
@@ -794,16 +798,21 @@ class TimetableDispatcherTest {
             listOf(terminalStation, originStation)
         ), 0L)
         val segment = TimetableRunSegment("152P", lineId, 2, 4, calls = listOf(
-            TimetableRunCall("152P-origin", originStation.value, "origin@one", TimetableServiceStopStatus.ORIGIN),
+            TimetableRunCall("152P-origin", originStation.value, "origin@metadata", TimetableServiceStopStatus.ORIGIN),
             TimetableRunCall("152P-terminal", terminalStation.value, "terminal@one", TimetableServiceStopStatus.TERMINAL)
         ))
+        val originProgram = StationStopPrograms(
+            originStation.value, "152P-origin", StationStopRole.ORIGIN,
+            listOf(StationProgramAction.End), listOf(StationProgramAction.End),
+            StationPreparationLead.constant(0L), 1_000L, "origin@metadata", DoorSide.NONE
+        )
         world.simpleAtoWorldData.timetables.add(Timetable(
             "reverse-origin",
             services = listOf(TimetableService(
                 "service", TrainSelector.TrainId(train.id), listOf(
                     TimetableStep.Check("origin@one"),
                     TimetableStep.At(0L, TimetableAction.Reverse),
-                    TimetableStep.At(1_000L, TimetableAction.WaitUntil),
+                    TimetableStep.At(1L, TimetableAction.BeginStationStop(originProgram)),
                     TimetableStep.At(1_000L, TimetableAction.GoTo("terminal@one"))
                 ), runSegments = listOf(segment)
             )),
@@ -815,14 +824,16 @@ class TimetableDispatcherTest {
         assertInstanceOf(TimetableServiceStartResult.Started::class.java, started, started.toString())
         val ato = train.controller as SimpleATO
         var ticks = 0
-        while (dispatcher.status(id)?.currentRunId == null && ticks++ < 100) {
+        while (dispatcher.status(id)?.state != TimetableServiceRunState.RUNNING &&
+            !world.simpleAtoWorldData.atoCoordinator.isStalled && ticks++ < 1_100) {
             tickAndPublish(ato)
             world.onOwnerForTest { dispatcher.tick(world) }
         }
 
         val status = checkNotNull(dispatcher.status(id))
         assertEquals("152P", status.currentRunId, status.toString())
-        assertEquals(TimetableServiceRunState.WAITING_TIMETABLE_TIME, status.state, status.toString())
+        assertEquals(TimetableServiceRunState.RUNNING, status.state, status.toString())
+        assertEquals("origin@one", status.currentWayPointId, status.toString())
         assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 

@@ -85,7 +85,7 @@ export interface UnitDisplaySnapshot {unitId:string;operationalTripId:string;cyc
 export interface TimetableSimulationResult {
   status:'COMPLETED'|'DELAY_EXCEEDED'|'FAILED'|'PERIOD_ENDED'; simulatedTicks:number;
   thresholdTicks?:number; observedDelayTicks?:number; delayedServiceId?:string; delayedRunId?:string|null; delayedTaskId?:string; delayedState?:string; delayedMessage?:string; delayedStepIndex?:number; delayedStepBranchPath?:TimetableBranchEntry[]; wallClockMillis?:number;
-  reason?:string; runs:TimetableSimulationRunResult[];
+  reason?:string; reasonCode?:string; runs:TimetableSimulationRunResult[];
   tasks?:{serviceId:string;taskId:string;startTick:number;endTick?:number}[];
 }
 export interface TimetableScriptSummary { name:string; sizeBytes:number; modifiedAtEpochMillis:number }

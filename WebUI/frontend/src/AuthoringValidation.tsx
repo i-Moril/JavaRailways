@@ -3,6 +3,7 @@ import type { AuthoringDutyV1,AuthoringIssue } from './authoring';
 import type { CompiledTimetableSource,TimetableSimulationResult,TimetableSimulationRunResult,WorldMetadata } from './types';
 import { CommittedNumberInput } from './CommittedNumberInput';
 import { useI18n } from './i18n';
+import { simulationFailureReason } from './apiErrors';
 const runStateKeys={COMPLETED:'ui.COMPLETED',FAILED:'ui.FAILED',WAITING_MISSION:'ui.WAITING_MISSION',WAITING_TIMETABLE_TIME:'ui.WAITING_TIMETABLE_TIME',WAITING_ROUTE:'ui.WAITING_ROUTE',RUNNING:'ui.RUNNING',WAITING_BERTH:'ui.WAITING_BERTH',APPROACHING:'ui.APPROACHING',BERTHED:'ui.BERTHED',DOORS_OPENING:'ui.DOORS_OPENING',DWELLING:'ui.DWELLING',DOORS_CLOSING:'ui.DOORS_CLOSING',READY_TO_DEPART:'ui.READY_TO_DEPART',DEPARTING:'ui.DEPARTING',DEPARTED:'ui.DEPARTED',STORING:'ui.STORING',HALTING:'ui.HALTING',REVERSING:'ui.REVERSING',WAITING_EXTENSION_ACTION:'ui.WAITING_EXTENSION_ACTION',MANUAL_INTERVENTION:'ui.MANUAL_INTERVENTION',SUSPENDED:'ui.SUSPENDED',REPLAN_REQUIRED:'ui.REPLAN_REQUIRED',STOPPING:'ui.STOPPING',STOPPED:'ui.STOPPED'} as const;
 export function simulationRunStateLabel(state:string,t:(key:typeof runStateKeys[keyof typeof runStateKeys])=>string):string {
   return Object.hasOwn(runStateKeys,state)?t(runStateKeys[state as keyof typeof runStateKeys]):state;
@@ -16,7 +17,7 @@ export interface AuthoringValidationProps {
   onAssignment:(id:string,profile:string)=>void; onThreshold:(tick:number)=>void; onNavigate:(path:string)=>void;
 }
 export function AuthoringValidation(p:AuthoringValidationProps) {
-  const {t}=useI18n();
+  const {locale,t}=useI18n();
   const failedRuns=p.simulation?.runs.filter((run)=>run.state==='FAILED')??[];
   const delayedRun=p.simulation?.delayedServiceId?p.simulation.runs.find((run)=>run.serviceId===p.simulation!.delayedServiceId):undefined;
   const delayedRunId=p.simulation?.delayedRunId??delayedRun?.currentRunId;
@@ -42,7 +43,8 @@ export function AuthoringValidation(p:AuthoringValidationProps) {
     <div>{simulationRunStateLabel(run.state,t)}{run.message?` · ${run.message}`:''}</div>
     {run.currentRunId&&<Button size="small" onClick={()=>p.onNavigate(`run:${run.currentRunId}`)}>{t('ui.view')} {t('trip.run')}</Button>}
   </div>;
-  const failureDetail=p.simulation?<div className="simulation-failure-list">{p.simulation.reason&&<div>{p.simulation.reason}</div>}{failedRuns.map(renderFailure)}{!p.simulation.reason&&!failedRuns.length&&<div>{t('ui.FAILED')}</div>}</div>:undefined;
+  const failureReason=p.simulation?simulationFailureReason(locale,p.simulation.reason,p.simulation.reasonCode):undefined;
+  const failureDetail=p.simulation?<div className="simulation-failure-list">{failureReason&&<div>{failureReason}</div>}{failedRuns.map(renderFailure)}{!failureReason&&!failedRuns.length&&<div>{t('ui.FAILED')}</div>}</div>:undefined;
   return <div className="module-page validation-module"><div className="page-heading"><div><Typography.Title level={3}>{t('nav.validation')}</Typography.Title><Typography.Text type="secondary">{t('editor.serverValidationStillRequired')}</Typography.Text></div><Button type="primary" disabled={!!p.compileReason} loading={p.busy} onClick={p.onCompile}>{t('duties.compile')}</Button></div>
     <div className="validation-summary"><section className="metric panel-surface"><b>{p.issues.length}</b><span>{t('ui.authoring')}</span></section><section className="metric panel-surface"><b>{p.compiled?(p.compiled.validation.valid?t('ui.valid'):p.compiled.validation.errors.length):t('ui.unexecuted')}</b><span>{t('ui.world')}</span></section><section className="metric panel-surface"><b>{p.simulation?t(`ui.${p.simulation.status}`):t('ui.unexecuted')}</b><span>{t('duties.simulationResult')}</span></section></div>
     <section className="validation-list panel-surface"><div className="module-panel-title"><b>{t('ui.authoring')}</b></div>{p.issues.length===0?<div className="validation-row">{t('editor.noLocalIssues')}</div>:p.issues.map((issue,index)=><div className="validation-row" key={index}><TagSeverity severity={issue.severity}/><span><b>{issue.message}</b><small>{issue.path}</small></span><Button onClick={()=>p.onNavigate(issue.path)}>{t('ui.view')}</Button></div>)}</section>

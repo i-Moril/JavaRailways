@@ -4473,8 +4473,11 @@ class TimetableDispatcher(
                             stallRun(world, run, "StationProgramFailure", "origin station program requires a stationary train")
                             return
                         }
+                        // The authored origin berth describes the run and its station work.  A
+                        // preceding task may have left the train at another validated route anchor
+                        // (for example the opposite directed berth after a shunt and reversal), so
+                        // it must not replace that actual continuation origin.
                         val target = action.stopPrograms.destinationId ?: run.currentWayPointId
-                        run.currentWayPointId = target
                         run.physicalOriginPending = false
                         run.programCursor = run.programCursor.advance()
                         val destination = world.simpleAtoWorldData.destinations[target]
@@ -6554,7 +6557,9 @@ class TimetableDispatcher(
                 plan.origin.id, index, target.id, direction, address = plan.address,
                 stoppingOffsetMeters = (point as? AtoMissionPoint.Stop)?.offsetMetersBefore)
             val evidence = plan.explicitReplanLegs?.getOrNull(index) ?: retainedRoutes[key]
-                ?: return MissionSubmission(null, "no validated movement evidence for $key")
+                ?: return MissionSubmission(null,
+                    "no compiled route matches duty ${runId.serviceId}, step ${plan.address}, " +
+                        "${plan.origin.id} -> ${target.id}, leg $index, facing $direction")
             retainedRouteFailure(world, evidence.route, evidence.topology, from, target, direction,
                 world.simpleAtoWorldData.destinations[target.id]?.approachDirection)?.let {
                 return MissionSubmission(null, it)

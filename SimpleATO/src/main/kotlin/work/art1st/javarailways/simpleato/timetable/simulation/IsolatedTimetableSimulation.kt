@@ -87,7 +87,8 @@ sealed interface IsolatedTimetableSimulationResult {
         override val simulatedTicks: Long,
         val reason: String,
         val failedRun: TimetableServiceRunSnapshot? = null,
-        override val runs: List<TimetableServiceRunSnapshot> = emptyList()
+        override val runs: List<TimetableServiceRunSnapshot> = emptyList(),
+        val reasonCode: String? = null
     ) : IsolatedTimetableSimulationResult
 
     data class PeriodEnded(
@@ -171,8 +172,9 @@ class IsolatedTimetableSimulationWorld private constructor(
             world.simpleAtoWorldData.atoCoordinator.lastStall?.let { stall ->
                 return IsolatedTimetableSimulationResult.Failed(
                     tick,
-                    "${stall.errorType}: ${stall.message.orEmpty()}",
-                    runs = runs
+                    stall.message.orEmpty(),
+                    runs = runs,
+                    reasonCode = stall.errorType
                 )
             }
             runs.firstOrNull { it.state == TimetableServiceRunState.FAILED }?.let { failed ->

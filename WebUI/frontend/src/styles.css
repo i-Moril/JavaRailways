@@ -52,6 +52,12 @@ h1, h2, p { margin-top: 0; }
 .error-toast { position: fixed; z-index: 1200; right: 18px; bottom: 18px; width: min(560px, calc(100vw - 36px)); max-height: 42vh; overflow: auto; filter: drop-shadow(0 12px 28px rgb(15 23 42 / .22)); }
 .error-toast .ant-alert { align-items: flex-start; }
 .error-toast .ant-alert-title { white-space: pre-wrap; overflow-wrap: anywhere; }
+.simulation-progress { position: fixed; z-index: 1190; left: 50%; bottom: 14px; width: min(680px, calc(100vw - 36px)); transform: translateX(-50%); padding: 10px 14px 12px; border: 1px solid var(--ant-color-border-secondary); border-radius: 10px; background: color-mix(in srgb, var(--ant-color-bg-container) 94%, transparent); box-shadow: 0 12px 28px rgb(15 23 42 / .22); backdrop-filter: blur(8px); }
+.simulation-progress-label { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 7px; color: var(--ant-color-text); font-size: 12px; }
+.simulation-progress-track { height: 4px; overflow: hidden; border-radius: 999px; background: var(--ant-color-fill-secondary); }
+.simulation-progress-track span { display: block; width: 38%; height: 100%; border-radius: inherit; background: var(--ant-color-primary); animation: simulation-progress-slide 1.15s ease-in-out infinite; }
+@keyframes simulation-progress-slide { from { transform: translateX(-105%); } to { transform: translateX(275%); } }
+@media (prefers-reduced-motion: reduce) { .simulation-progress-track span { width: 100%; animation: none; } }
 .persistent-graph-view { min-height: 0; overflow: hidden; }
 
 /* Legacy map controls and canvas palette are intentionally isolated from the studio. */

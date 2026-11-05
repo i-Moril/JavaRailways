@@ -9,6 +9,7 @@ const errorKeys={
  SIMULATION_REJECTED:'errors.simulationRejected',NETWORK_ERROR:'errors.network',INVALID_RESPONSE:'errors.bridgeInvalidResponse',
  SIMULATION_LIMIT_REACHED:'errors.simulationLimit',REQUEST_TIMEOUT:'errors.timeout',TOO_MANY_REQUESTS:'errors.rateLimited',
  REQUEST_REJECTED:'errors.rejected',SIMULATION_FAILED:'errors.simulationFailed',SIMULATION_TIMING_UNAVAILABLE:'errors.simulationTimingUnavailable',
+ INFRASTRUCTURE_INVARIANT_VIOLATION:'errors.infrastructureInvariant',InfrastructureInvariantViolation:'errors.infrastructureInvariant',
 } as const;
 const statusCodes:Record<number,string>={400:'INVALID_REQUEST',401:'AUTH_REQUIRED',403:'FORBIDDEN',404:'NOT_FOUND',409:'CONFLICT',422:'REQUEST_REJECTED',429:'TOO_MANY_REQUESTS',500:'INTERNAL_ERROR',503:'SERVICE_UNAVAILABLE',504:'REQUEST_TIMEOUT'};
 // Error bodies are diagnostic text, never HTML or a serialized object for players.

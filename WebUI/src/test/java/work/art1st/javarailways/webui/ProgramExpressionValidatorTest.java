@@ -75,6 +75,31 @@ class ProgramExpressionValidatorTest {
         assertThrows(IllegalArgumentException.class, () -> evaluate(unknownField, "NUMBER"));
     }
 
+    @Test void parametersAcceptDefaultsAndBooleanValues() {
+        var definition = definition(literal(20));
+        definition.withArray("parameters").addObject().put("id", "d").put("type", "DURATION");
+        ((ObjectNode) definition.path("steps").get(0)).set("durationTicks", mapper.createObjectNode().put("parameterId", "d"));
+        assertDoesNotThrow(() -> StationProgramValidator.validateArguments(definition, mapper.createObjectNode().put("d", 20.0)));
+        assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateArguments(definition, mapper.createObjectNode()));
+
+        ((ObjectNode) definition.withArray("parameters").get(0)).put("default", 15);
+        assertDoesNotThrow(() -> StationProgramValidator.validateArguments(definition, mapper.createObjectNode()));
+        assertDoesNotThrow(() -> StationProgramValidator.validateArguments(definition, mapper.createObjectNode().put("d", 20.0)));
+        assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateArguments(definition, mapper.createObjectNode().put("d", "20")));
+
+        var flag = definition(literal(20));
+        flag.withArray("parameters").addObject().put("id", "flag").put("type", "BOOLEAN").put("default", true);
+        ((ObjectNode) flag.path("steps").get(0)).set("durationTicks", mapper.createObjectNode().put("parameterId", "flagType"));
+        flag.withArray("parameters").addObject().put("id", "flagType").put("type", "DURATION").put("default", 1);
+        assertDoesNotThrow(() -> StationProgramValidator.validateArguments(flag, mapper.createObjectNode()));
+        assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validateArguments(flag, mapper.createObjectNode().put("flag", "true")));
+        assertDoesNotThrow(() -> StationProgramValidator.validateArguments(flag, mapper.createObjectNode().put("flag", true)));
+
+        var badDefault = definition(literal(20));
+        badDefault.withArray("parameters").addObject().put("id", "d").put("type", "DURATION").put("default", "later");
+        assertThrows(IllegalArgumentException.class, () -> StationProgramValidator.validate(badDefault));
+    }
+
     @Test void boundParametersAreEvaluatedAtEverySink() {
         JsonNode parameter = mapper.createObjectNode().put("parameterId", "seconds");
         var definition = definition(operation("MULTIPLY", parameter, literal(20)));

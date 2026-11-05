@@ -34,10 +34,11 @@ final class StationProgramValidator {
         array(definition.path("steps"), 256, "steps");
         Map<String, String> parameters = new HashMap<>();
         for (JsonNode parameter : definition.path("parameters")) {
-            fields(parameter, Set.of("id", "type"), "parameter");
+            fields(parameter, Set.of("id", "type"), Set.of("default"), "parameter");
             String id = id(parameter.path("id"), "parameter id");
             String type = text(parameter.path("type"), "parameter type");
             if (!PARAMETER_TYPES.contains(type)) fail("unknown parameter type: " + type);
+            if (parameter.has("default")) literal(parameter.path("default"), type, false);
             if (parameters.put(id, type) != null) fail("duplicate parameter id: " + id);
         }
         validateSteps(definition.path("steps"), parameters, new HashSet<>(), 0);
@@ -275,6 +276,9 @@ final class StationProgramValidator {
             }
             case "NUMBER" -> {
                 if (!value.isNumber() || !Double.isFinite(value.doubleValue()) || Math.rint(value.doubleValue()) == value.doubleValue() && Math.abs(value.doubleValue()) > MAX_SAFE_INTEGER) fail("NUMBER must be finite and integral values must be safe integers");
+            }
+            case "BOOLEAN" -> {
+                if (!value.isBoolean()) fail("BOOLEAN must be true or false");
             }
             case "STRING" -> {
                 if (!value.isTextual() || value.textValue().length() > 8192) fail("STRING must be a string of at most8192 characters");

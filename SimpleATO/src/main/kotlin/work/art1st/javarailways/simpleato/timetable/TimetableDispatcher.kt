@@ -1600,7 +1600,7 @@ class TimetableDispatcher(
             ) {
                 if (dispatcherTick >= stationCall.earliestDepartureDispatcherTick) {
                     val nextTick = if (stationCall.waitForNextTimetableAction) {
-                        nextActionTick(run)
+                        run.nextActionTick()
                     } else {
                         0L
                     }
@@ -1623,7 +1623,7 @@ class TimetableDispatcher(
             } else if (run.state == TimetableServiceRunState.DWELLING && destinationStop != null) {
                 run.dwellTicksRemaining = (destinationStop.earliestDepartureDispatcherTick - dispatcherTick).coerceAtLeast(0L)
                 if (run.dwellTicksRemaining == 0L) {
-                    val nextTick = nextActionTick(run)
+                    val nextTick = run.nextActionTick()
                     if (nextTick == null) {
                         completeOpenTerminalDestination(run, destinationStop)
                     } else if (timetableElapsedTicks(run) >= nextTick) {
@@ -2481,13 +2481,6 @@ class TimetableDispatcher(
         run.taskTimings[run.taskTimings.lastIndex] = timing.copy(endTick = timetableElapsedTicks(run))
         run.programCursor = run.programCursor.advance()
     }
-
-    private fun nextActionTick(run: ActiveRun): Long? =
-        run.remainingSteps()
-            .filterIsInstance<TimetableStep.At>()
-            .filter { it.action !is TimetableAction.TaskEnd }
-            .firstOrNull()
-            ?.tick
 
     private fun completeOpenTerminalStation(
         run: ActiveRun,
@@ -4453,6 +4446,7 @@ class TimetableDispatcher(
                             stallRun(world, run, "TaskBoundaryViolation", "duplicate or overlapping task start")
                             return
                         }
+                        recordScheduledAction(run, step.tick)
                         run.taskTimings += TimetableTaskTiming(action.taskId, timetableElapsedTicks(run))
                         run.programCursor = run.programCursor.advance()
                     }
@@ -6629,6 +6623,9 @@ class TimetableDispatcher(
 
     private fun recordScheduledAction(run: ActiveRun, scheduledTick: Long) {
         if (run.stopExecution != null) return // Station tasks have independent clocks.
+        if (run.taskTimings.lastOrNull()?.endTick == null &&
+            run.lastScheduledActionTick == scheduledTick
+        ) return // Sequential actions at one task checkpoint share its start-time assessment.
         val elapsed = timetableElapsedTicks(run)
         run.lastScheduledActionTick = scheduledTick
         run.lastLatenessTicks = (elapsed - scheduledTick).coerceAtLeast(0L)
@@ -7085,6 +7082,21 @@ class TimetableDispatcher(
                 cursor = cursor.advance()
             }
         }
+        fun nextActionTick(): Long? = remainingSteps()
+            .filterIsInstance<TimetableStep.At>()
+            .filter { it.action !is TimetableAction.TaskEnd }
+            .firstOrNull()
+            ?.tick
+        fun nextDelayCheckpointTick(): Long? {
+            val activeTaskTick = taskTimings.lastOrNull()
+                ?.takeIf { it.endTick == null }
+                ?.let { lastScheduledActionTick }
+            return remainingSteps()
+                .filterIsInstance<TimetableStep.At>()
+                .filter { it.action !is TimetableAction.TaskEnd }
+                .firstOrNull { activeTaskTick == null || it.tick != activeTaskTick }
+                ?.tick
+        }
         var currentSegment: TimetableRunSegment? = null
         var currentUnitIds: List<String> = emptyList()
         val taskTimings = mutableListOf<TimetableTaskTiming>()
@@ -7175,10 +7187,8 @@ class TimetableDispatcher(
                 nextStepBranchPath = programCursor.address?.branchPath ?: emptyList(),
                 activeStepIndex = activeStepAddress?.topLevelIndex,
                 activeStepBranchPath = activeStepAddress?.branchPath ?: emptyList(),
-                nextScheduledTick = waitingUntilTimetableTick ?: if (stopExecution != null) null else remainingSteps()
-                    .filterIsInstance<TimetableStep.At>()
-                    .firstOrNull()
-                    ?.tick,
+                nextScheduledTick = waitingUntilTimetableTick
+                    ?: if (stopExecution != null) null else nextDelayCheckpointTick(),
                 trainHeadRailId = ato.publishedState.trainSnapshot.head.railId.toString(),
                 trainHeadArcLengthInAbMeters =
                     ato.publishedState.trainSnapshot.head.arcLengthInAbMeters,

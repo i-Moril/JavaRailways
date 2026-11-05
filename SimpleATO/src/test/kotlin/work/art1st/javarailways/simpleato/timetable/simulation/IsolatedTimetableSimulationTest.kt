@@ -193,6 +193,105 @@ class IsolatedTimetableSimulationTest {
     }
 
     @Test
+    fun `task end marker does not create delay while its final movement is active`() {
+        val f = fixture(steps = listOf(
+            TimetableStep.Check("origin"),
+            TimetableStep.At(0, TimetableAction.TaskStart("move")),
+            TimetableStep.At(0, TimetableAction.GoTo("destination")),
+            TimetableStep.At(0, TimetableAction.TaskEnd("move")),
+            TimetableStep.At(1_000, TimetableAction.Stop(1))
+        ))
+        f.runtime.use { runtime ->
+            val result = runtime.simulate(IsolatedTimetableSimulationRequest(
+                f.timetable,
+                delayThresholdTicks = 20,
+                maximumSimulationTicks = 20
+            ))
+
+            assertTrue(result is IsolatedTimetableSimulationResult.PeriodEnded) { result.toString() }
+            val run = result.runs.single()
+            assertEquals(1_000L, run.nextScheduledTick)
+            assertEquals(2, run.activeStepIndex)
+            assertEquals(null, run.taskTimings.single().endTick)
+        }
+    }
+
+    @Test
+    fun `sequential actions at one task tick do not turn task duration into delay`() {
+        val f = fixture(steps = listOf(
+            TimetableStep.Check("origin"),
+            TimetableStep.At(0, TimetableAction.GoTo("destination")),
+            TimetableStep.At(1_000, TimetableAction.TaskStart("work")),
+            TimetableStep.At(1_000, TimetableAction.Stop(10)),
+            TimetableStep.At(1_000, TimetableAction.Stop(1)),
+            TimetableStep.At(1_000, TimetableAction.TaskEnd("work")),
+            TimetableStep.At(2_000, TimetableAction.Stop(1))
+        ))
+        f.runtime.use { runtime ->
+            val result = runtime.simulate(IsolatedTimetableSimulationRequest(
+                f.timetable,
+                delayThresholdTicks = 5,
+                maximumSimulationTicks = 1_020
+            ))
+
+            assertTrue(result is IsolatedTimetableSimulationResult.PeriodEnded) { result.toString() }
+            val run = result.runs.single()
+            assertEquals(0L, run.lastLatenessTicks)
+            assertEquals(2_000L, run.nextScheduledTick)
+            assertEquals(11L, run.taskTimings.single().let { it.endTick!! - it.startTick })
+        }
+    }
+
+    @Test
+    fun `a later explicit task checkpoint still records real delay`() {
+        val f = fixture(steps = listOf(
+            TimetableStep.Check("origin"),
+            TimetableStep.At(0, TimetableAction.GoTo("destination")),
+            TimetableStep.At(1_000, TimetableAction.TaskStart("work")),
+            TimetableStep.At(1_000, TimetableAction.Stop(10)),
+            TimetableStep.At(1_005, TimetableAction.WaitUntil),
+            TimetableStep.At(1_005, TimetableAction.Stop(1)),
+            TimetableStep.At(1_005, TimetableAction.TaskEnd("work"))
+        ))
+        f.runtime.use { runtime ->
+            val result = runtime.simulate(IsolatedTimetableSimulationRequest(
+                f.timetable,
+                delayThresholdTicks = 5,
+                maximumSimulationTicks = 1_020
+            ))
+
+            assertTrue(result is IsolatedTimetableSimulationResult.DelayExceeded) { result.toString() }
+            result as IsolatedTimetableSimulationResult.DelayExceeded
+            assertEquals(5L, result.observedDelayTicks)
+            assertEquals(5L, result.delayedRun.lastLatenessTicks)
+        }
+    }
+
+    @Test
+    fun `task start itself still records real delay`() {
+        val f = fixture(steps = listOf(
+            TimetableStep.Check("origin"),
+            TimetableStep.At(0, TimetableAction.GoTo("destination")),
+            TimetableStep.At(1_000, TimetableAction.Stop(10)),
+            TimetableStep.At(1_005, TimetableAction.TaskStart("work")),
+            TimetableStep.At(1_005, TimetableAction.Stop(1)),
+            TimetableStep.At(1_005, TimetableAction.TaskEnd("work"))
+        ))
+        f.runtime.use { runtime ->
+            val result = runtime.simulate(IsolatedTimetableSimulationRequest(
+                f.timetable,
+                delayThresholdTicks = 5,
+                maximumSimulationTicks = 1_020
+            ))
+
+            assertTrue(result is IsolatedTimetableSimulationResult.DelayExceeded) { result.toString() }
+            result as IsolatedTimetableSimulationResult.DelayExceeded
+            assertEquals(5L, result.observedDelayTicks)
+            assertEquals(1_010L, result.delayedRun.taskTimings.single().startTick)
+        }
+    }
+
+    @Test
     fun `detached formation needs contributor opt-in and exact provider clearance`() {
         val resource = StableInfrastructureResource("test:formation", "block")
         fixture().runtime.use { simulation ->

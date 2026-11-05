@@ -293,6 +293,8 @@ sealed interface TimetableReplanResult {
     data class Failure(val reason: String) : TimetableReplanResult
 }
 
+private const val MAX_AUTOMATIC_START_FAILURES = 3
+
 /** Main-thread runtime for explicit-train timetable services. */
 class TimetableDispatcher(
     private val routeAdmissionContextProvider: TimetableRouteAdmissionContextProvider,
@@ -672,12 +674,6 @@ class TimetableDispatcher(
         if (timetable.formationEvents.isNotEmpty() && applied == null) {
             return TimetableServiceStartResult.Failure("apply the complete formation timetable before starting services")
         }
-        val serviceValidation = if (applied != null && timetable.formationEvents.isNotEmpty())
-            TimetableValidationResult(emptyList(), emptyList()) else validator(world, timetableId).validateForServiceStart(timetable, service.id)
-        val validationErrors = serviceValidation.errors
-        if (validationErrors.isNotEmpty()) {
-            return TimetableServiceStartResult.Failure(validationErrors.joinToString("; "))
-        }
         val currentCycleIndex = ((dispatcherTick - clock.epochDispatcherTick).coerceAtLeast(0L) /
             clock.periodTicks)
         val cycleIndex = requestedCycleIndex ?: currentCycleIndex
@@ -705,6 +701,14 @@ class TimetableDispatcher(
             return TimetableServiceStartResult.Failure(
                 "waiting for train acquisition tick $acquisitionTick: $runId"
             )
+        }
+        // Validation is deferred until the acquisition tick. Pending services must not re-plan
+        // their route/stop graph on every tick.
+        val serviceValidation = if (applied != null && timetable.formationEvents.isNotEmpty())
+            TimetableValidationResult(emptyList(), emptyList()) else validator(world, timetableId).validateForServiceStart(timetable, service.id)
+        val validationErrors = serviceValidation.errors
+        if (validationErrors.isNotEmpty()) {
+            return TimetableServiceStartResult.Failure(validationErrors.joinToString("; "))
         }
         val selected = selectTrainForService(world, timetable, cycleIndex, runId, service)
             ?: return TimetableServiceStartResult.Failure(
@@ -1797,9 +1801,56 @@ class TimetableDispatcher(
         }
     }
 
+    private fun automaticAcquisitionTick(service: TimetableService): Long? =
+        (service.steps.firstOrNull() as? TimetableStep.At)?.takeIf {
+            it.action is TimetableAction.TakeFromDepot || it.action is TimetableAction.TakeFromWaypoint
+        }?.tick
+
+    private fun automaticAcquisitionDue(
+        clock: TimetableClock,
+        service: TimetableService,
+        cycleIndex: Long
+    ): Boolean {
+        val acquisitionTick = automaticAcquisitionTick(service) ?: return true
+        val cycleStart = Math.addExact(
+            clock.epochDispatcherTick,
+            Math.multiplyExact(cycleIndex, clock.periodTicks)
+        )
+        return dispatcherTick - cycleStart >= acquisitionTick
+    }
+
+    private fun automaticAcquisitionWaitingReason(
+        service: TimetableService,
+        runId: TimetableServiceRunId
+    ): String {
+        val acquisitionTick = automaticAcquisitionTick(service) ?: return "waiting for train acquisition: $runId"
+        return "waiting for train acquisition tick $acquisitionTick: $runId"
+    }
+
+    private fun recordAutomaticStartSuccess(clock: TimetableClock) {
+        clock.consecutiveAutoStartFailures = 0
+        clock.nextAutoStartTick = 0L
+    }
+
+    /** Disables only future automatic starts; existing runs remain owned by the normal run state machine. */
+    private fun recordAutomaticStartFailure(clock: TimetableClock, reason: String) {
+        clock.consecutiveAutoStartFailures = Math.addExact(clock.consecutiveAutoStartFailures, 1)
+        if (clock.consecutiveAutoStartFailures >= MAX_AUTOMATIC_START_FAILURES) {
+            clock.autoStartDisabled = true
+            clock.nextAutoStartTick = Long.MAX_VALUE
+            clock.pendingActivationCycles.clear()
+            clock.lastCycleStartFailure =
+                "automatic timetable start disabled after $MAX_AUTOMATIC_START_FAILURES failed attempts: $reason"
+            return
+        }
+        clock.nextAutoStartTick = Math.addExact(dispatcherTick, admissionRetryTicks.toLong())
+        clock.lastCycleStartFailure = reason
+    }
+
     private fun startDueCycles(world: World) {
-        for ((timetableId, clock) in timetableClocks.toList().sortedBy { it.first }) {
+        clockLoop@ for ((timetableId, clock) in timetableClocks.toList().sortedBy { it.first }) {
             if (timetableId in recoveryRequiredDefinitions) continue
+            if (clock.autoStartDisabled || dispatcherTick < clock.nextAutoStartTick) continue
             val timetable = world.simpleAtoWorldData.timetables[timetableId]
             if (timetable == null) {
                 stallTimetableRuntime(
@@ -1837,16 +1888,24 @@ class TimetableDispatcher(
                 when (val activation = evaluateAutomaticActivation(
                     world, timetableId, service, cycleIndex, clock
                 )) {
-                    AutomaticActivation.START -> when (val result = startServiceForCycle(
-                        world, timetableId, serviceId, cycleIndex
-                    )) {
-                        is TimetableServiceStartResult.Started -> {
-                            clock.pendingActivationCycles.remove(serviceId)
-                            clock.lastCycleStartFailure = null
+                    AutomaticActivation.START -> {
+                        if (!automaticAcquisitionDue(clock, service, cycleIndex)) {
+                            clock.lastCycleStartFailure = automaticAcquisitionWaitingReason(service, runId)
+                            continue
                         }
-                        is TimetableServiceStartResult.Failure -> {
-                            clock.lastCycleStartFailure = result.reason
-                            if (world.simpleAtoWorldData.atoCoordinator.isStalled) return
+                        when (val result = startServiceForCycle(
+                            world, timetableId, serviceId, cycleIndex
+                        )) {
+                            is TimetableServiceStartResult.Started -> {
+                                recordAutomaticStartSuccess(clock)
+                                clock.pendingActivationCycles.remove(serviceId)
+                                clock.lastCycleStartFailure = null
+                            }
+                            is TimetableServiceStartResult.Failure -> {
+                                if (world.simpleAtoWorldData.atoCoordinator.isStalled) return
+                                recordAutomaticStartFailure(clock, result.reason)
+                                continue@clockLoop
+                            }
                         }
                     }
                     AutomaticActivation.SKIP -> clock.pendingActivationCycles.remove(serviceId)
@@ -1864,7 +1923,6 @@ class TimetableDispatcher(
             val currentCycleIndex = elapsed / clock.periodTicks
             while (clock.nextCycleIndex <= currentCycleIndex) {
                 val cycleIndex = clock.nextCycleIndex
-                var complete = true
                 for (service in timetable.services) {
                     if (service.id in clock.disabledServiceIds ||
                         service.id in clock.pendingActivationCycles
@@ -1875,7 +1933,13 @@ class TimetableDispatcher(
                     when (val activation = evaluateAutomaticActivation(
                         world, timetableId, service, cycleIndex, clock
                     )) {
-                        AutomaticActivation.START -> Unit
+                        AutomaticActivation.START -> {
+                            if (!automaticAcquisitionDue(clock, service, cycleIndex)) {
+                                clock.pendingActivationCycles[service.id] = cycleIndex
+                                clock.lastCycleStartFailure = automaticAcquisitionWaitingReason(service, runId)
+                                continue
+                            }
+                        }
                         AutomaticActivation.SKIP -> continue
                         is AutomaticActivation.WAIT -> {
                             clock.pendingActivationCycles[service.id] = cycleIndex
@@ -1892,15 +1956,14 @@ class TimetableDispatcher(
                     when (val result = startServiceForCycle(
                         world, timetableId, service.id, cycleIndex
                     )) {
-                        is TimetableServiceStartResult.Started -> Unit
+                        is TimetableServiceStartResult.Started -> recordAutomaticStartSuccess(clock)
                         is TimetableServiceStartResult.Failure -> {
-                            clock.lastCycleStartFailure = result.reason
-                            complete = false
                             if (world.simpleAtoWorldData.atoCoordinator.isStalled) return
+                            recordAutomaticStartFailure(clock, result.reason)
+                            continue@clockLoop
                         }
                     }
                 }
-                if (!complete) return
                 clock.nextCycleIndex = Math.incrementExact(cycleIndex)
                 if (clock.pendingActivationCycles.isEmpty()) clock.lastCycleStartFailure = null
             }
@@ -6723,7 +6786,10 @@ class TimetableDispatcher(
         var nextCycleIndex: Long = 1L,
         var lastCycleStartFailure: String? = null,
         val disabledServiceIds: MutableSet<String> = LinkedHashSet(),
-        val pendingActivationCycles: MutableMap<String, Long> = LinkedHashMap()
+        val pendingActivationCycles: MutableMap<String, Long> = LinkedHashMap(),
+        var nextAutoStartTick: Long = 0L,
+        var consecutiveAutoStartFailures: Int = 0,
+        var autoStartDisabled: Boolean = false
     )
 
     private data class FixedOutputContinuation(

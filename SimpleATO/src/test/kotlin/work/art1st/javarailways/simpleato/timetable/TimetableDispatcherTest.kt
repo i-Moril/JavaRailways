@@ -939,6 +939,139 @@ class TimetableDispatcherTest {
     }
 
     @Test
+    fun `acquisition tick gate runs before service validation`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        val dispatcher = dispatcher()
+        val data = BasicWorldData()
+        TestSimpleATOWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("gate-train", rail, world, listOf(10.0))
+        data.wayPoints.add(WayPoint("gate-origin", rail.id, train.head.location.arcLength))
+        world.simpleAtoWorldData.timetables.add(
+            Timetable(
+                "gate-tt",
+                services = listOf(
+                    TimetableService(
+                        "s1",
+                        steps = listOf(
+                            TimetableStep.At(3L, TimetableAction.TakeFromWaypoint(listOf("gate-origin"))),
+                            // The missing target is intentionally invalid: the acquisition gate
+                            // must defer validation instead of reporting this error before tick 3.
+                            TimetableStep.At(3L, TimetableAction.GoTo("missing-target"))
+                        )
+                    )
+                )
+            )
+        )
+
+        val result = world.onOwnerForTest { dispatcher.startService(world, "gate-tt", "s1") }
+
+        assertTrue(result is TimetableServiceStartResult.Failure)
+        assertTrue(
+            (result as TimetableServiceStartResult.Failure).reason.contains("waiting for train acquisition tick 3"),
+            result.reason
+        )
+        assertNull(train.controller)
+    }
+
+    @Test
+    fun `automatic service start backs off after validation failure and then resumes`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        val dispatcher = dispatcher()
+        val data = BasicWorldData()
+        TestSimpleATOWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("auto-retry-train", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("auto-origin", rail.id, originArc))
+        data.wayPoints.add(WayPoint("auto-target", rail.id, originArc + 30.0))
+        world.simpleAtoWorldData.timetables.add(
+            Timetable(
+                "auto-retry-tt",
+                services = listOf(
+                    TimetableService(
+                        "s1",
+                        steps = listOf(
+                            TimetableStep.At(0L, TimetableAction.TakeFromWaypoint(listOf("auto-origin"))),
+                            TimetableStep.At(0L, TimetableAction.GoTo("auto-target"))
+                        )
+                    )
+                )
+            )
+        )
+        assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, "auto-retry-tt") } is
+            TimetableEpochStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.scheduleInitialCycle("auto-retry-tt") })
+
+        // The applied plan is valid; remove a target only for the start-time validation.
+        world.onOwnerForTest { data.wayPoints.remove("auto-target") }
+        world.onOwnerForTest { dispatcher.tick(world) }
+        assertNull(dispatcher.status(TimetableServiceRunId("auto-retry-tt", "s1")))
+
+        world.onOwnerForTest { data.wayPoints.add(WayPoint("auto-target", rail.id, originArc + 30.0)) }
+        repeat(4) { world.onOwnerForTest { dispatcher.tick(world) } }
+        assertNull(dispatcher.status(TimetableServiceRunId("auto-retry-tt", "s1")))
+
+        world.onOwnerForTest { dispatcher.tick(world) }
+        assertNotNull(dispatcher.status(TimetableServiceRunId("auto-retry-tt", "s1")))
+        assertTrue(train.controller is SimpleATO)
+    }
+
+    @Test
+    fun `automatic timetable disables after three failed start attempts`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        val dispatcher = dispatcher()
+        val data = BasicWorldData()
+        TestSimpleATOWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("auto-disable-train", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("disable-origin", rail.id, originArc))
+        data.wayPoints.add(WayPoint("disable-target", rail.id, originArc + 30.0))
+        world.simpleAtoWorldData.timetables.add(
+            Timetable(
+                "auto-disable-tt",
+                services = listOf(
+                    TimetableService(
+                        "s1",
+                        steps = listOf(
+                            TimetableStep.At(0L, TimetableAction.TakeFromWaypoint(listOf("disable-origin"))),
+                            TimetableStep.At(0L, TimetableAction.GoTo("disable-target"))
+                        )
+                    )
+                )
+            )
+        )
+        assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, "auto-disable-tt") } is
+            TimetableEpochStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.scheduleInitialCycle("auto-disable-tt") })
+
+        world.onOwnerForTest { data.wayPoints.remove("disable-target") }
+        // Attempts occur at ticks 1, 6 and 11; the third failure disables future automatic starts.
+        repeat(11) { world.onOwnerForTest { dispatcher.tick(world) } }
+        assertNull(dispatcher.status(TimetableServiceRunId("auto-disable-tt", "s1")))
+
+        world.onOwnerForTest { data.wayPoints.add(WayPoint("disable-target", rail.id, originArc + 30.0)) }
+        repeat(5) { world.onOwnerForTest { dispatcher.tick(world) } }
+        assertNull(dispatcher.status(TimetableServiceRunId("auto-disable-tt", "s1")))
+        assertEquals(null, train.controller)
+
+        // Manual start is a separate path and is not blocked by automatic-start disablement.
+        val manual = world.onOwnerForTest { dispatcher.startService(world, "auto-disable-tt", "s1") }
+        assertTrue(manual is TimetableServiceStartResult.Started, manual.toString())
+        assertTrue(train.controller is SimpleATO)
+    }
+
+    @Test
     fun `takeFromWaypoint failure stalls the world`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val dispatcher = dispatcher()

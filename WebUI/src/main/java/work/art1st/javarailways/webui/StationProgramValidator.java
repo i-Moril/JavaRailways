@@ -1,6 +1,8 @@
 package work.art1st.javarailways.webui;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -9,7 +11,7 @@ import java.util.Set;
 
 /** Strict authoring structure. World references and executable continuity remain runtime validation. */
 final class StationProgramValidator {
-    private static final Set<String> PARAMETER_TYPES = Set.of("NUMBER", "TICK", "DURATION", "STRING", "ID_LIST", "JSON_OBJECT");
+    private static final Set<String> PARAMETER_TYPES = Set.of("NUMBER", "DURATION", "STRING", "ID_LIST", "JSON_OBJECT", "BOOLEAN");
     private static final long MAX_SAFE_INTEGER = 9_007_199_254_740_991L;
     private StationProgramValidator() {}
 
@@ -110,7 +112,9 @@ final class StationProgramValidator {
                 }
                 case "WAIT_UNTIL" -> {
                     fields(step, Set.of("id", "type", "tick"), "WAIT_UNTIL step");
-                    value(step.path("tick"), "TICK", parameters, false);
+                    // A timetable tick is a plain integer amount; NUMBER admits fractions, so the sink re-checks.
+                    JsonNode evaluatedTick = ProgramExpressionValidator.validate(step.path("tick"), "NUMBER", parameters, null);
+                    if (evaluatedTick != null) literal(evaluatedTick, "DURATION", false);
                 }
                 case "WAIT_DURATION" -> {
                     fields(step, Set.of("id", "type", "durationTicks"), "WAIT_DURATION step");
@@ -179,15 +183,21 @@ final class StationProgramValidator {
         validate(definition);
         if (!arguments.isObject()) fail("program arguments must be an object");
         Set<String> names = new HashSet<>();
+        Map<String, String> parameters = new HashMap<>();
+        ObjectNode bound = JsonNodeFactory.instance.objectNode();
         for (JsonNode parameter : definition.path("parameters")) {
             String id = parameter.path("id").asText();
             names.add(id);
-            literal(arguments.path(id), parameter.path("type").asText(), false);
+            parameters.put(id, parameter.path("type").asText());
+            if (parameter.has("default")) literal(parameter.path("default"), parameter.path("type").asText(), false);
+            JsonNode supplied = arguments.path(id);
+            JsonNode effective = !supplied.isMissingNode() ? supplied : parameter.get("default");
+            if (effective == null) fail("missing program argument: " + id);
+            literal(effective, parameter.path("type").asText(), false);
+            bound.set(id, effective);
         }
         arguments.fieldNames().forEachRemaining(name -> { if (!names.contains(name)) fail("unknown program argument: " + name); });
-        Map<String, String> parameters = new HashMap<>();
-        definition.path("parameters").forEach(parameter -> parameters.put(parameter.path("id").asText(), parameter.path("type").asText()));
-        validateStepArguments(definition.path("steps"), parameters, arguments);
+        validateStepArguments(definition.path("steps"), parameters, bound);
     }
 
     private static void validateStepArguments(JsonNode steps, Map<String, String> parameters, JsonNode arguments) {
@@ -204,7 +214,7 @@ final class StationProgramValidator {
             }
             Map<String, String> sinks = switch (type) {
                 case "SET_DISPLAY" -> Map.of("values", "JSON_OBJECT", "removeKeys", "ID_LIST");
-                case "WAIT_UNTIL" -> Map.of("tick", "TICK");
+                case "WAIT_UNTIL" -> Map.of("tick", "DURATION");
                 case "WAIT_DURATION" -> Map.of("durationTicks", "DURATION");
                 case "BRANCH", "EXTENSION" -> Map.of("parameters", "JSON_OBJECT");
                 case "MOVE" -> Map.of("destinationId", "STRING", "viaIds", "ID_LIST");
@@ -254,7 +264,7 @@ final class StationProgramValidator {
 
     private static void literal(JsonNode value, String type, boolean positive) {
         switch (type) {
-            case "TICK", "DURATION" -> {
+            case "DURATION" -> {
                 double number = value.doubleValue();
                 if (!value.isNumber() || !Double.isFinite(number) || Math.rint(number) != number || number < (positive ? 1 : 0) || number > MAX_SAFE_INTEGER) fail(type + " must be a " + (positive ? "positive" : "nonnegative") + " safe integer");
             }

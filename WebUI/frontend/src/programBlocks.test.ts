@@ -20,7 +20,7 @@ const definition:StationProgramDefinition={parameters:[{id:'duration',type:'DURA
 ]};
 describe('rail program Blockly mapping',()=>{
  it('creates whole-train display actions without a formation selector',()=>{
-  expect(programParameterTypes).toEqual(['NUMBER','TICK','DURATION','STRING','ID_LIST','JSON_OBJECT']);
+  expect(programParameterTypes).toEqual(['NUMBER','DURATION','STRING','ID_LIST','JSON_OBJECT','BOOLEAN']);
   for(const type of ['SET_DISPLAY','RESET_DISPLAY'] as const){
    const step=defaultProgramStep(type),state=definitionToBlocks({parameters:[],steps:[step]});
    expect(Object.keys(first(state).inputs??{})).toEqual(type==='SET_DISPLAY'?['values','removeKeys']:[]);

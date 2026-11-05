@@ -55,7 +55,10 @@ it('orders tasks after run time edits in one transaction and preserves equal-tim
 });
 
 it('initializes numeric program and simulation arguments with valid numeric defaults',()=>{
- expect(defaultDutyProgramArguments([{id:'number',type:'NUMBER'},{id:'duration',type:'DURATION'},{id:'tick',type:'TICK'},{id:'text',type:'STRING'}])).toEqual({number:0,duration:1,tick:0,text:''});
+ expect(defaultDutyProgramArguments([{id:'number',type:'NUMBER'},{id:'duration',type:'DURATION'},{id:'flag',type:'BOOLEAN'},{id:'text',type:'STRING'}])).toEqual({number:0,duration:1,flag:false,text:''});
+});
+it('honours declared parameter defaults over type defaults',()=>{
+ expect(defaultDutyProgramArguments([{id:'number',type:'NUMBER',default:7},{id:'duration',type:'DURATION',default:30},{id:'flag',type:'BOOLEAN',default:true},{id:'text',type:'STRING',default:'x'}])).toEqual({number:7,duration:30,flag:true,text:'x'});
 });
 it('ends run tasks at terminal arrival so terminal programs can start during dwell',()=>{
  const doc=fixture();doc.runs[0].calls[1].departureTick=null;

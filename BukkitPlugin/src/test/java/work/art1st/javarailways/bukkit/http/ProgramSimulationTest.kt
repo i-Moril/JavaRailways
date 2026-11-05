@@ -48,7 +48,7 @@ class ProgramSimulationTest {
         val input = request {
             JsonObject(this + mapOf("startTick" to JsonPrimitive(23_900L), "maximumDurationTicks" to JsonPrimitive(48_000L),
                 "definition" to Json.parseToJsonElement("""
-                    {"parameters":[{"id":"when","type":"TICK"}],"steps":[
+                    {"parameters":[{"id":"when","type":"NUMBER"}],"steps":[
                       {"id":"wait","type":"WAIT_UNTIL","tick":{"parameterId":"when"}}]}
                 """), "arguments" to buildJsonObject { put("when", 120_000L) }))
         }

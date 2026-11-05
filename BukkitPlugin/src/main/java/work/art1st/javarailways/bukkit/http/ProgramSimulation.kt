@@ -71,7 +71,7 @@ internal data class ProgramSimulationRequest(
                         }
                         ProgramExpressions.validateShape(step.getValue("tick"))
                         val expression = Json.decodeFromJsonElement<StationProgramValue>(step.getValue("tick"))
-                        val tick = ProgramExpressions.evaluate(expression, "TICK", parameterTypes, arguments).jsonPrimitive.long
+                        val tick = ProgramExpressions.evaluate(expression, "NUMBER", parameterTypes, arguments).jsonPrimitive.long
                         run {
                             require(tick in 0L..MAX_SIMULATION_TICK) { "wait tick is outside the safe simulation range" }
                             latestTick = maxOf(latestTick, tick)

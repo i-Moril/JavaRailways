@@ -4,7 +4,7 @@ export const operationTypes:Record<StationProgramOperation,{inputs:StationProgra
  EQUALS:{inputs:['STRING','STRING'],output:'BOOLEAN'},NOT_EQUALS:{inputs:['STRING','STRING'],output:'BOOLEAN'},AND:{inputs:['BOOLEAN','BOOLEAN'],output:'BOOLEAN'},OR:{inputs:['BOOLEAN','BOOLEAN'],output:'BOOLEAN'},NOT:{inputs:['BOOLEAN'],output:'BOOLEAN'},
  PLAN_RUN_TYPE:{inputs:[],output:'STRING',plan:'runType'},PLAN_LINE_DIRECTION:{inputs:[],output:'STRING',plan:'lineDirection'},PLAN_CALL_STATUS:{inputs:[],output:'STRING',plan:'callStatus'},PLAN_STATION_ID:{inputs:[],output:'STRING',plan:'stationId'},PLAN_RUN_ID:{inputs:[],output:'STRING',plan:'runId'},PLAN_LINE_ID:{inputs:[],output:'STRING',plan:'lineId'},PLAN_DUTY_ID:{inputs:[],output:'STRING',plan:'dutyId'},
 };
-export const numericTypes=['NUMBER','TICK','DURATION'];
+export const numericTypes=['NUMBER','DURATION'];
 export const compatibleProgramType=(actual:StationProgramParameterType,expected:StationProgramParameterType)=>actual===expected||numericTypes.includes(actual)&&numericTypes.includes(expected);
 export const programOutputChecks=(type:StationProgramParameterType)=>numericTypes.includes(type)?numericTypes:type;
 /** A planned field reads a compile-time plan value; there is no runtime source for these. */

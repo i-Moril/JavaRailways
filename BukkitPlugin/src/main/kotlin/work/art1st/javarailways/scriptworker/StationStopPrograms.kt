@@ -52,7 +52,7 @@ internal fun compileStationStopPrograms(target: String, options: JsonObject): Sa
                 try { ProgramExpressions.validateShape(step.getValue(name), (type == "SET_DISPLAY" && name == "values") || type == "EXTENSION") }
                 catch (failure: RuntimeException) { throw IllegalArgumentException("step:$id: ${failure.message}", failure) }
                 if (step.getValue(name).jsonObject.keys != setOf("trainInfo")) {
-                    val sink = when (name) { "tick" -> "TICK"; "durationTicks" -> "DURATION"; "removeKeys" -> "ID_LIST"; "condition" -> "BOOLEAN"; else -> "JSON_OBJECT" }
+                    val sink = when (name) { "tick" -> "NUMBER"; "durationTicks" -> "DURATION"; "removeKeys" -> "ID_LIST"; "condition" -> "BOOLEAN"; else -> "JSON_OBJECT" }
                     try {
                         val resolved = ProgramExpressions.evaluate(Json.decodeFromJsonElement<StationProgramValue>(step.getValue(name)), sink, context = context)
                         if (name == "durationTicks") require(resolved.jsonPrimitive.long > 0) { "wait duration must be positive" }
@@ -80,7 +80,7 @@ internal fun compileStationStopPrograms(target: String, options: JsonObject): Sa
             val raw = step.getValue(name).jsonObject
             if (raw.keys == setOf("trainInfo") && name in setOf("values", "parameters")) return JsonObject(emptyMap())
             val expected = when (name) {
-                "tick" -> "TICK"; "durationTicks" -> "DURATION"; "removeKeys" -> "ID_LIST"; "condition" -> "BOOLEAN"
+                "tick" -> "NUMBER"; "durationTicks" -> "DURATION"; "removeKeys" -> "ID_LIST"; "condition" -> "BOOLEAN"
                 else -> "JSON_OBJECT"
             }
             return try { ProgramExpressions.evaluate(Json.decodeFromJsonElement<StationProgramValue>(raw), expected, context = context) }

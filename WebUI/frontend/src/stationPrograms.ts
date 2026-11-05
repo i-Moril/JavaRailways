@@ -4,12 +4,12 @@ import type { StationProgramCall,StationProgramDefinition,StationProgramLiteral,
 
 const clone=<T,>(value:T):T=>JSON.parse(JSON.stringify(value)) as T;
 const validId=(value:string)=>/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value);
-const types:StationProgramParameterType[]=['NUMBER','TICK','DURATION','STRING','ID_LIST','JSON_OBJECT'];
+const types:StationProgramParameterType[]=['NUMBER','DURATION','STRING','ID_LIST','JSON_OBJECT','BOOLEAN'];
 export function stationProgramLiteralValid(value:unknown,type:StationProgramParameterType):boolean {
   if(type==='NUMBER')return typeof value==='number'&&Number.isFinite(value)&&(!Number.isInteger(value)||Number.isSafeInteger(value));
   if(type==='STRING')return typeof value==='string'&&value.length<=8192;
   if(type==='JSON_OBJECT')return programJsonObjectError(value)==='';
-  if(type==='TICK'||type==='DURATION')return Number.isSafeInteger(value)&&Number(value)>=0;
+  if(type==='DURATION')return Number.isSafeInteger(value)&&Number(value)>=0;
   if(type==='ID_LIST')return Array.isArray(value)&&value.length<=256&&value.every((item)=>typeof item==='string'&&!!item.trim()&&item.length<=256);
   if(type==='BOOLEAN')return typeof value==='boolean';
   return false;
@@ -23,20 +23,32 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
     if(!parameter||typeof parameter.id!=='string'||typeof parameter.type!=='string'){errors.push('Invalid parameter shape');continue;}
     if(!validId(parameter.id)||parameters.has(parameter.id))errors.push(`Invalid or duplicate parameter ID: ${parameter.id}`);
     if(!types.includes(parameter.type))errors.push(`Unknown parameter type: ${parameter.type}`);
+    if(parameter.default!==undefined&&!stationProgramLiteralValid(parameter.default,parameter.type))errors.push(`Invalid default value: ${parameter.id}`);
     parameters.set(parameter.id,parameter.type);
-    if(args&&!stationProgramLiteralValid(args[parameter.id],parameter.type))errors.push(`Invalid argument: ${parameter.id}`);
   }
-  if(args)for(const name of Object.keys(args))if(!parameters.has(name))errors.push(`Unknown argument: ${name}`);
+  // Omitted arguments fall back to the declared default before anything is evaluated.
+  let bound=args;
+  if(args){
+    bound={...args};
+    for(const parameter of definition.parameters){
+      if(!Object.hasOwn(bound,parameter.id)&&parameter.default!==undefined)bound[parameter.id]=parameter.default;
+    }
+    for(const parameter of definition.parameters){
+      if(!Object.hasOwn(bound,parameter.id)){errors.push(`Missing argument: ${parameter.id}`);continue;}
+      if(!stationProgramLiteralValid(bound[parameter.id],parameter.type))errors.push(`Invalid argument: ${parameter.id}`);
+    }
+    for(const name of Object.keys(args))if(!parameters.has(name))errors.push(`Unknown argument: ${name}`);
+  }
   const check=(value:StationProgramValue<StationProgramLiteral>,type:StationProgramParameterType,positive=false,allowTrainInfo=false)=>{
     if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==1){errors.push('Program value requires exactly value or parameterId');return;}
     if('trainInfo' in value){if(!allowTrainInfo)errors.push('Train information is unavailable in this input');else {const error=trainInfoError(value.trainInfo);if(error)errors.push(error);}return;}
-    try{validateProgramExpression(value,type,parameters,stationProgramLiteralValid,args);}catch{errors.push('Invalid program expression (incompatible input or invalid value)');return;}
-    if(positive){try{if(Number(resolveProgramValue(value,args??{}))<=0)errors.push('Wait duration must be positive');}catch{/* Unbound parameter expressions are evaluated when invoked. */}}
+    try{validateProgramExpression(value,type,parameters,stationProgramLiteralValid,bound);}catch{errors.push('Invalid program expression (incompatible input or invalid value)');return;}
+    if(positive){try{if(Number(resolveProgramValue(value,bound??{}))<=0)errors.push('Wait duration must be positive');}catch{/* Unbound parameter expressions are evaluated when invoked. */}}
   };
   const checkId=(value:StationProgramValue<string>)=>{
     check(value,'STRING');
     let resolved:unknown;
-    try{resolved=resolveProgramValue(value,args??{});}catch{return; /* Unbound expressions are checked when invoked. */}
+    try{resolved=resolveProgramValue(value,bound??{});}catch{return; /* Unbound expressions are checked when invoked. */}
     if(typeof resolved!=='string'||!resolved.trim()||resolved.length>256)errors.push('Action ID must be nonblank and at most256 characters');
   };
   const ids=new Set<string>();
@@ -52,14 +64,14 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
     switch(step.type){
       case 'SET_DISPLAY':{
         check(step.values as StationProgramValue<StationProgramLiteral>,'JSON_OBJECT',false,true);if(step.removeKeys)check(step.removeKeys,'ID_LIST');
-        let values:unknown;try{if(step.values&&!('trainInfo' in step.values))values=resolveProgramValue(step.values,args??{});}catch{/* Unbound parameters are checked when invoked. */}
+        let values:unknown;try{if(step.values&&!('trainInfo' in step.values))values=resolveProgramValue(step.values,bound??{});}catch{/* Unbound parameters are checked when invoked. */}
         if(values!==undefined){const error=displayValuesError(values);if(error)errors.push(error);}
-        const keys=step.removeKeys&&('value' in step.removeKeys?step.removeKeys.value:'parameterId' in step.removeKeys?args?.[step.removeKeys.parameterId]:undefined);
+        const keys=step.removeKeys&&('value' in step.removeKeys?step.removeKeys.value:'parameterId' in step.removeKeys?bound?.[step.removeKeys.parameterId]:undefined);
         if(Array.isArray(keys)&&new Set<unknown>(keys).size!==keys.length)errors.push('Display removal keys must be unique');
         break;
       }
       case 'RESET_DISPLAY':break;
-      case 'WAIT_UNTIL':check(step.tick,'TICK');break;
+      case 'WAIT_UNTIL':check(step.tick,'NUMBER');break;
       case 'WAIT_EVENT':if(!validId(step.eventId)||!Number.isSafeInteger(step.offsetTicks))errors.push('Invalid event wait');break;
       case 'WAIT_DURATION':check(step.durationTicks,'DURATION',true);break;
       case 'BRANCH':
@@ -73,7 +85,7 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
         if(step.doorSideOverride!=null){
           check(step.doorSideOverride,'STRING');
           let side:unknown;
-          try{side=resolveProgramValue(step.doorSideOverride,args??{});}catch{/* Unbound STRING expressions are checked when invoked. */}
+          try{side=resolveProgramValue(step.doorSideOverride,bound??{});}catch{/* Unbound STRING expressions are checked when invoked. */}
           if(side!==undefined&&!['LEFT','RIGHT','BOTH'].includes(side as string))errors.push('Door side override must be LEFT, RIGHT or BOTH');
         }
         break;
@@ -85,7 +97,7 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
       case 'SELECT_STOP':
         checkId(step.stationId);check(step.berthIds,'ID_LIST');
         if(!['FIXED_PREFERENCE','AVAILABLE_PRIORITY'].includes(step.selectionPolicy))errors.push('Invalid station selection policy');
-        {const expression=step.berthIds;const ids=expression&&('value' in expression?expression.value:'parameterId' in expression?args?.[expression.parameterId]:undefined);
+        {const expression=step.berthIds;const ids=expression&&('value' in expression?expression.value:'parameterId' in expression?bound?.[expression.parameterId]:undefined);
         if(Array.isArray(ids)&&(!ids.length||ids.length>64||new Set<unknown>(ids).size!==ids.length))errors.push('Station selection requires distinct nonempty berth IDs (at most64)');}
         break;
       case 'STORE_AT_DEPOT':checkId(step.depotId);check(step.stablingPointIds,'ID_LIST');break;

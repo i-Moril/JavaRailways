@@ -165,7 +165,7 @@ class ProgramExpressionsTest {
         assertThrows(RuntimeException::class.java) { evaluate(op("SUBSTRING", literal("ab"), literal(2), literal(1)), "STRING") }
         assertThrows(RuntimeException::class.java) { evaluate(op("REPLACE", literal("ab"), literal(""), literal("x")), "STRING") }
         assertThrows(RuntimeException::class.java) { evaluate(op("CONCAT",literal("a".repeat(8192)),literal("b")), "STRING") }
-        assertThrows(RuntimeException::class.java) { evaluate(op("ADD", literal(0.5), literal(1)), "TICK") }
+        assertThrows(RuntimeException::class.java) { evaluate(op("ADD", literal(0.5), literal(1)), "DURATION") }
         assertEquals("", evaluate(op("CONCAT", literal(""), literal("")), "STRING").jsonPrimitive.content)
         assertThrows(RuntimeException::class.java) { evaluate("""{"object":{"x":{"trainInfo":{"name":"MODEL"}}}}""", "JSON_OBJECT") }
         var nested = literal(1)

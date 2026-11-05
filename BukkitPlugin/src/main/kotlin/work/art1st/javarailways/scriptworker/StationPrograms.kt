@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 
 /** Visual authoring DTOs are expanded at compile time, never evaluated as runtime JavaScript. */
-@Serializable internal data class StationProgramParameter(val id: String, val type: String)
+@Serializable internal data class StationProgramParameter(val id: String, val type: String, val default: JsonElement? = null)
 @Serializable internal data class StationProgramValue(val value: JsonElement? = null, val parameterId: String? = null, val trainInfo: Map<String, SavedTrainInfoField>? = null, val operation: StationProgramOperation? = null, val `object`: Map<String, StationProgramValue>? = null)
 @Serializable internal data class StationProgramDefinition(val parameters: List<StationProgramParameter>, val steps: List<StationProgramStep>)
 @Serializable internal sealed class StationProgramStep {
@@ -71,15 +71,20 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
     require(definition.parameters.size <= 64 && definition.steps.size <= 256) { "program exceeds parameter/step limits" }
     val parameters = definition.parameters.associate { parameter ->
         requireProgramId(parameter.id)
-        require(parameter.type in setOf("NUMBER", "TICK", "DURATION", "STRING", "ID_LIST", "JSON_OBJECT")) { "unknown parameter type: ${parameter.type}" }
+        require(parameter.type in setOf("NUMBER", "DURATION", "STRING", "ID_LIST", "JSON_OBJECT", "BOOLEAN")) { "unknown parameter type: ${parameter.type}" }
+        parameter.default?.let { validateProgramLiteral(it, parameter.type) }
         parameter.id to parameter.type
     }
     require(parameters.size == definition.parameters.size) { "duplicate program parameter id" }
-    require(arguments.keys == parameters.keys) { "program arguments must match declared parameters" }
-    parameters.forEach { (id, type) -> validateProgramLiteral(arguments.getValue(id), type) }
+    require(arguments.keys.all { it in parameters }) { "unknown program argument" }
+    val bound = JsonObject(parameters.keys.associateWith { id ->
+        arguments[id] ?: definition.parameters.firstOrNull { it.id == id }?.default
+            ?: error("missing program argument: $id")
+    })
+    parameters.forEach { (id, type) -> validateProgramLiteral(bound.getValue(id), type) }
     require(definition.steps.map { it.id }.distinct().size == definition.steps.size) { "duplicate program step id" }
     fun value(expression: StationProgramValue, type: String): JsonElement =
-        ProgramExpressions.evaluate(expression, type, parameters, arguments, plannedContext)
+        ProgramExpressions.evaluate(expression, type, parameters, bound, plannedContext)
     fun validateBoundSteps(steps: JsonArray) {
         steps.forEach { raw ->
             val step = raw.jsonObject
@@ -89,7 +94,7 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
                     "SET_DISPLAY" -> mapOf("values" to "JSON_OBJECT", "removeKeys" to "ID_LIST")
                     "BRANCH" -> mapOf("condition" to "BOOLEAN")
                     "EXTENSION" -> mapOf("parameters" to "JSON_OBJECT")
-                    "WAIT_UNTIL" -> mapOf("tick" to "TICK")
+                    "WAIT_UNTIL" -> mapOf("tick" to "NUMBER")
                     "WAIT_DURATION" -> mapOf("durationTicks" to "DURATION")
                     "MOVE" -> mapOf("destinationId" to "STRING", "viaIds" to "ID_LIST")
                     "SELECT_STOP" -> mapOf("stationId" to "STRING", "berthIds" to "ID_LIST")
@@ -132,7 +137,7 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
             }
             is StationProgramStep.ResetDisplay -> append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.RESET_DISPLAY))
             is StationProgramStep.WaitUntil -> {
-                val next = value(step.tick, "TICK").jsonPrimitive.long
+                val next = value(step.tick, "NUMBER").jsonPrimitive.long
                 tick = maxOf(tick, next)
                 append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.WAIT_UNTIL))
             }
@@ -204,7 +209,7 @@ internal fun validateProgramLiteral(value: JsonElement, type: String) {
         }
         "STRING" -> require(value is JsonPrimitive && value.isString && value.content.length <= 8192) { "STRING must contain at most8192 characters" }
         "BOOLEAN" -> require(value is JsonPrimitive && !value.isString && value.booleanOrNull != null) { "BOOLEAN must be true or false" }
-        "TICK", "DURATION" -> {
+        "DURATION" -> {
             val primitive = value as? JsonPrimitive
             val number = primitive?.takeUnless { it.isString }?.doubleOrNull
             require(number != null && number.isFinite() && number == kotlin.math.floor(number) && number in 0.0..9_007_199_254_740_991.0) { "$type must be a nonnegative safe integer" }

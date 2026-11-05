@@ -11,7 +11,7 @@ import kotlin.math.*
 
 /** Pure, bounded authoring expressions. Values are resolved before the dispatcher runs. */
 internal object ProgramExpressions {
-    private val numericTypes = setOf("NUMBER", "TICK", "DURATION")
+    private val numericTypes = setOf("NUMBER", "DURATION")
     private val decimal = Regex("[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
     private val inputs = mapOf(
         "ADD" to listOf("NUMBER", "NUMBER"), "SUBTRACT" to listOf("NUMBER", "NUMBER"),
@@ -165,7 +165,7 @@ internal object ProgramExpressions {
             }
             if (expected == "JSON_VALUE") validateProgramJsonObject(buildJsonObject { put("value", result) })
             else validateProgramLiteral(result, expected)
-            return if (expected == "TICK" || expected == "DURATION") JsonPrimitive(result.jsonPrimitive.double.toLong()) else result
+            return if (expected == "DURATION") JsonPrimitive(result.jsonPrimitive.double.toLong()) else result
         }
         return resolve(expression, type)
     }

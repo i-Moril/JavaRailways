@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
 /** Bounded, pure compile-time expressions. A missing result means an unbound parameter. */
 final class ProgramExpressionValidator {
     private static final JsonNodeFactory JSON = JsonNodeFactory.instance;
-    private static final Set<String> NUMERIC = Set.of("NUMBER", "TICK", "DURATION");
+    private static final Set<String> NUMERIC = Set.of("NUMBER", "DURATION");
     private static final Pattern DECIMAL = Pattern.compile("[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?");
     private record Result(String type, JsonNode value) {}
     private ProgramExpressionValidator() {}

@@ -406,6 +406,7 @@ object TopologyRoutePlanner {
     ) {
         private val cutsByEdge: Map<TrackEdgeId, List<Double>>
         private val incidentEnds: Map<TopologyNodeId, List<IncidentEnd>> = buildIncidentEnds(topology)
+        private val queryEndpoints = listOf(start, end)
 
         init {
             val cuts = topology.edges.values.associate { edge ->
@@ -474,7 +475,7 @@ object TopologyRoutePlanner {
                     point.direction,
                     point.distanceMeters,
                     targetDistance
-                ).toSegments(edge)
+                ).toSegments(edge, queryEndpoints)
             )
         }
 
@@ -723,7 +724,10 @@ object TopologyRoutePlanner {
         is TopologyNode.Turnout -> departurePort in node.legalContinuations.getValue(arrivalPort)
     }
 
-    private fun EdgeTraversal.toSegments(edge: TrackEdge): List<RouteSegmentSnapshot> {
+    private fun EdgeTraversal.toSegments(
+        edge: TrackEdge,
+        queryEndpoints: List<ResolvedLocation>
+    ): List<RouteSegmentSnapshot> {
         val lower = minOf(startDistanceMeters, endDistanceMeters)
         val upper = maxOf(startDistanceMeters, endDistanceMeters)
         val slices = edge.railSlices.withEdgeOffsets()
@@ -732,8 +736,8 @@ object TopologyRoutePlanner {
             val overlapStart = maxOf(lower, slice.edgeStartMeters)
             val overlapEnd = minOf(upper, slice.edgeEndMeters)
             if (overlapEnd <= overlapStart) return@mapNotNull null
-            val canonicalAtLower = slice.canonicalAbAt(overlapStart)
-            val canonicalAtUpper = slice.canonicalAbAt(overlapEnd)
+            val canonicalAtLower = slice.canonicalAbAt(overlapStart, queryEndpoints)
+            val canonicalAtUpper = slice.canonicalAbAt(overlapEnd, queryEndpoints)
             val canonicalStart = if (direction == EdgeDirection.FIRST_TO_SECOND) {
                 canonicalAtLower
             } else {
@@ -781,7 +785,14 @@ object TopologyRoutePlanner {
         }
     }
 
-    private fun SliceWithOffset.canonicalAbAt(edgeDistance: Double): Double {
+    private fun SliceWithOffset.canonicalAbAt(
+        edgeDistance: Double,
+        queryEndpoints: List<ResolvedLocation>
+    ): Double {
+        // Query cuts already have authoritative rail-local coordinates. Adding an edge prefix
+        // and subtracting it again is not reversible in floating point, even inside one rail.
+        queryEndpoints.firstOrNull { it.railId == railId && it.edgeDistanceMeters == edgeDistance }
+            ?.let { return it.canonicalAbMeters }
         // Accumulated edge offsets can round differently from this rail's own length.
         // Preserve known physical endpoints rather than subtracting their rounded offsets.
         if (edgeDistance == edgeStartMeters) return railStartAbMeters

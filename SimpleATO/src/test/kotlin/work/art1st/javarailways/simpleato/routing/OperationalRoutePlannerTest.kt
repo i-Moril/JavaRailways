@@ -139,6 +139,39 @@ class OperationalRoutePlannerTest {
     }
 
     @Test
+    fun `positive route adapter preserves exact interior query endpoints in both directions`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val prefix = world.createRailForTest(straight(0.0, 1000.0))
+        val target = world.createRailForTest(straight(1000.0, 1110.0))
+        val suffix = world.createRailForTest(straight(1110.0, 2110.0))
+        IsolatedSimulationThreadMarker.run {
+            RailView.connect(prefix.viewAB, target.viewBA)
+            RailView.connect(target.viewAB, suffix.viewBA)
+        }
+        val planner = OperationalRoutePlanner(world)
+        val low = 3.6701266737305
+        val high = 109.1008889681433
+
+        for (facing in ViewDirection.entries) {
+            val start = if (facing == ViewDirection.AB) low else high
+            val end = if (facing == ViewDirection.AB) high else low
+            val result = planner.buildRoute(
+                from = WayPoint("from", target.id, start),
+                to = WayPoint("to", target.id, end),
+                requiredStartDirection = facing,
+                requiredGoalDirection = facing
+            )
+            assertTrue(result is RouteBuildResult.Success, (result as? RouteBuildResult.Failure)?.reason)
+            val segment = (result as RouteBuildResult.Success).route.segments.single()
+            assertTrue(segment.length > 0.0)
+            assertEquals(facing, segment.railViewRef.direction)
+            assertEquals(if (facing == ViewDirection.AB) start else target.curve.totalArcLength - start, segment.startArcLength)
+            assertEquals(if (facing == ViewDirection.AB) end else target.curve.totalArcLength - end, segment.endArcLength)
+        }
+    }
+
+    @Test
     fun `registered restrictions are compiled once before an operational query`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)

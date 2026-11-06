@@ -204,6 +204,35 @@ class TimetableDispatcherTest {
     }
 
     @Test
+    fun `parked undershoot keeps the first occurrence of a retained loop mission`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        val data = BasicWorldData()
+        TestSimpleATOWorldDataRegistry.register(world, data)
+        val (rail, returnRail) = depotLoop(world)
+        val train = createTrainWithConfig("T", rail, world, listOf(10.0))
+        val actualHead = train.publishedFrame.head
+        val actualArc = actualHead.arcLengthInAbMeters
+        // The authored route must go around the loop, without overlapping its own intervals.
+        // The accepted 0.1m undershoot also belongs to the LAST occurrence of this rail.
+        data.wayPoints.add(WayPoint("A", rail.id, actualArc + 0.1))
+        data.wayPoints.add(WayPoint("B", rail.id, actualArc + 0.05))
+        world.simpleAtoWorldData.timetables.add(Timetable("parked-loop", services = listOf(
+            TimetableService("s", TrainSelector.TrainId(train.id), listOf(
+                TimetableStep.Check("A"), TimetableStep.At(0L, TimetableAction.GoTo("B")))))))
+        val dispatcher = dispatcher()
+        val started = world.onOwnerForTest { dispatcher.startService(world, "parked-loop", "s") }
+        assertTrue(started is TimetableServiceStartResult.Started, started.toString())
+        val ato = train.controller as SimpleATO
+        tickAndPublish(ato)
+        val mission = requireNotNull(ato.currentMission)
+        val segments = mission.legs.single().plannedRoute.expandedRoute.segments
+        assertEquals(listOf(rail.id, returnRail.id, rail.id), segments.map { it.railViewRef.railId })
+        assertEquals(actualArc, segments.first().startArcLength)
+        assertEquals(actualArc + 0.05, segments.last().endArcLength)
+        assertEquals(actualHead, train.publishedFrame.head)
+    }
+
+    @Test
     fun `undirected input retains only facing that avoids unspecified loop waypoints`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val data = BasicWorldData()

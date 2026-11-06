@@ -90,6 +90,20 @@ Train acquisition以live stopped train location/speed/derail/controller/run/geom
 不推进后续动作，允许原控制器继续接近。这里仍是既有进度/零速完成判定，不新增绝对停车误差验证器；
 真实授权越界检查独立保留，真实精度回归须直接断言实际车头坐标，不能用任务完成状态替代。
 
+下一 Mission 的首段若与实际停稳车头同轨同向，且起点差异在既有停车容差内，复用
+`ObservedAtoMissionOrigin` 将首段设为真实车头位置；允许停车偏差不意味着可以将车头截到标记。
+确认首段起点前的欠停后，先保留这段到标记的真实距离，再考虑其他轨道出现次数；不能先在整条路线
+搜索包含车头的段，否则绕行后再次经过同轨时可能误选后段并跳过环线。
+显式换向后的路线段归属也不用停车容差扩张，段内直接使用实际位置，段外仍走既有连接路线逻辑。
+通用投影和冻结路线的规则由 [ATO policy runtime](ato-policy-runtime.md#真实位置到-mission-累计距离) 维护。
+
+`scheduleStationCall` 先从当前 Mission 取包含目标站台的选定前缀，再交给 `StationCallResolver`。
+该前缀的总长就是这个站台在 Mission 上的距离，直接复用，不再反向搜索同一坐标、再以停车容差
+比较两份距离。前缀选择接受真实段内标记，不将段外站台截回段端点；站台在 Mission 中途也适用。
+真正的“已越过停车位置”业务判断继续使用原停车容差，车门、授权和站停生命周期不变。
+`TimetableDispatcherTest` 的真实双轨环线回归验证欠停不会跳过首个 occurrence；它检查提交的完整
+路线和不瞬移，不把仅安装 Mission 描述为已经完成绕圈行驶。
+
 自动运行接受普通mission或目的地停车后，Dispatcher用既有`stopKey(run)`发布零速限制，保持到下一条行车任务成功安装；
 普通`Stop(ticks)`同样保持停车，而不是只倒计时。限制跨停留、等待时刻、换向和非行车动作保留；
 新GoTo/StoreAtDepot安装成功后解除，失败与controller交接沿用既有清理/停车路径。不新增状态字段；正常转换只在入口设置，

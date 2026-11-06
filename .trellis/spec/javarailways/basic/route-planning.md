@@ -26,6 +26,24 @@ data class RouteSegment(
 
 后续Basic准入仍独立验证冻结traversal连续且每个continuation合法，并把沿途rail intervals、受控transition与route-bound shared resources加入唯一claim集合。物理占用范围只是资源binding的验证数据，不是第二份footprint。Basic不得要求调用方另报资源清单，也不得在验证时另行寻路或用保护区域替调用方选择路径。
 
+### 已知查询端点保真（CURRENT）
+
+`TopologyRoutePlanner` 的查询输入是原始 canonical AB 米坐标。搜索将其换算为合并图边上的距离，
+但普通图弧展开回轨道段时，若切点的轨道 ID 与图边距离精确匹配本次查询的起点或终点，直接沿用
+该查询点的 canonical 坐标，再按段方向转换成 view-local 坐标。其余位置仍用既有轨道切片换算。
+不能假定浮点的“加前缀再减前缀”可逆，也不能用近似判等加零长度 marker 代替正长度段端点保真：
+SimpleATO 的适配器会过滤方向 marker。
+
+例如查询终点 `109.1008889681433` 不得在普通段输出中因累计距离往返变成
+`109.10088896814318`。BA 仍遵守一次 `railLength - canonicalAb` 的现有表示，不增加坐标字段。
+只有两个查询局部锚点，每个切片检查成本为 O(1)，不增加搜索复杂度、持久化或可变共享状态。
+缺失/非法输入和不可达仍走既有拒绝分支；宏路径仍完整使用原始 span，不能为端点“对齐”而截断宏。
+本规则不放宽搜索位置判等，不将与宏端点近似相同的另一位置自动吸附到它。
+
+回归由 `TopologyRoutePlannerTest` 和 `OperationalRoutePlannerTest` 覆盖：合并边内端点、AB/BA、
+反向存储轨道、未指定起始方向、零长度方向 marker、完整宏前后普通段以及适配后的正长度段，
+以不带 delta 的端点断言验证；既有宏内部不可退出和拓扑连续性测试继续通过。无需迁移。
+
 ### 公开路线值与内部实现的边界
 
 当前 `basic.api.route` 直接拥有 `RailViewRef`、`RouteSegment`、`ExpandedRoute` 和 `PlannedRoute`，

@@ -60,6 +60,8 @@ class MissionRouteLayout(
     /**
      * Resolve [position] on the Mission distance axis. [previousProgressMeters] keeps repeated rails
      * and loop routes monotonic after the train has entered the Mission.
+     * Segment membership uses the actual directed interval, not a stopping-position tolerance:
+     * snapping a position back to a segment endpoint would hide that a signal has been passed.
      */
     fun project(
         position: RailPositionSnapshot,
@@ -73,21 +75,15 @@ class MissionRouteLayout(
                 ViewDirection.AB -> position.arcLengthInAbMeters
                 ViewDirection.BA -> segment.railLengthMeters - position.arcLengthInAbMeters
             }
-            if (arcInView < segment.startArcLengthMeters - POSITION_TOLERANCE_METERS ||
-                arcInView > segment.endArcLengthMeters + POSITION_TOLERANCE_METERS
+            if (arcInView < segment.startArcLengthMeters ||
+                arcInView > segment.endArcLengthMeters
             ) return@mapNotNull null
-            segment.cumulativeStartMeters +
-                (arcInView.coerceIn(segment.startArcLengthMeters, segment.endArcLengthMeters) -
-                    segment.startArcLengthMeters)
+            segment.cumulativeStartMeters + (arcInView - segment.startArcLengthMeters)
         }
         if (candidates.isEmpty()) return null
         if (previousProgressMeters == null) return candidates.minOrNull()
         return candidates
-            .filter { it >= previousProgressMeters - POSITION_TOLERANCE_METERS }
-            .minByOrNull { abs(it - previousProgressMeters) }
-    }
-
-    private companion object {
-        const val POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS
+            .filter { it >= previousProgressMeters }
+            .minOrNull()
     }
 }

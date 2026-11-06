@@ -820,8 +820,7 @@ class SimpleATO(
             val missionProgress = requireNotNull(missionProjectedProgressMeters) {
                 "active Mission has no projected progress for its frozen restriction route"
             }
-            (route.headDistanceFromRouteStartMeters + missionProgress - route.missionHeadProgressAtSelectionMeters)
-                .coerceIn(0.0, route.binding.totalLengthMeters)
+            route.headDistanceFromRouteStartMeters + missionProgress - route.missionHeadProgressAtSelectionMeters
         } else route.binding.totalLengthMeters
 
     private fun updateTrainRestrictions(perception: PerceptionSnapshot, route: RestrictionRoute?, clearanceHorizon: Double? = null) {

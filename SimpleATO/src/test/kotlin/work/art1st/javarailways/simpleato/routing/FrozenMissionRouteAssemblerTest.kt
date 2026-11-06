@@ -30,6 +30,61 @@ import java.util.UUID
 
 class FrozenMissionRouteAssemblerTest {
     @Test
+    fun `route coordinate conversion preserves positions outside the route instead of clamping`() {
+        val rail = UUID(0L, 47L)
+        val observed = observation(1L, RailPositionSnapshot(rail, ViewDirection.AB, 0.0),
+            RailPositionSnapshot(rail, ViewDirection.AB, 10.0),
+            listOf(traversal(rail, ViewDirection.AB, 0.0, 10.0)))
+        val frozen = FrozenMissionRoute(FrozenRouteSelectionResult.Selected(TRAIN_ID, observed.stamp,
+            RouteSnapshot("route", 1L, 1L, listOf(RouteSegmentSnapshot(rail, ViewDirection.AB, 0.0, 100.0)))),
+            10.0, 0.0)
+        assertEquals(-0.125, frozen.routeProgressMeters(-10.125))
+        assertEquals(100.125, frozen.routeProgressMeters(90.125))
+    }
+
+    @Test
+    fun `parking tolerance cannot bridge a geometric gap or repair an out of rail body`() {
+        val rail = UUID(0L, 48L)
+        val topology = buildTestTopology(1L, listOf(TestTopologyRail(rail, 100.0)), emptyMap())
+        fun assemble(bodyStart: Double, missionStart: Double) = FrozenMissionRouteAssembler.assemble(
+            topology, FrozenRouteSelectionContext(observation(1L,
+                RailPositionSnapshot(rail, ViewDirection.AB, maxOf(0.0, bodyStart)),
+                RailPositionSnapshot(rail, ViewDirection.AB, 10.0),
+                listOf(traversal(rail, ViewDirection.AB, bodyStart, 10.0)))), TRAIN_ID,
+            mission(listOf(RouteSegment(RailViewRef(rail, ViewDirection.AB), missionStart, 80.0))), 0.0)
+        assertEquals(FrozenMissionRouteRejection.INVALID_MISSION,
+            (assemble(0.0, 10.0001) as FrozenMissionRouteResult.Rejected).reason)
+        val invalidBody = FrozenMissionRouteAssembler.assemble(topology,
+            FrozenRouteSelectionContext(observation(1L,
+                RailPositionSnapshot(rail, ViewDirection.AB, 90.0),
+                RailPositionSnapshot(rail, ViewDirection.AB, 100.1),
+                listOf(traversal(rail, ViewDirection.AB, 90.0, 100.1)))), TRAIN_ID,
+            mission(listOf(RouteSegment(RailViewRef(rail, ViewDirection.AB), 100.1, 110.0))), 0.0)
+        assertEquals(FrozenMissionRouteRejection.INVALID_BODY_TRAVERSAL,
+            (invalidBody as FrozenMissionRouteResult.Rejected).reason)
+    }
+
+    @Test
+    fun `cumulative subtraction roundoff at a body join retains the original physical coordinates`() {
+        val rail = UUID(0L, 49L)
+        val precedingRail = UUID(0L, 50L)
+        val topology = buildTestTopology(1L, listOf(TestTopologyRail(precedingRail, 600.0),
+            TestTopologyRail(rail, 100.0)), mapOf(
+            RailEndpointRef(precedingRail, RailEndpoint.B) to setOf(RailEndpointRef(rail, RailEndpoint.A)),
+            RailEndpointRef(rail, RailEndpoint.A) to setOf(RailEndpointRef(precedingRail, RailEndpoint.B))))
+        val head = 10.7
+        val observed = observation(1L, RailPositionSnapshot(rail, ViewDirection.AB, 0.7),
+            RailPositionSnapshot(rail, ViewDirection.AB, head),
+            listOf(traversal(rail, ViewDirection.AB, 0.7, head)))
+        val frozen = FrozenMissionRouteAssembler.assemble(topology, FrozenRouteSelectionContext(observed),
+            TRAIN_ID, mission(listOf(RouteSegment(RailViewRef(precedingRail, ViewDirection.AB), 10.0, 600.0),
+                RouteSegment(RailViewRef(rail, ViewDirection.AB), 0.0, 80.0))),
+            590.0 + head) as FrozenMissionRouteResult.Frozen
+        assertEquals(0.7, frozen.route.selection.route.segments.first().startArcLengthMeters)
+        assertEquals(80.0, frozen.route.selection.route.segments.last().endArcLengthMeters)
+    }
+
+    @Test
     fun `continuation preserves repeated rail occurrence and rejects changed geometry inside its suffix`() {
         val first = UUID(0L, 43L)
         val second = UUID(0L, 44L)

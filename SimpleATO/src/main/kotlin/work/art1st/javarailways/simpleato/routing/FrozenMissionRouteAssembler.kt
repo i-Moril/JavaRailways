@@ -29,12 +29,10 @@ internal data class FrozenMissionRoute(
 ) {
     fun routeProgressMeters(missionHeadProgressMeters: Double): Double {
         require(missionHeadProgressMeters.isFinite()) { "mission progress must be finite" }
-        require(missionHeadProgressMeters + POSITION_TOLERANCE_METERS >=
-            missionHeadProgressAtSelectionMeters
-        ) { "mission progress moved behind the frozen-route selection point" }
-        return (headDistanceFromRouteStartMeters +
-            missionHeadProgressMeters - missionHeadProgressAtSelectionMeters)
-            .coerceIn(0.0, selection.route.totalLengthMeters)
+        // This is a coordinate conversion, not an arrival test or an authority boundary.
+        // Preserve signed progress so downstream checks can see an actual boundary crossing.
+        return headDistanceFromRouteStartMeters +
+            missionHeadProgressMeters - missionHeadProgressAtSelectionMeters
     }
 
     /** Projects the actual head within the complete physical path, retaining operating-stop error. */
@@ -134,7 +132,7 @@ internal object FrozenMissionRouteAssembler {
                 "mission ${mission.id}@${mission.revision} has no valid physical traversal"
             )
         if (!missionHeadProgressMeters.isFinite() || missionHeadProgressMeters < 0.0 ||
-            missionHeadProgressMeters > missionRoute.totalLengthMeters + POSITION_TOLERANCE_METERS
+            missionHeadProgressMeters > missionRoute.totalLengthMeters
         ) {
             return rejected(
                 FrozenMissionRouteRejection.INVALID_MISSION,
@@ -305,7 +303,7 @@ internal object FrozenMissionRouteAssembler {
                 "mission ${mission.id}@${mission.revision} has no valid physical traversal"
             )
         if (!missionHeadProgressMeters.isFinite() || missionHeadProgressMeters < 0.0 ||
-            missionHeadProgressMeters > missionRoute.totalLengthMeters + POSITION_TOLERANCE_METERS
+            missionHeadProgressMeters > missionRoute.totalLengthMeters
         ) {
             return rejected(
                 FrozenMissionRouteRejection.INVALID_MISSION,
@@ -377,11 +375,15 @@ internal object FrozenMissionRouteAssembler {
     private fun endAt(segments: List<RouteSegmentSnapshot>, distance: Double): RouteSegmentSnapshot? {
         var start = 0.0
         for (segment in segments) {
-            if (distance <= start + segment.lengthMeters + EPSILON) {
-                return segment.copy(endArcLengthMeters = segment.startArcLengthMeters +
-                    (distance - start).coerceIn(0.0, segment.lengthMeters))
+            val end = start + segment.lengthMeters
+            if (distance >= start && distance <= end) {
+                // Preserve known segment endpoints, avoiding an unnecessary subtract/add roundtrip.
+                if (distance == end) return segment
+                return segment.copy(endArcLengthMeters =
+                    if (distance == start) segment.startArcLengthMeters
+                    else segment.startArcLengthMeters + (distance - start))
             }
-            start += segment.lengthMeters
+            start = end
         }
         return null
     }
@@ -415,18 +417,12 @@ internal object FrozenMissionRouteAssembler {
             ViewDirection.AB -> segment.endArcLengthInAbMeters
             ViewDirection.BA -> length - segment.endArcLengthInAbMeters
         }
-        if (start < -POSITION_TOLERANCE_METERS || start > length + POSITION_TOLERANCE_METERS ||
-            end < -POSITION_TOLERANCE_METERS || end > length + POSITION_TOLERANCE_METERS ||
-            end + POSITION_TOLERANCE_METERS < start
-        ) return null
-        val normalizedStart = start.coerceIn(0.0, length)
-        val normalizedEnd = end.coerceIn(0.0, length)
-        if (normalizedEnd < normalizedStart) return null
+        if (start < 0.0 || start > length || end < start || end > length) return null
         return RouteSegmentSnapshot(
             segment.railId,
             segment.facing,
-            normalizedStart,
-            normalizedEnd
+            start,
+            end
         )
     }
 
@@ -435,13 +431,16 @@ internal object FrozenMissionRouteAssembler {
         missionStart: RouteSegmentSnapshot,
         topology: TopologyState,
     ): Boolean {
+        // trim/endAt convert cumulative distances back to local arcs. Their add/subtract
+        // roundtrip is not exact (for example 610.3 - 590.0); use the existing numerical
+        // route precision here, never the centimetre-scale acceptance window of a stop.
         if (bodyEnd.railId == missionStart.railId) {
             return bodyEnd.facing == missionStart.facing &&
-                abs(bodyEnd.endArcLengthMeters - missionStart.startArcLengthMeters) <= POSITION_TOLERANCE_METERS
+                abs(bodyEnd.endArcLengthMeters - missionStart.startArcLengthMeters) <= EPSILON
         }
         val bodyRailLength = railLength(topology, bodyEnd.railId) ?: return false
-        return abs(bodyEnd.endArcLengthMeters - bodyRailLength) <= POSITION_TOLERANCE_METERS &&
-            missionStart.startArcLengthMeters <= POSITION_TOLERANCE_METERS
+        return abs(bodyEnd.endArcLengthMeters - bodyRailLength) <= EPSILON &&
+            missionStart.startArcLengthMeters <= EPSILON
     }
 
     private fun trim(

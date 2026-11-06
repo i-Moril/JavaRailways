@@ -50,9 +50,8 @@ internal fun stationCallRoutePrefix(world: World, originId: String, call: Statio
         val arc = berth.location.arcLengthIn(direction)
         if (segment.railViewRef.railId == berth.location.rail.id &&
             (berth.approachDirection == null || direction == berth.approachDirection) &&
-            arc >= segment.startArcLength - 1e-6 && arc <= segment.endArcLength + 1e-6) {
-            val end = arc.coerceIn(segment.startArcLength, segment.endArcLength)
-            if (end > segment.startArcLength) prefix += segment.copy(endArcLength = end)
+            arc >= segment.startArcLength && arc <= segment.endArcLength) {
+            if (arc > segment.startArcLength) prefix += segment.copy(endArcLength = arc)
             if (prefix.sumOf { it.length } <= 0.0) return null
             return ExpandedRoute(originId, "station-call:${call.callId}:${call.berthRef}", prefix)
         }

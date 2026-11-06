@@ -805,6 +805,25 @@ class TimetableDispatcherSharedAdmissionTest {
     }
 
     @Test
+    fun `accepted parked origin starts at the actual head and retains the authored target`() {
+        for (parkingError in listOf(-0.1, 0.1)) {
+            val fixture = fixture(originOffsetMeters = parkingError)
+            fixture.service.onRequest = fixture.service::grant
+            val actualHead = fixture.train.publishedFrame.head
+            fixture.start()
+            fixture.dispatch()
+            val mission = checkNotNull(fixture.ato.publishedState.currentMission)
+            val first = mission.legs.first().plannedRoute.expandedRoute.segments.first()
+            val last = mission.legs.last().plannedRoute.expandedRoute.segments.last()
+            assertEquals(actualHead.arcLengthInAbMeters, first.startArcLength)
+            assertEquals(fixture.data.wayPoints["B"]!!.arcLength, last.endArcLength)
+            assertEquals(actualHead, fixture.train.publishedFrame.head)
+            assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+            assertTrue(fixture.service.intents.isNotEmpty(), fixture.status().toString())
+        }
+    }
+
+    @Test
     fun `ordinary stop appends the next mission to the same grant and owner`() {
         val fixture = fixture(withOrdinaryStop = true)
         fixture.service.onRequest = fixture.service::grant
@@ -1081,7 +1100,8 @@ class TimetableDispatcherSharedAdmissionTest {
     private fun fixture(
         withOrdinaryStop: Boolean = false,
         inspectionSources: List<InspectionSource> = emptyList(),
-        realEditGuards: Boolean = false
+        realEditGuards: Boolean = false,
+        originOffsetMeters: Double = 0.0
     ): Fixture {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val coordinator = AtoWorldCoordinator(WORLD_ID, reportSink = {})
@@ -1093,7 +1113,7 @@ class TimetableDispatcherSharedAdmissionTest {
         )
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
         val origin = train.head.location.arcLength
-        data.wayPoints.add(WayPoint("A", rail.id, origin))
+        data.wayPoints.add(WayPoint("A", rail.id, origin + originOffsetMeters))
         data.wayPoints.add(WayPoint("B", rail.id, origin + if (withOrdinaryStop) 60.0 else 250.0))
         if (withOrdinaryStop) data.wayPoints.add(WayPoint("C", rail.id, origin + 180.0))
         val steps = mutableListOf<TimetableStep>(

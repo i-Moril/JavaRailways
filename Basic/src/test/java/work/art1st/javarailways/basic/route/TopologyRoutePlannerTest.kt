@@ -4,8 +4,12 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.route.planning.DirectedRailSpan
+import work.art1st.javarailways.basic.api.route.planning.PathReplacement
+import work.art1st.javarailways.basic.api.route.planning.PhysicalTraversalPath
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions
 import work.art1st.javarailways.basic.route.OperationalRouteLocation
 import work.art1st.javarailways.basic.route.TopologyRoutePlanner
@@ -20,6 +24,81 @@ import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
 import java.util.UUID
 
 class TopologyRoutePlannerTest {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `known interior query endpoints survive edge coordinate round trip exactly`(backwardsRail: Boolean) {
+        val prefix = rail(1, 1000.0)
+        val target = rail(2, 110.0)
+        val topology = topology(25L, listOf(prefix, target), listOf(
+            endpoint(prefix, RailEndpoint.B) to endpoint(target, if (backwardsRail) RailEndpoint.B else RailEndpoint.A)
+        ))
+        val low = 3.6701266737305
+        val high = 109.1008889681433
+
+        for (facing in ViewDirection.entries) {
+            val start = if (facing == ViewDirection.AB) low else high
+            val end = if (facing == ViewDirection.AB) high else low
+            // No required start direction: endpoint fidelity must not depend on a direction marker.
+            val planned = plan(topology, location(target, start), location(target, end))
+                as TopologyRoutePlanningResult.Planned
+            val positive = planned.route.segments.filter { it.lengthMeters > 0.0 }
+            assertEquals(1, positive.size)
+            assertEquals(segment(target, facing,
+                if (facing == ViewDirection.AB) start else target.lengthMeters - start,
+                if (facing == ViewDirection.AB) end else target.lengthMeters - end), positive.single())
+            assertEquals(null, TopologyRoutePlanner.invalidRouteReason(topology, planned.route))
+        }
+    }
+
+    @Test
+    fun `known interior goal remains exact after a zero length direction marker`() {
+        val prefix = rail(1, 1000.0)
+        val target = rail(2, 110.0)
+        val topology = topology(26L, listOf(prefix, target), listOf(
+            endpoint(prefix, RailEndpoint.B) to endpoint(target, RailEndpoint.A)
+        ))
+        val end = 109.1008889681433
+        val planned = TopologyRoutePlanner.plan(
+            input(topology, location(prefix, 1000.0), location(target, end))
+                .copy(startFacing = ViewDirection.AB, endFacing = ViewDirection.AB)
+        ) as TopologyRoutePlanningResult.Planned
+
+        assertEquals(listOf(segment(prefix, ViewDirection.AB, 1000.0, 1000.0),
+            segment(target, ViewDirection.AB, 0.0, end)), planned.route.segments)
+    }
+
+    @Test
+    fun `plain traversal around a replacement keeps query endpoints exact`() {
+        val prefix = rail(1, 1000.0)
+        val target = rail(2, 110.0)
+        val topology = topology(27L, listOf(prefix, target), listOf(
+            endpoint(prefix, RailEndpoint.B) to endpoint(target, RailEndpoint.A)
+        ))
+        val low = 3.6701266737305
+        val high = 109.1008889681433
+        for (facing in ViewDirection.entries) {
+            val span = DirectedRailSpan(target.id, facing, 20.0, 80.0)
+            val restrictions = RoutePlanningRestrictions(topology.revision,
+                pathReplacements = listOf(PathReplacement(listOf(span), listOf(PhysicalTraversalPath(listOf(span))))))
+            val start = if (facing == ViewDirection.AB) low else high
+            val end = if (facing == ViewDirection.AB) high else low
+            val planned = TopologyRoutePlanner.plan(
+                input(topology, location(target, start), location(target, end)).copy(restrictions = restrictions)
+            ) as TopologyRoutePlanningResult.Planned
+            val positive = planned.route.segments.filter { it.lengthMeters > 0.0 }
+
+            assertEquals(3, positive.size)
+            assertEquals(if (facing == ViewDirection.AB) low else 110.0 - high,
+                positive.first().startArcLengthMeters)
+            assertEquals(if (facing == ViewDirection.AB) high else 110.0 - low,
+                positive.last().endArcLengthMeters)
+            assertEquals(segment(target, facing,
+                if (facing == ViewDirection.AB) 20.0 else 30.0,
+                if (facing == ViewDirection.AB) 80.0 else 90.0), positive[1])
+            assertEquals(null, TopologyRoutePlanner.invalidRouteReason(topology, planned.route))
+        }
+    }
+
     @Test
     fun `fractional edge endpoints retain exact rail-local coordinates in reverse`() {
         val first = rail(1, 100.1)

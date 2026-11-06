@@ -6,6 +6,7 @@ import org.junit.jupiter.api.AfterEach
 import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
@@ -20,6 +21,23 @@ import work.art1st.javarailways.simpleato.simpleAtoWorldData
 
 class StationCallResolverTest {
     private val worldFixtures = mutableListOf<TestWorldFixture>()
+
+    @Test
+    fun `selected station prefix preserves its actual marker without accepting an adjacent endpoint`() {
+        val fixture = fixture()
+        val berth = fixture.berth
+        val arc = berth.location.arcLengthIn(ViewDirection.AB)
+        fun route(end: Double) = work.art1st.javarailways.basic.api.route.ExpandedRoute("A", "beyond",
+            listOf(work.art1st.javarailways.basic.api.route.RouteSegment(
+                work.art1st.javarailways.basic.api.route.RailViewRef(berth.location.rail.id, ViewDirection.AB),
+                0.0, end)))
+        val prefix = work.art1st.javarailways.simpleato.timetable.stationCallRoutePrefix(
+            fixture.world, "A", fixture.call(1L), listOf(route(arc + 10.0)))!!
+        assertEquals(arc, prefix.segments.last().endArcLength)
+        assertEquals(arc, prefix.totalLength)
+        assertNull(work.art1st.javarailways.simpleato.timetable.stationCallRoutePrefix(
+            fixture.world, "A", fixture.call(1L), listOf(route(Math.nextDown(arc)))))
+    }
 
     @AfterEach
     fun closeOwnedWorldFixtures() {

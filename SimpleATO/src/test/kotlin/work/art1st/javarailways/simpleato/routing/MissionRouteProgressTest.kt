@@ -35,6 +35,72 @@ import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 class MissionRouteProgressTest {
     private val worldFixtures = mutableListOf<TestWorldFixture>()
 
+    @ParameterizedTest
+    @EnumSource(ViewDirection::class)
+    fun `split segments preserve exact progress before at and after their shared boundary`(direction: ViewDirection) {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(1024.0, 1))
+        val boundary = 582.7380266737305
+        val layout = MissionRouteLayout(world, segmentedMission(listOf(
+            RouteSegment(RailViewRef(rail.id, direction), 0.0, boundary),
+            RouteSegment(RailViewRef(rail.id, direction), boundary, 900.0)
+        )))
+        val boundaryAb = if (direction == ViewDirection.AB) boundary else rail.curve.totalArcLength - boundary
+        val positions = listOf(Math.nextDown(boundaryAb), boundaryAb, Math.nextUp(boundaryAb),
+            if (direction == ViewDirection.AB) 582.8596258573868 else rail.curve.totalArcLength - 582.8596258573868)
+        positions.forEach { ab ->
+            val actualProgress = if (direction == ViewDirection.AB) ab else rail.curve.totalArcLength - ab
+            assertEquals(actualProgress, layout.project(RailPositionSnapshot(rail.id, direction, ab), boundary - 1.0),
+                "projection must preserve actual position for $direction at AB $ab")
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(ViewDirection::class)
+    fun `positions just outside route bounds are not clamped into the route`(direction: ViewDirection) {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(1024.0, 1))
+        val layout = MissionRouteLayout(world, segmentedMission(listOf(
+            RouteSegment(RailViewRef(rail.id, direction), 100.0, 900.0)
+        )))
+        listOf(99.9, 900.1).forEach { arc ->
+            val ab = if (direction == ViewDirection.AB) arc else rail.curve.totalArcLength - arc
+            assertNull(layout.project(RailPositionSnapshot(rail.id, direction, ab)))
+        }
+    }
+
+    @Test
+    fun `previous progress rejects even a representable backward step`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        val layout = MissionRouteLayout(world, segmentedMission(listOf(
+            RouteSegment(RailViewRef(rail.id, ViewDirection.AB), 0.0, 100.0)
+        )))
+        assertNull(layout.project(RailPositionSnapshot(rail.id, ViewDirection.AB, Math.nextDown(50.0)), 50.0))
+        assertEquals(50.0, layout.project(RailPositionSnapshot(rail.id, ViewDirection.AB, 50.0), 50.0))
+    }
+
+    @Test
+    fun `repeated rail occurrences select the earliest non retreating progress`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        val repeatedSegment = RouteSegment(RailViewRef(rail.id, ViewDirection.AB), 0.0, 100.0)
+        val layout = MissionRouteLayout(world, segmentedMission(listOf(repeatedSegment, repeatedSegment)))
+        val position = RailPositionSnapshot(rail.id, ViewDirection.AB, 20.0)
+        assertEquals(20.0, layout.project(position))
+        assertEquals(20.0, layout.project(position, 19.0))
+        assertEquals(120.0, layout.project(position, Math.nextUp(20.0)))
+        assertEquals(120.0, layout.project(position, 119.0))
+        assertNull(layout.project(position, Math.nextUp(120.0)))
+    }
+
+    private fun segmentedMission(segments: List<RouteSegment>): AtoMission = AtoMission(
+        "exact-progress", 1L, WayPointRef("origin"), listOf(
+            AtoMissionLeg(0, AtoMissionPoint.Stop(WayPointRef("target")),
+                PlannedRoute("selected", 1L, ExpandedRoute("origin", "target", segments)))
+        )
+    )
+
     @AfterEach
     fun closeOwnedWorldFixtures() {
         val fixtures = worldFixtures.toList()

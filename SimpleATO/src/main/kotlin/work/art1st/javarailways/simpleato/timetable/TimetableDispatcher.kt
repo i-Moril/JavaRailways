@@ -917,25 +917,11 @@ class TimetableDispatcher(
                 return TimetableStationCallScheduleResult.Failure(result.message)
             }
         }
+        // The resolver consumed the selected Mission prefix above, including an interior berth.
+        // Its length already is this occurrence's Mission distance; do not search/convert it again.
+        val missionDistance = resolved.plannedRoute.expandedRoute.totalLength
         val berth = world.simpleAtoWorldData.stations.berth(call.berthRef)
             ?: return TimetableStationCallScheduleResult.Failure("berth not found: ${call.berthRef}")
-        val arrivalDirection = resolved.plannedRoute.expandedRoute.segments.last().railViewRef.direction
-        val missionDistance = run.currentRuntime.layout.project(
-            RailPositionSnapshot(
-                railId = berth.location.rail.id,
-                facing = arrivalDirection,
-                arcLengthInAbMeters = berth.location.arcLengthIn(ViewDirection.AB)
-            )
-        ) ?: return TimetableStationCallScheduleResult.Failure(
-            "StationBerth ${call.berthRef} is not on the active Mission route"
-        )
-        if (abs(missionDistance - resolved.plannedRoute.expandedRoute.totalLength) >
-            POSITION_TOLERANCE_METERS
-        ) {
-            return TimetableStationCallScheduleResult.Failure(
-                "StationCall route is not the active Mission prefix for ${call.berthRef}"
-            )
-        }
         if (run.currentRuntime.headProgressMeters >
             missionDistance + run.ato.missionStopToleranceMeters
         ) {
@@ -6526,10 +6512,11 @@ class TimetableDispatcher(
         automatic: Boolean = true
     ): MissionSubmission {
         val revision = plan.reservedMissionRevision ?: nextMissionRevision()
-        val observedOrigin = if (plan.useObservedOrigin) {
+        val initialSnapshot = TrainSnapshot.capture(ato.train, dispatcherTick)
+        var observedOrigin = if (plan.useObservedOrigin) {
             ObservedAtoMissionOrigin(
                 "$runId/mission/$revision",
-                TrainSnapshot.capture(ato.train, dispatcherTick).head
+                initialSnapshot.head
             )
         } else null
         var from = world.basicWorldData.wayPoints[plan.origin.id]
@@ -6559,6 +6546,19 @@ class TimetableDispatcher(
                 return MissionSubmission(null, "validated movement pass options changed")
             }
             var selectedRoute = evidence.route
+            // A completed stop may be slightly short of its authored marker. Start the next
+            // Mission at that real stopped position; never extend geometric projection tolerance.
+            val first = selectedRoute.segments.first()
+            val head = initialSnapshot.head
+            val headRail = world.getRail(head.railId)
+            val headArc = if (head.facing == ViewDirection.AB) head.arcLengthInAbMeters
+                else headRail?.curve?.totalArcLength?.minus(head.arcLengthInAbMeters)
+            val parkedAtOrigin = index == 0 && ato.isStopped(initialSnapshot.speedMetersPerSecond) &&
+                head.railId == first.railViewRef.railId && head.facing == first.railViewRef.direction &&
+                headArc != null && abs(headArc - first.startArcLength) <= ato.missionStopToleranceMeters
+            if (parkedAtOrigin && observedOrigin == null && headArc != first.startArcLength) {
+                observedOrigin = ObservedAtoMissionOrigin("$runId/mission/$revision", head)
+            }
             if (index == 0 && observedOrigin != null) {
                 val head = observedOrigin.position
                 val rail = world.getRail(head.railId)
@@ -6568,14 +6568,16 @@ class TimetableDispatcher(
                 val containingIndex = selectedRoute.segments.indexOfFirst { segment ->
                     segment.railViewRef.railId == head.railId &&
                         segment.railViewRef.direction == head.facing &&
-                        headArc >= segment.startArcLength - POSITION_TOLERANCE_METERS &&
-                        headArc <= segment.endArcLength + POSITION_TOLERANCE_METERS
+                        headArc >= segment.startArcLength && headArc <= segment.endArcLength
                 }
-                val adjustedSegments = if (containingIndex >= 0) {
+                val adjustedSegments = if (parkedAtOrigin && headArc < first.startArcLength) {
+                    // This accepted parking error belongs to the first occurrence. A later
+                    // occurrence of the same rail must not make us skip the intervening loop.
+                    listOf(first.copy(startArcLength = headArc)) + selectedRoute.segments.drop(1)
+                } else if (containingIndex >= 0) {
                     val containing = selectedRoute.segments[containingIndex]
-                    listOf(containing.copy(startArcLength = headArc.coerceIn(
-                        containing.startArcLength, containing.endArcLength
-                    ))) + selectedRoute.segments.drop(containingIndex + 1)
+                    listOf(containing.copy(startArcLength = headArc)) +
+                        selectedRoute.segments.drop(containingIndex + 1)
                 } else {
                     val connectorStart = WayPoint(observedOrigin.id, head.railId, head.arcLengthInAbMeters)
                     when (val connector = OperationalRoutePlanner(world).buildRoute(
@@ -6591,7 +6593,7 @@ class TimetableDispatcher(
                             "reversed train head cannot reach compiled route origin ${plan.origin.id}: ${connector.reason}")
                     }
                 }
-                if (adjustedSegments.sumOf(RouteSegment::length) <= POSITION_TOLERANCE_METERS) {
+                if (adjustedSegments.sumOf(RouteSegment::length) <= 0.0) {
                     return MissionSubmission(null,
                         "reversed train head leaves no forward route from ${plan.origin.id}")
                 }

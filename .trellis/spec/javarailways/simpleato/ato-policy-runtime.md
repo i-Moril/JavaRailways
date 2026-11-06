@@ -31,6 +31,39 @@ route/perception scan生成车辆、停车、跟车、授权与外部restriction
 - signal inspection按已选冻结路线声明需要检查的来源，restriction adapter把插件的namespaced输出作为只会收紧的constraint并入同一个manager；
 - controller没有可切换provider状态，也不通过RailObject边界替换整套信号逻辑。
 
+### 真实位置到 Mission 累计距离
+
+`MissionRouteLayout.project(position, previousProgressMeters): Double?`由controller和Dispatcher消费，
+将同一有向轨道上的实际弧长转换为Mission累计米数。编译后的分段只读，不新增游标或第二套位置状态。
+只接受rail ID、方向相同且实际弧长在分段闭区间内的候选；直接计算`累计起点 + (实际弧长 - 分段起点)`。
+不得用0.3米站停验收容差扩张区间，不得把段外位置截回端点，也不默认添加浮点epsilon。
+相邻同向分段在共享边界对应同一实际位置；越过边界后必须使用包含车头的下一段，而不是选择
+更接近上一Tick进度的、由截断制造的旧段终点。
+
+无先前进度时选择最早的合法候选；重复轨道或环线存在多个候选时，只保留不小于先前进度的候选，
+再选择最近者。没有匹配或所有候选均小于先前进度时返回null，不伪造位移。
+调用方仍按既有合同处理冻结物理路线后缀或失败，不在此函数中新增兜底。复杂度保持每次O(S)。
+此行为不改变站停到位标准、真实占用、信号灯色或ATP边界，无持久化格式变化。
+
+停车偏差不通过扩大这条通用投影的区间处理。Dispatcher 在已有停稳判定、同有向轨道和
+`missionStopToleranceMeters` 内识别实际停车起点，沿用 `ObservedAtoMissionOrigin` 形成从真实车头
+开始的首段，再走既有物理路线衔接；不改物理车头，不强迫列车精确停在作者标记上。
+冻结路线及 inspection 的进度转换保留有符号位移，不将实际进度夹在路线首尾之间。
+这不放宽 inspection API 的输入范围：实际转换结果越出冻结路线时，既有范围校验仍拒绝并保持安全停止，
+不能将越界值伪装成合法端点。保留原始数值不等于允许任意负值或超长值通过下游。
+限制目标的合法裁剪不是位置测量，不能把这条规则机械应用到所有 `coerceIn`。
+
+冻结车身区间的越界不允许用停车容差修补。累计距离裁剪后与车身连接的数值核对沿用该组装器
+已有 `1e-6m` 精度，而非 `0.3m` 停车容差；例如 `(590 + 10.7) - 590` 会产生
+`10.700000000000045`，允许核对此类算术差异但不吸附或改写实际车身坐标。已知裁剪端点直接沿用
+原值。`FrozenMissionRouteAssemblerTest` 覆盖有符号映射、累计加减、拒绝 `0.0001m` 几何缺口和
+真实轨道范围外的车身；`TimetableDispatcherSharedAdmissionTest` 覆盖目标前后 `0.1m` 停稳起步。
+
+例如信号处把一条轨道分为`[..., 582.738...]`和`[582.738..., ...]`，车头实际在`582.859...`时，
+投影必须保留已通过的约0.122米；将它吸回共享端点会让本车占用产生的红灯继续作用于本车。
+`MissionRouteProgressTest`须覆盖AB/BA、共享边界前后及恰好边界、极小但真实的越界、路线外返回null，
+以及重复轨道/环线的非倒退选择；信号过点撤销和实际全局重放验证其下游行为。
+
 ## 失败、复杂度与测试
 
 mission resolve和stale revision是typed rejection，不Stall；controller/invariant异常Stall并freeze。mission route

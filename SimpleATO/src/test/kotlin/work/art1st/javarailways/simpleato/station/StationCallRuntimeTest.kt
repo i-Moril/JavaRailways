@@ -31,6 +31,12 @@ import work.art1st.javarailways.simpleato.api.station.StationCallNotificationTyp
 import work.art1st.javarailways.simpleato.api.station.StationCallRequest
 import work.art1st.javarailways.simpleato.api.station.StationCallResolutionFailure
 import work.art1st.javarailways.simpleato.api.station.StationCallSubmissionResult
+import work.art1st.javarailways.simpleato.api.station.StationCallResolver
+import work.art1st.javarailways.simpleato.api.station.StationCallResolutionResult
+import work.art1st.javarailways.simpleato.api.mission.AtoMission
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionResolver
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionResolutionResult
+import work.art1st.javarailways.simpleato.timetable.stationCallRoutePrefix
 import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
@@ -61,7 +67,9 @@ class StationCallRuntimeTest {
     fun `station call without an accepted mission is rejected`() {
         val fixture = fixture("no-mission")
 
-        val result = fixture.ato.submitStationCall(fixture.request(1L))
+        val selected = (AtoMissionResolver(fixture.world).resolve(AtoMissionRequest("unsubmitted", 1L,
+            WayPointRef("A"), listOf(AtoMissionPoint.Stop(WayPointRef("C"))))) as AtoMissionResolutionResult.Success).mission
+        val result = fixture.ato.submitStationCall(fixture.resolvedCall(1L, selected))
 
         assertEquals(
             StationCallResolutionFailure.MISSION_REVISION_MISMATCH,
@@ -93,12 +101,12 @@ class StationCallRuntimeTest {
                 id = "tt/service",
                 revision = 2L,
                 origin = WayPointRef("A"),
-                points = listOf(AtoMissionPoint.Stop(WayPointRef("B")))
+                points = listOf(AtoMissionPoint.Stop(WayPointRef("C")))
             )
         )
         assertTrue(mission is AtoMissionSubmissionResult.Accepted)
 
-        val result = fixture.ato.submitStationCall(fixture.request(1L))
+        val result = fixture.ato.submitStationCall(fixture.resolvedCall(1L, (mission as AtoMissionSubmissionResult.Accepted).mission))
 
         assertEquals(
             StationCallResolutionFailure.MISSION_REVISION_MISMATCH,
@@ -117,7 +125,7 @@ class StationCallRuntimeTest {
                 points = listOf(AtoMissionPoint.Stop(WayPointRef("C")))
             )
         ) as AtoMissionSubmissionResult.Accepted
-        val accepted = fixture.ato.submitStationCall(fixture.request(1L))
+        val accepted = fixture.ato.submitStationCall(fixture.resolvedCall(1L, mission.mission))
         assertTrue(accepted is StationCallSubmissionResult.Accepted)
         fixture.ato.setMovementAuthority(
             1L,
@@ -126,7 +134,7 @@ class StationCallRuntimeTest {
             )
         )
         assertTrue(
-            fixture.ato.submitStationCall(fixture.request(1L)) is
+            fixture.ato.submitStationCall(fixture.resolvedCall(1L, mission.mission)) is
                 StationCallSubmissionResult.StaleRevision
         )
 
@@ -191,13 +199,13 @@ class StationCallRuntimeTest {
     fun `removing an active observed berth stalls only its world`() {
         val fixture = fixture("removed")
         val otherCoordinator = AtoWorldCoordinator("other", reportSink = {})
-        assertTrue(fixture.ato.submitMission(AtoMissionRequest(
+        val mission = fixture.ato.submitMission(AtoMissionRequest(
             id = "tt/service",
             revision = 1L,
             origin = WayPointRef("A"),
             points = listOf(AtoMissionPoint.Stop(WayPointRef("C")))
-        )) is AtoMissionSubmissionResult.Accepted)
-        assertTrue(fixture.ato.submitStationCall(fixture.request(1L)) is StationCallSubmissionResult.Accepted)
+        )) as AtoMissionSubmissionResult.Accepted
+        assertTrue(fixture.ato.submitStationCall(fixture.resolvedCall(1L, mission.mission)) is StationCallSubmissionResult.Accepted)
         fixture.tick()
         assertEquals(
             StationCallNotificationType.APPROACHING,
@@ -212,16 +220,99 @@ class StationCallRuntimeTest {
         assertFalse(otherCoordinator.isStalled)
     }
 
-    private fun fixture(id: String): Fixture {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(doubles = [0.0, 2.0])
+    fun `multi leg station target retains selected prefix value despite distinct projection rounding`(offset: Double) {
+        val boundaries = listOf(19.306968958376174, 1087.5810622639672, 1976.8556093617758,
+            3110.751620704097, 3692.9318303905316)
+        val splits = listOf(154.62172305288743, 1200.222534538841, 2120.48247526167, 3184.494466670386)
+        val fixture = fixture("rounded-prefix", 4000.0, boundaries.first(), boundaries.last())
+        val rail = fixture.train.head.location.rail
+        val view = work.art1st.javarailways.basic.api.route.RailViewRef(rail.id, ViewDirection.AB)
+        val legs = splits.indices.map { index ->
+            val from = if (index == 0) "A" else "via-$index"
+            val to = "via-${index + 1}"
+            fixture.data.wayPoints.add(WayPoint(to, rail.id, boundaries[index + 1]))
+            val point = if (index == splits.lastIndex) AtoMissionPoint.Stop(WayPointRef(to), offset)
+                else AtoMissionPoint.Via(WayPointRef(to))
+            work.art1st.javarailways.simpleato.api.mission.AtoMissionLeg(index, point,
+                work.art1st.javarailways.basic.api.route.PlannedRoute("leg-$index", 1L,
+                    work.art1st.javarailways.basic.api.route.ExpandedRoute(from, to, listOf(
+                        work.art1st.javarailways.basic.api.route.RouteSegment(view, boundaries[index], splits[index]),
+                        work.art1st.javarailways.basic.api.route.RouteSegment(view, splits[index], boundaries[index + 1])))))
+        }
+        val mission = AtoMission("rounded-prefix", 1L, WayPointRef("A"), legs)
+        val resolved = fixture.resolvedCall(1L, mission, offset)
+        val layout = work.art1st.javarailways.simpleato.routing.MissionRouteLayout(fixture.world, mission)
+        val target = work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot(rail.id,
+            ViewDirection.AB, boundaries.last())
+        assertEquals(3673.6248614321557, resolved.berthDistanceMeters)
+        assertEquals(3673.6248614321553, layout.project(target))
+        assertNull(layout.project(target, resolved.berthDistanceMeters), "the old static reprojection rejects this exact endpoint")
+        assertTrue(resolved.isTerminalOf(mission))
+        assertFalse(resolved.copy(stoppingOffsetMetersBefore = offset + 1.0).isTerminalOf(mission))
+        assertTrue(fixture.ato.submitMission(mission) is AtoMissionSubmissionResult.Accepted)
+        assertTrue(fixture.ato.submitStationCall(resolved) is StationCallSubmissionResult.Accepted)
+        fixture.ato.setMovementAuthority(1L, resolved.berthDistanceMeters + 1.0)
+        fixture.tick()
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled,
+            fixture.world.simpleAtoWorldData.atoCoordinator.lastStall?.message)
+        val diagnostics = fixture.ato.runtimeDiagnostics
+        assertEquals(resolved.berthDistanceMeters, diagnostics.stationTargetProgressMeters)
+        assertEquals(resolved.stoppingDistanceMeters - diagnostics.projectedProgressMeters!!,
+            diagnostics.stationPositionErrorMeters)
+        assertTrue(diagnostics.constraints.any { it.contains("stoppingMarginMeters=0.3") },
+            "exact terminal occurrence uses the station authority margin")
+    }
+
+    @Test
+    fun `same rail endpoint on an earlier occurrence is not the terminal station`() {
+        val fixture = fixture("repeated-target")
+        val original = (AtoMissionResolver(fixture.world).resolve(AtoMissionRequest("first", 1L,
+            WayPointRef("A"), listOf(AtoMissionPoint.Stop(WayPointRef("C"))))) as AtoMissionResolutionResult.Success).mission
+        val first = fixture.resolvedCall(1L, original)
+        assertFalse(first.isTerminalOf(original), "the station lies inside the final leg")
+        val route = first.plannedRoute.expandedRoute
+        val outward = route.segments.single()
+        val railLength = fixture.train.head.location.rail.curve.totalArcLength
+        val back = work.art1st.javarailways.basic.api.route.RouteSegment(
+            outward.railViewRef.copy(direction = ViewDirection.BA), railLength - outward.endArcLength,
+            railLength - outward.startArcLength)
+        val traversals = listOf(outward, back, outward)
+        val mission = AtoMission("repeat", 1L, WayPointRef("A"), traversals.mapIndexed { index, segment ->
+            val from = if (index == 0) "A" else "turn-$index"
+            val to = "turn-${index + 1}"
+            work.art1st.javarailways.simpleato.api.mission.AtoMissionLeg(index,
+                if (index == 2) AtoMissionPoint.Stop(WayPointRef(to)) else AtoMissionPoint.Via(WayPointRef(to)),
+                work.art1st.javarailways.basic.api.route.PlannedRoute("repeat-$index", 1L,
+                    work.art1st.javarailways.basic.api.route.ExpandedRoute(from, to, listOf(segment))))
+        })
+        assertEquals(outward, mission.legs.last().plannedRoute.expandedRoute.segments.last())
+        assertFalse(first.isTerminalOf(mission), "same rail, direction and endpoint do not identify the last occurrence")
+        val last = first.copy(plannedRoute = first.plannedRoute.copy(expandedRoute =
+            work.art1st.javarailways.basic.api.route.ExpandedRoute(route.fromWayPointId, route.toWayPointId, traversals)))
+        assertTrue(last.isTerminalOf(mission))
+        assertFalse(last.isTerminalOf(AtoMission("new-revision", 2L, mission.origin,
+            mission.legs.map { it.copy(plannedRoute = it.plannedRoute.copy(revision = 2L)) })))
+    }
+
+    private fun fixture(id: String, railLength: Double = 120.0, originOverride: Double? = null,
+        berthOverride: Double? = null): Fixture {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val coordinator = AtoWorldCoordinator("station-$id", reportSink = {})
         val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
         TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val rail = createStraightRailFromSegments(
             world,
-            PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
+            PrimeCurveGenerator.buildStraight(railLength, segmentCount = 1)
         )
         val train = createTrainWithConfig("T-$id", rail, world, listOf(10.0))
+        if (originOverride != null) work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker.run {
+            world.physicsCoordinator.processBetweenFrames {
+                train.setLocation(work.art1st.javarailways.core.physics.rail.RailLocationWithFacing(rail.viewAB, originOverride))
+                train.commit()
+            }
+        }
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", rail.id, originArc + 10.0))
@@ -230,7 +321,8 @@ class StationCallRuntimeTest {
         val berthRef = StationBerthRef(stationId, "one")
         val berth = StationBerth(
             berthRef = berthRef,
-            location = train.head.location.forward(25.0)!!,
+            location = if (berthOverride == null) train.head.location.forward(25.0)!! else
+                work.art1st.javarailways.core.physics.rail.RailLocationWithFacing(rail.viewAB, berthOverride),
             approachDirection = ViewDirection.AB,
             defaultDwellTicks = 20L
         )
@@ -251,6 +343,14 @@ class StationCallRuntimeTest {
         val ato: SimpleATO,
         val actuator: KinematicTrainActuator
     ) {
+        fun resolvedCall(revision: Long, mission: AtoMission, offset: Double = 0.0): work.art1st.javarailways.simpleato.api.station.ResolvedStationCall {
+            val request = request(revision).let { it.copy(call = it.call.copy(stoppingOffsetMetersBeforeOverride = offset)) }
+            val prefix = requireNotNull(stationCallRoutePrefix(world, mission.origin.id, request.call,
+                mission.legs.map { it.plannedRoute.expandedRoute }))
+            return (StationCallResolver(world).resolve(request, train.cars.sumOf { it.length },
+                retainedRoute = prefix, retainedTopology = world.topologyState) as StationCallResolutionResult.Success).resolved
+        }
+
         fun request(revision: Long): StationCallRequest = StationCallRequest(
             serviceRunId = "tt/service",
             origin = WayPointRef("A"),

@@ -25,6 +25,7 @@ import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.simpleato.api.depot.*
 import work.art1st.javarailways.simpleato.api.mission.AtoMissionOrigin
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionPoint
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
@@ -132,6 +133,52 @@ class TimetableFormationDispatcherTest {
             assertEquals(2.0, output.publishedFrame.head.arcLengthInAbMeters, 0.5)
             assertTrue(output.isReversed)
             assertTrue(f.world.allTrains.filter { it.id != run.trainId }.all { it.movementHeld })
+        }
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(doubles = [0.0, 2.0])
+    fun `structural station retains operating marker and offset separately from physical arrival window`(offset: Double) {
+        Fixture(false, deferredOutput = true, stationOffset = offset, stationDwellTicks = 2).use { f ->
+            f.begin()
+            f.physics.start()
+            var observedStation = false
+            var observedBerth = false
+            repeat(2400) {
+                f.tick()
+                val run = f.dispatcher.statuses().single { it.id == TimetableServiceRunId("split", "source") }
+                val output = f.world.getTrain(run.trainId) as CoreTrain
+                val ato = output.controller as? SimpleATO
+                val call = ato?.currentStationCall
+                if (call?.berthRef == StationBerthRef(StationId("marker"), "short") &&
+                    call.call.missionRevision == ato.currentMission?.revision) {
+                    val mission = checkNotNull(ato.currentMission)
+                    val leg = mission.legs.last()
+                    assertTrue(call.isTerminalOf(mission))
+                    assertEquals(offset, (leg.operatingPoint as AtoMissionPoint.Stop).offsetMetersBefore)
+                    assertEquals(90.0, checkNotNull(leg.operatingTargetPrefix).segments.last().endArcLength)
+                    val physicalEnd = leg.plannedRoute.expandedRoute.segments.last().endArcLength
+                    assertEquals(90.0 - offset,
+                        physicalEnd - (leg.point as AtoMissionPoint.Stop).offsetMetersBefore, 1e-12)
+                    assertTrue(physicalEnd > 90.0 - offset)
+                    if (offset > 0.0) assertTrue(physicalEnd < 90.0,
+                        "operating marker may lie beyond the bounded physical route")
+                    val request = f.outputRequests.last()
+                    assertEquals(90.0 - offset + AtoSafetyProfile.STATION_AUTHORITY_MARGIN_METERS,
+                        request.route.segments.last().endArcLengthMeters, 1e-12,
+                        "authorization margin is measured from the actual stop, not the physical suffix end")
+                    observedStation = true
+                    if (run.state == TimetableServiceRunState.DWELLING) {
+                        assertEquals(90.0 - offset, output.publishedFrame.head.arcLengthInAbMeters, 0.3)
+                        observedBerth = true
+                    }
+                }
+            }
+            assertTrue(observedStation)
+            assertTrue(observedBerth)
+            val run = f.dispatcher.statuses().single { it.id == TimetableServiceRunId("split", "source") }
+            assertEquals(TimetableServiceRunState.COMPLETED, run.state, run.toString())
+            assertEquals(120.0, f.world.getTrain(run.trainId)!!.publishedFrame.head.arcLengthInAbMeters, 0.5)
         }
     }
 
@@ -546,7 +593,7 @@ class TimetableFormationDispatcherTest {
         }
     }
 
-    private class Fixture(private val newDuty: Boolean, sourceReversed: Boolean = false, outputReversed: Boolean = false, orientationCase: Boolean = false, separateDutyCaps: Boolean = false, private val coupling: Boolean = false, coupledContinuation: Boolean = false, viaOutput: Boolean = false, deferredOutput: Boolean = false, chooseOutputBranch: Boolean = true, reverseOutputBranch: Boolean = false, safetyDistanceMeters: Double = 0.5, marginCrossesRail: Boolean = false, measureTasks: Boolean = false) : AutoCloseable {
+    private class Fixture(private val newDuty: Boolean, sourceReversed: Boolean = false, outputReversed: Boolean = false, orientationCase: Boolean = false, separateDutyCaps: Boolean = false, private val coupling: Boolean = false, coupledContinuation: Boolean = false, viaOutput: Boolean = false, deferredOutput: Boolean = false, chooseOutputBranch: Boolean = true, reverseOutputBranch: Boolean = false, safetyDistanceMeters: Double = 0.5, marginCrossesRail: Boolean = false, measureTasks: Boolean = false, stationOffset: Double? = null, stationDwellTicks: Long? = null) : AutoCloseable {
         val physics = PhysicsCoordinator(1, automaticFallback = false)
         private val fixture = TestWorldFixture.create(physics)
         val world = fixture.world
@@ -665,7 +712,8 @@ class TimetableFormationDispatcherTest {
                     sourceSteps += TimetableStep.At(0, TimetableAction.Reverse)
                     sourceSteps += TimetableStep.At(0, TimetableAction.GoTo("reverse-turn"))
                 } else if (chooseOutputBranch) {
-                    sourceSteps += TimetableStep.At(0, TimetableAction.CallStation("marker", "short"))
+                    sourceSteps += TimetableStep.At(0, TimetableAction.CallStation("marker", "short",
+                        minimumDwellTicks = stationDwellTicks, stoppingOffsetMetersBefore = stationOffset))
                     sourceSteps += TimetableStep.At(0, TimetableAction.GoTo("marker@short"))
                 } else {
                     sourceSteps += TimetableStep.At(0, TimetableAction.GoVia(listOf("marker@short", "marker@long")))

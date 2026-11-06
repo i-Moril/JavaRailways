@@ -119,11 +119,13 @@ internal object IsolatedLineSimulator {
             fun state() = (world.allTrains.singleOrNull()?.controller as? SimpleATO)?.publishedState
             fun sample() { state()?.let { peak = maxOf(peak, it.trainSnapshot.speedMetersPerSecond) } }
             fun stoppingError(current: work.art1st.javarailways.simpleato.controller.SimpleAtoPublishedState, legIndex: Int): Double {
+                if (current.currentStationCall != null) return requireNotNull(current.runtimeDiagnostics.stationPositionErrorMeters) {
+                    "missing actual StationCall position error"
+                }
                 val mission = requireNotNull(current.currentMission) { "missing measured Mission" }
                 val stop = mission.legs[legIndex].point as work.art1st.javarailways.simpleato.api.mission.AtoMissionPoint.Stop
                 val target = mission.legs.take(legIndex + 1).sumOf { it.plannedRoute.expandedRoute.totalLength }
-                val offset = current.currentStationCall?.stoppingOffsetMetersBefore ?: stop.offsetMetersBefore
-                return target - offset - requireNotNull(current.runtimeDiagnostics.projectedProgressMeters) { "missing actual route progress" }
+                return target - stop.offsetMetersBefore - requireNotNull(current.runtimeDiagnostics.projectedProgressMeters) { "missing actual route progress" }
             }
             val waypointSubscription = world.simpleAtoWorldData.dispatcher.observeWaypointProgress(id) { event ->
                 if (failure == null) runCatching {

@@ -124,8 +124,15 @@ class AtoStoppingAccuracyExperiment {
                                 if (direction == ViewDirection.AB) targetArc else railLength - targetArc),
                                 approachDirection = direction)
                             world.simpleAtoWorldData.stations.register(Station(stationId, "station", listOf(berthRef)), listOf(berth))
-                            val call = ato.submitStationCall(StationCallRequest("accuracy", WayPointRef("origin"),
-                                StationCall("accuracy", 1, stationId, berthRef, dwellPlan = DwellPlan(0))))
+                            val request = StationCallRequest("accuracy", WayPointRef("origin"),
+                                StationCall("accuracy", 1, stationId, berthRef, dwellPlan = DwellPlan(0)))
+                            val selected = (result as AtoMissionSubmissionResult.Accepted).mission.legs.single().plannedRoute.expandedRoute
+                            val prefix = work.art1st.javarailways.basic.api.route.ExpandedRoute(selected.fromWayPointId,
+                                "station-call:${request.call.callId}:${request.call.berthRef}", selected.segments)
+                            val resolved = work.art1st.javarailways.simpleato.api.station.StationCallResolver(world).resolve(request,
+                                train.cars.sumOf { it.length }, retainedRoute = prefix, retainedTopology = world.topologyState)
+                                as work.art1st.javarailways.simpleato.api.station.StationCallResolutionResult.Success
+                            val call = ato.submitStationCall(resolved.resolved)
                             assertInstanceOf(StationCallSubmissionResult.Accepted::class.java, call)
                         }
                         ato.setMovementAuthority(1, if (mode != "AUTHORITY") distance + safety.safetyDistanceMeters else distance)

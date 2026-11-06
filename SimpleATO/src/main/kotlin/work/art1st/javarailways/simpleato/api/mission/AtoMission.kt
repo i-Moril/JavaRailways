@@ -2,6 +2,7 @@ package work.art1st.javarailways.simpleato.api.mission
 
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.route.PlannedRoute
+import work.art1st.javarailways.basic.api.route.ExpandedRoute
 import work.art1st.javarailways.simpleato.routing.RouteBuildResult
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -120,10 +121,13 @@ data class AtoMissionRequest private constructor(
     }
 }
 
-data class AtoMissionLeg(
+data class AtoMissionLeg @JvmOverloads constructor(
     val index: Int,
     val point: AtoMissionPoint,
-    val plannedRoute: PlannedRoute
+    val plannedRoute: PlannedRoute,
+    /** Original operating target when structural arrival bounds replace the physical Stop. */
+    val operatingPoint: AtoMissionPoint? = null,
+    val operatingTargetPrefix: ExpandedRoute? = null
 ) {
     init {
         require(index >= 0)

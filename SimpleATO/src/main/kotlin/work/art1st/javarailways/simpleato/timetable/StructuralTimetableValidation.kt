@@ -49,6 +49,7 @@ internal data class StructuralRouteMarker(val targetId: String, val distanceBefo
     init { require(targetId.isNotBlank()); require(distanceBeforeRetainedEndMeters.isFinite() && distanceBeforeRetainedEndMeters > 0.0) }
 }
 internal class ValidatedStructuralOutputRoute(val proof: StructuralOutputCorridor, val targetWindow: StructuralEventWindow,
+    val operatingTargetRoute: RouteSnapshot,
     val stoppingOffsetFromRetainedEndMeters: Double, carIds: Collection<String>, val expectedReversed: Boolean,
     private val bindings: StructuralRouteBindings,
     intermediateMarkers: Collection<StructuralRouteMarker> = emptyList()) {
@@ -505,7 +506,7 @@ internal class StructuralTimetableValidator(private val world: World,
             }
             val key = ValidatedStructuralRouteKey(candidate.output.first, candidate.output.second, cursor.service.id,
                 index, candidate.key, start(base).facing, targets.last(), address, effectiveOffset, branchTrace = candidate.branchTrace)
-            require(routes.put(key, ValidatedStructuralOutputRoute(proof, eligible, ahead, candidate.carIds,
+            require(routes.put(key, ValidatedStructuralOutputRoute(proof, eligible, selected, ahead, candidate.carIds,
                 candidate.envelope.reversed, StructuralRouteBindings.capture(world,
                     listOfNotNull(candidate.pointId) + targets, stationAction?.berthRef), markers)) == null) { "duplicate structural route proof" }
         }

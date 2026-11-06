@@ -42,10 +42,7 @@ import work.art1st.javarailways.simpleato.api.station.ResolvedStationCall
 import work.art1st.javarailways.simpleato.api.station.StationBerthDetector
 import work.art1st.javarailways.simpleato.api.station.StationCallNotification
 import work.art1st.javarailways.simpleato.api.station.StationCallNotificationType
-import work.art1st.javarailways.simpleato.api.station.StationCallRequest
 import work.art1st.javarailways.simpleato.api.station.StationCallResolutionFailure
-import work.art1st.javarailways.simpleato.api.station.StationCallResolutionResult
-import work.art1st.javarailways.simpleato.api.station.StationCallResolver
 import work.art1st.javarailways.simpleato.api.station.StationCallSubmissionResult
 import work.art1st.javarailways.simpleato.timetable.LineMaximumSpeedResolver
 import work.art1st.javarailways.simpleato.timetable.TimetableService
@@ -142,7 +139,6 @@ class SimpleATO(
     private data class ActiveStationCall(
         val resolved: ResolvedStationCall,
         val missionLayout: MissionRouteLayout,
-        val missionTargetProgressMeters: Double,
         var projectedProgressMeters: Double? = null,
         var approachingReported: Boolean = false,
         var berthed: Boolean = false,
@@ -184,7 +180,6 @@ class SimpleATO(
     private val missionCommands = RevisionedCommandQueue<AtoMission>()
     private val stationCallCommands = RevisionedCommandQueue<ResolvedStationCall>()
     private val missionResolver = AtoMissionResolver(world)
-    private val stationCallResolver = StationCallResolver(world)
     private val publishedStationNotifications = ConcurrentLinkedQueue<StationCallNotification>()
     private val pendingStationNotifications = ArrayList<StationCallNotification>()
     private val constraintManager = ConstraintManager()
@@ -304,23 +299,7 @@ class SimpleATO(
         }
     }
 
-    /** Resolve and queue one StationCall; activation occurs at a physics Tick boundary. */
-    @MainThread
-    fun submitStationCall(request: StationCallRequest): StationCallSubmissionResult {
-        val resolved = when (val result = stationCallResolver.resolve(
-            request,
-            trainLengthMeters = train.cars.sumOf { it.length }
-        )) {
-            is StationCallResolutionResult.Success -> result.resolved
-            is StationCallResolutionResult.Failure -> return StationCallSubmissionResult.ResolutionFailure(
-                result.reason,
-                result.message
-            )
-        }
-        return submitStationCall(resolved)
-    }
-
-    /** Queue the exact route already resolved and verified by the Dispatcher. */
+    /** Queue the exact selected Mission prefix already resolved by the producer. */
     @MainThread
     fun submitStationCall(resolved: ResolvedStationCall): StationCallSubmissionResult {
         val revision = resolved.call.missionRevision
@@ -480,13 +459,11 @@ class SimpleATO(
         return routeEndDistanceMeters + if (stationTerminal) AtoSafetyProfile.STATION_AUTHORITY_MARGIN_METERS else safetyProfile.safetyDistanceMeters
     }
 
-    private fun terminalAuthorityMarginMeters(routeEndDistanceMeters: Double): Double {
+    private fun terminalAuthorityMarginMeters(): Double {
         val mission = activeMission ?: return safetyProfile.safetyDistanceMeters
         val stop = mission.legs.lastOrNull()?.point as? AtoMissionPoint.Stop ?: return safetyProfile.safetyDistanceMeters
         return if (stop.stationStop || activeStationCall?.let { call ->
-            call.resolved.call.missionRevision == mission.revision &&
-                kotlin.math.abs(call.missionTargetProgressMeters - call.resolved.stoppingOffsetMetersBefore -
-                    (routeEndDistanceMeters - stop.offsetMetersBefore)) <= 1.0e-6
+            call.resolved.isTerminalOf(mission)
         } == true) AtoSafetyProfile.STATION_AUTHORITY_MARGIN_METERS else safetyProfile.safetyDistanceMeters
     }
 
@@ -560,28 +537,13 @@ class SimpleATO(
                     "${activeMission?.revision}"
             }
             constraintManager.remove(STATION_OWNER)
-            val berth = requireNotNull(world.simpleAtoWorldData.stations.berth(resolved.berthRef)) {
+            requireNotNull(world.simpleAtoWorldData.stations.berth(resolved.berthRef)) {
                 "active StationBerth disappeared: ${resolved.berthRef}"
             }
-            val arrivalDirection = resolved.plannedRoute.expandedRoute.segments.last()
-                .railViewRef.direction
             val stationMissionLayout = requireNotNull(missionRouteLayout)
-            val targetProgress = requireNotNull(stationMissionLayout.project(
-                RailPositionSnapshot(
-                    railId = berth.location.rail.id,
-                    facing = arrivalDirection,
-                    arcLengthInAbMeters = berth.location.arcLengthIn(
-                        work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB
-                    )
-                ),
-                resolved.plannedRoute.expandedRoute.totalLength
-            )) {
-                "StationBerth ${resolved.berthRef} is not on the active Mission route"
-            }
             activeStationCall = ActiveStationCall(
                 resolved = resolved,
                 missionLayout = stationMissionLayout,
-                missionTargetProgressMeters = targetProgress,
                 projectedProgressMeters = stationMissionLayout.project(
                     TrainSnapshot.capture(train, perceptionEpoch).head
                 )
@@ -993,7 +955,7 @@ class SimpleATO(
             else if (contact != null)
                 RouteSpeedLimitConstraint(authorityKey, authorityRemaining.coerceAtLeast(0.0), contact.maximumApproachSpeedMetersPerSecond)
             else MovementAuthorityConstraint(authorityKey, authorityRemaining,
-                terminalAuthorityMarginMeters(mission.legs.sumOf { it.plannedRoute.expandedRoute.totalLength })))
+                terminalAuthorityMarginMeters()))
             mission.legs.forEach { leg ->
                 targetDistance += leg.plannedRoute.expandedRoute.totalLength
                 val point = leg.point
@@ -1042,13 +1004,12 @@ class SimpleATO(
             directProjection != null -> directProjection
             active.projectedProgressMeters != null &&
                 active.projectedProgressMeters!! >=
-                active.missionTargetProgressMeters -
+                resolved.stoppingDistanceMeters -
                     (resolved.positionToleranceMeters + POSITION_EPSILON_METERS) ->
                 active.projectedProgressMeters!! + lastTravelDistanceMeters
             else -> error("train head left the StationCall Mission route before its berth: ${resolved.berthRef}")
         }
-        val positionError = active.missionTargetProgressMeters -
-            requireNotNull(active.projectedProgressMeters) - resolved.stoppingOffsetMetersBefore
+        val positionError = resolved.stoppingDistanceMeters - requireNotNull(active.projectedProgressMeters)
         stationPositionErrorMeters = positionError
         if (!active.approachingReported) {
             active.approachingReported = true
@@ -1126,7 +1087,7 @@ class SimpleATO(
             movementAuthorityRevision = movementAuthorityRevision,
             movementAuthorityLimitMeters = movementAuthorityLimitMeters,
             activeStationCallId = station?.resolved?.call?.callId,
-            stationTargetProgressMeters = station?.missionTargetProgressMeters,
+            stationTargetProgressMeters = station?.resolved?.berthDistanceMeters,
             stationPositionErrorMeters = stationPositionErrorMeters,
             permittedSpeedMetersPerSecond = permittedSpeed,
             constraints = descriptions

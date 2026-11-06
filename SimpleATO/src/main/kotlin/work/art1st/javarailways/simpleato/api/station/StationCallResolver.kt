@@ -35,6 +35,10 @@ data class ResolvedStationCall(
     val releaseDistanceMetersAfter: Double,
     val doorSide: DoorSide
 ) {
+    /** Fixed target on the selected Mission prefix; calculated once, never reprojected by consumers. */
+    val berthDistanceMeters: Double = plannedRoute.expandedRoute.totalLength
+    val stoppingDistanceMeters: Double = berthDistanceMeters - stoppingOffsetMetersBefore
+
     init {
         require(plannedRoute.revision == request.call.missionRevision)
         require(stoppingOffsetMetersBefore.isFinite() && stoppingOffsetMetersBefore >= 0.0)
@@ -49,6 +53,18 @@ data class ResolvedStationCall(
 
     val berthRef: StationBerthRef
         get() = call.berthRef
+
+    /** The route is the producer-selected Mission prefix, so occurrence is structural, not a distance comparison. */
+    internal fun isTerminalOf(mission: work.art1st.javarailways.simpleato.api.mission.AtoMission): Boolean {
+        val finalLeg = mission.legs.last()
+        val stop = (finalLeg.operatingPoint ?: finalLeg.point) as?
+            work.art1st.javarailways.simpleato.api.mission.AtoMissionPoint.Stop ?: return false
+        val prefix = plannedRoute.expandedRoute.segments
+        return call.missionRevision == mission.revision &&
+            prefix.size == mission.legs.sumOf { (it.operatingTargetPrefix ?: it.plannedRoute.expandedRoute).segments.size } &&
+            prefix.last() == (finalLeg.operatingTargetPrefix ?: finalLeg.plannedRoute.expandedRoute).segments.last() &&
+            stoppingOffsetMetersBefore == stop.offsetMetersBefore
+    }
 }
 
 sealed interface StationCallResolutionResult {
@@ -191,7 +207,7 @@ class StationCallResolver(private val world: World) {
         return operationalData.stationCallResolvers.resolve(StationCallResolutionContext(
             defaults,
             StationCallBerthSnapshot(berth.berthRef, berth.location.rail.id,
-                berth.location.arcLengthIn(ViewDirection.AB), berth.approachDirection),
+                target.arcLength, berth.approachDirection),
             trainLengthMeters, requiredStartDirection, retainedTopology ?: world.topologyState
         ))
     }

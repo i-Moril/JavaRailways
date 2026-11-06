@@ -134,7 +134,7 @@ class StationCallResolverRegistry {
             return failure(StationCallResolutionFailure.TRAIN_TOO_LONG,
                 "train length ${context.trainLengthMeters} exceeds custom usable length $usable")
         }
-        if (resolved.stoppingOffsetMetersBefore > resolved.plannedRoute.expandedRoute.totalLength) {
+        if (resolved.stoppingDistanceMeters < 0.0) {
             return invalid("custom stopping position lies before the validated route")
         }
         return result

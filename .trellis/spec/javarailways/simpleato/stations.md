@@ -47,6 +47,43 @@ data class StationCall(
 | door open/close未success | 保留hold/berth | 不grant departure |
 | head离开但tail仍occupy | berth保持 | detector release后才free |
 
+## 已选停站目标只计算一次（CURRENT）
+
+停站目标的唯一运行态来源是 `ResolvedStationCall`。Dispatcher 从当前 Mission 选取到该次
+站台的前缀，再由原 `StationCallResolver` 完成站台、方向、长度和自定义解析规则处理。
+解析结果初始化时保存 `berthDistanceMeters`（前缀总长，米）及
+`stoppingDistanceMeters = berthDistanceMeters - stoppingOffsetMetersBefore`（含停车偏移的目标里程）。
+`ExpandedRoute.totalLength` 是求和 getter，不能把在多个下游重新读取它误认为复用同一计算结果。
+这两个值不增加构造参数、持久化字段或新的状态 owner；解析结果替换时随新结果一起产生。
+
+Dispatcher 和 controller 消费同一个结果。controller 的 `submitStationCall` 只接受已解析结果，
+不保留自行重新寻路的 request 重载。physics boundary 仍检查 Mission revision、站台生命周期，
+但不再将固定站台坐标投影一次，也不新增整条前缀的结构复验。
+目标是否为 Mission 运营终点按已选前缀的分段出现次数、末段和停车偏移识别，不比较两份累计浮点距离。
+普通 leg 使用自身 `point/plannedRoute`。编组输出的物理路线可能包含停车点之后的保护后缀，
+其 `AtoMissionLeg.operatingPoint/operatingTargetPrefix` 保留原运营点和到该点的已选路线；
+`ValidatedStructuralOutputRoute.operatingTargetRoute` 直接保留编译时已有的选定路线。
+运行期只从实际车头裁出运营前缀，完整段复用原始端点，不由物理末端减去补偿再反算站台坐标。
+这些字段仅在运行态传递既有结果，不是新的选路、授权或持久化模型。
+例如站台位于 90 米、物理路线终点为 90.3 米时，站台仍是运营终点；有提前停车偏移时，
+名义站台也可以位于物理路线末端之后。终点识别使用原运营偏移，物理路线停车补偿继续使用
+最终 `Stop.offsetMetersBefore`，不能把两者互换而移动实际停车点或授权边界。
+真实车头仍逐帧投影，距离误差仍是已保存停车里程减实际进度；停车容差和真实授权边界不变。
+旧 StationCall 在离站后等待车尾清出期间，沿用既有末端行程跟踪；其“已抵达停点”门槛也使用
+`stoppingDistanceMeters`，不能要求提前停车的列车先抵达更远的名义站台坐标。
+运行线模拟对 StationCall 直接读取同一 controller publication 的停车误差，不能再次求和固定目标；
+没有 StationCall 的普通 destination 仍按其原有目标语义测量。
+
+前缀选择与初始化求和为 O(S)，下游读取目标为 O(1)，终点识别按 leg 数量 O(L) 统计分段次数；
+不新增每 Tick 路线搜索、缓存失效或兜底分支。主线程提交解析结果，在物理 Tick 边界激活，
+模拟测量只读取同一已发布状态，不能混用不同 Tick 的位置与误差。
+错误路线仍在原解析边界拒绝，自定义 resolver 不得替换 plannedRoute 或 offset，过期 revision 仍拒绝。
+例如同一终点的两种求和次序得到 `3673.6248614321557` 和 `3673.6248614321553` 时，
+不能把前者当作固定目标二次投影的进度下界而误报路线外，也不能增加 epsilon 掩盖重复计算。
+回归须覆盖该多 leg 数值差、途中站台、重复轨道出现次数、非零 offset、revision 与模拟误差消费，
+以及解编后站停、停车补偿、真实授权范围和后继移动完成。
+只保留实际移动位置的投影，不删除列车位置跟踪。此变更无需数据迁移。
+
 ## 非独占调用登记（CURRENT）
 
 `StationCallRegistry.register(StationBerthRegistrationKey): StationBerthRegistrationKey`只保存精确的

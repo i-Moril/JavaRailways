@@ -302,6 +302,7 @@ class IsolatedTimetableSimulationFactoryTest {
                 assertFalse(placed.reversed, "unique placement must not pre-reverse or re-seed the train")
                 var sawReversal = false
                 val arrivals = arrayListOf<Long>()
+                val arrivalErrors = linkedMapOf<String, Double>()
                 val subscription = sim.world.simpleAtoWorldData.dispatcher.observeWaypointProgress(
                     work.art1st.javarailways.simpleato.timetable.TimetableServiceRunId("line-test", "duty")) {
                     if (it.pass) arrivals += it.timetableElapsedTicks
@@ -313,6 +314,13 @@ class IsolatedTimetableSimulationFactoryTest {
                 try {
                     val completed = sim.simulate(IsolatedTimetableSimulationRequest(replay.restore(), 1200, 10_000),
                         afterTick = { tick ->
+                            val publication = (train.controller as work.art1st.javarailways.simpleato.controller.SimpleATO).publishedState
+                            if (sim.world.simpleAtoWorldData.dispatcher.statuses().single().state == TimetableServiceRunState.BERTHED) {
+                                publication.currentStationCall?.let { call ->
+                                    arrivalErrors.putIfAbsent(call.call.stationId.value,
+                                        requireNotNull(publication.runtimeDiagnostics.stationPositionErrorMeters))
+                                }
+                            }
                             if (reverseOrigin && !sawReversal && train.publishedFrame.reversed) {
                                 sawReversal = true
                                 assertTrue(tick < request.firstDepartureTick)
@@ -325,6 +333,9 @@ class IsolatedTimetableSimulationFactoryTest {
                         })
                     assertTrue(completed is IsolatedTimetableSimulationResult.Completed, completed.toString())
                     assertEquals(result.calls.drop(1).map { it.arrivalTick }, arrivals)
+                    assertEquals(listOf("c", "d"), arrivalErrors.keys.toList())
+                    assertEquals(arrivalErrors.values.toList(), result.legs.drop(1).map { it.stoppingErrorMeters },
+                        "measured StationCall errors must reuse the exact BERTHED publication, not another target calculation")
                     assertEquals(reverseOrigin, sawReversal)
                     if (unblocked != null) assertEquals(listOf(400L, 400L), releasedAt)
                 } finally { readySubscription.close(); subscription.close() }

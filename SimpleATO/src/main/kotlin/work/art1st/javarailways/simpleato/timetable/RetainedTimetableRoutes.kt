@@ -52,7 +52,7 @@ internal fun stationCallRoutePrefix(world: World, originId: String, call: Statio
             (berth.approachDirection == null || direction == berth.approachDirection) &&
             arc >= segment.startArcLength && arc <= segment.endArcLength) {
             if (arc > segment.startArcLength) prefix += segment.copy(endArcLength = arc)
-            if (prefix.sumOf { it.length } <= 0.0) return null
+            if (prefix.none { it.endArcLength > it.startArcLength }) return null
             return ExpandedRoute(originId, "station-call:${call.callId}:${call.berthRef}", prefix)
         }
         prefix += segment

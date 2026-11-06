@@ -944,7 +944,7 @@ class TimetableDispatcher(
             trainLengthMeters = run.train.cars.sumOf { it.length },
             requiredStartDirection = missionStartDirection,
             retainedRoute = stationCallRoutePrefix(world, request.origin.id, call,
-                run.currentRuntime.mission.legs.map { it.plannedRoute.expandedRoute })
+                run.currentRuntime.mission.legs.map { it.operatingTargetPrefix ?: it.plannedRoute.expandedRoute })
                 ?: return TimetableStationCallScheduleResult.Failure("StationBerth ${call.berthRef} is not on the active Mission route"),
             retainedTopology = world.topologyState
         )) {
@@ -955,7 +955,7 @@ class TimetableDispatcher(
         }
         // The resolver consumed the selected Mission prefix above, including an interior berth.
         // Its length already is this occurrence's Mission distance; do not search/convert it again.
-        val missionDistance = resolved.plannedRoute.expandedRoute.totalLength
+        val missionDistance = resolved.berthDistanceMeters
         val berth = world.simpleAtoWorldData.stations.berth(call.berthRef)
             ?: return TimetableStationCallScheduleResult.Failure("berth not found: ${call.berthRef}")
         if (run.currentRuntime.headProgressMeters >
@@ -980,7 +980,6 @@ class TimetableDispatcher(
         run.stationCall = DispatcherStationCall(
             resolved = resolved,
             missionRuntime = run.currentRuntime,
-            missionDistanceMeters = missionDistance,
             releaseDetector = RailIntervalReleaseDetector(
                 listOf(
                     RailInterval(
@@ -3208,11 +3207,7 @@ class TimetableDispatcher(
     }
 
     private fun isTerminalStationCall(stationCall: DispatcherStationCall): Boolean {
-        val runtime = stationCall.missionRuntime
-        val finalStop = runtime.mission.legs.lastOrNull()?.point as? AtoMissionPoint.Stop ?: return false
-        val stationStop = stationCall.missionDistanceMeters - stationCall.resolved.stoppingOffsetMetersBefore
-        val missionStop = runtime.layout.totalLengthMeters - finalStop.offsetMetersBefore
-        return abs(stationStop - missionStop) <= 1.0e-6
+        return stationCall.resolved.isTerminalOf(stationCall.missionRuntime.mission)
     }
 
     private fun hasAuthorityBeyondStation(
@@ -3221,7 +3216,7 @@ class TimetableDispatcher(
     ): Boolean {
         val tolerance = run.ato.missionStopToleranceMeters
         if (stationCall.missionRuntime.publishedAuthorityMeters <=
-            stationCall.missionDistanceMeters + tolerance
+            stationCall.resolved.berthDistanceMeters + tolerance
         ) return false
         return true
     }
@@ -3589,10 +3584,7 @@ class TimetableDispatcher(
                     val stationStop = stationTerminal != null ||
                         (runtime.mission.legs.lastOrNull()?.point as? AtoMissionPoint.Stop)?.stationStop == true
                     val terminalMargin = if (stationStop) AtoSafetyProfile.STATION_AUTHORITY_MARGIN_METERS else authorityStoppingMarginMeters
-                    val stopOffset = stationTerminal?.let {
-                        runtime.layout.totalLengthMeters - it.missionDistanceMeters + it.resolved.stoppingOffsetMetersBefore
-                    }
-                        ?: (runtime.mission.legs.lastOrNull()?.point as? AtoMissionPoint.Stop)?.offsetMetersBefore
+                    val stopOffset = (runtime.mission.legs.lastOrNull()?.point as? AtoMissionPoint.Stop)?.offsetMetersBefore
                         ?: 0.0
                     val actualStop = result.route.operationalEndRouteDistanceMeters - stopOffset
                     val proposal = terminalMarginProposal(world, result.route.selection.route,
@@ -6491,7 +6483,8 @@ class TimetableDispatcher(
             val low = maxOf(start, position)
             val high = minOf(end, position + length)
             if (high > low) segments += RouteSegment(RailViewRef(span.railId, span.facing),
-                span.startArcLengthMeters + low - position, span.startArcLengthMeters + high - position)
+                if (low == position) span.startArcLengthMeters else span.startArcLengthMeters + low - position,
+                if (high == position + length) span.endArcLengthMeters else span.startArcLengthMeters + high - position)
             position += length
         }
         return segments
@@ -6513,9 +6506,20 @@ class TimetableDispatcher(
             val point = if (index == cuts.lastIndex) AtoMissionPoint.Stop(points.last().target,
                 evidence.stoppingOffsetFromRetainedEndMeters, (points.last() as? AtoMissionPoint.Stop)?.stationStop == true) else points[index]
             val expanded = ExpandedRoute(from, point.target.id, segments)
+            // The selected operating marker remains canonical even when the physical arrival
+            // window ends beyond it (or before it for an authored early-stop offset).
+            val operatingPrefix = if (index == cuts.lastIndex) {
+                val selected = evidence.operatingTargetRoute
+                val operatingSegments = structuralRouteSegments(selected, resolved.headMeters + start,
+                    selected.totalLengthMeters).toMutableList()
+                operatingSegments[0] = operatingSegments.first().copy(startArcLength = segments.first().startArcLength)
+                ExpandedRoute(from, point.target.id, operatingSegments)
+            } else null
             start = end
             from = point.target.id
-            AtoMissionLeg(index, point, PlannedRoute("${runId}/structural-leg/$index", revision, expanded))
+            AtoMissionLeg(index, point, PlannedRoute("${runId}/structural-leg/$index", revision, expanded),
+                operatingPoint = points[index].takeIf { operatingPrefix != null },
+                operatingTargetPrefix = operatingPrefix)
         }
         return AtoMission(runId, revision, origin, legs)
     }
@@ -7022,7 +7026,6 @@ class TimetableDispatcher(
     private data class DispatcherStationCall(
         var resolved: ResolvedStationCall,
         val missionRuntime: MissionRuntime,
-        val missionDistanceMeters: Double,
         var registrationKey: StationBerthRegistrationKey? = null,
         var submittedToAto: Boolean = false,
         var approaching: Boolean = false,

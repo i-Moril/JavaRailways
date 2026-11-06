@@ -98,8 +98,10 @@ Train acquisition以live stopped train location/speed/derail/controller/run/geom
 通用投影和冻结路线的规则由 [ATO policy runtime](ato-policy-runtime.md#真实位置到-mission-累计距离) 维护。
 
 `scheduleStationCall` 先从当前 Mission 取包含目标站台的选定前缀，再交给 `StationCallResolver`。
-该前缀的总长就是这个站台在 Mission 上的距离，直接复用，不再反向搜索同一坐标、再以停车容差
-比较两份距离。前缀选择接受真实段内标记，不将段外站台截回段端点；站台在 Mission 中途也适用。
+该前缀的总长就是这个站台在 Mission 上的距离，由 `ResolvedStationCall` 初始化一次并传给全部
+目标消费者，不能在 controller 激活时再次投影，也不能在下游重复求和 getter 后比较两份距离。
+完整 producer/consumer 合同见[已选停站目标只计算一次](stations.md#已选停站目标只计算一次)。
+前缀选择接受真实段内标记，不将段外站台截回段端点；站台在 Mission 中途也适用。
 真正的“已越过停车位置”业务判断继续使用原停车容差，车门、授权和站停生命周期不变。
 `TimetableDispatcherTest` 的真实双轨环线回归验证欠停不会跳过首个 occurrence；它检查提交的完整
 路线和不瞬移，不把仅安装 Mission 描述为已经完成绕圈行驶。

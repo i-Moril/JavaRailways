@@ -34,6 +34,16 @@ sealed interface AtoMissionOrigin {
         init { require(eventInstanceId.isNotBlank() && outputId.isNotBlank()) }
         override val id: String = "formation:${eventInstanceId.length}:$eventInstanceId:$outputId"
     }
+
+}
+
+/** Exact observed head used when an in-place reversal starts the next operating Mission. */
+internal data class ObservedAtoMissionOrigin(
+    val operationId: String,
+    override val position: work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+) : AtoMissionOrigin.Physical {
+    init { require(operationId.isNotBlank()) }
+    override val id: String = "observed:${operationId.length}:$operationId"
 }
 
 /** Stable reference to a Basic WayPoint without retaining a live rail object. */

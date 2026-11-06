@@ -29,6 +29,7 @@ import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
+import work.art1st.javarailways.simpleato.api.mission.ObservedAtoMissionOrigin
 import work.art1st.javarailways.simpleato.testing.KinematicTrainActuator
 import work.art1st.javarailways.simpleato.api.depot.DepotId
 import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector
@@ -834,6 +835,12 @@ class TimetableDispatcherTest {
         assertEquals("152P", status.currentRunId, status.toString())
         assertEquals(TimetableServiceRunState.RUNNING, status.state, status.toString())
         assertEquals("origin@one", status.currentWayPointId, status.toString())
+        val mission = checkNotNull(ato.currentMission)
+        val observedOrigin = assertInstanceOf(ObservedAtoMissionOrigin::class.java, mission.origin)
+        assertEquals(train.publishedFrame.head, observedOrigin.position)
+        val firstRoute = mission.legs.first().plannedRoute.expandedRoute
+        assertEquals(observedOrigin.id, firstRoute.fromWayPointId)
+        assertEquals(70.0, firstRoute.segments.first().startArcLength, 1.0e-7)
         assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 

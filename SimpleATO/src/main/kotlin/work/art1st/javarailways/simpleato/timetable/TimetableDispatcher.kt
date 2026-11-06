@@ -18,6 +18,7 @@ import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.route.*
 import work.art1st.javarailways.simpleato.api.mission.AtoMissionOrigin
+import work.art1st.javarailways.simpleato.api.mission.ObservedAtoMissionOrigin
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionResult
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
@@ -74,6 +75,7 @@ import work.art1st.javarailways.simpleato.admission.RollingRouteAuthorityPlanner
 import work.art1st.javarailways.simpleato.admission.RouteAuthorityAdmissionClient
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.basic.basicWorldData
+import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.infrastructure.PhysicalRouteDependencyCompilation
 import work.art1st.javarailways.basic.infrastructure.PhysicalRouteDependencyCompiler
 import work.art1st.javarailways.basic.route.toSnapshot
@@ -84,6 +86,8 @@ import work.art1st.javarailways.simpleato.routing.FrozenMissionRouteResult
 import work.art1st.javarailways.simpleato.routing.TerminalRouteMargin
 import work.art1st.javarailways.simpleato.routing.TerminalMarginProposal
 import work.art1st.javarailways.simpleato.routing.RouteOperatingDirectionLimit
+import work.art1st.javarailways.simpleato.routing.OperationalRoutePlanner
+import work.art1st.javarailways.simpleato.routing.RouteBuildResult
 import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionContext
 import work.art1st.javarailways.simpleato.persistence.SavedActiveRunCheckpointV1
@@ -891,7 +895,7 @@ class TimetableDispatcher(
         }
         val request = StationCallRequest(
             serviceRunId = run.instanceId,
-            origin = (run.currentRuntime.mission.origin as? AtoMissionOrigin.FormationOutput)
+            origin = (run.currentRuntime.mission.origin as? AtoMissionOrigin.Physical)
                 ?: WayPointRef(run.currentWayPointId),
             call = call
         )
@@ -4851,6 +4855,7 @@ class TimetableDispatcher(
                     }
                     is TimetableAction.GoTo,
                     is TimetableAction.GoVia -> {
+                        val startsAfterReversal = run.requiredNextStartDirection != null
                         val physicalStartDirection =
                             (run.train.headLocation as
                                 work.art1st.javarailways.core.physics.rail.RailLocationWithFacing).facing
@@ -4864,7 +4869,8 @@ class TimetableDispatcher(
                             run.pendingDestinationOptions
                         ).copy(
                             requiredStartDirection =
-                                run.requiredNextStartDirection ?: physicalStartDirection
+                                run.requiredNextStartDirection ?: physicalStartDirection,
+                            useObservedOrigin = startsAfterReversal
                         )
                         startMovementPlan(world, run, plan)
                         return
@@ -5667,7 +5673,8 @@ class TimetableDispatcher(
                 selection.spec = spec
                 MovementPlan(WayPointRef(run.currentWayPointId), listOf(AtoMissionPoint.Stop(target,
                     result.resolved.stoppingOffsetMetersBefore, stationStop = true)), target, step.tick, step.tick, address,
-                    run.programCursor.advance(), spec, null, requiredStartDirection = facing, reservedMissionRevision = revision)
+                    run.programCursor.advance(), spec, null, requiredStartDirection = facing,
+                    useObservedOrigin = run.requiredNextStartDirection != null, reservedMissionRevision = revision)
             }
             is work.art1st.javarailways.simpleato.api.station.StationStopSelectionResult.Waiting -> {
                 selection.retryAtTick = dispatcherTick + admissionRetryTicks
@@ -6546,6 +6553,12 @@ class TimetableDispatcher(
         automatic: Boolean = true
     ): MissionSubmission {
         val revision = plan.reservedMissionRevision ?: nextMissionRevision()
+        val observedOrigin = if (plan.useObservedOrigin) {
+            ObservedAtoMissionOrigin(
+                "$runId/mission/$revision",
+                TrainSnapshot.capture(ato.train, dispatcherTick).head
+            )
+        } else null
         var from = world.basicWorldData.wayPoints[plan.origin.id]
             ?: return MissionSubmission(null, "mission target not found: ${plan.origin.id}")
         var direction = plan.requiredStartDirection ?: TrainSnapshot.capture(ato.train, dispatcherTick).head.facing
@@ -6572,11 +6585,50 @@ class TimetableDispatcher(
             if (point is AtoMissionPoint.Via && evidence.stoppingOffsetMeters != null) {
                 return MissionSubmission(null, "validated movement pass options changed")
             }
-            legs += AtoMissionLeg(index, point, PlannedRoute("$runId/leg/$index", revision, evidence.route))
+            var selectedRoute = evidence.route
+            if (index == 0 && observedOrigin != null) {
+                val head = observedOrigin.position
+                val rail = world.getRail(head.railId)
+                    ?: return MissionSubmission(null, "reversed train head rail no longer exists: ${head.railId}")
+                val headArc = if (head.facing == ViewDirection.AB) head.arcLengthInAbMeters
+                    else rail.curve.totalArcLength - head.arcLengthInAbMeters
+                val containingIndex = selectedRoute.segments.indexOfFirst { segment ->
+                    segment.railViewRef.railId == head.railId &&
+                        segment.railViewRef.direction == head.facing &&
+                        headArc >= segment.startArcLength - POSITION_TOLERANCE_METERS &&
+                        headArc <= segment.endArcLength + POSITION_TOLERANCE_METERS
+                }
+                val adjustedSegments = if (containingIndex >= 0) {
+                    val containing = selectedRoute.segments[containingIndex]
+                    listOf(containing.copy(startArcLength = headArc.coerceIn(
+                        containing.startArcLength, containing.endArcLength
+                    ))) + selectedRoute.segments.drop(containingIndex + 1)
+                } else {
+                    val connectorStart = WayPoint(observedOrigin.id, head.railId, head.arcLengthInAbMeters)
+                    when (val connector = OperationalRoutePlanner(world).buildRoute(
+                        connectorStart,
+                        from,
+                        requiredGoalDirection = selectedRoute.segments.first().railViewRef.direction,
+                        requiredStartDirection = head.facing,
+                        requireUniquePath = true,
+                        pruneNonTargetWaypoints = true
+                    )) {
+                        is RouteBuildResult.Success -> connector.route.segments + selectedRoute.segments
+                        is RouteBuildResult.Failure -> return MissionSubmission(null,
+                            "reversed train head cannot reach compiled route origin ${plan.origin.id}: ${connector.reason}")
+                    }
+                }
+                if (adjustedSegments.sumOf(RouteSegment::length) <= POSITION_TOLERANCE_METERS) {
+                    return MissionSubmission(null,
+                        "reversed train head leaves no forward route from ${plan.origin.id}")
+                }
+                selectedRoute = ExpandedRoute(observedOrigin.id, selectedRoute.toWayPointId, adjustedSegments)
+            }
+            legs += AtoMissionLeg(index, point, PlannedRoute("$runId/leg/$index", revision, selectedRoute))
             from = target
             direction = evidence.route.segments.last().railViewRef.direction
         }
-        val resolved = AtoMission(runId.toString(), revision, plan.origin, legs)
+        val resolved = AtoMission(runId.toString(), revision, observedOrigin ?: plan.origin, legs)
         val layout = MissionRouteLayout(world, resolved)
         if (layout.project(TrainSnapshot.capture(ato.train, dispatcherTick).head) == null) {
             return MissionSubmission(null, "train ${ato.train.id} is not facing the planned route from ${plan.origin.id}")
@@ -6877,6 +6929,7 @@ class TimetableDispatcher(
         val destinationOptions: TimetableAction.DestinationOptions?,
         val requiredStartDirection: ViewDirection? = null,
         val explicitReplanLegs: List<ValidatedTimetableRoute>? = null,
+        val useObservedOrigin: Boolean = false,
         val reservedMissionRevision: Long? = null
     )
 

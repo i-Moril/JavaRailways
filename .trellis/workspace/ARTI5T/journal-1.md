@@ -1023,3 +1023,26 @@ Implemented create -> name -> delete section-tool modes and named route labels; 
 ### Next Steps
 
 - Verify F cycling, boundary naming input and labels in the game client.
+
+
+## Session 33: Complete route position semantics and hand off simulation timing
+<!-- trellis-session: v=2 fp=8b8c0d17ce00328e -->
+
+**Date**: 2026-11-06
+**Task**: Complete route position semantics and hand off simulation timing
+**Package**: javarailways
+**Branch**: `codex/ato-per-car-rebuild`
+
+### Summary
+
+Completed and archived route-position-semantics after user approval: preserve canonical endpoints, separate stopping tolerance from geometric projection, remove actual-progress clamping, and retain observed stopped origins. Verified 2646 tests pass and one existing experiment skip; original Tick302/5403 replay failures cleared. Full replay still ends at Tick10026 DelayExceeded1226; controlled diagnostics identify simplified line-preview and dwell-accounting differences, not a blocked reverse. New planning task will address simulation fidelity and discuss intended dwell semantics next turn. No push or deployment; unrelated dirty work preserved.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c2a62f6d` | fix(route): preserve exact endpoints and observed train progress |
+
+### Status
+
+[OK] **Completed**

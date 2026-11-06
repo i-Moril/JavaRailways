@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 32
-- **Last Active**: 2026-10-30
+- **Total Sessions**: 33
+- **Last Active**: 2026-11-06
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1025 | Active |
+| `journal-1.md` | ~1048 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 33 | 2026-11-06 | Complete route position semantics and hand off simulation timing | `c2a62f6d` | `codex/ato-per-car-rebuild` |
 | 32 | 2026-10-30 | Boundary naming mode and test-server deployment | `5bd00387` | `dev/signal-system` |
 | 31 | 2026-10-30 | Fixed-block direction decoupling and test-server deployment | `188c24c6`, `220e705e`, `d7e9d305`, `c1da82ce` | `dev/signal-system` |
 | 30 | 2026-10-27 | Unify graph and duty timed operations | `a824bc2e` | `codex/timetable-station-programs` |

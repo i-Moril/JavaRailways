@@ -1069,3 +1069,64 @@ Completed real line measurement and STOP-only arrival-to-close dwell semantics, 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 35: Station target reuse and test-server deployment
+<!-- trellis-session: v=2 fp=74f352e140644ddf -->
+
+**Date**: 2026-11-06
+**Task**: Station target reuse and test-server deployment
+**Package**: javarailways
+**Branch**: `codex/ato-per-car-rebuild`
+
+### Summary
+
+Removed repeated StationCall target calculations; 1515 tests passed with one existing skip, Java API compilation passed, and real-data replay cleared the original StationBerth failure. Deployed 5d5a4b7a with verified recovery and domain/HTTP health; preserved current timetable and unrelated work, no push. Tick14219 delay remains separate.
+
+### Main Changes
+
+## Scope and authorization
+
+User requested removal of duplicated StationCall target calculations, then explicitly authorized commit and test-server deployment. No new Trellis task, no Git push, no online simulation or timetable mutation. Unrelated TODO.md and six untracked paths were preserved.
+
+## Implementation and verification
+
+- Work commit: 5d5a4b7a8d05bbfdf26d7c72950e873e292d204f, `fix(simpleato): reuse resolved station stopping targets`.
+- ResolvedStationCall computes fixed berth/stopping distance once; Dispatcher, controller and line measurement reuse the result. Removed controller fixed-berth reprojection and unused request overload.
+- Structural output keeps its original operating point/selected prefix separately from the physical arrival-window Stop compensation. Nonzero-offset departure tracking uses the actual stopping target. No new tolerance or fallback.
+- Full final tests: SimpleATO 788 passed; BukkitPlugin 727 passed and one pre-existing disabled experiment; Java signal API consumer compilation and diff check passed. Focused 95 tests are included, not additional to this total.
+- Offline replay of copied real infrastructure/timetable passed original Tick12469 StationBerth failure. It stopped at Tick14219 with duty3/105P DelayExceeded, 1219 ticks versus 1200 threshold. This remains separate and is not full global-simulation acceptance.
+- Built Mojang-mapped BukkitPlugin shadowJar successfully; no reobf deployment and no data migration.
+
+## Deployment evidence — 2026-11-06 UTC
+
+- Target: user@192.168.1.230, MCSManager JavaRailwaysTest instance 836082a48c4f48fcb1fea4e83c57dc96. Used /run/host-ssh-agent/agent.sock; no authentication changes or credential copying.
+- Installed baseline matched prior ee4dde6d artifact SHA256 636d383407e83c1d81686ad88dbc335e2a2c027a7eea610f9a1124db8776577e.
+- New JavaRailways SHA256: 994c5e03f08199d29e9eba3ece105431b4a6e254a32c5fd4be69cc211817c9f3.
+- Retained SimpleSignals SHA256: 36657ce6a312e4498aba656060e831b8a0f4beaa6677ecab4cc3d6d715d2f29c.
+- Latest user editor document new-timetable-9.json SHA256 before/after: c7dced2d37c395900c056edb2c0e4f7193c7ea60be2ec8144269de90ace2aad9. Did not restore the older document from the prior deployment.
+- One online player notified in chat before authorized normal stop. Old PID946187 exited; all worlds/player data saved at17:41:17. No forced termination.
+- First backup attempt encountered a service-owned model snapshot; no replacement occurred. Retried the same reviewed helper with existing sudo -n permission without altering file ownership/permissions.
+- Recovery: /opt/mcsmanager/backups/javarailways/station-target-20261106-vudeiqai/recovery.zip, 150 files, SHA256 aa1d2f127282a3edade6053b99fa9ef7a31881fc91aa424771df8c0fc98348ff. Membership and each file hash verified; source stability and stopped JVM/listeners checked.
+- At17:42:18 atomically replaced only plugins/JavaRailways.jar, preserving metadata. The other149 inventoried files remained unchanged before startup.
+- Local/remote staging and exact deployment manifests: /tmp/jr-station-target-deploy-20261106-FvglFTUu. Remote recovery.json/install.json preserve operation evidence.
+- New PID948935, manager status3; startup Done at17:42:48. At17:43:03 ATO world RUNNING; SimpleSignals installed, definitionRevision117, regions5/tables5/blocks14/fixedBlockSignals8/protectionSignals4/routeIndicators1.
+- Local WebUI29002 and bridge8765 health successful; public http://mc.art1st.work:29002/health returned status ok. Plugin and editor hashes matched after startup.
+- No new JavaRailways/SimpleSignals startup failure observed. Existing third-party com.dfsek.seismic Unsafe reflection error and startup physics overload/clamping warnings remain visible; no unrelated fix attempted.
+
+## Recovery and acceptance boundary
+
+For rollback, normal-stop this exact instance and verify the recovery manifest/archive, then restore only its plugins/JavaRailways.jar atomically with original file metadata. Do not overwrite later user data during JAR-only rollback.
+
+Deployment proves installation and domain/HTTP startup, not a successful new online global simulation. The Tick14219 delay remains unresolved. No other Trellis tasks were archived.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5d5a4b7a` | fix(simpleato): reuse resolved station stopping targets |
+
+### Status
+
+[OK] **Completed**

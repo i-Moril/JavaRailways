@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 34
+- **Total Sessions**: 35
 - **Last Active**: 2026-11-06
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1071 | Active |
+| `journal-1.md` | ~1132 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 35 | 2026-11-06 | Station target reuse and test-server deployment | `5d5a4b7a` | `codex/ato-per-car-rebuild` |
 | 34 | 2026-11-06 | Line simulation and dwell semantics verified and deployed | `ee4dde6d` | `codex/ato-per-car-rebuild` |
 | 33 | 2026-11-06 | Complete route position semantics and hand off simulation timing | `c2a62f6d` | `codex/ato-per-car-rebuild` |
 | 32 | 2026-10-30 | Boundary naming mode and test-server deployment | `5bd00387` | `dev/signal-system` |

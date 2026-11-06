@@ -1046,3 +1046,26 @@ Completed and archived route-position-semantics after user approval: preserve ca
 ### Status
 
 [OK] **Completed**
+
+
+## Session 34: Line simulation and dwell semantics verified and deployed
+<!-- trellis-session: v=2 fp=0079ee81ea5f25c3 -->
+
+**Date**: 2026-11-06
+**Task**: Line simulation and dwell semantics verified and deployed
+**Package**: javarailways
+**Branch**: `codex/ato-per-car-rebuild`
+
+### Summary
+
+Completed real line measurement and STOP-only arrival-to-close dwell semantics, removed the old estimator and excess door-boundary machinery, and fixed completion-versus-consumption timing without tick tolerance. Verified real S100 measurement/Reset/exact replay, physical reversal/resource waiting, missing-profile and stale Reset failure behavior. Full affected-module gate passed (1507 executed passes, one existing skip); final additions passed backend7 and UI4 plus typecheck. User approved the exact single-task commit and deployment, no push. Deployed ee4dde6d to JavaRailwaysTest after normal stop/save and verified recovery line-dwell-20261106-f1m35v88; new JAR636d3834, ATO RUNNING, Signals117, local/public HTTP health and assets match, original timetable unchanged. Separate known route issues remain; online global simulation was not triggered. Archived only this task and preserved unrelated dirty files.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ee4dde6d` | fix(simpleato): align line simulation and station dwell semantics |
+
+### Status
+
+[OK] **Completed**

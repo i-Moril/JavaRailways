@@ -170,7 +170,23 @@ Basic准入来源与信号插件来源进入同一个`ConstraintManager`，没�
 
 每个 controlled train 在一个成功 physics epoch 中最多执行一次前方路线 perception。区间、车辆和信号插件从这次扫描及 world-level 索引读取数据；任何策略都不得为了自己的信号显示或资源判断再做一次完整路线遍历。Basic 的 grant/denial 作为候选输入，不在 SimpleATO 中复制资源冲突计算。
 
-Dispatcher 的滚动资源授权复用这次 perception 已有的距离，不维护第二个前视距离，也不重新扫描路线。滚动申请阈值取既有 timing 距离与控制器最大速度下停车前视包络的较大者，后者包括 service braking、reaction 和同一全局 safetyDistance；不能让列车在更远的安全余量处停住，却还未进入较小的申请阈值。仍使用稳定最大速度，不随制动中的当前速度缩小阈值。首次申请的绝对边界为“冻结路线中的当前车头位置 + perception 距离”；已有 grant 时，仅当剩余授权距离降到现有 route-allocation trigger 后才计算下一边界，并截断到冻结路线末端。pending 期间不发出第二个请求。这个判断只读取路线总长、车头进度和 admission client 的 committed/pending 状态，时间与额外空间均为 `O(1)`；重试时机、拓扑变化后的重新选路和跨 mission 生命周期仍由 Dispatcher 负责。
+Dispatcher 的资源申请窗口与感知距离分开，但仍只有 controller 的一次 perception 扫描。
+`SimpleATO.routeAllocationRequestHorizonMeters(timing, speedMetersPerSecond)` 使用 Dispatcher 捕获的同一发布速度，
+取当前速度的 timing 距离与制动/反应/全局安全距离的较大者，加20米滚动余量，再限制在共享感知距离内。
+timing 距离为 `v²/(2b) + v*(设备办理时间+反应时间) + timing安全余量`；另一项使用同一controller profile。
+感知仍按最高速度和插件最大提前时间保守计算，不因静止而少看信号，也不因看到了远端就预占整个站间。
+
+`RollingRouteAuthorityPlanner.nextBoundary` 从冻结路线中的**当前真实车头进度**加请求窗口计算目标，裁到物理路线末端。
+不能从已授权终点再加窗口，否则静止重试会逐步占满全线。已有 grant 时，剩余授权不大于稳定触发距离才有资格申请；
+该触发距离取最高速度 timing、最高速度停车前视、全局安全距离加20米的最大值，不能随减速缩小。
+新目标至少比已有授权多5米才发请求，最后不足5米但确实推进到路线末端的尾段例外。
+这在保留减速/停车后的申请资格的同时，避免每个微小位移都申请。pending/reversal期间不发第二个请求。
+判断与窗口数学均为 `O(1)`，无新增状态、路线扫描、资源探测或另一套申请器；
+插件的不可拆分请求下界仍在此后调整，真正扩大许可仍只能来自 Basic Granted。
+
+例如最高速度感知673米、剩余行程603米而当前静止时，不再默认申请全程；全局安全距离5米、无更大timing余量时，
+先请求车头前25米。扩展被占用拒绝时保留旧grant、可在其中运行并安全停车，由既有Dispatcher重试节奏处理。
+窗口不假定任意远处的障碍都可以被部分授权绕过，固定闭塞/道岔保护仍按实际原子范围办理。
 
 当前第一批公开限制契约位于`simpleato.api.restriction`。一个外部信号来源为一列车发布完整不可变
 `TrainRestrictionSnapshot`，其中`sourceId`和每项`restrictionId`都必须为namespaced稳定身份；revision只在
@@ -479,7 +495,8 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 - admission client lifecycle：首次immediate grant、首次pending的0 m hold、pending→ready、extension/continuation pending或denied保留旧boundary与route binding、continuation READY保留grant ID后切换binding、首次safe abort、显式end以及unrelated route必须先end均有独立断言；输入stamp/train与Basic typed失败不被重写。
 - rolling extension：只沿同一frozen route或经Basic验证的严格正向append发出更远boundary；同一grant最多一个pending handle，期间旧资源继续释放且
   pending/denied不扩大authority，修改旧前缀、实际依赖或plan走replan。折返独立证明暂停释放、同grant rebase和新head零剩余authority。client lookahead policy用独立策略测试，
-  复用controller既有perception horizon，并在剩余authority到达既有route-allocation trigger时申请下一段；不另设扫描距离。
+  感知保持长窗口、静止首次申请短窗口，静止不连续扩权、5米分批、末尾小段、拒绝后减速停稳仍可续申请及折返真实车头起步；不另设扫描。
+  `RollingStationAdmissionTest` 用真实Core帧、HandleTrainActuator和Basic准入验证前车停站时后车先行、占用拒绝不扩权、边界前停车及车尾清出后恢复。
 - bulb line：首次前视覆盖两次道岔使用时，按Basic提示退回完整区间入口外；相交floor必须连锁回退，不能截断保护进路。重试至多一次，无法推进时等待；普通申请仍无额外路线扫描或道岔类型分支。
 - signal-plugin integration：固定闭塞、保护区域和移动闭塞插件结果都只能收紧限制；附加资源只增加Basic最终union，不能删除物理底线。
 - inspection scheduling：插件只在route/profile/definition变化时编译完整不可变声明；最大声明提前时间按最高速度扩展现有单次

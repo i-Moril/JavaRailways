@@ -44,6 +44,10 @@ fun continuation(route: RouteSnapshot, proposedMovingRoute: RouteSnapshot): Coll
 
 同绑定后续任务、换向rebase、重规划及编组交接必须重新携带/清除station证明；pending、unsafe、旧grant不能借新证明提前放宽。外部红灯restriction保持独立，最严格限制继续胜出。连挂接触的独立零间隙授权不采用车站规则。
 
+车站requiredEnd与几何路线总长、grant和方向前缀的比较沿用1e-6米数值epsilon，处理例如
+`610.3 - 590 < 20.3`的浮点减法误差；不是0.3米运营停车容差。发布的授权始终是原Basic边界，不加epsilon。
+`RouteAuthorityAdmissionClientTest`同时验证浮点末端可使用车站余量、真正短0.0001米仍使用全局余量，以及越出几何的声明拒绝。
+
 Good：站台停点后有0.5米合法轨道、之后方向禁行，0.3米补全可运行、停稳并折返。Bad：只剩0.2米合法空间时仍拒绝。Base：红灯或资源未释放令授权不足，仍按真实边界及默认5米防护停车。不得用把Basic边界加大、缩小默认全局距离或平移站台定义来替代本规则。
 
 相关controller/准入/静态与动态测试及真实隔离执行证据见当前任务`research/station-terminal-clearance-2026-10-31.md`；离线完成不等于游戏验收。

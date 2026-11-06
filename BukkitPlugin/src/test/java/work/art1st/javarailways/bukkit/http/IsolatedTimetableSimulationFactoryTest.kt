@@ -253,7 +253,7 @@ class IsolatedTimetableSimulationFactoryTest {
                     if (ownDirection == null && reverseTrain) {
                         assertTrue(result is IsolatedTimetableSimulationResult.Failed) { result.toString() }
                         val failure = result as IsolatedTimetableSimulationResult.Failed
-                        assertTrue(failure.reason.startsWith("OperatingDirectionViolation:")) { failure.reason }
+                        assertEquals("OperatingDirectionViolation", failure.reasonCode)
                         assertTrue(failure.reason.contains("reversed train body violates operating directions")) { failure.reason }
                         assertTrue(run.taskTimings.isEmpty())
                         assertFalse(train.publishedFrame.reversed)

@@ -529,7 +529,7 @@ class TimetableDispatcherSharedAdmissionTest {
     fun `overlong request retreats before atomic region and retries exactly once`() {
         val fixture = fixture(inspectionSources = listOf(atomicRequestFloor()))
         fixture.service.onRequest = { intent ->
-            if (fixture.service.intents.size == 1) overlongRequest(70.0)
+            if (fixture.service.intents.size == 1) overlongRequest(25.0)
             else fixture.service.grant(intent)
         }
 
@@ -541,12 +541,11 @@ class TimetableDispatcherSharedAdmissionTest {
 
         val intents = fixture.service.intents
         assertEquals(2, intents.size)
-        assertEquals(intents.first().route.totalLengthMeters,
-            intents.first().desiredAuthority.distanceFromRouteStartMeters, 1.0e-9)
-        assertEquals(40.0, intents.last().desiredAuthority.distanceFromRouteStartMeters, 1.0e-9)
+        assertEquals(32.0, intents.first().desiredAuthority.distanceFromRouteStartMeters, 1.0e-9)
+        assertEquals(20.0, intents.last().desiredAuthority.distanceFromRouteStartMeters, 1.0e-9)
         assertEquals(intents.first().route, intents.last().route)
         assertEquals(intents.first().observationStamp, intents.last().observationStamp)
-        assertEquals(40.0, fixture.service.grants.single().committedAuthority.distanceFromRouteStartMeters)
+        assertEquals(20.0, fixture.service.grants.single().committedAuthority.distanceFromRouteStartMeters)
         assertEquals(TimetableServiceRunState.RUNNING, fixture.status().state)
         assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
@@ -555,7 +554,7 @@ class TimetableDispatcherSharedAdmissionTest {
     fun `second overlong rejection does not start a third local retry`() {
         val fixture = fixture(inspectionSources = listOf(atomicRequestFloor()))
         fixture.service.onRequest = {
-            if (fixture.service.intents.size == 1) overlongRequest(70.0) else overlongRequest(30.0)
+            if (fixture.service.intents.size == 1) overlongRequest(25.0) else overlongRequest(15.0)
         }
 
         fixture.start()
@@ -563,7 +562,7 @@ class TimetableDispatcherSharedAdmissionTest {
         fixture.tickAto()
         fixture.dispatch()
 
-        assertEquals(listOf(fixture.service.intents.first().route.totalLengthMeters, 40.0),
+        assertEquals(listOf(32.0, 20.0),
             fixture.service.intents.map { it.desiredAuthority.distanceFromRouteStartMeters })
         assertEquals(TimetableServiceRunState.WAITING_ROUTE, fixture.status().state)
         assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
@@ -593,7 +592,7 @@ class TimetableDispatcherSharedAdmissionTest {
         val fixture = fixture(inspectionSources = listOf(atomicRequestFloor()))
         val handle = RouteAdmissionTestFixtures.handle()
         fixture.service.onRequest = {
-            if (fixture.service.intents.size == 1) overlongRequest(70.0)
+            if (fixture.service.intents.size == 1) overlongRequest(25.0)
             else RouteAdmissionResult.Pending(handle, null)
         }
         fixture.service.onProgress = {
@@ -609,7 +608,7 @@ class TimetableDispatcherSharedAdmissionTest {
         fixture.dispatch()
 
         assertEquals(2, fixture.service.intents.size)
-        assertEquals(40.0, fixture.service.intents.last().desiredAuthority.distanceFromRouteStartMeters)
+        assertEquals(20.0, fixture.service.intents.last().desiredAuthority.distanceFromRouteStartMeters)
         assertEquals(listOf(handle), fixture.service.progressed)
         assertTrue(fixture.service.grants.isEmpty())
         assertEquals(0.0, fixture.ato.runtimeDiagnostics.permittedSpeedMetersPerSecond, 1.0e-9)
@@ -623,9 +622,11 @@ class TimetableDispatcherSharedAdmissionTest {
         val handle = RouteAdmissionTestFixtures.handle()
         fixture.service.onRequest = { intent ->
             when (fixture.service.intents.size) {
-                1 -> overlongRequest(70.0)
+                1 -> overlongRequest(25.0)
                 2 -> fixture.service.grant(intent)
-                3 -> overlongRequest(140.0)
+                // This ceiling lies after the whole [20,30] atomic interval, but still before
+                // the current-motion request boundary. It can be retried without splitting it.
+                3 -> overlongRequest(31.0)
                 4 -> RouteAdmissionResult.Pending(handle, fixture.service.grants.single())
                 else -> error("unexpected request during preparation")
             }
@@ -646,13 +647,13 @@ class TimetableDispatcherSharedAdmissionTest {
             fixture.dispatch()
         }
         assertEquals(4, fixture.service.intents.size, fixture.status().toString())
-        assertEquals(140.0, fixture.service.intents.last().desiredAuthority.distanceFromRouteStartMeters)
-        assertEquals(40.0, fixture.service.grants.single().committedAuthority.distanceFromRouteStartMeters)
+        assertEquals(31.0, fixture.service.intents.last().desiredAuthority.distanceFromRouteStartMeters)
+        assertEquals(20.0, fixture.service.grants.single().committedAuthority.distanceFromRouteStartMeters)
 
         // Without further Dispatcher progress the controller must still stop at the old grant,
         // not the retry hint or the prepared request boundary.
         repeat(400) { fixture.tickAto() }
-        assertTrue(fixture.train.head.location.arcLength <= routeStart + 40.0 + profile.stopToleranceMeters)
+        assertTrue(fixture.train.head.location.arcLength <= routeStart + 20.0 + profile.stopToleranceMeters)
         assertEquals(0.0, fixture.train.speed, 1.0e-6)
         fixture.dispatch()
         assertEquals(4, fixture.service.intents.size)
@@ -667,6 +668,9 @@ class TimetableDispatcherSharedAdmissionTest {
     )
 
     private fun atomicRequestFloor(): InspectionSource {
+        // The train head begins at route metre10 and its startup request ends at32. Put this
+        // indivisible interval inside that rolling window, rather than depending on the old
+        // maximum-speed perception being requested in full.
         var revision = 0L
         return InspectionSource(
             sourceId = "test:atomic-request-floor",
@@ -677,9 +681,9 @@ class TimetableDispatcherSharedAdmissionTest {
                     route = FrozenRouteBinding.from(input.route), definitionRevision = 1L,
                     trainProfileRevision = 1L, declarations = listOf(InspectionDeclaration(
                         declarationId = "test:region-entry", railId = segment.railId,
-                        facing = segment.facing, triggerRouteDistanceMeters = 40.0,
+                        facing = segment.facing, triggerRouteDistanceMeters = 20.0,
                         inspectionLeadTimeSeconds = 30.0,
-                        minimumRequestedAuthorityEndRouteDistanceMeters = 100.0
+                        minimumRequestedAuthorityEndRouteDistanceMeters = 30.0
                     ))
                 )
             },

@@ -8,7 +8,7 @@
 
 ## Owner、入口与state
 
-`SimpleATOWorldData.dispatcher` 是每个 world 的唯一可写 owner。`TimetableDispatcher` 拥有 mission revision、clocks/runs、每run admission client、berth allocator、operation/extension tickets、storage reservation、recovery checkpoints。Basic 不保留 dispatcher 字段或转发 accessor。Dispatcher构造时必须提供非空`TimetableRouteAdmissionContextProvider`和world-local `TrainRestrictionSnapshotProvider`；Bukkit production每Tick只取一次coherent observation/context并使用认证的world-local `RouteResourceAdmissionService`，隔离仿真组合同一个Basic runtime。每次建立或延长admission route时，Dispatcher低频编译inspection声明，把冻结route与Mission progress的坐标映射绑定给controller；逐physics epoch的inspection激活/dirty消费、snapshot同步和constraint replacement由controller在规划运动前完成，不等待下一次Dispatcher tick。无coherent observation时保持fail-closed，不存在legacy allocator fallback。入口：
+`SimpleATOWorldData.dispatcher` 是每个 world 的唯一可写 owner。`TimetableDispatcher` 拥有 mission revision、clocks/runs、每run admission client、非独占StationCall registry、operation/extension tickets、storage reservation、recovery checkpoints。Basic 不保留 dispatcher 字段或转发 accessor。Dispatcher构造时必须提供非空`TimetableRouteAdmissionContextProvider`和world-local `TrainRestrictionSnapshotProvider`；Bukkit production每Tick只取一次coherent observation/context并使用认证的world-local `RouteResourceAdmissionService`，隔离仿真组合同一个Basic runtime。每次建立或延长admission route时，Dispatcher低频编译inspection声明，把冻结route与Mission progress的坐标映射绑定给controller；逐physics epoch的inspection激活/dirty消费、snapshot同步和constraint replacement由controller在规划运动前完成，不等待下一次Dispatcher tick。无coherent observation时保持fail-closed，不存在legacy allocator fallback。入口：
 
 ```kotlin
 fun beginTimetable(world: World, timetableId: String): TimetableEpochStartResult
@@ -75,7 +75,7 @@ Run state token包含WAITING_MISSION/TIME/ROUTE、RUNNING、WAITING_BERTH、stat
 | RUNNING | mission revision已physics publish | 可推进route progress |
 | route conflict/physical lock | retry tick | `WAITING_ROUTE`+authority at protection，不Stall |
 | invalid resource/controller identity | invariant failure | world Stall，本Tick停止后续runs |
-| berth | exact non-preemptive allocation | conflict→WAITING_BERTH+zero demand |
+| berth | exact non-exclusive call registration | submit station target; movement still requires rolling Basic grant |
 | dwell | BERTHED publication + door-open SUCCEEDED | earliest departure clock开始 |
 | depart | door-close SUCCEEDED + next route confirmed | grant departure；berth仍tail-held |
 | halt | model `power-off` SUCCEEDED | terminal gate |
@@ -98,7 +98,12 @@ Train acquisition以live stopped train location/speed/derail/controller/run/geom
 
 Control transfer：pending operation先cancel+confirm；`MANUAL_ROUTED`继续通过同一Basic admission申请前方资源，但人工controller不消费ATO constraint，因此Dispatcher用同一committed boundary执行既有越界保护。`FULL_MANUAL`不发new request，但已有pending handle继续progress到终态，既有claim仍由Basic按车尾释放。release后`REPLAN_REQUIRED`；stale topology或route-state mismatch也直接进入该状态，不在旧route上循环重试。
 
-滚动授权的高水位复用controller已有的前方感知距离，低水位按列车最大速度和设备准备时间保守计算，不能按当前速度逐Tick缩短。否则列车因当前授权边界减速时，续申请阈值会同时后退，最终可能停在边界前而不再申请。每次仍只扩展到一个感知窗口，不一次占用完整长路线。
+滚动申请窗口按当前发布速度计算，不再直接使用最高速度的感知距离；申请资格阈值仍保持稳定，避免减速时阈值后退。
+窗口、分批和尾段规则由[滚动授权契约](operational-routing-and-authority.md#33-单一列车保护管线)唯一维护。
+显式StationCall登记成功即提交目标，不设置目的站台零速限制，也不在调度循环提前返回等待站台独占。
+`StationCallRegistry`只保存生命周期/编辑保护引用；车头、车身、道岔和信号资源仍由原Basic准入决定。
+APPROACHING/DEPARTING可暂时显示准入拒绝原因，成功或已有许可可继续使用后恢复相应站台运动提示；
+不能让旧PHYSICALLY_OCCUPIED消息一直残留，也不能因此擦掉开关门或停站任务诊断。
 
 新inspection binding的首次Basic申请/推进/扩权先等待controller成功publication：必须已检查exact冻结route，且
 实际perception horizon覆盖新声明的最大提前时间。Dispatcher只读取这一结果，不执行插件update。0信号限速不是拒绝
@@ -221,16 +226,18 @@ GoVia 在一次实际输出解算后按已证明的距保留路线末端距离�
 经过的轨道上用第一个投影猜测途经点。
 
 SELECT_STOP 是一次 movement 和 StationCall。候选必须已有完整 incoming/onward 证明，并以真实输出
-长度解析 eligibility。一次只预留一个候选 logical berth；该预留与 Basic 物理准入无等价关系。独立零速
+长度解析 eligibility。一次只登记一个候选call引用；不同列车可登记同一berth，该引用不排斥其他调用且不是物理授权。独立零速
 限制在真正 Granted 前保持，StationCall 此时不提交给控制器。Pending 只观察原 handle；AVAILABLE
 候选在明确、安全且已结束的冲突拒绝后释放自己的 tentative key，再尝试下一候选。不得释放原 source
 grant、已占用旧站台或仍在准备的候选。候选尚未提交时不把拒绝的 `retryAtOrBefore` 转成较短 grant，
 否则会提前锁定本该尝试替代的候选。首个真实 grant 后锁定选择，后续按普通 rolling admission 处理。
+短窗口的首个grant可能早于远端站台空闲，因此AVAILABLE_PRIORITY只保证首次物理承诺前遇真实拒绝时尝试替代；
+不是远端空闲站台预订，也不能在已经进入所选路径后自动切换候选。
 
 操作员在尚未提交时停止：没有 pending 可立即释放 tentative berth；存在 pending 则保留其身份到安全
-settlement，再释放未到访的 logical berth，Basic grant 仍按自己的生命周期保留。unsafe settlement
+settlement，再释放未到访的call引用，Basic grant 仍按自己的生命周期保留。unsafe settlement
 不得清理后继续。`selectedBerthRef/selectedBerthCommitted` 描述选择；`berthRef/berthHeld` 描述实际
-StationCall，二者可分别是下一个候选和仍被车尾占用的上一个站台。
+StationCall，二者可分别是下一个候选和仍被车尾占用的上一个站台。`berthHeld`保留既有诊断字段名，表示call引用未释放，不证明独占资源。
 
 固定输出以条件、等待或 SELECT_STOP 开始时，先绑定实际完整车身的 body grant，安装独立零速限制，
 退役已消费的 mission（保留同一 ATO 与外部约束），再对已经发布的实际输出执行普通 cursor。不能等待

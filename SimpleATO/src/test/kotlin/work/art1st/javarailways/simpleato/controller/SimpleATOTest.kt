@@ -80,6 +80,9 @@ import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotPr
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRoute
 import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionResult
 import work.art1st.javarailways.simpleato.routing.RouteAllocationTiming
+import work.art1st.javarailways.simpleato.admission.RollingRouteAuthorityPlanner
+import work.art1st.javarailways.simpleato.admission.RouteAuthorityAdmissionState
+import work.art1st.javarailways.basic.api.route.RouteBoundary
 
 class SimpleATOTest {
     private val worldFixtures = mutableListOf<TestWorldFixture>()
@@ -136,7 +139,7 @@ class SimpleATOTest {
     }
 
     @Test
-    fun `resource admission reuses the controller forward perception horizon`() {
+    fun `perception keeps maximum speed and declared inspection lead coverage`() {
         val fixture = fixture("perception-horizon")
 
         assertEquals(52.0, fixture.ato.inspectionDynamicLookaheadMeters(10.0), 1.0e-12)
@@ -146,16 +149,64 @@ class SimpleATOTest {
     }
 
     @Test
+    fun `resource window starts small and grows with braking setup and reaction distance`() {
+        val fixture = fixture("rolling-request-window")
+        val timing = RouteAllocationTiming(0.25, 0.25, 2.0)
+
+        assertEquals(22.0, fixture.ato.routeAllocationRequestHorizonMeters(timing, 0.0), 1e-12)
+        assertEquals(32.0, fixture.ato.routeAllocationRequestHorizonMeters(timing, 4.0), 1e-12)
+        assertEquals(62.0, fixture.ato.routeAllocationRequestHorizonMeters(timing, 10.0), 1e-12,
+            "the request window cannot outrun the shared perception horizon")
+        assertEquals(62.0, fixture.ato.routePerceptionHorizonMeters(), 1e-12,
+            "shorter resource requests do not shorten perception")
+    }
+
+    @Test
+    fun `fast train does not reserve a whole short mission while stopped`() {
+        val fixture = fixture("fast-train-startup-window", maximumSpeedMetersPerSecond = 40.0)
+        val timing = RouteAllocationTiming(0.25, 0.25, 2.0)
+        val request = fixture.ato.routeAllocationRequestHorizonMeters(timing, 0.0)
+
+        assertTrue(fixture.ato.routePerceptionHorizonMeters() > 603.0)
+        assertEquals(RouteBoundary(112.0), RollingRouteAuthorityPlanner.nextBoundary(
+            routeLengthMeters = 693.0,
+            headProgressMeters = 90.0,
+            requestHorizonMeters = request,
+            extensionTriggerMeters = fixture.ato.routeAllocationTriggerDistanceMeters(timing),
+            admissionState = RouteAuthorityAdmissionState.EMPTY
+        ))
+    }
+
+    @Test
+    fun `very slow train still extends from a conservative stop before its authority margin`() {
+        val fixture = fixture("very-slow-rolling-window", atoProfile = profile.copy(
+            serviceDecelerationMetersPerSecondSquared = 2.0, safetyDistanceMeters = 5.0),
+            maximumSpeedMetersPerSecond = 0.1)
+        val timing = RouteAllocationTiming(0.25, 0.25, 2.0)
+        val request = fixture.ato.routeAllocationRequestHorizonMeters(timing, 0.0)
+
+        assertEquals(15.0025, request, 1e-12)
+        assertEquals(RouteBoundary(109.7025), RollingRouteAuthorityPlanner.nextBoundary(
+            routeLengthMeters = 200.0,
+            headProgressMeters = 94.7,
+            requestHorizonMeters = request,
+            extensionTriggerMeters = fixture.ato.routeAllocationTriggerDistanceMeters(timing),
+            admissionState = RouteAuthorityAdmissionState(RouteBoundary(100.0),
+                pending = false, reversalPending = false)
+        ))
+    }
+
+    @Test
     fun `rolling admission extends before a slow train stops at the global safety margin`() {
         val fixture = fixture("slow-default-margin", atoProfile = profile.copy(
             serviceDecelerationMetersPerSecondSquared = 2.0, safetyDistanceMeters = 5.0),
             maximumSpeedMetersPerSecond = 2.0)
         assertEquals(0.0, fixture.train.speed)
-        assertEquals(6.0, fixture.ato.routeAllocationTriggerDistanceMeters(
+        assertEquals(25.0, fixture.ato.routeAllocationTriggerDistanceMeters(
             RouteAllocationTiming(0.25, 0.25, 2.0)), 1e-12,
-            "the stopped train retains the max-speed braking envelope including5m safety")
-        assertEquals(12.0, fixture.ato.routeAllocationTriggerDistanceMeters(
-            RouteAllocationTiming(0.25, 0.25, 10.0)), 1e-12,
+            "the stopped train retains a positive reserve beyond the global5m safety margin")
+        assertEquals(42.0, fixture.ato.routeAllocationTriggerDistanceMeters(
+            RouteAllocationTiming(0.25, 0.25, 40.0)), 1e-12,
             "a larger configured setup threshold is preserved")
     }
 

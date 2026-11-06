@@ -442,8 +442,8 @@ internal class RouteAuthorityAdmissionClient(
         val restrictions = buildList<TrainRestriction> {
             val contact = route.committedGrant?.couplingContactAuthority
             val stationMargin = route.stationTerminalAuthority?.takeIf {
-                route.committedGrant != null && boundaryMeters >= it.requiredEndRouteDistanceMeters &&
-                    route.directionEndMeters >= it.requiredEndRouteDistanceMeters
+                route.committedGrant != null && boundaryMeters + COMPLETE_ROUTE_EPSILON_METERS >= it.requiredEndRouteDistanceMeters &&
+                    route.directionEndMeters + COMPLETE_ROUTE_EPSILON_METERS >= it.requiredEndRouteDistanceMeters
             }?.let { AtoSafetyProfile.STATION_AUTHORITY_MARGIN_METERS }
             if (route.committedGrant == null) add(CurrentSpeedRestriction(AUTHORITY_RESTRICTION_ID, 0.0))
             else if (contact == null) add(MovementAuthorityRestriction(AUTHORITY_RESTRICTION_ID, boundaryMeters, stationMargin))
@@ -473,7 +473,7 @@ internal class RouteAuthorityAdmissionClient(
 
     private fun requireDirectionLimit(selection: FrozenRouteSelectionResult.Selected) {
         selection.stationTerminalAuthority?.let {
-            require(it.requiredEndRouteDistanceMeters <= selection.route.totalLengthMeters) {
+            require(it.requiredEndRouteDistanceMeters <= selection.route.totalLengthMeters + COMPLETE_ROUTE_EPSILON_METERS) {
                 "station terminal authority exceeds its exact frozen route"
             }
             requireNotNull(selection.operatingDirectionLimit).requireLegalThrough(it.requiredEndRouteDistanceMeters)

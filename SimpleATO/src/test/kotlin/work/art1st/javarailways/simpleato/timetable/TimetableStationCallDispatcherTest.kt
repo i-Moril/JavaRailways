@@ -715,7 +715,7 @@ class TimetableStationCallDispatcherTest {
 
         val scheduled = fixture.dispatcher.scheduleStationCall(fixture.world, id, call)
         assertTrue(scheduled is TimetableStationCallScheduleResult.Scheduled)
-        assertEquals(TimetableServiceRunState.WAITING_BERTH, fixture.dispatcher.status(id)?.state)
+        assertEquals(TimetableServiceRunState.WAITING_MISSION, fixture.dispatcher.status(id)?.state)
         assertTrue(fixture.dispatcher.status(id)?.berthHeld == true)
 
         val observedStates = linkedSetOf<TimetableServiceRunState>()
@@ -1632,7 +1632,7 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test
-    fun `conflicting explicit berth keeps the later service held without stalling`() {
+    fun `two explicit calls to the same berth submit without an exclusive station gate`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val inspectionRuntime = emptyInspectionRuntime()
         val dispatcher = TimetableDispatcher(
@@ -1708,8 +1708,8 @@ class TimetableStationCallDispatcherTest {
         world.onOwnerForTest { dispatcher.tick(world) }
 
         assertTrue(dispatcher.status(firstId)?.berthHeld == true)
-        assertEquals(TimetableServiceRunState.WAITING_BERTH, dispatcher.status(secondId)?.state)
-        assertFalse(dispatcher.status(secondId)?.berthHeld == true)
+        assertTrue(dispatcher.status(secondId)?.berthHeld == true)
+        assertTrue(dispatcher.saveCheckpoint().runs.all { it.stationCallSubmittedToAto == true })
         assertEquals(0.0, secondTrain.speed, 1.0e-9)
 
         assertTrue(world.onOwnerForTest { dispatcher.stopService(world, firstId) })

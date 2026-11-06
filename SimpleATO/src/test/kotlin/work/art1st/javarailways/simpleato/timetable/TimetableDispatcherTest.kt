@@ -878,7 +878,10 @@ class TimetableDispatcherTest {
 
         assertEquals(1.05, train.speed, 1.0e-9)
 
-        repeat(600) { tickAndPublish(ato) }
+        repeat(600) {
+            tickAndPublish(ato)
+            world.onOwnerForTest { dispatcher.tick(world) }
+        }
         assertEquals(0.0, train.speed)
         assertEquals(originArc + 30.0, train.head.location.arcLength, 0.4)
         world.onOwnerForTest { dispatcher.tick(world) }
@@ -2149,7 +2152,8 @@ class TimetableDispatcherTest {
         val status = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
         assertEquals(TimetableControlMode.FULL_MANUAL, status.controlMode)
         assertEquals(TimetableServiceRunState.SUSPENDED, status.state)
-        assertTrue(status.routeGrantActive)
+        assertFalse(status.routeGrantActive,
+            "the tail has cleared the initial short grant; full manual must not acquire another")
         assertTrue(world.onOwnerForTest { dispatcher.releaseControlTransfer(train.id, "driver") })
         assertEquals(
             TimetableServiceRunState.REPLAN_REQUIRED,
@@ -2807,8 +2811,14 @@ class TimetableDispatcherTest {
         val ato = train.controller as SimpleATO
         tickAndPublish(ato)
         world.onOwnerForTest { dispatcher.tick(world) }
-        repeat(600) { tickAndPublish(ato) }
-        world.onOwnerForTest { dispatcher.tick(world) }
+        // Rolling extensions require the dispatcher during travel. Stop immediately when the
+        // action starts so this test still observes the ticket before its first poll.
+        var movementTicks = 0
+        while (dispatcher.status(TimetableServiceRunId("tt-extension", "service"))?.state !=
+            TimetableServiceRunState.WAITING_EXTENSION_ACTION && movementTicks++ < 600) {
+            tickAndPublish(ato)
+            world.onOwnerForTest { dispatcher.tick(world) }
+        }
 
         assertEquals(TimetableServiceRunState.WAITING_EXTENSION_ACTION,
             dispatcher.status(TimetableServiceRunId("tt-extension", "service"))?.state)
@@ -2908,8 +2918,12 @@ class TimetableDispatcherTest {
         val ato = train.controller as SimpleATO
         tickAndPublish(ato)
         world.onOwnerForTest { dispatcher.tick(world) }
-        repeat(600) { tickAndPublish(ato) }
-        world.onOwnerForTest { dispatcher.tick(world) }
+        var movementTicks = 0
+        while (dispatcher.status(runId)?.state != TimetableServiceRunState.WAITING_EXTENSION_ACTION &&
+            movementTicks++ < 600) {
+            tickAndPublish(ato)
+            world.onOwnerForTest { dispatcher.tick(world) }
+        }
         assertEquals(TimetableServiceRunState.WAITING_EXTENSION_ACTION, dispatcher.status(runId)?.state)
         assertEquals(1, actionStarts)
         assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
@@ -2943,7 +2957,9 @@ class TimetableDispatcherTest {
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, originArc))
-        data.wayPoints.add(WayPoint("B", rail.id, originArc + 30.0))
+        // This fixture deliberately advances physics independently of timetable ticks to test
+        // absolute child times. Keep the setup movement inside the initial rolling window.
+        data.wayPoints.add(WayPoint("B", rail.id, originArc + 10.0))
 
         var evaluations = 0
         var actionStarts = 0
@@ -3139,9 +3155,11 @@ class TimetableDispatcherTest {
         val dispatcher = dispatcher(safetyProfile = profile.copy(reactionTimeSeconds = 0.1))
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
-        val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(50.0, 0.0, 0.0))
-        val shortBranch = rail(world, Vector3d(50.0, 0.0, 0.0), Vector3d(150.0, 0.0, 0.0))
-        val longBranch = rail(world, Vector3d(50.0, 0.0, 0.0), Vector3d(150.0, 0.0, 20.0))
+        // Put the divergent paths inside the first short window. A distant blocked berth is
+        // no longer a reason to reselect once movement on the preferred path was committed.
+        val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(30.0, 0.0, 0.0))
+        val shortBranch = rail(world, Vector3d(30.0, 0.0, 0.0), Vector3d(150.0, 0.0, 0.0))
+        val longBranch = rail(world, Vector3d(30.0, 0.0, 0.0), Vector3d(150.0, 0.0, 20.0))
         IsolatedSimulationThreadMarker.run { CoreRail.connect(rail, shortBranch) }
         IsolatedSimulationThreadMarker.run { CoreRail.connect(rail, longBranch) }
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
@@ -3154,7 +3172,7 @@ class TimetableDispatcherTest {
                     usableLengthMeters = 20.0)))
         }
         world.onOwnerForTest {
-            val head = RailLocationWithFacing(longBranch.viewAB, 35.0)
+            val head = RailLocationWithFacing(longBranch.viewAB, 20.0)
             val car = work.art1st.javarailways.core.physics.train.CoreCar.create("blocking-car",
                 work.art1st.javarailways.core.physics.train.CoreBogie.create(head),
                 work.art1st.javarailways.core.physics.train.CoreBogie.create(head), length = 10.0,
@@ -3179,6 +3197,7 @@ class TimetableDispatcherTest {
         assertFalse(checkNotNull(dispatcher.status(id)).selectedBerthCommitted)
         assertNull(dispatcher.status(id)?.stationCallId, "controller call must wait for physical admission")
         val ato = train.controller as SimpleATO
+        val initialHead = train.publishedFrame.head
         val visited = linkedSetOf<String?>()
         var ticks = 0
         while (dispatcher.status(id)?.state != TimetableServiceRunState.COMPLETED && ticks++ < 1600) {
@@ -3186,6 +3205,11 @@ class TimetableDispatcherTest {
             world.onOwnerForTest { dispatcher.tick(world) }
             val status = checkNotNull(dispatcher.status(id))
             visited += status.currentWayPointId
+            if (status.selectedBerthRef == StationBerthRef(station, "long")) {
+                assertFalse(status.selectedBerthCommitted, status.toString())
+                assertEquals(initialHead, train.publishedFrame.head,
+                    "the occupied preferred path must be rejected before any movement")
+            }
             assertFalse(status.state in setOf(TimetableServiceRunState.FAILED, TimetableServiceRunState.REPLAN_REQUIRED), status.toString())
         }
         assertEquals(TimetableServiceRunState.COMPLETED, dispatcher.status(id)?.state)

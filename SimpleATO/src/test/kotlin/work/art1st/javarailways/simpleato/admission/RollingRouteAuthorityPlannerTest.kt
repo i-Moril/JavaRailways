@@ -7,7 +7,7 @@ import work.art1st.javarailways.basic.api.route.RouteBoundary
 
 class RollingRouteAuthorityPlannerTest {
     @Test
-    fun `first request covers one perception horizon from the train head`() {
+    fun `first request covers the resource window from the train head`() {
         val boundary = next(
             headProgressMeters = 20.0,
             admissionState = RouteAuthorityAdmissionState.EMPTY
@@ -86,15 +86,63 @@ class RollingRouteAuthorityPlannerTest {
         assertNull(boundary)
     }
 
+    @Test
+    fun `unchanged stopped train does not grow its committed window`() {
+        val initial = next(headProgressMeters = 90.0, requestHorizonMeters = 25.0,
+            extensionTriggerMeters = 700.0, admissionState = RouteAuthorityAdmissionState.EMPTY)
+        assertEquals(RouteBoundary(115.0), initial)
+        repeat(10) {
+            assertNull(next(headProgressMeters = 90.0, requestHorizonMeters = 25.0,
+                extensionTriggerMeters = 700.0, admissionState = committed(115.0)))
+        }
+    }
+
+    @Test
+    fun `current window growth is batched rather than requesting every small movement`() {
+        assertNull(next(headProgressMeters = 91.0, requestHorizonMeters = 25.0,
+            extensionTriggerMeters = 700.0, admissionState = committed(115.0)))
+        assertEquals(RouteBoundary(120.0), next(headProgressMeters = 95.0,
+            requestHorizonMeters = 25.0, extensionTriggerMeters = 700.0,
+            admissionState = committed(115.0)))
+    }
+
+    @Test
+    fun `stopped after denied extension can retry without restoring the fast window`() {
+        // The old high-speed request was denied. The train has stopped conservatively 8m
+        // before the grant end (5m safety plus 3m early-stop slack), not at the grant itself.
+        val stopped = next(headProgressMeters = 92.0, requestHorizonMeters = 25.0,
+            extensionTriggerMeters = 700.0, admissionState = committed(100.0))
+        assertEquals(RouteBoundary(117.0), stopped)
+        assertEquals(stopped, next(headProgressMeters = 92.0, requestHorizonMeters = 25.0,
+            extensionTriggerMeters = 700.0, admissionState = committed(100.0)),
+            "a denial does not mutate the committed frontier or suppress a later retry")
+    }
+
+    @Test
+    fun `short final suffix is not lost to extension batching`() {
+        assertEquals(RouteBoundary(120.3), next(routeLengthMeters = 120.3,
+            headProgressMeters = 96.0, requestHorizonMeters = 25.0,
+            extensionTriggerMeters = 700.0, admissionState = committed(120.0)))
+    }
+
+    @Test
+    fun `reversal body-only grant gets ordinary forward startup window`() {
+        assertEquals(RouteBoundary(115.0), next(headProgressMeters = 90.0,
+            requestHorizonMeters = 25.0, extensionTriggerMeters = 700.0,
+            admissionState = committed(90.0)))
+    }
+
     private fun next(
         routeLengthMeters: Double = 300.0,
         headProgressMeters: Double,
+        requestHorizonMeters: Double = 80.0,
+        extensionTriggerMeters: Double = 20.0,
         admissionState: RouteAuthorityAdmissionState
     ): RouteBoundary? = RollingRouteAuthorityPlanner.nextBoundary(
         routeLengthMeters = routeLengthMeters,
         headProgressMeters = headProgressMeters,
-        perceptionHorizonMeters = 80.0,
-        extensionTriggerMeters = 20.0,
+        requestHorizonMeters = requestHorizonMeters,
+        extensionTriggerMeters = extensionTriggerMeters,
         admissionState = admissionState
     )
 

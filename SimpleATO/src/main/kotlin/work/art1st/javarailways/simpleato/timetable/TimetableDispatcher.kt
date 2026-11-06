@@ -48,9 +48,8 @@ import work.art1st.javarailways.basic.api.operation.TrainOperationTicketState
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.simpleato.api.station.DwellPlanResolver
 import work.art1st.javarailways.simpleato.api.station.ResolvedStationCall
-import work.art1st.javarailways.simpleato.api.station.StationBerthAllocationKey
-import work.art1st.javarailways.simpleato.api.station.StationBerthAllocationResult
-import work.art1st.javarailways.simpleato.api.station.StationBerthAllocator
+import work.art1st.javarailways.simpleato.api.station.StationBerthRegistrationKey
+import work.art1st.javarailways.simpleato.api.station.StationCallRegistry
 import work.art1st.javarailways.simpleato.api.station.StationBerthOwner
 import work.art1st.javarailways.simpleato.api.station.StationBerthRef
 import work.art1st.javarailways.simpleato.api.station.StationCall
@@ -218,6 +217,7 @@ data class TimetableServiceRunSnapshot(
     val tailProgressMeters: Double? = null,
     val stationCallId: String? = null,
     val berthRef: StationBerthRef? = null,
+    /** Active station-call reference (including approach), not exclusive physical ownership. */
     val berthHeld: Boolean = false,
     val selectedBerthRef: StationBerthRef? = null,
     val selectedBerthCommitted: Boolean = false,
@@ -338,10 +338,10 @@ class TimetableDispatcher(
     private val recoveryRequiredDefinitions = LinkedHashMap<String, Timetable>()
     private val appliedTimetablePlans = LinkedHashMap<String, AppliedTimetablePlan>()
     private val physicalStorageReservations = LinkedHashMap<StablingPointRef, String>()
-    private val berthAllocator = StationBerthAllocator()
-    /** Exact berth ownership blocks canonical configuration replacement until release. */
+    private val stationCalls = StationCallRegistry()
+    /** Any active call reference blocks canonical configuration replacement until its release. */
     fun hasStationBerthAllocation(berthRef: StationBerthRef): Boolean =
-        berthAllocator.isAllocated(berthRef)
+        stationCalls.isRegistered(berthRef)
 
     private var dispatcherTick = 0L
     private var boundWorld: World? = null
@@ -411,7 +411,7 @@ class TimetableDispatcher(
                 atoPermittedSpeedMetersPerSecond = diagnostics.permittedSpeedMetersPerSecond,
                 atoConstraints = diagnostics.constraints,
                 stationCallSubmittedToAto = run.stationCall?.submittedToAto,
-                berthHeld = run.stationCall?.allocationKey != null
+                berthHeld = run.stationCall?.registrationKey != null
             )
         } + recoveryRequiredRuns).distinctBy {
             Triple(it.timetableId, it.serviceId, it.cycleIndex)
@@ -761,7 +761,6 @@ class TimetableDispatcher(
         if (existingController is SimpleATO) {
             replaceableTrainRuns.forEach {
                 existingController.removeSpeedLimit(stopKey(it))
-                existingController.removeSpeedLimit(stationPendingHoldKey(it))
                 existingController.removeSpeedLimit(scheduleHoldKey(it))
                 existingController.removeSpeedLimit(timetableLineSpeedKey(it.id))
             }
@@ -947,8 +946,12 @@ class TimetableDispatcher(
         if (run.waitingUntilTimetableTick != null && !run.waitingStepPending) {
             run.waitingUntilTimetableTick = null
             run.ato.removeSpeedLimit(scheduleHoldKey(run))
+            // This call replaces a preinstalled movement's time wait. Keep the state and its
+            // cleared deadline coherent; the controller will publish APPROACHING next.
+            if (run.state == TimetableServiceRunState.WAITING_TIMETABLE_TIME) {
+                run.state = TimetableServiceRunState.WAITING_MISSION
+            }
         }
-        run.ato.setSpeedLimit(stationPendingHoldKey(run), 0.0)
         val berthArcAb = berth.location.arcLengthIn(ViewDirection.AB)
         val berthRailLength = berth.location.rail.getView(ViewDirection.AB).curve.totalArcLength
         val clearance = resolved.positionToleranceMeters + resolved.releaseDistanceMetersAfter
@@ -966,9 +969,7 @@ class TimetableDispatcher(
                 )
             )
         )
-        run.state = TimetableServiceRunState.WAITING_BERTH
-        run.message = "waiting for berth ${call.berthRef}"
-        val failure = tryAllocateStationCall(run)
+        val failure = submitStationCall(run)
         return if (failure == null) {
             TimetableStationCallScheduleResult.Scheduled(run.snapshot())
         } else {
@@ -1240,7 +1241,7 @@ class TimetableDispatcher(
                 "old Basic route resources are still held by the train tail"
             )
         }
-        if (run.stationCall?.allocationKey != null) {
+        if (run.stationCall?.registrationKey != null) {
             return TimetableReplanResult.Failure(
                 "old StationBerth resource is still held by the train tail"
             )
@@ -1546,15 +1547,6 @@ class TimetableDispatcher(
                 return@forEach
             }
             val stationCall = run.stationCall
-            if (stationCall != null && !stationCall.submittedToAto) {
-                tryAllocateStationCall(run)
-                if (!stationCall.submittedToAto) return@forEach
-                if (run.waitingUntilTimetableTick?.let { timetableElapsedTicks(run) < it } == true) {
-                    run.state = TimetableServiceRunState.WAITING_TIMETABLE_TIME
-                    run.message = "StationCall active; waiting for timetable tick ${run.waitingUntilTimetableTick}"
-                    return@forEach
-                }
-            }
             if (stationCall != null &&
                 (run.state == TimetableServiceRunState.DOORS_OPENING ||
                     run.state == TimetableServiceRunState.DOORS_CLOSING)
@@ -1684,7 +1676,7 @@ class TimetableDispatcher(
             ) {
                 run.state = TimetableServiceRunState.RUNNING
                 run.message = null
-                if (stationCall.allocationKey == null) run.stationCall = null
+                if (stationCall.registrationKey == null) run.stationCall = null
             }
 
             val mission = publishedAtoState.currentMission
@@ -2004,7 +1996,7 @@ class TimetableDispatcher(
         }
         run.stopSelection?.takeIf { !it.committed }?.cancelled = true
         run.stopSelection?.takeIf { !it.committed && run.admissionClient?.state?.pending != true }?.let { selection ->
-            selection.key?.let { check(berthAllocator.release(it)) { "tentative station allocation disappeared" } }
+            selection.key?.let { check(stationCalls.release(it)) { "tentative station allocation disappeared" } }
             run.stopSelection = null
             run.ato.removeSpeedLimit(selectionHoldKey(run))
         }
@@ -2120,12 +2112,12 @@ class TimetableDispatcher(
             run.destinationStop?.operationTicket,
             run.haltOperation?.ticket
         ).distinct().forEach { ticket -> runCatching { ticket.cancel() } }
-        run.stopSelection?.takeIf { !it.committed }?.key?.let { berthAllocator.release(it) }
+        run.stopSelection?.takeIf { !it.committed }?.key?.let { stationCalls.release(it) }
         run.stopSelection = null
         run.ato.removeSpeedLimit(selectionHoldKey(run))
-        run.stationCall?.allocationKey?.let { key ->
-            berthAllocator.release(key)
-            run.stationCall?.allocationKey = null
+        run.stationCall?.registrationKey?.let { key ->
+            stationCalls.release(key)
+            run.stationCall?.registrationKey = null
         }
         run.storageReservation?.let { reservation ->
             if (run.physicalStorageOnly) {
@@ -2137,7 +2129,6 @@ class TimetableDispatcher(
         }
         run.ato.removeSpeedLimit(stopKey(run))
         run.ato.removeSpeedLimit(stationProgramHoldKey(run))
-        run.ato.removeSpeedLimit(stationPendingHoldKey(run))
         run.ato.removeSpeedLimit(scheduleHoldKey(run))
         run.ato.removeSpeedLimit(timetableLineSpeedKey(run.id))
         if (run.train.controller === run.ato) run.train.setController(null)
@@ -2155,8 +2146,8 @@ class TimetableDispatcher(
         if (selectedRuns.any { it.admissionClient != null && !it.admissionEnded }) {
             return "Basic route resources must tail-release before Depot Reset"
         }
-        val berthKeys = berthAllocator.allocations().toSet()
-        val missingBerth = selectedRuns.mapNotNull { it.stationCall?.allocationKey }
+        val berthKeys = stationCalls.registrations().toSet()
+        val missingBerth = selectedRuns.mapNotNull { it.stationCall?.registrationKey }
             .firstOrNull { it !in berthKeys }
         if (missingBerth != null) return "StationBerth allocation disappeared: $missingBerth"
         return null
@@ -2179,18 +2170,17 @@ class TimetableDispatcher(
             selectedRuns.forEach { run ->
                 cancelPendingOperation(run)?.let(::error)
             }
-            val berthKeys = berthAllocator.allocations()
+            val berthKeys = stationCalls.registrations()
                 .filter { it.owner.trainId in trainIds }
             berthKeys.forEach { key ->
-                check(berthAllocator.release(key)) { "StationBerth disappeared during reset: $key" }
+                check(stationCalls.release(key)) { "StationBerth disappeared during reset: $key" }
                 progress.recordBerthRelease()
                 selectedRuns.forEach { run ->
-                    if (run.stationCall?.allocationKey == key) run.stationCall?.allocationKey = null
+                    if (run.stationCall?.registrationKey == key) run.stationCall?.registrationKey = null
                 }
             }
             selectedRuns.forEach { run ->
                 run.ato.removeSpeedLimit(stopKey(run))
-                run.ato.removeSpeedLimit(stationPendingHoldKey(run))
                 run.ato.removeSpeedLimit(scheduleHoldKey(run))
                 run.ato.removeSpeedLimit(timetableLineSpeedKey(run.id))
                 if (run.train.controller === run.ato) run.train.setController(null)
@@ -2212,59 +2202,39 @@ class TimetableDispatcher(
         }
     }
 
-    private fun tryAllocateStationCall(run: ActiveRun): String? {
+    private fun submitStationCall(run: ActiveRun): String? {
         val stationCall = run.stationCall ?: return null
         if (stationCall.submittedToAto) return null
         val call = stationCall.resolved.call
-        val key = stationCall.allocationKey ?: StationBerthAllocationKey(
+        val key = stationCall.registrationKey ?: StationBerthRegistrationKey(
             owner = StationBerthOwner(run.instanceId, run.train.id, call.callId),
             berthRef = call.berthRef,
             missionRevision = call.missionRevision
         )
-        return when (val result = berthAllocator.allocate(key)) {
-            is StationBerthAllocationResult.Confirmed -> {
-                stationCall.allocationKey = result.key
-                when (val submission = run.ato.submitStationCall(stationCall.resolved)) {
-                    is StationCallSubmissionResult.Accepted -> {
-                        stationCall.resolved = submission.resolved
-                        stationCall.submittedToAto = true
-                        run.ato.removeSpeedLimit(stationPendingHoldKey(run))
-                        run.message = "StationCall ${call.callId} awaiting physics activation"
-                        null
-                    }
-                    is StationCallSubmissionResult.StaleRevision -> {
-                        check(berthAllocator.release(result.key)) {
-                            "new StationBerth allocation disappeared during stale submission"
-                        }
-                        stationCall.allocationKey = null
-                        val reason = "StationCall revision ${submission.submittedRevision} is stale"
-                        stallRun(
-                            requireNotNull(boundWorld),
-                            run,
-                            "ResourceIdentityViolation",
-                            reason
-                        )
-                        reason
-                    }
-                    is StationCallSubmissionResult.ResolutionFailure -> {
-                        check(berthAllocator.release(result.key)) {
-                            "new StationBerth allocation disappeared during failed submission"
-                        }
-                        stationCall.allocationKey = null
-                        stallRun(
-                            requireNotNull(boundWorld),
-                            run,
-                            "InfrastructureInvariantViolation",
-                            submission.message
-                        )
-                        submission.message
-                    }
-                }
-            }
-            is StationBerthAllocationResult.Conflict -> {
-                run.state = TimetableServiceRunState.WAITING_BERTH
-                run.message = "berth ${result.berthRef} held by ${result.heldBy.owner.serviceRunId}"
+        stationCall.registrationKey = stationCalls.register(key)
+        return when (val submission = run.ato.submitStationCall(stationCall.resolved)) {
+            is StationCallSubmissionResult.Accepted -> {
+                stationCall.resolved = submission.resolved
+                stationCall.submittedToAto = true
+                run.message = "StationCall ${call.callId} awaiting physics activation"
                 null
+            }
+            is StationCallSubmissionResult.StaleRevision -> {
+                check(stationCalls.release(key)) {
+                    "new StationCall registration disappeared during stale submission"
+                }
+                stationCall.registrationKey = null
+                val reason = "StationCall revision ${submission.submittedRevision} is stale"
+                stallRun(requireNotNull(boundWorld), run, "ResourceIdentityViolation", reason)
+                reason
+            }
+            is StationCallSubmissionResult.ResolutionFailure -> {
+                check(stationCalls.release(key)) {
+                    "new StationCall registration disappeared during failed submission"
+                }
+                stationCall.registrationKey = null
+                stallRun(requireNotNull(boundWorld), run, "InfrastructureInvariantViolation", submission.message)
+                submission.message
             }
         }
     }
@@ -2273,8 +2243,7 @@ class TimetableDispatcher(
         run.destinationStop = null
         val stationCall = run.stationCall ?: return
         stationCall.cancelledForControlTransfer = true
-        run.ato.removeSpeedLimit(stationPendingHoldKey(run))
-        if (stationCall.allocationKey == null) {
+        if (stationCall.registrationKey == null) {
             run.stationCall = null
         }
     }
@@ -3192,10 +3161,10 @@ class TimetableDispatcher(
 
     private fun releasePassedBerth(run: ActiveRun) {
         val stationCall = run.stationCall ?: return
-        val key = stationCall.allocationKey ?: return
+        val key = stationCall.registrationKey ?: return
         val occupancyState = stationCall.releaseDetector.update(run.train.occupiedRailIntervals)
         if (occupancyState != IntervalOccupancyState.RELEASED) return
-        if (!berthAllocator.release(key)) {
+        if (!stationCalls.release(key)) {
             stallRun(
                 requireNotNull(boundWorld),
                 run,
@@ -3204,7 +3173,7 @@ class TimetableDispatcher(
             )
             return
         }
-        stationCall.allocationKey = null
+        stationCall.registrationKey = null
         if (stationCall.cancelledForControlTransfer ||
             stationCall.departed && run.state != TimetableServiceRunState.DEPARTED
         ) {
@@ -3241,6 +3210,16 @@ class TimetableDispatcher(
             run.message = message
         } else if (message != null) {
             run.message = message
+        } else if (state == TimetableServiceRunState.RUNNING) {
+            // Route denial may temporarily replace the station movement diagnostic. Restore it
+            // when admission succeeds, without erasing door/dwell/operation diagnostics.
+            when (run.state) {
+                TimetableServiceRunState.APPROACHING ->
+                    run.message = "approaching ${run.stationCall?.resolved?.berthRef}"
+                TimetableServiceRunState.DEPARTING ->
+                    run.message = "departing ${run.stationCall?.resolved?.berthRef}"
+                else -> Unit
+            }
         }
     }
 
@@ -3441,8 +3420,8 @@ class TimetableDispatcher(
             val nominalDesired = RollingRouteAuthorityPlanner.nextBoundary(
                 routeLengthMeters = candidate.route.selection.route.totalLengthMeters,
                 headProgressMeters = routeProgress,
-                perceptionHorizonMeters = run.ato.routePerceptionHorizonMeters(
-                    inspectionRuntime.maximumDeclaredLeadTimeSeconds(run.train.id)
+                requestHorizonMeters = run.ato.routeAllocationRequestHorizonMeters(
+                    allocationTiming, snapshot.speedMetersPerSecond
                 ),
                 extensionTriggerMeters = run.ato.routeAllocationTriggerDistanceMeters(allocationTiming),
                 admissionState = client.state
@@ -3687,7 +3666,7 @@ class TimetableDispatcher(
                 check(client.end()) { "Rejected station candidate still has a live admission lifecycle" }
             }
             val key = checkNotNull(selection.key)
-            check(berthAllocator.release(key)) { "Tentative station selection lost its exact allocation" }
+            check(stationCalls.release(key)) { "Tentative station selection lost its exact allocation" }
             selection.deniedCandidates += key.berthRef.berthId
             selection.key = null
             selection.retryAtTick = dispatcherTick + admissionRetryTicks
@@ -3805,7 +3784,7 @@ class TimetableDispatcher(
         run.stopSelection?.takeIf { it.cancelled && !it.committed && !client.state.pending }?.let { selection ->
             // Stopped cancellation retains any Basic grant but no longer reserves an unvisited berth.
             if (!world.simpleAtoWorldData.atoCoordinator.isStalled && !client.state.reversalPending) {
-                selection.key?.let { check(berthAllocator.release(it)) { "cancelled selection allocation disappeared" } }
+                selection.key?.let { check(stationCalls.release(it)) { "cancelled selection allocation disappeared" } }
                 run.stopSelection = null
                 run.ato.removeSpeedLimit(selectionHoldKey(run))
             }
@@ -4017,7 +3996,7 @@ class TimetableDispatcher(
             run.message = "waiting for full train envelope inside ${reservation.stablingPointRef}"
             return false
         }
-        if (run.stationCall?.allocationKey != null) {
+        if (run.stationCall?.registrationKey != null) {
             run.state = TimetableServiceRunState.STORING
             run.message = "waiting for old StationBerth tail release before storage"
             return false
@@ -5098,7 +5077,7 @@ class TimetableDispatcher(
     }
 
     private fun finishControllerIfReleased(run: ActiveRun, snapshot: TrainSnapshot) {
-        if (run.stationCall?.allocationKey != null ||
+        if (run.stationCall?.registrationKey != null ||
             run.admissionClient != null && !run.admissionEnded ||
             !run.ato.isStopped(snapshot.speedMetersPerSecond)
         ) return
@@ -5660,7 +5639,7 @@ class TimetableDispatcher(
                 retainedRoute = ExpandedRoute(retained.second.fromWayPointId,
                     "station-call:${call.callId}:${call.berthRef}", retained.second.segments), retainedTopology = retained.third)
         }
-        val result = work.art1st.javarailways.simpleato.api.station.StationStopSelector(berthAllocator).select(
+        val result = work.art1st.javarailways.simpleato.api.station.StationStopSelector(stationCalls).select(
             work.art1st.javarailways.simpleato.api.station.StationStopSelection(action.selection.stationId, candidates, action.selection.policy),
             StationBerthOwner(run.instanceId, run.train.id, "${run.instanceId}/station/$address"), revision, resolutions)
         return when (result) {
@@ -5675,12 +5654,6 @@ class TimetableDispatcher(
                     result.resolved.stoppingOffsetMetersBefore, stationStop = true)), target, step.tick, step.tick, address,
                     run.programCursor.advance(), spec, null, requiredStartDirection = facing,
                     useObservedOrigin = run.requiredNextStartDirection != null, reservedMissionRevision = revision)
-            }
-            is work.art1st.javarailways.simpleato.api.station.StationStopSelectionResult.Waiting -> {
-                selection.retryAtTick = dispatcherTick + admissionRetryTicks
-                run.state = TimetableServiceRunState.WAITING_BERTH
-                run.message = "waiting for declared station candidates"
-                null
             }
             is work.art1st.javarailways.simpleato.api.station.StationStopSelectionResult.NoEligibleCandidate -> {
                 stallRun(world, run, "StationSelectionFailure", "no eligible station candidate: ${result.rejections}")
@@ -5977,7 +5950,7 @@ class TimetableDispatcher(
         try {
             movementDoorFailure(run)?.let(::error)
             check(run.controlMode == TimetableControlMode.AUTOMATIC) { "split requires automatic duty ownership" }
-            check(run.stationCall?.allocationKey == null && run.storageReservation == null) {
+            check(run.stationCall?.registrationKey == null && run.storageReservation == null) {
                 "split source still owns a station or storage operation"
             }
             check(!run.depotReservationPending && run.depotDepartureReleased) { "split source has not cleared its depot departure" }
@@ -6084,7 +6057,7 @@ class TimetableDispatcher(
             if (instance in preparingCouplings || instance in fixedFormations) return
             participants.forEach { participant ->
                 movementDoorFailure(participant)?.let(::error)
-                check(participant.controlMode == TimetableControlMode.AUTOMATIC && participant.stationCall?.allocationKey == null &&
+                check(participant.controlMode == TimetableControlMode.AUTOMATIC && participant.stationCall?.registrationKey == null &&
                     participant.storageReservation == null && !participant.depotReservationPending && participant.depotDepartureReleased) {
                     "coupling participant still owns another operation"
                 }
@@ -6787,9 +6760,6 @@ class TimetableDispatcher(
 
     private fun stationProgramHoldKey(run: ActiveRun): String = "dispatcher:station-program/${run.instanceId}"
 
-    private fun stationPendingHoldKey(run: ActiveRun): String =
-        "dispatcher:station-pending/${run.instanceId}"
-
     private fun scheduleHoldKey(run: ActiveRun): String =
         "dispatcher:timetable-time/${run.instanceId}"
 
@@ -6909,7 +6879,7 @@ class TimetableDispatcher(
 
     private class PendingStopSelection(val action: TimetableAction.SelectStop, val step: TimetableStep.At,
         val address: TimetableStepAddress, val cursor: TimetableProgramCursor) {
-        var key: StationBerthAllocationKey? = null
+        var key: StationBerthRegistrationKey? = null
         var spec: StationCallSpec? = null
         var committed = false
         var cancelled = false
@@ -6994,7 +6964,7 @@ class TimetableDispatcher(
         var resolved: ResolvedStationCall,
         val missionRuntime: MissionRuntime,
         val missionDistanceMeters: Double,
-        var allocationKey: StationBerthAllocationKey? = null,
+        var registrationKey: StationBerthRegistrationKey? = null,
         var submittedToAto: Boolean = false,
         var approaching: Boolean = false,
         var berthed: Boolean = false,
@@ -7193,12 +7163,12 @@ class TimetableDispatcher(
         fun canBeReplaced(): Boolean =
             state.isTerminal() &&
                 (admissionClient == null || admissionEnded) &&
-                stationCall?.allocationKey == null && storageReservation == null &&
+                stationCall?.registrationKey == null && storageReservation == null &&
                 ato.isStopped(ato.publishedState.trainSnapshot.speedMetersPerSecond)
 
         fun isStoredTerminal(): Boolean =
             state == TimetableServiceRunState.COMPLETED && storageCompleted &&
-                storageReservation == null && stationCall?.allocationKey == null &&
+                storageReservation == null && stationCall?.registrationKey == null &&
                 ato.isStopped(ato.publishedState.trainSnapshot.speedMetersPerSecond)
 
         fun snapshot(): TimetableServiceRunSnapshot {
@@ -7243,7 +7213,7 @@ class TimetableDispatcher(
                 tailProgressMeters = currentRuntimeOrNull?.tailProgressMeters,
                 stationCallId = stationCall?.resolved?.call?.callId,
                 berthRef = stationCall?.resolved?.berthRef,
-                berthHeld = stationCall?.allocationKey != null,
+                berthHeld = stationCall?.registrationKey != null,
                 selectedBerthRef = stopSelection?.key?.berthRef,
                 selectedBerthCommitted = stopSelection?.committed == true,
                 operationTicketId = operation?.ticketId

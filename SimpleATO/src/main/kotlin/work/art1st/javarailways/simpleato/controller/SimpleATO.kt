@@ -397,21 +397,43 @@ class SimpleATO(
      * This deliberately uses the train's maximum speed rather than its current speed. A current-
      * speed threshold retreats while the authority constraint brakes the train, which can leave a
      * slow or line-limited train stopped just short of the committed boundary without requesting
-     * the next window.
+     * the next window. The startup reserve also keeps a very slow train eligible when it stops
+     * slightly before the nominal safety margin rather than precisely on that mathematical point.
      */
     internal fun routeAllocationTriggerDistanceMeters(
         timing: RouteAllocationTiming
     ): Double = maxOf(
         timing.triggerDistanceMeters(actuator.maximumSpeedMetersPerSecond,
             safetyProfile.serviceDecelerationMetersPerSecondSquared),
-        inspectionDynamicLookaheadMeters(actuator.maximumSpeedMetersPerSecond)
+        inspectionDynamicLookaheadMeters(actuator.maximumSpeedMetersPerSecond),
+        safetyProfile.safetyDistanceMeters + ROUTE_ALLOCATION_RESERVE_METERS
+    )
+
+    /**
+     * Resource-request window, distinct from the longer shared perception scan.
+     *
+     * Use speed from the Dispatcher's captured publication, not mutable physics state. The
+     * reserve permits starting and continuing from a stop at the global authority margin. The
+     * planner batches small advances and never grows this window from the committed frontier,
+     * so a stationary train does not progressively reserve its entire route.
+     */
+    internal fun routeAllocationRequestHorizonMeters(
+        timing: RouteAllocationTiming,
+        speedMetersPerSecond: Double
+    ): Double = minOf(
+        maxOf(
+            timing.triggerDistanceMeters(speedMetersPerSecond,
+                safetyProfile.serviceDecelerationMetersPerSecondSquared),
+            inspectionDynamicLookaheadMeters(speedMetersPerSecond)
+        ) + ROUTE_ALLOCATION_RESERVE_METERS,
+        routePerceptionHorizonMeters()
     )
 
     /**
      * Distance covered by the controller's one shared forward perception.
      *
-     * Dispatcher resource admission reuses this value so it never performs or configures a
-     * second route look-ahead independently from the ATO scan.
+     * Resource admission has a shorter current-motion window within this scan; neither its
+     * window calculation nor the rolling planner performs another route scan.
      */
     internal fun routePerceptionHorizonMeters(
         maximumDeclaredInspectionLeadTimeSeconds: Double =
@@ -1335,6 +1357,7 @@ class SimpleATO(
         speed * speed / (2.0 * deceleration)
 
     private companion object {
+        const val ROUTE_ALLOCATION_RESERVE_METERS = 20.0
         const val ROUTE_PERCEPTION_MARGIN_METERS = 10.0
         const val BRAKING_GRADE_SAMPLE_SPACING_METERS = 10.0
         const val MAX_BRAKING_GRADE_SEGMENTS = 256

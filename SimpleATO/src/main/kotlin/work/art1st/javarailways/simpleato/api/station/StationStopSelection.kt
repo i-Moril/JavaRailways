@@ -35,25 +35,22 @@ data class StationStopCandidateRejection(
 )
 
 sealed interface StationStopSelectionResult {
-    data class Selected(val resolved: ResolvedStationCall, val key: StationBerthAllocationKey) : StationStopSelectionResult
-    class Waiting(conflicts: Collection<StationBerthAllocationResult.Conflict>, rejections: Collection<StationStopCandidateRejection>) : StationStopSelectionResult {
-        val conflicts: List<StationBerthAllocationResult.Conflict> = java.util.List.copyOf(conflicts)
-        val rejections: List<StationStopCandidateRejection> = java.util.List.copyOf(rejections)
-    }
+    data class Selected(val resolved: ResolvedStationCall, val key: StationBerthRegistrationKey) : StationStopSelectionResult
     class NoEligibleCandidate(rejections: Collection<StationStopCandidateRejection>) : StationStopSelectionResult {
         val rejections: List<StationStopCandidateRejection> = java.util.List.copyOf(rejections)
     }
     /** Existing owner is retained until its normal stopped/cancellation/tail-release boundary. */
-    data class ExistingSelectionMismatch(val held: StationBerthAllocationKey) : StationStopSelectionResult
+    data class ExistingSelectionMismatch(val held: StationBerthRegistrationKey) : StationStopSelectionResult
 }
 
 /**
- * Select one logical berth from exact resolver results. The caller supplies real train length and
+ * Select one berth from exact resolver results. The caller supplies real train length and
  * retained incoming evidence to StationCallResolver, and validates every onward continuation before
  * this boundary. This helper does
- * not grant physical authority or interpret a logical allocation as a successful Basic admission.
+ * not grant physical authority or exclude other calls targeting the same berth. AVAILABLE_PRIORITY
+ * retries alternatives at the caller on real admission rejection, before the first physical grant.
  */
-class StationStopSelector(private val allocator: StationBerthAllocator) {
+class StationStopSelector(private val registry: StationCallRegistry) {
     @MainThread
     fun select(
         selection: StationStopSelection,
@@ -65,7 +62,7 @@ class StationStopSelector(private val allocator: StationBerthAllocator) {
         require(resolutions.keys == selection.candidates.map { it.berthId }.toSet()) {
             "Every declared candidate requires exactly one current resolution"
         }
-        val successes = linkedMapOf<StationBerthAllocationKey, ResolvedStationCall>()
+        val successes = linkedMapOf<StationBerthRegistrationKey, ResolvedStationCall>()
         val rejections = arrayListOf<StationStopCandidateRejection>()
         for (candidate in selection.candidates.sortedWith(compareBy({ it.priority }, { it.berthId }))) {
             val berth = StationBerthRef(selection.stationId, candidate.berthId)
@@ -77,16 +74,14 @@ class StationStopSelector(private val allocator: StationBerthAllocator) {
                         resolved.call.missionRevision == missionRevision && resolved.request.serviceRunId == owner.serviceRunId) {
                         "Candidate resolution belongs to a different call, berth or revision"
                     }
-                    successes[StationBerthAllocationKey(owner, berth, missionRevision)] = resolved
+                    successes[StationBerthRegistrationKey(owner, berth, missionRevision)] = resolved
                 }
             }
         }
         if (successes.isEmpty()) return StationStopSelectionResult.NoEligibleCandidate(rejections)
-        return when (val result = allocator.allocateChoice(successes.keys.toList(),
-            selection.policy == StationStopSelectionPolicy.AVAILABLE_PRIORITY)) {
-            is StationBerthChoiceAllocation.Confirmed -> StationStopSelectionResult.Selected(successes.getValue(result.key), result.key)
-            is StationBerthChoiceAllocation.Busy -> StationStopSelectionResult.Waiting(result.conflicts, rejections)
-            is StationBerthChoiceAllocation.ExistingMismatch -> StationStopSelectionResult.ExistingSelectionMismatch(result.held)
+        return when (val result = registry.registerChoice(successes.keys.toList())) {
+            is StationBerthChoiceRegistration.Confirmed -> StationStopSelectionResult.Selected(successes.getValue(result.key), result.key)
+            is StationBerthChoiceRegistration.ExistingMismatch -> StationStopSelectionResult.ExistingSelectionMismatch(result.held)
         }
     }
 }

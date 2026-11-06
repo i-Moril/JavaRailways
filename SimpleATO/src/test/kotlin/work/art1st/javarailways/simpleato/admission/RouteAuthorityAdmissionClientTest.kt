@@ -55,6 +55,32 @@ class RouteAuthorityAdmissionClientTest {
     private val client = client(service, publisher)
 
     @Test
+    fun `station terminal arithmetic accepts roundoff but keeps real grant and rejects missing clearance`() {
+        val terminalRoute = RouteSnapshot(route.routeId, route.revision, route.topologyRevision,
+            listOf(RouteSegmentSnapshot(UUID(0L, 99L), ViewDirection.AB, 590.0, 610.3)))
+        val selected = selection(terminalRoute).copy(stationTerminalAuthority =
+            work.art1st.javarailways.simpleato.routing.StationTerminalAuthority(20.3))
+        val actualEnd = terminalRoute.totalLengthMeters
+        assertTrue(actualEnd < 20.3, "fixture must reproduce subtraction roundoff")
+        client.prepareContinuation(selected)
+        val partial = grant(actualEnd - 0.0001, terminalRoute)
+        service.onRequest = { RouteAdmissionResult.Granted(partial) }
+        client.request(selected, RouteBoundary(actualEnd - 0.0001))
+        assertTrue(publisher.snapshots.last().restrictions.filterIsInstance<MovementAuthorityRestriction>()
+            .all { it.stoppingMarginMeters == null }, "a genuinely short grant retains the global safety margin")
+
+        service.onRequest = { RouteAdmissionResult.Granted(partial.copy(committedAuthority = RouteBoundary(actualEnd))) }
+        client.request(selected, RouteBoundary(actualEnd))
+        val authority = publisher.snapshots.last().restrictions.filterIsInstance<MovementAuthorityRestriction>().single()
+        assertEquals(actualEnd, authority.routeDistanceMeters, "do not manufacture the missing floating-point length")
+        assertEquals(AtoSafetyProfile.STATION_AUTHORITY_MARGIN_METERS, authority.stoppingMarginMeters)
+        assertThrows(IllegalArgumentException::class.java) {
+            client.prepareContinuation(selected.copy(stationTerminalAuthority =
+                work.art1st.javarailways.simpleato.routing.StationTerminalAuthority(20.3001)))
+        }
+    }
+
+    @Test
     fun `station context reduces only proven terminal authority including protected direction suffix`() {
         val safe = UUID(0L, 91L)
         val forbidden = UUID(0L, 92L)

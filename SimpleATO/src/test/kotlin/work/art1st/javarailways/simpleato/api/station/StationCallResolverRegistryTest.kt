@@ -190,7 +190,7 @@ class StationCallResolverRegistryTest {
             candidate.berthId to StationCallResolver(world).resolve(request.copy(call = request.call.copy(
                 berthRef = StationBerthRef(request.call.stationId, candidate.berthId))), length)
         }
-        val selected = StationStopSelector(StationBerthAllocator()).select(selection,
+        val selected = StationStopSelector(StationCallRegistry()).select(selection,
             StationBerthOwner(request.serviceRunId, world.allTrains.first().id, request.call.callId),
             request.call.missionRevision, results) as StationStopSelectionResult.Selected
         assertEquals(short.berthRef, selected.key.berthRef)

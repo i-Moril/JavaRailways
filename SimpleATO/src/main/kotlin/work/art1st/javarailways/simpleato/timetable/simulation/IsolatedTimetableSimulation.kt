@@ -115,13 +115,16 @@ class IsolatedTimetableSimulationWorld private constructor(
     private var hasSimulated = false
     private var closed = false
 
-    fun simulate(request: IsolatedTimetableSimulationRequest): IsolatedTimetableSimulationResult =
+    fun simulate(
+        request: IsolatedTimetableSimulationRequest,
+        afterTick: ((Long) -> Unit)? = null
+    ): IsolatedTimetableSimulationResult =
         IsolatedSimulationThreadMarker.run {
             world.executionOwner.run {
                 check(!hasSimulated) { "an isolated simulation world is single-use" }
                 hasSimulated = true
                 try {
-                    simulateOnIsolatedThread(request)
+                    simulateOnIsolatedThread(request, afterTick)
                 } catch (failure: InterruptedException) {
                     Thread.currentThread().interrupt()
                     IsolatedTimetableSimulationResult.Failed(
@@ -140,7 +143,8 @@ class IsolatedTimetableSimulationWorld private constructor(
         }
 
     private fun simulateOnIsolatedThread(
-        request: IsolatedTimetableSimulationRequest
+        request: IsolatedTimetableSimulationRequest,
+        afterTick: ((Long) -> Unit)?
     ): IsolatedTimetableSimulationResult {
         val dispatcher = world.simpleAtoWorldData.dispatcher
         world.simpleAtoWorldData.timetables.add(request.timetable)
@@ -185,6 +189,8 @@ class IsolatedTimetableSimulationWorld private constructor(
                     runs
                 )
             }
+            // Optional bounded measurement of the same completed frame, never another tick loop.
+            afterTick?.invoke(tick)
             runs.map { run -> run to run.observedDelayTicks() }
                 .maxByOrNull { it.second }
                 ?.takeIf { it.second >= request.delayThresholdTicks }

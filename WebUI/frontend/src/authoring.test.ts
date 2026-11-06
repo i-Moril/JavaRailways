@@ -161,14 +161,14 @@ describe('timetable editor document',()=>{
     expect(validateWithLines(document,infrastructureLines,[reverseMove]).some((item)=>item.message.includes('Program location discontinuity'))).toBe(false);
   });
 
-  it('ends terminal occupancy at arrival while keeping the dwell gate for the next departure',()=>{
+  it('does not carry terminal minimum dwell into subsequent movements or runs',()=>{
     const reverse:StationProgramRecord={formatVersion:1,id:'reverse',name:'reverse',definition:{parameters:[],steps:[{id:'rev',type:'REVERSE'}]}};
     const move:StationProgramRecord={formatVersion:1,id:'move',name:'move',definition:{parameters:[],steps:[{id:'move',type:'MOVE',destinationId:{value:'b@1'},viaIds:{value:[]}}]}};
     const document=valid();document.minimumDwellTicks=400;document.runs=[document.runs[0]];
     document.duties[0].elements=[{id:'run',type:'RUN',runId:'up-01'},{id:'reverse',type:'PROGRAM',tick:850,program:{programId:'reverse',arguments:{}}}];
     expect(validateWithLines(document,infrastructureLines,[reverse])).toEqual([]);
     document.duties[0].elements[1]={id:'move',type:'PROGRAM',tick:900,program:{programId:'move',arguments:{}}};
-    expect(validateWithLines(document,infrastructureLines,[move]).some((item)=>item.message.includes('leaves stop before minimum dwell'))).toBe(true);
+    expect(validateWithLines(document,infrastructureLines,[move])).toEqual([]);
     document.duties[0].elements[1]={id:'move',type:'PROGRAM',tick:1250,program:{programId:'move',arguments:{}}};
     expect(validateWithLines(document,infrastructureLines,[move])).toEqual([]);
     document.duties[0].elements=[{id:'run',type:'RUN',runId:'up-01'},{id:'reverse',type:'PROGRAM',tick:850,program:{programId:'reverse',arguments:{}}},{id:'next',type:'RUN',runId:'next'}];
@@ -176,7 +176,7 @@ describe('timetable editor document',()=>{
       {id:'next-b',stationId:'b',targetId:'b@2',status:'ORIGIN',departureTick:1000},
       {id:'next-a',stationId:'a',targetId:'a@1',status:'TERMINAL',arrivalTick:1800},
     ]});
-    expect(validateWithLines(document,infrastructureLines,[reverse]).some((item)=>item.message.includes('terminal dwell'))).toBe(true);
+    expect(validateWithLines(document,infrastructureLines,[reverse])).toEqual([]);
     document.runs[document.runs.length-1].calls[0].departureTick=1300;
     expect(validateWithLines(document,infrastructureLines,[reverse]).some((item)=>item.message.includes('Program location discontinuity'))).toBe(false);
     expect(validateWithLines(document,infrastructureLines,[reverse])).toEqual([]);
@@ -282,10 +282,13 @@ describe('timetable editor document',()=>{
     expect(lineSimulationRoute(run).originDepartureMode).toBe('REVERSE');
   });
 
-  it('resets all route times from simulated adjacent intervals and fixed stop dwell',()=>{
+  it('resets all route times from authoritative integer call timings without adding dwell twice',()=>{
     const run=createRunFromLine('run-1',line,'UP',metadata,(station)=>`call-${station}`);
     run.calls[1].status='PASS';
-    const simulation:LineSimulationResult={lineRevision:4,totalTravelSeconds:60,legs:[
+    const simulation:LineSimulationResult={lineRevision:4,totalTravelSeconds:60,calls:[
+      {callId:'call-a',kind:'ORIGIN',departureTick:1000},{callId:'call-b',kind:'PASS',arrivalTick:1200},
+      {callId:'call-c',kind:'STOP',arrivalTick:1600,departureTick:2200},{callId:'call-d',kind:'TERMINAL',arrivalTick:2800},
+    ],legs:[
       {fromStationId:'a',toStationId:'b',lengthMeters:100,travelSeconds:10,peakSpeedKmh:30,stoppingErrorMeters:0},
       {fromStationId:'b',toStationId:'c',lengthMeters:100,travelSeconds:20,peakSpeedKmh:40,stoppingErrorMeters:0},
       {fromStationId:'c',toStationId:'d',lengthMeters:100,travelSeconds:30,peakSpeedKmh:40,stoppingErrorMeters:0},
@@ -344,7 +347,10 @@ describe('timetable editor document',()=>{
 
   it('copies a run with fresh identities and shifts every route time without assigning a duty',()=>{
     const source=createRunFromLine('run-1',line,'UP',metadata,(station)=>`source-${station}`);
-    const reset=resetRunTimings(source,{lineRevision:1,totalTravelSeconds:30,legs:[
+    const reset=resetRunTimings(source,{lineRevision:1,totalTravelSeconds:30,calls:[
+      {callId:'source-a',kind:'ORIGIN',departureTick:100},{callId:'source-b',kind:'STOP',arrivalTick:300,departureTick:320},
+      {callId:'source-c',kind:'STOP',arrivalTick:520,departureTick:540},{callId:'source-d',kind:'TERMINAL',arrivalTick:740},
+    ],legs:[
       {fromStationId:'a',toStationId:'b',lengthMeters:1,travelSeconds:10,peakSpeedKmh:1,stoppingErrorMeters:0},
       {fromStationId:'b',toStationId:'c',lengthMeters:1,travelSeconds:10,peakSpeedKmh:1,stoppingErrorMeters:0},
       {fromStationId:'c',toStationId:'d',lengthMeters:1,travelSeconds:10,peakSpeedKmh:1,stoppingErrorMeters:0},
@@ -429,6 +435,18 @@ describe('run diagram color',()=>{
   });
 });
 describe('timetable-wide minimum dwell',()=>{
+  it('allows endpoint intervals shorter than the minimum and keeps explicit terminal task ordering',()=>{
+    const document=valid();document.minimumDwellTicks=400;
+    document.runs[0].calls[0].arrivalTick=99;
+    document.runs[0].calls[1].departureTick=801;
+    expect(validateAuthoringDocument(document)).toEqual([]);
+    expect(copyRunShifted(document.runs[0],'copy',100,undefined,400).calls[1].departureTick).toBe(901);
+    const reverse:StationProgramRecord={formatVersion:1,id:'reverse',name:'reverse',definition:{parameters:[],steps:[{id:'rev',type:'REVERSE'}]}};
+    document.duties[0].elements.splice(1,0,{id:'reverse',type:'PROGRAM',tick:800,program:{programId:'reverse',arguments:{}}});
+    expect(validateWithLines(document,infrastructureLines,[reverse]).some((issue)=>issue.message.includes('previous duty element'))).toBe(true);
+    document.duties[0].elements[1]={id:'reverse',type:'PROGRAM',tick:801,program:{programId:'reverse',arguments:{}}};
+    expect(validateWithLines(document,infrastructureLines,[reverse])).toEqual([]);
+  });
   it('defaults missing minimum to zero and preserves the current document field on save',()=>{
     const document=valid();
     expect(authoringMinimumDwell(document)).toBe(0);
@@ -463,7 +481,7 @@ describe('timetable-wide minimum dwell',()=>{
     expect(validateAuthoringDocument(document).some((issue)=>issue.path==='runs[0].calls[1]')).toBe(true);
   });
 
-  it('generates the global minimum on every station destination and origin, never on passes',()=>{
+  it('generates the global minimum only on passenger intermediate STOP calls',()=>{
     const document=valid();document.minimumDwellTicks=40;
     document.diagramLines=[{id:'line-1',upStationIds:['a','b','c','d'],downStationIds:['d','c','b','a']}];
     document.runs=[{id:'run',type:'PASSENGER',lineId:'line-1',diagramLineId:'line-1',lineDirection:'UP',calls:[
@@ -479,8 +497,8 @@ describe('timetable-wide minimum dwell',()=>{
     const scope={origin:(_:string,callback:(value:unknown)=>void)=>callback(scope),runSegment:(_:unknown,callback:(value:unknown)=>void)=>callback(scope),check:()=>{},beginStationStop:(_:string,options:Record<string,unknown>)=>{origins.push(options);return scope;},at:()=>timed};
     const host={setPeriodDays:()=>{},setInitialPosition:()=>{},lineSpeedLimit:()=>{},diagramLine:()=>{},named:(id:string)=>id,service:(_:unknown,__:unknown,options:unknown,callback?:(value:unknown)=>void)=>(callback??options as (value:unknown)=>void)(scope)};
     new Function('timetable',`${result.source}\nmain(timetable)`)(host);
-    expect(origins.map((options)=>options.minimumDwellTicks)).toEqual([40]);
-    expect(destinations.map((options)=>options.minimumDwellTicks)).toEqual([40,40]);
+    expect(origins.map((options)=>options.minimumDwellTicks)).toEqual([0]);
+    expect(destinations.map((options)=>options.minimumDwellTicks)).toEqual([40,0]);
     expect(passes).toEqual(['c']);
     expect(document.runs[0].calls.every((call)=>!Object.hasOwn(call,'minimumDwellTicks'))).toBe(true);
   });

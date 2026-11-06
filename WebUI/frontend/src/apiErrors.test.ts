@@ -3,6 +3,12 @@ import {ApiError,parseApiError,simulationFailureReason} from './apiErrors';
 import {api} from './api';
 afterEach(()=>vi.unstubAllGlobals());
 describe('API error protocol and localized presentation',()=>{
+ it('explains infeasible line dwell and retains the actual station and timing diagnostic',()=>{
+  const error=parseApiError(422,JSON.stringify({code:'LINE_DWELL_INSUFFICIENT',error:'shiomi: required 500 ticks, supplied 400 ticks'}));
+  expect(error.localized('zh-CN')).toBe('模拟用停站时间不足，无法回填；原时刻表未改变。\n详细原因: shiomi: required 500 ticks, supplied 400 ticks');
+  expect(error.localized('en-US')).toContain('Timings were not applied');
+  expect(error.localized('en-US')).toContain('shiomi: required 500 ticks, supplied 400 ticks');
+ });
  it('uses real stable error codes in both configured languages without displaying JSON',()=>{
   const error=parseApiError(504,JSON.stringify({error:'request timed out',code:'BRIDGE_TIMEOUT',requestId:'abc-123'}));
   expect(error.localized('zh-CN')).toBe('等待服务器桥接响应超时。\n日志追踪编号: abc-123');

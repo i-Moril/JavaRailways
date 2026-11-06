@@ -169,7 +169,7 @@ class WebUiApplicationTest {
         } finally { app.stop(); bridge.stop(0); }
     }
 
-    @Test void forwardsAuthoringResetSpeedCapAndPreservesBridgeErrors() throws Exception {
+    @Test void forwardsExactLineMeasurementAndPreservesDwellRejection() throws Exception {
         HttpServer bridge = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         bridge.createContext("/auth/exchange", exchange -> {
             byte[] body = "{\"playerId\":\"player\",\"playerName\":\"Player\",\"worldId\":\"world\"}".getBytes();
@@ -182,9 +182,14 @@ class WebUiApplicationTest {
             assertEquals("POST", exchange.getRequestMethod());
             String request = new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
             received.set(request);
-            boolean invalid = new ObjectMapper().readTree(request).get("maximumSpeedMetersPerSecond").asDouble() <= 0;
-            byte[] body = (invalid ? "{\"error\":\"maximumSpeedMetersPerSecond must be a finite positive number\"}" : "{\"legs\":[],\"totalTravelSeconds\":0}").getBytes();
-            exchange.sendResponseHeaders(invalid ? 400 : 200, body.length);
+            var input = new ObjectMapper().readTree(request);
+            boolean invalid = input.get("maximumSpeedMetersPerSecond").asDouble() <= 0;
+            boolean insufficient = input.get("fixedDwellTicks").asLong() < input.get("minimumDwellTicks").asLong();
+            byte[] body = (invalid ? "{\"error\":\"maximumSpeedMetersPerSecond must be a finite positive number\"}"
+                : insufficient ? "{\"code\":\"LINE_DWELL_INSUFFICIENT\",\"error\":\"station b: requested 10 ticks, minimum 20 ticks\"}"
+                : "{\"lineRevision\":7,\"legs\":[],\"totalTravelSeconds\":12.35,\"calls\":[{\"callId\":\"origin\",\"kind\":\"ORIGIN\",\"departureTick\":100},{\"callId\":\"middle\",\"kind\":\"STOP\",\"arrivalTick\":247,\"departureTick\":267},{\"callId\":\"end\",\"kind\":\"TERMINAL\",\"arrivalTick\":367}]}")
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(invalid ? 400 : insufficient ? 422 : 200, body.length);
             exchange.getResponseBody().write(body); exchange.close();
         });
         bridge.start();
@@ -201,13 +206,34 @@ class WebUiApplicationTest {
             HttpResponse<String> login = client.send(HttpRequest.newBuilder(URI.create(root + "/auth/exchange"))
                 .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{\"token\":\"one-time-token\"}")).build(), HttpResponse.BodyHandlers.ofString());
             String cookie = login.headers().firstValue("Set-Cookie").orElseThrow().split(";", 2)[0];
-            for (int speed : new int[]{5, 0}) {
-                String body = "{\"executionTimeoutMillis\":1234,\"profileType\":\"TRAIN_TEMPLATE\",\"profileId\":\"train\",\"maximumSpeedMetersPerSecond\":" + speed + "}";
+            for (int scenario : new int[]{0, 1, 2}) {
+                int speed = scenario == 1 ? 0 : 5;
+                int dwell = scenario == 2 ? 10 : 20;
+                String body = """
+                    {"executionTimeoutMillis":1234,"profileType":"TRAIN_TEMPLATE","profileId":"train",
+                     "maximumSpeedMetersPerSecond":%d,"timetableId":"editor","measurementSource":"function main(t) { /* exact unsaved source */ }",
+                     "firstDepartureTick":100,"fixedDwellTicks":%d,"minimumDwellTicks":20,
+                     "calls":[{"callId":"origin","stationId":"a","destinationId":"a@1","kind":"ORIGIN","viaIds":[]},
+                              {"callId":"middle","stationId":"b","destinationId":"b@1","kind":"STOP","viaIds":["junction"],"stoppingOffsetMetersBefore":1.5},
+                              {"callId":"end","stationId":"a","destinationId":"a@2","kind":"TERMINAL","viaIds":[]}]}
+                    """.formatted(speed, dwell);
                 HttpResponse<String> result = client.send(HttpRequest.newBuilder(reset).header("Cookie", cookie)
                     .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
                 assertEquals(new ObjectMapper().readTree(body), new ObjectMapper().readTree(received.get()));
-                assertEquals(speed > 0 ? 200 : 400, result.statusCode());
+                assertEquals(scenario == 1 ? 400 : scenario == 2 ? 422 : 200, result.statusCode());
                 if (speed == 0) assertTrue(result.body().contains("finite positive number"));
+                var response = new ObjectMapper().readTree(result.body());
+                if (scenario == 0) {
+                    assertEquals(7, response.path("lineRevision").asInt());
+                    assertEquals("middle", response.path("calls").get(1).path("callId").asText());
+                    assertEquals(247, response.path("calls").get(1).path("arrivalTick").asLong());
+                    assertEquals(267, response.path("calls").get(1).path("departureTick").asLong());
+                } else if (scenario == 2) {
+                    assertEquals("LINE_DWELL_INSUFFICIENT", response.path("code").asText());
+                    assertEquals("station b: requested 10 ticks, minimum 20 ticks", response.path("error").asText());
+                    assertTrue(!response.has("calls"));
+                }
+                assertTrue(!result.body().contains("bridge-token") && !result.body().contains("one-time-token"));
             }
         } finally { app.stop(); bridge.stop(0); }
     }

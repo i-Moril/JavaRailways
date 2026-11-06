@@ -25,12 +25,12 @@ describe('one-document through running and unit trips',()=>{
   new Function('timetable',generated.source+'\nmain(timetable)')(host);
   expect(executors).toBe(1);expect(segments.map((s)=>s.options.runId)).toEqual(['M01','B01']);expect(segments[0].end).toBe(segments[1].start);
   expect(actions.filter((a)=>a.startsWith('check:'))).toEqual(['check:A@1']);expect(actions.filter((a)=>a.startsWith('destination:C@1:'))).toHaveLength(1);
-  const destination=JSON.parse(actions.find((action)=>action.startsWith('destination:C@1:'))!.slice('destination:C@1:'.length));expect(destination).toMatchObject({arrivalTick:300,minimumDwellTicks:20,doorSide:'LEFT',callRole:'TERMINAL',stationId:'C'});expect(actions).toContain('at:350');
+  const destination=JSON.parse(actions.find((action)=>action.startsWith('destination:C@1:'))!.slice('destination:C@1:'.length));expect(destination).toMatchObject({arrivalTick:300,minimumDwellTicks:0,doorSide:'LEFT',callRole:'TERMINAL',stationId:'C'});expect(actions).toContain('at:350');
   expect((segments[1].options.calls as {destinationId:string}[])[0].destinationId).toBe('C@1');expect(trips).toEqual(['to-E','to-D']);
  });
  it('rejects unsafe direct C offset, time, missing line and overlapping unit claims',()=>{
   const d=document();d.runs[1].calls[0].stoppingOffsetMetersBefore=5;expect(validateAuthoringDocument(d).some((i)=>i.message.includes('offset discontinuity'))).toBe(true);
-  d.runs[1].calls[0].stoppingOffsetMetersBefore=0;d.runs[1].calls[0].departureTick=310;expect(validateAuthoringDocument(d).some((i)=>i.message.includes('terminal dwell'))).toBe(true);
+  d.runs[1].calls[0].stoppingOffsetMetersBefore=0;d.runs[1].calls[0].departureTick=299;expect(validateAuthoringDocument(d).some((i)=>i.message.includes('previous'))).toBe(true);
   d.runs[1].lineId=null;expect(validateAuthoringDocument(d).some((i)=>i.message.includes('requires an infrastructure'))).toBe(true);
   d.operationalTrips![1].segments[0].unitSlots=[1];expect(validateAuthoringDocument(d).some((i)=>i.message.includes('multiple operational trips'))).toBe(true);
  });
@@ -44,18 +44,24 @@ describe('one-document through running and unit trips',()=>{
   expect(generated.source.indexOf('.check("A@1")')).toBeLessThan(generated.source.indexOf('.program("display"'));
   expect(generated.source.indexOf('.program("display"')).toBeLessThan(generated.source.indexOf('.runSegment('));
  });
- it('uses the effective overridden C arrival when checking departure and minimum dwell',()=>{
+ it('uses the effective overridden C arrival without adding endpoint minimum dwell',()=>{
   const d=document();d.arrivalOverrides=[{runId:'M01',callId:'c',tick:340}];
-  expect(validateAuthoringDocument(d).some((issue)=>issue.message.includes('terminal dwell'))).toBe(true);
+  expect(validateAuthoringDocument(d)).toEqual([]);
+  d.runs[1].calls[0].departureTick=339;
+  expect(validateAuthoringDocument(d).some((issue)=>issue.message.includes('previous'))).toBe(true);
   d.runs[1].calls[0].departureTick=360;
   expect(validateAuthoringDocument(d)).toEqual([]);
  });
- it('edits both C halves in one history transaction and rejects stale links and dwell violations',()=>{
+ it('edits both C halves in one history transaction and preserves explicit terminal time',()=>{
   const d=document();d.arrivalOverrides=[{runId:'M01',callId:'c',tick:305}];
   const next=editRunConnection(d,'M01','B01',320,370),history=updateDocumentHistory(createDocumentHistory(d),next);
   expect(next.runs[0].calls.at(-1)?.arrivalTick).toBe(320);expect(next.runs[1].calls[0].departureTick).toBe(370);expect(next.arrivalOverrides).toEqual([]);
   expect(history.past).toHaveLength(1);expect(undoDocumentHistory(history).present).toBe(d);expect(redoDocumentHistory(undoDocumentHistory(history)).present).toBe(next);
-  expect(()=>editRunConnection(d,'M01','B01',320,330)).toThrow('minimum dwell');
+  expect(editRunConnection(d,'M01','B01',320,330).runs[1].calls[0].departureTick).toBe(330);
+  expect(()=>editRunConnection(d,'M01','B01',320,319)).toThrow('terminal time');
+  d.runs[0].calls[2].departureTick=350;
+  expect(()=>editRunConnection(d,'M01','B01',320,330)).toThrow('terminal time');
+  expect(()=>editRunConnection(d,'M01','B01',351,370)).toThrow('terminal time');
   d.duties[0].elements.reverse();expect(()=>editRunConnection(d,'M01','B01',320,370)).toThrow('no longer current');
  });
  it('maintains trip run references when renaming, moving and deleting; copies remain unassigned',()=>{

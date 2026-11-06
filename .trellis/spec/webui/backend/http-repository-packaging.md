@@ -35,6 +35,8 @@ catch `InterruptedException` 时恢复 interrupt flag。不要吞掉 bridge erro
 
 ## Repository 与 formal script
 
+线路模拟代理按原请求转发完整测量source、有序calls、firstDeparture/fixedDwell/minimum及车型/限速，不在Java层另估算时刻。Bukkit返回的整数call时刻是回填依据，`LINE_DWELL_INSUFFICIENT`须保留HTTP422及原站点/预算原因；不得吞掉错误并返回部分calls或扩大停站时间。线模拟合同由[SimpleATO模拟规范](../../javarailways/simpleato/simulation.md#真实运行线测时current)拥有；`WebUiApplicationTest.forwardsExactLineMeasurementAndPreservesDwellRejection`验证鉴权代理、原始请求、成功整数响应与422转发，不代替物理验收。
+
 `DraftRepository` 只接受 allowlisted world/id，值必须是 JSON object；save 写同目录 unique temp，优先 atomic move，finally 删除 temp。list 固定按 filename 排序。
 
 editor document 在 create/save 前必须通过 `EditorDocumentValidator`，不只依赖 frontend type。formal script save/rename/delete 需要协调本地 document 与 bridge：先保存时保留 previous，bridge IO/status failure 时恢复 previous。新增多资源 mutation 必须保持同类 compensating rollback，并测试失败分支。

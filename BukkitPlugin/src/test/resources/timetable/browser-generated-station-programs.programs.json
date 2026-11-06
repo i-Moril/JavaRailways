@@ -1,0 +1,21 @@
+[
+  {
+    "formatVersion": 1,
+    "id": "display",
+    "name": "Display destination",
+    "definition": {
+      "parameters": [],
+      "steps": [
+        {
+          "id": "display-info",
+          "type": "SET_DISPLAY",
+          "values": {
+            "value": {
+              "destination": "C"
+            }
+          }
+        }
+      ]
+    }
+  }
+]

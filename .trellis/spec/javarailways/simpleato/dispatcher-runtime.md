@@ -76,7 +76,7 @@ Run state token包含WAITING_MISSION/TIME/ROUTE、RUNNING、WAITING_BERTH、stat
 | route conflict/physical lock | retry tick | `WAITING_ROUTE`+authority at protection，不Stall |
 | invalid resource/controller identity | invariant failure | world Stall，本Tick停止后续runs |
 | berth | exact non-exclusive call registration | submit station target; movement still requires rolling Basic grant |
-| dwell | BERTHED publication + door-open SUCCEEDED | earliest departure clock开始 |
+| shared station-program dwell | 实际到站publication（STATION取已记录BERTHED tick） | STOP最低发车时间从到站起算，开门完成不重置；非program旧station状态机另按其显式动作语义 |
 | depart | door-close SUCCEEDED + next route confirmed | grant departure；berth仍tail-held |
 | halt | model `power-off` SUCCEEDED | terminal gate |
 | reverse | ATO preparation revision published | main reverse；下一Tick确认 |
@@ -271,11 +271,15 @@ A branch selected against a published child can reverse a still-held body before
 
 同一时刻表每站一份作者定义，经 ScriptWorker 用当前运行线的静态计划上下文展开为 `StationStopPrograms`。ORIGIN 以 `BeginStationStop` 建立边界；编译期校验 ORIGIN 结构与角色，但不比较 destinationId 与当前 waypoint。运行期进入 ORIGIN 程序或 `runSegment` 时也不把计划始发点重新解释为车头必须精确命中的物理门禁：不同编组长度原地折返后车头位置会改变，而这些边界本身不产生运动。初次取车和显式 `Check` 仍校验真实有向路径点；后续 Mission 从换向后的实际车头和朝向执行路线投影、方向与资源准入，车门等操作继续执行自身的实际状态门禁。STOP/TERMINAL 随目标动作携带 stopPrograms。实际寻路、接近及停车继续由运行线负责，车站程序不执行到达运动。旧 arrivalSteps/arrivalProgram 执行链与 ARRIVAL 分支游标已删除；编辑／DSL／snapshot 只按当前模型做通用校验，不保留旧输入专项识别或回退执行。
 
-`StationStopPrograms` 包含 stationId、callId、role、arrival、departurePreparation、preparationLead、plannedDepartureTick、destinationId、doorSide、minimumDwellTicks。时间为 timetable tick，1 day=24000 tick。正常停车确认后启动 arrival；ORIGIN 不执行 arrival，PASS 不建立停站程序。STOP 与 ORIGIN 的准备入口在计划发车时刻减 lead 到达后，且 arrival **主序列**完成时开始，不等待 arrival 的非阻塞子任务，也不额外等最小停站。TERMINAL 永不启动准备入口，缺省保持开门。
+`StationStopPrograms` 包含 stationId、callId、role、arrival、departurePreparation、preparationLead、plannedDepartureTick、destinationId、doorSide、minimumDwellTicks。时间为 timetable tick，1 day=24000 tick。正常停车确认后启动 arrival；ORIGIN 不执行 arrival，PASS 不建立停站程序。只有STOP使用minimum：从真实到站起算到关门完成的总预算，开门时间已包含，晚到仍适用。STATION使用已记录的BERTHED tick，不用下一tick创建程序的时间；DESTINATION使用实际检测停车tick。截止创建后固定，开门完成不重置。Dispatcher与timetable时间分别比较，不混合epoch。
+
+默认准备时序等价于`max(plannedDeparture, actualArrival + minimum) - preparationLead`，且必须等arrival **主序列**完成，不等待arrival非阻塞子任务；最终发车仍等待全部后代。ORIGIN不加minimum；TERMINAL永不启动准备入口，缺省保持开门，亦无minimum。自定义程序可以提前关门，但不能提前发车；不新增门当前状态查询、prepared close或动作提交前复核。既有关门时长查询仅用于准备估计，真实操作ticket继续决定是否完成。查询超时从查询发出时计，不从早一tick的到站计。
 
 `preparationLead` 是有界数字表达式：`{value:N}`、既有数字 operation，或 `{doorCloseTicks:true}`。缺省使用实际列车关门耗时，允许 ADD 等组合额外准备时间；不是按参考车辆或统一20tick冻结。`StationPreparationLead` 只解析数值时序，不开放动态动作、条件或一般JS。动态叶子通过现有 TrainOperationGateway 只读查询当前列车及实际门侧，同车并行动画、整列各车均取最长完成时间，绝不在查询时关门。每站查询一次，pending有界超时，失败/非法值保持停车，停止取消查询；普通固定表达式、无门停站、终到不查询。准备仍等待 arrival主分支，最终发车仍等真实操作ticket及所有既有门禁。编辑/编译/运行快照均写当前表达式字段；旧数值仅在离线工具中保留为字面量，不能把所有手填20猜成自动值。
 
 `StationStopProgramRuntime` 对每个任务持有独立程序计数器、计时 gate、operation/extension ticket。普通动作等待真实完成；ASYNC 当 Tick 创建并推进子任务，父继续执行；AWAIT 等待指定任务及其全部后代。主序列必须 END；子任务不能逃逸到下一站。开放/关闭门与换向竞争同一物理操作所有权，不允许多个任务同时启动互斥物理操作。相对等待从任务实际执行 Tick 开始，绝对等待过期则立即通过；等待不中断停车保持。
+
+测量观察`recordCommittedTicketCompletions(dispatcherTick)`只poll当前pending操作并记录首次Succeeded tick，不推进PC或修改doorsSecured。正常`tick`消费ticket后，END/自然结束沿用已完成工作时间，纯AWAIT取父任务与已完成子树的最大工作tick；后继真实动作、新ASYNC、相对等待与绝对等待按实际解释器执行tick计，不回溯。没有提交后观察证据时仍以正常消费tick计。每个新操作清除上个操作的观察值；操作失败/取消继续走原失败路径。`allTasksCompletedAtDispatcherTick`仅在原allTasksComplete为真时有效，聚合所有任务最新工作时间。Dispatcher的ready事件将该时间减cycleStartDispatcherTick转为时刻表时间，不拿事件派发时间冒充实际完成。仅独立测量订阅的run启用提交后观察；owner/帧间检查保留，世界循环和最终发车gate不变，不增加Basic API或精确关门状态机。
 
 真正提交下一行车任务（含存车、接近联挂）前，公共 gate 要求两个适用入口及全部后代完成，时间和最小停站满足，门已确认关闭，后续物理授权已确认。主序列 END 不能直接开车或绕过这些 gate。到达主序列完成仅准许启动准备，不代表发车准备或子任务完成。终点有 departureTick 时它只门禁后续交路动作，无时刻则在到达及所有后代完成后立即交接；它不隐式关门。开门终到不能直接 MOVE、STORE 或接近联挂；交路须先明确关门。
 
@@ -285,7 +289,7 @@ A branch selected against a published child can reverse a still-held body before
 
 例：到达【开门】【非阻塞：等待40tick后更新显示】【结束】；准备【关门】【结束】。开门主任务结束后，准备可在 due 时开始；实际发车仍等显示子任务及安全 gate。终到相同到达程序保持门开，后续交路若要移动须显式关门；不能因主任务已 END 就自动起车。
 
-验证：`StationStopProgramRuntimeTest` 覆盖阻塞/立即派生、后代 join、任务本地等待和取消；`TimetableStationCallDispatcherTest` 覆盖起终点、准备与主线程顺序、最小停站、开门终到禁止后缀存车、换向及停止。`BrowserGeneratedStationProgramTest` 用实际 HTTP 浏览器生成的脚本通过真实 Graal 和 snapshot/domain 链路验证。纯测试和隔离浏览器不等同于游戏客户端验收。持久化使用当前未发布边界的约定版本1，不为本次开发重构递增；编辑数据仅离线迁移，不新增任意旧开发 reader。
+验证：`StationStopProgramRuntimeTest` 覆盖阻塞/立即派生、后代join、任务本地等待和取消，以及晚到、开门不重计、自定义提前关门仍等截止；`TimetableStationCallDispatcherTest` 覆盖真实BERTHED/非零epoch、起终点不加minimum、准备与主线程顺序、开门终到禁止后缀存车、换向及停止。`BrowserGeneratedStationProgramTest` 用当前前端生成器fixture通过真实Graal和snapshot/domain链路验证首尾显式0与中间STOP值。纯测试和隔离浏览器不等同于游戏客户端验收。持久化使用当前未发布边界的约定版本1，不为本次开发重构递增；编辑数据仅离线迁移，不新增任意旧开发reader。
 
 ## 显式换向与路线起点方向
 

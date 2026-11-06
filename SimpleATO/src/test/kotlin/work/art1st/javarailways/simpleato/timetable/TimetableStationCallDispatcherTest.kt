@@ -80,8 +80,8 @@ class TimetableStationCallDispatcherTest {
     private fun programs(role: StationStopRole, departure: Long? = 1000L,
         arrival: List<StationProgramAction> = listOf(StationProgramAction.OpenDoors, StationProgramAction.End),
         preparation: List<StationProgramAction> = listOf(StationProgramAction.CloseDoors, StationProgramAction.End),
-        lead: Long = 40L, destination: String? = "C") = StationStopPrograms("central","stop-call",role,
-            arrival,preparation,StationPreparationLead.constant(lead),departure,destination)
+        lead: Long = 40L, destination: String? = "C", minimumDwellTicks: Long? = null) = StationStopPrograms("central","stop-call",role,
+            arrival,preparation,StationPreparationLead.constant(lead),departure,destination, minimumDwellTicks = minimumDwellTicks)
 
     @Test fun `ordinary door actions explicitly override at a normal waypoint and await real tickets`() {
         val gateway = ControllableOperationGateway()
@@ -310,6 +310,75 @@ class TimetableStationCallDispatcherTest {
         repeat(1500) { if (fixture.dispatcher.status(id)!!.state != TimetableServiceRunState.COMPLETED) fixture.tick() }
         assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)!!.state)
         assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
+    @Test fun `station program minimum is anchored to BERTHED not later creation across timetable epochs`() {
+        val gateway = ControllableOperationGateway()
+        val stop = programs(StationStopRole.STOP, departure = 1L, lead = 2L, minimumDwellTicks = 100L)
+        val fixture = fixture(includeStationAction = true, stopPrograms = stop, doorSide = DoorSide.LEFT,
+            operationGateway = gateway)
+        val id = TimetableServiceRunId("tt", "service")
+        repeat(200) { fixture.world.onOwnerForTest { fixture.dispatcher.tick(fixture.world) } }
+        val events = mutableListOf<TimetableStationProgramReady>()
+        val subscription = fixture.dispatcher.observeStationProgramReady(id, listener = events::add)
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        var berthed: Long? = null
+        val submitted = mutableMapOf<Int, Long>()
+        for (iteration in 0 until 2500) {
+            val nextTick = fixture.dispatcher.status(id)!!.timetableElapsedTicks + 1L
+            submitted.forEach { (index, tick) ->
+                val duration = if (gateway.requests[index].operation is TrainOperation.OpenDoors) 10L else 2L
+                if (nextTick >= tick + duration) gateway.tickets[index].succeed()
+            }
+            fixture.tick()
+            val status = fixture.dispatcher.status(id)!!
+            if (status.state == TimetableServiceRunState.BERTHED && berthed == null) berthed = status.timetableElapsedTicks
+            gateway.requests.indices.forEach { submitted.putIfAbsent(it, status.timetableElapsedTicks) }
+            if (events.isNotEmpty() || status.state == TimetableServiceRunState.FAILED) break
+        }
+        subscription.close()
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        assertNotNull(berthed)
+        assertEquals(berthed, events.single().arrivedTick)
+        assertEquals(berthed!! + 98L, submitted.getValue(1))
+        assertEquals(berthed + 100L, events.single().readyTick)
+    }
+
+    @Test fun `after commit completion is reported in timetable epoch without advancing station gates`() {
+        val gateway = ControllableOperationGateway()
+        val stop = programs(StationStopRole.STOP, departure = 1L, lead = 2L, minimumDwellTicks = 100L)
+        val fixture = fixture(includeStationAction = true, stopPrograms = stop, doorSide = DoorSide.LEFT,
+            operationGateway = gateway)
+        val id = TimetableServiceRunId("tt", "service")
+        repeat(200) { fixture.world.onOwnerForTest { fixture.dispatcher.tick(fixture.world) } }
+        val events = mutableListOf<TimetableStationProgramReady>()
+        val subscription = fixture.dispatcher.observeStationProgramReady(id, listener = events::add)
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        var berthed: Long? = null
+        var receivedAt: Long? = null
+        val submitted = mutableMapOf<Int, Long>()
+        for (iteration in 0 until 2500) {
+            fixture.tick()
+            val status = fixture.dispatcher.status(id)!!
+            if (status.state == TimetableServiceRunState.BERTHED && berthed == null) berthed = status.timetableElapsedTicks
+            gateway.requests.indices.forEach { submitted.putIfAbsent(it, status.timetableElapsedTicks) }
+            submitted.forEach { (index, tick) ->
+                val duration = if (gateway.requests[index].operation is TrainOperation.OpenDoors) 10L else 2L
+                if (status.timetableElapsedTicks >= tick + duration) gateway.tickets[index].succeed()
+            }
+            fixture.world.onOwnerForTest { fixture.dispatcher.recordStationProgramCompletions(id) }
+            if (berthed != null && status.timetableElapsedTicks == berthed + 100L) {
+                assertTrue(events.isEmpty())
+                assertEquals(TimetableServiceRunState.DWELLING, fixture.dispatcher.status(id)!!.state)
+            }
+            if (events.isNotEmpty()) { receivedAt = status.timetableElapsedTicks; break }
+        }
+        subscription.close()
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        assertNotNull(berthed)
+        assertEquals(berthed, events.single().arrivedTick)
+        assertEquals(berthed!! + 100L, events.single().readyTick)
+        assertEquals(berthed + 101L, receivedAt)
     }
 
     @Test fun `shared terminal program has no preparation and optional departure only delays duty handoff`() {

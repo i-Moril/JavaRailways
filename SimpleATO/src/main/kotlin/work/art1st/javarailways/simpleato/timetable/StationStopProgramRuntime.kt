@@ -25,8 +25,8 @@ internal fun interface StationProgramActionHost {
  */
 internal class StationStopProgramRuntime(
     val definition: StationStopPrograms,
-    private val stoppedAtDispatcherTick: Long,
-    private val minimumDwellTicks: Long,
+    stoppedAtDispatcherTick: Long,
+    minimumDwellTicks: Long,
     private val doorless: Boolean,
     private val operationTimeoutTicks: Long,
     private val host: StationProgramActionHost,
@@ -42,6 +42,8 @@ internal class StationStopProgramRuntime(
         var ticket: StationProgramTicket? = null
         var startedAtDispatcherTick = 0L
         var activeAction: StationProgramAction? = null
+        var lastWorkTick: Long? = null
+        var observedTicketCompletionTick: Long? = null
     }
 
     private val tasks = linkedMapOf<String, Task>()
@@ -50,7 +52,9 @@ internal class StationStopProgramRuntime(
     private var preparationStarted = false
     private var preparationLeadTicks: Long? = null
     private var durationQuery: java.util.concurrent.CompletableFuture<Long>? = null
-    private var dwellDeadline = Math.addExact(stoppedAtDispatcherTick, minimumDwellTicks)
+    private var durationQueryStartedAt = 0L
+    private val dwellDeadline = Math.addExact(stoppedAtDispatcherTick,
+        if (definition.role == StationStopRole.STOP) minimumDwellTicks else 0L)
     private var lastTick = stoppedAtDispatcherTick
     var doorsSecured: Boolean = doorless
         private set
@@ -61,6 +65,20 @@ internal class StationStopProgramRuntime(
     val allTasksComplete: Boolean
         get() = failure == null && arrivalMainComplete &&
             (definition.role == StationStopRole.TERMINAL || preparationStarted) && tasks.values.all { it.completed }
+    /** Real work completion, independent of the later interpreter pass that consumes END/join. */
+    val allTasksCompletedAtDispatcherTick: Long?
+        get() = if (allTasksComplete) tasks.values.maxOf { checkNotNull(it.lastWorkTick) } else null
+
+    /** Measurement-only observation after effect commits. Never advances a task or a movement gate. */
+    fun recordCommittedTicketCompletions(dispatcherTick: Long) {
+        require(dispatcherTick >= lastTick)
+        if (failure != null) return
+        tasks.values.forEach { task ->
+            if (task.observedTicketCompletionTick == null && task.ticket?.poll() == StationProgramTicketResult.Succeeded) {
+                task.observedTicketCompletionTick = dispatcherTick
+            }
+        }
+    }
 
     init {
         require(minimumDwellTicks >= 0 && operationTimeoutTicks > 0)
@@ -81,7 +99,8 @@ internal class StationStopProgramRuntime(
             resolvePreparationLead(dispatcherTick)
             fun startPreparationIfEligible(): Task? {
                 if (!preparationStarted && definition.role != StationStopRole.TERMINAL && arrivalMainComplete &&
-                    preparationLeadTicks != null && elapsedTimetableTick >= preparationDueTick()) {
+                    preparationLeadTicks != null && elapsedTimetableTick >= preparationDueTick() &&
+                    dispatcherTick >= dwellDeadline - checkNotNull(preparationLeadTicks)) {
                     preparationStarted = true
                     return Task(PREPARATION, definition.departurePreparation, true).also { tasks[PREPARATION] = it }
                 }
@@ -93,8 +112,13 @@ internal class StationStopProgramRuntime(
             while (pending.isNotEmpty()) {
                 val task = pending.removeFirst()
                 executingTask = task
+                if (task.lastWorkTick == null) task.lastWorkTick = dispatcherTick
                 while (!task.completed && budget-- > 0) {
                     if (dispatcherTick < task.waitUntilDispatcherTick) break
+                    if (task.waitUntilDispatcherTick != 0L) {
+                        task.lastWorkTick = dispatcherTick
+                        task.waitUntilDispatcherTick = 0L
+                    }
                     if (task.ticket != null) {
                         if (!observeTicket(task, dispatcherTick)) break
                         continue
@@ -111,6 +135,7 @@ internal class StationStopProgramRuntime(
                             task.completed = true
                         }
                         is StationProgramAction.Async -> {
+                            task.lastWorkTick = dispatcherTick
                             check(tasks.size < MAX_TASKS) { "station program exceeds $MAX_TASKS tasks" }
                             check(action.taskId !in symbols && action.taskId !in setOf(ARRIVAL, PREPARATION)) { "duplicate station task ${action.taskId}" }
                             val child = Task(action.taskId, action.steps, false)
@@ -124,14 +149,17 @@ internal class StationStopProgramRuntime(
                             val joined = checkNotNull(symbols[action.taskId]) { "unknown or not yet started station task ${action.taskId}" }
                             check(joined !== task) { "station task cannot await itself" }
                             if (!taskTreeComplete(joined)) break
+                            task.lastWorkTick = maxOf(checkNotNull(task.lastWorkTick), taskTreeCompletionTick(joined))
                             task.index++
                         }
                         is StationProgramAction.WaitUntil -> {
                             if (elapsedTimetableTick < action.tick) break
+                            task.lastWorkTick = dispatcherTick
                             task.index++
                         }
                         is StationProgramAction.WaitDuration -> {
                             require(action.ticks > 0)
+                            task.lastWorkTick = dispatcherTick
                             task.waitUntilDispatcherTick = Math.addExact(dispatcherTick, action.ticks)
                             task.index++
                             break
@@ -146,10 +174,12 @@ internal class StationStopProgramRuntime(
                             }
                             task.activeAction = action
                             task.startedAtDispatcherTick = dispatcherTick
+                            task.lastWorkTick = dispatcherTick
+                            task.observedTicketCompletionTick = null
                             task.ticket = if (doorless && (action == StationProgramAction.OpenDoors || action == StationProgramAction.CloseDoors)) null
                                 else host.start(action, task.id, task.index)
                             if (task.ticket == null) {
-                                completedAction(task, dispatcherTick)
+                                completedAction(task)
                                 task.activeAction = null
                                 task.index++
                             } else if (!observeTicket(task, dispatcherTick)) break
@@ -176,8 +206,12 @@ internal class StationStopProgramRuntime(
             is StationProgramTicketResult.Failed -> error("station task ${task.id}: ${result.reason}")
             is StationProgramTicketResult.Cancelled -> error("station task ${task.id} cancelled: ${result.reason}")
             StationProgramTicketResult.Succeeded -> {
-                completedAction(task, dispatcherTick)
+                val completedAt = task.observedTicketCompletionTick ?: dispatcherTick
+                check(completedAt in task.startedAtDispatcherTick..dispatcherTick) { "invalid station operation completion time" }
+                task.lastWorkTick = maxOf(checkNotNull(task.lastWorkTick), completedAt)
+                completedAction(task)
                 task.ticket = null
+                task.observedTicketCompletionTick = null
                 task.activeAction = null
                 task.index++
                 return true
@@ -187,15 +221,21 @@ internal class StationStopProgramRuntime(
 
     private fun taskTreeComplete(task: Task): Boolean = task.completed && task.children.all(::taskTreeComplete)
 
+    private fun taskTreeCompletionTick(task: Task): Long =
+        maxOf(checkNotNull(task.lastWorkTick), task.children.maxOfOrNull(::taskTreeCompletionTick) ?: 0L)
+
     private fun resolvePreparationLead(dispatcherTick: Long) {
         if (definition.role == StationStopRole.TERMINAL || preparationLeadTicks != null) return
         if (doorless || !definition.preparationLead.requiresDoorCloseDuration) {
             preparationLeadTicks = definition.preparationLead.evaluate(0)
             return
         }
-        val future = durationQuery ?: queryDoorCloseDuration().also { durationQuery = it }
+        val future = durationQuery ?: queryDoorCloseDuration().also {
+            durationQuery = it
+            durationQueryStartedAt = dispatcherTick
+        }
         if (!future.isDone) {
-            check(dispatcherTick - stoppedAtDispatcherTick < operationTimeoutTicks) { "door duration query timed out" }
+            check(dispatcherTick - durationQueryStartedAt < operationTimeoutTicks) { "door duration query timed out" }
             return
         }
         preparationLeadTicks = definition.preparationLead.evaluate(future.join())
@@ -207,12 +247,9 @@ internal class StationStopProgramRuntime(
         return (departure - checkNotNull(preparationLeadTicks)).coerceAtLeast(0L)
     }
 
-    private fun completedAction(task: Task, dispatcherTick: Long) {
+    private fun completedAction(task: Task) {
         when (task.activeAction) {
-            StationProgramAction.OpenDoors -> {
-                doorsSecured = doorless
-                dwellDeadline = maxOf(dwellDeadline, Math.addExact(dispatcherTick, minimumDwellTicks))
-            }
+            StationProgramAction.OpenDoors -> doorsSecured = doorless
             StationProgramAction.CloseDoors -> doorsSecured = true
             StationProgramAction.Reverse -> Unit // A direction change does not open confirmed closed doors.
             else -> Unit

@@ -102,6 +102,14 @@ describe('graph event suffix shifts',()=>{
 
 
 describe('explicit single-node toolbar commits',()=>{
+  it('excludes endpoints with both times from minimum dwell while retaining arrival order',()=>{
+    const document=draft();document.runs[0].calls[0].arrivalTick=99;
+    document.runs[0].calls[3].departureTick=601;
+    expect(editAuthoringGraphTime(document,'r',{kind:'DEPARTURE',stepIndex:2},99).runs[0].calls[0].departureTick).toBe(99);
+    expect(editAuthoringGraphTime(document,'r',{kind:'ARRIVAL',stepIndex:5},601).arrivalOverrides[0].tick).toBe(601);
+    expect(()=>editAuthoringGraphTime(document,'r',{kind:'ARRIVAL',stepIndex:5},602)).toThrow('arrival');
+    expect(shiftAuthoringGraphSuffix(document,'r',{kind:'ARRIVAL',stepIndex:5},'OFFSET',10).document.runs[0].calls[3]).toMatchObject({arrivalTick:610,departureTick:611});
+  });
   it('retains arrival overrides and changes only the selected event',()=>{
     const document=draft(),next=editAuthoringGraphTime(document,'r',arrival,230);
     expect(next.runs).toBe(document.runs);

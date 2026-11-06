@@ -106,7 +106,7 @@ JSON 对象允许{}；拒绝空文本/非对象、不有限数字和超出安全
 
 默认显示 JSON 草稿的有效性回传到 DutyEditor；无效时禁用保存/编译/正式脚本/模拟/发布，并递增草稿 revision，拒绝同文档哈希下已过期的异步结果。字段提交仍经 blur/Ctrl+Enter，Escape 恢复。生成 JS 时，命名车初始 PROGRAM 前使用明确初始位置或首 RUN 起点建立一次 CHECK。编译器在合适边界初始化新车次，具体动作、wire 和运行时生命周期由 [SimpleATO 规范](../../javarailways/simpleato/through-running-and-unit-displays.md) 定义。
 
-正式编译图按 runSegment 投影并保留原 service/step 地址。单 RUN Reset 使用精确 timetable/service/runId 选线；首 tick 不变。`operationalTrips` 为当前 editor/recovery 格式的可选空默认字段，不新增版本或业务层旧格式兼容。
+正式编译图按runSegment投影并保留原service/step地址。单RUN Reset从当前编辑文档的选中RUN生成完整独立source，不依赖已保存时刻表的timetable/service/runId查找；首tick不变。`operationalTrips`为当前editor/recovery格式的可选空默认字段，不新增版本或业务层旧格式兼容。
 
 ## 线路最高速度
 
@@ -128,19 +128,29 @@ CURRENT：`authoringResume.ts` 保存 owner/world 隔离的最后文档 ID；内
 
 ## 共享停站、事件点与交路时间轴（CURRENT）
 
-文档 `stationPrograms` 按 stationId 保存一次到达/准备定义，调用保存有序 `viaIds`，终点 `departureTick` 可空。终点发车时刻只表示后续交路动作最早开始时刻，不触发准备；跨 RUN 冲突检查用有效到达加最小停站与终点 departure 的最大值。缺省程序与运行 gate 见 dispatcher-runtime，积木上下文、草稿门禁见 program-blocks。
+文档`stationPrograms`按stationId保存一次到达/准备定义，调用保存有序`viaIds`，终点`departureTick`可空。终点发车时刻只表示后续交路动作最早开始时刻，不触发准备；跨RUN冲突检查用有效到达与显式终点departure的最大值，不加全局minimum。缺省程序与运行gate见dispatcher-runtime，积木上下文、草稿门禁见program-blocks。
 
 `events?: TimedOperation[]`为运行图所属定时作业，使用与交路程序作业相同的时刻、程序调用、可选车站/标记与规划耗时模型。可无程序保留纯时间锚点，WAIT_EVENT只引用此集合，生成前仍将tick+offsetTicks解析为绝对等待。缺失或越周期产生authoring issue、返回空source，不抛渲染异常。
 
 交路页使用页面专属顶部 ribbon：新建交路、添加作业程序、重联、解编、撤销/重做与保存；校验页不显示命令 ribbon，编译/模拟由校验面板拥有。交路页中央复用渲染后的运行图选择 RUN 和运行图作业 EVENT：点击运行线把该 RUN 原子移入当前交路，点击带程序的 EVENT 添加唯一引用；不再用下拉菜单选择。所有会生成列车或从路径点取得列车的编辑入口都必须使用“有方向”的路径点：函数模拟起点、TRAIN_NAME 的 initialPosition、TAKE_FROM_WAYPOINT 的每个候选点。UI 只提供 `programSimulationWayPoints`（点自身 approachDirection 或所属轨道 operatingDirections 已配置）；`validateAuthoringDocument(..., metadata)` 同时对照真实 `metadata.wayPoints` 报“点不存在”和对照 directed set 报“未配置方向”。是否真的能唯一放置车身仍由运行期 `prepareUniquePlacement` / initial positioner 决定，编辑期不伪造唯一性结论。保存/校验必须传 metadata，不能只在生成 source 时绕过；已存在的旧点不符合实际世界时在校验页报错。
 
-临时限制（先按此实现，后续再替换）：RUN 在交路时间轴上的任务占用只到终点到达 tick，终点停站最短时间仍作为“下一次离开该停站”的门，不再延长前一段 RUN。到达后可执行不改变位置的终点程序（REVERSE、开关门、显示、等待）；若程序包含 MOVE/STORE/SELECT_STOP，按其最早移动 tick 检查门并消耗该门，之后下一段 RUN 不再受原停站窗口约束。临时简化：程序中出现 REVERSE（包括 MOVE 前后或嵌套分支）就不再检查下一段起点的 destination 精确匹配；没有 REVERSE 的程序仍按实际 MOVE/STORE/SELECT_STOP 目标检查。运行期仍负责真实位置校验。运行期 finalGate 仍是最终安全门。此模型没有 barrier，也没有跨任务的 dwellEnd/pending 状态，属于临时简化。
+RUN在交路时间轴上的任务占用只到有效终点到达tick；删除终点minimum向下一任务或MOVE/STORE/SELECT_STOP传播的隐式等待，无pending dwell或跨任务门。显式终点departure仍限制后续任务最早开始。到达后程序与实际运动遵守既有任务/关门/授权门禁。现有方向简化不变：程序中出现REVERSE（包括嵌套分支）不检查下一RUN起点destination精确匹配；没有REVERSE仍按实际MOVE/STORE/SELECT_STOP目标检查，不借本次停站改动扩大位置规则。
 
 交路页不渲染页面标题和副标题，三栏铺满页面并各自滚动；左侧交路列表、中央运行图/时间轴、右侧属性栏独立滚动。右侧栏采用与时刻表检查器一致的 inspector panel/标题样式，分“交路”和“初始位置”两个输入区，分别承载交路 ID、选择器/模拟参考车辆以及初始路径点/取得时刻等字段。
 
 交路 `referenceVehicle?: {type:'WORLD_TRAIN'|'TRAIN_TEMPLATE',id}`持久保存于duty，模拟由此取参数，不限制实际运营列车。元素支持RUN、交路所属PROGRAM、运行图作业EVENT及共享编组作业FORMATION引用。PROGRAM复用TimedOperation字段，program必需；EVENT／FORMATION只存{id,type,eventId}，不复制时刻、参数或耗时，分别引用运行图作业和编组目录。来自编组输出的交路不重新指定模拟车辆。初始位置仍为duty.initialPosition，不作为执行任务。当前未发布格式仍为1；旧PROGRAM.call结构只由离线迁移处理，不在运行时兼容。
 
-`DutyTimeline` 取运行线始发时刻及有效终点到达+最小停站、可选终点发车的最大值显示区间；程序支持拖动开始、手动区间拖动右边界及等价数值输入，pointerup 才提交一次 history。普通任务右键移除只删除引用；编组任务仅协调交路可删除，其目录与参与方引用一并移除并保留接收方缺失来源诊断。编组时刻和耗时当前通过详情字段编辑。RUN 时刻仍由运行线编辑器唯一维护；函数本体在本时刻表程序库编辑，调用直接引用本地程序记录。编组不再使用折叠区的事件 ID 表单。
+`DutyTimeline`取运行线始发时刻至有效终点到达显示区间；缺到达时才用显式终点departure，不加minimum。程序支持拖动开始、手动区间拖动右边界及等价数值输入，pointerup才提交一次history。普通任务右键移除只删除引用；编组任务仅协调交路可删除，其目录与参与方引用一并移除并保留接收方缺失来源诊断。编组时刻和耗时当前通过详情字段编辑。RUN时刻仍由运行线编辑器唯一维护；函数本体在本时刻表程序库编辑，调用直接引用本地程序记录。编组不再使用折叠区的事件ID表单。
+
+### 最短停站与真实测时回填
+
+`authoringMinimumDwellForCall(document,run,call)`仅对PASSENGER中间STOP返回文档minimum，其余返回0。生成器在内层stationProgram及外层DestinationOptions显式写相同值，首尾写0避免默认值回落；校验、图编辑、平移、连接检查统一使用此角色语义。它包含开门到关门的全部时间，运行期晚到仍从真实到站起算，不另加开门时间。自定义程序可提前关门但不能提前发车。
+
+`authoringLineSimulationRequest`以选中RUN及其程序/事件/线路上下文生成测量source，删除无关交路任务但保持调用身份、有序vias、offset、门侧和绝对等待；请求包含车型、速度、始发方向、原firstDepartureTick、独立fixedDwellTicks及适用minimumDwellTicks（回送为0）。真实执行与HTTP合同归[模拟规范](../../javarailways/simpleato/simulation.md#真实运行线测时current)。非零始发offset后端明确拒绝，不静默忽略。
+
+`resetRunTimings`按有序callId/kind接收整数tick，不按stationId合并重复站点、不从展示秒数舍入。验证完整call数量/顺序、非负整数、原始发tick、STOP间隔恰等fixedDwell、PASS无departure、事件单调和周期；显式终点departure早于测得arrival则拒绝，不自动推迟它。成功仅一次history事务，可一次Undo恢复；失败、取消、部分结果和过期响应均保留原文档。O(calls)映射，不保存模拟历史。
+
+fixedDwell低于适用minimum时前端先提示；实际作业无法在fixedDwell内完成时显示后端`LINE_DWELL_INSUFFICIENT`和站点/预算原因，不回填也不自动延长。例：minimum100、fixed200允许测量；实际作业220则失败；不是把220写成新停站值。回归由`lineSimulationAuthoring.test`、`lineSimulationApi.test`、`apiErrors.test`和真实浏览器成功/失败/Undo覆盖。当前未发布格式保持既有版本，无旧估算fallback。
 
 同一交路的全部任务共用一条横向轨道，不再逐任务分行。已知正时长区间按真实 tick 比例绘制，短任务的命中范围不能伪装成更长的占用区间；零时长点与未知时长任务分别标记，未知不能当作零时长。独立的紧凑任务标签复用相同选择、双击导航和右键移除入口，任务条负责拖动开始时刻，右边界手柄负责调整手动耗时；下方 inspector 仍是唯一编辑位置。已知重叠在共享轨道上标记实际交集并保留既有诊断，不通过增加任务行掩盖冲突；本次布局改动不自行改变调度或规划耗时语义。
 

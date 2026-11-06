@@ -1,7 +1,7 @@
 import {ApiError, parseApiError} from './apiErrors';
 import { authoringDocumentForSave,type TimetableAuthoringDocumentV1 } from './authoring';
 import { demoApi, frontendDemoEnabled } from './frontendDev';
-import type { ProgramSimulationRequest, ProgramSimulationResult, StationProgramDefinition, StationProgramRecord, CompiledTimetableSource, DraftSummary, EditorDocumentSummary, LineCollection, LineSimulationResult, LineV1, RailMapFile, RenderedTimetableScript, SavedLineResult, SavedTimetableV1, SimulationProfile, TimetableScriptSummary, TimetableSimulationProfileAssignment, TimetableSimulationResult, ValidationResult, WebSessionStatus, WorldMetadata, WorldSummary, WorldIssue, ServerLogSources, ServerLogPage, ServerLogQuery } from './types';
+import type { ProgramSimulationRequest, ProgramSimulationResult, StationProgramDefinition, StationProgramRecord, CompiledTimetableSource, DraftSummary, EditorDocumentSummary, LineCollection, LineSimulationRequest,LineSimulationResult, LineV1, RailMapFile, RenderedTimetableScript, SavedLineResult, SavedTimetableV1, TimetableScriptSummary, TimetableSimulationProfileAssignment, TimetableSimulationResult, ValidationResult, WebSessionStatus, WorldMetadata, WorldSummary, WorldIssue, ServerLogSources, ServerLogPage, ServerLogQuery } from './types';
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
  let response:Response;
  try { response=await fetch(url,{...init,headers:{'Content-Type':'application/json',...init?.headers}}); }
@@ -32,7 +32,7 @@ const liveApi = {
  compileSource: (worldId:string,id:string,source:string,documentHash?:string) => request<CompiledTimetableSource>(`${base(worldId)}/scripts/compile`, {method:'POST',body:JSON.stringify({id,source,documentHash})}),
  simulateTimetable: (worldId:string,timetable:SavedTimetableV1,profileAssignments:TimetableSimulationProfileAssignment[],delayThresholdTicks:number,executionTimeoutMillis:number) => request<TimetableSimulationResult>(`${base(worldId)}/timetables/simulate`,{method:'POST',body:JSON.stringify({timetable,profileAssignments,delayThresholdTicks,executionTimeoutMillis})}),
  lines: (worldId: string) => request<LineCollection>(`${base(worldId)}/lines`),
- simulateLine: (worldId: string, lineId: string, profile: SimulationProfile, executionTimeoutMillis:number) => request<LineSimulationResult>(`${base(worldId)}/lines/${encodeURIComponent(lineId)}/simulate`, { method:'POST', body:JSON.stringify({...profile,executionTimeoutMillis}) }),
+ simulateLine: (worldId: string, lineId: string, input: LineSimulationRequest, executionTimeoutMillis:number) => request<LineSimulationResult>(`${base(worldId)}/lines/${encodeURIComponent(lineId)}/simulate`, { method:'POST', body:JSON.stringify({...input,executionTimeoutMillis}) }),
  saveLine: (worldId: string, line: LineV1, expectedRevision: number) => request<SavedLineResult>(`${base(worldId)}/lines/${encodeURIComponent(line.id)}`, { method:'PUT', body:JSON.stringify({ line, expectedRevision }) }),
  deleteLine: (worldId: string, lineId: string, expectedRevision: number) => request<{revision:number;removed:boolean}>(`${base(worldId)}/lines/${encodeURIComponent(lineId)}`, { method:'DELETE', body:JSON.stringify({ expectedRevision }) }),
  drafts: (worldId: string) => request<DraftSummary[]>(`${base(worldId)}/drafts`),

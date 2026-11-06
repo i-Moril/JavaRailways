@@ -9,6 +9,7 @@ const errorKeys={
  SIMULATION_REJECTED:'errors.simulationRejected',NETWORK_ERROR:'errors.network',INVALID_RESPONSE:'errors.bridgeInvalidResponse',
  SIMULATION_LIMIT_REACHED:'errors.simulationLimit',REQUEST_TIMEOUT:'errors.timeout',TOO_MANY_REQUESTS:'errors.rateLimited',
  REQUEST_REJECTED:'errors.rejected',SIMULATION_FAILED:'errors.simulationFailed',SIMULATION_TIMING_UNAVAILABLE:'errors.simulationTimingUnavailable',
+ LINE_DWELL_INSUFFICIENT:'errors.lineDwellInsufficient',
  INFRASTRUCTURE_INVARIANT_VIOLATION:'errors.infrastructureInvariant',InfrastructureInvariantViolation:'errors.infrastructureInvariant',
 } as const;
 const statusCodes:Record<number,string>={400:'INVALID_REQUEST',401:'AUTH_REQUIRED',403:'FORBIDDEN',404:'NOT_FOUND',409:'CONFLICT',422:'REQUEST_REJECTED',429:'TOO_MANY_REQUESTS',500:'INTERNAL_ERROR',503:'SERVICE_UNAVAILABLE',504:'REQUEST_TIMEOUT'};
@@ -27,7 +28,7 @@ export class ApiError extends Error {
   const summary=key?translate(locale,key):`${translate(locale,'errors.http')} (HTTP ${this.status})`;
   // Infrastructure failures already have a precise localized explanation. Validation/domain
   // failures retain their actual server diagnostic rather than replacing it with a generic label.
-  const showDetail=this.detail&&(!key||['INVALID_REQUEST','SIMULATION_REJECTED','REQUEST_REJECTED','CONFLICT','AUTH_REQUIRED','NOT_FOUND','FORBIDDEN'].includes(this.code));
+  const showDetail=this.detail&&(!key||['INVALID_REQUEST','SIMULATION_REJECTED','REQUEST_REJECTED','CONFLICT','AUTH_REQUIRED','NOT_FOUND','FORBIDDEN','LINE_DWELL_INSUFFICIENT'].includes(this.code));
   return [summary,showDetail?`${translate(locale,'errors.details')}: ${this.detail}`:undefined,
    this.requestId?`${translate(locale,'errors.requestId')}: ${this.requestId}`:undefined].filter(Boolean).join('\n');
  }

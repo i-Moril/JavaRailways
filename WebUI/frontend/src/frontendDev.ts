@@ -1,7 +1,7 @@
 import type { TimetableAuthoringDocumentV1 } from './authoring';
 import type {
-  DraftSummary, EditorDocumentSummary, LineCollection, LineSimulationResult, LineV1, RailMapFile,
-  RailMapTrain, RenderedTimetableScript, SavedTimetableV1, SimulationProfile, TimetableScriptSummary,
+  DraftSummary, EditorDocumentSummary, LineCollection, LineSimulationRequest,LineSimulationResult, LineV1, RailMapFile,
+  RailMapTrain, RenderedTimetableScript, SavedTimetableV1, TimetableScriptSummary,
   TimetableSimulationProfileAssignment, TimetableSimulationResult, ValidationResult, WorldMetadata,
 } from './types';
 
@@ -38,14 +38,14 @@ const documentSeed:TimetableAuthoringDocumentV1={
   diagramLines:lineSeed.map(({id,upStationIds,downStationIds})=>({id,upStationIds,downStationIds})),
   arrivalOverrides:[],
   runs:[
-    {id:'AP101',type:'PASSENGER',diagramLineId:'airport-line',lineDirection:'UP',originDepartureMode:'AUTO',calls:[
+    {id:'AP101',type:'PASSENGER',lineId:'airport-line',diagramLineId:'airport-line',lineDirection:'UP',originDepartureMode:'AUTO',calls:[
       {id:'AP101-1',stationId:'harbour',berthId:'harbour-platform-1',status:'ORIGIN',targetId:'harbour-destination',departureTick:1200},
       {id:'AP101-2',stationId:'old-town',berthId:'old-town-platform-1',status:'STOP',targetId:'old-town-destination',arrivalTick:2000,departureTick:2100},
       {id:'AP101-3',stationId:'central',berthId:'central-platform-1',status:'STOP',targetId:'central-destination',arrivalTick:2900,departureTick:3020},
       {id:'AP101-4',stationId:'university',berthId:'university-platform-1',status:'PASS',targetId:'university-destination',arrivalTick:3700},
       {id:'AP101-5',stationId:'airport-t2',berthId:'airport-t2-platform-1',status:'TERMINAL',targetId:'airport-t2-destination',arrivalTick:4700},
     ]},
-    {id:'AP102',type:'PASSENGER',diagramLineId:'airport-line',lineDirection:'DOWN',originDepartureMode:'AUTO',calls:[
+    {id:'AP102',type:'PASSENGER',lineId:'airport-line',diagramLineId:'airport-line',lineDirection:'DOWN',originDepartureMode:'AUTO',calls:[
       {id:'AP102-1',stationId:'airport-t2',berthId:'airport-t2-platform-1',status:'ORIGIN',targetId:'airport-t2-destination',departureTick:5600},
       {id:'AP102-2',stationId:'university',berthId:'university-platform-1',status:'STOP',targetId:'university-destination',arrivalTick:6500,departureTick:6600},
       {id:'AP102-3',stationId:'central',berthId:'central-platform-1',status:'STOP',targetId:'central-destination',arrivalTick:7300,departureTick:7420},
@@ -76,15 +76,21 @@ let lines:LineCollection={revision:7,lines:clone(lineSeed)};
 let documents=new Map<string,TimetableAuthoringDocumentV1>([[documentSeed.id,clone(documentSeed)]]);
 let programs=new Map<string,Map<string,import('./types').StationProgramRecord>>();
 let drafts=new Map<string,SavedTimetableV1>([[timetableSeed.id,clone(timetableSeed)]]);
-function lineSimulation(lineId:string,profile:SimulationProfile):LineSimulationResult {
+/** Explicit frontend-demo fixture; not a physical simulation or production fallback. */
+function lineSimulation(lineId:string,profile:LineSimulationRequest):LineSimulationResult {
   const line=lines.lines.find((candidate)=>candidate.id===lineId);
   if(!line)throw new Error(`Unknown demo line: ${lineId}`);
-  const route=profile.direction==='UP'?line.upStationIds:line.downStationIds;
-  const start=profile.originStationId?route.indexOf(profile.originStationId):0;
-  const end=profile.terminalStationId?route.indexOf(profile.terminalStationId):route.length-1;
-  const selected=route.slice(Math.max(0,start),end>=start?end+1:route.length);
+  const selected=profile.calls.map((call)=>call.stationId);
   const legs=selected.slice(0,-1).map((fromStationId,index)=>({fromStationId,toStationId:selected[index+1],lengthMeters:760+index*90,travelSeconds:62+index*7,peakSpeedKmh:82,stoppingErrorMeters:0.18}));
-  return {lineRevision:lines.revision,totalTravelSeconds:legs.reduce((sum,leg)=>sum+leg.travelSeconds,0),legs};
+  let tick=profile.firstDepartureTick;
+  const calls=profile.calls.map((call,index)=>{
+    if(index===0)return {callId:call.callId,kind:call.kind,departureTick:tick};
+    tick+=legs[index-1].travelSeconds*20;
+    const arrivalTick=tick;
+    if(call.kind==='STOP')tick+=profile.fixedDwellTicks;
+    return {callId:call.callId,kind:call.kind,arrivalTick,departureTick:call.kind==='STOP'?tick:null};
+  });
+  return {lineRevision:lines.revision,totalTravelSeconds:legs.reduce((sum,leg)=>sum+leg.travelSeconds,0),legs,calls};
 }
 
 export const demoApi={
@@ -97,7 +103,7 @@ export const demoApi={
   async renderScript(_worldId:string,name:string,_id?:string):Promise<RenderedTimetableScript>{return {name,source:'// Frontend demo timetable\n// Editing and compilation stay in this browser session.',timetable:clone(timetableSeed),validation:{valid:true,errors:[]}};},
   async compileSource(_worldId:string,id:string,_source:string,documentHash?:string){return {timetable:{...clone(timetableSeed),id},validation:{valid:true,errors:[]},documentHash};},
   async simulateTimetable(_worldId:string,timetable:SavedTimetableV1,assignments:TimetableSimulationProfileAssignment[],_delayThresholdTicks:number,_executionTimeoutMillis:number):Promise<TimetableSimulationResult>{return {status:'COMPLETED',simulatedTicks:9600,runs:assignments.map((assignment)=>({timetableId:timetable.id,serviceId:assignment.serviceId,trainId:assignment.profileId,state:'COMPLETED',timetableElapsedTicks:9600,lastLatenessTicks:0,nextStepIndex:5}))};},
-  async lines(_worldId:string){return clone(lines);},async simulateLine(_worldId:string,lineId:string,profile:SimulationProfile,_executionTimeoutMillis:number){return clone(lineSimulation(lineId,profile));},
+  async lines(_worldId:string){return clone(lines);},async simulateLine(_worldId:string,lineId:string,profile:LineSimulationRequest,_executionTimeoutMillis:number){return clone(lineSimulation(lineId,profile));},
   async saveLine(_worldId:string,line:LineV1,expectedRevision:number){if(expectedRevision!==lines.revision)throw new Error('Demo line revision changed');lines={revision:lines.revision+1,lines:[...lines.lines.filter((item)=>item.id!==line.id),clone(line)]};return {revision:lines.revision,line:clone(line)};},
   async deleteLine(_worldId:string,lineId:string,expectedRevision:number){if(expectedRevision!==lines.revision)throw new Error('Demo line revision changed');const before=lines.lines.length;lines={revision:lines.revision+1,lines:lines.lines.filter((line)=>line.id!==lineId)};return {revision:lines.revision,removed:lines.lines.length<before};},
   async drafts(_worldId:string):Promise<DraftSummary[]>{return [...drafts.values()].map((timetable)=>({id:timetable.id,updatedAt:now(),timetable:clone(timetable)}));},

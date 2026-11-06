@@ -10,7 +10,7 @@ export interface DutyTimelineTask {
 export function defaultDutyProgramArguments(parameters:StationProgramDefinition['parameters']):Record<string,StationProgramLiteral> {
  return Object.fromEntries(parameters.map((parameter)=>[parameter.id,parameter.default!==undefined?parameter.default:parameter.type==='JSON_OBJECT'?{}:parameter.type==='ID_LIST'?[]:parameter.type==='DURATION'?1:parameter.type==='NUMBER'?0:parameter.type==='BOOLEAN'?false:'']));
 }
-/** Run occupancy includes effective terminal arrival, dwell and optional terminal departure. */
+/** Task start only; run occupancy ends at effective terminal arrival. */
 export function dutyTaskStart(document:TimetableAuthoringDocumentV1,element:AuthoringDutyElementV1):number {
  if(element.type==='FORMATION')return document.formationEvents?.find((event)=>event.id===element.eventId)?.tick??0;
  return element.type==='RUN'?document.runs.find((run)=>run.id===element.runId)?.calls[0]?.departureTick??0:resolveDutyTimedOperation(document,element)?.tick??0;
@@ -37,8 +37,8 @@ export function projectDutyTimeline(document:TimetableAuthoringDocumentV1,duty:A
   if(element.type==='RUN'){
    const run=document.runs.find((candidate)=>candidate.id===element.runId),terminal=run?.calls.at(-1);
    const arrival=document.arrivalOverrides.find((override)=>override.runId===run?.id&&override.callId===terminal?.id)?.tick??terminal?.arrivalTick;
-   // Temporary limitation: terminal dwell is a departure gate, not RUN task occupancy.
-   // The run ends at terminal arrival; programs may execute during the dwell window.
+   // Endpoints have no global minimum dwell. Explicit terminal departure is checked
+   // separately as the earliest following-task time, not drawn as RUN occupancy.
    const endTick=arrival??terminal?.departureTick??undefined;
    return {id:element.id,type:'RUN',label:element.runId,startTick,endTick,durationMode:'RUN',overlaps:[]};
   }

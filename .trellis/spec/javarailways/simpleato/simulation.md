@@ -2,26 +2,27 @@
 
 ## 适用场景与用途
 
-触发：修改detailed travel preview、isolated timetable clone/step/results、simulation provider/operation或resource cleanup。
+触发：修改运行线测时、isolated timetable clone/step/results、simulation provider/operation或resource cleanup。
 
-用途：preview确定性复用TrainDynamics；full simulation只clone static infrastructure并拥有独立workers，绝不复制live trains/tickets/locks/provider side effects。
+用途：运行线测时与全局模拟使用同一真实执行链；只clone static infrastructure并拥有独立workers，绝不复制live trains/tickets/locks/provider side effects。
 
-## Detailed simulation
+## 真实运行线测时（CURRENT）
 
-`DetailedTrainTravelSimulator.STEP_SECONDS=0.05`。`DetailedTrainSimulationProfile`显式携带正数
-`gravityMetersPerSecondSquared`；`simulate(legs,profile,computationDeadlineNanos): DetailedTravelSimulationResult`要求legs/cars非空、length positive、final leg stop；支持optional max speed、interrupt、nano deadline、每leg最大3600 s。Result leg含from/to、length m、travel seconds、peak m/s、stopping error m。
+完成测时必须区分操作真正成功与Dispatcher消费结果的时间：模拟在既有afterTick、当前效果已提交之后，通过原physicsCoordinator.withStructuralMutation进入owner边界，仅为当前订阅run调用recordStationProgramCompletions；不再次drain操作队列。它记录pending ticket首次真实Succeeded的dispatcher tick，不推进程序、门状态或发车gate。下一正常解释器周期汇总实际作业完成时间作为readyTick；不能以通知到达tick代替，不能统一减1或加容差。真实S100曾在3997完成而3998才消费，错误比较因此拒绝正常400tick停站；对应任务保留失败与修复回放证据。
 
-```kotlin
-val result = TrainDynamics.step(
-    state, profile.train, cars, handle,
-    profile.gravityMetersPerSecondSquared, STEP_SECONDS
-)
-state = result.state
-distance += result.distance
-elapsed += STEP_SECONDS
-```
+Bukkit `IsolatedLineSimulator`拥有测量适配；WebUI用正常生成器生成选中RUN的独立完整source，sandbox编译和normalize后，`prepareLineMeasurement(saved,request,reverseOrigin)`仅调整测量调度，不另造驾驶器或站间积分器。`simulate(factory,snapshot,request,workerThreads)`通过既有factory创建一个隔离世界，整条运行线连续使用同一列车、真实逐车设备、Dispatcher、ATO、信号和滚动资源申请。旧`DetailedTrainTravelSimulator`及其粗略驾驶/预览降额已删除，无fallback。
 
-来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/DetailedTrainTravelSimulator.kt`。同input应得相同result；不访问world/platform，纵向积分仍复用 Basic `TrainDynamics`。
+请求含`measurementSource`、`firstDepartureTick`、`fixedDwellTicks`、`minimumDwellTicks`、有序`calls[{callId,stationId,destinationId,kind,viaIds}]`及既有车型/线路速度/始发方向选择。HTTP call还携带停车offset供正常source使用。call数2..128，callId唯一，首尾分别ORIGIN/TERMINAL，中间STOP/PASS；tick必须非负安全整数。内部`maximumDurationTicks`默认72000，范围1..1728000；预算从始发tick计，绝不在预算耗尽后返回部分成功。
+
+测量仅有一个service/segment，保持程序、条件上下文、绝对WAIT_EVENT时刻、vias和停车位置；非始发任务调度设为已到期。中间STOP使用fixedDwell作为本次测量的到站后等待目标，首尾不注入minimum。有序waypoint事件用于核对调用顺序，PASS直接取其tick；停车调用取station-program-ready所携带的真实arrivedTick（StationCall为BERTHED，普通destination为实际停车），不能拿可能更早的waypoint tick代替。仅保存当前待确认停车的BERTHED帧，与arrivedTick严格相等后形成结果，不保存历史或加tick容差。STOP目标发车为实际到达+fixedDwell，始发保持原firstDepartureTick，PASS没有停站等待。ready事件在全部任务及适用关门完成、但最终时间/资源门禁之前发出；晚于目标即拒绝。资源等待继续计入后续区间的目标发车至实际到达耗时，不伪装成新增停站。每tick只采集当前速度/路程，停靠误差使用同一mission的目标-offset与实际投影差，不二次重建路线端点。
+
+结果含有序`calls[{callId,kind,arrivalTick?,departureTick?}]`和展示用legs（lengthMeters/travelSeconds/peakSpeedKmh/stoppingErrorMeters）、lineRevision、totalTravelSeconds。整数call时刻才是Reset依据；不得从秒数舍入重建。观察器仅为当前模拟订阅，无全局事件历史；完成或失败随`use`撤销订阅并关闭世界。到达采样额外空间O(calls)，每tick帧采样O(1)；完成观察扫描当前有界站点任务O(tasks)，每任务只存当前操作的首次成功tick，真实执行成本仍由现有世界循环决定。
+
+失败合同：fixedDwell低于适用minimum，或实际站内任务/门操作超过目标，返回HTTP422 `LINE_DWELL_INSUFFICIENT`并保留站点、预算及实际原因；不自动拉长停站、不回填。始发准备超过给定始发tick也失败，不悄悄推迟始发。缺事件、身份/顺序不符、实际行车失败、超时、取消、预算耗尽均不提供成功calls。非零始发offset当前明确拒绝，因为既有CHECK/初始摆位不支持它；不在本功能扩展摆位规则。其他offset仍交真实执行链，实际不可接续时明确失败。
+
+只有测量任务将既有延误阈值设为horizon+1以收集完整结果；全局模拟阈值不变。例如A=1000、fixedDwell=400，开门30tick包含在400内，目标1400；实际完成1400、1401才消费结果应通过，实际完成1401必须拒绝；任务完成1410则报错，而不是生成1410或1430。真实后继动作、WAIT或新ASYNC不能回溯到前一操作完成tick。实际提前关门的自定义程序仍遵守既有最终发车门禁，详见dispatcher-runtime。
+
+验证：请求合法性、真实官方signal feature、局部速度限制、连续PASS和STOP、偏移停车、有序整数事件与完整模拟重放一致；不足预算/作业过长/运行失败均禁止成功。有序身份映射不丢失重复出现，但现有Line.validatePattern仍禁止重复station线路，不声称本次开放其HTTP输入。仅mock HTTP或前端demo不能证明物理行为。当前未发布API直接替换，无新增持久化版本或旧估算兼容路径。
 
 ## Isolated world owner、clone与lifecycle
 
@@ -92,7 +93,7 @@ create失败逆序释放已经安装的feature注册、operation owner、自有�
 
 ## 必需测试与验证
 
-- `DetailedTrainTravelSimulatorTest.kt`：determinism、speed cap、stops/groups、deadline/interrupt/invalid。
+- Bukkit `IsolatedLineSimulatorTest`、`LineSimulationMaximumSpeedTest`、`IsolatedTimetableSimulationFactoryTest`：测量请求、真实限速/信号/设备链、整数测时和失败不回填。
 - `IsolatedTimetableSimulationTest.kt`：no live train、parallel deterministic、真实Basic admission、unsupported reversal fail-closed、delay/period/failure、single-use/close。
 - Bukkit `SimulationTrainOperationGatewayTest.kt`：真实逐车JS、效果启动、reject/cancel及结构变化。
 - Bukkit factory tests：revision/profile/required provider准备及实际turnout选择。
@@ -128,6 +129,5 @@ SIMULATION 与 LIVE 均须回归验证：未显式换向时不会为身后的目
 ### 逐车设备动力学
 
 完整隔离模拟与实时人工/ATO控制使用同一Basic设备内核和捕获的逐车`Equipment`，不另建函数执行器。
-详细行程估算也使用该内核，初始静止状态持有空气制动，连续停站间传递完整设备状态；不得在每站重置为空气
-已缓解的标量状态。详细估算保留自己的粗略驾驶策略和既有预览降额，它不是行车授权的安全证明。
+运行线测时直接复用上述完整隔离执行链，初始静止状态持有空气制动，连续停站间保留完整设备状态；不得在每站重置为空气已缓解的标量状态，也不另造粗略驾驶策略。
 设备配置新增默认字段不升schema；模型包内容地址改变时由离线工具重算并更新已知引用，不增加runtime旧哈希支持。

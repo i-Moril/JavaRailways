@@ -73,6 +73,338 @@ import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionDescri
 import work.art1st.javarailways.simpleato.api.timetable.TimetableRuntimeContext
 
 class IsolatedTimetableSimulationFactoryTest {
+    @Test
+    fun `line measurement accepts real door completion at deadline but rejects one tick later`() {
+        val source = createTestWorld()
+        registerWorldData(source)
+        try {
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+            listOf("a" to 30.0, "b" to 150.0, "c" to 270.0).forEach { (id, arc) ->
+                OperationalDestinationService(source).register(OperationalDestination("$id@one", rail.id, arc,
+                    ViewDirection.AB, DestinationRole.StationBerthRole(StationId(id), berthId = "one",
+                        doorSide = if (id == "b") DoorSide.LEFT else DoorSide.NONE, usableLengthMeters = 30.0)))
+            }
+            val line = LineId("doors")
+            source.simpleAtoWorldData.lines.put(Line(line, "Doors", listOf("a", "b", "c").map(::StationId),
+                listOf("c", "b", "a").map(::StationId), maximumSpeedMetersPerSecond = 6.0), 0L)
+            val calls = listOf("a" to "ORIGIN", "b" to "STOP", "c" to "TERMINAL").map { (id, kind) ->
+                LineMeasurementCall("call-$id", id, "$id@one", kind, emptyList())
+            }
+            val request = LineMeasurementRequest("fixture", 100, 400, 400, calls, 10_000)
+            fun program(id: String, role: String, lead: Long) = work.art1st.javarailways.simpleato.timetable.StationStopPrograms(
+                id, "call-$id", work.art1st.javarailways.simpleato.timetable.StationStopRole.valueOf(role),
+                listOf(work.art1st.javarailways.simpleato.timetable.StationProgramAction.OpenDoors,
+                    work.art1st.javarailways.simpleato.timetable.StationProgramAction.End),
+                listOf(work.art1st.javarailways.simpleato.timetable.StationProgramAction.CloseDoors,
+                    work.art1st.javarailways.simpleato.timetable.StationProgramAction.End),
+                work.art1st.javarailways.simpleato.timetable.StationPreparationLead.constant(lead),
+                if (role == "TERMINAL") null else 100, "$id@one", if (id == "b") DoorSide.LEFT else DoorSide.NONE, 0)
+            fun timetable(lead: Long): Timetable {
+                val steps = listOf(TimetableStep.Check("a@one"),
+                    TimetableStep.At(0, TimetableAction.BeginStationStop(program("a", "ORIGIN", 0))),
+                    TimetableStep.At(100, TimetableAction.DestinationOptions("b@one", stopPrograms = program("b", "STOP", lead))),
+                    TimetableStep.At(100, TimetableAction.GoTo("b@one")),
+                    TimetableStep.At(100, TimetableAction.DestinationOptions("c@one", stopPrograms = program("c", "TERMINAL", 0))),
+                    TimetableStep.At(100, TimetableAction.GoTo("c@one")))
+                return Timetable("door-measurement", services = listOf(TimetableService("duty", TrainSelector.TrainId("scheduled"), steps,
+                    lineId = line, runSegments = listOf(work.art1st.javarailways.simpleato.timetable.TimetableRunSegment("run", line, 0, steps.size,
+                        calls = calls.map { work.art1st.javarailways.simpleato.timetable.TimetableRunCall(it.callId, it.stationId,
+                            it.destinationId, work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.valueOf(it.kind)) })))),
+                    lineSpeedLimits = listOf(TimetableLineSpeedLimit(line, 6.0)))
+            }
+            fun animation(seconds: Double) = work.art1st.javarailways.bukkit.render.Animation(listOf(
+                work.art1st.javarailways.bukkit.render.Animation.AnimationCommand.INITIAL_STATE,
+                work.art1st.javarailways.bukkit.render.Animation.AnimationCommand(
+                    work.art1st.javarailways.bukkit.render.model.CompactTransform(), seconds)))
+            val actions = listOf("door-left-open" to "open", "door-left-close" to "close").associate { (name, animation) ->
+                name to work.art1st.javarailways.bukkit.config.model.TrainActionConfig(name, animations = listOf(
+                    work.art1st.javarailways.bukkit.config.model.TrainActionAnimationConfig(animation)))
+            }
+            val behavior = CapturedCarBehavior(null, actions, listOf(mapOf("open" to animation(0.0), "close" to animation(0.1))))
+            val profile = profile().let { it.copy(cars = it.cars.map { car -> car.copy(behavior = behavior) }) }
+            work.art1st.javarailways.bukkit.render.model.ModelRuntimeTestSupport.bootstrap()
+            val factory = IsolatedTimetableSimulationFactory(IsolatedSimulationProfileResolver { _, _, _ -> profile },
+                9.80665, extensionPlugin = BasicPlugin.INSTANCE)
+            fun capture(lead: Long): IsolatedTimetableSimulationSnapshot {
+                val normalized = TimetableScriptNormalizer.normalize(
+                    work.art1st.javarailways.simpleato.persistence.SavedTimetableV1.capture(timetable(lead)), source.simpleAtoWorldData.destinations)
+                return factory.capture(source, prepareLineMeasurement(normalized, request).restore(),
+                    listOf(TimetableProfileSelection("duty", SimulationProfileType.TRAIN_TEMPLATE, "template")))
+            }
+            val result = IsolatedLineSimulator.simulate(factory, capture(2), request, 1)
+            assertEquals(400L, result.calls[1].departureTick!! - result.calls[1].arrivalTick!!)
+            val rejected = assertThrows(LineDwellInsufficientException::class.java) {
+                IsolatedLineSimulator.simulate(factory, capture(1), request, 1)
+            }
+            assertTrue(rejected.message!!.contains("b/call-b"), rejected.message)
+            val times = requireNotNull(Regex("目标发车 (\\d+) Tick，站内作业完成 (\\d+) Tick").find(rejected.message!!))
+            assertEquals(1L, times.groupValues[2].toLong() - times.groupValues[1].toLong(), rejected.message)
+        } finally {
+            source.physicsCoordinator.close()
+            (source.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = ["normal", "reverse", "blocked"])
+    fun `line measurement uses real continuous execution and its integer calls replay exactly`(scenario: String) {
+        val reverseOrigin = scenario == "reverse"
+        val source = createTestWorld()
+        registerWorldData(source)
+        try {
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(400.0, 1))
+            source.basicWorldData.railMetadata.put(rail.id, work.art1st.javarailways.basic.rail.RailInfrastructureMetadata(
+                speedLimits = work.art1st.javarailways.basic.rail.SpeedLimitMetadata(listOf(
+                    work.art1st.javarailways.basic.rail.SpeedLimitEntry(10.0, work.art1st.javarailways.basic.rail.SpeedLimitType.SUBGRADE)))))
+            listOf("a" to 30.0, "b" to 100.0, "c" to 200.0, "d" to 320.0).forEach { (id, arc) ->
+                OperationalDestinationService(source).register(OperationalDestination("$id@one", rail.id, arc,
+                    if (id == "a" && reverseOrigin) ViewDirection.BA else ViewDirection.AB,
+                    DestinationRole.StationBerthRole(StationId(id), berthId = "one",
+                        doorSide = DoorSide.NONE, usableLengthMeters = 30.0)))
+            }
+            val line = LineId("measurement")
+            source.simpleAtoWorldData.lines.put(Line(line, "Measurement", listOf("a", "b", "c", "d").map(::StationId),
+                listOf("d", "c", "b", "a").map(::StationId), maximumSpeedMetersPerSecond = 6.0), 0L)
+            val calls = listOf("a" to "ORIGIN", "b" to "PASS", "c" to "STOP", "d" to "TERMINAL").map { (id, kind) ->
+                LineMeasurementCall("call-$id", id, "$id@one", kind, emptyList())
+            }
+            val request = LineMeasurementRequest("fixture", 100, 60, 40, calls, 10_000)
+            fun program(id: String, role: String, departure: Long?) = work.art1st.javarailways.simpleato.timetable.StationStopPrograms(
+                id, "call-$id", work.art1st.javarailways.simpleato.timetable.StationStopRole.valueOf(role),
+                listOf(work.art1st.javarailways.simpleato.timetable.StationProgramAction.End),
+                listOf(work.art1st.javarailways.simpleato.timetable.StationProgramAction.End),
+                work.art1st.javarailways.simpleato.timetable.StationPreparationLead(kotlinx.serialization.json.buildJsonObject {
+                    put("value", kotlinx.serialization.json.JsonPrimitive(0))
+                }), departure, "$id@one", DoorSide.NONE, 0)
+            val steps = listOf(TimetableStep.Check("a@one"),
+                TimetableStep.At(0, TimetableAction.BeginStationStop(program("a", "ORIGIN", 100))),
+                TimetableStep.At(100, TimetableAction.DestinationOptions("c@one", stoppingOffsetMetersBefore = 0.1,
+                    stopPrograms = program("c", "STOP", 100))),
+                TimetableStep.At(100, TimetableAction.GoVia(listOf("b@one", "c@one"))),
+                TimetableStep.At(100, TimetableAction.DestinationOptions("d@one", stoppingOffsetMetersBefore = 2.0,
+                    stopPrograms = program("d", "TERMINAL", null))),
+                TimetableStep.At(100, TimetableAction.GoTo("d@one")))
+            val timetable = Timetable("line-test", services = listOf(TimetableService("duty", TrainSelector.TrainId("scheduled"), steps,
+                lineId = line, runSegments = listOf(work.art1st.javarailways.simpleato.timetable.TimetableRunSegment("run", line, 0, steps.size,
+                    calls = calls.map { work.art1st.javarailways.simpleato.timetable.TimetableRunCall(it.callId, it.stationId,
+                        it.destinationId, work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.valueOf(it.kind)) })))),
+                lineSpeedLimits = listOf(TimetableLineSpeedLimit(line, 6.0)))
+            val original = TimetableScriptNormalizer.normalize(
+                work.art1st.javarailways.simpleato.persistence.SavedTimetableV1.capture(timetable), source.simpleAtoWorldData.destinations)
+            val measured = prepareLineMeasurement(original, request, reverseOrigin)
+            work.art1st.javarailways.bukkit.render.model.ModelRuntimeTestSupport.bootstrap()
+            val feature = work.art1st.javarailways.bukkit.signal.SimpleSignalsSimulationFeatureFactory.fourLightFeature(
+                java.nio.file.Path.of("../SimpleSignals/examples/jr-four-light/signal-packs"), listOf(rail.id), listOf(400.0), 500.0)
+            val targetWorlds = linkedMapOf<String, CoreWorld>()
+            source.simpleAtoWorldData.timetableExtensions.registerCondition(object : TimetableConditionProvider,
+                TimetableConditionSimulationFactory {
+                override val typeId = "test:line-target"
+                override val version = 1
+                override val descriptor = TimetableExtensionDescriptor("Target", "Test fixture world capture")
+                override fun evaluate(parameters: kotlinx.serialization.json.JsonObject, context: TimetableRuntimeContext) = TimetableConditionResult.True
+                override fun prepareSimulation() = TimetableConditionSimulationPreparation { target ->
+                    val world = target as CoreWorld
+                    targetWorlds[world.runtimeId] = world
+                    object : TimetableConditionProvider {
+                        override val typeId = "test:line-target"
+                        override val version = 1
+                        override val descriptor = TimetableExtensionDescriptor("Target", "Test fixture world capture")
+                        override fun evaluate(parameters: kotlinx.serialization.json.JsonObject,
+                            context: TimetableRuntimeContext) = TimetableConditionResult.True
+                    }
+                }
+            })
+            var blockRoute = false
+            val heldMessages = arrayListOf<String>()
+            val releasedAt = arrayListOf<Long>()
+            val blockingFeature = object : work.art1st.javarailways.simpleato.api.simulation.PreparedSimulationFeature {
+                override val id = feature.id
+                override fun install(target: work.art1st.javarailways.simpleato.api.simulation.SimulationDomainTarget): AutoCloseable {
+                    val signalToken = feature.install(target)
+                    if (!blockRoute) return signalToken
+                    val world = targetWorlds.getValue(target.worldId.toString())
+                    val token = Any()
+                    val owner = InfrastructureOwner("test:line-blocker", 1)
+                    val registry = world.infrastructureCoordination
+                    val claim = work.art1st.javarailways.core.physics.infrastructure.InfrastructureClaimRequest(owner,
+                        work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureFootprint(listOf(
+                            work.art1st.javarailways.core.api.physics.infrastructure.RailIntervalResource(rail.id, 31.0, 80.0))))
+                    assertTrue(registry.acquireClaim(token, claim).successful)
+                    var held = true
+                    val clock = object : work.art1st.javarailways.core.api.util.tick.TickingObject,
+                        work.art1st.javarailways.core.api.util.tick.Synchronizable {
+                        override fun tick(deltaT: Double) = Unit
+                        override fun commit() {
+                            if (!held) return
+                            val tick = world.latestWorldFrame().physicsEpoch
+                            world.simpleAtoWorldData.dispatcher.statuses().forEach { status ->
+                                if (status.message?.contains("RESOURCE_CONFLICT") == true) {
+                                    heldMessages += status.message!!
+                                    assertFalse(status.routeGrantActive)
+                                    assertEquals(30.0, world.allTrains.single().publishedFrame.head.arcLengthInAbMeters)
+                                    assertTrue(registry.claimSnapshots().any { it.owner == owner })
+                                }
+                            }
+                            if (tick == 400L) world.physicsCoordinator.withStructuralMutation {
+                                assertTrue(registry.releaseClaim(token, owner).successful)
+                                held = false
+                                releasedAt += tick
+                            }
+                        }
+                    }
+                    world.tickManager.register(clock)
+                    return AutoCloseable {
+                        world.tickManager.unregister(clock)
+                        if (held) registry.releaseClaim(token, owner)
+                        signalToken.close()
+                    }
+                }
+            }
+            val factory = IsolatedTimetableSimulationFactory(IsolatedSimulationProfileResolver { _, _, _ -> profile() }, 9.80665,
+                requiredDomainFeatures = { setOf("simplesignals") }, prepareDomainFeatures = { listOf(blockingFeature) },
+                extensionPlugin = BasicPlugin.INSTANCE)
+            fun capture(saved: work.art1st.javarailways.simpleato.persistence.SavedTimetableV1) = factory.capture(source, saved.restore(),
+                listOf(TimetableProfileSelection("duty", SimulationProfileType.TRAIN_TEMPLATE, "template")))
+            val unblocked = if (scenario == "blocked") IsolatedLineSimulator.simulate(factory, capture(measured), request, 1) else null
+            blockRoute = scenario == "blocked"
+            val result = IsolatedLineSimulator.simulate(factory, capture(measured), request, 1)
+            if (unblocked != null) {
+                assertEquals(listOf(400L), releasedAt)
+                assertTrue(heldMessages.isNotEmpty(), "real admission must reject the held Core resource")
+                assertEquals(request.firstDepartureTick, result.calls.first().departureTick)
+                assertTrue(result.calls[1].arrivalTick!! >= unblocked.calls[1].arrivalTick!! + 300,
+                    "target-departure to arrival must include resource waiting")
+                assertEquals((result.calls[1].arrivalTick!! - request.firstDepartureTick) / 20.0,
+                    result.legs.first().travelSeconds)
+            }
+            assertEquals(calls.map { it.callId }, result.calls.map { it.callId })
+            assertEquals(60L, result.calls[2].departureTick!! - result.calls[2].arrivalTick!!)
+            assertNull(result.legs[0].stoppingErrorMeters)
+            assertTrue(kotlin.math.abs(result.legs[1].stoppingErrorMeters!!) <= 0.3,
+                "stopping error must be measured relative to the actual offset target")
+            assertTrue(kotlin.math.abs(result.legs.last().stoppingErrorMeters!!) <= 0.3,
+                "terminal 2m offset must be retained by actual execution")
+            assertTrue(result.legs.all { it.lengthMeters > 0 && it.peakSpeedMetersPerSecond > 0 })
+            val stopDeparture = result.calls[2].departureTick!!
+            val replaySteps = measured.services.single().steps.mapIndexed { index, step ->
+                step.copy(tick = if (index >= 4 + if (reverseOrigin) 1 else 0) stopDeparture else step.tick, action = step.action?.let { action ->
+                    action.copy(stopPrograms = action.stopPrograms?.let { p -> p.copy(
+                        minimumDwellTicks = if (p.role == "STOP") request.minimumDwellTicks else 0,
+                        plannedDepartureTick = if (p.role == "STOP") stopDeparture else p.plannedDepartureTick) })
+                })
+            }
+            val replay = measured.copy(services = listOf(measured.services.single().copy(steps = replaySteps)))
+            factory.create(capture(replay), 1).use { sim ->
+                val train = sim.world.allTrains.single()
+                val placed = train.publishedFrame
+                assertEquals(if (reverseOrigin) ViewDirection.BA else ViewDirection.AB, placed.head.facing)
+                assertEquals(30.0, placed.head.arcLengthInAbMeters)
+                assertFalse(placed.reversed, "unique placement must not pre-reverse or re-seed the train")
+                var sawReversal = false
+                val arrivals = arrayListOf<Long>()
+                val subscription = sim.world.simpleAtoWorldData.dispatcher.observeWaypointProgress(
+                    work.art1st.javarailways.simpleato.timetable.TimetableServiceRunId("line-test", "duty")) {
+                    if (it.pass) arrivals += it.timetableElapsedTicks
+                }
+                val readySubscription = sim.world.simpleAtoWorldData.dispatcher.observeStationProgramReady(
+                    work.art1st.javarailways.simpleato.timetable.TimetableServiceRunId("line-test", "duty")) {
+                    if (it.role != work.art1st.javarailways.simpleato.timetable.StationStopRole.ORIGIN) arrivals += it.arrivedTick
+                }
+                try {
+                    val completed = sim.simulate(IsolatedTimetableSimulationRequest(replay.restore(), 1200, 10_000),
+                        afterTick = { tick ->
+                            if (reverseOrigin && !sawReversal && train.publishedFrame.reversed) {
+                                sawReversal = true
+                                assertTrue(tick < request.firstDepartureTick)
+                                val reversed = train.publishedFrame
+                                assertEquals(ViewDirection.AB, reversed.head.facing)
+                                assertEquals(placed.tail.arcLengthInAbMeters, reversed.head.arcLengthInAbMeters)
+                                assertEquals(placed.head.arcLengthInAbMeters, reversed.tail.arcLengthInAbMeters)
+                                assertEquals(placed.occupiedIntervals.toSet(), reversed.occupiedIntervals.toSet())
+                            }
+                        })
+                    assertTrue(completed is IsolatedTimetableSimulationResult.Completed, completed.toString())
+                    assertEquals(result.calls.drop(1).map { it.arrivalTick }, arrivals)
+                    assertEquals(reverseOrigin, sawReversal)
+                    if (unblocked != null) assertEquals(listOf(400L, 400L), releasedAt)
+                } finally { readySubscription.close(); subscription.close() }
+            }
+            assertTrue(source.allTrains.isEmpty())
+            assertEquals(0L, original.services.single().steps[2].action!!.stopPrograms!!.minimumDwellTicks)
+            assertThrows(LineDwellInsufficientException::class.java) { request.copy(fixedDwellTicks = 39) }
+            val tooLongSteps = measured.services.single().steps.map { step ->
+                val action = step.action
+                if (action?.stopPrograms?.role != "STOP") step else step.copy(action = action.copy(
+                    stopPrograms = action.stopPrograms!!.copy(arrival = listOf(
+                        work.art1st.javarailways.simpleato.persistence.SavedStationProgramAction(
+                            work.art1st.javarailways.simpleato.persistence.SavedStationProgramActionType.WAIT_DURATION, durationTicks = 100),
+                        work.art1st.javarailways.simpleato.persistence.SavedStationProgramAction(
+                            work.art1st.javarailways.simpleato.persistence.SavedStationProgramActionType.END)))))
+            }
+            val tooLong = measured.copy(services = listOf(measured.services.single().copy(steps = tooLongSteps)))
+            val rejected = assertThrows(LineDwellInsufficientException::class.java) {
+                IsolatedLineSimulator.simulate(factory, capture(tooLong), request, 1)
+            }
+            assertTrue(rejected.message!!.contains("c/call-c"), rejected.message)
+            assertThrows(IllegalStateException::class.java) {
+                IsolatedLineSimulator.simulate(factory, capture(measured), request.copy(maximumDurationTicks = 1), 1)
+            }
+            if (scenario == "normal") {
+                // Known Mission continuation limitation: a larger intermediate offset must not
+                // produce successful timings when actual execution cannot reach the next call.
+                val offsetSteps = measured.services.single().steps.map { step ->
+                    if (step.action?.stopPrograms?.role != "STOP") step else step.copy(
+                        action = step.action!!.copy(stoppingOffsetMetersBefore = 2.0))
+                }
+                val offsetInput = measured.copy(services = listOf(measured.services.single().copy(steps = offsetSteps)))
+                val offsetFailure = assertThrows(IllegalStateException::class.java) {
+                    IsolatedLineSimulator.simulate(factory, capture(offsetInput), request, 1)
+                }
+                assertEquals("train simulation/line-test/duty is not facing the planned route from c@one", offsetFailure.message)
+            }
+            source.basicWorldData.railMetadata.put(rail.id, work.art1st.javarailways.basic.rail.RailInfrastructureMetadata(
+                speedLimits = work.art1st.javarailways.basic.rail.SpeedLimitMetadata(listOf(
+                    work.art1st.javarailways.basic.rail.SpeedLimitEntry(2.0, work.art1st.javarailways.basic.rail.SpeedLimitType.SUBGRADE)))))
+            val slow = IsolatedLineSimulator.simulate(factory, capture(measured), request, 1)
+            assertTrue(slow.calls.last().arrivalTick!! > result.calls.last().arrivalTick!! + 500,
+                "real local rail speed restriction must affect the measured line, not merely its line-wide cap")
+        } finally {
+            source.physicsCoordinator.close()
+            (source.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
+    fun `capture rejects missing profile assignment and propagates unknown profile without fallback`() {
+        val source = createTestWorld()
+        registerWorldData(source)
+        try {
+            val timetable = Timetable("missing-profile", services = listOf(TimetableService("duty",
+                TrainSelector.TrainId("scheduled"), listOf(TimetableStep.Check("origin")))))
+            val unknown = IllegalArgumentException("world train not found: absent")
+            var resolutions = 0
+            val factory = IsolatedTimetableSimulationFactory(IsolatedSimulationProfileResolver { _, type, id ->
+                resolutions++
+                assertEquals(SimulationProfileType.WORLD_TRAIN, type)
+                assertEquals("absent", id)
+                throw unknown
+            }, 9.80665, extensionPlugin = BasicPlugin.INSTANCE)
+            val missing = assertThrows(IllegalArgumentException::class.java) {
+                factory.capture(source, timetable, emptyList())
+            }
+            assertEquals("missing simulation profiles for services: duty", missing.message)
+            assertEquals(0, resolutions)
+            assertSame(unknown, assertThrows(IllegalArgumentException::class.java) {
+                factory.capture(source, timetable, listOf(TimetableProfileSelection("duty", SimulationProfileType.WORLD_TRAIN, "absent")))
+            })
+            assertEquals(1, resolutions)
+            assertTrue(source.allTrains.isEmpty())
+        } finally {
+            source.physicsCoordinator.close()
+            (source.tickManager as AutoCloseable).close()
+        }
+    }
+
     @BeforeEach
     fun initializePlugin() {
         if (BasicPlugin.instanceOrNull() == null) BasicPlugin.INSTANCE = BasicPlugin(101)

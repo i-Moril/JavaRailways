@@ -61,28 +61,6 @@ internal fun timetablePathSegments(uri: java.net.URI): List<String> =
 
 internal class HttpFailure(val status: Int, message: String, val code: String? = null) : RuntimeException(message)
 
-/** Resolve either the current authoring cap or an authoritative stored service cap. */
-internal fun resolveLineSimulationMaximumSpeed(
-    request: JsonObject,
-    resolveStored: (timetableId: String, serviceId: String, runId: String?) -> Double
-): Double? {
-    val timetableId = request["timetableId"]?.jsonPrimitive?.content
-    val serviceId = request["serviceId"]?.jsonPrimitive?.content
-    if ((timetableId == null) != (serviceId == null)) {
-        throw HttpFailure(400, "timetableId and serviceId must be provided together")
-    }
-    val runId = request["runId"]?.jsonPrimitive?.content
-    if (runId != null && (runId.isBlank() || timetableId == null)) throw HttpFailure(400, "runId requires timetableId and serviceId")
-    val inlineMaximum = parseLineMaximumSpeed(request["maximumSpeedMetersPerSecond"])
-    if (timetableId != null && serviceId != null) {
-        if (inlineMaximum != null) {
-            throw HttpFailure(400, "maximumSpeedMetersPerSecond cannot be combined with timetableId and serviceId")
-        }
-        return resolveStored(timetableId, serviceId, runId)
-    }
-    return inlineMaximum
-}
-
 internal fun parseLineMaximumSpeed(element: JsonElement?): Double? {
     if (element == null || element == JsonNull) return null
     val value = (element as? JsonPrimitive)?.takeUnless { it.isString }?.doubleOrNull
@@ -124,10 +102,7 @@ private data class TimedTimetableSimulation(
 
 private data class LineSimulationSnapshot(
     val revision: Long,
-    val profile: SimulationControlProfile,
-    val gravityMetersPerSecondSquared: Double,
-    val legs: List<SimulationLeg>,
-    val lineMaximumSpeedMetersPerSecond: Double?
+    val simulation: IsolatedTimetableSimulationSnapshot
 )
 
 class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
@@ -781,32 +756,27 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
 
         private fun simulateLineJson(worldName: String, lineId: String, body: String): String {
             val request = json.parseToJsonElement(body).jsonObject
+            val measurement = try { LineMeasurementRequest.parse(request) }
+                catch (failure: LineDwellInsufficientException) {
+                    throw HttpFailure(422, failure.message.orEmpty(), "LINE_DWELL_INSUFFICIENT")
+                }
+            val compiledSource = plugin.timetableScriptSandbox.compileSource(measurement.measurementSource, "line-simulation")
+            val factory = IsolatedTimetableSimulationFactory(
+                SimulationControlProfileCatalog(plugin), plugin.physicsConfig.track.gravityMetersPerSecondSquared,
+                plugin.javaRailwaysConfig.atoSafetyDistanceMeters,
+                speedSafety = plugin.physicsConfig.overspeed.let {
+                    work.art1st.javarailways.basic.safety.SpeedSafetyMonitor.Config(it.derailEnabled, it.toleranceKmH / 3.6, it.graceTicks)
+                }, requiredDomainFeatures = plugin::requiredSimulationDomainFeatures,
+                prepareDomainFeatures = plugin::prepareSimulationDomainFeatures
+            )
             val executionTimeoutMillis = simulationExecutionTimeoutMillis(request)
             val snapshot = await {
                 withWorld(worldName) { _, world ->
                     val data = world.basicWorldData
                     val line = world.simpleAtoWorldData.lines[LineId(lineId)]
                         ?: throw HttpFailure(404, "line not found: $lineId")
-                    val requestedMaximumSpeed = resolveLineSimulationMaximumSpeed(request) { requestedTimetableId, serviceId, runId ->
-                        val timetable = world.simpleAtoWorldData.timetables[requestedTimetableId]
-                            ?: throw HttpFailure(404, "timetable not found: $requestedTimetableId")
-                        val service = timetable.services.firstOrNull { it.id == serviceId }
-                            ?: throw HttpFailure(404, "service not found: $requestedTimetableId/$serviceId")
-                        val selectedLineId = if (service.runSegments.isEmpty()) {
-                            if (runId != null) throw HttpFailure(400, "service has no run segments")
-                            service.lineId
-                        } else {
-                            if (runId == null) throw HttpFailure(400, "runId is required for a segmented service")
-                            service.runSegments.singleOrNull { it.runId == runId }?.lineId
-                                ?: throw HttpFailure(404, "run segment not found: $requestedTimetableId/$serviceId/$runId")
-                        }
-                        if (selectedLineId != line.id) throw HttpFailure(400, "run infrastructure line does not match requested line: $lineId")
-                        timetable.lineSpeedLimits.singleOrNull { it.lineId == selectedLineId }?.maximumSpeedMetersPerSecond
-                            ?: throw HttpFailure(422, "run has no configured line maximum speed: $requestedTimetableId/$serviceId/$runId")
-                    }
-                    val lineMaximumSpeed = if (request["timetableId"] == null) {
-                        resolveInfrastructureLineMaximumSpeed(line.maximumSpeedMetersPerSecond, requestedMaximumSpeed)
-                    } else requestedMaximumSpeed
+                    val lineMaximumSpeed = resolveInfrastructureLineMaximumSpeed(line.maximumSpeedMetersPerSecond,
+                        parseLineMaximumSpeed(request["maximumSpeedMetersPerSecond"]))
                     val direction = request["direction"]?.jsonPrimitive?.content?.let {
                         runCatching { LineDirection.valueOf(it.uppercase()) }.getOrElse { throw HttpFailure(400, "direction must be UP or DOWN") }
                     } ?: LineDirection.UP
@@ -891,7 +861,12 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                         throw HttpFailure(400, "stopStationIds must belong to the selected route section")
                     }
                     val stopStationIds = requestedStopStationIds ?: selectedStationIds.drop(1).toSet()
-                    val selectedLegs = compilation.legs
+                    require(measurement.calls.map { it.stationId } == selectedStationIds &&
+                        measurement.calls.map { it.destinationId } == selectedDestinationIds &&
+                        measurement.calls.map { it.viaIds } == viaIds) { "measurement calls do not match selected route" }
+                    require(measurement.calls.filter { it.kind == "STOP" || it.kind == "TERMINAL" }.map { it.stationId }.toSet() == stopStationIds) {
+                        "measurement STOP/PASS calls do not match requested stops"
+                    }
                     val profileType = request["profileType"]?.jsonPrimitive?.content?.let { value ->
                         runCatching { SimulationProfileType.valueOf(value) }.getOrElse {
                             throw HttpFailure(400, "unknown simulation profileType: $value")
@@ -899,40 +874,26 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     } ?: throw HttpFailure(400, "profileType is required")
                     val profileId = request["profileId"]?.jsonPrimitive?.content
                         ?: throw HttpFailure(400, "profileId is required")
-                    val profile = runCatching {
-                        SimulationControlProfileCatalog(plugin).resolve(world, profileType, profileId)
-                    }.getOrElse { throw HttpFailure(422, it.message ?: "simulation profile is unavailable") }
+                    val initialDirection = resolveProgramSimulationWayPoint(world, measurement.calls.first().destinationId).direction
+                    val selectedDirection = compilation.legs.first().route.segments.first().railViewRef.direction
+                    val normalized = TimetableScriptNormalizer.normalize(compiledSource, world.simpleAtoWorldData.destinations)
+                    val prepared = prepareLineMeasurement(normalized, measurement, selectedDirection != initialDirection)
+                    require(prepared.services.single().runSegments.single().lineId == lineId) { "measurement source line does not match requested line" }
+                    require(prepared.lineSpeedLimits.single { it.lineId == lineId }.maximumSpeedMetersPerSecond == lineMaximumSpeed) {
+                        "measurement source maximum speed differs from selected line"
+                    }
+                    val timetable = prepared.restore()
                     LineSimulationSnapshot(
                         revision = world.simpleAtoWorldData.lines.snapshot().revision,
-                        profile = profile,
-                        gravityMetersPerSecondSquared = plugin.physicsConfig.track.gravityMetersPerSecondSquared,
-                        legs = selectedLegs.mapIndexed { index, leg ->
-                            val weightedGrade = leg.route.segments.sumOf { segment ->
-                                val rail = world.getRail(segment.railViewRef.railId)
-                                    ?: throw HttpFailure(409, "route rail disappeared: ${segment.railViewRef.railId}")
-                                val view = rail.getView(segment.railViewRef.direction)
-                                val midpoint = (segment.startArcLength + segment.endArcLength) * 0.5
-                                view.curve.getPointAt(midpoint).tangent.y() * segment.length
-                            } / leg.route.totalLength
-                            SimulationLeg(
-                                leg.fromStationId,
-                                leg.toStationId,
-                                leg.route.totalLength,
-                                weightedGrade,
-                                stopAtEnd = leg.toStationId in stopStationIds || index == selectedLegs.lastIndex
-                            )
-                        },
-                        lineMaximumSpeedMetersPerSecond = lineMaximumSpeed
+                        simulation = factory.capture(world as work.art1st.javarailways.core.physics.CoreWorld, timetable,
+                            listOf(TimetableProfileSelection(timetable.services.single().id, profileType, profileId)))
                     )
                 }
             }
             val task = try {
                 simulationExecutor.submit<IsolatedLineSimulationResult> {
                     IsolatedLineSimulator.simulate(
-                        snapshot.legs,
-                        snapshot.profile,
-                        snapshot.gravityMetersPerSecondSquared,
-                        snapshot.lineMaximumSpeedMetersPerSecond
+                        factory, snapshot.simulation, measurement, plugin.physicsConfig.workerThreads.coerceIn(1, 4)
                     )
                 }
             } catch (_: RejectedExecutionException) {
@@ -942,8 +903,9 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 task.get(executionTimeoutMillis, TimeUnit.MILLISECONDS)
             } catch (failure: ExecutionException) {
                 val cause = failure.cause ?: failure
+                if (cause is LineDwellInsufficientException) throw HttpFailure(422, cause.message.orEmpty(), "LINE_DWELL_INSUFFICIENT")
                 if (cause is IllegalArgumentException) throw HttpFailure(400, cause.message ?: "invalid simulation profile")
-                if (cause is SimulationComputationLimitException) throw HttpFailure(422, cause.message ?: "simulation limit reached")
+                if (cause is IllegalStateException) throw HttpFailure(422, cause.message ?: "line simulation failed")
                 throw cause
             } catch (_: TimeoutException) {
                 task.cancel(true)
@@ -962,13 +924,18 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             return json.encodeToString(buildJsonObject {
                 put("lineRevision", currentRevision)
                 put("totalTravelSeconds", result.totalTravelSeconds)
+                put("calls", JsonArray(result.calls.map { call -> buildJsonObject {
+                    put("callId", call.callId); put("stationId", call.stationId); put("kind", call.kind)
+                    call.arrivalTick?.let { put("arrivalTick", it) }
+                    call.departureTick?.let { put("departureTick", it) }
+                } }))
                 put("legs", JsonArray(result.legs.map { leg -> buildJsonObject {
                     put("fromStationId", leg.fromStationId)
                     put("toStationId", leg.toStationId)
                     put("lengthMeters", leg.lengthMeters)
                     put("travelSeconds", leg.travelSeconds)
                     put("peakSpeedKmh", leg.peakSpeedMetersPerSecond * 3.6)
-                    put("stoppingErrorMeters", leg.stoppingErrorMeters)
+                    leg.stoppingErrorMeters?.let { put("stoppingErrorMeters", it) }
                 } }))
             })
         }

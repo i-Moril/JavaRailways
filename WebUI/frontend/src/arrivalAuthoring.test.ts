@@ -59,7 +59,7 @@ it('shares task declarations between arrival and preparation but rejects duplica
  expect(validateStopProgram(shared,[],24000)).toContain('Duplicate task: announcement');
 });
 
-it('gates following duty actions with terminal departure and effective arrival dwell',()=>{
+it('preserves explicit terminal departure without adding minimum dwell to effective arrival',()=>{
  const value=document();value.runs[0].calls[1].departureTick=300;
  value.runs.push({id:'next',type:'PASSENGER',lineId:'L',diagramLineId:'L',lineDirection:'DOWN',calls:[{id:'next-b',stationId:'b',targetId:'b',status:'ORIGIN',departureTick:250},{id:'next-a',stationId:'a',targetId:'a',status:'TERMINAL',arrivalTick:500}]});
  value.duties[0].elements.push({id:'next-run',type:'RUN',runId:'next'});
@@ -67,5 +67,5 @@ it('gates following duty actions with terminal departure and effective arrival d
  value.runs[1].calls[0].departureTick=300;
  expect(generateTimetableSource(value,lines).issues).toEqual([]);
  value.minimumDwellTicks=20;value.arrivalOverrides=[{runId:'r',callId:'b',tick:290}];
- expect(generateTimetableSource(value,lines).issues.some((issue)=>issue.message.includes('previous'))).toBe(true);
+ expect(generateTimetableSource(value,lines).issues).toEqual([]);
 });

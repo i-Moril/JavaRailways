@@ -10,7 +10,7 @@ import work.art1st.javarailways.simpleato.timetable.TimetableAction
 import work.art1st.javarailways.simpleato.timetable.TimetableStep
 import work.art1st.javarailways.simpleato.timetable.TrainSelector
 
-/** Recorded HTTP browser capture exercising the runtime DSL; current editor shape is tested in WebUI. */
+/** Current frontend-generator fixture exercising the real Graal and snapshot/domain boundaries. */
 class BrowserGeneratedStationProgramTest {
     private fun resource(name: String): String = checkNotNull(javaClass.getResource("/timetable/$name")).readText()
 
@@ -53,7 +53,14 @@ class BrowserGeneratedStationProgramTest {
             assertEquals(listOf(StationProgramAction.OpenDoors, StationProgramAction.End), program.arrival)
             assertEquals(listOf(StationProgramAction.CloseDoors, StationProgramAction.End), program.departurePreparation)
         }
-        assertEquals(20L, incoming.first().minimumDwellTicks)
+        assertEquals(20L, document.getValue("minimumDwellTicks").jsonPrimitive.long)
+        assertEquals(listOf(0L, 20L, 0L), programs.map { it.minimumDwellTicks },
+            "global minimum applies only to the intermediate STOP, including the nested runtime program")
+        val options = service.steps.filterIsInstance<TimetableStep.At>().mapNotNull {
+            it.action as? TimetableAction.DestinationOptions
+        }
+        assertEquals(listOf(20L, 0L), options.map { it.minimumDwellTicks },
+            "explicit endpoint zero must not revive a station default through nullable fallback")
 
         val segment = service.runSegments.single()
         assertEquals("R1", segment.runId)

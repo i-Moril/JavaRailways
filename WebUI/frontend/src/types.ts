@@ -66,13 +66,21 @@ export interface LineCollection { revision:number; lines:LineV1[] }
 export interface SavedLineResult { revision:number; line:LineV1 }
 export interface SimulationProfile {
  profileType:'WORLD_TRAIN'|'TRAIN_TEMPLATE'; profileId:string; direction:LineDirection;
- timetableId?:string; serviceId?:string; runId?:string;
  originStationId?:string; terminalStationId?:string; stopStationIds?:string[]; destinationIds?:string[]; viaIds?:string[][];
  originDepartureMode?:'AUTO'|'CONTINUE'|'REVERSE';
  maximumSpeedMetersPerSecond?:number|null;
 }
-export interface SimulatedLineLeg { fromStationId:string; toStationId:string; lengthMeters:number; travelSeconds:number; peakSpeedKmh:number; stoppingErrorMeters:number }
-export interface LineSimulationResult { lineRevision:number; totalTravelSeconds:number; legs:SimulatedLineLeg[] }
+export interface SimulatedLineLeg { fromStationId:string; toStationId:string; lengthMeters:number; travelSeconds:number; peakSpeedKmh:number; stoppingErrorMeters?:number }
+export interface LineSimulationCall {
+ callId:string; stationId:string; destinationId:string; kind:'ORIGIN'|'STOP'|'PASS'|'TERMINAL'; viaIds:string[];
+ stoppingOffsetMetersBefore?:number|null;
+}
+export interface LineSimulationRequest extends SimulationProfile {
+ measurementSource:string; firstDepartureTick:number; fixedDwellTicks:number; minimumDwellTicks:number;
+ calls:LineSimulationCall[];
+}
+export interface LineSimulationCallTiming { callId:string; kind:LineSimulationCall['kind']; arrivalTick?:number|null; departureTick?:number|null }
+export interface LineSimulationResult { lineRevision:number; totalTravelSeconds:number; legs:SimulatedLineLeg[]; calls:LineSimulationCallTiming[] }
 export interface TimetableSimulationProfileAssignment { serviceId:string; profileType:'WORLD_TRAIN'|'TRAIN_TEMPLATE'; profileId:string }
 export interface TimetableSimulationRunResult {
   timetableId:string; serviceId:string; trainId:string; state:string; timetableElapsedTicks:number;

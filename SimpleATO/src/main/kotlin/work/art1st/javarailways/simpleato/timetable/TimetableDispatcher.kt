@@ -186,7 +186,18 @@ data class TimetableWaypointProgress(
     val cycleIndex: Long,
     val waypointId: String,
     val pass: Boolean,
-    val timetableElapsedTicks: Long
+    val timetableElapsedTicks: Long,
+    val stepIndex: Int,
+    val legIndex: Int
+)
+
+data class TimetableStationProgramReady(
+    val runId: TimetableServiceRunId,
+    val cycleIndex: Long,
+    val callId: String,
+    val role: StationStopRole,
+    val arrivedTick: Long,
+    val readyTick: Long
 )
 
 fun interface TimetableWaypointProgressListener {
@@ -333,6 +344,8 @@ class TimetableDispatcher(
     private val timetableClocks = LinkedHashMap<String, TimetableClock>()
     private val waypointProgressListeners =
         LinkedHashMap<WaypointProgressKey, MutableList<TimetableWaypointProgressListener>>()
+    private val stationProgramReadyListeners =
+        LinkedHashMap<WaypointProgressKey, MutableList<(TimetableStationProgramReady) -> Unit>>()
     private val recoveryRequiredRuns = ArrayList<SavedActiveRunCheckpointV1>()
     // Definitions remain diagnostic only: a historical source may already have split/coupled.
     private val recoveryRequiredDefinitions = LinkedHashMap<String, Timetable>()
@@ -515,6 +528,29 @@ class TimetableDispatcher(
                 if (listeners.isEmpty()) waypointProgressListeners.remove(key)
             }
         }
+    }
+
+    /** Task/door readiness before scheduled departure or onward resource gates; no production history. */
+    @MainThread
+    fun observeStationProgramReady(id: TimetableServiceRunId, cycleIndex: Long = 0L,
+        listener: (TimetableStationProgramReady) -> Unit): AutoCloseable {
+        val key = WaypointProgressKey(id, cycleIndex)
+        stationProgramReadyListeners.getOrPut(key, ::ArrayList).add(listener)
+        return AutoCloseable {
+            stationProgramReadyListeners[key]?.let { listeners ->
+                listeners.remove(listener)
+                if (listeners.isEmpty()) stationProgramReadyListeners.remove(key)
+            }
+        }
+    }
+
+    /** Isolated measurement calls this on the world owner after the current tick's effect commits. */
+    @MainThread
+    fun recordStationProgramCompletions(id: TimetableServiceRunId, cycleIndex: Long = 0L) {
+        if (stationProgramReadyListeners[WaypointProgressKey(id, cycleIndex)].isNullOrEmpty()) return
+        val run = findRun(id, cycleIndex) ?: return
+        ensureOwner(run.train.world)
+        run.stopExecution?.runtime?.recordCommittedTicketCompletions(dispatcherTick)
     }
 
     /** Establish one shared cycle-zero epoch before an administrator starts timetable services. */
@@ -1346,6 +1382,7 @@ class TimetableDispatcher(
         if (coordinator.isStalled) {
             runs.values.filter { it.state.isTerminal() }.forEach {
                 waypointProgressListeners.remove(it.waypointProgressKey())
+                stationProgramReadyListeners.remove(it.waypointProgressKey())
             }
             return
         }
@@ -1375,6 +1412,7 @@ class TimetableDispatcher(
                 progressSharedAdmissionOnly(world, run, routeAdmissionContext)
                 tryEndSharedAdmission(world, run)
                 waypointProgressListeners.remove(run.waypointProgressKey())
+                stationProgramReadyListeners.remove(run.waypointProgressKey())
                 return@forEach
             }
             val manualRouted = run.controlMode == TimetableControlMode.MANUAL_ROUTED
@@ -1564,7 +1602,8 @@ class TimetableDispatcher(
                         ?: OperationalDestinationIds.stationBerth(stationCall.resolved.berthRef.stationId, stationCall.resolved.berthRef.berthId)
                     run.physicalOriginPending = false
                     beginStopProgram(world, run, stationCall.stopPrograms!!, stationCall.resolved.doorSide,
-                        stationCall.resolved.call.dwellPlan.minimumDwellTicks, StopProgramLocation.STATION)
+                        stationCall.stopPrograms!!.minimumDwellTicks ?: 0L, StopProgramLocation.STATION,
+                        stationCall.stateEnteredDispatcherTick)
                 } else if (stationCall.resolved.doorSide == DoorSide.NONE) {
                     enterStationDwelling(run, stationCall)
                 } else {
@@ -2119,6 +2158,7 @@ class TimetableDispatcher(
         run.ato.removeSpeedLimit(timetableLineSpeedKey(run.id))
         if (run.train.controller === run.ato) run.train.setController(null)
         waypointProgressListeners.remove(run.waypointProgressKey())
+        stationProgramReadyListeners.remove(run.waypointProgressKey())
         runs.entries.removeIf { (_, candidate) -> candidate === run }
         displayRuntime.retainCycles(runs.values.map { it.id.timetableId to it.cycleIndex }.toSet() +
             fixedFormations.values.map { it.source.id.timetableId to it.source.cycleIndex })
@@ -2492,7 +2532,7 @@ class TimetableDispatcher(
         if (stop.options.stopPrograms != null) {
             run.currentWayPointId = stop.options.destinationId
             run.physicalOriginPending = false
-            beginStopProgram(world, run, stop.options.stopPrograms, side, stop.options.minimumDwellTicks ?: role?.defaultDwellTicks ?: 0L, StopProgramLocation.DESTINATION)
+            beginStopProgram(world, run, stop.options.stopPrograms, side, stop.options.minimumDwellTicks ?: 0L, StopProgramLocation.DESTINATION)
         } else if (side == DoorSide.NONE) {
             enterDestinationDwelling(run, stop)
         } else {
@@ -4052,7 +4092,9 @@ class TimetableDispatcher(
                 cycleIndex = run.cycleIndex,
                 waypointId = leg.point.target.id,
                 pass = leg.point is AtoMissionPoint.Via,
-                timetableElapsedTicks = timetableElapsedTicks(run)
+                timetableElapsedTicks = timetableElapsedTicks(run),
+                stepIndex = runtime.address.topLevelIndex,
+                legIndex = index
             )
             listeners.forEach { listener -> runCatching { listener.onReached(event) }.onFailure { failure ->
                 LOGGER.log(java.util.logging.Level.WARNING,
@@ -4075,7 +4117,8 @@ class TimetableDispatcher(
 
     private fun beginStopProgram(
         world: World, run: ActiveRun, programs: StationStopPrograms, side: DoorSide,
-        minimumDwellTicks: Long, location: StopProgramLocation
+        minimumDwellTicks: Long, location: StopProgramLocation,
+        arrivedAtDispatcherTick: Long = dispatcherTick
     ) {
         check(run.stopExecution == null) { "station invocation already active" }
         val effectiveSide = programs.doorSide ?: side
@@ -4084,9 +4127,10 @@ class TimetableDispatcher(
             return
         }
         val invocationId = "${run.instanceId}/stop/${run.stationInvocationSequence++}/${programs.callId}"
-        val execution = DispatcherStopExecution(programs, effectiveSide, location, invocationId)
+        val execution = DispatcherStopExecution(programs, effectiveSide, location, invocationId,
+            arrivedAtDispatcherTick - run.cycleStartDispatcherTick)
         run.stopExecution = execution
-        execution.runtime = StationStopProgramRuntime(programs, dispatcherTick, programs.minimumDwellTicks ?: minimumDwellTicks,
+        execution.runtime = StationStopProgramRuntime(programs, arrivedAtDispatcherTick, programs.minimumDwellTicks ?: minimumDwellTicks,
             effectiveSide == DoorSide.NONE, operationTimeoutTicks, StationProgramActionHost { action, taskId, instruction ->
                 startStationProgramAction(world, run, execution, action, taskId, instruction)
             }, { operationGateway.estimateDoorCloseDurationTicks(run.train.id, effectiveSide) })
@@ -4114,6 +4158,19 @@ class TimetableDispatcher(
         if (execution.runtime.allTasksComplete && execution.programs.role != StationStopRole.TERMINAL && !execution.runtime.doorsSecured) {
             stallRun(world, run, "StationProgramFailure", "station entries ended without confirmed closed doors")
             return
+        }
+        if (!execution.readyReported && execution.runtime.allTasksComplete &&
+            (execution.programs.role == StationStopRole.TERMINAL || execution.runtime.doorsSecured)) {
+            execution.readyReported = true
+            val listeners = stationProgramReadyListeners[run.waypointProgressKey()]?.toList().orEmpty()
+            if (listeners.isNotEmpty()) {
+                val event = TimetableStationProgramReady(run.id, run.cycleIndex, execution.programs.callId,
+                    execution.programs.role, execution.arrivedTick,
+                    checkNotNull(execution.runtime.allTasksCompletedAtDispatcherTick) - run.cycleStartDispatcherTick)
+                listeners.forEach { listener -> runCatching { listener(event) }.onFailure { failure ->
+                    LOGGER.log(java.util.logging.Level.WARNING, "Station program readiness listener failed run=${run.id}", failure)
+                } }
+            }
         }
         if (!execution.runtime.finalGateSatisfied(timetableElapsedTicks(run), dispatcherTick)) return
         run.stationDoorsSecured = execution.runtime.doorsSecured
@@ -7019,12 +7076,14 @@ class TimetableDispatcher(
         val programs: StationStopPrograms,
         val doorSide: DoorSide,
         val location: StopProgramLocation,
-        val invocationId: String
+        val invocationId: String,
+        val arrivedTick: Long
     ) {
         lateinit var runtime: StationStopProgramRuntime
         var reverseCompleted = false
         var reversed = false
         var operatingDoorSide = doorSide
+        var readyReported = false
     }
 
     private data class DispatcherDestinationStop(

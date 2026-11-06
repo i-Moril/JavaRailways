@@ -14,6 +14,116 @@ class StationStopProgramRuntimeTest {
         arrival: List<StationProgramAction> = listOf(end), preparation: List<StationProgramAction> = listOf(end),
         lead: Long = 0, departure: Long? = 100) = StationStopPrograms("central","call",role,arrival,preparation,StationPreparationLead.constant(lead),departure)
 
+    @Test fun `post commit evidence distinguishes exact deadline from one tick late without opening gates`() {
+        for (completion in listOf(2400L, 2401L)) {
+            val ticket = Ticket()
+            val runtime = StationStopProgramRuntime(definition(preparation = listOf(StationProgramAction.CloseDoors, end),
+                lead = 38, departure = 400), 2000, 400, false, 1000, StationProgramActionHost { _, _, _ -> ticket })
+            runtime.tick(362, 2362)
+            runtime.tick(completion - 2000, completion)
+            ticket.result = StationProgramTicketResult.Succeeded // Actual effect commit, after Dispatcher.
+            runtime.recordCommittedTicketCompletions(completion)
+            runtime.recordCommittedTicketCompletions(completion + 1) // First observation must win.
+            assertFalse(runtime.allTasksComplete)
+            assertFalse(runtime.doorsSecured)
+            assertFalse(runtime.finalGateSatisfied(completion - 2000, completion))
+            runtime.tick(completion + 1 - 2000, completion + 1)
+            assertEquals(completion, runtime.allTasksCompletedAtDispatcherTick)
+            assertEquals(completion == 2400L, runtime.allTasksCompletedAtDispatcherTick!! <= 2400)
+            assertTrue(runtime.finalGateSatisfied(completion + 1 - 2000, completion + 1))
+        }
+    }
+
+    @Test fun `completion observation does not backdate follow on wait or synchronous work`() {
+        val display = StationProgramAction.Extension(work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionCall("test:display"))
+        for ((following, expected) in listOf(
+            StationProgramAction.WaitDuration(5) to 406L,
+            StationProgramAction.WaitUntil(390) to 401L,
+            StationProgramAction.Async("following", listOf(display)) to 401L,
+            display to 401L)) {
+            val ticket = Ticket()
+            val starts = mutableListOf<StationProgramAction>()
+            val runtime = StationStopProgramRuntime(definition(preparation = listOf(StationProgramAction.CloseDoors, following, end),
+                lead = 38, departure = 400), 0, 400, false, 1000, StationProgramActionHost { action, _, _ ->
+                starts += action
+                if (action == StationProgramAction.CloseDoors) ticket else null
+            })
+            runtime.tick(362, 362)
+            runtime.tick(400, 400)
+            ticket.result = StationProgramTicketResult.Succeeded
+            runtime.recordCommittedTicketCompletions(400)
+            assertEquals(listOf(StationProgramAction.CloseDoors), starts)
+            for (tick in 401..expected) runtime.tick(tick, tick)
+            assertEquals(expected, runtime.allTasksCompletedAtDispatcherTick)
+        }
+    }
+
+    @Test fun `pure joins retain real child completion but later children remain required`() {
+        val child = Ticket()
+        val closed = Ticket()
+        val runtime = StationStopProgramRuntime(definition(arrival = listOf(StationProgramAction.Async("child", listOf(
+            StationProgramAction.Extension(work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionCall("test:child")))), end),
+            preparation = listOf(StationProgramAction.CloseDoors, StationProgramAction.Await("child"), end),
+            lead = 38, departure = 400), 0, 400, false, 1000,
+            StationProgramActionHost { _, task, _ -> if (task == "child") child else closed })
+        runtime.tick(0, 0); runtime.tick(362, 362); runtime.tick(400, 400)
+        closed.result = StationProgramTicketResult.Succeeded
+        runtime.recordCommittedTicketCompletions(400)
+        runtime.tick(401, 401)
+        assertFalse(runtime.allTasksComplete)
+        child.result = StationProgramTicketResult.Succeeded
+        runtime.recordCommittedTicketCompletions(402)
+        runtime.tick(403, 403); runtime.tick(404, 404)
+        assertEquals(402L, runtime.allTasksCompletedAtDispatcherTick)
+    }
+
+    @Test fun `pure join cannot replace the parents later completed wait with an earlier child tick`() {
+        val child = Ticket()
+        val runtime = StationStopProgramRuntime(definition(StationStopRole.TERMINAL, arrival = listOf(
+            StationProgramAction.Async("child", listOf(StationProgramAction.Extension(
+                work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionCall("test:child")))),
+            StationProgramAction.WaitDuration(405), StationProgramAction.Await("child"), end), departure = null),
+            0, 0, true, 1000, StationProgramActionHost { _, _, _ -> child })
+        runtime.tick(0, 0); runtime.tick(400, 400)
+        child.result = StationProgramTicketResult.Succeeded
+        runtime.recordCommittedTicketCompletions(400)
+        runtime.tick(401, 401)
+        assertFalse(runtime.allTasksComplete)
+        runtime.tick(405, 405)
+        assertEquals(405L, runtime.allTasksCompletedAtDispatcherTick)
+    }
+
+    @Test fun `sampling failures or absent sampling never invents a completion tick`() {
+        for (result in listOf(StationProgramTicketResult.Succeeded, StationProgramTicketResult.Failed("broken"),
+            StationProgramTicketResult.Cancelled("cancelled"))) {
+            val ticket = Ticket()
+            val runtime = StationStopProgramRuntime(definition(preparation = listOf(StationProgramAction.CloseDoors, end),
+                lead = 38, departure = 400), 0, 400, false, 1000, StationProgramActionHost { _, _, _ -> ticket })
+            runtime.tick(362, 362)
+            runtime.recordCommittedTicketCompletions(400) // Still pending.
+            ticket.result = result
+            runtime.tick(401, 401)
+            if (result == StationProgramTicketResult.Succeeded) assertEquals(401L, runtime.allTasksCompletedAtDispatcherTick)
+            else { assertNotNull(runtime.failure); assertNull(runtime.allTasksCompletedAtDispatcherTick) }
+        }
+    }
+
+    @Test fun `recorded success cannot override subsequent invalid terminal state`() {
+        for (failure in listOf(StationProgramTicketResult.Failed("broken"), StationProgramTicketResult.Cancelled("cancelled"))) {
+            val ticket = Ticket()
+            val runtime = StationStopProgramRuntime(definition(preparation = listOf(StationProgramAction.CloseDoors, end),
+                lead = 38, departure = 400), 0, 400, false, 1000, StationProgramActionHost { _, _, _ -> ticket })
+            runtime.tick(362, 362)
+            ticket.result = StationProgramTicketResult.Succeeded
+            runtime.recordCommittedTicketCompletions(400)
+            ticket.result = failure // Broken adapter must still fail, never use stale success as permission.
+            runtime.tick(401, 401)
+            assertNotNull(runtime.failure)
+            assertNull(runtime.allTasksCompletedAtDispatcherTick)
+            assertFalse(runtime.doorsSecured)
+        }
+    }
+
     @Test fun `preparation waits arrival main but overlaps descendants and final joins every descendant`() {
         val starts = mutableListOf<String>()
         val child = Ticket()
@@ -38,7 +148,7 @@ class StationStopProgramRuntimeTest {
         for(role in listOf(StationStopRole.ORIGIN,StationStopRole.TERMINAL)) {
             val starts=mutableListOf<StationProgramAction>()
             val runtime=StationStopProgramRuntime(definition(role,listOf(StationProgramAction.OpenDoors,end),
-                listOf(StationProgramAction.CloseDoors,end),lead=20),0,0,false,1000,
+                listOf(StationProgramAction.CloseDoors,end),lead=20),0,10000,false,1000,
                 StationProgramActionHost { action,_,_ -> starts+=action;null })
             runtime.tick(0,0)
             runtime.tick(80,80)
@@ -48,7 +158,7 @@ class StationStopProgramRuntimeTest {
         }
     }
 
-    @Test fun `default blocking door tickets and minimum dwell anchor use actual successful opening`() {
+    @Test fun `opening completion does not restart the actual arrival minimum`() {
         val opened=Ticket()
         val closed=Ticket()
         val runtime=StationStopProgramRuntime(definition(arrival=listOf(StationProgramAction.OpenDoors,end),
@@ -62,8 +172,71 @@ class StationStopProgramRuntimeTest {
         closed.result=StationProgramTicketResult.Succeeded
         runtime.tick(82,82)
         assertTrue(runtime.allTasksComplete)
-        assertFalse(runtime.finalGateSatisfied(100,100))
-        assertTrue(runtime.finalGateSatisfied(110,110))
+        assertTrue(runtime.finalGateSatisfied(100,100))
+    }
+
+    @Test fun `late arrival includes open and close within one minimum across different clock epochs`() {
+        var now = 1001L // Real arrival was 1000; the program was created the following tick.
+        val starts = mutableListOf<Pair<StationProgramAction, Long>>()
+        val opened = Ticket()
+        val closed = Ticket()
+        val runtime = StationStopProgramRuntime(definition(arrival = listOf(StationProgramAction.OpenDoors, end),
+            preparation = listOf(StationProgramAction.CloseDoors, end), lead = 20, departure = 50),
+            1000, 100, false, 1000, StationProgramActionHost { action, _, _ ->
+                starts += action to now
+                if (action == StationProgramAction.OpenDoors) opened else closed
+            })
+        fun tick(value: Long) { now = value; runtime.tick(value - 900, value) }
+        tick(1001)
+        opened.result = StationProgramTicketResult.Succeeded
+        tick(1030); tick(1079)
+        assertEquals(listOf(StationProgramAction.OpenDoors to 1001L), starts)
+        tick(1080)
+        assertEquals(StationProgramAction.CloseDoors to 1080L, starts.last())
+        tick(1099)
+        assertFalse(runtime.finalGateSatisfied(199, 1099))
+        closed.result = StationProgramTicketResult.Succeeded
+        tick(1100)
+        assertTrue(runtime.finalGateSatisfied(200, 1100))
+        assertNull(runtime.failure)
+    }
+
+    @Test fun `custom lead may close early but departure still waits original arrival minimum`() {
+        val starts = mutableListOf<Pair<StationProgramAction, Long>>()
+        var now = 1000L
+        val closed = Ticket()
+        val sideAction = StationProgramAction.Extension(work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionCall("test:display"))
+        val runtime = StationStopProgramRuntime(definition(arrival = listOf(
+            StationProgramAction.Async("display", listOf(StationProgramAction.WaitDuration(10), sideAction)), end),
+            preparation = listOf(StationProgramAction.CloseDoors, end), lead = 200, departure = 900),
+            1000, 100, false, 1000, StationProgramActionHost { action, _, _ ->
+                starts += action to now
+                if (action == StationProgramAction.CloseDoors) closed else null
+            })
+        for (tick in 1000L..1019L) { now = tick; runtime.tick(tick, tick) }
+        assertEquals(listOf(StationProgramAction.CloseDoors to 1000L, sideAction to 1010L), starts)
+        closed.result = StationProgramTicketResult.Succeeded
+        now = 1020; runtime.tick(now, now)
+        assertTrue(runtime.allTasksComplete)
+        assertTrue(runtime.doorsSecured)
+        assertFalse(runtime.finalGateSatisfied(now, now))
+        now = 1099; runtime.tick(now, now)
+        assertFalse(runtime.finalGateSatisfied(now, now))
+        now = 1100; runtime.tick(now, now)
+        assertTrue(runtime.finalGateSatisfied(now, now))
+    }
+
+    @Test fun `preparation query timeout starts at request not original arrival`() {
+        val pending = java.util.concurrent.CompletableFuture<Long>()
+        val runtime = StationStopProgramRuntime(dynamicDefinition(), 0, 0, false, 10,
+            StationProgramActionHost { _, _, _ -> fail("must not close") }, { pending })
+        runtime.tick(980, 980)
+        assertNull(runtime.failure)
+        runtime.tick(989, 989)
+        assertNull(runtime.failure)
+        runtime.tick(990, 990)
+        assertNotNull(runtime.failure)
+        assertTrue(pending.isCancelled)
     }
 
     @Test fun `reverse preserves the evidence of successfully closed doors`() {

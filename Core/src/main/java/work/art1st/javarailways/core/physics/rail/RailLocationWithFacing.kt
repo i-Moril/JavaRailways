@@ -15,7 +15,6 @@ import work.art1st.javarailways.core.physics.train.TrainEnd
 import work.art1st.configLib.persistence.Loads
 import work.art1st.configLib.persistence.PersistentBy
 import java.util.UUID
-import kotlin.math.min
 
 @ConsistentCopyVisibility
 data class RailLocationWithFacing internal constructor(
@@ -88,30 +87,33 @@ data class RailLocationWithFacing internal constructor(
      */
     fun peekCurve(distance: Double): RailSegments {
         require(distance.isFinite()) { "distance must be finite" }
-        var arcLength: Double
-        var segment: RailSegment
+        var remainingDistance: Double
         var railView = this.railView
         val list: MutableList<RailSegment> = mutableListOf()
-        val baseLength: Double
+        var segmentStart: Double
         if (distance >= 0) {
-            arcLength = distance
-            baseLength = this.arcLength
+            remainingDistance = distance
+            segmentStart = this.arcLength
         } else {
-            arcLength = -distance
+            remainingDistance = -distance
             railView = railView.reversed
-            baseLength = railView.curve.totalArcLength - this.arcLength
+            segmentStart = railView.curve.totalArcLength - this.arcLength
         }
-        segment = RailSegment(railView, baseLength, min(railView.curve.totalArcLength, baseLength + arcLength))
         while (true) {
-            if (arcLength <= segment.totalArcLength) {
-                list.add(RailSegment(segment, 0.0, min(railView.curve.totalArcLength, arcLength)))
+            val railLength = railView.curve.totalArcLength
+            val requestedEnd = segmentStart + remainingDistance
+            // Test containment from the requested endpoint itself. Reconstructing the
+            // travelled distance as (requestedEnd - segmentStart) can round down and
+            // create a false positive remainder that incorrectly enters activeRail.
+            if (requestedEnd <= railLength) {
+                list.add(RailSegment(railView, segmentStart, requestedEnd))
                 break
             }
-            list.add(segment)
-            arcLength -= segment.totalArcLength
+            list.add(RailSegment(railView, segmentStart, railLength))
+            remainingDistance = requestedEnd - railLength
 
             railView = railView.activeRail ?: break
-            segment = RailSegment(railView)
+            segmentStart = 0.0
         }
         return RailSegments(list)
     }

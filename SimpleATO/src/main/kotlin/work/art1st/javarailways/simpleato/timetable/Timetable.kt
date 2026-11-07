@@ -477,6 +477,8 @@ class TimetableValidator(
         return TimetableValidationResult(errors, routes, routeStoppingOffsets, retainedRoutes, structural, circulation)
     }
 
+    private enum class DoorProof { UNKNOWN, SECURED, OPEN }
+
     private fun validateServiceLine(
         timetable: Timetable,
         service: TimetableService,
@@ -533,7 +535,7 @@ class TimetableValidator(
             val pendingDestinationOptions: Pair<Int, TimetableAction.DestinationOptions>? = null,
             val dynamicOriginCandidates: List<String>? = null, val takeActionCount: Int = 0,
             val takeFromDepotSelector: DepotTrainSelector? = null, val hasMovement: Boolean = false,
-            val hasFormationOrigin: Boolean = false)
+            val hasFormationOrigin: Boolean = false, val doors: DoorProof = DoorProof.UNKNOWN)
         class ProofSink(
             val errors: MutableList<String> = arrayListOf(),
             val routes: MutableList<ExpandedRoute> = arrayListOf(),
@@ -574,6 +576,44 @@ class TimetableValidator(
             return false
         }
         val servicePrefix = prefix
+        fun stationDoorSide(destinationId: String?, override: DoorSide? = null): DoorSide =
+            override ?: (destinationId?.let { world.simpleAtoWorldData.destinations[it]?.role }
+                as? DestinationRole.StationBerthRole)?.doorSide ?: DoorSide.NONE
+        fun stationProgramResult(program: StationStopPrograms): DoorProof {
+            val actions = when (program.role) {
+                StationStopRole.ORIGIN -> program.departurePreparation
+                StationStopRole.STOP -> program.arrival + program.departurePreparation
+                StationStopRole.TERMINAL -> program.arrival
+            }
+            fun doorActions(values: List<StationProgramAction>): List<StationProgramAction> = values.flatMap { action ->
+                when (action) {
+                    StationProgramAction.OpenDoors, StationProgramAction.CloseDoors -> listOf(action)
+                    is StationProgramAction.Async -> doorActions(action.steps)
+                    else -> emptyList()
+                }
+            }
+            val physical = doorActions(actions)
+            if (physical.isEmpty()) return DoorProof.UNKNOWN
+            if (actions.any { it is StationProgramAction.Async && doorActions(it.steps).isNotEmpty() }) {
+                return when {
+                    physical.all { it == StationProgramAction.OpenDoors } -> DoorProof.OPEN
+                    physical.all { it == StationProgramAction.CloseDoors } -> DoorProof.SECURED
+                    else -> DoorProof.UNKNOWN
+                }
+            }
+            return if (physical.last() == StationProgramAction.OpenDoors) DoorProof.OPEN else DoorProof.SECURED
+        }
+        fun requireSecured(
+            doors: DoorProof,
+            address: TimetableStepAddress,
+            sink: ProofSink,
+            operation: String
+        ): DoorProof {
+            if (doors != DoorProof.OPEN) return doors
+            sink.errors += "$servicePrefix $address 车门状态冲突：前序停站或动作已明确打开车门，$operation；" +
+                "请在此步骤前显式添加 CLOSE_DOORS"
+            return DoorProof.UNKNOWN
+        }
         fun process(step: TimetableStep, address: TimetableStepAddress, input: State, sink: ProofSink): State {
             val errors = sink.errors
             val routes = sink.routes
@@ -591,6 +631,7 @@ class TimetableValidator(
             var takeFromDepotSelector = input.takeFromDepotSelector
             var hasMovement = input.hasMovement
             var hasFormationOrigin = input.hasFormationOrigin
+            var doors = input.doors
             when (step) {
                 is TimetableStep.Check -> {
                     if (takeActionCount > 0) {
@@ -620,6 +661,7 @@ class TimetableValidator(
                         }
                         is TimetableAction.SelectStop -> error("SelectStop requires candidate continuation validation")
                         is TimetableAction.TakeFromDepot -> {
+                            doors = DoorProof.UNKNOWN
                             takeActionCount++
                             takeFromDepotSelector = step.action.selector
                             validateTakeAction(
@@ -628,12 +670,15 @@ class TimetableValidator(
                             )
                         }
                         is TimetableAction.TakeFromFormationOutput -> {
+                            doors = DoorProof.UNKNOWN
                             hasFormationOrigin = true
                             takeActionCount++
                             validateTakeAction(prefix, index, "takeFromFormationOutput", takeActionCount,
                                 service, pendingStationCall, pendingDestinationOptions, errors)
                         }
                         is TimetableAction.Couple, is TimetableAction.Split -> {
+                            doors = requireSecured(doors, address, sink, "当前编组作业要求车门已经关闭")
+                            doors = DoorProof.UNKNOWN
                             if (currentWayPointId == null && takeActionCount == 0 && !hasFormationOrigin)
                                 errors += "$prefix step#$index formation action requires an acquired or checked train"
                             hasFormationOrigin = true
@@ -642,6 +687,7 @@ class TimetableValidator(
                                 errors += "$prefix step#$index formation action cannot interrupt pending destination navigation"
                         }
                         is TimetableAction.TakeFromWaypoint -> {
+                            doors = DoorProof.UNKNOWN
                             takeActionCount++
                             validateTakeAction(
                                 prefix, index, "takeFromWaypoint", takeActionCount,
@@ -649,6 +695,7 @@ class TimetableValidator(
                             )
                         }
                         is TimetableAction.StoreAtDepot -> {
+                            doors = requireSecured(doors, address, sink, "当前存车行车动作要求车门已经关闭")
                             if (service.activation is TimetableServiceActivation.Conditional) {
                                 errors.add("$prefix step#$index storeAtDepot 不得用于运行时条件激活的 service")
                             }
@@ -681,6 +728,7 @@ class TimetableValidator(
                         }
                         is TimetableAction.GoTo,
                         is TimetableAction.GoVia -> {
+                            doors = requireSecured(doors, address, sink, "当前行车动作要求车门已经关闭")
                             hasMovement = true
                             if (currentWayPointId == null && takeActionCount == 0 && !hasFormationOrigin) {
                                 errors.add(
@@ -710,6 +758,12 @@ class TimetableValidator(
                             }
                         }
                         is TimetableAction.OpenDoors, TimetableAction.CloseDoors -> {
+                            val open = step.action as? TimetableAction.OpenDoors
+                            doors = when {
+                                open == null -> DoorProof.SECURED
+                                open.doorSideOverride != null || doors == DoorProof.OPEN -> DoorProof.OPEN
+                                else -> DoorProof.UNKNOWN
+                            }
                             if (currentWayPointId == null && takeActionCount == 0 && !hasFormationOrigin)
                                 errors += "$prefix step#$index door action requires an acquired or checked train"
                             if (pendingStationCall != null || pendingDestinationOptions != null)
@@ -823,7 +877,22 @@ class TimetableValidator(
                         if (!accepted) errors += rejected.distinct()
                     }
                     currentWayPointId = successor
-                    val stationProgram = if (movement) pendingDestinationOptions?.second?.stopPrograms ?: pendingStationCall?.second?.stopPrograms else (step.action as? TimetableAction.BeginStationStop)?.stopPrograms
+                    val destinationOptions = pendingDestinationOptions?.second
+                    val stationCall = pendingStationCall?.second
+                    val stationInvocation = when {
+                        movement && destinationOptions != null -> destinationOptions.stopPrograms?.let {
+                            it to stationDoorSide(destinationOptions.destinationId, destinationOptions.doorSide)
+                        }
+                        movement && stationCall != null -> stationCall.stopPrograms?.let { programs ->
+                            programs to stationDoorSide(OperationalDestinationIds.stationBerth(
+                                StationId(stationCall.stationId), stationCall.berthId), stationCall.doorSideOverride)
+                        }
+                        step.action is TimetableAction.BeginStationStop -> step.action.stopPrograms.let { programs ->
+                            programs to stationDoorSide(programs.destinationId ?: currentWayPointId)
+                        }
+                        else -> null
+                    }
+                    val stationProgram = stationInvocation?.first
                     if (movement) { pendingStationCall = null; pendingDestinationOptions = null }
                     requiredStartDirections = when (step.action) {
                         TimetableAction.Reverse -> requiredStartDirections.map { direction ->
@@ -840,6 +909,16 @@ class TimetableValidator(
                     }
                     if (stationProgram != null && stationProgram.reverseParity() != 0) {
                         requiredStartDirections = requiredStartDirections.map { direction -> (direction ?: currentWayPointId?.let(::destinationDirection))?.opposite() }.toSet()
+                    }
+                    if (stationInvocation != null) {
+                        val (program, fallbackSide) = stationInvocation
+                        if ((program.doorSide ?: fallbackSide) == DoorSide.NONE) {
+                            doors = requireSecured(doors, address, sink,
+                                "当前停站使用 DoorSide.NONE，不会执行关门作业，不能清除已打开的车门状态")
+                            doors = DoorProof.SECURED
+                        } else doors = stationProgramResult(program)
+                    } else if (movement && (input.pendingDestinationOptions != null || input.pendingStationCall != null)) {
+                        doors = DoorProof.UNKNOWN
                     }
                     when (val action = step.action) {
                         is TimetableAction.TakeFromDepot -> {
@@ -861,7 +940,7 @@ class TimetableValidator(
             }
             return State(currentWayPointId, requiredStartDirections, previousAtTick, pendingStationCall,
                 pendingDestinationOptions, dynamicOriginCandidates, takeActionCount, takeFromDepotSelector,
-                hasMovement, hasFormationOrigin)
+                hasMovement, hasFormationOrigin, doors)
         }
         fun validateOutcome(outcome: State, sink: ProofSink) {
             outcome.pendingStationCall?.let { (index, _) ->
@@ -908,6 +987,8 @@ class TimetableValidator(
                         sink.errors += "$prefix $address selected stop cannot interrupt pending destination navigation"
                         return emptyList()
                     }
+                    val candidateInput = state.copy(doors = requireSecured(state.doors, address, sink,
+                        "当前选站行车动作要求车门已经关闭"))
                     val accepted = arrayListOf<State>()
                     val rejected = arrayListOf<String>()
                     for (candidate in action.selection.candidates.sortedWith(compareBy({ it.priority }, { it.berthId }))) {
@@ -915,12 +996,13 @@ class TimetableValidator(
                         val proof = ProofSink()
                         val target = OperationalDestinationIds.stationBerth(action.selection.stationId, candidate.berthId)
                         val call = TimetableAction.CallStation(action.selection.stationId.value, candidate.berthId,
-                            action.minimumDwellTicks, action.stoppingOffsetMetersBefore, action.doorSideOverride)
-                        val pending = process(TimetableStep.At(tick, call), address, state, proof)
+                            action.minimumDwellTicks, action.stoppingOffsetMetersBefore, action.doorSideOverride,
+                            action.stopPrograms)
+                        val pending = process(TimetableStep.At(tick, call), address, candidateInput, proof)
                         val arrived = process(TimetableStep.At(tick, TimetableAction.GoTo(target)), address, pending, proof)
                         val outcomes = if (proof.errors.isEmpty()) walk(cursor.advance(), arrived, proof, depth + 1) else emptyList()
                         if (proof.errors.isEmpty()) {
-                            (state.dynamicOriginCandidates ?: listOf(state.currentWayPointId)).forEach { origin ->
+                            (candidateInput.dynamicOriginCandidates ?: listOf(candidateInput.currentWayPointId)).forEach { origin ->
                                 proof.selections += ValidatedStationSelectionKey(service.id, address, origin, candidate.berthId)
                             }
                             sink.merge(proof)

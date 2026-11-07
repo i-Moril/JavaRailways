@@ -134,9 +134,11 @@ class TimetableStationCallDispatcherTest {
 
     @Test fun `ordinary opening blocks movement until a successful BOTH close`() {
         val gateway = ControllableOperationGateway()
-        val fixture = fixture(operationGateway = gateway,
-            initialActions = listOf(TimetableAction.OpenDoors(DoorSide.LEFT)))
-        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        val fixture = fixture(operationGateway = gateway, canonicalOriginDoorSide = DoorSide.LEFT,
+            initialActions = listOf(TimetableAction.OpenDoors()))
+        val started = fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        assertTrue(started is TimetableServiceStartResult.Started, started.toString())
+        assertEquals(TrainOperation.OpenDoors(DoorSide.LEFT), gateway.requests.single().operation)
         gateway.tickets.single().succeed()
         fixture.tick()
         assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
@@ -249,8 +251,10 @@ class TimetableStationCallDispatcherTest {
                 override fun cancel() { cancelled = true }
             })
         }
-        val fixture = fixture(operationGateway = gateway, initialActions = listOf(TimetableAction.OpenDoors(DoorSide.LEFT)))
-        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        val fixture = fixture(operationGateway = gateway, canonicalOriginDoorSide = DoorSide.LEFT,
+            initialActions = listOf(TimetableAction.OpenDoors()))
+        val started = fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        assertTrue(started is TimetableServiceStartResult.Failure, started.toString())
         assertTrue(cancelled)
         assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
@@ -549,10 +553,17 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test fun `terminal open doors cannot be bypassed by a store at depot suffix`() {
-        val gateway=ControllableOperationGateway()
-        val fixture=fixture(storeAfterDestination=true,operationGateway=gateway,
+        val staticallyRejected = fixture(storeAfterDestination=true,
             destinationOptions=TimetableAction.DestinationOptions("C",doorSide=DoorSide.LEFT,
                 stopPrograms=programs(StationStopRole.TERMINAL,departure=null)))
+        val authored = checkNotNull(staticallyRejected.world.simpleAtoWorldData.timetables["tt"])
+        assertTrue(TimetableValidator(staticallyRejected.world).validate(authored).errors.any {
+            it.contains("车门状态冲突") && it.contains("CLOSE_DOORS")
+        })
+
+        val gateway=ControllableOperationGateway()
+        val fixture=fixture(storeAfterDestination=true,operationGateway=gateway,canonicalTarget=true,
+            doorSide=DoorSide.LEFT,afterDestinationActions=listOf(TimetableAction.OpenDoors()))
         val id=TimetableServiceRunId("tt","service")
         val started=fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world,"tt","service") }
         assertTrue(started is TimetableServiceStartResult.Started,started.toString())

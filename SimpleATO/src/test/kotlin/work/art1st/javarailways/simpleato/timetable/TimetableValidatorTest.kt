@@ -59,6 +59,129 @@ class TimetableValidatorTest {
     }
 
     @Test
+    fun `validator reports terminal open doors before a doorless origin across run segments`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        world.basicWorldData.wayPoints.add(WayPoint("A", rail.id, 10.0))
+        world.basicWorldData.wayPoints.add(WayPoint("B", rail.id, 80.0))
+        world.basicWorldData.wayPoints.add(WayPoint("C", rail.id, 20.0))
+        val stationId = StationId("terminal")
+        val lineId = LineId("door-line")
+        val otherStationId = StationId("origin")
+        world.simpleAtoWorldData.lines.put(Line(lineId, "Door line",
+            listOf(otherStationId, stationId), listOf(stationId, otherStationId)), 0L)
+        val terminal = StationStopPrograms("terminal", "106P-terminal", StationStopRole.TERMINAL,
+            listOf(StationProgramAction.OpenDoors, StationProgramAction.End),
+            listOf(StationProgramAction.CloseDoors, StationProgramAction.End),
+            StationPreparationLead.constant(0L), null, destinationId = "B", doorSide = DoorSide.LEFT)
+        val origin = StationStopPrograms("terminal", "115N-origin", StationStopRole.ORIGIN,
+            listOf(StationProgramAction.End), listOf(StationProgramAction.End),
+            StationPreparationLead.constant(0L), 20L, destinationId = "B", doorSide = DoorSide.NONE)
+        fun timetable(closeDoors: Boolean): Timetable {
+            val steps = buildList {
+                add(TimetableStep.Check("A"))
+                add(TimetableStep.At(0L, TimetableAction.DestinationOptions("B", stoppingOffsetMetersBefore = 10.0,
+                    doorSide = DoorSide.LEFT, stopPrograms = terminal)))
+                add(TimetableStep.At(0L, TimetableAction.GoTo("B")))
+                add(TimetableStep.At(10L, TimetableAction.Reverse))
+                if (closeDoors) add(TimetableStep.At(10L, TimetableAction.CloseDoors))
+                add(TimetableStep.At(20L, TimetableAction.BeginStationStop(origin)))
+                add(TimetableStep.At(20L, TimetableAction.GoTo("C")))
+            }
+            return Timetable("door-handoff", services = listOf(TimetableService("circulation", TrainSelector.TrainId("train"),
+                steps, lineId = lineId, runSegments = listOf(
+                    TimetableRunSegment("106P", lineId, 0, 4),
+                    TimetableRunSegment("115N", lineId, 4, steps.size)
+                ))), lineSpeedLimits = listOf(TimetableLineSpeedLimit(lineId, 20.0)))
+        }
+
+        val invalid = TimetableValidator(world).validate(timetable(closeDoors = false))
+        val doorErrors = invalid.errors.filter { it.contains("车门状态冲突") }
+        assertEquals(1, doorErrors.size, invalid.errors.toString())
+        assertTrue(doorErrors.single().contains("[door-handoff/circulation]"))
+        assertTrue(doorErrors.single().contains("step#4"))
+        assertTrue(doorErrors.single().contains("DoorSide.NONE"))
+        assertTrue(doorErrors.single().contains("CLOSE_DOORS"))
+        assertFalse(invalid.errors.any { it.contains("step#3 车门状态冲突") },
+            "reversal itself intentionally preserves the open-door fact")
+
+        val correctedSegmented = TimetableValidator(world).validate(
+            timetable(closeDoors = true))
+        assertFalse(correctedSegmented.errors.any { it.contains("车门状态冲突") }, correctedSegmented.errors.toString())
+        assertEquals(invalid.errors.filterNot { it.contains("车门状态冲突") },
+            correctedSegmented.errors.filterNot { it.contains("车门状态冲突") })
+    }
+
+    @Test
+    fun `door proof keeps inherited unknown door opening before doorless origins valid`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        world.basicWorldData.wayPoints.add(WayPoint("A", rail.id, 10.0))
+        world.basicWorldData.wayPoints.add(WayPoint("B", rail.id, 80.0))
+        val stationId = StationId("origin")
+        OperationalDestinationService(world).register(OperationalDestination("origin@one", rail.id, 10.0,
+            ViewDirection.AB, DestinationRole.StationBerthRole(stationId, berthId = "one", doorSide = DoorSide.NONE)))
+        val origin = StationStopPrograms("origin", "origin-call", StationStopRole.ORIGIN,
+            listOf(StationProgramAction.End), listOf(StationProgramAction.End),
+            StationPreparationLead.constant(0L), 0L, destinationId = "origin@one", doorSide = DoorSide.NONE)
+        fun timetable(explicitOpen: Boolean): Timetable {
+            val steps = buildList {
+                add(TimetableStep.Check("origin@one"))
+                if (explicitOpen) add(TimetableStep.At(0L, TimetableAction.OpenDoors(DoorSide.LEFT)))
+                add(TimetableStep.At(0L, TimetableAction.OpenDoors()))
+                add(TimetableStep.At(0L, TimetableAction.BeginStationStop(origin)))
+                add(TimetableStep.At(0L, TimetableAction.GoTo("B")))
+            }
+            return Timetable("unknown-door", services = listOf(TimetableService("service",
+                TrainSelector.TrainId("train"), steps)))
+        }
+        val unknownResult = TimetableValidator(world).validate(timetable(explicitOpen = false))
+        assertTrue(unknownResult.isSuccess, unknownResult.errors.toString())
+
+        val knownOpenResult = TimetableValidator(world).validate(timetable(explicitOpen = true))
+        assertEquals(1, knownOpenResult.errors.count { it.contains("车门状态冲突") },
+            knownOpenResult.errors.toString())
+    }
+
+    @Test
+    fun `door proof uses station program door side before the berth fallback`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        world.basicWorldData.wayPoints.add(WayPoint("B", rail.id, 80.0))
+        val stationId = StationId("origin")
+        OperationalDestinationService(world).register(OperationalDestination("origin@none", rail.id, 10.0,
+            ViewDirection.AB, DestinationRole.StationBerthRole(stationId, berthId = "none", doorSide = DoorSide.NONE)))
+        OperationalDestinationService(world).register(OperationalDestination("origin@left", rail.id, 20.0,
+            ViewDirection.AB, DestinationRole.StationBerthRole(stationId, berthId = "left", doorSide = DoorSide.LEFT)))
+
+        fun validate(destinationId: String, programSide: DoorSide): TimetableValidationResult {
+            val origin = StationStopPrograms("origin", "origin-call", StationStopRole.ORIGIN,
+                listOf(StationProgramAction.End),
+                listOf(StationProgramAction.CloseDoors, StationProgramAction.End),
+                StationPreparationLead.constant(0L), 0L, destinationId = destinationId, doorSide = programSide)
+            return TimetableValidator(world).validate(Timetable("program-side", services = listOf(
+                TimetableService("service", TrainSelector.TrainId("train"), listOf(
+                    TimetableStep.Check(destinationId),
+                    TimetableStep.At(0L, TimetableAction.OpenDoors(DoorSide.LEFT)),
+                    TimetableStep.At(0L, TimetableAction.BeginStationStop(origin)),
+                    TimetableStep.At(0L, TimetableAction.GoTo("B")))))))
+        }
+
+        val programOpensDoorHandling = validate("origin@none", DoorSide.LEFT)
+        assertFalse(programOpensDoorHandling.errors.any { it.contains("车门状态冲突") },
+            programOpensDoorHandling.errors.toString())
+
+        val programDisablesDoorHandling = validate("origin@left", DoorSide.NONE)
+        val doorErrors = programDisablesDoorHandling.errors.filter { it.contains("车门状态冲突") }
+        assertEquals(1, doorErrors.size, programDisablesDoorHandling.errors.toString())
+        assertTrue(doorErrors.single().contains("step#2"))
+        assertTrue(doorErrors.single().contains("DoorSide.NONE"))
+    }
+
+    @Test
     fun `extension validates nested JSON against registered provider and rejects missing provider`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)

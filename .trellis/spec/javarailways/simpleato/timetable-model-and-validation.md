@@ -47,6 +47,75 @@ Kotlin List/Set/Map 和 JsonObject 的只读接口不自动保证底层不可变
 | route/direction/berth/provider/parameters unresolved | errors + failure context | none |
 | valid | `isSuccess=true`并返回pre-expanded routes | Dispatcher才可begin/start |
 
+## 确定性车门证据静态传播（CURRENT）
+
+### 1. 状态、范围、触发与 owner
+
+修改车门动作、`StationStopPrograms`、行车/编组前置门禁或 `TimetableValidator`时触发本契约。
+owner 是 `TimetableValidator.validateService` 的既有 `State/process/walk`有限后继证明；运行期的最终安全门禁仍由
+`TimetableDispatcher` 和 `StationStopProgramRuntime` 拥有。本机制只拒绝从固定时刻表就能证明的冲突，不代替运行期确认。
+
+### 2. 正常工作流程
+
+Validator 在扩展经路的同一次 cursor 遍历中传播车门证据。`OpenDoors/CloseDoors`、实际执行的停站程序和取车/编组
+边界更新证据；行车、选站、存车或编组在消费证据前检查是否已确定为开门。冲突直接加入既有
+`TimetableValidationResult.errors`，因此 WebUI 沿用现有 validation 展示，不再实现第二个前端校验器。
+
+### 3. 内部表示与算法
+
+`DoorProof` 只有 `UNKNOWN / SECURED / OPEN`。`OPEN` 表示固定定义已能证明开门；`SECURED` 表示已能证明关门；
+`UNKNOWN` 不等于安全或不安全，只表示留给运行期门禁。处理顺序与 `State`的位置、方向、pending station call 完全相同；
+`SelectStop` 也使用同一候选展开，并把 `action.stopPrograms` 传入候选 `CallStation`。禁止新增第二套 cursor、分支合流或预算实现。
+
+### 4. 数据与转移契约
+
+- `TimetableAction.OpenDoors(side != null)` 得到 `OPEN`；无显式 side 时，已有 `OPEN` 仍为 `OPEN`，其余变为 `UNKNOWN`，因为继承站台侧只能在运行期确认。
+- `CloseDoors` 得到 `SECURED`；`Reverse` 保留当前证据，不是拒绝点。
+- 停站程序的有效侧别是 `program.doorSide ?: fallbackSide`；`fallbackSide` 使用 Dispatcher 相同的 destination/call/berth 解析。
+- `TERMINAL` 只计算 arrival，`ORIGIN` 只计算 departure preparation，`STOP` 按 arrival 后 departure preparation 计算。
+- 有效侧别为 `NONE` 且输入为 `OPEN` 时拒绝；否则 doorless runtime 得到 `SECURED`。非 doorless 程序从 `UNKNOWN` 折叠实际 `OPEN_DOORS/CLOSE_DOORS`。
+- 异步程序只在所有可见门动作结果相同时生成确定证据；混合开/关退化为 `UNKNOWN`。
+
+### 5. 不变量、生命周期与版本
+
+静态冲突不修改 timetable，不自动插入关门，不删除 Dispatcher fail-safe，也不安装 run/controller/resource。
+首个确定冲突把该路径的证据降为 `UNKNOWN`，避免同一开门原因在后续每次移动重复报错；之后的显式开门可形成新的 `OPEN`
+并报告独立冲突。不涉及存档字段或 schema version。
+
+### 6. 校验与错误矩阵
+
+| 条件 | 结果 |
+| --- | --- |
+| `OPEN -> Reverse` | 合法，保留 `OPEN` |
+| `OPEN -> BeginStationStop(effectiveSide=NONE)` | `[时刻表/service] step#... 车门状态冲突`，提示在此步前显式添加 `CLOSE_DOORS` |
+| `OPEN -> GoTo/GoVia/SelectStop/StoreAtDepot/Couple/Split` | 在当前地址拒绝并降为 `UNKNOWN` |
+| `UNKNOWN -> doorless stop` | 不误报，后续证据为 `SECURED` |
+| `program.doorSide` 与 berth/step side 冲突 | 以 `program.doorSide` 为准 |
+| runtime condition 不可编辑地确定 | 由既有 condition gate 先拒绝，不启动第二套车门分支证明 |
+
+### 7. 复杂度与退化
+
+车门字段不新增遍历；它复用现有最多 4096 工作项、32 层 continuation 和 memo 键，因此渐进复杂度不变。
+无法确定执行顺序、继承站台侧或动态编组时退化为 `UNKNOWN`，不会把未证明状态伪装成通过或错误。
+
+### 8. 使用情形
+
+- 正常：终到 arrival 开门，折返后在始发前显式 `CloseDoors`，静态验证通过。
+- 边界：终到 arrival 开门，紧接 `Reverse`，折返本身不报错；后续 doorless origin 才报错。
+- 保守：只有 `OpenDoors(null)` 且没有既知 `OPEN` 时输出 `UNKNOWN`，不根据 waypoint 猜测运行期已确认站台。
+- 异常：终到 departure preparation 中的 `CLOSE_DOORS` 不执行，不得用它清除 arrival 已形成的 `OPEN`。
+
+### 9. 必需测试
+
+`TimetableValidatorTest` 必须覆盖：跨 `runSegments` 的 terminal-open → reverse → doorless-origin；显式关门只消除车门错误；
+`UNKNOWN` 与继承侧别不误报；已知 `OPEN` 不被 `OpenDoors(null)` 清除；`program.doorSide` 的两个反向覆盖用例；
+`Reverse` 地址不产生车门冲突。修改状态传播后还必须运行完整 `:SimpleATO:test`。
+
+### 10. 迁移、待决定与错误实现
+
+无数据迁移和待决定项。错误实现是单独新建一个约 180 行的门状态 cursor，它会与路由证明的预算、memo、`SelectStop`
+和分支合流漂移。正确实现是在既有 `State` 中增加 `DoorProof`，并让 `process/walk` 成为唯一传播管线。
+
 Manual parser/factory、timetable model、validator、runtime store、extension registry 与 JSON 展示均由 `SimpleATO` 拥有。token `+id` 表示 pass；final 必须 stop。stop JSON strict 且只允许 `minimumDwellTicks/stoppingOffsetMetersBefore/doorSide`；unknown/type error拒绝。Line、Destination、Station、Depot与rolling-stock ledger均由`SimpleATOWorldData`提供。validator先从canonical Destination解析route anchor与approach direction，再把方向显式传给SimpleATO共用`OperationalRoutePlanner`；它和Mission/Station/Line看到相同运行方向及plugin source，不在apply或Dispatcher阶段重新寻路。
 
 ## 项目内正确示例

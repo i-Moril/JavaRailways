@@ -1181,3 +1181,40 @@ Deployment proves exact artifact installation, startup and domain/HTTP health. I
 ### Status
 
 [OK] **Completed**
+
+
+## Session 37: Deploy SimpleATO physical-frame and authority fixes
+<!-- trellis-session: v=2 fp=88aed122453cbadf -->
+
+**Date**: 2026-11-07
+**Task**: Deploy SimpleATO physical-frame and authority fixes
+**Package**: javarailways
+**Branch**: `codex/ato-per-car-rebuild`
+
+### Summary
+
+Committed and deployed the verified F1-F8 snapshot, rolling authority, native body speed limit, handoff and exact signal-boundary fixes to JavaRailwaysTest with a 150-file recovery archive; startup, ATO, SimpleSignals and WebUI health checks passed.
+
+### Main Changes
+
+- Committed the exact 51-file F1-F8 implementation, tests, specs and final check report; unrelated dirty files remained excluded.
+- Built commit 31e4cf17 from a clean checkout and atomically replaced only plugins/JavaRailways.jar on JavaRailwaysTest.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `31e4cf17` | fix(simpleato): unify physical frame and authority handoff |
+
+### Testing
+
+- [OK] Final review: SimpleATO 809, Core 541, Basic focused 5 and SimpleSignals focused 48 passed; consumer compile, shadowJar and module boundaries passed.
+- [OK] Deployment: recovery archive verified, server Done, ATO RUNNING, SimpleSignals revision 117, bridge and WebUI health OK, installed hashes matched.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- User reruns the WebUI global simulation to verify Tick 14219 no longer exceeds the delay threshold on the deployed server.

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 36
+- **Total Sessions**: 37
 - **Last Active**: 2026-11-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1183 | Active |
+| `journal-1.md` | ~1220 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 37 | 2026-11-07 | Deploy SimpleATO physical-frame and authority fixes | `31e4cf17` | `codex/ato-per-car-rebuild` |
 | 36 | 2026-11-07 | Timetable door-state validation deployment | `c914b1a3` | `codex/ato-per-car-rebuild` |
 | 35 | 2026-11-06 | Station target reuse and test-server deployment | `5d5a4b7a` | `codex/ato-per-car-rebuild` |
 | 34 | 2026-11-06 | Line simulation and dwell semantics verified and deployed | `ee4dde6d` | `codex/ato-per-car-rebuild` |

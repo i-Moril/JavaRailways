@@ -1694,8 +1694,14 @@ class TimetableDispatcher(
             if (run.state == TimetableServiceRunState.DEPARTED && stationCall != null &&
                 dispatcherTick > stationCall.stateEnteredDispatcherTick
             ) {
-                run.state = TimetableServiceRunState.RUNNING
-                run.message = null
+                val storageReservation = run.storageReservation
+                if (run.currentRuntimeOrNull === run.storageRuntime && storageReservation != null) {
+                    run.state = TimetableServiceRunState.STORING
+                    run.message = "storing at ${storageReservation.stablingPointRef}"
+                } else {
+                    run.state = TimetableServiceRunState.RUNNING
+                    run.message = null
+                }
                 if (stationCall.registrationKey == null) run.stationCall = null
             }
 
@@ -3229,6 +3235,14 @@ class TimetableDispatcher(
         state: TimetableServiceRunState,
         message: String?
     ) {
+        val storageReservation = run.storageReservation
+        if (state == TimetableServiceRunState.RUNNING &&
+            run.currentRuntimeOrNull === run.storageRuntime && storageReservation != null
+        ) {
+            run.state = TimetableServiceRunState.STORING
+            run.message = message ?: "storing at ${storageReservation.stablingPointRef}"
+            return
+        }
         if (!run.state.isStationOperationalState()) {
             run.state = state
             run.message = message
@@ -4577,7 +4591,6 @@ class TimetableDispatcher(
                             waitForTimetableTick(run, step.tick, pendingStep = true)
                             return
                         }
-                        recordScheduledAction(run, step.tick)
                         val allocation = run.depotAllocation
                         if (allocation != null && !run.depotDepartureReleased) {
                             stallRun(
@@ -4698,9 +4711,8 @@ class TimetableDispatcher(
                             checkNotNull(run.programCursor.address),
                             run.programCursor.advance()
                         ).copy(requiredStartDirection = run.requiredNextStartDirection)
-                        val submission = submitMissionForRun(world, run, plan)
-                        val accepted = submission.accepted
-                        if (accepted == null) {
+                        val runtime = startMovementPlan(world, run, plan)
+                        if (runtime == null) {
                             val cancelled = if (run.physicalStorageOnly) {
                                 physicalStorageReservations.remove(
                                     reservation.stablingPointRef,
@@ -4718,34 +4730,14 @@ class TimetableDispatcher(
                                 )
                                 return
                             }
-                            stallRun(
-                                world,
-                                run,
-                                "InfrastructureInvariantViolation",
-                                submission.failure!!
-                            )
                             return
                         }
-                        val runtime = MissionRuntime(
-                            mission = accepted.mission,
-                            layout = accepted.layout,
-                            priorityTick = plan.priorityTick,
-                            targetWayPointId = plan.target.id,
-                            address = plan.address,
-                            lastOdometerMeters = run.ato.lifetimeTravelDistanceMeters
-                        )
-                        run.confirmedDoorStop = null
-                        run.currentRuntime = runtime
-                        run.missionRevision = accepted.mission.revision
-                        run.programCursor = plan.successor
                         run.storageReservation = reservation
                         run.storageRuntime = runtime
-                        if (run.controlMode == TimetableControlMode.AUTOMATIC) {
-                            run.ato.removeSpeedLimit(stopKey(run))
-                            publishInitialMovementAuthority(run, runtime)
+                        if (run.state != TimetableServiceRunState.DEPARTING) {
+                            run.state = TimetableServiceRunState.STORING
+                            run.message = "storing at ${reservation.stablingPointRef}"
                         }
-                        run.state = TimetableServiceRunState.STORING
-                        run.message = "storing at ${reservation.stablingPointRef}"
                         return
                     }
                     is TimetableAction.TakeFromDepot,
@@ -5722,17 +5714,17 @@ class TimetableDispatcher(
         run.ato.removeSpeedLimit(selectionHoldKey(run))
     }
 
-    private fun startMovementPlan(world: World, run: ActiveRun, plan: MovementPlan) {
+    private fun startMovementPlan(world: World, run: ActiveRun, plan: MovementPlan): MissionRuntime? {
         if (run.stationDoorsSecured == false) {
             stallRun(world, run, "StationProgramFailure", "movement requires successful door closing after terminal station work")
-            return
+            return null
         }
         val firstMissionPending = run.currentRuntimeOrNull == null
         val waitingForFirstDeparture = firstMissionPending &&
             timetableElapsedTicks(run) < plan.actionTick
         if (!firstMissionPending && timetableElapsedTicks(run) < plan.actionTick) {
             waitForTimetableTick(run, plan.actionTick, pendingStep = true)
-            return
+            return null
         }
         if (!waitingForFirstDeparture) recordScheduledAction(run, plan.actionTick)
         val submission = submitMissionForRun(world, run, plan)
@@ -5744,7 +5736,7 @@ class TimetableDispatcher(
                 "InfrastructureInvariantViolation",
                 submission.failure!!
             )
-            return
+            return null
         }
         val runtime = MissionRuntime(
             mission = accepted.mission,
@@ -5765,7 +5757,7 @@ class TimetableDispatcher(
                     "ResourceIdentityViolation",
                     "Depot allocation disappeared before first Mission confirmation"
                 )
-                return
+                return null
             }
             run.depotReservationPending = false
             run.depotDepartureRuntime = runtime
@@ -5792,7 +5784,7 @@ class TimetableDispatcher(
             plan.stationCallSpec?.let { spec ->
                 scheduleStationCallSpec(world, run, spec)?.let { reason ->
                     stallRun(world, run, "InfrastructureInvariantViolation", reason)
-                    return
+                    return null
                 }
             }
             run.requiredNextStartDirection = null
@@ -5822,7 +5814,7 @@ class TimetableDispatcher(
             run.state = TimetableServiceRunState.DEPARTING
             run.message = "departing ${departing.resolved.berthRef}"
         }
-        return
+        return runtime
     }
 
     private fun movement(

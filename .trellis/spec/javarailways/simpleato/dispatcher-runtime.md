@@ -112,6 +112,18 @@ Train acquisition以live stopped train location/speed/derail/controller/run/geom
 存车完成仍等待台账/资源条件时允许重设同键零速值，不创建新限制或重启动作，不重新扫描路线或修改授权。
 停车曲线在容差内仍可能许可接近实际目标；不能依赖“已进入容差”隐式保持零速。
 
+`StoreAtDepot` 的物理移动必须调用与 GoTo/GoVia 相同的 `startMovementPlan` 安装入口。存车分支只负责先取得
+精确的 `DepotStorageReservation`，并在公共入口成功返回其 `MissionRuntime` 后记录
+`storageReservation/storageRuntime`；不能另行调用 `submitMissionForRun`、重复安装 `currentRuntime`、
+重复发布初始授权，或自行拼一套 StationCall 离站逻辑。这样终点仍有已停靠 StationCall 时，公共入口在同一控制器
+命令批次提交新 Mission 与 `grantStationDeparture`，避免新 Mission revision 与尚未获准离站的旧 call revision 并存。
+公共入口失败时，存车分支撤销刚取得的同一物理或 Depot 预约，保留已有 Stall/停车结果，不把失败解释为已开始存车。
+
+状态显示也沿用普通生命周期：旧 StationCall 尚在离站时保留 `DEPARTING`；收到离站通知后，若当前 runtime 就是
+`storageRuntime`，转为 `STORING` 并显示准确的存车点，而不是普通 `RUNNING`。这只区分存车运行的运营显示，
+不新增第二套控制状态或授权管线。`TimetableStationCallDispatcherTest` 必须覆盖终到开门、显式关门、
+`DEPARTING -> STORING`、最终完成，以及无 ATO Stall；全局回放还应确认旧 StationCall 被清除且 Mission revision 一致。
+
 Control transfer：pending operation先cancel+confirm；`MANUAL_ROUTED`继续通过同一Basic admission申请前方资源，但人工controller不消费ATO constraint，因此Dispatcher用同一committed boundary执行既有越界保护。`FULL_MANUAL`不发new request，但已有pending handle继续progress到终态，既有claim仍由Basic按车尾释放。release后`REPLAN_REQUIRED`；stale topology或route-state mismatch也直接进入该状态，不在旧route上循环重试。
 
 滚动申请窗口按当前发布速度计算，不再直接使用最高速度的感知距离；申请资格阈值仍保持稳定，避免减速时阈值后退。

@@ -591,6 +591,52 @@ class TimetableStationCallDispatcherTest {
         assertEquals(checkNotNull(stoppedArrivalArc),fixture.train.head.location.arcLengthIn(ViewDirection.AB),1e-8)
     }
 
+    @Test fun `terminal station call closes doors before storage movement handoff`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(
+            includeStationAction = true,
+            stopPrograms = programs(
+                StationStopRole.TERMINAL,
+                departure = null,
+                arrival = listOf(StationProgramAction.OpenDoors, StationProgramAction.End),
+                destination = "central@one"
+            ),
+            storeAfterDestination = true,
+            canonicalTarget = true,
+            doorSide = DoorSide.LEFT,
+            operationGateway = gateway,
+            afterDestinationActions = listOf(TimetableAction.CloseDoors)
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        val started = fixture.world.onOwnerForTest {
+            fixture.dispatcher.startService(fixture.world, "tt", "service")
+        }
+        assertTrue(started is TimetableServiceStartResult.Started, started.toString())
+
+        val observed = linkedSetOf<TimetableServiceRunState>()
+        for (tick in 0 until 4_000) {
+            fixture.tick()
+            gateway.tickets.forEach { it.succeed() }
+            val status = fixture.dispatcher.status(id)!!
+            observed += status.state
+            if (status.state == TimetableServiceRunState.COMPLETED ||
+                fixture.world.simpleAtoWorldData.atoCoordinator.isStalled
+            ) break
+        }
+
+        assertEquals(
+            listOf(TrainOperation.OpenDoors(DoorSide.LEFT), TrainOperation.CloseDoors(DoorSide.BOTH)),
+            gateway.requests.map { it.operation }
+        )
+        assertTrue(TimetableServiceRunState.DEPARTING in observed, "observed=$observed")
+        assertTrue(TimetableServiceRunState.STORING in observed, "observed=$observed")
+        assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)!!.state)
+        assertFalse(
+            fixture.world.simpleAtoWorldData.atoCoordinator.isStalled,
+            fixture.world.simpleAtoWorldData.atoCoordinator.lastStall.toString()
+        )
+    }
+
     @Test fun `operation shutdown cancels pending station task door tickets`() {
         val gateway=ControllableOperationGateway()
         val fixture=fixture(operationGateway=gateway,destinationOptions=TimetableAction.DestinationOptions("C",doorSide=DoorSide.LEFT,

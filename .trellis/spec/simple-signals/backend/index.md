@@ -465,6 +465,12 @@ JS 明确设置速度和不透明模型名，物理／下游变化只触发受�
   下载而失败；部署描述必须改列 concrete `polyglot`、`js-language` 与 `truffle-runtime`，再由 Maven 解析各自传递依赖。
 - 插件只有 `SimpleSignalsPlugin` 一个 `JavaPlugin` lifecycle owner。
 - 普通 `jar` 就是部署 artifact；不使用 shadowJar，也不把宿主 classes 打入该 JAR。
+- `SimpleSignals.jar` 的字节码直接链接宿主公开 API。若 Core/Basic/SimpleATO/Bukkit public 方法的 JVM
+  descriptor 改变（包括返回类型由 `TrainSnapshot` 改为 `TrainFrameSnapshot`），部署必须把同一源码提交构建的
+  `JavaRailways.jar` 与 `SimpleSignals.jar` 视为一个原子版本组：停服后在同一恢复清单中校验并替换所有受影响
+  artifact，再正常重启。`verifySignalModuleBoundaries` 与本地 consumer 编译只证明匹配候选可链接，不能证明服务器
+  上保留的旧附属 JAR 与新宿主兼容；部署清单不得在 public ABI 已变化时将旧 SimpleSignals 标记为 retained。
+  不应为未发布开发服组合增加 runtime 兼容 alias；应修正部署组合并用真实跨插件调用验收。
 - 当前 `onDisable` 使本地 runtime/显示绑定失效，异步关闭模型并观察 host `closeOwner` 完成结果；
   `modelCleanupCompletion()` 返回同一完成结果，不在停用回调等待实体操作。
   Bukkit已经强制禁用时由host现有`PluginDisableEvent`路径删除失效

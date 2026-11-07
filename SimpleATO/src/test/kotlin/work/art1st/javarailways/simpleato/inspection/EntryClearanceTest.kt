@@ -100,7 +100,6 @@ class EntryClearanceTest {
         assertNull(currentTrainLengthMeters(frame(id = "wrong"), "train", 4))
         assertNull(currentTrainLengthMeters(frame(epoch = 3), "train", 4))
         assertNull(currentTrainLengthMeters(frame(derailed = true), "train", 4))
-        assertNull(currentTrainLengthMeters(frame(), "train", 4, tail))
         assertNull(currentTrainLengthMeters(null, "train", 4))
     }
 

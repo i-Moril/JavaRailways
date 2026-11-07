@@ -3,6 +3,10 @@ package work.art1st.javarailways.simplesignals.testing
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionUpdate
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
+import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
+import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
+import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange
 import work.art1st.javarailways.simpleato.api.inspection.InspectionClearanceSnapshot
 import work.art1st.javarailways.simpleato.api.inspection.InspectionEntryClearanceState
@@ -42,7 +46,14 @@ internal class TestProtectionEpoch(private val world: SimpleSignalsWorldRuntime,
         admissions.values.mapNotNull { it.current }.forEach { request ->
             try {
                 if (!inspection.hasActiveRoutes()) inspection.replaceSources(listOf(world.protectionRegionInspectionSource))
-                inspection.synchronizeRoute(stamp, request.trainId, request.route, 1.0, 0.0)
+                val railId = request.route.segments.first().railId
+                val body = TrainFrameSnapshot.create(request.trainId, request.trainId, frame.physicsEpoch,
+                    frame.physicsEpoch, 0.0, false, false, emptyList(),
+                    RailPositionSnapshot(railId, ViewDirection.AB, 1.0),
+                    RailPositionSnapshot(railId, ViewDirection.AB, 0.0), emptyList(),
+                    listOf(RailTraversalSegmentSnapshot(railId, ViewDirection.AB, 0.0, 1.0)),
+                    emptyList(), emptyList(), emptyList())
+                inspection.synchronizeRoute(stamp, request.trainId, request.route, publishedFrame = body)
                 val requirements = world.protectionRegionInspectionSource.bindingProvider.bind(
                     work.art1st.javarailways.simpleato.api.inspection.InspectionBindingInput(stamp, request.trainId, request.route)).entryClearances
                 inspection.publishClearance(InspectionClearanceSnapshot(PROTECTION_REGION_INSPECTION_SOURCE_ID,

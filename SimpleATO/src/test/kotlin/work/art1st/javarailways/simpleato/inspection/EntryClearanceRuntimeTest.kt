@@ -11,6 +11,7 @@ import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
+import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import work.art1st.javarailways.simpleato.api.inspection.*
 import work.art1st.javarailways.simpleato.api.restriction.*
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
@@ -31,8 +32,13 @@ class EntryClearanceRuntimeTest {
         entryClearances = listOf(requirement))
     private fun runtime(onBind: () -> Unit = {}) = InspectionRuntime(publisher) { _, _, failure -> throw failure }.also { host ->
         host.replaceSources(listOf(InspectionSource("test:inspection", { input -> onBind(); declaration(input.trainId) }, { emptyList() })))
-        host.synchronizeRoute(stamp(), "train", route, 10.0, 5.0)
+        host.synchronizeRoute(stamp(), "train", route, 5.0, physicalFrame())
     }
+    private fun physicalFrame(trainId: String = "train", epoch: Long = 1L, length: Double = 10.0) =
+        TrainFrameSnapshot.create(trainId, trainId, epoch, epoch, 0.0, false, false, emptyList(),
+            RailPositionSnapshot(rail, ViewDirection.AB, length), RailPositionSnapshot(rail, ViewDirection.AB, 0.0),
+            emptyList(), listOf(RailTraversalSegmentSnapshot(rail, ViewDirection.AB, 0.0, length)),
+            emptyList(), emptyList(), emptyList())
     private fun snapshot(epoch: Long, ready: Boolean) = InspectionClearanceSnapshot("test:inspection", "train", stamp(epoch), frozen,
         listOf(InspectionEntryClearanceState("test:entry", 10.0, 25.0, 35.0, 40.0, ready)))
     private fun frame(epoch: Long, live: Boolean = true): RailwayWorldFrameSnapshot {
@@ -45,19 +51,38 @@ class EntryClearanceRuntimeTest {
     @Test fun `geometry and stopping profile refresh only this train floor without compiling bindings again`() {
         var bindCount = 0
         val host = runtime { bindCount++ }
-        host.synchronizeRoute(stamp(), "other", route, 10.0, 5.0)
+        host.synchronizeRoute(stamp(), "other", route, 5.0, physicalFrame("other"))
         val old = host.bindingFor("train")
         val other = host.bindingFor("other")
         assertEquals(40.01, host.adjustRequestedAuthorityBoundary("train", frozen, RouteBoundary(11.0)).distanceFromRouteStartMeters, 1e-9)
-        host.synchronizeRoute(stamp(2), "train", route, 20.0, 7.0)
+        host.synchronizeRoute(stamp(2), "train", route, 7.0, physicalFrame(epoch = 2L, length = 20.0))
         assertEquals(52.01, host.adjustRequestedAuthorityBoundary("train", frozen, RouteBoundary(11.0)).distanceFromRouteStartMeters, 1e-9)
         assertSame(old, host.bindingFor("train"))
         assertSame(old.entryClearances, host.bindingFor("train").entryClearances)
         assertSame(other, host.bindingFor("other"))
         assertEquals(40.01, host.adjustRequestedAuthorityBoundary("other", frozen, RouteBoundary(11.0)).distanceFromRouteStartMeters, 1e-9)
         assertEquals(2, bindCount)
-        host.synchronizeRoute(stamp(3), "train", route)
-        assertEquals(100.0, host.adjustRequestedAuthorityBoundary("train", frozen, RouteBoundary(11.0)).distanceFromRouteStartMeters)
+        val failure = assertThrows(IllegalStateException::class.java) {
+            host.synchronizeRoute(stamp(3), "train", route)
+        }
+        assertTrue(failure.message!!.contains("current published frame/body geometry is unavailable"))
+        // The failed refresh cannot manufacture a route-end request or update the last valid floor.
+        assertEquals(52.01, host.adjustRequestedAuthorityBoundary("train", frozen, RouteBoundary(11.0)).distanceFromRouteStartMeters, 1e-9)
+    }
+
+    @Test fun `unavailable frame rejects new clearance binding instead of requesting a full route`() {
+        val point = RailPositionSnapshot(rail, ViewDirection.AB, 0.0)
+        val emptyBody = TrainFrameSnapshot.create("train", "train", 1L, 1L, 0.0, false, false,
+            emptyList(), point, point, emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
+        for (invalid in listOf(null, emptyBody, physicalFrame("foreign"), physicalFrame(epoch = 0L))) {
+            val host = InspectionRuntime(publisher) { _, _, failure -> throw failure }
+            host.replaceSources(listOf(InspectionSource("test:inspection", { declaration(it.trainId) }, { emptyList() })))
+            assertThrows(IllegalStateException::class.java) {
+                host.synchronizeRoute(stamp(), "train", route, publishedFrame = invalid)
+            }
+            assertFalse(host.hasBindings("train"))
+            assertEquals(RouteBoundary(11.0), host.adjustRequestedAuthorityBoundary("train", frozen, RouteBoundary(11.0)))
+        }
     }
 
     @Test fun `readiness changes alone wake watching sources coalesce and unchanged ticks stay idle`() {
@@ -160,7 +185,7 @@ class EntryClearanceRuntimeTest {
                 val physical = frame.trains.single()
                 val stamp = RailwayStateStamp("moving-world", frame.physicsEpoch, frame.topologyRevision)
                 host.synchronizeRoute(stamp, train.id, selected, authorityStoppingMarginMeters = 2.0, publishedFrame = physical)
-                val length = requireNotNull(host.bindingFor(train.id).currentTrainLength(physical, train.id, frame.physicsEpoch, physical.head))
+                val length = requireNotNull(host.bindingFor(train.id).currentTrainLength(physical, train.id, frame.physicsEpoch))
                 val raw = requireNotNull(conservativeTrainLengthMeters(physical.bodyTraversal))
                 assertTrue(length >= raw)
                 rawLengths += raw
@@ -184,7 +209,7 @@ class EntryClearanceRuntimeTest {
             assertEquals(1, envelopeLengths.distinct().size)
             floorTokens.forEach { assertSame(floorTokens.first(), it, "unchanged conservative geometry must reuse compiled floors") }
             assertEquals(1, calls, "continuous straight motion alone must not wake unchanged signal readiness")
-            assertNull(host.bindingFor(train.id).currentTrainLength(null, train.id, train.publishedFrame.physicsEpoch, train.publishedFrame.head))
+            assertNull(host.bindingFor(train.id).currentTrainLength(null, train.id, train.publishedFrame.physicsEpoch))
         } finally {
             world.physicsCoordinator.close()
             (world.tickManager as? AutoCloseable)?.close()

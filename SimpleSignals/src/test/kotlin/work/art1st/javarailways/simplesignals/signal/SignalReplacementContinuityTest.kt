@@ -18,7 +18,6 @@ import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinu
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
-import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.api.restriction.*
@@ -49,7 +48,8 @@ class SignalReplacementContinuityTest {
         inspection.synchronizeRoute(stamp, "train", fixture.requestRoute)
         val trainInspection = inspection.createTrainInspection("train")
         val position = RailPositionSnapshot(fixture.trunk, ViewDirection.AB, 0.0)
-        val perception = PerceptionSnapshot(2L, TrainSnapshot("train", 2L, 0.0, false, 1, position, position),
+        val perception = PerceptionSnapshot(2L, TrainFrameSnapshot.create("train", "train", 2L, 2L, 0.0, false, false, emptyList(),
+            position, position, emptyList(), emptyList(), emptyList(), emptyList(), emptyList()),
             fixture.requestRoute, emptyList())
         fun inspect() = trainInspection.update(stamp, FrozenRouteBinding.from(fixture.requestRoute),
             0.0, 50.0, 20.0, 1.0, perception)

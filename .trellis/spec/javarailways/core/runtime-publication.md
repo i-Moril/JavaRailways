@@ -55,6 +55,7 @@ publish PreTickEvent once on the coordinator physics context
 → await all workers
 → flip controller/train CommitBuffer
 → publish TrainFrameSnapshot
+→ notify controller onPhysicsStatePublished outside publication locks
 → process frames per train；completeEpoch once
 → build one shared RailwayOccupancySnapshot
 → capture candidate RailwayWorldFrameSnapshot under topology read lock
@@ -83,7 +84,7 @@ world frame的capture与publication是两个阶段，但不是两个可独立观
 
 最终成功路径先持world topology read lock，再持coordinator `stateLock`；确认仍为`RUNNING`且`inFlight === ticket`后，才执行candidate复核/发布、更新metrics与latest-completed、清除in-flight并完成该ticket。失败及overload终态转换也只允许同一running ticket执行，因此close或stall先取得状态边界后，迟到epoch不能再发布世界帧、替换诊断metrics或覆盖终态。不得倒置为state→topology：topology transaction的失败路径已有write-lock→stall/state顺序。
 
-关闭门禁也覆盖最终world frame之前的Core发布，而不是只在world publication拒绝迟到结果。每个controller先按topology read lock→stateLock顺序验证同一running ticket并调用纯Core的`publishPhysicsBuffers()`，释放两锁后调用`notifyPhysicsStatePublished()`，保持原逐controller“flip→hook”顺序。随后无controller列车翻转、train frame/mailbox发布在同序门禁内完成；published-frame processors仍在锁外执行，返回后occupancy重建与candidate capture再次经过同序门禁。任一门禁发现close/stall或ticket已撤销就结束该epoch，不得先发布列车、最后才拒绝世界帧。只做锁外状态检查仍会留下检查后关闭的竞态。
+关闭门禁也覆盖最终world frame之前的Core发布，而不是只在world publication拒绝迟到结果。controller buffers、无controller列车的状态以及完整train frame/mailbox，均按topology read lock→stateLock顺序验证同一running ticket后发布。只有本轮train frames已经发布，才在锁外调用`notifyPhysicsStatePublished()`；hook可直接读取本次完整`train.publishedFrame`。不能在仅flip buffers、frame尚未更新时通知，否则消费方会把上个epoch位置与新控制状态混合。published-frame processors仍在锁外执行，返回后occupancy重建与candidate capture再次经过同序门禁。任一门禁发现close/stall或ticket已撤销就结束该epoch，不得先发布列车、最后才拒绝世界帧。只做锁外状态检查仍会留下检查后关闭的竞态。
 
 这些门禁不新增图或列车扫描；每controller新增一次短状态锁边界，另外的frame/capture锁区执行原有Core发布工作。第三方controller hook、published-frame processor及railway-epoch processor均不在stateLock内，不能用把整个epoch锁住的方式使关闭等待任意扩展代码。已发布部分不回滚，锁外回调已经开始或随后返回的外部效果也不撤销；这里保证的是close取得状态边界后，不再由后续Core发布阶段翻转buffer、推进train frame/mailbox或重建occupancy。
 
@@ -179,7 +180,9 @@ next physics epoch captures controllers and computes from the resulting state
 
 active continuation不是每tick重扫全图。`RailView.activeRail`的成功引用变化在world-local selection lock内推进一个`Long` runtime revision；Core按`(topologyRevision, selectionRevision)`缓存immutable snapshot。普通未变化epoch在`O(1)`内复用同一对象；仅拓扑或选择变化时遍历当前`P`个turnout port，验证live target仍属于该entry的`legalContinuations`，以`O(P log P)`稳定排序并发布新map。选择在processor期间发生即使最终切回原支路也会推进revision，因此candidate在publication复核时被拒绝，而不会把旧占用与新道岔方向拼接。
 
-`TrainSnapshot.capture`要求已有published frame，所有状态字段（包括head/tail各自facing、speed、carCount及derailReason）仅从同一个frame取得；不再读live getter补齐或猜测AB。`CoreTrain`发布时从同一`DerailState`取得derailed/reason；frame新增可空reason字段不属于持久化schema变更。
+列车物理值直接由`Train.publishedFrame`提供，不再定义`TrainSnapshot`摘取模型。消费方一次捕获`TrainFrameSnapshot`，从中读取head/tail各自facing、speed、cars.size及derailReason；不能用live getter补字段或覆盖speed。`CoreTrain`发布时从同一`DerailState`取得derailed/reason。控制tick、感知计数与frame的revision/physicsEpoch各有语义，不能为替换类型而互换。
+
+故障报告可保留采样时的不可变frame引用，后续物理更新不会改写该现场；保存历史现场不等于额外物理owner。初始化或不支持完整帧的Train不能被伪造为零车长参加自动准入。删除旧摘取类型只迁移源码使用方，不引入旧API兼容壳或持久化版本。
 
 `RailwayWorldFrameSnapshot` 是一个 value-only 一致副本：所有 `TrainFrameSnapshot.physicsEpoch` 必须等于 world frame 的 `physicsEpoch`，列车按稳定 ID 排序且集合 defensive copy。每个train frame同时携带三种不能混用的物理事实：`occupiedIntervals`是epoch结束时的保守车体占用，`sweptSpans`是整个epoch扫过的合并包络，head/tail traversal是带方向和顺序的边界穿越证据。`topologyRevision`与`activeContinuations`是该次发布持有topology/selection边界时捕获的结构和live选择；它们不是schema version、配置revision或可独立拼接到其他epoch的“最新值”。平台 service 必须先等待 exact `PhysicsTicket` 成功，再发布该 world frame；不得把旧列车 frame 与新 topology/continuation observation重新组合。
 
@@ -211,6 +214,7 @@ override fun register(obj: TickingObject) {
 - `PhysicsCoordinatorTest.kt`：injected clock、fallback关闭、coalesced ticket、clamp、Stall、simulation delta、finally close。
 - `PhysicsCoordinatorTest.kt`：exact ticket 完成后 world frame 的 epoch、topology revision、稳定排序和不可变集合一致。
 - `CoreTrainPublicationBoundaryTest.kt`：commit前不可见、epoch后可见。
+- controller hook回归：真实moving epoch与显式controller.commit均须让hook看到本轮frame的head/tail/speed/body；保存的前帧保持不变。hook不得进入state/topology锁，close/stall仍阻止后续Core发布。
 - `TickManagerImplTest.kt`：`postTick`不执行platform commit、deferred registration、metrics。
 - railway-epoch processor阻塞测试：exact ticket保持未完成且latest world frame不前移；释放后才一起完成。
 - processor failure test：ticket exceptional、coordinator Stall且latest world frame保持上一成功epoch。

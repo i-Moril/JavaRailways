@@ -10,7 +10,7 @@
 
 - owner：Core 定义 API；consumer 只消费。Core production 不得 import Basic、Bukkit、Paper 或 Minecraft。
 - Dokka publication 只保留 `work.art1st.javarailways.core.api.*`；普通 `public` implementation 不成为 API。
-- 认可的跨线程 value 类型：`RailPositionSnapshot(UUID, ViewDirection, Double)`、`RailTraversalSegmentSnapshot`、revision-rooted `TopologyState`及其`RailCrossingPoint/AtGradeRailCrossing`、`ActiveRailContinuationsSnapshot`、`RailObjectRef(namespace,id)`、`RailObjectSnapshot`、`TrainSnapshot`、`Vector3Snapshot`、`RenderableFrameSnapshot`、`CarFrameSnapshot`、`TrainFrameSnapshot`、`RailwayOccupancySnapshot`、`RailwayWorldFrameSnapshot`。`RailwayEpochProcessor`是同步value-only callback，不暴露live Core对象。
+- 认可的跨线程 value 类型：`RailPositionSnapshot(UUID, ViewDirection, Double)`、`RailTraversalSegmentSnapshot`、revision-rooted `TopologyState`及其`RailCrossingPoint/AtGradeRailCrossing`、`ActiveRailContinuationsSnapshot`、`RailObjectRef(namespace,id)`、`RailObjectSnapshot`、`Vector3Snapshot`、`RenderableFrameSnapshot`、`CarFrameSnapshot`、`TrainFrameSnapshot`、`RailwayOccupancySnapshot`、`RailwayWorldFrameSnapshot`。`RailwayEpochProcessor`是同步value-only callback，不暴露live Core对象。
 - live 类型：`World`、`Train`、`Rail`、`RailView`。`World.allTrains` 与 `RailView.nextRails` 不得当 immutable collection 缓存。
 - `@MainThread`、`@Heavy`、`@Concurrent`、`@Pure` 只表达 contract，不调度；只有实现显式调用 `core.api.threading.ThreadGuard.ensure*` 才 runtime fail-fast。
 - `core.api.threading` 是普通 consumer 的只读线程身份契约：`ThreadContext` 仅用于诊断，`ThreadGuard` 只提供 `is*`、`currentContext` 和 `ensure*`，不公开注册、清除或自行进入 owner context 的能力。
@@ -92,7 +92,7 @@ fun capture(location: RailLocation, facing: ViewDirection): RailPositionSnapshot
 
 ```text
 错误：public fun state(): CoreTrain / RailLocationWithFacing / MutableMap<...>
-正确：public fun state(): TrainSnapshot / RailPositionSnapshot / immutable result
+正确：public fun state(): TrainFrameSnapshot / RailPositionSnapshot / immutable result
 ```
 
 不得以现有 implementation leakage 作为新增签名先例；相关修复由 `.trellis/issues/` 跟踪。

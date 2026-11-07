@@ -4,12 +4,20 @@ import work.art1st.javarailways.basic.api.ato.VehicleControlCapabilities
 import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignal
 import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.core.api.physics.train.Train
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
+import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.simpleato.api.atp.AtpTarget
 
 /** Unrouted manual driving supervises visible physical track, obstacles and native speed limits. */
 internal fun manualProtectionFrame(train: Train, capabilities: VehicleControlCapabilities): TrainControlFrame {
-        val head = train.headLocation as? RailLocationWithFacing ?: error("manual ATP requires oriented head")
+        val physicalFrame = requireNotNull(train.publishedFrame) { "manual ATP requires a published frame" }
+        val bodyLimits = nativeBodySpeedLimits(train, physicalFrame)
+        val position = physicalFrame.head
+        val rail = checkNotNull(train.world.getRail(position.railId)) { "manual head rail is missing" }
+        val head = RailLocationWithFacing(rail.getView(position.facing) as RailView,
+            if (position.facing == ViewDirection.AB) position.arcLengthInAbMeters
+            else rail.curve.totalArcLength - position.arcLengthInAbMeters)
         val horizon = maxOf(100.0, capabilities.maximumSpeedMetersPerSecond * 30.0)
         val segments = mutableListOf<work.art1st.javarailways.core.physics.rail.RailSegment>()
         var view = head.railView
@@ -29,14 +37,8 @@ internal fun manualProtectionFrame(train: Train, capabilities: VehicleControlCap
         check(segments.isNotEmpty()) { "manual ATP has no forward route" }
         val targets = mutableListOf(AtpTarget("vehicle/max-speed", 0.0, capabilities.maximumSpeedMetersPerSecond))
         // Preserve restrictions under the whole train until the rear has cleared them.
-        val occupiedRails = requireNotNull(train.publishedFrame).bodyTraversal.map { traversal ->
-            checkNotNull(train.world.getRail(traversal.railId)) { "occupied rail is missing" }
-        }
-        (occupiedRails + train.cars.flatMap { it.bogies }.map { it.location.rail })
-            .distinctBy { it.id }.forEach { rail ->
-            rail.infrastructureMetadata.speedLimits.effectiveLimitMetersPerSecond()?.let {
-                targets += AtpTarget("infrastructure/body/${rail.id}", 0.0, it)
-            }
+        bodyLimits.forEach { (railId, limit) ->
+            targets += AtpTarget("infrastructure/body/$railId", 0.0, limit)
         }
         var distance = 0.0
         segments.forEachIndexed { index, segment ->

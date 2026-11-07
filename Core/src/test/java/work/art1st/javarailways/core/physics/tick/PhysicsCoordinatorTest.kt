@@ -47,6 +47,55 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 class PhysicsCoordinatorTest {
+    @Test
+    fun `publication hook sees complete frame and does not hold close lock`() {
+        val coordinator = PhysicsCoordinator(1, automaticFallback = false)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val seen = AtomicReference<TrainFrameSnapshot>()
+        val hookThread = AtomicReference<Thread>()
+        try {
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
+            val train = createTrainWithConfig("frame-hook", rail, world, listOf(10.0))
+            val old = train.publishedFrame
+            val oldWorld = world.latestWorldFrame()
+            train.setControllerForTest(object : TrainController(train) {
+                override fun tick(deltaT: Double) { speed = 10.0; super.tick(deltaT) }
+                override fun onPhysicsStatePublished() {
+                    hookThread.set(Thread.currentThread())
+                    seen.set(train.publishedFrame)
+                    entered.countDown()
+                    var interrupted = false
+                    while (true) {
+                        try { check(release.await(5, TimeUnit.SECONDS)); break }
+                        catch (_: InterruptedException) { interrupted = true }
+                    }
+                    if (interrupted) Thread.currentThread().interrupt()
+                }
+            })
+            coordinator.start()
+            val ticket = coordinator.stepSimulation(50.0)
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val frame = seen.get()
+            assertEquals(ticket.epoch, frame.physicsEpoch)
+            assertEquals(old.head.arcLengthInAbMeters + 0.5, frame.head.arcLengthInAbMeters, 1e-9)
+            assertEquals(10.0, frame.speedMetersPerSecond)
+            assertTrue(frame.bodyTraversal.isNotEmpty())
+            // A blocked extension cannot hold stateLock: close must finish before releasing it.
+            val closer = Executors.newSingleThreadExecutor()
+            try { closer.submit { coordinator.close() }.get(5, TimeUnit.SECONDS) }
+            finally { closer.shutdownNow() }
+            assertThrows(ExecutionException::class.java) { ticket.completion.get(5, TimeUnit.SECONDS) }
+            release.countDown()
+            hookThread.get().join(5000)
+            assertTrue(!hookThread.get().isAlive)
+            assertSame(frame, train.publishedFrame)
+            assertSame(oldWorld, world.latestWorldFrame())
+            assertEquals(PhysicsCoordinatorStatus.CLOSED, coordinator.status)
+        } finally { release.countDown(); coordinator.close() }
+    }
+
     @ParameterizedTest
     @ValueSource(doubles = [75.0, 350.0])
     fun `public world timing bound matches the actual accepted simulation step`(maximumMillis: Double) {

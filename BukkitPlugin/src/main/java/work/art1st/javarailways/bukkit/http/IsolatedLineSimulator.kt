@@ -117,7 +117,7 @@ internal object IsolatedLineSimulator {
             var pendingStopLegIndex = -1
             val ready = hashSetOf<String>()
             fun state() = (world.allTrains.singleOrNull()?.controller as? SimpleATO)?.publishedState
-            fun sample() { state()?.let { peak = maxOf(peak, it.trainSnapshot.speedMetersPerSecond) } }
+            fun sample() { state()?.let { peak = maxOf(peak, it.trainFrame.speedMetersPerSecond) } }
             fun stoppingError(current: work.art1st.javarailways.simpleato.controller.SimpleAtoPublishedState, legIndex: Int): Double {
                 if (current.currentStationCall != null) return requireNotNull(current.runtimeDiagnostics.stationPositionErrorMeters) {
                     "missing actual StationCall position error"
@@ -151,7 +151,7 @@ internal object IsolatedLineSimulator {
                             distance - requireNotNull(previousDistance) { "missing origin departure measurement" },
                             (event.timetableElapsedTicks - departure) / 20.0, peak, error)
                         previousDistance = distance
-                        peak = current.trainSnapshot.speedMetersPerSecond
+                        peak = current.trainFrame.speedMetersPerSecond
                         calls += SimulatedCall(call.callId, call.stationId, call.kind, event.timetableElapsedTicks,
                             if (call.kind == "STOP") Math.addExact(event.timetableElapsedTicks, request.fixedDwellTicks) else null)
                     }

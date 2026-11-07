@@ -14,13 +14,13 @@
 
 - `tick(deltaT: Double)`由owning world `PhysicsCoordinator` worker调用。基类读取`activeSpeed`（子类本tick写入active buffer后即为新值，否则为published值），计算`deltaS = activeSpeed * deltaT * 0.001`；CoreTrain同时接收该epoch当前speed，其他Train仍调用公开distance API。
 - 基类不再承载command解释器：测试用的定速/分步命令属于fixture，由子类覆写`tick`并经`moveControlledTrain`提交同一step的distance/speed。
-- speed经`CommitBuffer<Double>`；`publishPhysicsState()`只在所有workers结束后flip。
+- speed经`CommitBuffer<Double>`；正常physics路径在所有workers结束后调用`publishPhysicsBuffers()`翻转。
 - profiling identity固定 `profileCategory="train-controller"`、`profileId=train.id`；同train只允许一个registered controller。
 - train使用强引用；销毁入口负责撤销外部注册，循环引用交由JVM回收。构造参数不再包含未使用的`world`。
 - `CoreTrain.setController(value)`负责在帧间owner阶段同步安装、替换或移除控制器；协调器内部按确切旧实例校验并更新唯一注册表。
 - protected `moveControlledTrain(deltaS,speedMetersPerSecond)`是所有override `tick`的controller子类合同：两个值必须来自同一个physics tick。CoreTrain走内部速度传播，非Core Train才回退公开distance-only调用。
 
-`protected open onPhysicsStatePublished()`在本controller的speed/train buffers翻转后调用，用于发布controller自身值状态；它仍先于统一的train frame发布。Core内部将纯buffer翻转与hook通知拆成`publishPhysicsBuffers()`和`notifyPhysicsStatePublished()`：coordinator仅在与close同步并重验exact ticket的锁内执行前者，锁外执行后者，保留逐controller原顺序。原`publishPhysicsState()`及兼容`commit()`仍按先buffers后hook顺序调用，不改子类覆写签名。hook不在关闭锁中，不得假设close会等待其完成或撤销其外部效果；完整门禁及失败边界见[runtime publication](./runtime-publication.md)。
+`protected open onPhysicsStatePublished()`在本轮完整`TrainFrameSnapshot`发布以后调用，用于发布controller自身值状态。仅翻转speed/train buffers尚不足以通知；hook读取的`train.publishedFrame`必须已包含本次运动。Core内部保留纯buffer翻转`publishPhysicsBuffers()`与hook通知`notifyPhysicsStatePublished()`的职责区分：coordinator的Core发布受close与exact-ticket门禁保护，hook在锁外执行。显式`commit()`同样先flip buffers、完成train.commit，再通知一次，不重复提交物理帧。hook不在关闭锁中，不得假设close会等待其完成或撤销其外部效果；完整门禁及失败边界见[runtime publication](./runtime-publication.md)。
 
 ## 输入/结果矩阵
 

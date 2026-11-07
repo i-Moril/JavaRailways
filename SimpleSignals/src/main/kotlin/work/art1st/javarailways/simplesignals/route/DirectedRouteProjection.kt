@@ -34,7 +34,19 @@ internal data class DirectedRouteOccurrence(
     val routeStartMeters: Double,
     val routeEndMeters: Double
 ) {
+    /** Known endpoints retain the frozen route's original values, without a coordinate round trip. */
+    fun routeDistanceAt(canonicalAbMeters: Double): Double = when (canonicalAbMeters) {
+        canonicalStartAbMeters -> routeStartMeters
+        canonicalEndAbMeters -> routeEndMeters
+        else -> routeStartMeters + when (facing) {
+            ViewDirection.AB -> canonicalAbMeters - canonicalStartAbMeters
+            ViewDirection.BA -> canonicalStartAbMeters - canonicalAbMeters
+        }
+    }
+
     fun canonicalAt(routeDistanceMeters: Double): Double {
+        if (routeDistanceMeters == routeStartMeters) return canonicalStartAbMeters
+        if (routeDistanceMeters == routeEndMeters) return canonicalEndAbMeters
         val localOffset = (routeDistanceMeters - routeStartMeters)
             .coerceIn(0.0, routeEndMeters - routeStartMeters)
         return when (facing) {

@@ -2180,6 +2180,8 @@ class TimetableDispatcherTest {
 
         val status = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
         assertEquals(TimetableControlMode.FULL_MANUAL, status.controlMode)
+        assertEquals(train.publishedFrame.head.railId.toString(), status.trainHeadRailId)
+        assertEquals(train.publishedFrame.head.arcLengthInAbMeters, status.trainHeadArcLengthInAbMeters)
         assertEquals(TimetableServiceRunState.SUSPENDED, status.state)
         assertFalse(status.routeGrantActive,
             "the tail has cleared the initial short grant; full manual must not acquire another")

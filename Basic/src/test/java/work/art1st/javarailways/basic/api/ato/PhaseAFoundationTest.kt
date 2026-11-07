@@ -16,7 +16,7 @@ import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
 import work.art1st.javarailways.core.api.physics.rail.RailObjectSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
-import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
+import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -46,12 +46,14 @@ class PhaseAFoundationTest {
         assertEquals(4L, route.revision)
         assertEquals(9L, route.topologyRevision)
 
-        val train = TrainSnapshot(
+        val train = TrainFrameSnapshot.create(
             trainId = "T1",
+            trainName = "T1", physicsEpoch = 8L, reversed = false,
+            cars = emptyList(), occupiedIntervals = emptyList(), bodyTraversal = emptyList(),
+            sweptSpans = emptyList(), headTraversal = emptyList(), tailTraversal = emptyList(),
             revision = 8L,
             speedMetersPerSecond = 12.0,
             derailed = false,
-            carCount = 2,
             head = RailPositionSnapshot(railId, ViewDirection.AB, 20.0),
             tail = RailPositionSnapshot(railId, ViewDirection.AB, 5.0)
         )
@@ -82,14 +84,11 @@ class PhaseAFoundationTest {
             3L,
             listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0))
         )
-        val train = TrainSnapshot(
-            "T2",
-            1L,
-            0.0,
-            false,
-            1,
+        val train = TrainFrameSnapshot.create(
+            "T2", "T2", 1L, 1L, 0.0, false, false, emptyList(),
             RailPositionSnapshot(railId, ViewDirection.AB, 0.0),
-            RailPositionSnapshot(railId, ViewDirection.AB, 0.0)
+            RailPositionSnapshot(railId, ViewDirection.AB, 0.0),
+            emptyList(), emptyList(), emptyList(), emptyList(), emptyList()
         )
         fun observation(id: String, distance: Double) = RailObservationSnapshot(
             RailObjectSnapshot(

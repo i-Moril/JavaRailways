@@ -17,7 +17,7 @@ import work.art1st.javarailways.basic.control.ConsistDynamicsActuator
 import work.art1st.javarailways.basic.control.DynamicsProfileSource
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.train.Train
-import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
+import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.simpleato.api.constraint.AtoConstraint
 import work.art1st.javarailways.simpleato.api.constraint.ConstraintOwner
@@ -69,7 +69,7 @@ abstract class AbstractATO(
     }
 
     protected data class PublishedAtoState(
-        val trainSnapshot: TrainSnapshot,
+        val trainFrame: TrainFrameSnapshot,
         val lifetimeTravelDistanceMeters: Double,
         val controllerState: Any?
     )
@@ -87,13 +87,16 @@ abstract class AbstractATO(
 
     @Volatile
     private var publishedState = PublishedAtoState(
-        trainSnapshot = captureTrainSnapshot(0L),
+        trainFrame = requireNotNull(train.publishedFrame) { "ATO requires a published frame for ${train.id}" },
         lifetimeTravelDistanceMeters = 0.0,
         controllerState = null
     )
 
-    val currentTrainSnapshot: TrainSnapshot
-        get() = publishedState.trainSnapshot
+    val currentTrainFrame: TrainFrameSnapshot
+        get() = publishedState.trainFrame
+
+    /** Physical frame at this controller's creation; released with its owning controller. */
+    val initialTrainFrame: TrainFrameSnapshot = publishedState.trainFrame
 
     val lifetimeTravelDistanceMeters: Double
         get() = publishedState.lifetimeTravelDistanceMeters
@@ -102,7 +105,6 @@ abstract class AbstractATO(
         get() = activeLifetimeTravelDistanceMeters
 
     init {
-        atoCoordinator.recordInitialTrain(publishedState.trainSnapshot)
         railwayControlRuntime.prepare(train, actuator.controlCapabilities(train.speed))
     }
 
@@ -197,7 +199,7 @@ abstract class AbstractATO(
 
     final override fun onPhysicsStatePublished() {
         publishedState = PublishedAtoState(
-            trainSnapshot = captureTrainSnapshot(atoTick),
+            trainFrame = requireNotNull(train.publishedFrame) { "ATO requires a published frame for ${train.id}" },
             lifetimeTravelDistanceMeters = activeLifetimeTravelDistanceMeters,
             controllerState = capturePublishedControllerState()
         )
@@ -217,19 +219,11 @@ abstract class AbstractATO(
         errorType = failure::class.qualifiedName ?: failure::class.java.name,
         message = failure.message,
         stackTrace = failure.stackTraceToString(),
-        initialTrain = atoCoordinator.initialTrain(train.id),
-        currentTrain = runCatching { captureTrainSnapshot(atoTick, activeSpeed) }.getOrNull(),
+        initialTrain = initialTrainFrame,
+        currentTrain = train.publishedFrame,
         route = latestRouteSnapshot,
         perception = latestPerceptionSnapshot,
         constraints = constraintSnapshot()
     )
 
-    private fun captureTrainSnapshot(
-        revision: Long,
-        speedMetersPerSecond: Double = train.speed
-    ): TrainSnapshot {
-        return TrainSnapshot.capture(train, revision).copy(
-            speedMetersPerSecond = speedMetersPerSecond
-        )
-    }
 }

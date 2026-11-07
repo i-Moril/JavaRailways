@@ -680,8 +680,6 @@ class PhysicsCoordinator(
                     }
                 }
                 if (!published) return
-                // Preserve per-controller ordering without holding close behind an extension hook.
-                controller.notifyPhysicsStatePublished()
             }
             // Collision decisions can mutate a stationary train without a controller. Its pending
             // state belongs to this epoch and must cross the same publication boundary.
@@ -710,6 +708,13 @@ class PhysicsCoordinator(
                 }
             }
             if (!framesPublished) return
+            // Controllers observe this epoch's complete frame, never the previous epoch's head
+            // combined with freshly flipped speed. Extension hooks remain outside Core locks.
+            snapshot.forEach { controller ->
+                if (RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING) return
+                controller.notifyPhysicsStatePublished()
+            }
+            if (RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING) return
             runPublishedFrameProcessors(publishedTrains.toList(), ticket.epoch)
             val capturedWorldFrame = attachedWorld.withRailTopologyReadLock {
                 synchronized(stateLock) {

@@ -13,7 +13,6 @@ import work.art1st.javarailways.core.api.physics.rail.RailObjectSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
-import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
@@ -38,13 +37,13 @@ class ImmutableSnapshotTest {
             check(method.name == "getPublishedFrame") { "Unexpected live read: ${method.name}" }
             published
         } as work.art1st.javarailways.core.api.physics.train.Train
-        val snapshot = TrainSnapshot.capture(train, 7)
+        val snapshot = requireNotNull(train.publishedFrame)
         assertEquals("published", snapshot.trainId)
         assertEquals(3.0, snapshot.speedMetersPerSecond)
         assertEquals("published reason", snapshot.derailReason)
         assertEquals(position, snapshot.head)
         published = null
-        assertThrows(IllegalArgumentException::class.java) { TrainSnapshot.capture(train, 8) }
+        assertThrows(IllegalArgumentException::class.java) { requireNotNull(train.publishedFrame) }
     }
 
     @Test
@@ -83,19 +82,19 @@ class ImmutableSnapshotTest {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
             val train = createTrainWithConfig("snapshot-train", rail, world, listOf(10.0))
 
-            val snapshot = TrainSnapshot.capture(train, revision = 7L)
+            val snapshot = train.publishedFrame
             val initialHeadArc = train.headLocation.arcLengthIn(ViewDirection.AB)
             val initialTailArc = train.tailLocation.arcLengthIn(ViewDirection.AB)
             train.world.onOwnerForTest {
                 train.setLocation(requireNotNull(train.head.location.forward(30.0)))
                 train.commit()
             }
-            val changed = TrainSnapshot.capture(train, revision = 8L)
+            val changed = train.publishedFrame
 
             assertEquals("snapshot-train", snapshot.trainId)
-            assertEquals(7L, snapshot.revision)
+            assertNotEquals(snapshot.revision, changed.revision)
             assertEquals(rail.id, snapshot.head.railId)
-            assertEquals(1, snapshot.carCount)
+            assertEquals(1, snapshot.cars.size)
             assertEquals(initialHeadArc, snapshot.head.arcLengthInAbMeters, 1.0e-9)
             assertEquals(initialTailArc, snapshot.tail.arcLengthInAbMeters, 1.0e-9)
             assertNotEquals(snapshot.head, changed.head)

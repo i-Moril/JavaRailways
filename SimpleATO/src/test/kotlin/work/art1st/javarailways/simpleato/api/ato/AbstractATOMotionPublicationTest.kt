@@ -4,7 +4,10 @@ import work.art1st.javarailways.core.physics.train.setControllerForTest
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
+import work.art1st.javarailways.core.util.AsyncTickTestSupport
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.api.ato.ControlDemand
 import work.art1st.javarailways.core.api.physics.World
@@ -25,8 +28,9 @@ class AbstractATOMotionPublicationTest {
         safetyDistanceMeters = 2.0
     )
 
-    @Test
-    fun `actuation publishes frame velocity and stall freeze clears it`() {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `actuation publishes frame velocity and stall freeze clears it`(explicitCommit: Boolean) {
         val physics = PhysicsCoordinator(1, automaticFallback = false)
         val world = createTestWorld(physics)
         val atoCoordinator = AtoWorldCoordinator("abstract-ato-motion", reportSink = {})
@@ -47,19 +51,39 @@ class AbstractATOMotionPublicationTest {
             )
             train.setControllerForTest(ato)
             val startX = train.headLocation.position.x()
+            val initial = ato.initialTrainFrame
             physics.start()
+            fun step() {
+                if (explicitCommit) {
+                    AsyncTickTestSupport.run { ato.tick(50.0) }
+                    ato.commit()
+                } else physics.stepSimulation(50.0).await()
+            }
 
-            physics.stepSimulation(50.0).await()
+            step()
 
             assertEquals(startX + 0.00125, train.headLocation.position.x(), 1.0e-9)
             assertEquals(0.05, train.publishedFrame.speedMetersPerSecond, 1.0e-12)
+            assertSame(train.publishedFrame, ato.currentTrainFrame)
+            assertEquals(train.publishedFrame.head, ato.currentTrainFrame.head)
+            assertEquals(train.publishedFrame.tail, ato.currentTrainFrame.tail)
+            assertTrue(ato.currentTrainFrame.bodyTraversal.isNotEmpty())
+            val moving = train.publishedFrame
             assertFrameVelocity(train, 0.05)
 
             ato.failValidation = true
-            physics.stepSimulation(50.0).await()
+            step()
 
             assertTrue(atoCoordinator.isStalled)
             assertEquals(0.0, train.publishedFrame.speedMetersPerSecond, 0.0)
+            assertSame(train.publishedFrame, ato.currentTrainFrame)
+            assertSame(initial, atoCoordinator.lastStall!!.initialTrain)
+            assertSame(moving, atoCoordinator.lastStall!!.currentTrain)
+            assertEquals(0.05, moving.speedMetersPerSecond)
+            val json = AtoStallReportJson.encode(atoCoordinator.lastStall!!)
+            assertTrue(json.contains("\"revision\": 2"))
+            assertTrue(json.contains("\"revision\": 0"))
+            assertTrue(!json.contains("bodyTraversal") && !atoCoordinator.lastStall!!.format().contains("RenderableFrame"))
             assertFrameVelocity(train, 0.0)
         } finally {
             physics.close()

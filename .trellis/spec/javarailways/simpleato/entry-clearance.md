@@ -38,7 +38,8 @@ requestedFloor = max(existingPluginFloor, requiredAuthorityEnd)
 
 原始车身跨度由同一 Core 已发布帧中有序 `bodyTraversal` 的绝对弧长差求和；L取共享保守上界。
 不能用 `Train.length`（车厢数量），也不能只累加车厢模型长度：后者不包含车钩间距和实际曲线摆放。
-不得按轨道 ID 合并重复片段。帧缺失、列车ID不符、脱轨、车身为空、车头与当前感知不符、周期不一致或算术非有限都不能证明净空。
+不得按轨道 ID 合并重复片段。帧缺失、列车ID不符、脱轨、车身为空、周期不一致或算术非有限都不能证明净空。
+车头与车身来自同一捕获帧，不另外传入live/ATO旧车头进行坐标相等比较。
 控制器每次检查读取当前几何；几何变化不重新运行插件路线匹配，也不能沿用旧的较短净空证明。
 公开读取入口为 `Train.publishedFrame: TrainFrameSnapshot?`，完整帧的发布合同归
 [Core 帧规范](../core/render-publication.md)。
@@ -58,7 +59,7 @@ Core现有车钩二分摆放允许毫米级变化，真实直线列车连续平�
 
 `existingPluginFloor` 可以要求完整后继区间；它与车尾净空是两项条件，取较严格者。
 `minimumHeadClear` 或授权余量超过运营路线终点时入口保持停车，不能把坐标裁到终点再声称足够。
-未知车身长度时，请求floor保守取冻结路线末端，但净空始终不成立；这可能多申请资源，不能据此放行。
+有净空要求却缺少当前有效车身时，`synchronizeRoute`明确失败，Dispatcher沿既有错误通道报告列车和缺失几何，不提交本次新增授权。不能将未知长度改成冻结路线末端，也不能拿旧缓存或车厢长度之和代替。Core正常活动列车本来就提供完整帧；调度器应直接传同一次捕获的帧，不拿旧ATO车头与当前车头比较后丢弃帧。没有净空声明的绑定不求车长，也不因这项计算附加错误。
 
 ## 已冻结的中立值
 
@@ -118,13 +119,12 @@ A 仍等待 B 的正常信号开放。这样按路线方向传播，而不形成
 来源/列车移除要清除旧结果；旧路线正在完成的 worker 不能覆盖新路线的完整状态。
 运行约束突然收紧时，控制器本次入口停车约束直接生效，不等待画面或下一次 Dispatcher 调度。
 
-生产接线使用以下宿主方法准备请求floor；显式米制长度用于持有一致几何的宿主调用，
-生产Dispatcher传完整帧，由已绑定要求决定是否求车身跨度：
+生产接线使用以下宿主方法准备请求floor；生产Dispatcher传完整帧，
+由已绑定要求决定是否求车身跨度，不再接受独立的caller-authored长度：
 
 ```kotlin
 synchronizeRoute(
     observationStamp: RailwayStateStamp, trainId: String, route: RouteSnapshot,
-    trainLengthMeters: Double? = null,
     authorityStoppingMarginMeters: Double = 0.0,
     publishedFrame: TrainFrameSnapshot? = null
 ): Double // 返回既有最大声明提前时间（秒）
@@ -140,7 +140,8 @@ synchronizeRoute(
 
 ## 性能与必需回归
 
-车身跨度求和为本列车已发布的 `B` 个车身片段的 O(B)。控制器只有有净空要求时才额外读取帧和定位进度；
+车身跨度求和为本列车已发布的 `B` 个车身片段的 O(B)。控制器复用本次已捕获帧及外部授权的物理路线进度，
+仅在该绑定有净空要求时额外计算车身跨度；没有净空要求不代表可以跳过外部授权定位。
 Dispatcher传入一次完整帧，宿主仅在该绑定有要求时计算车身跨度。
 入口在低频绑定时按坐标排序；设全部要求 D、本次纳入前视的入口 K，初始边界二分及单调扩展为 O(log D+K)。
 新覆盖入口各处理一次，不反复从头求固定点。各入口按下游到上游检查已有约束与本批下游入口hold；
@@ -156,6 +157,7 @@ Dispatcher传入一次完整帧，宿主仅在该绑定有要求时计算车身�
 还要覆盖无后继、运营终点太近、当前前视以外的红灯、自身红灯不自锁、同点外部停车不能忽略、
 Dispatcher 停止后的下一控制周期恢复、BA/重复经过、车身长度变化、缺帧和状态替换、变化局部唤醒与未变保持 idle。
 真实Core直线连续移动须证明长度解算抖动不会逐周期重编floor/唤醒共享规则，真实增大立即收紧、明显缩短回落，缺/错帧不能复用缓存ready。
+完整Dispatcher回归还须证明移动车辆传入有效body、请求保持滚动边界及必要的净空floor；不能只直接调用synchronizeRoute而遗漏Core→ATO→Dispatcher接线。缺帧/空body/错误列车或epoch的输入须明确拒绝且不能扩大已发布floor；旧测试中“缺长度时floor等于全路线”的断言必须改为拒绝。固定较远目标的合法净空要求仍可扩大请求，不能把所有全路线请求都判错。
 相邻保护区域须验证 B 先完成局部证明、A 经正常信号周期随后恢复，且 A 不会忽略 B 的停车信号。
 测试必须包含真实控制器、Basic 授权和信号结果交接，不以单独调用判断函数代替生产接线。
 当前测试入口是`EntryClearanceTest`、`EntryClearanceRuntimeTest`、Core的`CoreTrainPublicationBoundaryTest`，

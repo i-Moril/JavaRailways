@@ -57,8 +57,9 @@ import work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState
 import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
 import work.art1st.javarailways.core.api.physics.rail.RailObjectSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.train.Train
-import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
+import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.RailSegment
@@ -88,7 +89,7 @@ data class SimpleAtoRuntimeDiagnostics(
 )
 
 data class SimpleAtoPublishedState(
-    val trainSnapshot: TrainSnapshot,
+    val trainFrame: TrainFrameSnapshot,
     val lifetimeTravelDistanceMeters: Double,
     val perception: PerceptionSnapshot?,
     val perceptionHorizonMeters: Double,
@@ -156,7 +157,15 @@ class SimpleATO(
         val headDistanceFromRouteStartMeters: Double,
         val missionHeadProgressAtSelectionMeters: Double,
         val signalSnapshots: TrainRestrictionSnapshotProvider,
-        val inspectionBinding: InspectionRuntime.TrainBinding
+        val inspectionBinding: InspectionRuntime.TrainBinding,
+        val progress: RestrictionProgress
+    )
+
+    /** Occurrence hint only: the position itself is always projected from the current Core frame. */
+    private class RestrictionProgress(
+        var distanceMeters: Double,
+        var frameRevision: Long,
+        val reversed: Boolean
     )
 
     private data class Observed(
@@ -226,7 +235,7 @@ class SimpleATO(
             val controller = state.controllerState as? SimpleAtoControllerPublishedState
                 ?: INITIAL_CONTROLLER_STATE
             return SimpleAtoPublishedState(
-                trainSnapshot = state.trainSnapshot,
+                trainFrame = state.trainFrame,
                 lifetimeTravelDistanceMeters = state.lifetimeTravelDistanceMeters,
                 perception = controller.perception,
                 perceptionHorizonMeters = controller.perceptionHorizonMeters,
@@ -247,7 +256,7 @@ class SimpleATO(
     internal val trainRestrictionPublisher: TrainRestrictionPublisher =
         TrainRestrictionPublisher(trainRestrictionAdapter::publish)
 
-    /** Installs the Dispatcher-owned mapping from Mission progress to one frozen admission route. */
+    /** Installs the frozen physical route; Mission changes do not replace its physical occurrence. */
     @MainThread
     internal fun bindTrainRestrictionRoute(
         observationStamp: RailwayStateStamp,
@@ -256,6 +265,17 @@ class SimpleATO(
         signalSnapshots: TrainRestrictionSnapshotProvider,
         inspectionBinding: InspectionRuntime.TrainBinding = world.simpleAtoWorldData.inspectionRuntime.bindingFor(train.id)
     ) {
+        val frame = requireNotNull(train.publishedFrame)
+        val previous = restrictionRoute
+        val oldSegments = previous?.frozenRoute?.selection?.route?.segments
+        val newSegments = route.selection.route.segments
+        val progress = previous?.progress?.takeIf {
+            it.reversed == frame.reversed &&
+                previous.binding.routeId == route.selection.route.routeId &&
+                (previous.frozenRoute.selection.route === route.selection.route ||
+                    (oldSegments != null && oldSegments.size <= newSegments.size &&
+                        oldSegments.indices.all { index -> oldSegments[index] == newSegments[index] }))
+        } ?: RestrictionProgress(route.headDistanceFromRouteStartMeters, frame.revision, frame.reversed)
         restrictionRoute = RestrictionRoute(
             observationStamp = observationStamp,
             binding = FrozenRouteBinding.from(route.selection.route),
@@ -264,7 +284,8 @@ class SimpleATO(
             headDistanceFromRouteStartMeters = route.headDistanceFromRouteStartMeters,
             missionHeadProgressAtSelectionMeters = route.missionHeadProgressAtSelectionMeters,
             signalSnapshots = signalSnapshots,
-            inspectionBinding = inspectionBinding
+            inspectionBinding = inspectionBinding,
+            progress = progress
         )
     }
 
@@ -545,7 +566,7 @@ class SimpleATO(
                 resolved = resolved,
                 missionLayout = stationMissionLayout,
                 projectedProgressMeters = stationMissionLayout.project(
-                    TrainSnapshot.capture(train, perceptionEpoch).head
+                    requireNotNull(train.publishedFrame).head
                 )
             )
             activeCurrentStationCall = resolved
@@ -655,18 +676,20 @@ class SimpleATO(
         missionProgressMeters += lastTravelDistanceMeters
         val restriction = restrictionRoute
         val hasClearanceRequirements = restriction?.inspectionBinding?.entryClearances?.sourceIds?.isNotEmpty() == true
-        val frame = if (hasClearanceRequirements) train.publishedFrame else null
-        missionRouteLayout?.let { layout -> frame?.let {
-            missionProjectedProgressMeters = projectMissionProgress(layout, it.head)
-        } }
-        val progress = if (hasClearanceRequirements) restriction.let(::restrictionRouteProgress) else null
+        val frame = requireNotNull(train.publishedFrame) { "ATO requires a published frame for ${train.id}" }
+        val progress = restriction?.let { restrictionRouteProgress(it, frame) }
+        missionRouteLayout?.let { layout ->
+            missionProjectedProgressMeters = if (restriction?.missionRevision == layout.mission.revision) {
+                checkNotNull(progress) - restriction.headDistanceFromRouteStartMeters +
+                    restriction.missionHeadProgressAtSelectionMeters
+            } else projectMissionProgress(layout, frame.head)
+        }
         val nominalHorizon = routePerceptionHorizonMeters(
             restriction?.inspectionBinding?.maximumDeclaredLeadTimeSeconds
                 ?: inspectionMaximumLeadTimeSeconds(train.id)
         )
         val frameLength = if (hasClearanceRequirements) restriction.let { it.inspectionBinding.currentTrainLength(
-            frame, train.id, restrictionStamp(it).physicsEpoch,
-            RailPositionSnapshot.capture(train.headLocation, (train.headLocation as RailLocationWithFacing).facing)) }
+            frame, train.id, restrictionStamp(it).physicsEpoch) }
         else null
         val clearances = if (restriction != null && progress != null)
             restriction.inspectionBinding.entryClearances.between(progress, progress + nominalHorizon,
@@ -677,10 +700,7 @@ class SimpleATO(
                 safetyProfile.stopToleranceMeters + ROUTE_PERCEPTION_MARGIN_METERS
             if (end.isFinite()) maxOf(nominalHorizon, end - checkNotNull(progress)) else nominalHorizon
         } ?: nominalHorizon
-        val scan = scanRouteAndObjects(horizon)
-        missionRouteLayout?.let { layout ->
-            missionProjectedProgressMeters = projectMissionProgress(layout, scan.perception.train.head)
-        }
+        val scan = scanRouteAndObjects(horizon, frame)
         latestRouteSnapshot = scan.route
         latestPerceptionSnapshot = scan.perception
         activePerceptionHorizonMeters = scan.perceptionHorizonMeters
@@ -688,8 +708,7 @@ class SimpleATO(
         val gradeSegments = buildBrakingGradeSegments(scan.segments)
         activeBrakingEnvelope = if (gradeSegments.isEmpty()) null else actuator.brakingEnvelope(gradeSegments, deltaTimeSeconds, world.maximumPhysicsDeltaSeconds)
 
-        val geometryLength = frameLength?.takeIf { frame?.head == scan.perception.train.head }
-        updateTrainRestrictions(scan.perception, restriction, if (clearances.isNotEmpty()) horizon else null)
+        updateTrainRestrictions(scan.perception, restriction, progress, if (clearances.isNotEmpty()) horizon else null)
         synchronizeInfrastructureLimitWithHead()
         processSpeedLimitTransitions(scan)
         updateBuiltInConstraints(scan)
@@ -697,13 +716,13 @@ class SimpleATO(
         updateStationCallConstraints(scan)
         constraintManager.remove(ENTRY_CLEARANCE_OWNER)
         if (restriction != null && hasClearanceRequirements) {
-            val routeProgress = restrictionRouteProgress(restriction)
+            val routeProgress = checkNotNull(progress)
             val base = constraintManager.snapshot().values.flatten()
             val observedDistance = scan.segments.sumOf { it.totalArcLength }
             val holds = mutableListOf<AtoConstraint>()
             val statesBySource = linkedMapOf<String, MutableList<InspectionEntryClearanceState>>()
             clearances.asReversed().forEach { bound ->
-                val state = entryClearanceState(bound.requirement, geometryLength, routeProgress,
+                val state = entryClearanceState(bound.requirement, frameLength, routeProgress,
                     restriction.binding.totalLengthMeters, observedDistance,
                     safetyProfile, base + holds)
                 statesBySource.getOrPut(bound.sourceId, ::mutableListOf) += state
@@ -763,32 +782,38 @@ class SimpleATO(
         route.signalSnapshots.completedObservationStamp()
             ?.takeIf { it.physicsEpoch >= route.observationStamp.physicsEpoch } ?: route.observationStamp
 
-    private fun projectMissionProgress(layout: MissionRouteLayout, head: RailPositionSnapshot): Double {
-        layout.project(head, missionProjectedProgressMeters)?.let { return it }
-        val selected = restrictionRoute?.takeIf { it.missionRevision == layout.mission.revision }
-        val progress = selected?.frozenRoute?.missionProgressFromPhysicalHead(world.topologyState, head,
-            missionProjectedProgressMeters ?: missionProgressMeters)
-        check(progress != null) {
-            "ATO train head $head left active Mission ${layout.mission.id}@${layout.mission.revision} " +
-                "and its frozen physical route; previous progress=$missionProjectedProgressMeters"
+    private fun projectMissionProgress(layout: MissionRouteLayout, head: RailPositionSnapshot): Double =
+        checkNotNull(layout.project(head, missionProjectedProgressMeters)) {
+            "ATO train head $head left active Mission ${layout.mission.id}@${layout.mission.revision}; " +
+                "previous progress=$missionProjectedProgressMeters"
         }
-        // An operating stop is a target, not a physical graph boundary. Keep the measured error
-        // when still on its real continuation; existing constraints and Basic grants remain limits.
+
+    private fun restrictionRouteProgress(route: RestrictionRoute, frame: TrainFrameSnapshot): Double {
+        val cursor = route.progress
+        val reversedBeforeRebase = frame.reversed != cursor.reversed
+        val head = if (reversedBeforeRebase) {
+            check(activeMission == null && frame.speedMetersPerSecond == 0.0) {
+                "reversed train must remain stopped without a Mission until its restriction route is rebased"
+            }
+            // The old forward end is now the physical tail. Keep checking that same end against
+            // the retained forward grant until Basic rebases it; reversal does not release it.
+            frame.tail.copy(facing = if (frame.tail.facing == ViewDirection.AB) ViewDirection.BA else ViewDirection.AB)
+        } else frame.head
+        val travelled = if (!reversedBeforeRebase && frame.revision != cursor.frameRevision)
+            frame.headTraversal.sumOf { kotlin.math.abs(it.endArcLengthInAbMeters - it.startArcLengthInAbMeters) }
+        else 0.0
+        val progress = checkNotNull(route.frozenRoute.physicalHeadProgressMeters(
+            world.topologyState, head, cursor.distanceMeters + travelled
+        )) { "ATO train end $head left frozen restriction route ${route.binding}; previous progress=${cursor.distanceMeters}" }
+        cursor.distanceMeters = progress
+        cursor.frameRevision = frame.revision
         return progress
     }
 
-    private fun restrictionRouteProgress(route: RestrictionRoute): Double =
-        if (activeMission?.revision == route.missionRevision) {
-            val missionProgress = requireNotNull(missionProjectedProgressMeters) {
-                "active Mission has no projected progress for its frozen restriction route"
-            }
-            route.headDistanceFromRouteStartMeters + missionProgress - route.missionHeadProgressAtSelectionMeters
-        } else route.binding.totalLengthMeters
-
-    private fun updateTrainRestrictions(perception: PerceptionSnapshot, route: RestrictionRoute?, clearanceHorizon: Double? = null) {
+    private fun updateTrainRestrictions(perception: PerceptionSnapshot, route: RestrictionRoute?, progress: Double?, clearanceHorizon: Double? = null) {
         if (route == null) return
         val currentStamp = restrictionStamp(route)
-        val routeProgress = restrictionRouteProgress(route)
+        val routeProgress = checkNotNull(progress)
         val inspection = trainInspection?.takeIf { it.runtime === route.inspectionBinding.runtime }
             ?: route.inspectionBinding.runtime.createTrainInspection(train.id).also { trainInspection = it }
         inspection.update(
@@ -838,6 +863,13 @@ class SimpleATO(
 
     private fun updateBuiltInConstraints(scan: ScanResult) {
         val infrastructureLimits = buildList {
+            work.art1st.javarailways.simpleato.control.nativeBodySpeedLimits(train, scan.perception.train)
+                .forEach { (railId, limit) ->
+                    add(CurrentSpeedLimitConstraint(
+                        key = ConstraintKey("basic", "infrastructure-body/$railId"),
+                        maximumSpeedMetersPerSecond = limit
+                    ))
+                }
             activeInfrastructureLimitMetersPerSecond?.let { limit ->
                 add(CurrentSpeedLimitConstraint(
                     key = ConstraintKey("basic", "infrastructure-current"),
@@ -1141,10 +1173,13 @@ class SimpleATO(
             }
     }
 
-    private fun scanRouteAndObjects(horizon: Double): ScanResult {
+    private fun scanRouteAndObjects(horizon: Double, trainFrame: TrainFrameSnapshot): ScanResult {
         val topology = world.topologyState
-        val head = train.headLocation as? RailLocationWithFacing
-            ?: error("SimpleATO requires a facing-aware train head location")
+        val position = trainFrame.head
+        val rail = requireNotNull(world.getRail(position.railId)) { "ATO frame references a missing head rail" }
+        val head = RailLocationWithFacing(rail.getView(position.facing) as work.art1st.javarailways.core.physics.rail.RailView,
+            if (position.facing == work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB) position.arcLengthInAbMeters
+            else rail.curve.totalArcLength - position.arcLengthInAbMeters)
         val segments = head.peekCurve(horizon).toList()
         check(segments.isNotEmpty()) { "SimpleATO cannot build a route from the train head" }
 
@@ -1205,8 +1240,7 @@ class SimpleATO(
         }
         observations.sortBy { it.routeDistanceMeters }
 
-        val trainSnapshot = TrainSnapshot.capture(train, perceptionEpoch)
-        val perception = PerceptionSnapshot(perceptionEpoch, trainSnapshot, route, observations)
+        val perception = PerceptionSnapshot(perceptionEpoch, trainFrame, route, observations)
         val allObserved = previousObserved + current
         previousObserved = current
         return ScanResult(route, segments, perception, horizon, current, allObserved)

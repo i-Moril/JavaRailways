@@ -15,7 +15,7 @@ physics Tick boundary
 → drain strict-monotonic revisions并激活
 worker
 → SimpleATO plan/constraints → Basic actuator/move/invariant
-Core complete epoch
+Core complete train frames
 → onPhysicsStatePublished写volatile value state/notifications
 main owner await exact PhysicsTicket success
 → publish RailwayObservation
@@ -96,8 +96,8 @@ SimpleATO `AbstractATO`只在publication callback构造对外state：
 
 ```kotlin
 final override fun onPhysicsStatePublished() {
-    publishedState = AtoPublishedState(
-        trainSnapshot = captureTrainSnapshot(atoTick),
+    publishedState = PublishedAtoState(
+        trainFrame = requireNotNull(train.publishedFrame),
         lifetimeTravelDistanceMeters = activeLifetimeTravelDistanceMeters,
         controllerState = capturePublishedControllerState()
     )
@@ -105,7 +105,7 @@ final override fun onPhysicsStatePublished() {
 }
 ```
 
-来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/ato/AbstractATO.kt`。它避免Dispatcher在worker计算中看到mission与geometry的混合版本。
+来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/ato/AbstractATO.kt`。Core先发布完整train frame，再通知该hook；这里只持有该帧，不复制物理字段或用controller speed覆盖frame速度。它避免Dispatcher在worker计算中看到mission与geometry的混合版本。人工接管后的实时位置由Core当前帧提供，不能继续读已经脱离列车的旧ATO publication。
 
 ## 必需测试与验证
 

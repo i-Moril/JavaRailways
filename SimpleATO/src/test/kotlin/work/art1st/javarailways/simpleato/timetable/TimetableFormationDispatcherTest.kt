@@ -383,7 +383,11 @@ class TimetableFormationDispatcherTest {
         Fixture(false, coupling = true, coupledContinuation = continueOutput, measureTasks = true).use { f ->
             f.begin()
             f.physics.start()
-            repeat(1600) { f.tick() }
+            repeat(1600) {
+                f.tick()
+                assertFalse(f.world.simpleAtoWorldData.atoCoordinator.isStalled,
+                    "output must consume its adopted body grant: ${f.world.simpleAtoWorldData.atoCoordinator.lastStall}")
+            }
             assertEquals(1, f.world.allTrains.size, f.dispatcher.statuses().toString())
             assertEquals(3, f.train.cars.size)
             assertEquals(1, f.preparations)

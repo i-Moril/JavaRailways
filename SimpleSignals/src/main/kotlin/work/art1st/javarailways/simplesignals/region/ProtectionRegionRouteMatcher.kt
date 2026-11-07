@@ -142,11 +142,9 @@ internal object ProtectionRegionRouteMatcher {
                 if (overlapHigh - overlapLow <= Curve.TOLERANCE) continue
                 val (start, end) = when (occurrence.facing) {
                     ViewDirection.AB ->
-                        occurrence.routeStartMeters + overlapLow - occurrence.canonicalStartAbMeters to
-                            occurrence.routeStartMeters + overlapHigh - occurrence.canonicalStartAbMeters
+                        occurrence.routeDistanceAt(overlapLow) to occurrence.routeDistanceAt(overlapHigh)
                     ViewDirection.BA ->
-                        occurrence.routeStartMeters + occurrence.canonicalStartAbMeters - overlapHigh to
-                            occurrence.routeStartMeters + occurrence.canonicalStartAbMeters - overlapLow
+                        occurrence.routeDistanceAt(overlapHigh) to occurrence.routeDistanceAt(overlapLow)
                 }
                 intersections += RouteDistanceInterval(start, end)
             }

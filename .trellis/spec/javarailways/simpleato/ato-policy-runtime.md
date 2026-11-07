@@ -22,6 +22,12 @@ route/perception scan生成车辆、停车、跟车、授权与外部restriction
 `SimpleATOWorldData`在组合边界要求coordinator引用的必须是同一Basic world的exact interlock实例；
 不允许ATO与手动控制各自锁定一份彼此隔离的latch。
 
+初始物理现场由当前`AbstractATO.initialTrainFrame`持有，含义是本控制器创建时捕获的Core帧；
+reset不重新采样。world coordinator不再按所有历史train ID维护初态map。故障报告保存当时帧引用，
+旧帧不随列车后续运动改变，也不能在JSON输出时重新读取最新帧替换现场。报告只显式写既有小字段，
+carCount取frame.cars.size；旧诊断revision按ATO/感知上下文的计数写出，不偷换成Core frame.revision。
+此变化不增加物理摘要模型、持久化字段或schema代际；frame所有权与发布顺序归Core。
+
 ## Mission与constraint机制
 
 - mission request与legs防御性复制；resolver逐leg执行WayPoint resolve和统一的`OperationalRoutePlanner`，任一失败不产生partial mission；

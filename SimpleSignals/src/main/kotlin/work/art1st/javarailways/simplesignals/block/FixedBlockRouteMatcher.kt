@@ -162,25 +162,29 @@ internal object FixedBlockRouteMatcher {
                 val overlapLow = max(routeLow, traversal.lowerAbMeters)
                 val overlapHigh = min(routeHigh, traversal.upperAbMeters)
                 if (overlapHigh - overlapLow <= Curve.TOLERANCE) continue
-                val routeStart = when (occurrence.facing) {
-                    ViewDirection.AB ->
-                        occurrence.routeStartMeters + overlapLow - occurrence.canonicalStartAbMeters
-                    ViewDirection.BA ->
-                        occurrence.routeStartMeters + occurrence.canonicalStartAbMeters - overlapHigh
+                val (startAb, endAb) = when (occurrence.facing) {
+                    ViewDirection.AB -> overlapLow to overlapHigh
+                    ViewDirection.BA -> overlapHigh to overlapLow
                 }
+                val routeStart = occurrence.routeDistanceAt(startAb)
                 if (routeStart >= authorityEndRouteMeters - Curve.TOLERANCE) continue
-                val fullLength = overlapHigh - overlapLow
-                val retainedLength = min(fullLength, authorityEndRouteMeters - routeStart)
-                if (retainedLength <= Curve.TOLERANCE) continue
+                val fullRouteEnd = occurrence.routeDistanceAt(endAb)
+                val routeEnd = min(fullRouteEnd, authorityEndRouteMeters)
+                if (routeEnd - routeStart <= Curve.TOLERANCE) continue
                 val blockStart = when (traversal.facing) {
-                    ViewDirection.AB -> blockTraversalStart + overlapLow - traversal.lowerAbMeters
-                    ViewDirection.BA -> blockTraversalStart + traversal.upperAbMeters - overlapHigh
+                    ViewDirection.AB -> blockTraversalStart + (overlapLow - traversal.lowerAbMeters)
+                    ViewDirection.BA -> blockTraversalStart + (traversal.upperAbMeters - overlapHigh)
+                }
+                val fullBlockEnd = when (traversal.facing) {
+                    ViewDirection.AB -> blockTraversalStart + (overlapHigh - traversal.lowerAbMeters)
+                    ViewDirection.BA -> blockTraversalStart + (traversal.upperAbMeters - overlapLow)
                 }
                 pieces += OverlapPiece(
                     routeStartMeters = routeStart,
-                    routeEndMeters = routeStart + retainedLength,
+                    routeEndMeters = routeEnd,
                     blockStartMeters = blockStart,
-                    blockEndMeters = blockStart + retainedLength
+                    blockEndMeters = if (routeEnd == fullRouteEnd) fullBlockEnd
+                        else blockStart + (routeEnd - routeStart)
                 )
             }
             blockTraversalStart += traversal.lengthMeters

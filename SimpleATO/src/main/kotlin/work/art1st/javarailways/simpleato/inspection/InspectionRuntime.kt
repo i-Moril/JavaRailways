@@ -184,9 +184,8 @@ class InspectionRuntime(
         internal val activeRoute: ActiveRoute? = null
     ) {
         internal val runtime: InspectionRuntime get() = this@InspectionRuntime
-        internal fun currentTrainLength(frame: TrainFrameSnapshot?, trainId: String, physicsEpoch: Long,
-            head: work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot): Double? =
-            activeRoute?.geometryLength?.observe(currentTrainLengthMeters(frame, trainId, physicsEpoch, head), physicsEpoch)
+        internal fun currentTrainLength(frame: TrainFrameSnapshot?, trainId: String, physicsEpoch: Long): Double? =
+            activeRoute?.geometryLength?.observe(currentTrainLengthMeters(frame, trainId, physicsEpoch), physicsEpoch)
         val maximumDeclaredLeadTimeSeconds: Double = definitions.values.maxOfOrNull {
             it.compiled.maximumDeclaredInspectionLeadTimeSeconds
         } ?: 0.0
@@ -288,27 +287,26 @@ class InspectionRuntime(
         observationStamp: RailwayStateStamp,
         trainId: String,
         route: RouteSnapshot,
-        trainLengthMeters: Double? = null,
         authorityStoppingMarginMeters: Double = 0.0,
         publishedFrame: TrainFrameSnapshot? = null
     ): Double {
         require(trainId.isNotBlank()) { "trainId must not be blank" }
-        require(trainLengthMeters == null || trainLengthMeters.isFinite() && trainLengthMeters > 0.0)
         require(authorityStoppingMarginMeters.isFinite() && authorityStoppingMarginMeters >= 0.0)
         if (observedTopologyRevision == null) observedTopologyRevision = observationStamp.topologyRevision
         check(completeTopologyHandoff && observationStamp.topologyRevision <= checkNotNull(observedTopologyRevision)) {
             "inspection topology changed without a transaction handoff"
         }
         val current = activeRoutesByTrain[trainId]
-        fun currentLength(bindings: Map<String, CompiledSourceBinding>, owner: ActiveRoute): Double? =
-            if (trainLengthMeters != null) owner.geometryLength.observe(trainLengthMeters, observationStamp.physicsEpoch)
-            else if (bindings.values.any { it.compiled.binding.entryClearances.isNotEmpty() })
-                owner.geometryLength.observe(currentTrainLengthMeters(publishedFrame, trainId, observationStamp.physicsEpoch), observationStamp.physicsEpoch)
-            else null
+        fun currentLength(bindings: Map<String, CompiledSourceBinding>, owner: ActiveRoute): Double? {
+            if (bindings.values.none { it.compiled.binding.entryClearances.isNotEmpty() }) return null
+            return checkNotNull(owner.geometryLength.observe(
+                currentTrainLengthMeters(publishedFrame, trainId, observationStamp.physicsEpoch), observationStamp.physicsEpoch
+            )) { "Cannot request route authority for train $trainId: current published frame/body geometry is unavailable" }
+        }
         if (current?.route == route && compiledBindingsByTrain[trainId]?.keys == sourcesById.keys) {
             check(current.available) { "inspection route intersects an edited rail; explicit replan is required" }
-            current.observationStamp = observationStamp
             val length = currentLength(compiledBindingsByTrain.getValue(trainId), current)
+            current.observationStamp = observationStamp
             if (current.trainLengthMeters != length ||
                 current.authorityStoppingMarginMeters != authorityStoppingMarginMeters) {
                 current.trainLengthMeters = length
@@ -319,7 +317,7 @@ class InspectionRuntime(
             }
             return maximumDeclaredLeadTimeSeconds(trainId)
         }
-        val activeRoute = ActiveRoute(observationStamp, route, trainLengthMeters, authorityStoppingMarginMeters)
+        val activeRoute = ActiveRoute(observationStamp, route, null, authorityStoppingMarginMeters)
         val compiled = try {
             compileBindings(trainId, activeRoute, sourcesById, compiledBindingsByTrain[trainId])
         } catch (failure: BindingCompilationFailure) {
@@ -653,13 +651,15 @@ class InspectionRuntime(
                 bySource.values.flatMap { it.compiled.authorityRequestFloors } +
                     bySource.values.flatMap { it.compiled.binding.entryClearances }.map { clearance ->
                         val active = activeRoutesByTrain.getValue(trainId)
-                        val length = active.trainLengthMeters
-                        val end = length?.let { clearance.tailClearRouteDistanceMeters + it +
-                            active.authorityStoppingMarginMeters }?.takeIf(Double::isFinite)
+                        val length = checkNotNull(active.trainLengthMeters) {
+                            "Cannot request route authority for train $trainId: current body geometry is unavailable"
+                        }
+                        val end = clearance.tailClearRouteDistanceMeters + length + active.authorityStoppingMarginMeters
+                        check(end.isFinite()) { "Non-finite clearance boundary for train $trainId" }
                         // A clipped request is NOT clearance proof. The controller and selector
                         // retain the un-clipped target and keep the entrance closed if it cannot fit.
                         AuthorityRequestFloor(clearance.entryRouteDistanceMeters,
-                            minOf(end ?: routes.single().totalLengthMeters, routes.single().totalLengthMeters),
+                            minOf(end, routes.single().totalLengthMeters),
                             clearance.declarationId)
                     }
             )

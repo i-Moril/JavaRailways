@@ -19,14 +19,14 @@ SimpleATO同时拥有`AbstractATO`、mission、constraint与world Stall coordina
    `HandleTrainActuator`后再把controller安装到目标Core train；生产与隔离composition不得使用运动学actuator；
 2. Dispatcher在serialized owner上提交带revision的mission、station call、reverse或authority命令；
 3. physics tick开始时controller只在边界drain已接受命令，形成一份active mission/route状态；
-4. controller先把前视入口的车尾净空目标并入horizon，再构造一次perception，用当前Mission投影更新该列车inspection激活状态并消费上一成功signal epoch的失效标记，
+4. controller先从本次Core帧在已绑定冻结物理路线上定位车头，用同一进度计算前视入口净空、更新inspection并消费上一成功signal epoch的失效标记；前视净空目标并入horizon后只构造一次perception，
    然后读取最新immutable restriction snapshots，按owner原子替换constraints并取所有候选中最严格速度；
    入口净空门控在基础线路、mission、station及信号约束合成以后、最终planner以前检查同一份约束；
    未就绪时安装该入口停车约束，同时交接不可变结果，不阻止Dispatcher继续准备资源；
 5. `AbstractATO`先验证不变量，将实际设备状态和 `TrainControlFrame` 交给 world-local `RailwayControlRuntime`。
    `VehicleControlExecutor`每物理tick检查ATP，按行车/停车参考策略选择数字牵引/制动指令；Basic actuator只执行该指令，
    由现有逐车 `TrainDynamicsExecutor`积分一次，再经protected seam移动Core train；
-6. 成功epoch结束时`AbstractATO`原子发布train snapshot、累计距离和controller value state，Dispatcher只读取这份publication。
+6. Core先发布本轮完整train frame，然后`AbstractATO`原子发布该frame引用、累计距离和controller value state。Dispatcher读取这份控制状态，并在owner阶段一次捕获当前Core帧用于物理判断，不从旧ATO副本补物理字段。
 
 Mission、constraint和station-call的mutable集合都只存在于该controller实例，不在
 `SimpleATOWorldData`或Basic创建第二份镜像。每列车每tick的route/perception扫描仍为线性；controller只从world-local
@@ -37,8 +37,8 @@ inspection runtime读取编译好的声明及最大提前时间；controller按�
 通过正常epoch publication发布mission就绪状态。允许读取制动包络等只读规划查询，但不调用actuator.step/freeze或移动seam，
 不累计行驶距离。异常保留同一ATO stall诊断并保持停车；配置隔离、脱轨或待处理碰撞均不进入该准备流程。
 `FormationHeldAtoPreparationTest`使用真实SimpleATO mission验证合法激活、过期物理origin拒绝及全程不改变actuator历史。
-具有中立净空要求的列车才额外读取一次 Core `publishedFrame`、求和有序车身跨度并定位冻结路线进度；
-没有要求的普通列车不承担这些工作。净空跨度进入下一个入口时按预编译有序入口继续扩长一次，
+具有中立净空要求的列车才沿本次已捕获Core帧求和有序车身跨度；冻结授权路线定位由外部限制共用，不以是否存在净空要求决定。
+没有要求的普通列车不承担净空求和工作。净空跨度进入下一个入口时按预编译有序入口继续扩长一次，
 仍只执行原有的一次前方扫描，不能先扫描再补扫。具体算法、坐标和回归归[入口净空合同](entry-clearance.md)。
 每列车的`InspectionRuntime.TrainInspection`独占自己的scheduler和baseline状态，低频lifecycle只发布编译结果，
 不得从Dispatcher或signal epoch修改物理worker正在使用的scheduler。不同列车的`InspectionUpdateHandler`可以并发执行，
@@ -71,16 +71,41 @@ ATO/ATP路径调用未来多tick的真实动力学预演。参考策略见[参�
 
 controller同时拥有该列车唯一的`TrainRestrictionConstraintAdapter`。admission client直接向adapter发布immutable
 restriction snapshot；Dispatcher仅在route建立/延长时绑定冻结route、Mission revision及二者的坐标映射。每个physics tick
-由controller用当前Mission投影和上一成功signal observation stamp调用apply，adapter把结果原子替换进controller原有
+由controller用本次实际物理路线进度和上一成功signal observation stamp调用apply，adapter把结果原子替换进controller原有
 `ConstraintManager`。这不是第二份约束存储或第二个制动器：最终仍由同一个
 `MinimumConstraintPlanner`与车辆、停车、跟车等constraint一起取最严格值。部分和完整Basic授权都保留真实外部MA；
 完整frozen route授权不是撤销硬边界的理由。mission Stop constraint仍按原运营目标停车，真实余量与完成检查归[终点分离契约](terminal-route-completion.md)。
 
-运营停车目标不一定是物理路线末端。Mission投影无法表示车头时，controller与Dispatcher复用已绑定冻结物理路径作有界投影，保留实际停车误差；接续映射、执行条件及成本归[停车目标与授权终点分离](terminal-route-completion.md)，不能因位置仍在真实物理后缀内就将其误判为离开路线。
+运营停车目标不一定是物理路线末端。controller已有冻结授权路线时，先沿该路线定位本次真实车头；匹配的Mission进度复用这次结果换算，不能再投影一遍。新Mission已生效而旧授权映射仍有效时，旧授权继续使用真实物理位置，新Mission自身按其layout定位，不用旧路线终点冒充车头，也不跳过旧grant。Dispatcher的运营进度与实际推进检查仍遵循各自既有调用时机。接续、重复经过、折返与成本归[停车目标与授权终点分离](terminal-route-completion.md#坐标映射与下一任务)。
 
 signal epoch不直接持有controller。它先写world-local immutable snapshot store，并只在全部publication成功后推进completed
 observation stamp。下一次physics tick中controller从route绑定携带的world-local snapshot source读取最新限制；同revision
 重复读取是幂等的，wrong train、source unavailable或store/controller revision矛盾会在controller tick内使world fail closed。
+
+### 车身覆盖的原生轨道限速
+
+自动和手动驾驶的当前原生限速由同一次捕获的 `TrainFrameSnapshot.bodyTraversal` 决定，
+不能用车头所在轨道、转向架落点或旧 ATO 状态代替整车覆盖。SimpleATO 负责把限制接入普通参考控制和 ATP；
+Basic 仍负责 `CURVE/SUBGRADE` 元数据与独立的脱轨监测，见[速度与脱轨安全](../basic/speed-and-derail-safety.md)。
+
+`nativeBodySpeedLimits(train: Train, frame: TrainFrameSnapshot): Map<UUID, Double>` 是本模块内部共享读取函数，
+返回轨道 ID 到 m/s 上限的本次计算结果，不保留状态。控制周期从已捕获帧枚举车身轨道并按 ID 去重，读取每轨已有
+`speedLimits.effectiveLimitMetersPerSecond()`，将有限限制加入距离零的当前限速目标。
+自动路径与手动路径共用这一小段读取逻辑，各自接入原有控制帧合成，普通参考与硬保护同时收到限制。
+例如车头已进入无限速轨道、两转向架之间仍覆盖一米长的低速轨道，当前目标仍含该低速限制；
+只有后续物理帧显示车身完全离开它，下一周期才能移除。反向行驶遵守相同规则。
+
+前方原生入口信号仍提供有距离的提前制动目标，当前车身限速不替代前方扫描；
+也不改变下文按车头通过终点释放的信号区间限速。无原生限制的轨道不增加目标；缺失物理帧、
+空车体或已不存在的占用轨道是控制输入错误，沿既有异常路径停止，不能从 live bogie 拼回另一份位置。
+
+该计算在原有 worker 决策内执行，时间 O(B)、临时空间 O(B+U)，B 为车身遍历片段数，U 为不同轨道数。
+元数据仍是既有静态值；不新建缓存、信号来源、版本或生命周期，物理帧只读且不逐字段重采样。
+无需持久化迁移。只读车头会过早解除限制，依赖独立脱轨监测事后处理也不能补足普通驾驶/ATP的输入。
+
+回归应覆盖自动与手动的 reference/protection 双目标、无转向架落入的短轨、AB/BA、
+车尾清除前后，以及前方入口提前响应；至少一组真实 Basic 设备行驶回归证明覆盖期间受限、清除后可加速，
+不能仅靠静态目标列表或替代 actuator 宣称动态控制已验证。
 
 ### 缓存的区间速度限制
 
@@ -116,12 +141,16 @@ observation stamp。下一次physics tick中controller从route绑定携带的wor
 不以这里的参数准备测试代替接触位置及资源/运营元数据的验证。
 
 `AbstractATO`把一次publication表示为protected immutable `PublishedAtoState`，并通过一次volatile reference
-读取返回完整快照。SimpleATO必须只调用一次reader，再从该对象读取train snapshot、累计距离和controller state；
+读取返回完整快照。SimpleATO必须只调用一次reader，再从该对象读取trainFrame、累计距离和controller state；
 不得把字段拆成多次volatile读取，否则并发publication可能产生跨epoch混合。Dispatcher不能读取worker正在修改的
 active字段，也不能改写controller内部publication reference。
 
 `SimpleAtoPublishedState`把这三个值和immutable controller state组合成Dispatcher可读取的快照。tick完成但
 Core尚未调用commit/publication时，旧快照必须保持不变；publication成功后所有字段一起前进。
+`TrainSnapshot`摘取类型已删除；`trainFrame`引用Core原始不可变值，不覆盖其speed，也不再保存第二份head/tail。
+感知使用本轮开始时捕获的已提交帧，发布状态使用本轮结束的新帧，二者采样阶段不同是正常情况；
+不能拿感知/ATO旧车头和当前车头相等当作同一epoch的证明。人工接管后旧ATO不再发布，
+Dispatcher的物理状态和状态展示必须直接读取当前Core帧，不依赖旧控制器仍在更新。
 成功publication还记录本次已完成inspection的冻结route。新binding的Basic申请/推进/扩权必须等controller已检查该route，
 且完整publication包含所需horizon；不得用旧路线结果或上一个较短perception放宽准入。
 

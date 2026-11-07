@@ -41,22 +41,28 @@ internal data class FrozenMissionRoute(
         var start = 0.0
         var closest: Double? = null
         selection.route.segments.forEach { segment ->
+            val end = start + segment.lengthMeters
             if (head.railId == segment.railId && head.facing == segment.facing) {
                 val rail = topology.railProjection[head.railId]?.singleOrNull() ?: return null
                 val length = abs(rail.railEndAbMeters - rail.railStartAbMeters)
-                val arc = if (head.facing == ViewDirection.AB) head.arcLengthInAbMeters
-                    else length - head.arcLengthInAbMeters
-                if (arc >= segment.startArcLengthMeters - 1.0e-6 &&
-                    arc <= segment.endArcLengthMeters + 1.0e-6
-                ) {
-                    val candidate = start + arc - segment.startArcLengthMeters
+                val startAb = if (segment.facing == ViewDirection.AB) segment.startArcLengthMeters
+                    else length - segment.startArcLengthMeters
+                val endAb = if (segment.facing == ViewDirection.AB) segment.endArcLengthMeters
+                    else length - segment.endArcLengthMeters
+                val arc = head.arcLengthInAbMeters
+                if (arc >= minOf(startAb, endAb) && arc <= maxOf(startAb, endAb)) {
+                    val candidate = when (arc) {
+                        startAb -> start
+                        endAb -> end
+                        else -> start + if (segment.facing == ViewDirection.AB) arc - startAb else startAb - arc
+                    }
                     val previousClosest = closest
                     if (previousClosest == null || abs(candidate - expectedProgressMeters) < abs(previousClosest - expectedProgressMeters)) {
                         closest = candidate
                     }
                 }
             }
-            start += segment.lengthMeters
+            start = end
         }
         return closest
     }

@@ -6,12 +6,17 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.logging.Logger
 import work.art1st.javarailways.basic.api.ato.*
 import work.art1st.javarailways.core.api.physics.train.Train
-import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
+import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 
 /** Captured before intervention; no mutable controller or dynamics workspace escapes. */
-data class AtpDiagnosticContext(val worldId: String, val train: TrainSnapshot,
+data class AtpDiagnosticContext(val worldId: String, val train: TrainFrameSnapshot,
     val topologyRevision: Long, val missionRevision: Long?, val frame: TrainControlFrame,
-    val capabilities: VehicleControlCapabilities)
+    val capabilities: VehicleControlCapabilities) {
+    override fun toString(): String = "AtpDiagnosticContext(worldId=$worldId, trainId=${train.trainId}, " +
+        "physicsEpoch=${train.physicsEpoch}, head=${train.head}, tail=${train.tail}, " +
+        "speed=${train.speedMetersPerSecond}, topologyRevision=$topologyRevision, " +
+        "missionRevision=$missionRevision, frame=$frame, capabilities=$capabilities)"
+}
 data class AtpIncident(val sequence: Long, val event: AtpControlEvent)
 
 /** One latch per physical train, retained when its driver/controller changes. */
@@ -71,8 +76,9 @@ class RailwayControlRuntime(private val worldId: String) : VehicleCommandSupervi
     private fun decide(train: Train, state: VehicleControlState, capabilities: VehicleControlCapabilities,
         frame: TrainControlFrame, delta: Double, mode: VehicleExecutionMode,
         proposed: VehicleControlCommand?, missionRevision: Long?): VehicleControlCommand {
-        val context = AtpDiagnosticContext(worldId, TrainSnapshot.capture(train,
-            train.publishedFrame?.physicsEpoch ?: 0L), train.world.topologyState.revision,
+        val context = AtpDiagnosticContext(worldId, requireNotNull(train.publishedFrame) {
+            "ATP requires a published frame for ${train.id}"
+        }, train.world.topologyState.revision,
             missionRevision, frame, capabilities)
         val grade = minOf(frame.mostAdverseGrade, capabilities.worstCurrentGrade,
             RouteGradeBounds.mostAdverseOccupiedGrade(train))

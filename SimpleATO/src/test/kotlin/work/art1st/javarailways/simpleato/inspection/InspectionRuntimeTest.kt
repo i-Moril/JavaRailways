@@ -12,7 +12,7 @@ import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
-import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
+import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclarationBinding
 import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
@@ -234,14 +234,11 @@ class InspectionRuntimeTest {
     private val stamp = RailwayStateStamp("world", 11L, route.topologyRevision)
     private val perception = PerceptionSnapshot(
         4L,
-        TrainSnapshot(
-            "train",
-            4L,
-            10.0,
-            false,
-            1,
+        TrainFrameSnapshot.create(
+            "train", "train", 4L, 4L, 10.0, false, false, emptyList(),
             RailPositionSnapshot(railId, ViewDirection.AB, 50.0),
-            RailPositionSnapshot(railId, ViewDirection.AB, 40.0)
+            RailPositionSnapshot(railId, ViewDirection.AB, 40.0),
+            emptyList(), emptyList(), emptyList(), emptyList(), emptyList()
         ),
         route,
         emptyList()
@@ -574,7 +571,11 @@ class InspectionRuntimeTest {
         }
         fun update(trainId: String) = workers.getValue(trainId).update(
             stamp, routeBinding, 50.0, 0.0, 20.0, 1.0,
-            PerceptionSnapshot(perception.epoch, perception.train.copy(trainId = trainId), route, emptyList())
+            PerceptionSnapshot(perception.epoch, perception.train.let { frame -> TrainFrameSnapshot.create(
+                trainId, trainId, frame.revision, frame.physicsEpoch, frame.speedMetersPerSecond, frame.derailed,
+                frame.reversed, frame.cars, frame.head, frame.tail, frame.occupiedIntervals, frame.bodyTraversal,
+                frame.sweptSpans, frame.headTraversal, frame.tailTraversal)
+            }, route, emptyList())
         )
         val executor = Executors.newFixedThreadPool(2)
         try {

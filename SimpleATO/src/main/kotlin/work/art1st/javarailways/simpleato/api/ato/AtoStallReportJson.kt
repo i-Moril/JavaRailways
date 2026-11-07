@@ -11,7 +11,7 @@ import work.art1st.javarailways.basic.api.ato.snapshot.RailObservationSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailObjectSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
-import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
+import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.simpleato.api.constraint.AtoConstraint
 import work.art1st.javarailways.simpleato.api.constraint.CurrentSpeedLimitConstraint
 import work.art1st.javarailways.simpleato.api.constraint.DepartureHoldConstraint
@@ -41,8 +41,8 @@ object AtoStallReportJson {
                     "stackTrace" to JsonPrimitive(stackTrace)
                 )
             ),
-            "initialTrain" to (initialTrain?.toJson() ?: JsonNull),
-            "currentTrain" to (currentTrain?.toJson() ?: JsonNull),
+            "initialTrain" to (initialTrain?.toJson(0L) ?: JsonNull),
+            "currentTrain" to (currentTrain?.toJson(tick) ?: JsonNull),
             "route" to (route?.toJson() ?: JsonNull),
             "perception" to (perception?.toJson() ?: JsonNull),
             "constraints" to JsonArray(
@@ -61,13 +61,13 @@ object AtoStallReportJson {
         )
     )
 
-    private fun TrainSnapshot.toJson(): JsonObject = JsonObject(
+    private fun TrainFrameSnapshot.toJson(contextRevision: Long): JsonObject = JsonObject(
         mapOf(
             "trainId" to JsonPrimitive(trainId),
-            "revision" to JsonPrimitive(revision),
+            "revision" to JsonPrimitive(contextRevision),
             "speedMetersPerSecond" to JsonPrimitive(speedMetersPerSecond),
             "derailed" to JsonPrimitive(derailed),
-            "carCount" to JsonPrimitive(carCount),
+            "carCount" to JsonPrimitive(cars.size),
             "head" to head.toJson(),
             "tail" to tail.toJson()
         )
@@ -102,7 +102,7 @@ object AtoStallReportJson {
     private fun PerceptionSnapshot.toJson(): JsonObject = JsonObject(
         mapOf(
             "epoch" to JsonPrimitive(epoch),
-            "trainRevision" to JsonPrimitive(train.revision),
+            "trainRevision" to JsonPrimitive(epoch),
             "routeId" to JsonPrimitive(route.routeId),
             "routeRevision" to JsonPrimitive(route.revision),
             "observations" to JsonArray(observations.map { it.toJson() })

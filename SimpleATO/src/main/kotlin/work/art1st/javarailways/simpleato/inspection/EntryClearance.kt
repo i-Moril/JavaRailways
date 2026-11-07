@@ -3,7 +3,6 @@ package work.art1st.javarailways.simpleato.inspection
 import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.physics.curve.Curve
-import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.simpleato.api.constraint.*
 import work.art1st.javarailways.simpleato.api.inspection.InspectionEntryClearance
@@ -16,10 +15,8 @@ internal fun conservativeTrainLengthMeters(body: List<RailTraversalSegmentSnapsh
         ?.takeIf { it.isFinite() && it > 0.0 }
 
 /** Identity, epoch and geometry are read from one immutable published frame, never mixed. */
-internal fun currentTrainLengthMeters(frame: TrainFrameSnapshot?, trainId: String, physicsEpoch: Long,
-    expectedHead: RailPositionSnapshot? = null): Double? =
-    frame?.takeIf { it.trainId == trainId && !it.derailed && it.physicsEpoch == physicsEpoch &&
-        (expectedHead == null || it.head == expectedHead) }
+internal fun currentTrainLengthMeters(frame: TrainFrameSnapshot?, trainId: String, physicsEpoch: Long): Double? =
+    frame?.takeIf { it.trainId == trainId && !it.derailed && it.physicsEpoch == physicsEpoch }
         ?.let { conservativeTrainLengthMeters(it.bodyTraversal) }
 
 /** Route-owned conservative envelope absorbs placement tolerance, not real consist changes. */

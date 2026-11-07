@@ -23,6 +23,9 @@ import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
 import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.simpleato.api.timetable.*
+import work.art1st.javarailways.simpleato.api.inspection.*
+import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
+import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
@@ -57,6 +60,7 @@ class RollingStationAdmissionTest {
             assertTrue(first.intent.desiredAuthority.distanceFromRouteStartMeters < 100.0,
                 "stationary startup must not reserve the roughly 600 metre mission")
             assertTrue(first.intent.route.totalLengthMeters > 580.0)
+            assertTrue(f.movingClearanceRequests > 0, "moving requests must exercise dispatcher frame/body capture")
 
             f.until(3200, "rear must encounter occupancy and stop within its previous grant") {
                 f.requests.any { it.intent.trainId == f.rear.id &&
@@ -124,8 +128,15 @@ class RollingStationAdmissionTest {
             Any(), { observation }, { emptyList() }, { _, _ -> null }, { _, _ -> null },
             stallWorld = { detail, _ -> failures += detail })
         val requests = arrayListOf<Request>()
+        var movingClearanceRequests = 0
         private val service = object : RouteResourceAdmissionService {
             override fun request(intent: RouteResourceIntent): RouteAdmissionResult {
+                if (intent.trainId == rear.id && rear.publishedFrame.speedMetersPerSecond > 0.0 &&
+                    rear.publishedFrame.head.arcLengthInAbMeters < 100.0) {
+                    movingClearanceRequests++
+                    assertTrue(intent.desiredAuthority.distanceFromRouteStartMeters < intent.route.totalLengthMeters,
+                        "a moving train with entry clearance must not lose its body and request the whole route")
+                }
                 val before = runtime.activeAdmissions().singleOrNull { it.trainId == intent.trainId }?.committedAuthority
                 val result = runtime.request(requester, intent)
                 requests += Request(intent, result)
@@ -142,6 +153,17 @@ class RollingStationAdmissionTest {
         }
         private val signals = TrainRestrictionSnapshotStore(WORLD)
         private val inspection = InspectionRuntime(signals) { _, _, failure -> throw failure }
+        init {
+            val revision = java.util.concurrent.atomic.AtomicLong()
+            inspection.replaceSources(listOf(InspectionSource("test:clearance", { input ->
+                val movingRear = input.trainId == rear.id
+                InspectionDeclarationBinding("test:clearance", input.trainId, FrozenRouteBinding.from(input.route),
+                    1L, 1L, if (movingRear) listOf(InspectionDeclaration("test:entry", rail.id,
+                        ViewDirection.AB, 50.0, 0.0)) else emptyList(),
+                    entryClearances = if (movingRear) listOf(InspectionEntryClearance("test:entry", 50.0, 60.0)) else emptyList())
+            }, { input -> listOf(TrainRestrictionSnapshot("test:clearance", revision.incrementAndGet(), input.perception.train.trainId,
+                input.observationStamp, input.route, emptyList())) })))
+        }
         private val profile = AtoSafetyProfile(accelerationMetersPerSecondSquared = 1.0,
             serviceDecelerationMetersPerSecondSquared = 1.0, reactionTimeSeconds = 1.0, safetyDistanceMeters = 5.0)
         private val dispatcher = TimetableDispatcher(authorityStoppingMarginMeters = profile.safetyDistanceMeters,

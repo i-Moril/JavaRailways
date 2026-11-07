@@ -36,7 +36,12 @@ data class TrainFrameSnapshot private constructor(
 其他不能提供完整帧的实现返回 null；读取为常数时间，不调用曲线、车身求解或渲染操作。
 消费方一次捕获该帧并校验 train ID、physics epoch；不得分次读取“最新车头”和“最新车身”。
 例如 SimpleATO 的入口净空检查沿 `bodyTraversal` 累加当前保守车身长度，保留同一 rail 的多次 occurrence，
-再与当前控制感知核对；缺帧/空车身不能作为长度为零放行，也不能用 cars.size 或车厢长度之和替代。
+感知和几何应引用同一次捕获的帧；不另拿旧ATO车头与当前帧比较后丢弃有效车体。
+缺帧/空车身不能作为长度为零放行，也不能用 cars.size 或车厢长度之和替代，更不能据此请求整条路线。
+
+本帧已经覆盖原`TrainSnapshot`的全部物理字段，后者已移除。获取一次引用为O(1)，不额外求解或复制车体。
+正常worker可用上一已提交帧作为输入；controller完成hook须在本轮frame发布后才执行，详见runtime publication。
+需要历史故障现场时保留那一帧引用，生命周期由报告/控制器owner管理，不通过按ID永久缓存保存所有历史列车。
 
 `revision` per-train monotonic、`>=0`；`physicsEpoch>=0`（initial为0）；speed finite且`>=0 m/s`；cars/bogies/spans由`List.copyOf`。`RenderableFrameSnapshot`内联position/direction/normal/velocity共12个finite `Double`。
 

@@ -20,6 +20,8 @@ import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
+import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.simpleato.api.inspection.InspectionBindingInput
@@ -56,6 +58,12 @@ class ProtectionRegionInspectionSourceTest {
         )
     )
     private val stamp = RailwayStateStamp("world", 1L, topology.revision)
+
+    private fun trainFrame(epoch: Long) = TrainFrameSnapshot.create("train", "train", epoch, epoch,
+        0.0, false, false, emptyList(), RailPositionSnapshot(west, ViewDirection.AB, 1.0),
+        RailPositionSnapshot(west, ViewDirection.AB, 0.0), emptyList(),
+        listOf(RailTraversalSegmentSnapshot(west, ViewDirection.AB, 0.0, 1.0)),
+        emptyList(), emptyList(), emptyList())
 
     @Test
     fun `region reverse exit joins the derived reverse block entry and clamps an internal stop`() {
@@ -94,7 +102,7 @@ class ProtectionRegionInspectionSourceTest {
         )
 
         val runtime = inspectionRuntime(source)
-        runtime.synchronizeRoute(stamp, "train", route)
+        runtime.synchronizeRoute(stamp, "train", route, publishedFrame = trainFrame(stamp.physicsEpoch))
         val frozen = FrozenRouteBinding.from(route)
 
         assertEquals(
@@ -104,10 +112,10 @@ class ProtectionRegionInspectionSourceTest {
             0.0
         )
         assertEquals(
-            30.0, // Missing train geometry conservatively requests the route end, not the static exit.
+            26.01, // Exit at 25m plus the real one-metre body and its geometric envelope.
             runtime.adjustRequestedAuthorityBoundary("train", frozen, RouteBoundary(5.1))
                 .distanceFromRouteStartMeters,
-            0.0
+            1.0e-9
         )
     }
 
@@ -313,7 +321,7 @@ class ProtectionRegionInspectionSourceTest {
         val source = ProtectionRegionInspectionSource { captured }.source
         val runtime = inspectionRuntime(source)
         val worldStamp = RailwayStateStamp(worldId.toString(), 1L, topology.revision)
-        runtime.synchronizeRoute(worldStamp, "train", route)
+        runtime.synchronizeRoute(worldStamp, "train", route, publishedFrame = trainFrame(worldStamp.physicsEpoch))
         val adjusted = runtime.adjustRequestedAuthorityBoundary(
             "train",
             FrozenRouteBinding.from(route),

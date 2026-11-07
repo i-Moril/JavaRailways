@@ -30,6 +30,51 @@ import java.util.UUID
 
 class FrozenMissionRouteAssemblerTest {
     @Test
+    fun `physical projection preserves exact decimal endpoints and rejects the next floating point outside`() {
+        val first = UUID(0L, 801L)
+        val last = UUID(0L, 802L)
+        val length = 162.55741170015818
+        val prefix = 471.91541186264385
+        val terminal = 18.750344367322043
+        val topology = buildTestTopology(1L,
+            listOf(TestTopologyRail(first, 600.0), TestTopologyRail(last, length)), emptyMap())
+        for (direction in ViewDirection.entries) {
+            val stamp = RailwayStateStamp("test-world", 1L, topology.revision)
+            val route = RouteSnapshot("decimal", 1L, topology.revision, listOf(
+                RouteSegmentSnapshot(first, direction, 0.0, prefix),
+                RouteSegmentSnapshot(last, direction, 0.0, terminal)))
+            val frozen = FrozenMissionRoute(FrozenRouteSelectionResult.Selected(TRAIN_ID, stamp, route), prefix, 0.0)
+            val endAb = if (direction == ViewDirection.AB) terminal else length - terminal
+            assertEquals(route.totalLengthMeters, frozen.physicalHeadProgressMeters(topology,
+                RailPositionSnapshot(last, direction, endAb), route.totalLengthMeters))
+            val outside = if (direction == ViewDirection.AB) Math.nextUp(endAb) else Math.nextDown(endAb)
+            assertNull(frozen.physicalHeadProgressMeters(topology,
+                RailPositionSnapshot(last, direction, outside), route.totalLengthMeters),
+                "even a one-ULP real overrun must not be pulled back to the endpoint")
+        }
+    }
+
+    @Test
+    fun `physical projection uses the observed occurrence hint rather than first rail or operational terminal`() {
+        val first = UUID(0L, 803L)
+        val second = UUID(0L, 804L)
+        val topology = buildTestTopology(1L,
+            listOf(TestTopologyRail(first, 100.0), TestTopologyRail(second, 100.0)), emptyMap())
+        for (direction in ViewDirection.entries) {
+            val stamp = RailwayStateStamp("test-world", 1L, topology.revision)
+            val route = RouteSnapshot("repeated", 1L, topology.revision, listOf(
+                RouteSegmentSnapshot(first, direction, 0.0, 100.0),
+                RouteSegmentSnapshot(second, direction, 0.0, 100.0),
+                RouteSegmentSnapshot(first, direction, 0.0, 80.0)))
+            val frozen = FrozenMissionRoute(FrozenRouteSelectionResult.Selected(TRAIN_ID, stamp, route), 10.0, 0.0,
+                operationalEndRouteDistanceMeters = 250.0)
+            val head = RailPositionSnapshot(first, direction, if (direction == ViewDirection.AB) 25.0 else 75.0)
+            assertEquals(25.0, frozen.physicalHeadProgressMeters(topology, head, 24.0))
+            assertEquals(225.0, frozen.physicalHeadProgressMeters(topology, head, 224.0))
+        }
+    }
+
+    @Test
     fun `route coordinate conversion preserves positions outside the route instead of clamping`() {
         val rail = UUID(0L, 47L)
         val observed = observation(1L, RailPositionSnapshot(rail, ViewDirection.AB, 0.0),

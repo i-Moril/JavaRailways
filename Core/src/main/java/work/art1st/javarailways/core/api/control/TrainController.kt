@@ -147,12 +147,6 @@ abstract class TrainController(
         }
     }
 
-    /** Called by PhysicsCoordinator after every worker has finished reading the previous epoch. */
-    internal fun publishPhysicsState() {
-        publishPhysicsBuffers()
-        notifyPhysicsStatePublished()
-    }
-
     /** Core-only buffer flip, serialized with coordinator close; does not invoke extension hooks. */
     internal fun publishPhysicsBuffers() {
         if (speedDirty) {
@@ -162,15 +156,19 @@ abstract class TrainController(
         (train as? CoreTrain)?.publishPhysicsState()
     }
 
-    /** Runs outside coordinator publication locks, after this controller's buffers have flipped. */
+    /** Runs outside coordinator publication locks, after the complete train frame is published. */
     internal fun notifyPhysicsStatePublished() = onPhysicsStatePublished()
 
-    /** Publishes controller-owned value state only after speed and train geometry are committed. */
+    /** Publishes controller-owned value state only after the complete physical frame is available. */
     protected open fun onPhysicsStatePublished() = Unit
 
-    /** Main-thread render commit retained for API compatibility; physics publication is separate. */
+    /** Explicit publication uses the same frame-before-notification order as a physics epoch. */
     override fun commit() {
-        publishPhysicsState()
+        if (speedDirty) {
+            speedBuffer.commit()
+            speedDirty = false
+        }
         train.commit()
+        notifyPhysicsStatePublished()
     }
 }

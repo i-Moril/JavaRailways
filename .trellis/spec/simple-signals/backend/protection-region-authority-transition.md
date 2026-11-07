@@ -50,6 +50,26 @@ SimpleATO 已选择并冻结 RouteSnapshot
 - publication包含固定进路表时，每个region window还必须唯一匹配同region、entry、exit及标准化有向path的
   `CompiledProtectionRoute`；没有表的region只验证完整穿越，不强制作者建立固定进路表。
 
+### 3.1.1 冻结路线端点的精确复用
+
+固定闭塞与保护区域匹配共用 `DirectedRouteOccurrence.routeDistanceAt(canonicalAbMeters: Double): Double`。
+每次经过保存同一分段的 canonical AB 起止值和路线累计起止值；输入精确等于已保存的起点或终点时，直接返回
+对应的 `routeStartMeters` 或 `routeEndMeters`，不重新加减。内部交点才先计算有符号的局部偏移，再加路线前缀。
+反向 `canonicalAt(routeDistanceMeters)` 命中已保存的路线端点也直接返回原 canonical 值。
+
+这不是近似吸附：不以 `Curve.TOLERANCE` 判定“命中了已有端点”，不把相邻的不同位置合为一个点。
+例如前缀471.91541186264385、BA轨长162.55741170015818时，先加轨长再减同一个轨长会改变前缀；
+已有端点无需这次往返。不同的重复经过分别使用各自 occurrence 的累计距离，不能按rail ID共用一个进度。
+
+固定闭塞交集的起止位置各自转换，授权裁剪使用 `min(已转换的交集终点, 请求终点)`，不得再用
+“重新计算的起点＋交集长度”重建路线末端。block-local 距离仍用于验证完整闭塞经过；部分授权裁剪时保留对应的
+部分 block 长度，不把完整闭塞长度误当已授予距离。保护区域的两个交点也使用同一转换。
+原有几何合法性、真实内部交点、完整进出及资源检查不变；本修复不新增容差、不扩大请求、不改变Basic grant。
+
+转换本身 O(1)，不新增状态、索引或生命周期，仍在既有低频匹配中执行，总复杂度不变。无持久化或API迁移。
+必须用逐值相等断言覆盖AB/BA的小数端点、内部切口、端点相邻的不同浮点值、重复经过，以及部分授权恰好裁在指定边界；
+仅以误差窗口验证接近不能证明端点身份被保留。
+
 ### 3.2 快照一致性
 
 `ProtectionRegionInspectionSource`每次binding或静态时刻表检查只捕获一次完整
@@ -147,7 +167,7 @@ InspectionDeclaration(
 ```
 
 所有距离均为从当前冻结路线起点计算的metres；rail上的authoring坐标仍为canonical AB metres，不能混用。
-相等判断统一使用`Curve.TOLERANCE`。source ID固定为`simplesignals:protection-regions`，block resource type
+几何匹配判断沿用`Curve.TOLERANCE`；已有端点身份的复用使用精确相等，不引入吸附窗口。source ID固定为`simplesignals:protection-regions`，block resource type
 仍为`simplesignals:fixed-block`。本合同没有新增持久化字段或schema version。
 
 `InspectionDeclarationBinding.entryClearances` 中的中立要求及 `InspectionClearanceSnapshot` 完整结果归

@@ -245,14 +245,14 @@ class SimpleATOTest {
         assertTrue(fixture.ato.isStopped(0.0))
         assertFalse(fixture.ato.isStopped(Double.MIN_VALUE))
         assertFalse(fixture.coordinator.isStalled)
-        assertEquals(fixture.train.id, fixture.coordinator.initialTrain(fixture.train.id)?.trainId)
+        assertEquals(fixture.train.id, fixture.ato.initialTrainFrame.trainId)
     }
 
     @Test
     fun `resource authority restrictions use the controller constraint manager`() {
         val fixture = fixture("resource-authority")
         authorizeMovement(fixture)
-        val head = fixture.ato.publishedState.trainSnapshot.head
+        val head = fixture.ato.publishedState.trainFrame.head
         val topologyRevision = fixture.world.topologyState.revision
         val route = RouteSnapshot(
             routeId = "simpleato:test/resource-authority",
@@ -275,7 +275,7 @@ class SimpleATOTest {
                 trainId = fixture.train.id,
                 observationStamp = stamp,
                 route = FrozenRouteBinding.from(route),
-                restrictions = listOf(MovementAuthorityRestriction("simpleato:grant", 0.0))
+                restrictions = listOf(MovementAuthorityRestriction("simpleato:grant", head.arcLengthInAbMeters))
             )
         )
 
@@ -284,7 +284,7 @@ class SimpleATOTest {
             observationStamp = stamp,
             route = FrozenMissionRoute(
                 FrozenRouteSelectionResult.Selected(fixture.train.id, stamp, route),
-                headDistanceFromRouteStartMeters = 0.0,
+                headDistanceFromRouteStartMeters = head.arcLengthInAbMeters,
                 missionHeadProgressAtSelectionMeters = 0.0
             ),
             missionRevision = checkNotNull(fixture.ato.currentMission).revision,
@@ -298,6 +298,178 @@ class SimpleATOTest {
                 it.contains("simpleato:test-admission/simpleato:grant")
         })
         assertFalse(fixture.coordinator.isStalled)
+    }
+
+    @ParameterizedTest
+    @CsvSource("false,false", "false,true", "true,false", "true,true")
+    @OptIn(work.art1st.javarailways.core.api.util.annotation.AsyncEventApi::class)
+    fun `new Mission retains actual distance to old complete or partial resource authority`(reversed: Boolean, partial: Boolean) {
+        val fixture = fixture("authority-transition-$reversed-$partial",
+            physicsCoordinator = PhysicsCoordinator(1, automaticFallback = false))
+        fixture.world.onOwnerForTest {
+            fixture.train.moveTrainForward(200.0)
+            fixture.train.commit()
+            if (reversed) fixture.train.reverse()
+        }
+        submitPhysicalMission(fixture, 1L)
+        tickAndPublish(fixture.ato, 0.0)
+        val head = fixture.train.publishedFrame.head
+        val rail = fixture.train.head.location.rail
+        val headArc = if (head.facing == ViewDirection.AB) head.arcLengthInAbMeters
+            else rail.curve.totalArcLength - head.arcLengthInAbMeters
+        val route = RouteSnapshot("retained", 1L, fixture.world.topologyState.revision,
+            listOf(RouteSegmentSnapshot(head.railId, head.facing, headArc - 10.0, headArc + 50.0)))
+        val boundary = if (partial) 30.0 else route.totalLengthMeters
+        bindPhysicalAuthority(fixture, route, 10.0, boundary, 1L)
+        tickAndPublish(fixture.ato, 0.0)
+        submitPhysicalMission(fixture, 2L)
+        assertEquals(1L, fixture.ato.currentMission?.revision, "new Mission remains queued")
+
+        fixture.world.physicsCoordinator.start()
+        fixture.world.physicsCoordinator.stepSimulation(50.0).await()
+
+        assertEquals(2L, fixture.ato.currentMission?.revision)
+        assertEquals(boundary - 10.0, externalAuthorityDistance(fixture), 1e-12)
+        assertTrue(fixture.world.simpleAtoWorldData.controlRuntime.incidents.isEmpty())
+        assertFalse(fixture.coordinator.isStalled, fixture.coordinator.lastStall.toString())
+        assertTrue(fixture.train.speed > 0.0, "old grant permits departure after Mission activation")
+    }
+
+    @Test
+    fun `retired Mission and stopped reversed frame retain the old forward authority until rebind`() {
+        val fixture = fixture("authority-retirement-reversal")
+        fixture.world.onOwnerForTest { fixture.train.moveTrainForward(200.0); fixture.train.commit() }
+        submitPhysicalMission(fixture, 1L)
+        tickAndPublish(fixture.ato, 0.0)
+        val head = fixture.train.publishedFrame.head
+        val route = RouteSnapshot("retained-reverse", 1L, fixture.world.topologyState.revision,
+            listOf(RouteSegmentSnapshot(head.railId, head.facing, head.arcLengthInAbMeters - 10.0,
+                head.arcLengthInAbMeters + 50.0)))
+        bindPhysicalAuthority(fixture, route, 10.0, 30.0, 1L)
+        tickAndPublish(fixture.ato, 0.0)
+        fixture.ato.prepareForReverse(null, null)
+        tickAndPublish(fixture.ato, 0.0)
+        assertNull(fixture.ato.currentMission)
+        assertEquals(20.0, externalAuthorityDistance(fixture))
+
+        fixture.world.onOwnerForTest { fixture.train.reverse() }
+        repeat(2) { tickAndPublish(fixture.ato, 50.0) }
+        assertEquals(20.0, externalAuthorityDistance(fixture), "new tail is the old forward end, not old route end")
+        assertEquals(0.0, fixture.train.speed)
+        assertFalse(fixture.coordinator.isStalled, fixture.coordinator.lastStall.toString())
+
+        val frame = fixture.train.publishedFrame
+        val length = fixture.train.head.location.rail.curve.totalArcLength
+        val reversedRoute = RouteSnapshot(route.routeId, 2L, route.topologyRevision,
+            listOf(RouteSegmentSnapshot(head.railId, ViewDirection.BA,
+                length - frame.tail.arcLengthInAbMeters, length - frame.head.arcLengthInAbMeters)))
+        bindPhysicalAuthority(fixture, reversedRoute, reversedRoute.totalLengthMeters,
+            reversedRoute.totalLengthMeters, 1L, publicationRevision = 1L)
+        tickAndPublish(fixture.ato, 50.0)
+        assertEquals(0.0, externalAuthorityDistance(fixture), "rebased body-only grant ends at actual new head")
+        assertTrue(fixture.world.simpleAtoWorldData.controlRuntime.incidents.isEmpty())
+        assertFalse(fixture.coordinator.isStalled, fixture.coordinator.lastStall.toString())
+    }
+
+    @Test
+    fun `new Mission cannot conceal a true overrun of retained partial authority`() {
+        val fixture = fixture("authority-real-overrun")
+        submitPhysicalMission(fixture, 1L)
+        tickAndPublish(fixture.ato, 0.0)
+        val head = fixture.train.publishedFrame.head
+        val route = RouteSnapshot("overrun", 1L, fixture.world.topologyState.revision,
+            listOf(RouteSegmentSnapshot(head.railId, head.facing, head.arcLengthInAbMeters,
+                head.arcLengthInAbMeters + 50.0)))
+        bindPhysicalAuthority(fixture, route, 0.0, 10.0, 1L)
+        tickAndPublish(fixture.ato, 0.0)
+        fixture.world.onOwnerForTest { fixture.train.moveTrainForward(10.125); fixture.train.commit() }
+        submitPhysicalMission(fixture, 2L)
+
+        tickAndPublish(fixture.ato, 50.0)
+
+        assertEquals(-0.125, externalAuthorityDistance(fixture))
+        val incident = requireNotNull(fixture.world.simpleAtoWorldData.controlRuntime.latestIntervention).event
+        assertEquals(-0.125, incident.targets.single { it.id.contains("test:physical-authority") }.distanceMeters)
+        assertEquals(0.0, fixture.train.speed)
+    }
+
+    private fun submitPhysicalMission(fixture: Fixture, revision: Long) {
+        val head = fixture.train.publishedFrame.head
+        val rail = fixture.train.head.location.rail
+        val start = if (head.facing == ViewDirection.AB) head.arcLengthInAbMeters
+            else rail.curve.totalArcLength - head.arcLengthInAbMeters
+        val origin = work.art1st.javarailways.simpleato.api.mission.ObservedAtoMissionOrigin("test/$revision", head)
+        val mission = AtoMission("authority-transition", revision, origin,
+            listOf(AtoMissionLeg(0, AtoMissionPoint.Stop(WayPointRef("target")),
+                PlannedRoute("physical", revision, ExpandedRoute(origin.id, "target",
+                    listOf(RouteSegment(RailViewRef(head.railId, head.facing), start, start + 40.0)))))))
+        assertTrue(fixture.ato.submitMission(mission) is AtoMissionSubmissionResult.Accepted)
+        fixture.ato.setMovementAuthority(revision, 40.0)
+    }
+
+    @Test
+    fun `physical occurrence survives same frame refresh and frozen prefix extension`() {
+        val world = createTestWorld()
+        val curves = PrimeCurveGenerator.buildCircle(140.0 / kotlin.math.PI, 2, step = 0.1)
+        val first = world.createRailForTest(curves[0])
+        val second = world.createRailForTest(curves[1])
+        IsolatedSimulationThreadMarker.run {
+            work.art1st.javarailways.core.physics.rail.RailView.connect(first.viewAB, second.viewBA)
+            work.art1st.javarailways.core.physics.rail.RailView.connect(second.viewAB, first.viewBA)
+        }
+        val train = createTrainWithConfig("cursor-loop", first, world, listOf(10.0))
+        val coordinator = AtoWorldCoordinator("cursor-world", reportSink = {})
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
+        val ato = SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile) { 0.0 }
+        train.setControllerForTest(ato)
+        val fixture = Fixture(world, train, ato, coordinator, data)
+        val firstLength = first.curve.totalArcLength
+        val secondLength = second.curve.totalArcLength
+        val lap = firstLength + secondLength
+        val initialHead = train.publishedFrame.head.arcLengthInAbMeters
+        val segments = listOf(RouteSegmentSnapshot(first.id, ViewDirection.AB, 0.0, firstLength),
+            RouteSegmentSnapshot(second.id, ViewDirection.AB, 0.0, secondLength),
+            RouteSegmentSnapshot(first.id, ViewDirection.AB, 0.0, firstLength),
+            RouteSegmentSnapshot(second.id, ViewDirection.AB, 0.0, secondLength),
+            RouteSegmentSnapshot(first.id, ViewDirection.AB, 0.0, 80.0))
+        val route = RouteSnapshot("cursor-loop", 1L, world.topologyState.revision, segments)
+        bindPhysicalAuthority(fixture, route, initialHead, route.totalLengthMeters, 1L)
+        tickAndPublish(ato, 0.0)
+        world.onOwnerForTest { train.moveTrainForward(lap + 10.0); train.commit() }
+        val actual = lap + train.publishedFrame.head.arcLengthInAbMeters
+        assertTrue(train.publishedFrame.headTraversal.size >= 3, "Core records the actual lap, not just final rail")
+        // Plan twice against the exact same Core frame: its movement evidence must count once.
+        AsyncTickTestSupport.run { ato.tick(0.0); ato.tick(0.0) }
+        ato.commit()
+        assertEquals(route.totalLengthMeters - actual, externalAuthorityDistance(fixture), 1e-9)
+        // A refreshed binding still carries its original selection anchor, not today's position.
+        bindPhysicalAuthority(fixture, route, initialHead, route.totalLengthMeters, 1L, 1L)
+        tickAndPublish(ato, 0.0)
+        assertEquals(route.totalLengthMeters - actual, externalAuthorityDistance(fixture), 1e-9)
+        val appended = RouteSnapshot(route.routeId, 2L, route.topologyRevision,
+            segments + RouteSegmentSnapshot(first.id, ViewDirection.AB, 80.0, 100.0))
+        bindPhysicalAuthority(fixture, appended, initialHead, appended.totalLengthMeters, 1L, 2L)
+        tickAndPublish(ato, 0.0)
+        assertEquals(appended.totalLengthMeters - actual, externalAuthorityDistance(fixture), 1e-9)
+        assertFalse(coordinator.isStalled, coordinator.lastStall.toString())
+    }
+
+    private fun bindPhysicalAuthority(fixture: Fixture, route: RouteSnapshot, headProgress: Double,
+        boundary: Double, missionRevision: Long, publicationRevision: Long = 0L) {
+        val stamp = RailwayStateStamp(fixture.coordinator.worldId, fixture.train.publishedFrame.physicsEpoch,
+            fixture.world.topologyState.revision)
+        fixture.ato.trainRestrictionPublisher.publish(TrainRestrictionSnapshot("test:admission", publicationRevision,
+            fixture.train.id, stamp, FrozenRouteBinding.from(route),
+            listOf(MovementAuthorityRestriction("test:physical-authority", boundary))))
+        fixture.ato.bindTrainRestrictionRoute(stamp, FrozenMissionRoute(
+            FrozenRouteSelectionResult.Selected(fixture.train.id, stamp, route), headProgress, 0.0),
+            missionRevision, TrainRestrictionSnapshotProvider { emptyList() })
+    }
+
+    private fun externalAuthorityDistance(fixture: Fixture): Double {
+        val description = fixture.ato.runtimeDiagnostics.constraints.single { it.contains("test:physical-authority") }
+        return Regex("remainingDistanceMeters=([^,)]+)").find(description)!!.groupValues[1].toDouble()
     }
 
     @Test

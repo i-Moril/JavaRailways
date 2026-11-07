@@ -180,6 +180,8 @@ class TimetableStationCallDispatcherTest {
         for (tick in 0 until 1600) {
             fixture.tick()
             gateway.tickets.forEach { it.succeed() }
+            assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled,
+                "reversed departure must consume its rebased grant: ${fixture.world.simpleAtoWorldData.atoCoordinator.lastStall}")
             if (fixture.dispatcher.status(id)!!.state == TimetableServiceRunState.COMPLETED) break
         }
         assertEquals(listOf(TrainOperation.OpenDoors(DoorSide.RIGHT), TrainOperation.CloseDoors(DoorSide.BOTH)), gateway.requests.map { it.operation })

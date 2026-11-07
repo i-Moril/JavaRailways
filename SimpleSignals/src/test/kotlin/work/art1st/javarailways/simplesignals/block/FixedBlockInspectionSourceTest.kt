@@ -20,7 +20,7 @@ import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
-import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
+import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.simpleato.api.inspection.InspectionAuthorityRequestFloor
@@ -183,8 +183,8 @@ class FixedBlockInspectionSourceTest {
             val rail = declaration.railId
             val facing = declaration.facing
             val position = RailPositionSnapshot(rail, facing, if (facing == ViewDirection.AB) 0.0 else 10.0)
-            val perception = PerceptionSnapshot(1L, TrainSnapshot("train", 1L, 0.0, false, 1,
-                position, position), route, emptyList())
+            val perception = PerceptionSnapshot(1L, TrainFrameSnapshot.create("train", "train", 1L, 1L, 0.0, false, false, emptyList(),
+                position, position, emptyList(), emptyList(), emptyList(), emptyList(), emptyList()), route, emptyList())
             val inspection = runtime.createTrainInspection("train")
             inspection.update(stamp(), binding, 0.0, 3.0, 20.0, 1.0, perception)
             val cold = publications.single().restrictions.single() as RouteSpeedRestriction
@@ -299,7 +299,8 @@ class FixedBlockInspectionSourceTest {
         val binding = FrozenRouteBinding.from(route)
         assertEquals(RouteBoundary(38.0), runtime.adjustRequestedAuthorityBoundary("train", binding, RouteBoundary(33.0)))
         val position = RailPositionSnapshot(first, ViewDirection.BA, 10.0)
-        val perception = PerceptionSnapshot(1L, TrainSnapshot("train", 1L, 0.0, false, 1, position, position), route, emptyList())
+        val perception = PerceptionSnapshot(1L, TrainFrameSnapshot.create("train", "train", 1L, 1L, 0.0, false, false, emptyList(),
+            position, position, emptyList(), emptyList(), emptyList(), emptyList(), emptyList()), route, emptyList())
         val inspection = runtime.createTrainInspection("train")
         inspection.update(stamp(), binding, 0.0, 40.0, 20.0, 1.0, perception)
         assertEquals(2.0, (publications.last().restrictions.single() as RouteSpeedRestriction).routeDistanceMeters)
@@ -838,14 +839,11 @@ class FixedBlockInspectionSourceTest {
 
     private fun perception(route: RouteSnapshot, headAbMeters: Double = 0.0, tailAbMeters: Double = 0.0) = PerceptionSnapshot(
         1L,
-        TrainSnapshot(
-            "train",
-            1L,
-            0.0,
-            false,
-            1,
+        TrainFrameSnapshot.create(
+            "train", "train", 1L, 1L, 0.0, false, false, emptyList(),
             RailPositionSnapshot(first, ViewDirection.AB, headAbMeters),
-            RailPositionSnapshot(first, ViewDirection.AB, tailAbMeters)
+            RailPositionSnapshot(first, ViewDirection.AB, tailAbMeters),
+            emptyList(), emptyList(), emptyList(), emptyList(), emptyList()
         ),
         route,
         emptyList()

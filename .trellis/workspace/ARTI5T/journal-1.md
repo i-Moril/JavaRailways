@@ -1218,3 +1218,40 @@ Committed and deployed the verified F1-F8 snapshot, rolling authority, native bo
 ### Next Steps
 
 - User reruns the WebUI global simulation to verify Tick 14219 no longer exceeds the delay threshold on the deployed server.
+
+
+## Session 38: Correct SimpleSignals host ABI deployment
+<!-- trellis-session: v=2 fp=027bd1133fca19c9 -->
+
+**Date**: 2026-11-07
+**Task**: Correct SimpleSignals host ABI deployment
+**Package**: javarailways
+**Branch**: `codex/ato-per-car-rebuild`
+
+### Summary
+
+Diagnosed the post-deployment NoSuchMethodError as an old SimpleSignals JAR linked to the removed TrainSnapshot API, then deployed the matching SimpleSignals artifact from commit 31e4cf17 with a new recovery point and healthy restart.
+
+### Main Changes
+
+- Replaced only SimpleSignals.jar with the matching TrainFrameSnapshot-linked artifact; preserved the main JAR, TunnelBridgeBuilder and timetable document.
+- Recorded the atomic host/add-on ABI deployment rule in the SimpleSignals spec.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `31e4cf17` | fix(simpleato): unify physical frame and authority handoff |
+
+### Testing
+
+- [OK] New SimpleSignals bytecode calls PerceptionSnapshot.getTrain returning TrainFrameSnapshot; installed hashes matched the manifest.
+- [OK] Server Done, ATO RUNNING, SimpleSignals revision 117, bridge and WebUI health OK; no startup NoSuchMethodError.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- User reruns the WebUI global simulation; startup health alone does not exercise the complete timetable simulation path.

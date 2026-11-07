@@ -28,3 +28,21 @@
 - 启动日志中的 `com.dfsek.seismic` Unsafe 反射错误为此前已记录的第三方既有错误；本轮未发现新的 JavaRailways/SimpleSignals 启动错误。
 
 本记录证明精确提交已安装、服务启动及基础领域/HTTP 健康，不代替用户重新运行全局模拟。Tick 14219 是否在测试服真实输入中消失仍需新的 WebUI 全局模拟验收。
+
+## SimpleSignals ABI 修复部署
+
+用户首次重新运行全局模拟后，`10:47:23` 的第一次请求触发
+`NoSuchMethodError: PerceptionSnapshot.getTrain(): TrainSnapshot`。主 JAR 已删除旧 `TrainSnapshot`，但上述部署错误地
+保留了按旧返回类型编译的 `SimpleSignals.jar`；物理 worker 因此 halted。`10:50:17` 的第二次请求（WebUI trace
+`46e26ef2-04fc-48d2-9d20-1783fd1c697a`）重新抛出锁存的 `PhysicsStalledException`，不是第二个独立业务故障。
+
+用户批准前向修复后，从同一提交 `31e4cf17` 的干净构建部署匹配的 `SimpleSignals.jar`：
+
+- 旧信号 JAR：`36657ce6a312e4498aba656060e831b8a0f4beaa6677ecab4cc3d6d715d2f29c`；新信号 JAR：`e9da012b4656cbdd60cf76453a4024fd78411fc96abad54f03d7479668f0a9ee`。
+- 字节码检查确认新 JAR 调用 `PerceptionSnapshot.getTrain(): TrainFrameSnapshot`。
+- 在线玩家已收到通知；MCSManager 正常 stop，日志确认 `Saved all worlds`。因物理协调器已 halted，关闭时另报一次 world unregister 清理失败；没有跳过世界保存。
+- 新恢复目录：`/opt/mcsmanager/backups/javarailways/signal-abi-20261107-q6pg7712`；150 文件恢复包 SHA256 `69f538d328047b12bf2f0846586770919b32c0c566c27a4bc8114001ea07fd49`。
+- 只原子替换 `plugins/SimpleSignals.jar`；主 JAR、TunnelBridgeBuilder 和编辑器文档哈希保持不变。
+- 新 PID `963419`，`Done (26.454s)`；ATO `RUNNING`，SimpleSignals installed / definition revision 117，bridge 与内外 WebUI health 正常。新启动日志未再出现 `NoSuchMethodError`。
+
+这次修复恢复了匹配的跨插件 ABI，并清除了重启前锁存的 physics halt；仍需用户再次执行全局模拟来验证完整运行结果。

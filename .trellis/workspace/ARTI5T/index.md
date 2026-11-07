@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 37
+- **Total Sessions**: 38
 - **Last Active**: 2026-11-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1220 | Active |
+| `journal-1.md` | ~1257 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 38 | 2026-11-07 | Correct SimpleSignals host ABI deployment | `31e4cf17` | `codex/ato-per-car-rebuild` |
 | 37 | 2026-11-07 | Deploy SimpleATO physical-frame and authority fixes | `31e4cf17` | `codex/ato-per-car-rebuild` |
 | 36 | 2026-11-07 | Timetable door-state validation deployment | `c914b1a3` | `codex/ato-per-car-rebuild` |
 | 35 | 2026-11-06 | Station target reuse and test-server deployment | `5d5a4b7a` | `codex/ato-per-car-rebuild` |

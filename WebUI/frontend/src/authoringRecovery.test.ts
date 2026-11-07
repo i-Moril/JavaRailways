@@ -1,7 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {parseAuthoringRecovery} from './authoringRecovery';
 
-const document={formatVersion:1 as const,id:'weekday',periodDays:1,runs:[],duties:[],diagramLines:[],arrivalOverrides:[]};
+const document={formatVersion:1 as const,id:'weekday',periodDays:1,runs:[],duties:[],diagramLines:[],arrivalOverrides:[],initialPositions:[]};
 
 describe('authoring recovery',()=>{
   it('restores a valid unsaved workspace for the same world',()=>{

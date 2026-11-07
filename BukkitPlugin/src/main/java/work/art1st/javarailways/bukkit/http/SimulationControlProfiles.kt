@@ -61,7 +61,7 @@ internal class SimulationControlProfileCatalog(private val plugin: BukkitPlugin)
                 add(SimulationProfileDescriptor(
                     SimulationProfileType.WORLD_TRAIN,
                     train.id,
-                    "${train.id} (${profile.carControls.size} cars)",
+                    train.name,
                     profile.carControls.size
                 ))
             }

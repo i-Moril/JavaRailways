@@ -18,10 +18,10 @@ import type { LineCollection,WorldMetadata,WorldSummary } from './types';
 import './styles.css';
 import './studioPages.css';
 
-export type View = 'graph' | 'map' | 'lines' | 'duties' | 'validation' | 'issues' | 'programs' | 'logs';
+export type View = 'graph' | 'map' | 'lines' | 'duties' | 'positions' | 'validation' | 'issues' | 'programs' | 'logs';
 export const DEFAULT_VIEW:View='map';
 export const navigationForAuthentication=(authenticated:boolean|null):View[]=>authenticated
-  ?['graph','map','lines','duties','validation','issues','programs','logs']
+  ?['graph','map','lines','duties','positions','validation','issues','programs','logs']
   :['map'];
 
 type WorldResources={world:string;metadata:WorldMetadata;lineCollection:LineCollection};
@@ -128,7 +128,7 @@ export default function App() {
 
   const navigation=navigationForAuthentication(authenticated);
   const workspaceNotice=!authenticated?t('auth.mapOnly'):
-    ['graph','duties','validation'].includes(view)?t('duties.workspace'):
+    ['graph','duties','positions','validation'].includes(view)?t('duties.workspace'):
     view==='lines'?t('lines.description'):
     view==='issues'?t('issues.description'):view==='programs'?t('programs.description'):view==='logs'?t('logs.description'):t('map.public');
   return <ConfigProvider
@@ -154,7 +154,7 @@ export default function App() {
       </Flex>
     </Layout.Header>
 
-    <section className={`studio-ribbon ${['graph','duties'].includes(view)?'has-commands':''}`} aria-label={t('nav.primary')}>
+    <section className={`studio-ribbon ${['graph','duties','positions'].includes(view)?'has-commands':''}`} aria-label={t('nav.primary')}>
       <Tabs activeKey={view} onChange={(key)=>setView(key as View)} items={navigation.map((item)=>({key:item,label:t(`nav.${item}`)}))}/>
       {view==='graph'?<div className="ribbon-commands">
         <RibbonGroup label={t('ribbon.create')}><RibbonCommand icon={<PlusOutlined/>} label={t('ribbon.newRun')} command="new-run" reason={authoringState?.['new-run']??t('ui.working')}/><RibbonCommand icon={<NodeIndexOutlined/>} label={t('events.add')} command="add-timed-operation" reason={authoringState?.['add-timed-operation']??t('ui.working')}/></RibbonGroup>
@@ -168,10 +168,13 @@ export default function App() {
         <RibbonGroup label={t('duties.formationGroup')}><RibbonCommand icon={<LinkOutlined/>} label={t('duties.reconnect')} command="add-formation-couple" reason={authoringState?.['add-formation-couple']??t('ui.working')}/><RibbonCommand icon={<DisconnectOutlined/>} label={t('duties.uncouple')} command="add-formation-split" reason={authoringState?.['add-formation-split']??t('ui.working')}/></RibbonGroup>
         <RibbonGroup label={t('ribbon.history')}><RibbonCommand icon={<UndoOutlined/>} label={t('common.undo')} command="undo" reason={authoringState?.['undo']??t('ui.working')}/><RibbonCommand icon={<RedoOutlined/>} label={t('common.redo')} command="redo" reason={authoringState?.['redo']??t('ui.working')}/></RibbonGroup>
         <RibbonGroup label={t('ribbon.document')}><RibbonCommand icon={<SaveOutlined/>} label={t('common.save')} command="save" reason={authoringState?.['save']??t('ui.working')}/></RibbonGroup>
+      </div>:view==='positions'?<div className="ribbon-commands">
+        <RibbonGroup label={t('ribbon.history')}><RibbonCommand icon={<UndoOutlined/>} label={t('common.undo')} command="undo" reason={authoringState?.['undo']??t('ui.working')}/><RibbonCommand icon={<RedoOutlined/>} label={t('common.redo')} command="redo" reason={authoringState?.['redo']??t('ui.working')}/></RibbonGroup>
+        <RibbonGroup label={t('ribbon.document')}><RibbonCommand icon={<SaveOutlined/>} label={t('common.save')} command="save" reason={authoringState?.['save']??t('ui.working')}/></RibbonGroup>
       </div>:view==='validation'?null:<div className="studio-contextbar"><Tag variant="filled">{t(`nav.${view}`)}</Tag><Typography.Text type="secondary">{workspaceNotice}</Typography.Text></div>}
     </section>
 
-    {authenticated&&<section className="persistent-graph-view" hidden={!['graph','duties','validation'].includes(view)}><DutyEditor programLibraryRevision={programLibraryRevision} key={JSON.stringify([authenticatedPlayer,world])} onActiveDocument={setAuthoringDocumentId} onOpenProgramLibrary={(programId,stepId)=>{setProgramFocus({world,programId,stepId});setView('programs');}} onCommandState={setAuthoringState} page={view==='duties'?'duties':view==='validation'?'validation':'graph'} onPageChange={setView} world={world} recoveryOwner={authenticatedPlayer} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>}
+    {authenticated&&<section className="persistent-graph-view" hidden={!['graph','duties','positions','validation'].includes(view)}><DutyEditor programLibraryRevision={programLibraryRevision} key={JSON.stringify([authenticatedPlayer,world])} onActiveDocument={setAuthoringDocumentId} onOpenProgramLibrary={(programId,stepId)=>{setProgramFocus({world,programId,stepId});setView('programs');}} onCommandState={setAuthoringState} page={view==='duties'?'duties':view==='positions'?'positions':view==='validation'?'validation':'graph'} onPageChange={setView} world={world} recoveryOwner={authenticatedPlayer} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>}
     {authenticated&&<section className="persistent-graph-view" hidden={view!=='programs'}><StationProgramLibrary metadata={metadata} onLibraryChange={()=>setProgramLibraryRevision((revision)=>revision+1)} key={`${authenticatedPlayer}::${world}`} world={world} documentId={authoringDocumentId} recoveryOwner={authenticatedPlayer} extensions={metadata.extensions?.actions} focus={programFocus?.world===world?programFocus:undefined}/></section>}
     {authenticated&&view === 'logs' && <LogsPage />}
     {authenticated&&view === 'issues' && <IssuesPage key={world} world={world} />}

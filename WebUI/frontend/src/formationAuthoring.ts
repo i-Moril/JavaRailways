@@ -131,7 +131,7 @@ export function updateDutyFormation(document:TimetableAuthoringDocumentV1,event:
   const output=formationOutputs(event).find((o)=>o.disposition.type==='DUTY'&&o.disposition.dutyId===duty.id);
   const selector=output&&!participants.includes(duty.id)?{type:'TAKE_FROM_FORMATION_OUTPUT' as const,eventId:event.id,outputId:output.id}:duty.selector;
   // A removed assignment deliberately retains its dangling source until the player chooses another.
-  return {...duty,selector,elements,...(selector!==duty.selector&&selector.type!=='TRAIN_NAME'?{initialPosition:undefined}:{})};
+  return {...duty,selector,elements};
  });
  const formationEvents=(document.formationEvents??[]).map((other)=>other.id===event.id?event:other);
  if(!formationEvents.some((other)=>other.id===event.id))formationEvents.push(event);
@@ -154,7 +154,7 @@ function mapFormationOutputs(event:AuthoringFormationEvent,map:(output:Formation
 export function setDutyVehicleSource(document:TimetableAuthoringDocumentV1,dutyId:string,selector:AuthoringDutySelectorV1):TimetableAuthoringDocumentV1 {
  const duty=document.duties.find((d)=>d.id===dutyId);if(!duty)throw new Error('Unknown duty');
  const previous=duty.selector;
- return {...document,duties:document.duties.map((d)=>d.id===dutyId?{...d,selector,...(selector.type!=='TRAIN_NAME'?{initialPosition:undefined}:{})}:d),formationEvents:document.formationEvents?.map((event)=>previous.type==='TAKE_FROM_FORMATION_OUTPUT'&&event.id===previous.eventId?mapFormationOutputs(event,(o)=>o.id===previous.outputId&&o.disposition.type==='DUTY'&&o.disposition.dutyId===dutyId&&!(selector.type==='TAKE_FROM_FORMATION_OUTPUT'&&selector.eventId===event.id&&selector.outputId===o.id)?{...o,disposition:{type:'HOLD'}}:o):event)};
+ return {...document,duties:document.duties.map((d)=>d.id===dutyId?{...d,selector}:d),formationEvents:document.formationEvents?.map((event)=>previous.type==='TAKE_FROM_FORMATION_OUTPUT'&&event.id===previous.eventId?mapFormationOutputs(event,(o)=>o.id===previous.outputId&&o.disposition.type==='DUTY'&&o.disposition.dutyId===dutyId&&!(selector.type==='TAKE_FROM_FORMATION_OUTPUT'&&selector.eventId===event.id&&selector.outputId===o.id)?{...o,disposition:{type:'HOLD'}}:o):event)};
 }
 
 function formationTaskStart(document:TimetableAuthoringDocumentV1,element:AuthoringDutyElementV1):number {

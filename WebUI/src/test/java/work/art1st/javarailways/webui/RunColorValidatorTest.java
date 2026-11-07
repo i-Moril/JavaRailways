@@ -14,7 +14,7 @@ class RunColorValidatorTest {
         return (ObjectNode) mapper.readTree("""
             {"formatVersion":1,"id":"weekday","periodDays":1,
              "runs":[{"id":"run","type":"PASSENGER","lineDirection":"UP","calls":[]}],
-             "duties":[],"diagramLines":[],"arrivalOverrides":[]}
+             "duties":[],"diagramLines":[],"initialPositions":[],"arrivalOverrides":[]}
             """);
     }
 

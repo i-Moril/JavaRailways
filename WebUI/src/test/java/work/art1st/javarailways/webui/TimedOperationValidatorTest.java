@@ -11,7 +11,7 @@ class TimedOperationValidatorTest {
 
     private ObjectNode document() throws Exception {
         var document = (ObjectNode) mapper.readTree("""
-            {"formatVersion":1,"id":"weekday","periodDays":1,"runs":[],"diagramLines":[],"arrivalOverrides":[],
+            {"formatVersion":1,"id":"weekday","periodDays":1,"runs":[],"diagramLines":[],"initialPositions":[],"arrivalOverrides":[],
              "events":[{"id":"marker","tick":20},{"id":"operation","stationId":"central","tick":200,"label":"turnback",
                "duration":{"type":"MANUAL","ticks":10},"program":{"programId":"1","arguments":{"delay":5}}}],
              "duties":[{"id":"d","selector":{"type":"TRAIN_NAME","name":"train"},"elements":[

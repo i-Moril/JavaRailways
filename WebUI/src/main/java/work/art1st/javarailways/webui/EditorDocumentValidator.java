@@ -27,6 +27,7 @@ final class EditorDocumentValidator {
         if (document.has("minimumDwellTicks")) requireSafeNonnegative(document.path("minimumDwellTicks"), "minimum dwell ticks");
         requireObjectArray(document, "runs");
         requireObjectArray(document, "duties");
+        requireObjectArray(document, "initialPositions");
         requireObjectArray(document, "diagramLines");
         requireObjectArray(document, "arrivalOverrides");
         if (document.has("stationPrograms")) {
@@ -71,6 +72,15 @@ final class EditorDocumentValidator {
             }
         }
         if (document.has("operationalTrips")) validateOperationalTrips(document);
+        java.util.Set<String> initialTrainNames = new java.util.HashSet<>();
+        java.util.Set<String> initialWayPoints = new java.util.HashSet<>();
+        document.path("initialPositions").forEach(position -> {
+            StationProgramValidator.fields(position, java.util.Set.of("trainName", "wayPointId"), "initial position");
+            String trainName = StationProgramValidator.text(position.path("trainName"), "initial position train name");
+            String wayPointId = StationProgramValidator.text(position.path("wayPointId"), "initial position waypoint");
+            if (!initialTrainNames.add(trainName)) fail("duplicate initial position train name");
+            if (!initialWayPoints.add(wayPointId)) fail("duplicate initial position waypoint");
+        });
         document.path("runs").forEach(EditorDocumentValidator::validateRun);
         document.path("duties").forEach(EditorDocumentValidator::validateDuty);
         document.path("diagramLines").forEach(EditorDocumentValidator::validateDiagramLine);
@@ -128,6 +138,9 @@ final class EditorDocumentValidator {
     }
 
     private static void validateDuty(JsonNode duty) {
+        java.util.Set<String> fields = new java.util.HashSet<>(java.util.Set.of("id", "selector", "elements"));
+        if (duty.has("referenceVehicle")) fields.add("referenceVehicle");
+        StationProgramValidator.fields(duty, fields, "duty");
         requireText(duty, "id", "duty");
         JsonNode selector = duty.path("selector");
         if (!selector.isObject()) fail("duty selector must be an object");
@@ -137,10 +150,6 @@ final class EditorDocumentValidator {
             StationProgramValidator.fields(profile, java.util.Set.of("type", "id"), "reference vehicle");
             if (!java.util.Set.of("WORLD_TRAIN", "TRAIN_TEMPLATE").contains(profile.path("type").asText())) fail("invalid reference vehicle type");
             StationProgramValidator.text(profile.path("id"), "reference vehicle id");
-        }
-        if (duty.has("initialPosition")) {
-            StationProgramValidator.text(duty.path("initialPosition"), "initial position");
-            if (!selector.path("type").asText().equals("TRAIN_NAME")) fail("initial position requires named train selector");
         }
         requireObjectArray(duty, "elements");
         duty.path("elements").forEach(EditorDocumentValidator::validateElement);

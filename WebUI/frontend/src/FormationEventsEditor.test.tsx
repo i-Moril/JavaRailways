@@ -4,7 +4,7 @@ import {I18nProvider} from './i18n';
 import {FormationSourceFields} from './FormationEventsEditor';
 import type {TimetableAuthoringDocumentV1} from './authoring';
 const noop=()=>{};
-const document:TimetableAuthoringDocumentV1={formatVersion:1,id:'doc',periodDays:1,diagramLines:[],runs:[],arrivalOverrides:[],duties:[{id:'1',selector:{type:'TRAIN_NAME',name:'train'},elements:[]},{id:'2',selector:{type:'TAKE_FROM_FORMATION_OUTPUT',eventId:'split',outputId:'rest'},elements:[]}],formationEvents:[{id:'split',kind:'SPLIT',tick:300,duration:{type:'MANUAL',ticks:20},coordinatorDutyId:'1',partition:{from:'HEAD',firstUnitCount:2},outputs:[{id:'first',group:'FIRST',disposition:{type:'DUTY',dutyId:'1'}},{id:'rest',group:'REST',disposition:{type:'DUTY',dutyId:'2'}}]}]};
+const document:TimetableAuthoringDocumentV1={formatVersion:1,id:'doc',periodDays:1,diagramLines:[],runs:[],arrivalOverrides:[],initialPositions:[],duties:[{id:'1',selector:{type:'TRAIN_NAME',name:'train'},elements:[]},{id:'2',selector:{type:'TAKE_FROM_FORMATION_OUTPUT',eventId:'split',outputId:'rest'},elements:[]}],formationEvents:[{id:'split',kind:'SPLIT',tick:300,duration:{type:'MANUAL',ticks:20},coordinatorDutyId:'1',partition:{from:'HEAD',firstUnitCount:2},outputs:[{id:'first',group:'FIRST',disposition:{type:'DUTY',dutyId:'1'}},{id:'rest',group:'REST',disposition:{type:'DUTY',dutyId:'2'}}]}]};
 describe('formation vehicle provenance',()=>{
  it('shows the operation, output and handoff instead of editing raw IDs or acquisition tick',()=>{
  const html=renderToStaticMarkup(<I18nProvider><FormationSourceFields document={document} dutyId="2" eventId="split" outputId="rest" onSelectDuty={noop} onChange={noop}/></I18nProvider>);

@@ -48,7 +48,7 @@ beforeEach(()=>{
 afterEach(async()=>{await act(async()=>root.unmount());container.remove();vi.useRealTimers();vi.unstubAllGlobals();});
 
 describe('App editor lifetime during autosave',()=>{
-  it.each([['lines','line'],['programs','program'],['graph','timetable']])('preserves %s edits and pending writes when leaving before the debounce',async(page,name)=>{
+  it.each([['lines','line'],['programs','program'],['graph','timetable'],['positions','timetable']])('preserves %s edits and pending writes when leaving before the debounce',async(page,name)=>{
     await act(async()=>root.render(<App/>));await click(page);
     const input=container.querySelector<HTMLInputElement>(`[aria-label="${name} draft"]`)!;
     await act(async()=>{input.value='unsaved edit';input.dispatchEvent(new Event('input',{bubbles:true}));});

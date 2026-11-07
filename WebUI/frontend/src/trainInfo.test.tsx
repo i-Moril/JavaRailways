@@ -48,7 +48,7 @@ describe('explicit current train information sources',()=>{
  });
  it('generates bindings unchanged rather than reading a simulation reference train',()=>{
   const programs=[{formatVersion:1 as const,id:'program',name:'program',definition:display()}];
-  const document={...emptyAuthoringDocument(),duties:[{id:'1',initialPosition:'a',selector:{type:'TRAIN_NAME' as const,name:'actual-train'},referenceVehicle:{type:'TRAIN_TEMPLATE' as const,id:'reference'},elements:[{id:'call',type:'PROGRAM' as const,tick:100,program:{programId:'program',arguments:{}}}]}]};
+  const document={...emptyAuthoringDocument(),initialPositions:[{trainName:'actual-train',wayPointId:'a'}],duties:[{id:'1',selector:{type:'TRAIN_NAME' as const,name:'actual-train'},referenceVehicle:{type:'TRAIN_TEMPLATE' as const,id:'reference'},elements:[{id:'call',type:'PROGRAM' as const,tick:100,program:{programId:'program',arguments:{}}}]}]};
   const generated=generateTimetableSource(document,[],programs);expect(generated.issues).toEqual([]);expect(generated.source).toContain('trainInfo');expect(generated.source).toContain('CAR_COUNT');expect(generated.source).not.toContain('reference');
  });
  it('renders property rows and explains canonical direction without changing the source',()=>{

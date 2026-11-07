@@ -44,7 +44,7 @@ class EditorDocumentRestartTest {
                "partition":{"from":"HEAD","firstUnitCount":1},"outputs":[
                  {"id":"first","group":"FIRST","disposition":{"type":"DUTY","dutyId":"1"}},
                  {"id":"rest","group":"REST","disposition":{"type":"DUTY","dutyId":"2"}}]}],
-             "diagramLines":[],"arrivalOverrides":[],
+             "diagramLines":[],"initialPositions":[],"arrivalOverrides":[],
              "stationPrograms":[{"stationId":"central","preparationLead":{"value":0},
                "arrival":{"parameters":[],"steps":[{"id":"info","type":"SET_DISPLAY","values":{"trainInfo":{"name":"NAME","cars":"CAR_COUNT","direction":"DIRECTION"}}},{"id":"wait","type":"WAIT_DURATION","durationTicks":{"value":20}},{"id":"end","type":"END"}]},
                "departurePreparation":{"parameters":[],"steps":[{"id":"end","type":"END"}]}}]}

@@ -53,34 +53,34 @@ class WebUiApplicationTest {
         ObjectMapper mapper = new ObjectMapper();
         String valid = """
             {"formatVersion":1,"id":"t","periodDays":1,
-             "runs":[],"duties":[],"diagramLines":[],"arrivalOverrides":[]}
+             "runs":[],"duties":[],"diagramLines":[],"initialPositions":[],"arrivalOverrides":[]}
             """;
         WebUiApplication.requireEditorDocument(mapper.readTree(valid));
         WebUiApplication.requireEditorDocument(mapper.readTree("""
             {"formatVersion":1,"id":"t","formalScriptName":"weekday.js","periodDays":1,
-             "runs":[],"duties":[],"diagramLines":[],"arrivalOverrides":[]}
+             "runs":[],"duties":[],"diagramLines":[],"initialPositions":[],"arrivalOverrides":[]}
             """));
         assertThrows(IllegalArgumentException.class, () -> WebUiApplication.requireEditorDocument(mapper.readTree("""
             {"formatVersion":1,"id":"t","formalScriptName":"../weekday.js","periodDays":1,
-             "runs":[],"duties":[],"diagramLines":[],"arrivalOverrides":[]}
+             "runs":[],"duties":[],"diagramLines":[],"initialPositions":[],"arrivalOverrides":[]}
             """)));
         WebUiApplication.requireEditorDocument(mapper.readTree("""
             {"formatVersion":1,"id":"draft","periodDays":1,
              "runs":[{"id":"run-1","type":"PASSENGER","lineDirection":"UP","calls":[{"id":"c1","stationId":"","status":"ORIGIN","targetId":""}]}],
              "duties":[{"id":"duty-1","selector":{"type":"TRAIN_NAME","name":""},"elements":[]}],
-             "diagramLines":[],"arrivalOverrides":[]}
+             "diagramLines":[],"initialPositions":[],"arrivalOverrides":[]}
             """));
 
         assertThrows(IllegalArgumentException.class, () -> WebUiApplication.requireEditorDocument(
             mapper.readTree("""
                 {"formatVersion":1,"id":"t","periodDays":1,
-                 "runs":[],"duties":[],"arrivalOverrides":[]}
+                 "runs":[],"duties":[],"initialPositions":[],"arrivalOverrides":[]}
                 """)));
         assertThrows(IllegalArgumentException.class, () -> WebUiApplication.requireEditorDocument(
             mapper.readTree("""
                 {"formatVersion":1,"id":"t","periodDays":1,
                  "runs":[],"duties":[{"id":"d","selector":{"type":"TRAIN_NAME"},"elements":[]}],
-                 "diagramLines":[],"arrivalOverrides":[]}
+                 "diagramLines":[],"initialPositions":[],"arrivalOverrides":[]}
                 """)));
     }
 

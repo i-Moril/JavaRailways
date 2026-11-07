@@ -34,7 +34,7 @@ class TimetableProgramHttpTest {
         try {
             String firstCookie = login(client, root);
             String secondCookie = login(client, root);
-            String empty = "{\"formatVersion\":1,\"id\":\"weekday\",\"periodDays\":1,\"runs\":[],\"duties\":[],\"diagramLines\":[],\"arrivalOverrides\":[]}";
+            String empty = "{\"formatVersion\":1,\"id\":\"weekday\",\"periodDays\":1,\"runs\":[],\"duties\":[],\"initialPositions\":[],\"diagramLines\":[],\"arrivalOverrides\":[]}";
             String documents = "/api/v1/worlds/world/editor-documents";
             HttpResponse<String> created = send(client, root, documents, "POST", empty, firstCookie);
             assertEquals(201, created.statusCode());

@@ -7,7 +7,7 @@ import {referencedTimetableEventIds,saveTimetableEvent,timetableEventUnchanged} 
 import {resolveProgramSourceTarget} from './programNavigation';
 import type {StationProgramRecord,TimetableSimulationResult} from './types';
 const programs=():StationProgramRecord[]=>[{formatVersion:1,id:'p',name:'p',definition:{parameters:[],steps:[{id:'wait',type:'WAIT_DURATION',durationTicks:{value:5}}]}}];
-const fixture=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),id:'test',events:[{id:'1',tick:100,program:{programId:'p',arguments:{}},duration:{type:'SIMULATED'}}],duties:[{id:'D',selector:{type:'TRAIN_NAME',name:'one'},initialPosition:'a',elements:[{id:'ref1',type:'EVENT',eventId:'1'}]},{id:'E',selector:{type:'TRAIN_NAME',name:'two'},initialPosition:'a',elements:[{id:'ref2',type:'EVENT',eventId:'1'}]}]});
+const fixture=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),id:'test',initialPositions:[{trainName:'one',wayPointId:'a'},{trainName:'two',wayPointId:'b'}],events:[{id:'1',tick:100,program:{programId:'p',arguments:{}},duration:{type:'SIMULATED'}}],duties:[{id:'D',selector:{type:'TRAIN_NAME',name:'one'},elements:[{id:'ref1',type:'EVENT',eventId:'1'}]},{id:'E',selector:{type:'TRAIN_NAME',name:'two'},elements:[{id:'ref2',type:'EVENT',eventId:'1'}]}]});
 const simulation=(end2=107):TimetableSimulationResult=>({status:'COMPLETED',simulatedTicks:200,runs:[],tasks:[{serviceId:'D',taskId:'ref1',startTick:102,endTick:107},{serviceId:'E',taskId:'ref2',startTick:102,endTick:end2}]});
 describe('timetable-owned timed operations',()=>{
  it('uses local program estimates in both projections without changing execution source or hash',()=>{

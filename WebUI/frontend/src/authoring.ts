@@ -44,10 +44,10 @@ export type AuthoringDutyElementV1 =
 export interface AuthoringDutyV1 {
   id:string;
   selector:AuthoringDutySelectorV1;
-  initialPosition?:string;
   elements:AuthoringDutyElementV1[];
   referenceVehicle?:{type:'WORLD_TRAIN'|'TRAIN_TEMPLATE';id:string};
 }
+export interface AuthoringInitialPositionV1 {trainName:string;wayPointId:string}
 export interface ArrivalOverrideV1 {runId:string;callId:string;tick:number}
 export interface TimetableAuthoringDocumentV1 {
   formatVersion:1;
@@ -57,6 +57,7 @@ export interface TimetableAuthoringDocumentV1 {
   minimumDwellTicks?:number;
   runs:AuthoringRunV1[];
   duties:AuthoringDutyV1[];
+  initialPositions:AuthoringInitialPositionV1[];
   diagramLines:DiagramLineV1[];
   arrivalOverrides:ArrivalOverrideV1[];
   stationPrograms?:StationStopProgram[];
@@ -66,8 +67,8 @@ export interface TimetableAuthoringDocumentV1 {
 }
 /** Serialize only the current editor contract, never derived runtime line caps. */
 export function authoringDocumentForSave(document:TimetableAuthoringDocumentV1):TimetableAuthoringDocumentV1 {
-  const {formatVersion,id,formalScriptName,periodDays,minimumDwellTicks,runs,duties,diagramLines,arrivalOverrides,formationEvents,operationalTrips,stationPrograms,events}=document;
-  return {formatVersion,id,formalScriptName,periodDays,minimumDwellTicks,runs:runs.map((run)=>clearDeadheadTerminalDeparture({...run,calls:run.calls.map(authoringCallForSave)})),duties,diagramLines,arrivalOverrides,formationEvents,operationalTrips,stationPrograms,events};
+  const {formatVersion,id,formalScriptName,periodDays,minimumDwellTicks,runs,duties,initialPositions,diagramLines,arrivalOverrides,formationEvents,operationalTrips,stationPrograms,events}=document;
+  return {formatVersion,id,formalScriptName,periodDays,minimumDwellTicks,runs:runs.map((run)=>clearDeadheadTerminalDeparture({...run,calls:run.calls.map(authoringCallForSave)})),duties,initialPositions,diagramLines,arrivalOverrides,formationEvents,operationalTrips,stationPrograms,events};
 }
 /** Project only the current call contract at the persistence and generated-metadata boundaries. */
 function authoringCallForSave(call:AuthoringRunCallV1):AuthoringRunCallV1 {
@@ -185,7 +186,8 @@ export function authoringLineSimulationRequest(
     events:document.events?.map(({id,tick})=>({id,tick})),
     diagramLines:document.diagramLines.filter((line)=>line.id===run.diagramLineId),
     stationPrograms:document.stationPrograms?.filter((program)=>run.calls.some((call)=>call.status!=='PASS'&&call.stationId===program.stationId)),
-    duties:[{id:duty?.id??'line-simulation',selector:{type:'TRAIN_NAME',name:'line-simulation'},initialPosition:run.calls[0]?.targetId,
+    initialPositions:run.calls[0]?.targetId?[{trainName:'line-simulation',wayPointId:run.calls[0].targetId}]:[],
+    duties:[{id:duty?.id??'line-simulation',selector:{type:'TRAIN_NAME',name:'line-simulation'},
       elements:[element??{id:'line-simulation-run',type:'RUN',runId:run.id}]}],
   };
   const generated=generateTimetableSource(measurementDocument,lines);
@@ -220,6 +222,7 @@ export const emptyAuthoringDocument = ():TimetableAuthoringDocumentV1 => ({
   periodDays:1,
   runs:[],
   duties:[],
+  initialPositions:[],
   diagramLines:[],
   arrivalOverrides:[],
 });
@@ -400,6 +403,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
   document=normalizeAuthoringDocument(document);
   const actualWaypoints=metadata?.wayPoints?new Set(metadata.wayPoints):undefined;
   const directedWaypoints=metadata?.programSimulationWayPoints?new Set(metadata.programSimulationWayPoints.map((point)=>point.id)):undefined;
+  const actualTrainNames=metadata?.simulationProfiles?new Set(metadata.simulationProfiles.filter((profile)=>profile.type==='WORLD_TRAIN').map((profile)=>profile.displayName)):undefined;
   const validateWaypoint=(id:string,path:string,label:string)=>{if(!id.trim())return;if(actualWaypoints&&!actualWaypoints.has(id))issues.push(issue(path,`${label} waypoint not found: ${id}`));else if(directedWaypoints&&!directedWaypoints.has(id))issues.push(issue(path,`${label} waypoint has no configured direction: ${id}`));};
   const programMap=new Map(programs.map((program)=>[program.id,program]));
   const issues:AuthoringIssue[]=[];
@@ -407,6 +411,18 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
   if(!document.id.trim()) issues.push(issue('id','Timetable ID is required'));
   if(!Number.isSafeInteger(document.periodDays)||document.periodDays<1) issues.push(issue('periodDays','Period days must be a positive integer'));
   if(document.minimumDwellTicks!==undefined&&!nonNegativeInteger(document.minimumDwellTicks)) issues.push(issue('minimumDwellTicks','Minimum dwell must be a non-negative integer'));
+  const initialTrainNames=new Set<string>(),initialWayPoints=new Set<string>();
+  document.initialPositions.forEach((position,index)=>{
+    const path=`initialPositions[${index}]`;
+    if(!position.trainName.trim())issues.push(issue(`${path}.trainName`,'Initial-position train name is required'));
+    else if(initialTrainNames.has(position.trainName))issues.push(issue(`${path}.trainName`,`Duplicate initial-position train name: ${position.trainName}`));
+    else if(actualTrainNames&&!actualTrainNames.has(position.trainName))issues.push(issue(`${path}.trainName`,`Initial-position train not found: ${position.trainName}`));
+    initialTrainNames.add(position.trainName);
+    if(!position.wayPointId.trim())issues.push(issue(`${path}.wayPointId`,'Initial-position waypoint is required'));
+    else if(initialWayPoints.has(position.wayPointId))issues.push(issue(`${path}.wayPointId`,`Duplicate initial-position waypoint: ${position.wayPointId}`));
+    initialWayPoints.add(position.wayPointId);
+    validateWaypoint(position.wayPointId,`${path}.wayPointId`,'Initial placement');
+  });
   const periodTicks=Math.max(0,document.periodDays*24_000);
   const diagramLineIds=new Set<string>();
   document.diagramLines.forEach((line,lineIndex)=>{
@@ -496,11 +512,6 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
     let programDestination:string|undefined=namedDutyInitialTarget(document,duty);
     let previousElementEndTick:number|undefined;
     const elementIds=new Set<string>();
-    if(duty.initialPosition!==undefined){
-      if(!duty.initialPosition.trim())issues.push(issue(`${path}.initialPosition`,'Initial placement waypoint is required'));
-      if(duty.selector.type!=='TRAIN_NAME')issues.push(issue(`${path}.initialPosition`,'Initial placement requires a named-train selector'));
-      else validateWaypoint(duty.initialPosition,`${path}.initialPosition`,'Initial placement');
-    }
     duty.elements.forEach((element,elementIndex)=>{
       const elementPath=`${path}.elements[${elementIndex}]`;
       if(!element.id.trim()) issues.push(issue(`${elementPath}.id`,'Element ID is required'));
@@ -663,7 +674,9 @@ function selectorSource(selector:AuthoringDutySelectorV1,document:TimetableAutho
 
 function namedDutyInitialTarget(document:TimetableAuthoringDocumentV1,duty:AuthoringDutyV1):string|undefined {
   if(duty.selector.type!=='TRAIN_NAME')return undefined;
-  if(duty.initialPosition)return duty.initialPosition;
+  const trainName=duty.selector.name;
+  const initialPosition=document.initialPositions.find((position)=>position.trainName===trainName);
+  if(initialPosition)return initialPosition.wayPointId;
   const firstRun=duty.elements.find((item)=>item.type==='RUN');
   return firstRun?.type==='RUN'?document.runs.find((run)=>run.id===firstRun.runId)?.calls[0]?.targetId:undefined;
 }
@@ -708,10 +721,8 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1,in
   for(const line of document.diagramLines) {
     lines.push('',`    timetable.diagramLine(${quote(line.id)}, {`,`        upStations: [${line.upStationIds.map(quote).join(', ')}],`,`        downStations: [${line.downStationIds.map(quote).join(', ')}]`,`    })`);
   }
-  for(const duty of document.duties) {
-    if(duty.initialPosition&&duty.selector.type==='TRAIN_NAME') {
-      lines.push('',`    timetable.setInitialPosition(timetable.named(${quote(duty.selector.name)}), timetable.named(${quote(duty.initialPosition)}))`);
-    }
+  for(const position of document.initialPositions) {
+    lines.push('',`    timetable.setInitialPosition(timetable.named(${quote(position.trainName)}), timetable.named(${quote(position.wayPointId)}))`);
   }
   for(const duty of document.duties) {
     const assignedRuns=duty.elements.flatMap((element)=>element.type==='RUN'?[document.runs.find((run)=>run.id===element.runId)].filter(Boolean) as AuthoringRunV1[]:[]);

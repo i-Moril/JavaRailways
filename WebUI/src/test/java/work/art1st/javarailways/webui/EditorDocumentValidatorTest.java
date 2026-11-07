@@ -39,9 +39,33 @@ class EditorDocumentValidatorTest {
         assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(document));
     }
 
+    @Test void requiresCurrentTopLevelInitialPositionsAndRejectsAmbiguousRows() throws Exception {
+        ObjectNode missing = document();
+        missing.remove("initialPositions");
+        assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(missing));
+
+        for (String positions : new String[] {
+            "[{\"trainName\":\"\",\"wayPointId\":\"A\"}]",
+            "[{\"trainName\":\"one\",\"wayPointId\":\"\"}]",
+            "[{\"trainName\":\"one\",\"wayPointId\":\"A\"},{\"trainName\":\"one\",\"wayPointId\":\"B\"}]",
+            "[{\"trainName\":\"one\",\"wayPointId\":\"A\"},{\"trainName\":\"two\",\"wayPointId\":\"A\"}]",
+            "[{\"trainName\":\"one\",\"wayPointId\":\"A\",\"extra\":true}]"
+        }) {
+            ObjectNode invalid = document();
+            invalid.set("initialPositions", mapper.readTree(positions));
+            assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(invalid), positions);
+        }
+
+        ObjectNode oldDutyField = document();
+        oldDutyField.withArray("duties").add(mapper.readTree("""
+            {"id":"d","selector":{"type":"TRAIN_NAME","name":"train"},"initialPosition":"A","elements":[]}
+            """));
+        assertThrows(IllegalArgumentException.class, () -> EditorDocumentValidator.validate(oldDutyField));
+    }
+
     private ObjectNode document() throws Exception {
         return (ObjectNode) mapper.readTree("""
-            {"formatVersion":1,"id":"timetable","periodDays":1,"runs":[],"duties":[],"diagramLines":[],"arrivalOverrides":[]}
+            {"formatVersion":1,"id":"timetable","periodDays":1,"runs":[],"duties":[],"diagramLines":[],"initialPositions":[],"arrivalOverrides":[]}
             """);
     }
 }

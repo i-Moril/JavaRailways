@@ -19,7 +19,7 @@ class ArrivalProgramValidatorTest {
     }
     @Test void persistedRunCallsUseCurrentFieldSet() throws Exception {
         String document = """
-          {"formatVersion":1,"id":"doc","periodDays":1,"minimumDwellTicks":20,"duties":[],"diagramLines":[],"arrivalOverrides":[],
+          {"formatVersion":1,"id":"doc","periodDays":1,"minimumDwellTicks":20,"duties":[],"diagramLines":[],"initialPositions":[],"arrivalOverrides":[],
            "runs":[{"id":"run","type":"PASSENGER","lineDirection":"UP","calls":[
              {"id":"call","stationId":"station","berthId":"platform","status":"TERMINAL","targetId":"destination",
               "arrivalTick":100,"departureTick":120,"stoppingOffsetMetersBefore":2,

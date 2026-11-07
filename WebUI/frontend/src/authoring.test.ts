@@ -20,7 +20,7 @@ const line:LineV1={id:'line-1',displayName:'Line 1',upStationIds:['a','b','c','d
 
 const valid=():TimetableAuthoringDocumentV1=>({
   formatVersion:1,id:'l1',periodDays:1,
-  diagramLines:[{id:'line-1',upStationIds:['a','b'],downStationIds:['b','a']}],arrivalOverrides:[],
+  diagramLines:[{id:'line-1',upStationIds:['a','b'],downStationIds:['b','a']}],arrivalOverrides:[],initialPositions:[{trainName:'train-1',wayPointId:'a@1'}],
   runs:[
     {id:'up-01',type:'PASSENGER',lineId:'line-1',diagramLineId:'line-1',lineDirection:'UP',calls:[
       {id:'up-a',stationId:'a',berthId:'1',status:'ORIGIN',targetId:'a@1',departureTick:100},
@@ -31,7 +31,7 @@ const valid=():TimetableAuthoringDocumentV1=>({
       {id:'down-a',stationId:'a',berthId:'2',status:'TERMINAL',targetId:'a@2',arrivalTick:1800,doorSide:'NONE'},
     ]},
   ],
-  duties:[{id:'duty-a',selector:{type:'TRAIN_NAME',name:'train-1'},initialPosition:'a@1',elements:[
+  duties:[{id:'duty-a',selector:{type:'TRAIN_NAME',name:'train-1'},elements:[
     {id:'up-element',type:'RUN',runId:'up-01'},
     {id:'down-element',type:'RUN',runId:'down-01'},
   ]}],
@@ -123,26 +123,38 @@ describe('timetable editor document',()=>{
     expect(validateAuthoringDocument(moved).some((item)=>item.message.includes('already assigned'))).toBe(false);
   });
 
-  it('requires named train selection for initial placement',()=>{
+  it('keeps initial placement independent from duty acquisition',()=>{
     const document=valid();document.duties[0].selector={type:'TAKE_FROM_WAYPOINT',wayPointIds:['a@1'],tick:0};
-    expect(validateAuthoringDocument(document).map((item)=>item.message)).toContain('Initial placement requires a named-train selector');
+    expect(validateAuthoringDocument(document)).toEqual([]);
+    expect(generateTimetableSource(document).source).toContain('timetable.setInitialPosition(timetable.named("train-1"), timetable.named("a@1"))');
   });
 
   it('validates configured spawn waypoints against existence and explicit direction metadata',()=>{
-    const world:WorldMetadata={wayPoints:['a@1','b@1','undirected'],programSimulationWayPoints:[
+    const world:WorldMetadata={simulationProfiles:[{type:'WORLD_TRAIN',id:'uuid-1',displayName:'train-1',carCount:4}],wayPoints:['a@1','b@1','undirected'],programSimulationWayPoints:[
       {id:'a@1',railId:'rail-a',direction:'AB',directionSource:'WAYPOINT'},
       {id:'b@1',railId:'rail-b',direction:'BA',directionSource:'RAIL'},
     ]};
     const document=valid();
     expect(validateWithLines(document,infrastructureLines,[],world)).toEqual([]);
-    document.duties[0].initialPosition='missing';
+    document.initialPositions[0].wayPointId='missing';
     expect(validateWithLines(document,infrastructureLines,[],world).some((item)=>item.message.includes('Initial placement waypoint not found'))).toBe(true);
-    document.duties[0].initialPosition='undirected';
+    document.initialPositions[0].wayPointId='undirected';
     expect(validateWithLines(document,infrastructureLines,[],world).some((item)=>item.message.includes('Initial placement waypoint has no configured direction'))).toBe(true);
     document.duties[0].selector={type:'TAKE_FROM_WAYPOINT',wayPointIds:['a@1','undirected'],tick:0};
     expect(validateWithLines(document,infrastructureLines,[],world).some((item)=>item.message.includes('Selector waypoint has no configured direction'))).toBe(true);
     document.duties[0].selector={type:'TAKE_FROM_WAYPOINT',wayPointIds:['missing'],tick:0};
     expect(generateWithLines(document,infrastructureLines,[],world).issues.some((item)=>item.message.includes('Selector waypoint not found'))).toBe(true);
+  });
+
+  it('rejects unknown or duplicate vehicle initial-position rows',()=>{
+    const document=valid();
+    document.initialPositions.push({trainName:'train-1',wayPointId:'b@1'});
+    expect(validateAuthoringDocument(document).map((item)=>item.message)).toContain('Duplicate initial-position train name: train-1');
+    document.initialPositions[1].trainName='train-2';document.initialPositions[1].wayPointId='a@1';
+    expect(validateAuthoringDocument(document).map((item)=>item.message)).toContain('Duplicate initial-position waypoint: a@1');
+    const world:WorldMetadata={simulationProfiles:[{type:'WORLD_TRAIN',id:'uuid-1',displayName:'train-1',carCount:4}]};
+    document.initialPositions=[{trainName:'missing',wayPointId:'a@1'}];
+    expect(validateWithLines(document,infrastructureLines,[],world).map((item)=>item.message)).toContain('Initial-position train not found: missing');
   });
 
   it('skips next-origin target equality for any program containing REVERSE',()=>{
@@ -235,10 +247,10 @@ describe('timetable editor document',()=>{
 
   it('validates function targets and stable IDs',()=>{
     const document=valid();
-    document.duties[0].initialPosition='';
+    document.initialPositions[0].wayPointId='';
     document.runs[0].calls[1].id=document.runs[0].calls[0].id;
     const messages=validateAuthoringDocument(document).map((item)=>item.message);
-    expect(messages).toContain('Initial placement waypoint is required');
+    expect(messages).toContain('Initial-position waypoint is required');
     expect(messages).toContain(`Duplicate call ID: ${document.runs[0].calls[0].id}`);
   });
 
@@ -250,7 +262,7 @@ describe('timetable editor document',()=>{
   it('generates sorted tag selectors for depot acquisition',()=>{
     const document=valid();
     document.duties[0].selector={type:'TAKE_FROM_DEPOT',depotId:'north',tick:20,tags:['z','metro']};
-    delete document.duties[0].initialPosition;
+    document.initialPositions=[];
     const result=generateTimetableSource(document);
     expect(result.issues).toEqual([]);
     expect(result.source).toContain('timetable.takeFromDepot("north", { tags: ["metro", "z"] }, 20)');

@@ -36,7 +36,7 @@ const metadataSeed:WorldMetadata={
 const documentSeed:TimetableAuthoringDocumentV1={
   formatVersion:1,id:'weekday-demo',formalScriptName:'weekday-demo.js',periodDays:1,minimumDwellTicks:100,
   diagramLines:lineSeed.map(({id,upStationIds,downStationIds})=>({id,upStationIds,downStationIds})),
-  arrivalOverrides:[],
+  arrivalOverrides:[],initialPositions:[],
   runs:[
     {id:'AP101',type:'PASSENGER',lineId:'airport-line',diagramLineId:'airport-line',lineDirection:'UP',originDepartureMode:'AUTO',calls:[
       {id:'AP101-1',stationId:'harbour',berthId:'harbour-platform-1',status:'ORIGIN',targetId:'harbour-destination',departureTick:1200},

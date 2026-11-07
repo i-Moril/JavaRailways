@@ -33,13 +33,13 @@ describe('duty timeline projection',()=>{
   duty.elements.reverse();expect(sortDutyTasks(doc,duty).map((e)=>e.id)).toEqual(['r','p']);element.tick=100;expect(sortDutyTasks(doc,duty).map((e)=>e.id)).toEqual(['p','r']);
  });
  it('validates current planning duration boundaries',()=>{
-  const doc=fixture(),element=doc.duties[0].elements[1];if(element.type!=='PROGRAM')throw Error();doc.runs=[];doc.duties[0].initialPosition='a';doc.duties[0].elements=[element];
+  const doc=fixture(),element=doc.duties[0].elements[1];if(element.type!=='PROGRAM')throw Error();doc.runs=[];doc.initialPositions=[{trainName:'train',wayPointId:'a'}];doc.duties[0].elements=[element];
   for(const ticks of [-1,1.5,Number.MAX_SAFE_INTEGER]){element.duration={type:'MANUAL',ticks};expect(generateTimetableSource(doc,[],programs).issues.some((issue)=>issue.message.includes('duration'))).toBe(true);}
   element.duration={type:'MANUAL',ticks:0};expect(generateTimetableSource(doc,[],programs).issues).toEqual([]);
  });
  it('excludes planning duration from generated source and runtime identity',()=>{
   const doc=fixture(),element=doc.duties[0].elements[1];if(element.type!=='PROGRAM')throw Error();
-  doc.runs=[];doc.duties[0].initialPosition='a';doc.duties[0].elements=[element];
+  doc.runs=[];doc.initialPositions=[{trainName:'train',wayPointId:'a'}];doc.duties[0].elements=[element];
   const first=generateTimetableSource(doc,[],programs);expect(first.issues).toEqual([]);element.duration={type:'MANUAL',ticks:100};const second=generateTimetableSource(doc,[],programs);
   expect(first.source).toBe(second.source);expect(first.documentHashInput).toBe(second.documentHashInput);expect(first.source).toContain('scoped.task("p", 230, taskScope => taskScope.program');
  });
@@ -47,7 +47,7 @@ describe('duty timeline projection',()=>{
 
 import {orderDutyTimeline} from './dutyTimeline';
 it('orders tasks after run time edits in one transaction and preserves equal-time order',()=>{
- const d:TimetableAuthoringDocumentV1={formatVersion:1,id:'t',periodDays:1,diagramLines:[],arrivalOverrides:[],runs:[{id:'r',type:'PASSENGER',lineDirection:'UP',calls:[{id:'a',stationId:'a',targetId:'a',status:'ORIGIN',departureTick:50}]}],duties:[{id:'d',selector:{type:'TRAIN_NAME',name:'t'},elements:[{id:'p',type:'PROGRAM',tick:30,program:{programId:'1',arguments:{}}},{id:'r',type:'RUN',runId:'r'}]}]};
+ const d:TimetableAuthoringDocumentV1={formatVersion:1,id:'t',periodDays:1,diagramLines:[],arrivalOverrides:[],initialPositions:[],runs:[{id:'r',type:'PASSENGER',lineDirection:'UP',calls:[{id:'a',stationId:'a',targetId:'a',status:'ORIGIN',departureTick:50}]}],duties:[{id:'d',selector:{type:'TRAIN_NAME',name:'t'},elements:[{id:'p',type:'PROGRAM',tick:30,program:{programId:'1',arguments:{}}},{id:'r',type:'RUN',runId:'r'}]}]};
  expect(orderDutyTimeline(d)).toBe(d);
  const edited={...d,runs:[{...d.runs[0],calls:[{...d.runs[0].calls[0],departureTick:10}]}]};
  const ordered=orderDutyTimeline(edited);expect(ordered.duties[0].elements.map(e=>e.id)).toEqual(['r','p']);expect(edited.duties[0].elements.map(e=>e.id)).toEqual(['p','r']);

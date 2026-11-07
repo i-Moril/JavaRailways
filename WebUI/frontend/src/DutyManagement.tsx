@@ -1,4 +1,4 @@
-import {EditableIdSelect,EditableIdList} from './EditableIdSelect';
+import {EditableIdList} from './EditableIdSelect';
 import {directedWaypointOptions} from './idOptions';
 import {useEffect,useRef,useState} from 'react';
 import {Alert,Button,Flex,Input,Select,Typography} from 'antd';
@@ -51,16 +51,12 @@ export function DutyManagement(p:DutyManagementProps) {
       {!duty||!selector?<p className="empty inspector-empty">{t('ui.selectDuty')}</p>:<div className="duty-sidebar-body">
       <section className="duty-side-section"><Typography.Title level={5}>{t('duties.dutySection')}</Typography.Title>
         <label>{t('ui.rename')}<Input value={name} onChange={(event)=>setName(event.target.value)} onBlur={commitName} onPressEnter={commitName}/></label>
-        <label>{t('ui.selector')}<Select value={selector.type} onChange={(type)=>p.onPatch({initialPosition:type==='TRAIN_NAME'?duty.initialPosition:undefined,selector:type==='TRAIN_NAME'?{type,name:''}:type==='TAKE_FROM_DEPOT'?{type,depotId:'',tick:0,tags:[]}:type==='TAKE_FROM_FORMATION_OUTPUT'?{type,eventId:'',outputId:''}:{type:'TAKE_FROM_WAYPOINT',wayPointIds:[],tick:0}})} options={selectorOptions}/></label>
+        <label>{t('ui.selector')}<Select value={selector.type} onChange={(type)=>p.onPatch({selector:type==='TRAIN_NAME'?{type,name:''}:type==='TAKE_FROM_DEPOT'?{type,depotId:'',tick:0,tags:[]}:type==='TAKE_FROM_FORMATION_OUTPUT'?{type,eventId:'',outputId:''}:{type:'TAKE_FROM_WAYPOINT',wayPointIds:[],tick:0}})} options={selectorOptions}/></label>
         {selector.type!=='TAKE_FROM_FORMATION_OUTPUT'&&<label>{t('duties.reference')}<Select aria-label={t('duties.reference')} value={duty.referenceVehicle?`${duty.referenceVehicle.type}:${duty.referenceVehicle.id}`:undefined} options={(p.metadata.simulationProfiles??[]).map((profile)=>({value:`${profile.type}:${profile.id}`,label:profile.displayName}))} onChange={(value)=>{const split=value.indexOf(':');p.onPatch({referenceVehicle:{type:value.slice(0,split) as 'WORLD_TRAIN'|'TRAIN_TEMPLATE',id:value.slice(split+1)}});}}/></label>}
         <Button danger block onClick={p.onDelete}>{t('common.delete')}</Button>
       </section>
       <section className="duty-side-section"><Typography.Title level={5}>{t('duties.initialSection')}</Typography.Title>
-        {selector.type==='TAKE_FROM_FORMATION_OUTPUT'?p.document&&<FormationSourceFields document={p.document} dutyId={duty.id} eventId={selector.eventId} outputId={selector.outputId} onSelectDuty={id=>p.onOpenFormation?.(id,selector.eventId)} onChange={(eventId,outputId)=>p.onFormationSource?.(eventId,outputId)}/>:selector.type==='TRAIN_NAME'?<>
-          <label>{t('ui.trainName')}<Input value={selector.name} onChange={(event)=>p.onPatch({selector:{...selector,name:event.target.value}})}/></label>
-          <label>{t('duties.initialWaypoint')}<EditableIdSelect fieldKey={`${p.fieldScope}/${duty.id}/initialPosition`} allowClear aria-label={t('duties.initialWaypoint')} value={duty.initialPosition} options={directedWaypointOptions(p.metadata)} onCommit={(initialPosition)=>p.onPatch({initialPosition:initialPosition||undefined})}/></label>
-          <Typography.Text type="secondary">{t('timeline.initialHint')}</Typography.Text>
-        </>:<>
+        {selector.type==='TAKE_FROM_FORMATION_OUTPUT'?p.document&&<FormationSourceFields document={p.document} dutyId={duty.id} eventId={selector.eventId} outputId={selector.outputId} onSelectDuty={id=>p.onOpenFormation?.(id,selector.eventId)} onChange={(eventId,outputId)=>p.onFormationSource?.(eventId,outputId)}/>:selector.type==='TRAIN_NAME'?<label>{t('ui.trainName')}<Input value={selector.name} onChange={(event)=>p.onPatch({selector:{...selector,name:event.target.value}})}/></label>:<>
           <label>{t('duties.acquireTick')}<CommittedNumberInput fieldKey={`${p.fieldScope}/${duty.id}/selector/${selector.type}/tick`} allowEmpty={false} min={0} precision={0} value={selector.tick} onCommit={(tick)=>p.onPatch({selector:{...selector,tick:tick??0}})}/></label>
           {selector.type==='TAKE_FROM_DEPOT'?<><label>{t('duties.depot')}<Select value={selector.depotId||undefined} options={options(p.metadata.depots??[])} onChange={(depotId)=>p.onPatch({selector:{...selector,depotId}})}/></label><label>{t('duties.requiredTags')}<Select mode="tags" value={selector.tags} onChange={(tags)=>p.onPatch({selector:{...selector,tags}})}/></label></>:<label>{t('duties.waypoints')}<EditableIdList fieldKey={`${p.fieldScope}/${duty.id}/waypoints`} aria-label={t('duties.waypoints')} value={selector.wayPointIds} options={directedWaypointOptions(p.metadata)} onChange={(wayPointIds)=>p.onPatch({selector:{...selector,wayPointIds}})}/></label>}
         </>}

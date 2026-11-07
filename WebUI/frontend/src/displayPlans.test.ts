@@ -7,7 +7,7 @@ import type {OperationalTripSegment} from './types';
 
 const first:OperationalTripSegment={serviceId:'1',runId:'1',unitSlots:[1]},second:OperationalTripSegment={serviceId:'2',runId:'2',unitSlots:[1]};
 function document():TimetableAuthoringDocumentV1{return {
-  formatVersion:1,id:'weekday',periodDays:1,formalScriptName:'weekday.js',arrivalOverrides:[],diagramLines:[],
+  formatVersion:1,id:'weekday',periodDays:1,formalScriptName:'weekday.js',arrivalOverrides:[],initialPositions:[],diagramLines:[],
   runs:[1,2,3].map((id)=>({id:String(id),lineId:'main',type:'PASSENGER' as const,lineDirection:'UP' as const,calls:[
     {id:'a',stationId:'a',status:'ORIGIN' as const,targetId:'a@1',departureTick:id*100},
     {id:'b',stationId:'b',status:'TERMINAL' as const,targetId:'b@1',arrivalTick:id*100+50},

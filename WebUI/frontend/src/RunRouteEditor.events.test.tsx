@@ -14,7 +14,7 @@ async function render(){await act(async()=>root.render(<I18nProvider><RunRouteEd
 const toggle=()=>container.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Override door side"]')!;
 const select=()=>container.querySelector<HTMLInputElement>('[role="combobox"][aria-label="Overridden door side"]')!;
 async function click(element:Element){await act(async()=>element.dispatchEvent(new MouseEvent('click',{bubbles:true})));}
-function source(){const doc:TimetableAuthoringDocumentV1={formatVersion:1,id:'t',periodDays:1,runs:[run],duties:[{id:'d',selector:{type:'TRAIN_NAME',name:'train'},initialPosition:'a',elements:[{id:'e',type:'RUN',runId:'r'}]}],diagramLines:[line],arrivalOverrides:[]};const generated=generateTimetableSource(doc,[line]);expect(generated.issues).toEqual([]);return generated.source;}
+function source(){const doc:TimetableAuthoringDocumentV1={formatVersion:1,id:'t',periodDays:1,runs:[run],duties:[{id:'d',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'e',type:'RUN',runId:'r'}]}],initialPositions:[{trainName:'train',wayPointId:'a'}],diagramLines:[line],arrivalOverrides:[]};const generated=generateTimetableSource(doc,[line]);expect(generated.issues).toEqual([]);return generated.source;}
 beforeEach(()=>{
   vi.stubGlobal('ResizeObserver',class {observe(){} unobserve(){} disconnect(){}});
   changed.mockClear();Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});

@@ -8,7 +8,7 @@ class OperationalTripAuthoringValidatorTest {
     private final ObjectMapper mapper = new ObjectMapper();
     private String document(String trips) {
         return """
-            {"formatVersion":1,"id":"t","periodDays":1,"diagramLines":[],"arrivalOverrides":[],"runs":[],
+            {"formatVersion":1,"id":"t","periodDays":1,"diagramLines":[],"initialPositions":[],"arrivalOverrides":[],"runs":[],
              "duties":[{"id":"d","selector":{"type":"TRAIN_NAME","name":"train"},"elements":[{"id":"e","type":"RUN","runId":"r"}]}],
              "operationalTrips":%s}
             """.formatted(trips);

@@ -113,9 +113,9 @@ describe('fixed formation authoring',()=>{
   });
 
   it('emits initial check for named trains and validates known occupancy without inventing unknown spans',()=>{
-    const d=document();d.duties[0]={...d.duties[0],selector:{type:'TRAIN_NAME',name:'train'},initialPosition:'start'};
+    const d=document();d.duties[0]={...d.duties[0],selector:{type:'TRAIN_NAME',name:'train'}};d.initialPositions=[{trainName:'train',wayPointId:'start'}];
     expect(generateTimetableSource(d).source).toContain('scoped.check("start")');
-    delete d.duties[0].initialPosition;expect(generateTimetableSource(d).issues.some((i)=>i.message.includes('initial placement'))).toBe(true);
+    d.initialPositions=[];expect(generateTimetableSource(d).issues.some((i)=>i.message.includes('initial placement'))).toBe(true);
     const split=event();if(split.kind!=='SPLIT')throw new Error('split');
     const next={...split,id:'second',tick:12,outputs:split.outputs.map((o)=>o.group==='REST'?{...o,disposition:{type:'HOLD' as const}}:o)};
     const overlapping=updateDutyFormation(document(),next);

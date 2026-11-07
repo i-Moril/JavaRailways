@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe,expect,it } from 'vitest';
 import { AuthoringValidation,simulationRunStateLabel,type AuthoringValidationProps } from './AuthoringValidation';
 import { DutyManagement } from './DutyManagement';
+import { InitialPositionsPage } from './InitialPositionsPage';
 import { I18nProvider,translate } from './i18n';
 import { RunRouteEditor } from './RunRouteEditor';
 import { SimulationProgressBar } from './SimulationProgressBar';
@@ -11,6 +12,10 @@ const noop=()=>undefined;
 const props:AuthoringValidationProps={duties:[{id:'duty-a',selector:{type:'TRAIN_NAME',name:'train'},elements:[]}],issues:[],compileError:'',profiles:[{type:'WORLD_TRAIN',id:'train',displayName:'Train A',carCount:2}],assignments:{},threshold:1200,conflicting:false,busy:false,compileReason:'',simulationReason:'Compile the current document successfully first.',source:'// generated',onCompile:noop,onSimulate:noop,onAssignment:noop,onThreshold:noop,onNavigate:noop};
 const render=(element:React.ReactNode)=>renderToStaticMarkup(<I18nProvider>{element}</I18nProvider>);
 describe('authoring workspace views',()=>{
+ it('renders train initial positions as a separate editor page',()=>{
+   const html=render(<InitialPositionsPage fieldScope="document" positions={[{trainName:'Metro 01',wayPointId:'depot@1'}]} metadata={{simulationProfiles:[{type:'WORLD_TRAIN',id:'uuid',displayName:'Metro 01',carCount:4}],wayPoints:['depot@1']}} onChange={noop}/>);
+   expect(html).toContain('Train initial positions');expect(html).toContain('Metro 01');expect(html).toContain('depot@1');expect(html).toContain('independent of duties');
+ });
  it('edits the cap in line settings and keeps run options free of a cap input',()=>{
    const line={id:'L',displayName:'Line',upStationIds:['a','b'],downStationIds:['b','a'],maximumSpeedMetersPerSecond:20};
    const html=render(<LinesPage world="world" metadata={{}} collection={{revision:0,lines:[line]}} onCollection={noop} run={async(operation)=>operation()}/>);
@@ -120,7 +125,7 @@ describe('authoring workspace views',()=>{
  });
  it('exposes duty selectors and timeline instead of a scratch canvas',()=>{
   const duty={id:'duty-a',selector:{type:'TAKE_FROM_DEPOT' as const,depotId:'depot-a',tick:50,tags:['commuter']},elements:[]};
-  const document={formatVersion:1 as const,id:'doc',periodDays:1,runs:[],duties:[duty],diagramLines:[],arrivalOverrides:[]};
+  const document={formatVersion:1 as const,id:'doc',periodDays:1,runs:[],duties:[duty],diagramLines:[],arrivalOverrides:[],initialPositions:[]};
   const html=render(<DutyManagement graph={null} document={document} duties={[duty]} runs={[]} selectedId="duty-a" metadata={{depots:['depot-a']}} onSelect={noop} onDelete={noop} onPatch={noop} onRemove={noop} onViewRun={noop}/>);
   expect(html).toContain('Take from depot');expect(html).toContain('Duty timeline');expect(html).toContain('Duty ID');expect(html).toContain('Click a run to add it to the duty');expect(html).not.toContain('blockly');expect(html).not.toContain('PLACE_INITIAL');
  });

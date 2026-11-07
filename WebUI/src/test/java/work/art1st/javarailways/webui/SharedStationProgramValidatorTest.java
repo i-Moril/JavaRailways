@@ -10,7 +10,7 @@ class SharedStationProgramValidatorTest {
 
     @Test void currentDocumentPersistsSharedStationsEventsAndReferenceVehicle() throws Exception {
         var document = mapper.readTree("""
-            {"formatVersion":1,"id":"weekday","periodDays":1,"runs":[],"diagramLines":[],"arrivalOverrides":[],
+            {"formatVersion":1,"id":"weekday","periodDays":1,"runs":[],"diagramLines":[],"initialPositions":[],"arrivalOverrides":[],
              "events":[{"id":"turn","stationId":"central","tick":200,"label":"turnback"}],
              "stationPrograms":[{"stationId":"central","preparationLead":{"value":10},
                "arrival":{"parameters":[],"steps":[{"id":"open","type":"OPEN_DOORS"},{"id":"end","type":"END"}]},
@@ -37,7 +37,7 @@ class SharedStationProgramValidatorTest {
         var definition = mapper.readTree("{\"parameters\":[],\"steps\":[]}");
         var document = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree("""
             {"formatVersion":1,"id":"weekday","periodDays":1,"runs":[],"diagramLines":[],"arrivalOverrides":[],
-             "duties":[{"id":"d","selector":{"type":"TRAIN_NAME","name":"train"},"initialPosition":"A","elements":[
+             "initialPositions":[{"trainName":"train","wayPointId":"A"}],"duties":[{"id":"d","selector":{"type":"TRAIN_NAME","name":"train"},"elements":[
                {"id":"1","type":"PROGRAM","tick":100,"program":{"programId":"1","arguments":{}},"duration":{"type":"MANUAL","ticks":20}}]}]}
             """);
         var program = mapper.createObjectNode();program.set("definition",definition);

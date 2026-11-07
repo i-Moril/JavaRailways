@@ -33,7 +33,7 @@ class FormationAuthoringValidatorTest {
     }
     @Test void editorAllowsUnresolvedTaskReferencesButChecksFormationPeriodAndSelectorShape() throws Exception {
         var document = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree("""
-            {"formatVersion":1,"id":"weekday","periodDays":1,"runs":[],"diagramLines":[],"arrivalOverrides":[],
+            {"formatVersion":1,"id":"weekday","periodDays":1,"runs":[],"diagramLines":[],"initialPositions":[],"arrivalOverrides":[],
              "duties":[{"id":"2","selector":{"type":"TAKE_FROM_FORMATION_OUTPUT","eventId":"split","outputId":"rest"},
                 "elements":[{"id":"ref","type":"FORMATION","eventId":"missing"}]}]}
             """);

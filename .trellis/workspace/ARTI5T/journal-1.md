@@ -1130,3 +1130,54 @@ Deployment proves installation and domain/HTTP startup, not a successful new onl
 ### Status
 
 [OK] **Completed**
+
+
+## Session 36: Timetable door-state validation deployment
+<!-- trellis-session: v=2 fp=2c13c60617bf6875 -->
+
+**Date**: 2026-11-07
+**Task**: Timetable door-state validation deployment
+**Package**: javarailways
+**Branch**: `codex/ato-per-car-rebuild`
+
+### Summary
+
+Committed and deployed conservative timetable door-state validation to JavaRailwaysTest from an exact clean snapshot; preserved unrelated work and current timetable data, with verified recovery and runtime health.
+
+### Main Changes
+
+## Scope and implementation
+
+- User explicitly authorized commit and deployment of the F9 timetable door-state static validation; no push or data migration was authorized.
+- Work commit `c914b1a345739d8f1bbe57e47f9f9c8cf1468091` adds conservative `UNKNOWN/SECURED/OPEN` proof to the existing TimetableValidator traversal, reports a conflict at the first doorless/movement operation, and keeps runtime door fail-safes.
+- The commit includes only six task-owned implementation/test/spec/research files. The existing reversed-departure assertion and all other dirty work remained uncommitted.
+
+## Verification
+
+- Exact staged/committed snapshot was cloned into a clean directory and passed `:SimpleATO:test`: 791 tests, zero failures/errors/skips, using a 4 GiB single test worker after the default and 2 GiB workers exhausted heap without assertion failures.
+- Clean commit also built `:BukkitPlugin:shadowJar` and passed `verifySignalModuleBoundaries`.
+- Candidate `JavaRailways.jar` SHA256: `e5b8433cd1c21f11d23d24286465586eccbd7eb121114a6ae4a042fc647f73b4`, 67,491,364 bytes.
+
+## JavaRailwaysTest deployment
+
+- Target: `user@192.168.1.230`, MCS instance `836082a48c4f48fcb1fea4e83c57dc96`; used `/run/host-ssh-agent/agent.sock`.
+- Installed baseline matched direct ancestor `5d5a4b7a` artifact SHA256 `994c5e03f08199d29e9eba3ece105431b4a6e254a32c5fd4be69cc211817c9f3`.
+- One online player was warned in game. MCSManager normal stop saved worlds/player data; old PID `948935` exited and listeners closed before mutation.
+- Recovery point: `/opt/mcsmanager/backups/javarailways/door-state-20261107-c5525hbl/recovery.zip`, 150 files, SHA256 `78fe9066f7d86c1b5818eb89d497ea18a48ce4e155a67541f13ed260bd036c91`.
+- Only `plugins/JavaRailways.jar` was atomically replaced. The other 149 inventoried files, SimpleSignals, TunnelBridgeBuilder and `new-timetable-9.json` remained unchanged.
+- New PID `960260`, startup `Done (26.689s)`, ATO `RUNNING`; SimpleSignals installed at definition revision 117 with 14 blocks. Bridge health returned ok, local/public WebUI returned HTTP 200, and the served main script hash matched the candidate. No matching startup error was found.
+
+## Boundary
+
+Deployment proves exact artifact installation, startup and domain/HTTP health. It does not claim that the user has rerun and accepted the full global simulation. The larger snapshot-engineering audit task remains active and was not archived.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c914b1a3` | fix(simpleato): validate open-door timetable handoffs |
+
+### Status
+
+[OK] **Completed**

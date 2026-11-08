@@ -15,6 +15,14 @@ import work.art1st.javarailways.core.physics.train.onOwnerForTest
 
 class TrainPlacementSelectionTest {
     @Test
+    fun `separate trains created by one player receive distinct car identities`() {
+        val first = java.util.UUID.randomUUID().toString()
+        val second = java.util.UUID.randomUUID().toString()
+        val ids = listOf(first, second).flatMap { train -> (0 until 5).map { carIdForTrain(train, it) } }
+        assertEquals(10, ids.toSet().size)
+    }
+
+    @Test
     fun `head remains at selected point when both directions fit`() {
         TestWorldFixture.create().use { fixture ->
             val rail = createStraightRailFromSegments(fixture.world, PrimeCurveGenerator.buildStraight(40.0, 1))

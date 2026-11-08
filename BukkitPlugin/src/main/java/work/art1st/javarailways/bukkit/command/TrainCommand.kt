@@ -279,7 +279,6 @@ object TrainCommand {
         carDefs: List<CarDefinition>,
         nearestRail: HeavyRailQueries.NearestRailMatch?
     ) {
-        val playerName = sender.name
         val selectedRail = nearestRail?.let { coreWorld.getRail(it.railId) }
         coreWorld.physicsCoordinator.submitBetweenFrames {
             check(BukkitPlugin.INSTANCE.modelManager.resourceVersion(trainTypeName) === resourceVersion) {
@@ -301,6 +300,7 @@ object TrainCommand {
                 ?: error("无法初始化车头转向架位置")
 
             val cars = mutableListOf<CoreCar>()
+            val trainId = UUID.randomUUID().toString()
             CoreTrain.createOwned(coreWorld) {
                 for (i in resourceVersion.composition.indices) {
                     val carDef = carDefs[i]
@@ -308,7 +308,7 @@ object TrainCommand {
                     val bogieB = bogie(initialBogieLocation)
 
                     val car = car(
-                        id = "$playerName-car-$i",
+                        id = carIdForTrain(trainId, i),
                         bogieA = bogieA,
                         bogieB = bogieB,
                         length = carDef.length,
@@ -326,7 +326,6 @@ object TrainCommand {
                     carExtension.bindCreatedResources(trainTypeName, resourceVersion.composition[i], resourceVersion)
                 }
 
-                val trainId = UUID.randomUUID().toString()
                 val train = train(
                     id = trainId,
                     cars = cars,
@@ -921,6 +920,8 @@ object TrainCommand {
         return worldManager.railWorlds[bukkitWorld]
     }
 }
+
+internal fun carIdForTrain(trainId: String, index: Int): String = "$trainId-car-$index"
 
 /** An explicit ID is authoritative: a typo must never target a nearby train. */
 internal fun selectTrainForDeletion(

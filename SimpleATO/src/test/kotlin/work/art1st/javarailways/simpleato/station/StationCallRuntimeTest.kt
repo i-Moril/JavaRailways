@@ -13,6 +13,9 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.simpleato.testing.KinematicTrainActuator
@@ -39,6 +42,9 @@ import work.art1st.javarailways.simpleato.api.mission.AtoMissionResolutionResult
 import work.art1st.javarailways.simpleato.timetable.stationCallRoutePrefix
 import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.simpleato.controller.SimpleATO
+import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotProvider
+import work.art1st.javarailways.simpleato.routing.FrozenMissionRoute
+import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionResult
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -46,6 +52,7 @@ import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
 import work.art1st.javarailways.core.util.AsyncTickTestSupport
 
 class StationCallRuntimeTest {
@@ -193,6 +200,69 @@ class StationCallRuntimeTest {
         assertTrue(notifications.zipWithNext().all { (first, second) ->
             second.physicsEpoch >= first.physicsEpoch
         })
+    }
+
+    @Test
+    fun `station call reuses signed Mission progress when the head rebounds behind its origin`() {
+        val fixture = fixture("origin-rebound")
+        val mission = fixture.ato.submitMission(AtoMissionRequest(
+            id = "tt/service",
+            revision = 1L,
+            origin = WayPointRef("A"),
+            points = listOf(AtoMissionPoint.Stop(WayPointRef("C")))
+        )) as AtoMissionSubmissionResult.Accepted
+        val resolved = fixture.resolvedCall(1L, mission.mission)
+        assertTrue(fixture.ato.submitStationCall(resolved) is StationCallSubmissionResult.Accepted)
+        fixture.ato.setMovementAuthority(1L, resolved.stoppingDistanceMeters)
+
+        val frame = fixture.train.publishedFrame
+        val rail = fixture.train.head.location.rail
+        val initialHeadArc = frame.head.arcLengthInAbMeters
+        val stamp = RailwayStateStamp(
+            fixture.world.simpleAtoWorldData.atoCoordinator.worldId,
+            frame.physicsEpoch,
+            fixture.world.topologyState.revision
+        )
+        val physicalRoute = RouteSnapshot(
+            "origin-rebound",
+            1L,
+            stamp.topologyRevision,
+            listOf(RouteSegmentSnapshot(rail.id, ViewDirection.AB, 0.0, rail.curve.totalArcLength))
+        )
+        fixture.ato.bindTrainRestrictionRoute(
+            observationStamp = stamp,
+            route = FrozenMissionRoute(
+                FrozenRouteSelectionResult.Selected(fixture.train.id, stamp, physicalRoute),
+                headDistanceFromRouteStartMeters = initialHeadArc,
+                missionHeadProgressAtSelectionMeters = 0.0
+            ),
+            missionRevision = mission.mission.revision,
+            signalSnapshots = TrainRestrictionSnapshotProvider { emptyList() }
+        )
+
+        val reboundMeters = 0.002224686929650943
+        fixture.world.onOwnerForTest {
+            fixture.train.setLocation(
+                work.art1st.javarailways.core.physics.rail.RailLocationWithFacing(
+                    rail.viewAB,
+                    initialHeadArc - reboundMeters
+                )
+            )
+            fixture.train.commit()
+        }
+
+        fixture.tick(0.0)
+
+        assertFalse(
+            fixture.world.simpleAtoWorldData.atoCoordinator.isStalled,
+            fixture.world.simpleAtoWorldData.atoCoordinator.lastStall?.message
+        )
+        assertEquals(-reboundMeters, fixture.ato.runtimeDiagnostics.projectedProgressMeters!!, 1.0e-12)
+        assertEquals(
+            resolved.stoppingDistanceMeters + reboundMeters,
+            fixture.ato.runtimeDiagnostics.stationPositionErrorMeters!!,
+            1.0e-12
+        )
     }
 
     @Test

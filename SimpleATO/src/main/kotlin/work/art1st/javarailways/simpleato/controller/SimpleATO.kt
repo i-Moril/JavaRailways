@@ -1028,11 +1028,15 @@ class SimpleATO(
             "active StationBerth disappeared: ${resolved.berthRef}"
         }
 
-        val directProjection = active.missionLayout.project(
+        val followsActiveMission = activeMission?.revision == resolved.call.missionRevision
+        val directProjection = if (followsActiveMission) null else active.missionLayout.project(
             scan.perception.train.head,
             active.projectedProgressMeters
         )
         active.projectedProgressMeters = when {
+            followsActiveMission -> checkNotNull(missionProjectedProgressMeters) {
+                "active StationCall requires its Mission route progress"
+            }
             directProjection != null -> directProjection
             active.projectedProgressMeters != null &&
                 active.projectedProgressMeters!! >=

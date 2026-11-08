@@ -194,6 +194,8 @@ service deceleration与reaction time，保留其他safety覆盖值。全部成�
 
 Formation output installation retires the consumed source mission with `SimpleATO.retireMissionForFormation(): Long`, not reverse preparation. Enqueue requires the current controller under an actual Core structural hold, a stopped published frame and no active/queued StationCall. The serialized command removes only consumed mission/layout/progress/authority constraints, preserving controller identity and external restrictions. A later accepted mission revision survives retirement even when submitted before consumption. See the fixed-formation handoff contract in `../basic/route-resource-admission.md`.
 
+When an active StationCall belongs to the active Mission revision, its position error must reuse that Mission's single signed projected progress for the current frame. It must not project the train head independently onto the StationCall route. In particular, a frozen physical authority can validly report a small negative Mission progress when a stopped train rebounds behind an observed origin; Mission and StationCall constraints must retain the same value. After departure grants allow the StationCall to outlive that Mission, its retained route projection continues to track departure independently.
+
 
 ## 新版逐车控制接线与异常
 

@@ -37,7 +37,7 @@ export function DutyManagement(p:DutyManagementProps) {
   const [name,setName]=useState(duty?.id??'');
   useEffect(()=>setName(duty?.id??''),[duty?.id]);
   const commitName=()=>{if(duty&&name!==duty.id){p.onPatch({id:name});setName(duty.id);}};
-  const selectorOptions=[{value:'TRAIN_NAME',label:t('ui.namedTrain')},{value:'TAKE_FROM_DEPOT',label:t('actions.TAKE_FROM_DEPOT')},{value:'TAKE_FROM_WAYPOINT',label:t('actions.TAKE_FROM_WAYPOINT')},{value:'TAKE_FROM_FORMATION_OUTPUT',label:t('formation.take')}];
+  const selectorOptions=[{value:'TRAIN_NAME',label:t('ui.namedTrain')},{value:'TAKE_FROM_DEPOT',label:t('actions.TAKE_FROM_DEPOT')},{value:'TAKE_FROM_WAYPOINT',label:t('actions.TAKE_FROM_WAYPOINT')}];
   return <div className="module-page duties-module">
     <div className="duty-admin-grid"><aside className="entity-list panel-surface">{p.duties.map((item)=><Button type="text" className={`entity-card ${item.id===duty?.id?'active':''}`} key={item.id} onClick={()=>p.onSelect(item.id)}><i style={{background:'var(--ant-color-primary)'}}/><span><b>{item.id}</b><small>{item.elements.length} {t('timeline.tasks')}</small></span></Button>)}</aside>
     <section className="panel-surface duty-detail">{!duty||!selector?<p className="empty">{t('ui.selectDuty')}</p>:<>      <div className="detail-heading"><div><Typography.Title level={4}>{duty.id}</Typography.Title><Typography.Text type="secondary">{duty.elements.length} {t('timeline.tasks')}</Typography.Text></div></div>

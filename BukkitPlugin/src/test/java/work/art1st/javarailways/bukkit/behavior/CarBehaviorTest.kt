@@ -8,6 +8,26 @@ import work.art1st.javarailways.bukkit.extension.train.TrainModelOperationResult
 
 class CarBehaviorTest {
     @Test
+    fun `reset cancels delayed effects and recreates script globals`() {
+        val fixture = Fixture(TrainBehaviorScript("reset.js", """
+            let n=0;
+            function count(){sound('count'+(++n));}
+            function delayed(){return action('later');}
+        """.trimIndent()), mapOf("later" to TrainActionConfig("later", sounds = listOf(TrainActionSoundConfig("late", at = 1.0)))))
+        try {
+            fixture.call("count")
+            fixture.call("delayed")
+            assertEquals(1, fixture.completions.size)
+            fixture.behavior.reset()
+            assertTrue(fixture.completions.last().isFailure)
+            fixture.delayed.single().run()
+            fixture.call("count")
+            assertEquals(listOf("count1", "count1"), fixture.sounds)
+            assertTrue(fixture.completions.last().isSuccess)
+        } finally { fixture.close() }
+    }
+
+    @Test
     fun `same source has lazy independent persistent globals and pure sound completes`() {
         val source = TrainBehaviorScript("behavior.js", "let n=0; function bell(){sound('bell'+(++n));}")
         val first = Fixture(source)

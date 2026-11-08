@@ -60,6 +60,19 @@ class TrainExtension : CoreTrainExtension {
     fun executeDoorOperation(side: DoorSide, opening: Boolean, isPending: () -> Boolean = { true }): CompletableFuture<Unit> =
         broadcast(isPending = isPending) { target, done -> target.renderer.executeDoor(side, opening, target.tail, done) }
 
+    /** Reset every captured car on its owning region before the train is restarted. */
+    fun resetOperationalState(): CompletableFuture<Unit> {
+        val captured = capture()
+        val future = self.world.bukkitWorldData.trackModelOperation(CompletableFuture<Unit>())
+        if (future.isDone) return future
+        val dispatcher = RegionTrainOperationDispatcher(BukkitPlugin.INSTANCE)
+        val calls = captured.map { target -> dispatcher.dispatch(target.renderer) { target.renderer.resetOperationalState() } }
+        CompletableFuture.allOf(*calls.toTypedArray()).whenComplete { _, failure ->
+            if (failure == null) future.complete(Unit) else future.completeExceptionally(failure)
+        }
+        return future
+    }
+
     fun estimateDoorCloseDurationTicks(side: DoorSide): CompletableFuture<Long> {
         if (side == DoorSide.NONE) return CompletableFuture.completedFuture(0L)
         val captured = capture()

@@ -69,6 +69,34 @@ class RouteResourceAdmissionEngineTest {
     private val admissionUpdates = arrayListOf<ActiveRouteAdmissionUpdate>()
 
     @Test
+    fun `administrative reset releases occupied grant only for its requester`() {
+        val requester = Any()
+        val service = service()
+        val grant = assertInstanceOf(RouteAdmissionResult.Granted::class.java, service.request(requester, intent())).grant
+        assertFalse(service.endGrant(requester, grant.grantId))
+        assertFalse(service.forceEndRoute(Any(), grant.owner))
+        assertEquals(1, registry.claimSnapshots().size)
+        assertTrue(service.forceEndRoute(requester, grant.owner))
+        assertTrue(registry.claimSnapshots().isEmpty())
+        assertTrue(service.activeAdmissions().isEmpty())
+    }
+
+    @Test
+    fun `administrative reset waits for pending preparation cancellation before releasing claim`() {
+        val ticket = MutableTicket()
+        val service = service(InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) })
+        val requester = Any()
+        val request = intent()
+        assertInstanceOf(RouteAdmissionResult.Pending::class.java, service.request(requester, request))
+        assertFalse(service.forceEndRoute(requester, request.owner))
+        assertEquals(1, registry.claimSnapshots().size)
+        ticket.state = InfrastructurePreparationState.ABORTED_SAFE
+        assertTrue(service.forceEndRoute(requester, request.owner))
+        assertTrue(registry.claimSnapshots().isEmpty())
+        assertTrue(service.activeAdmissions().isEmpty())
+    }
+
+    @Test
     fun `unrelated transaction preserves pending grant tail release and extension of older frozen route`() {
         val ticket = MutableTicket()
         val service = service(InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) })

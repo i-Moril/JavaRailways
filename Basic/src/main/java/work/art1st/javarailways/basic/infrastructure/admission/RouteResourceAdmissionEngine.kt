@@ -868,6 +868,35 @@ internal class RouteResourceAdmissionEngine(
         return true
     }
 
+    /** Administrative reset of an exact owner's committed grant after its train is stopped. */
+    @MainThread
+    fun forceEndRoute(requester: Any, owner: InfrastructureOwner): Boolean {
+        val route = routes[owner.ownerId] ?: return true
+        if (route.owner != owner || route.requester !== requester || route.formationChange != null) return false
+        val observation = latestObservation() ?: return false
+        if (observation.stamp.worldId != worldId ||
+            observation.trains.singleOrNull { it.trainId == route.trainId }?.speedMetersPerSecond != 0.0) return false
+        route.pendingHandle?.let { handle ->
+            val request = pending[handle] ?: return false
+            request.ticket.abort()
+            when (request.ticket.snapshot().state) {
+                ResourcePreparationState.PREPARING, ResourcePreparationState.UNSAFE -> return false
+                ResourcePreparationState.READY -> if (!request.reservation.complete()) return false
+                ResourcePreparationState.ABORTED_SAFE -> if (!request.reservation.rollback().successful) return false
+            }
+            pending.remove(handle)
+            terminal.remove(handle)
+            route.pendingHandle = null
+        }
+        val claim = registry.claimSnapshots().firstOrNull { it.owner == route.owner }
+        if (claim != null && registry.releaseClaim(hostClaimOwner, route.owner).status != InfrastructureMutationStatus.RELEASED) return false
+        removeRoute(route.owner.ownerId)
+        route.committedGrant = null
+        route.tailRelease = null
+        publishAdmission(route)
+        return true
+    }
+
     @MainThread
     fun prepareFormationChange(requester: Any, intent: FixedFormationChangeIntent): FormationChangeResult {
         if (worldStalled) return FormationChangeResult.Rejected(RouteAdmissionFailure(

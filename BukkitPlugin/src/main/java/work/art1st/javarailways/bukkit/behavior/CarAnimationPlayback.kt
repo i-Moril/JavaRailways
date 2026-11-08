@@ -128,6 +128,14 @@ internal class CarAnimationPlayback(
         failure?.let { throw it }
     }
 
+    /** Restore every model part to its unanimated transform on the car's region owner. */
+    fun resetToDefault() {
+        check(!closed) { "car animation owner is closed" }
+        val count = parts().size
+        resetForSourceChange()
+        repeat(count) { index -> project(index, Frame(null, null, null, null)) }
+    }
+
     override fun close() {
         if (closed) return
         closed = true

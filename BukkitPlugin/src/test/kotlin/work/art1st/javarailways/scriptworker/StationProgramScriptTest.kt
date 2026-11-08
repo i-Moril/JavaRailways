@@ -145,14 +145,14 @@ class StationProgramScriptTest {
         """)
         val actions = compiled.services.single().steps.mapNotNull { it.action }
         assertEquals(listOf(SavedTimetableActionTypeV1.TAKE_FROM_DEPOT, SavedTimetableActionTypeV1.WAIT_UNTIL,
-            SavedTimetableActionTypeV1.REVERSE, SavedTimetableActionTypeV1.DESTINATION_OPTIONS,
-            SavedTimetableActionTypeV1.DESTINATION, SavedTimetableActionTypeV1.STOP, SavedTimetableActionTypeV1.STORE_AT_DEPOT), actions.map { it.type })
-        assertEquals(listOf("via", "end"), actions[4].wayPointIds)
-        assertEquals(20L, actions[5].stopTicks)
-        assertEquals("other-depot", actions[6].depotId)
-        assertEquals(listOf(10L,100L,100L,100L,100L,100L,100L), compiled.services.single().steps.map { it.tick })
-        assertEquals("duty:duty/element:call/call:c1/program:turnback/step:move", compiled.compilationTrace.first { it.stepIndex == 4 }.origin)
-        assertEquals(6, compiled.compilationTrace.size)
+            SavedTimetableActionTypeV1.REVERSE, SavedTimetableActionTypeV1.DESTINATION,
+            SavedTimetableActionTypeV1.STOP, SavedTimetableActionTypeV1.STORE_AT_DEPOT), actions.map { it.type })
+        assertEquals(listOf("via", "end"), actions[3].wayPointIds)
+        assertEquals(20L, actions[4].stopTicks)
+        assertEquals("other-depot", actions[5].depotId)
+        assertEquals(listOf(10L,100L,100L,100L,100L,100L), compiled.services.single().steps.map { it.tick })
+        assertEquals("duty:duty/element:call/call:c1/program:turnback/step:move", compiled.compilationTrace.first { it.stepIndex == 3 }.origin)
+        assertEquals(5, compiled.compilationTrace.size)
     }
 
     @Test fun `program refuses missing acquisition wrong parameter type and unsupported structure`() {

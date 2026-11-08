@@ -301,4 +301,8 @@ interface RouteResourceAdmissionService {
      */
     @MainThread
     fun endGrant(grantId: RouteGrantId): Boolean
+
+    /** Administrative reset only: the owning train must already be stopped and fenced. */
+    @MainThread
+    fun forceEndRoute(owner: InfrastructureOwner): Boolean = false
 }

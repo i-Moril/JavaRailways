@@ -2114,9 +2114,41 @@ class TimetableDispatcher(
         return forceDiscardTimetables(world, setOf(timetableId))
     }
 
+    /** Force-end stopped routes for a global reset; false means asynchronous preparation is settling. */
+    @MainThread
+    fun releaseStoppedTimetableRoutes(world: World, timetableIds: Set<String>): Boolean {
+        ensureOwner(world)
+        bindWorld(world)
+        check(fixedFormations.values.none { it.source.id.timetableId in timetableIds } &&
+            preparingCouplings.values.none { it.coordinator.id.timetableId in timetableIds }) {
+            "cannot reset timetables while structural output protections remain active"
+        }
+        val selected = runs.values.filter { it.id.timetableId in timetableIds }
+        selected.forEach { run ->
+            check(run.state.isTerminal() && run.ato.isStopped(run.train.publishedFrame.speedMetersPerSecond)) {
+                "cannot reset ${run.id} before its train has stopped"
+            }
+        }
+        var complete = true
+        selected.filter { it.admissionClient != null && !it.admissionEnded }.forEach { run ->
+            if (!run.admissionClient!!.forceEnd()) {
+                complete = false
+            } else {
+                inspectionRuntime.removeTrain(run.train.id)
+                check(checkNotNull(run.routeEditProtection).release() !is FrozenRouteProtectionResult.Rejected) {
+                    "cannot release route edit protection for ${run.id}"
+                }
+                run.admissionEnded = true
+                run.admittedRoute = null
+                run.admissionCandidate = null
+            }
+        }
+        return complete
+    }
+
     /** Destructively discard a prevalidated set without leaving a partially discarded definition set. */
     @MainThread
-    fun forceDiscardTimetables(world: World, timetableIds: Set<String>): Int {
+    fun forceDiscardTimetables(world: World, timetableIds: Set<String>, releaseStoppedRoutes: Boolean = false): Int {
         ensureOwner(world)
         require(timetableIds.isNotEmpty() && timetableIds.all(String::isNotBlank))
         bindWorld(world)
@@ -2125,6 +2157,9 @@ class TimetableDispatcher(
             "cannot discard timetables while structural output protections remain active"
         }
         val selected = runs.values.filter { it.id.timetableId in timetableIds }
+        if (releaseStoppedRoutes) {
+            check(releaseStoppedTimetableRoutes(world, timetableIds)) { "route reset is still waiting for preparation cancellation" }
+        }
         // Validate the whole selection before discarding any run or its controller.
         selected.forEach { run ->
             check(run.admissionClient == null || run.admissionEnded) {

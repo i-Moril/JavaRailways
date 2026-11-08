@@ -174,7 +174,6 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
             is StationProgramStep.Move -> {
                 val destination = value(step.destinationId, "STRING").also(::validateProgramIdentifier).jsonPrimitive.content
                 val via = value(step.viaIds, "ID_LIST").jsonArray.map { it.jsonPrimitive.content }
-                append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.DESTINATION_OPTIONS, wayPointIds = listOf(destination)))
                 append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.DESTINATION, wayPointIds = via + destination))
             }
             is StationProgramStep.SelectStop -> {

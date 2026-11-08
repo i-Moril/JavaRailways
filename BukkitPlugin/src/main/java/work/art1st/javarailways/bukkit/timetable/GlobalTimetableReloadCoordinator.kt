@@ -4,6 +4,7 @@ import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 import org.bukkit.World as BukkitWorld
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.http.TimetableScriptNormalizer
+import work.art1st.javarailways.bukkit.extension.train.renderer
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.simpleato.persistence.SavedTimetableV1
@@ -45,7 +46,7 @@ class GlobalTimetableReloadCoordinator(private val plugin: BukkitPlugin) : AutoC
         val previousTimetableIds: Set<String>,
         val previousTrainIds: Set<String>
     )
-    private data class Applied(val discardedRuns: Int, val placements: Int)
+    private data class Applied(val discardedRuns: Int, val placements: Int, val trainResets: List<CompletableFuture<Unit>>)
 
     private val active = AtomicBoolean()
     @Volatile private var pollingTask: ScheduledTask? = null
@@ -233,6 +234,40 @@ class GlobalTimetableReloadCoordinator(private val plugin: BukkitPlugin) : AutoC
                     } else if (ready.all { it }) {
                         pollingTask?.cancel()
                         pollingTask = null
+                        waitForRouteReset(worlds, scriptCount, status, result)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun waitForRouteReset(
+        worlds: List<ReloadWorld>, scriptCount: Int, status: (String) -> Unit,
+        result: CompletableFuture<GlobalTimetableReloadReport>
+    ) {
+        status("列车已停稳；正在取消准备中的设备操作并强制释放旧进路……")
+        var polls = 0
+        val inFlight = AtomicBoolean()
+        pollingTask = plugin.platformDispatcher.runGlobalAtFixedRate(1L, STOP_POLL_PERIOD_TICKS) {
+            if (result.isDone || !inFlight.compareAndSet(false, true)) return@runGlobalAtFixedRate
+            if (++polls > MAX_STOP_POLLS) {
+                result.completeExceptionally(IllegalStateException("等待旧进路准备操作取消超时；新时刻表未启动"))
+                return@runGlobalAtFixedRate
+            }
+            val attempts = worlds.map { reload ->
+                reload.target.world.physicsCoordinator.submitBetweenFrames {
+                    requireCurrent(reload.target)
+                    reload.previousTimetableIds.isEmpty() || reload.target.world.simpleAtoWorldData.dispatcher
+                        .releaseStoppedTimetableRoutes(reload.target.world, reload.previousTimetableIds)
+                }
+            }
+            all(attempts).whenComplete { ready, failure ->
+                plugin.platformDispatcher.runGlobal {
+                    inFlight.set(false)
+                    if (failure != null) result.completeExceptionally(rootCause(failure))
+                    else if (ready.all { it }) {
+                        pollingTask?.cancel()
+                        pollingTask = null
                         applyReplacement(worlds, scriptCount, status, result)
                     }
                 }
@@ -259,7 +294,7 @@ class GlobalTimetableReloadCoordinator(private val plugin: BukkitPlugin) : AutoC
                     }
                 }.forEach { selectedTrainIds += it.id }
                 val discarded = if (reload.previousTimetableIds.isEmpty()) 0 else
-                    data.dispatcher.forceDiscardTimetables(world, reload.previousTimetableIds)
+                    data.dispatcher.forceDiscardTimetables(world, reload.previousTimetableIds, releaseStoppedRoutes = true)
                 selectedTrainIds.forEach { id ->
                     world.getTrain(id)?.let { train ->
                         plugin.trainControlManager.releaseTrain(train)
@@ -273,7 +308,11 @@ class GlobalTimetableReloadCoordinator(private val plugin: BukkitPlugin) : AutoC
                     data.dispatcher.saveCheckpoint().dispatcherTick
                 )
                 when (placement) {
-                    is TimetableInitialPositionResult.Applied -> Applied(discarded, placement.placements)
+                    is TimetableInitialPositionResult.Applied -> Applied(discarded, placement.placements,
+                        selectedTrainIds.map { id ->
+                            requireNotNull(world.getTrain(id)) { "train disappeared during reset: $id" }
+                                .renderer.resetOperationalState()
+                        })
                     is TimetableInitialPositionResult.Failure -> error(placement.reason)
                 }
             }
@@ -284,8 +323,17 @@ class GlobalTimetableReloadCoordinator(private val plugin: BukkitPlugin) : AutoC
                     result.completeExceptionally(rootCause(failure))
                     return@runGlobal
                 }
-                val epoch = Math.addExact(plugin.worldManager.operationalTick(), START_DELAY_TICKS)
-                beginEpochs(worlds, scriptCount, applied, epoch, status, result)
+                status("正在恢复列车模型和脚本的默认状态……")
+                all(applied.flatMap { it.trainResets }).whenComplete { _, resetFailure ->
+                    plugin.platformDispatcher.runGlobal {
+                        if (resetFailure != null) {
+                            result.completeExceptionally(rootCause(resetFailure))
+                        } else if (!result.isDone) {
+                            val epoch = Math.addExact(plugin.worldManager.operationalTick(), START_DELAY_TICKS)
+                            beginEpochs(worlds, scriptCount, applied, epoch, status, result)
+                        }
+                    }
+                }
             }
         }
     }

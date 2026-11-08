@@ -543,6 +543,9 @@ internal class DefaultInfrastructureResourceService(
         override fun endGrant(grantId: RouteGrantId): Boolean =
             withAdmission({ false }) { it.endGrant(requester, grantId) }
 
+        override fun forceEndRoute(owner: InfrastructureOwner): Boolean =
+            withAdmission({ false }) { it.forceEndRoute(requester, owner) }
+
         private fun <T> withAdmission(unavailable: () -> T, action: (RouteResourceAdmissionRuntime) -> T): T =
             withWorld(worldId) runInSimulationContext@ {
                 val expected = admission() ?: return@runInSimulationContext unavailable()

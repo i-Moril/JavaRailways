@@ -130,6 +130,10 @@ class RouteResourceAdmissionRuntime private constructor(
     fun endGrant(requester: Any, grantId: RouteGrantId): Boolean =
         !closed && engine.endGrant(requester, grantId)
 
+    @MainThread
+    fun forceEndRoute(requester: Any, owner: work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner): Boolean =
+        !closed && engine.forceEndRoute(requester, owner)
+
     /** Resource-bearing route states owned by this requester; empty completed states are omitted. */
     @MainThread
     fun requesterActivity(requester: Any): List<RouteAdmissionRequesterActivity> =

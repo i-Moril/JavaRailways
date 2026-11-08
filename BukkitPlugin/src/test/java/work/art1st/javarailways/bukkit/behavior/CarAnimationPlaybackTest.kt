@@ -11,6 +11,22 @@ import java.util.concurrent.CompletableFuture
 
 class CarAnimationPlaybackTest {
     @Test
+    fun `reset to default cancels playback and clears every projected model part`() {
+        val animation = Animation(listOf(Animation.AnimationCommand(CompactTransform(), 0.0, "closed"),
+            Animation.AnimationCommand(CompactTransform(position = Vector3d(1.0, 0.0, 0.0)), 1.0, "open")))
+        val clock = Clock(listOf(mapOf("door" to animation), mapOf("lamp" to animation)))
+        val opening = clock.playback.play("door", "open")
+        clock.tick(300.0); clock.commit()
+        clock.frames.clear()
+        clock.playback.resetToDefault()
+        assertTrue(opening.isCompletedExceptionally)
+        assertTrue(clock.active.isEmpty())
+        assertEquals(2, clock.frames.size)
+        assertTrue(clock.frames.all { it.name == null && it.scene == null && it.transform == null && it.display == null })
+        clock.playback.close()
+    }
+
+    @Test
     fun `actual converted S100 door plans include warning delay and complete playback for all six cars`() {
         val source = requireNotNull(PackageLoader(java.io.File("../models/s100")).loadTrainPackage())
         assertEquals(6, source.cars.size)

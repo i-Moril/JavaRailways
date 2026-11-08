@@ -64,6 +64,27 @@ import work.art1st.javarailways.core.api.threading.host.ThreadGuardRegistration
 class TimetableStationCallDispatcherTest {
     private val worldFixtures = mutableListOf<TestWorldFixture>()
 
+    @Test fun `global reset releases a stopped train occupied route without tail clearance`() {
+        val fixture = fixture(firstTargetOffsetMeters = 100.0)
+        val world = fixture.world
+        val id = TimetableServiceRunId("tt", "service")
+        world.onOwnerForTest { fixture.dispatcher.startService(world, "tt", "service") }
+        for (tick in 0 until 300) {
+            fixture.tick()
+            if (fixture.dispatcher.status(id)?.routeGrantActive == true) break
+        }
+        assertTrue(fixture.dispatcher.status(id)!!.routeGrantActive)
+        world.onOwnerForTest { fixture.dispatcher.stopService(world, id) }
+        for (tick in 0 until 1000) {
+            fixture.tick()
+            if (fixture.dispatcher.status(id)?.state == TimetableServiceRunState.STOPPED) break
+        }
+        assertEquals(TimetableServiceRunState.STOPPED, fixture.dispatcher.status(id)?.state)
+        assertEquals(1, world.onOwnerForTest { fixture.dispatcher.forceDiscardTimetables(world, setOf("tt"), true) })
+        assertNull(fixture.dispatcher.status(id))
+        assertNull(fixture.train.controller)
+    }
+
     @AfterEach
     fun closeOwnedWorldFixtures() {
         val fixtures = worldFixtures.toList()
@@ -187,6 +208,22 @@ class TimetableStationCallDispatcherTest {
         assertEquals(listOf(TrainOperation.OpenDoors(DoorSide.RIGHT), TrainOperation.CloseDoors(DoorSide.BOTH)), gateway.requests.map { it.operation })
         assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
         assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)!!.state)
+    }
+
+    @Test fun `ordinary movement to a berth only opens doors when the following action requests it`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(operationGateway = gateway, canonicalTarget = true, doorSide = DoorSide.LEFT,
+            firstTargetOffsetMeters = 40.0, afterDestinationActions = listOf(TimetableAction.OpenDoors()))
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+        for (tick in 0 until 1500) {
+            fixture.tick()
+            gateway.tickets.forEach { it.succeed() }
+            if (fixture.dispatcher.status(id)?.state == TimetableServiceRunState.COMPLETED) break
+        }
+        assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)?.state)
+        assertEquals(listOf(TrainOperation.OpenDoors(DoorSide.LEFT)), gateway.requests.map { it.operation })
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test fun `moving away invalidates inherited berth context`() {

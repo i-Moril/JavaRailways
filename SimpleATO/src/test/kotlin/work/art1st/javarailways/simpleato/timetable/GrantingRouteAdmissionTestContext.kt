@@ -51,6 +51,9 @@ internal class GrantingRouteAdmissionTestContext(
 
         override fun endGrant(grantId: RouteGrantId): Boolean =
             checkNotNull(runtime).endGrant(requester, grantId)
+
+        override fun forceEndRoute(owner: InfrastructureOwner): Boolean =
+            checkNotNull(runtime).forceEndRoute(requester, owner)
     }
 
     override fun current(): TimetableRouteAdmissionContext? {

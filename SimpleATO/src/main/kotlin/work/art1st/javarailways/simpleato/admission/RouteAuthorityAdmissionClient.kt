@@ -331,6 +331,16 @@ internal class RouteAuthorityAdmissionClient(
         return true
     }
 
+    /** Used only by a stopped global timetable reset, not ordinary run retirement. */
+    @MainThread
+    fun forceEnd(): Boolean {
+        val route = active ?: return true
+        if (!admissionService.forceEndRoute(owner)) return false
+        publish(route, emptyList(), route.committedGrant?.observationStamp ?: route.selection.observationStamp)
+        active = null
+        return true
+    }
+
     private fun consume(
         route: ActiveRoute,
         requestedSelection: FrozenRouteSelectionResult.Selected,

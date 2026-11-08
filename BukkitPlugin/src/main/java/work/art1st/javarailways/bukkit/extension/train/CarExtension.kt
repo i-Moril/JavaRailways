@@ -239,6 +239,15 @@ class CarExtension : TrainComponentExtension<Car>() {
         return behavior.door(side, opening, tail, done)
     }
 
+    /** Discard script globals, scheduled effects and persisted animation selections. */
+    @Synchronized
+    internal fun resetOperationalState() {
+        ensureBehaviorOwned()
+        behavior.reset()
+        pendingHeldScenes = emptyMap()
+        playback.resetToDefault()
+    }
+
     @Synchronized
     internal fun estimateDoorCloseDurationTicks(side: DoorSide, tail: Boolean): Long {
         ensureBehaviorOwned()

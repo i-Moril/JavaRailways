@@ -264,21 +264,36 @@ internal class CarBehavior(
         return try { call() } finally { relativeTail = previous }
     }
 
-    override fun close() {
-        if (closed) return
-        closed = true
+    /** Cancel accepted effects and discard script globals while retaining this car owner. */
+    fun reset() {
+        check(!closed) { "car behavior is closed" }
+        clearRuntime("car behavior reset")
+    }
+
+    private fun clearRuntime(reason: String) {
         var failure: Throwable? = null
         fun attempt(action: () -> Unit) {
             try { action() } catch (value: Throwable) {
                 if (failure == null) failure = value else if (value !== failure) failure.addSuppressed(value)
             }
         }
-        operations.toList().forEach { attempt { it.fail(IllegalStateException("car behavior destroyed")) } }
+        operations.toList().forEach { attempt { it.fail(IllegalStateException(reason)) } }
         scheduled.toList().forEach { attempt(it::close) }
         scheduled.clear()
         attempt { runtime?.close() }
         runtime = null
+        loadedScript = null
+        definitions = emptyList()
+        doorPlans.clear()
+        planSource = null
+        planEnvironment = null
         failure?.let { throw it }
+    }
+
+    override fun close() {
+        if (closed) return
+        closed = true
+        clearRuntime("car behavior destroyed")
     }
 
     private inner class Effects(private val done: (Result<Unit>) -> Unit) {

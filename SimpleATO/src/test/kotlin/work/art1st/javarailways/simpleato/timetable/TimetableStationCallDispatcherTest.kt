@@ -85,6 +85,36 @@ class TimetableStationCallDispatcherTest {
         assertNull(fixture.train.controller)
     }
 
+    @Test fun `global reset releases a stopped nonterminal run without waiting for logical completion`() {
+        val fixture = fixture(
+            includeStationAction = true,
+            stopPrograms = programs(
+                StationStopRole.STOP,
+                arrival = listOf(StationProgramAction.WaitDuration(1_000), StationProgramAction.End)
+            )
+        )
+        val world = fixture.world
+        val id = TimetableServiceRunId("tt", "service")
+        world.onOwnerForTest { fixture.dispatcher.startService(world, "tt", "service") }
+        for (tick in 0 until 2_000) {
+            fixture.tick()
+            val status = fixture.dispatcher.status(id) ?: break
+            if (status.routeGrantActive && status.state == TimetableServiceRunState.DWELLING &&
+                fixture.train.speed == 0.0
+            ) break
+        }
+        val status = fixture.dispatcher.status(id)!!
+        assertEquals(TimetableServiceRunState.DWELLING, status.state)
+        assertTrue(status.routeGrantActive)
+        assertEquals(0.0, fixture.train.speed, 1.0e-9)
+
+        assertEquals(1, world.onOwnerForTest {
+            fixture.dispatcher.forceDiscardTimetables(world, setOf("tt"), true)
+        })
+        assertNull(fixture.dispatcher.status(id))
+        assertNull(fixture.train.controller)
+    }
+
     @AfterEach
     fun closeOwnedWorldFixtures() {
         val fixtures = worldFixtures.toList()

@@ -14,7 +14,6 @@ import work.art1st.javarailways.simpleato.timetable.TimetableEpochStartResult
 import work.art1st.javarailways.simpleato.timetable.TimetableInitialPositionMode
 import work.art1st.javarailways.simpleato.timetable.TimetableInitialPositionResult
 import work.art1st.javarailways.simpleato.timetable.TimetableInitialPositioner
-import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunState
 import work.art1st.javarailways.simpleato.timetable.TimetableValidator
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
@@ -169,7 +168,7 @@ class GlobalTimetableReloadCoordinator(private val plugin: BukkitPlugin) : AutoC
         status: (String) -> Unit,
         result: CompletableFuture<GlobalTimetableReloadReport>
     ) {
-        status("校验完成；正在停止所有现有时刻表并等待进路资源释放……")
+        status("校验完成；正在请求所有现有列车停车……")
         val stops = worlds.map { reload ->
             reload.target.world.physicsCoordinator.submitBetweenFrames {
                 requireCurrent(reload.target)
@@ -196,46 +195,7 @@ class GlobalTimetableReloadCoordinator(private val plugin: BukkitPlugin) : AutoC
                 if (failure != null) {
                     result.completeExceptionally(rootCause(failure))
                 } else {
-                    waitUntilStopped(stopped, scriptCount, status, result)
-                }
-            }
-        }
-    }
-
-    private fun waitUntilStopped(
-        worlds: List<ReloadWorld>,
-        scriptCount: Int,
-        status: (String) -> Unit,
-        result: CompletableFuture<GlobalTimetableReloadReport>
-    ) {
-        var polls = 0
-        val pollInFlight = AtomicBoolean()
-        pollingTask = plugin.platformDispatcher.runGlobalAtFixedRate(1L, STOP_POLL_PERIOD_TICKS) {
-            if (result.isDone || !pollInFlight.compareAndSet(false, true)) return@runGlobalAtFixedRate
-            if (++polls > MAX_STOP_POLLS) {
-                result.completeExceptionally(IllegalStateException(
-                    "等待现有时刻表安全停车超时；旧时刻表保持停止请求状态，未替换定义"
-                ))
-                return@runGlobalAtFixedRate
-            }
-            val checks = worlds.map { reload ->
-                reload.target.world.physicsCoordinator.submitBetweenFrames {
-                    requireCurrent(reload.target)
-                    reload.target.world.simpleAtoWorldData.dispatcher.statuses()
-                        .filter { it.id.timetableId in reload.previousTimetableIds }
-                        .all { it.state in TERMINAL_STATES }
-                }
-            }
-            all(checks).whenComplete { ready, failure ->
-                plugin.platformDispatcher.runGlobal {
-                    pollInFlight.set(false)
-                    if (failure != null) {
-                        result.completeExceptionally(rootCause(failure))
-                    } else if (ready.all { it }) {
-                        pollingTask?.cancel()
-                        pollingTask = null
-                        waitForRouteReset(worlds, scriptCount, status, result)
-                    }
+                    waitForRouteReset(stopped, scriptCount, status, result)
                 }
             }
         }
@@ -245,7 +205,7 @@ class GlobalTimetableReloadCoordinator(private val plugin: BukkitPlugin) : AutoC
         worlds: List<ReloadWorld>, scriptCount: Int, status: (String) -> Unit,
         result: CompletableFuture<GlobalTimetableReloadReport>
     ) {
-        status("列车已停稳；正在取消准备中的设备操作并强制释放旧进路……")
+        status("正在等待列车物理停稳，并强制释放旧进路……")
         var polls = 0
         val inFlight = AtomicBoolean()
         pollingTask = plugin.platformDispatcher.runGlobalAtFixedRate(1L, STOP_POLL_PERIOD_TICKS) {
@@ -457,12 +417,6 @@ class GlobalTimetableReloadCoordinator(private val plugin: BukkitPlugin) : AutoC
         const val STOP_POLL_PERIOD_TICKS = 5L
         const val MAX_STOP_POLLS = 2_400
         const val START_DELAY_TICKS = 100L
-        val TERMINAL_STATES = setOf(
-            TimetableServiceRunState.STOPPED,
-            TimetableServiceRunState.COMPLETED,
-            TimetableServiceRunState.FAILED
-        )
-
         fun rootCause(failure: Throwable): Throwable =
             generateSequence(failure) { it.cause }.last()
 

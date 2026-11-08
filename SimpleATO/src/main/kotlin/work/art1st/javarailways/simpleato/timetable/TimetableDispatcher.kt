@@ -2121,7 +2121,11 @@ class TimetableDispatcher(
         return forceDiscardTimetables(world, setOf(timetableId))
     }
 
-    /** Force-end stopped routes for a global reset; false means asynchronous preparation is settling. */
+    /**
+     * Force-end routes for a global reset as soon as every selected train is physically stopped.
+     * The run does not need to reach a logical terminal state: a stalled reversing or station
+     * operation is precisely why an administrator may need the forced reset.
+     */
     @MainThread
     fun releaseStoppedTimetableRoutes(world: World, timetableIds: Set<String>): Boolean {
         ensureOwner(world)
@@ -2131,11 +2135,7 @@ class TimetableDispatcher(
             "cannot reset timetables while structural output protections remain active"
         }
         val selected = runs.values.filter { it.id.timetableId in timetableIds }
-        selected.forEach { run ->
-            check(run.state.isTerminal() && run.ato.isStopped(run.train.publishedFrame.speedMetersPerSecond)) {
-                "cannot reset ${run.id} before its train has stopped"
-            }
-        }
+        if (selected.any { !it.ato.isStopped(it.train.publishedFrame.speedMetersPerSecond) }) return false
         var complete = true
         selected.filter { it.admissionClient != null && !it.admissionEnded }.forEach { run ->
             if (!run.admissionClient!!.forceEnd()) {

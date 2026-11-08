@@ -1052,6 +1052,82 @@ class TimetableDispatcherTest {
     }
 
     @Test
+    fun `takeFromWaypoint inherits a completed duty and its tail-held route`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        val dispatcher = dispatcher()
+        val data = BasicWorldData()
+        TestSimpleATOWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(160.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("handoff-train", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("origin", rail.id, originArc))
+        data.wayPoints.add(WayPoint("handoff", rail.id, originArc + 40.0))
+        data.wayPoints.add(WayPoint("next", rail.id, originArc + 80.0))
+        world.simpleAtoWorldData.timetables.add(
+            Timetable(
+                "handoff-tt",
+                services = listOf(
+                    TimetableService(
+                        "incoming",
+                        TrainSelector.TrainId(train.id),
+                        listOf(
+                            TimetableStep.Check("origin"),
+                            TimetableStep.At(0L, TimetableAction.GoTo("handoff"))
+                        )
+                    ),
+                    TimetableService(
+                        "outgoing",
+                        steps = listOf(
+                            TimetableStep.At(0L, TimetableAction.TakeFromWaypoint(listOf("handoff"))),
+                            TimetableStep.At(0L, TimetableAction.GoTo("next"))
+                        )
+                    )
+                )
+            )
+        )
+
+        val incomingId = TimetableServiceRunId("handoff-tt", "incoming")
+        val outgoingId = TimetableServiceRunId("handoff-tt", "outgoing")
+        val incoming = world.onOwnerForTest {
+            dispatcher.startService(world, incomingId.timetableId, incomingId.serviceId)
+        }
+        assertTrue(incoming is TimetableServiceStartResult.Started, incoming.toString())
+        val ato = train.controller as SimpleATO
+        var ticks = 0
+        while (dispatcher.status(incomingId)?.state != TimetableServiceRunState.COMPLETED && ticks++ < 4_000) {
+            tickAndPublish(ato)
+            world.onOwnerForTest { dispatcher.tick(world) }
+        }
+        val completed = dispatcher.status(incomingId)!!
+        assertEquals(TimetableServiceRunState.COMPLETED, completed.state)
+        assertTrue(completed.routeGrantActive, "the terminal route remains protected for handoff")
+        assertEquals("handoff", completed.currentWayPointId)
+
+        val outgoing = world.onOwnerForTest {
+            dispatcher.startService(world, outgoingId.timetableId, outgoingId.serviceId)
+        }
+        assertTrue(
+            outgoing is TimetableServiceStartResult.Started,
+            "$outgoing stall=${world.simpleAtoWorldData.atoCoordinator.lastStall?.message}"
+        )
+        assertSame(ato, train.controller, "the successor keeps the controller that owns the active grant")
+        assertNull(dispatcher.status(incomingId), "the completed predecessor is replaced atomically")
+        assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
+
+        ticks = 0
+        while (dispatcher.status(outgoingId)?.state != TimetableServiceRunState.COMPLETED && ticks++ < 4_000) {
+            tickAndPublish(ato)
+            world.onOwnerForTest { dispatcher.tick(world) }
+        }
+        assertEquals(TimetableServiceRunState.COMPLETED, dispatcher.status(outgoingId)?.state)
+        assertEquals("next", dispatcher.status(outgoingId)?.currentWayPointId)
+        assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
+    @Test
     fun `acquisition tick gate runs before service validation`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val dispatcher = dispatcher()

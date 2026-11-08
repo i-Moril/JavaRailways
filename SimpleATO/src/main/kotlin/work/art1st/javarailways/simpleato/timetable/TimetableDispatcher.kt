@@ -778,7 +778,7 @@ class TimetableDispatcher(
             return TimetableServiceStartResult.Failure(reason)
         }
         if (runs.values.any {
-                it.train.id == trainId && !it.canBeReplaced() && !it.isStoredTerminal()
+                it.train.id == trainId && !it.canHandOffToSuccessor()
             }
         ) {
             return startupFailure("train is already assigned to a service: $trainId")
@@ -796,7 +796,14 @@ class TimetableDispatcher(
             return startupFailure(reason)
         }
         val replaceableTrainRuns = runs.values.filter {
-            it.train.id == trainId && (it.canBeReplaced() || it.isStoredTerminal())
+            it.train.id == trainId && it.canHandOffToSuccessor()
+        }
+        replaceableTrainRuns.firstOrNull {
+            it.admissionClient != null && !it.admissionEnded && existingController !== it.ato
+        }?.let {
+            return startupFailure(
+                "train $trainId lost the ATO that owns its tail-held route"
+            )
         }
         if (replaceableTrainRuns.any(ActiveRun::isStoredTerminal) && existingController == null) {
             val reason = "stored train $trainId lost the ATO that owns its tail-held route"
@@ -5542,10 +5549,10 @@ class TimetableDispatcher(
                         train.isDerailed -> "derailed"
                         train.publishedFrame.speedMetersPerSecond != 0.0 -> "moving"
                         runs.values.any {
-                            it.train.id == train.id && !it.canBeReplaced() && !it.isStoredTerminal()
+                            it.train.id == train.id && !it.canHandOffToSuccessor()
                         } -> "assigned to another service"
                         train.controller != null && runs.values.none {
-                            it.train.id == train.id && (it.canBeReplaced() || it.isStoredTerminal())
+                            it.train.id == train.id && it.canHandOffToSuccessor()
                         } -> "controlled outside a replaceable service"
                         else -> null
                     }
@@ -5599,7 +5606,7 @@ class TimetableDispatcher(
                 .mapNotNull { train ->
                     if (validateAtWayPoint(world, train, wayPointId) != null) return@mapNotNull null
                     val replaceableRun = runs.values.firstOrNull {
-                        it.train.id == train.id && (it.canBeReplaced() || it.isStoredTerminal())
+                        it.train.id == train.id && it.canHandOffToSuccessor()
                     }
                     when {
                         train.isDerailed -> {
@@ -5611,7 +5618,7 @@ class TimetableDispatcher(
                             null
                         }
                         runs.values.any {
-                            it.train.id == train.id && !it.canBeReplaced() && !it.isStoredTerminal()
+                            it.train.id == train.id && !it.canHandOffToSuccessor()
                         } -> {
                             rejected += "$wayPointId/${train.id}: assigned to another service"
                             null
@@ -7299,6 +7306,19 @@ class TimetableDispatcher(
                 (admissionClient == null || admissionEnded) &&
                 stationCall?.registrationKey == null && storageReservation == null &&
                 ato.isStopped(train.publishedFrame.speedMetersPerSecond)
+
+        /**
+         * A completed duty may hand its stopped train and tail-held route directly to the next
+         * duty. Requiring Basic to end the grant first deadlocks a terminal handoff: the train
+         * must remain protected while it occupies the terminal resource, and only the successor
+         * can move it clear. Station and storage reservations still require their dedicated
+         * lifecycle before ownership can move.
+         */
+        fun canHandOffToSuccessor(): Boolean =
+            canBeReplaced() || isStoredTerminal() ||
+                (state == TimetableServiceRunState.COMPLETED &&
+                    stationCall?.registrationKey == null && storageReservation == null &&
+                    ato.isStopped(train.publishedFrame.speedMetersPerSecond))
 
         fun isStoredTerminal(): Boolean =
             state == TimetableServiceRunState.COMPLETED && storageCompleted &&

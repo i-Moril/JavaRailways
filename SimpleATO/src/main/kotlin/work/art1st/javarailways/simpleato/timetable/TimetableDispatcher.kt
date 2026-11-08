@@ -284,6 +284,8 @@ sealed interface TimetableEpochStartResult {
     data class Failure(val reason: String) : TimetableEpochStartResult
 }
 
+enum class TimetableInitialPositionMode { RESET, KEEP }
+
 enum class TimetableApplicationState { UNAPPLIED, APPLIED, RECOVERY_REQUIRED }
 
 sealed interface TimetableCheckpointRestoreResult {
@@ -557,10 +559,15 @@ class TimetableDispatcher(
     @MainThread
     fun beginTimetable(
         world: World,
-        timetableId: String
+        timetableId: String,
+        initialPositionMode: TimetableInitialPositionMode = TimetableInitialPositionMode.RESET,
+        epochDispatcherTick: Long = dispatcherTick
     ): TimetableEpochStartResult {
         ensureOwner(world)
         bindWorld(world)
+        require(epochDispatcherTick >= dispatcherTick) {
+            "timetable epoch cannot precede the current operational tick"
+        }
         if (world.simpleAtoWorldData.atoCoordinator.isStalled) {
             return TimetableEpochStartResult.Failure(
                 "world ATO is stalled; inspect and reset before starting a timetable"
@@ -597,32 +604,34 @@ class TimetableDispatcher(
         runs.entries.removeIf { (key, run) ->
             key.id.timetableId == timetableId && run.canBeReplaced()
         }
-        when (val initialPositions = TimetableInitialPositioner(world).apply(timetable, dispatcherTick)) {
-            is TimetableInitialPositionResult.Applied -> Unit
-            is TimetableInitialPositionResult.Failure -> {
-                val rollbackFailure = rollbackAppliedPlan(timetableId, installedPlan, previousPlan)
-                if (rollbackFailure != null) {
-                    if (installedPlan == null) {
-                        appliedTimetablePlans.remove(timetableId)
-                    } else {
-                        appliedTimetablePlans[timetableId] = installedPlan
+        if (initialPositionMode == TimetableInitialPositionMode.RESET) {
+            when (val initialPositions = TimetableInitialPositioner(world).apply(timetable, dispatcherTick)) {
+                is TimetableInitialPositionResult.Applied -> Unit
+                is TimetableInitialPositionResult.Failure -> {
+                    val rollbackFailure = rollbackAppliedPlan(timetableId, installedPlan, previousPlan)
+                    if (rollbackFailure != null) {
+                        if (installedPlan == null) {
+                            appliedTimetablePlans.remove(timetableId)
+                        } else {
+                            appliedTimetablePlans[timetableId] = installedPlan
+                        }
+                        stallTimetableRuntime(
+                            world,
+                            TimetableServiceRunId(timetableId, "<applied-plan>"),
+                            "InfrastructureDependencyFailure",
+                            "initial-position failure could not restore the previous applied dependency: " +
+                                rollbackFailure
+                        )
                     }
-                    stallTimetableRuntime(
-                        world,
-                        TimetableServiceRunId(timetableId, "<applied-plan>"),
-                        "InfrastructureDependencyFailure",
-                        "initial-position failure could not restore the previous applied dependency: " +
-                            rollbackFailure
-                    )
+                    return TimetableEpochStartResult.Failure(buildString {
+                        append("initial position reset failed: ${initialPositions.reason}")
+                        rollbackFailure?.let { append("; applied dependency rollback failed: $it") }
+                    })
                 }
-                return TimetableEpochStartResult.Failure(buildString {
-                    append("initial position reset failed: ${initialPositions.reason}")
-                    rollbackFailure?.let { append("; applied dependency rollback failed: $it") }
-                })
             }
         }
         val clock = TimetableClock(
-            epochDispatcherTick = dispatcherTick,
+            epochDispatcherTick = epochDispatcherTick,
             periodTicks = timetable.periodTicks,
             nextCycleIndex = 1L
         )
@@ -643,7 +652,7 @@ class TimetableDispatcher(
         ensureOwner()
         if (timetableId in recoveryRequiredDefinitions) return false
         val clock = timetableClocks[timetableId] ?: return false
-        check(clock.epochDispatcherTick == dispatcherTick) {
+        check(clock.nextCycleIndex == 1L && clock.epochDispatcherTick >= dispatcherTick) {
             "initial cycle must be scheduled immediately after beginTimetable"
         }
         clock.nextCycleIndex = 0L
@@ -1375,8 +1384,20 @@ class TimetableDispatcher(
     /** Called on the main thread after the current physics epoch has published. */
     @MainThread
     fun tick(world: World) {
+        tick(world, Math.incrementExact(dispatcherTick))
+    }
+
+    /**
+     * Advance from the server-owned operational clock. Every live world receives the same absolute
+     * tick even when its frame finishes later than another world's frame.
+     */
+    @MainThread
+    fun tick(world: World, operationalTick: Long) {
         ensureOwner(world)
-        dispatcherTick++
+        require(operationalTick > dispatcherTick) {
+            "operational tick must advance: current=$dispatcherTick next=$operationalTick"
+        }
+        dispatcherTick = operationalTick
         val coordinator = world.simpleAtoWorldData.atoCoordinator
         if (coordinator.isStalled) {
             runs.values.filter { it.state.isTerminal() }.forEach {
@@ -1876,6 +1897,7 @@ class TimetableDispatcher(
     private fun startDueCycles(world: World) {
         clockLoop@ for ((timetableId, clock) in timetableClocks.toList().sortedBy { it.first }) {
             if (timetableId in recoveryRequiredDefinitions) continue
+            if (dispatcherTick < clock.epochDispatcherTick) continue
             if (clock.autoStartDisabled || dispatcherTick < clock.nextAutoStartTick) continue
             val timetable = world.simpleAtoWorldData.timetables[timetableId]
             if (timetable == null) {
@@ -2089,13 +2111,20 @@ class TimetableDispatcher(
      */
     @MainThread
     fun forceDiscardTimetable(world: World, timetableId: String): Int {
+        return forceDiscardTimetables(world, setOf(timetableId))
+    }
+
+    /** Destructively discard a prevalidated set without leaving a partially discarded definition set. */
+    @MainThread
+    fun forceDiscardTimetables(world: World, timetableIds: Set<String>): Int {
         ensureOwner(world)
-        require(timetableId.isNotBlank())
+        require(timetableIds.isNotEmpty() && timetableIds.all(String::isNotBlank))
         bindWorld(world)
-        check((fixedFormations.values.none { it.source.id.timetableId == timetableId } && preparingCouplings.values.none { it.coordinator.id.timetableId == timetableId })) {
-            "cannot discard a timetable while structural output protections remain active"
+        check(fixedFormations.values.none { it.source.id.timetableId in timetableIds } &&
+            preparingCouplings.values.none { it.coordinator.id.timetableId in timetableIds }) {
+            "cannot discard timetables while structural output protections remain active"
         }
-        val selected = runs.values.filter { it.id.timetableId == timetableId }
+        val selected = runs.values.filter { it.id.timetableId in timetableIds }
         // Validate the whole selection before discarding any run or its controller.
         selected.forEach { run ->
             check(run.admissionClient == null || run.admissionEnded) {
@@ -2103,10 +2132,10 @@ class TimetableDispatcher(
             }
         }
         selected.forEach { run -> discardRun(world, run) }
-        val recovered = recoveryRequiredRuns.count { it.timetableId == timetableId }
-        recoveryRequiredRuns.removeIf { it.timetableId == timetableId }
-        recoveryRequiredDefinitions.remove(timetableId)
-        timetableClocks.remove(timetableId)
+        val recovered = recoveryRequiredRuns.count { it.timetableId in timetableIds }
+        recoveryRequiredRuns.removeIf { it.timetableId in timetableIds }
+        timetableIds.forEach(recoveryRequiredDefinitions::remove)
+        timetableIds.forEach(timetableClocks::remove)
         releaseDrainedAppliedPlans()
         return selected.size + recovered
     }

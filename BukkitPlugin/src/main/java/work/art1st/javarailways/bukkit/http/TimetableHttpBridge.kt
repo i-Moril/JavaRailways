@@ -1001,6 +1001,9 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             })
         }
         private fun publishJson(worldName: String, id: String, body: String, ifMatch: String?) = withWorld(worldName) { _, world ->
+            require(!plugin.globalTimetableReloadCoordinator.isReloading) {
+                "global timetable reload is in progress"
+            }
             val data = world.basicWorldData
             val saved = TimetableSnapshotCodec.decode(body); val tt = saved.restore()
             require(tt.id == id && saved.id == id) { "path timetable id does not match body id" }

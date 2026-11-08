@@ -53,6 +53,7 @@ import work.art1st.javarailways.bukkit.http.TimetableScriptSandbox
 import work.art1st.javarailways.bukkit.http.TimetableWebUiSidecar
 import work.art1st.javarailways.bukkit.http.WebUiLoginTokens
 import work.art1st.javarailways.bukkit.logic.WorldManager
+import work.art1st.javarailways.bukkit.timetable.GlobalTimetableReloadCoordinator
 import work.art1st.javarailways.bukkit.extension.train.BukkitExtensionDataSerializers
 import work.art1st.javarailways.bukkit.render.backend.DisplayRenderBackend
 import work.art1st.javarailways.bukkit.render.backend.DisplayRenderBackendFactory
@@ -125,6 +126,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     val worldIssues = work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService()
     val webUiLoginTokens: WebUiLoginTokens = WebUiLoginTokens()
     lateinit var timetableScriptSandbox: TimetableScriptSandbox
+    lateinit var globalTimetableReloadCoordinator: GlobalTimetableReloadCoordinator
 
     private var packetEntityRuntime: PacketEntityRuntime? = null
     private var timetableHttpBridge: TimetableHttpBridge? = null
@@ -348,6 +350,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         )
 
         timetableScriptSandbox = TimetableScriptSandbox(this)
+        globalTimetableReloadCoordinator = GlobalTimetableReloadCoordinator(this)
 
         // 初始化 Wand 工具
         railWand = RailWand(this)
@@ -389,6 +392,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         timetableWebUiSidecar = null
         runShutdownStep("timetable HTTP bridge") { timetableHttpBridge?.stop() }
         timetableHttpBridge = null
+        if (::globalTimetableReloadCoordinator.isInitialized) {
+            runShutdownStep("global timetable reload coordinator") { globalTimetableReloadCoordinator.close() }
+        }
         if (::timetableScriptSandbox.isInitialized) {
             runShutdownStep("timetable script sandbox") { timetableScriptSandbox.close() }
         }

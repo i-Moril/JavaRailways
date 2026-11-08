@@ -23,65 +23,71 @@ class TimetableInitialPositioner(private val world: World) {
     private data class Target(val wayPoint: WayPoint, val location: RailLocationWithFacing)
     private data class Placement(val train: CoreTrain, val target: Target)
 
-    fun apply(timetable: Timetable, tick: Long): TimetableInitialPositionResult {
+    fun apply(timetable: Timetable, tick: Long): TimetableInitialPositionResult =
+        apply(listOf(timetable), tick)
+
+    fun apply(timetables: Collection<Timetable>, tick: Long): TimetableInitialPositionResult {
         (world as CoreWorld).physicsCoordinator.ensureBetweenFrames("TimetableInitialPositioner.apply")
-        if (timetable.initialPositions.isEmpty()) return TimetableInitialPositionResult.Applied(0)
+        if (timetables.all { it.initialPositions.isEmpty() }) return TimetableInitialPositionResult.Applied(0)
         val usedTrainIds = HashSet<String>()
         val usedWayPointIds = HashSet<String>()
         val placements = ArrayList<Placement>()
         return try {
-            timetable.initialPositions.forEachIndexed { index, constraint ->
-                val matchingTrains = world.allTrains.asSequence()
-                    .filterIsInstance<CoreTrain>()
-                    .filter { it.id !in usedTrainIds && constraint.trainSelector.matches(it.name) }
-                    .sortedWith(compareBy<CoreTrain>({ it.name }, { it.id }))
-                    .toList()
-                require(matchingTrains.isNotEmpty()) {
-                    "initial position #$index has no unused train matching its selector"
-                }
-                val trains = matchingTrains.filter { it.controller == null }
-                require(trains.isNotEmpty()) {
-                    val controlled = matchingTrains.joinToString { train ->
-                        "${train.name}(${train.controller!!::class.java.simpleName})"
+            timetables.sortedBy(Timetable::id).forEach { timetable ->
+                timetable.initialPositions.forEachIndexed { index, constraint ->
+                    val label = "timetable ${timetable.id} initial position #$index"
+                    val matchingTrains = world.allTrains.asSequence()
+                        .filterIsInstance<CoreTrain>()
+                        .filter { it.id !in usedTrainIds && constraint.trainSelector.matches(it.name) }
+                        .sortedWith(compareBy<CoreTrain>({ it.name }, { it.id }))
+                        .toList()
+                    require(matchingTrains.isNotEmpty()) {
+                        "$label has no unused train matching its selector"
                     }
-                    "initial position #$index cannot move controlled train(s): $controlled; " +
-                        "release manual/ATO control before resetting the timetable"
-                }
-                val matchingWayPoints = world.basicWorldData.wayPoints.all().asSequence()
-                    .filter { constraint.wayPointSelector.matches(it.id) }
-                val depotWayPoints = world.simpleAtoWorldData.depots.allDepots().asSequence()
-                    .filter { constraint.wayPointSelector.matches(it.id.value) }
-                    .flatMap { depot ->
-                        world.simpleAtoWorldData.depots.stablingPoints(depot.id).asSequence()
+                    val trains = matchingTrains.filter { it.controller == null }
+                    require(trains.isNotEmpty()) {
+                        val controlled = matchingTrains.joinToString { train ->
+                            "${train.name}(${train.controller!!::class.java.simpleName})"
+                        }
+                        "$label cannot move controlled train(s): $controlled; " +
+                            "release manual/ATO control before resetting the timetable"
                     }
-                    .map { point ->
-                        val destination = world.simpleAtoWorldData.destinations[point.point.destinationId]
-                            ?: error(
-                                "depot ${point.point.ref.depotId} point ${point.point.ref.pointId} " +
-                                    "references missing destination ${point.point.destinationId}"
+                    val matchingWayPoints = world.basicWorldData.wayPoints.all().asSequence()
+                        .filter { constraint.wayPointSelector.matches(it.id) }
+                    val depotWayPoints = world.simpleAtoWorldData.depots.allDepots().asSequence()
+                        .filter { constraint.wayPointSelector.matches(it.id.value) }
+                        .flatMap { depot ->
+                            world.simpleAtoWorldData.depots.stablingPoints(depot.id).asSequence()
+                        }
+                        .map { point ->
+                            val destination = world.simpleAtoWorldData.destinations[point.point.destinationId]
+                                ?: error(
+                                    "depot ${point.point.ref.depotId} point ${point.point.ref.pointId} " +
+                                        "references missing destination ${point.point.destinationId}"
+                                )
+                            WayPoint(
+                                destination.id,
+                                destination.railId,
+                                destination.arcLengthInAbMeters
                             )
-                        WayPoint(
-                            destination.id,
-                            destination.railId,
-                            destination.arcLengthInAbMeters
-                        )
+                        }
+                    val targets = (matchingWayPoints + depotWayPoints)
+                        .distinctBy { it.id }
+                        .filter { it.id !in usedWayPointIds }
+                        .sortedBy { it.id }
+                        .map { Target(it, resolveLocation(it)) }
+                        .toList()
+                    require(targets.isNotEmpty()) {
+                        "$label has no unused waypoint matching its selector"
                     }
-                val targets = (matchingWayPoints + depotWayPoints)
-                    .distinctBy { it.id }
-                    .filter { it.id !in usedWayPointIds }
-                    .sortedBy { it.id }
-                    .map { Target(it, resolveLocation(it)) }
-                    .toList()
-                require(targets.isNotEmpty()) {
-                    "initial position #$index has no unused waypoint matching its selector"
+                    val alreadySatisfied = trains.asSequence().flatMap { train ->
+                        targets.asSequence().map { train to it }
+                    }.firstOrNull { (train, target) -> isAt(train, target.location) }
+                    val (train, target) = alreadySatisfied ?: (trains.first() to targets.first())
+                    usedTrainIds += train.id
+                    usedWayPointIds += target.wayPoint.id
+                    placements += Placement(train, target)
                 }
-                val alreadySatisfied = trains.asSequence().flatMap { train ->
-                    targets.asSequence().map { train to it }
-                }.firstOrNull { (train, target) -> isAt(train, target.location) }
-                val (train, target) = alreadySatisfied ?: (trains.first() to targets.first())
-                usedTrainIds += train.id
-                usedWayPointIds += target.wayPoint.id
-                placements += Placement(train, target)
             }
             applyAtomically(placements)
             TimetableInitialPositionResult.Applied(placements.size)
@@ -90,7 +96,7 @@ class TimetableInitialPositioner(private val world: World) {
             world.simpleAtoWorldData.atoCoordinator.stall(
                 AtoStallReport(
                     worldId = world.simpleAtoWorldData.atoCoordinator.worldId,
-                    trainId = "<timetable:${timetable.id}>",
+                    trainId = "<timetables:${timetables.map(Timetable::id).sorted().joinToString(",")}>",
                     tick = tick,
                     errorType = "TimetableInitialPositionFailure",
                     message = reason,

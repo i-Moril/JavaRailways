@@ -162,10 +162,10 @@ class JavaRailwaysCommand {
                 else -> emptyList()
             }
             "timetable", "tt" -> when (args.size) {
-                2 -> filtered(listOf("edit", "load", "dump", "list", "start", "reset", "status", "stop", "replan"))
+                2 -> filtered(listOf("edit", "load", "reload-all", "dump", "list", "start", "reset", "status", "stop", "replan"))
                 3 -> if (args[1].lowercase() in setOf("edit", "load")) {
                     filtered(plugin.timetableScriptSandbox.listScripts().map { it.name })
-                } else emptyList()
+                } else if (args[1].equals("reload-all", true)) filtered(listOf("confirm")) else emptyList()
                 else -> emptyList()
             }
             "perf", "performance" -> if (args.size == 2) {
@@ -773,12 +773,69 @@ class JavaRailwaysCommand {
         .orEmpty()
 
     private fun handleTimetable(sender: CommandSender, args: List<String>): Boolean {
+        if (args.firstOrNull()?.equals("reload-all", true) == true) {
+            if (!sender.hasPermission("javarailways.admin")) {
+                sender.sendMessage(Component.text("没有权限全局重载时刻表", NamedTextColor.RED))
+                return true
+            }
+            if (!args.getOrNull(1).equals("confirm", true)) {
+                sender.sendMessage("用法: /jr timetable reload-all confirm")
+                return true
+            }
+            val senderName = sender.name
+            PluginDiagnosticLog.timetable("GLOBAL_RELOAD_REQUESTED", "sender=$senderName")
+            try {
+                BukkitPlugin.INSTANCE.globalTimetableReloadCoordinator.reload { message ->
+                    sendTimetableMessage(sender, Component.text(message, NamedTextColor.GRAY))
+                }.whenComplete { report, failure ->
+                    if (failure == null) {
+                        PluginDiagnosticLog.timetable(
+                            "GLOBAL_RELOAD_SUCCEEDED",
+                            "sender=$senderName\nscripts=${report.scriptCount}\nworlds=${report.worldCount}\n" +
+                                "discardedRuns=${report.discardedRuns}\nplacements=${report.resetPlacements}\n" +
+                                "epoch=${report.epochTick}"
+                        )
+                        sendTimetableMessage(sender, Component.text(
+                            "全局时刻表重载完成: scripts=${report.scriptCount}, worlds=${report.worldCount}, " +
+                                "discardedRuns=${report.discardedRuns}, placements=${report.resetPlacements}, " +
+                                "epoch=${report.epochTick}",
+                            NamedTextColor.GREEN
+                        ))
+                    } else {
+                        val cause = generateSequence(failure) { it.cause }.last()
+                        val path = PluginDiagnosticLog.timetable(
+                            "GLOBAL_RELOAD_FAILED",
+                            "sender=$senderName",
+                            cause
+                        )
+                        sendTimetableMessage(sender, Component.text(
+                            "全局时刻表重载失败: ${cause.message ?: cause.javaClass.simpleName}；详见 " +
+                                (path?.toString() ?: "服务器日志"),
+                            NamedTextColor.RED
+                        ))
+                    }
+                }
+            } catch (failure: Exception) {
+                sendTimetableMessage(sender, Component.text(
+                    failure.message ?: "无法启动全局时刻表重载",
+                    NamedTextColor.RED
+                ))
+            }
+            return true
+        }
         if (sender !is Player) { sender.sendMessage("Player only"); return true }
         val world = BukkitPlugin.INSTANCE.worldManager.railWorlds[sender.world] ?: run {
             sender.sendMessage("错误: 无法获取 JavaRailways 世界")
             return true
         }
-        when (args.firstOrNull()?.lowercase()) {
+        val action = args.firstOrNull()?.lowercase()
+        if (BukkitPlugin.INSTANCE.globalTimetableReloadCoordinator.isReloading &&
+            action in setOf("load", "start", "reset", "stop", "replan")
+        ) {
+            sender.sendMessage(Component.text("全局时刻表重载进行中，暂不能修改运行状态", NamedTextColor.RED))
+            return true
+        }
+        when (action) {
             "load" -> {
                 if (!sender.hasPermission("javarailways.admin")) {
                     sender.sendMessage(Component.text("没有权限加载 JS 时刻表", NamedTextColor.RED))
@@ -1171,6 +1228,15 @@ class JavaRailwaysCommand {
             else -> sender.sendMessage("用法: /jr timetable <edit|load|dump|list|start|status|stop|replan>")
         }
         return true
+    }
+
+    private fun sendTimetableMessage(sender: CommandSender, message: Component) {
+        val plugin = BukkitPlugin.INSTANCE
+        if (sender is Player) {
+            plugin.platformDispatcher.runForEntity(sender, action = { sender.sendMessage(message) })
+        } else {
+            plugin.platformDispatcher.runGlobal { sender.sendMessage(message) }
+        }
     }
 
     private fun handleAto(sender: CommandSender, args: List<String>): Boolean {

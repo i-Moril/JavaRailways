@@ -24,11 +24,13 @@ import work.art1st.javarailways.simpleato.timetable.TimetableAction
 import work.art1st.javarailways.simpleato.timetable.TimetableService
 import work.art1st.javarailways.simpleato.timetable.TimetableStep
 import work.art1st.javarailways.simpleato.timetable.TrainSelector
+import work.art1st.javarailways.simpleato.timetable.TimetableEpochStartResult
 import work.art1st.javarailways.simpleato.api.depot.DepotId
 import work.art1st.javarailways.simpleato.api.depot.DepotStablingPoint
 import work.art1st.javarailways.simpleato.api.depot.RollingStockState
 import work.art1st.javarailways.simpleato.api.depot.StablingPointRef
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 
 class DispatcherSnapshotTest {
@@ -282,5 +284,29 @@ class DispatcherSnapshotTest {
         assertTrue(result is TimetableCheckpointRestoreResult.Rejected)
         assertTrue(dispatcher.saveCheckpoint().clocks.isEmpty())
         assertTrue(plans.applied.isEmpty())
+    }
+
+    @Test
+    fun `server operational tick and a future shared epoch are preserved exactly`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        TestSimpleATOWorldDataRegistry.register(world, BasicWorldData())
+        val dispatcher = world.simpleAtoWorldData.dispatcher
+        world.simpleAtoWorldData.timetables.add(Timetable("global"))
+
+        world.onOwnerForTest {
+            dispatcher.tick(world, 7L)
+            val started = dispatcher.beginTimetable(
+                world,
+                "global",
+                epochDispatcherTick = 20L
+            )
+            assertTrue(started is TimetableEpochStartResult.Started)
+            assertTrue(dispatcher.scheduleInitialCycle("global"))
+        }
+
+        val checkpoint = dispatcher.saveCheckpoint()
+        assertEquals(7L, checkpoint.dispatcherTick)
+        assertEquals(20L, checkpoint.clocks.single().epochDispatcherTick)
+        assertEquals(0L, checkpoint.clocks.single().nextCycleIndex)
     }
 }

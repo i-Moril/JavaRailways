@@ -252,4 +252,36 @@ class TimetableInitialPositionerTest {
         assertTrue(world.drainPublishedTrainFrames().isEmpty())
         assertTrue(coordinator.isStalled)
     }
+
+    @Test
+    fun `batch placement rejects train reuse across timetable definitions before publication`() {
+        val world = createTestWorld().also(worlds::add)
+        val coordinator = AtoWorldCoordinator("initial-batch", reportSink = {})
+        TestSimpleATOWorldDataRegistry.register(
+            world, BasicWorldData(safetyInterlock = coordinator.safetyInterlock), coordinator
+        )
+        val rail = createStraightRailFromSegments(
+            world, PrimeCurveGenerator.buildStraight(180.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("train", rail, world, listOf(8.0), isLoop = false)
+        world.basicWorldData.wayPoints.add(WayPoint("one", rail.id, 60.0))
+        world.basicWorldData.wayPoints.add(WayPoint("two", rail.id, 120.0))
+        val before = train.headLocation.arcLengthIn(ViewDirection.AB)
+        val selector = TimetableObjectSelector.Regex("train")
+
+        val result = world.onOwnerForTest {
+            TimetableInitialPositioner(world).apply(listOf(
+                Timetable("a", initialPositions = listOf(TimetableInitialPosition(
+                    selector, TimetableObjectSelector.Regex("one")
+                ))),
+                Timetable("b", initialPositions = listOf(TimetableInitialPosition(
+                    selector, TimetableObjectSelector.Regex("two")
+                )))
+            ), 0L)
+        }
+
+        assertTrue(result is TimetableInitialPositionResult.Failure)
+        assertEquals(before, train.headLocation.arcLengthIn(ViewDirection.AB), 0.01)
+        assertTrue(coordinator.isStalled)
+    }
 }

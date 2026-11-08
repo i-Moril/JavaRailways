@@ -18,6 +18,7 @@ import java.util.concurrent.TimeUnit
 class TimetableScriptFailure(message: String, cause: Throwable? = null) : IllegalArgumentException(message, cause)
 class TimetableScriptConflict(message: String) : IllegalStateException(message)
 data class TimetableScriptDescriptor(val name: String, val sizeBytes: Long, val modifiedAtEpochMillis: Long)
+data class TimetableScriptSource(val name: String, val source: String)
 
 /** Compiles and stores timetable JavaScript inside the plugin JVM. */
 class TimetableScriptSandbox private constructor(
@@ -66,6 +67,13 @@ class TimetableScriptSandbox private constructor(
         val size = Files.size(path)
         if (size > MAX_SOURCE_BYTES) throw TimetableScriptFailure("script exceeds $MAX_SOURCE_BYTES bytes")
         return Files.readString(path, StandardCharsets.UTF_8)
+    }
+
+    /** Reads one point-in-time snapshot of the formal timetable repository. */
+    fun snapshotSources(): List<TimetableScriptSource> = synchronized(storageLock) {
+        listScripts().map { descriptor ->
+            TimetableScriptSource(descriptor.name, readSource(descriptor.name))
+        }
     }
 
     fun compileScriptAsync(scriptName: String, timetableId: String): CompletableFuture<SavedTimetableV1> =
@@ -165,7 +173,10 @@ class TimetableScriptSandbox private constructor(
     private fun resolveScript(scriptName: String): Path = existingScriptPath(scriptName)
 
     private fun scriptPath(scriptName: String): Path {
-        require(scriptName.matches(Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,123}\\.js"))) { "invalid script name" }
+        require(scriptName.matches(Regex(
+            "[A-Za-z0-9][A-Za-z0-9._-]{0,123}\\.js",
+            RegexOption.IGNORE_CASE
+        ))) { "invalid script name" }
         val resolved = scriptsDirectory.resolve(scriptName).normalize()
         require(resolved.parent == scriptsDirectory) { "invalid script name" }
         return resolved

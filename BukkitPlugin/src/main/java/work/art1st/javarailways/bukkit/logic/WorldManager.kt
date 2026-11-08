@@ -158,6 +158,8 @@ class WorldManager internal constructor(
         return recentServerTickMetrics.toList().takeLast(limit)
     }
 
+    fun operationalTick(): Long = serverTickIndex
+
     fun registerRailWorld(bukkitWorld: BukkitWorld) {
         ThreadGuard.ensureMainThread("WorldManager.registerRailWorld")
         LiveWorldManagement.run {
@@ -221,6 +223,10 @@ class WorldManager internal constructor(
                     )
                     splitRuntime?.simpleAto()?.restore(railWorld)
                     val simpleAtoData = railWorld.simpleAtoWorldData
+                    serverTickIndex = maxOf(
+                        serverTickIndex,
+                        simpleAtoData.dispatcher.saveCheckpoint().dispatcherTick
+                    )
                     signalEpochSourceService?.registerWorld(
                         worldId = bukkitWorld.uid,
                         physicalWorld = railWorld,
@@ -584,14 +590,15 @@ class WorldManager internal constructor(
                         val nanos = measureNanoTime { dispatchPublishedTrainFrames(world, coreWorld) }
                         phaseBreakdown["world:${world.name}:train_visual_frame_consume"] = nanos
                         computeNanos += nanos
-                    }
+                    },
+                    operationalTick = tickIndex
                 )
             }
         }
 
         val coordinator = (railWorld as? CoreWorld)?.physicsCoordinator
         if (coordinator == null) {
-            railWorld.simpleAtoWorldData.dispatcher.tick(railWorld)
+            railWorld.simpleAtoWorldData.dispatcher.tick(railWorld, tickIndex)
             railWorld.tickManager.postTick()
         } else {
             // Keep fallback physics out through dispatcher and generic after-commit work.

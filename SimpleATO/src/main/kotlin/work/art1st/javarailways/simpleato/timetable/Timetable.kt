@@ -27,7 +27,7 @@ import work.art1st.javarailways.core.api.physics.WorldExecutionMode
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.routing.OperationalRoutePlanner
-import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 
 /**
@@ -65,22 +65,39 @@ data class Timetable(
 }
 
 class TimetableStore {
-    private val timetables = ConcurrentHashMap<String, Timetable>()
+    private val timetables = AtomicReference<Map<String, Timetable>>(emptyMap())
 
     /** Stores a frozen [Timetable]; returned values remain subject to the same ownership contract. */
     fun add(timetable: Timetable) {
         require(timetable.id.isNotBlank()) { "timetable id must not be blank" }
-        timetables[timetable.id] = timetable.copy(
-            operationalTrips = java.util.List.copyOf(timetable.operationalTrips),
-            services = timetable.services.map { service -> service.copy(runSegments = java.util.List.copyOf(service.runSegments)) }
-        )
+        val frozen = freeze(timetable)
+        timetables.updateAndGet { current -> current + (frozen.id to frozen) }
     }
 
-    fun remove(id: String): Timetable? = timetables.remove(id)
+    fun replaceAll(values: Collection<Timetable>) {
+        val frozen = values.map(::freeze)
+        require(frozen.map(Timetable::id).distinct().size == frozen.size) { "duplicate timetable id" }
+        timetables.set(frozen.associateBy(Timetable::id))
+    }
 
-    operator fun get(id: String): Timetable? = timetables[id]
+    fun remove(id: String): Timetable? {
+        while (true) {
+            val current = timetables.get()
+            val removed = current[id] ?: return null
+            if (timetables.compareAndSet(current, current - id)) return removed
+        }
+    }
 
-    fun all(): List<Timetable> = timetables.values.sortedBy { it.id }
+    operator fun get(id: String): Timetable? = timetables.get()[id]
+
+    fun all(): List<Timetable> = timetables.get().values.sortedBy { it.id }
+
+    private fun freeze(timetable: Timetable): Timetable = timetable.copy(
+        operationalTrips = java.util.List.copyOf(timetable.operationalTrips),
+        services = timetable.services.map { service ->
+            service.copy(runSegments = java.util.List.copyOf(service.runSegments))
+        }
+    )
 }
 
 data class TimetableLineSpeedLimit(

@@ -43,7 +43,8 @@ class OperationalWorldRuntime private constructor(
     fun afterPublication(
         physicsEpoch: Long,
         publishObservation: () -> Unit,
-        beforeDispatcher: () -> Unit = {}
+        beforeDispatcher: () -> Unit = {},
+        operationalTick: Long? = null
     ) {
         if (closed) throw work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt.halt(
             "A live world consumed a closed operational runtime: $worldId")
@@ -56,7 +57,8 @@ class OperationalWorldRuntime private constructor(
             if (train.publishedFrame.physicsEpoch == request.observedPhysicsEpoch) train.derail(request.reason)
         }
         beforeDispatcher()
-        data.dispatcher.tick(world)
+        if (operationalTick == null) data.dispatcher.tick(world)
+        else data.dispatcher.tick(world, operationalTick)
         world.tickManager.postTick()
     }
 

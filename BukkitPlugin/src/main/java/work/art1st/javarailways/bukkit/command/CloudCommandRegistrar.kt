@@ -82,7 +82,7 @@ class CloudCommandRegistrar(plugin: BukkitPlugin) {
             args("depot", "assign"); args("depot", "register-unit"); parent("depot", "list"); args("depot", "reset"); args("depot", "reset-all")
             listOf("timetable", "tt").forEach { name ->
                 parent(name)
-                listOf("edit", "load", "dump", "start", "reset", "status", "stop", "replan")
+                listOf("edit", "load", "reload-all", "dump", "start", "reset", "status", "stop", "replan")
                     .forEach { sub -> args(name, sub) }
                 parent(name, "list")
             }

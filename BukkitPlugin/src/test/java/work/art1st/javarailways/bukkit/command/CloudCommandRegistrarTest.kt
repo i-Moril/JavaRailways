@@ -37,6 +37,26 @@ class CloudCommandRegistrarTest {
     }
 
     @Test
+    fun `global reload is registered for both timetable aliases and suggests confirmation`() {
+        val command = JavaRailwaysCommand()
+        val sender = sender(CommandSender::class.java)
+        for (alias in listOf("timetable", "tt")) {
+            assertTrue("$alias reload-all" in CloudCommandRegistrar.registeredRoutePaths())
+            assertTrue(CloudCommandRegistrar.routeAcceptsArguments("$alias reload-all"))
+            assertTrue("reload-all" in command.suggest(sender, arrayOf(alias, "")))
+            assertEquals(listOf("confirm"), command.suggest(sender, arrayOf(alias, "reload-all", "")))
+        }
+    }
+
+    @Test
+    fun `global reload denies an unauthorized console sender`() {
+        val messages = mutableListOf<Component>()
+        val command = JavaRailwaysCommand()
+        assertTrue(command.execute(sender(CommandSender::class.java, messages = messages), "jr", arrayOf("timetable", "reload-all", "confirm")))
+        assertEquals(Component.text("没有权限全局重载时刻表", net.kyori.adventure.text.format.NamedTextColor.RED), messages.single())
+    }
+
+    @Test
     fun `turnout command completion includes trailing empty and partial tokens`() {
         val sender = sender(CommandSender::class.java)
         val command = JavaRailwaysCommand()

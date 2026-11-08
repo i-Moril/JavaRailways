@@ -1225,7 +1225,7 @@ class JavaRailwaysCommand {
                     }
                 }
             }
-            else -> sender.sendMessage("用法: /jr timetable <edit|load|dump|list|start|status|stop|replan>")
+            else -> sender.sendMessage("用法: /jr timetable <edit|load|reload-all|dump|list|start|reset|status|stop|replan>")
         }
         return true
     }
@@ -1513,6 +1513,7 @@ class JavaRailwaysCommand {
         sender.sendMessage("/jr timetable replan <id> <service> <current-waypoint> [cycle] - 人工接管后显式重新规划")
         sender.sendMessage("/jr timetable edit - 获取短期有效的 WebUI 登录链接")
         sender.sendMessage("/jr timetable load <file.js> [id] - 在隔离 Worker 中编译并加载 JS 时刻表")
+        sender.sendMessage("/jr timetable reload-all confirm - 全局替换时刻表并复位列车")
         sender.sendMessage("/jr timetable dump <id> - 输出时刻表内部结构")
         sender.sendMessage("/jr timetable reset <id> confirm | reset <id> force confirm - 安全/强制重置")
         sender.sendMessage("/jr timetable start|status|stop <id> [service] - 管理显式列车 service")

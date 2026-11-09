@@ -18,7 +18,9 @@ data class LoadedTrainPackage(
     /** Optional JS behavior script for this train package. */
     val behavior: TrainBehaviorScript? = null,
     /** Manual-controller performance and physics configuration. */
-    val control: TrainControlConfig
+    val control: TrainControlConfig,
+    /** Package-local raw XML templates and category defaults. */
+    val displays: TrainDisplayResources = TrainDisplayResources()
 )
 
 /**

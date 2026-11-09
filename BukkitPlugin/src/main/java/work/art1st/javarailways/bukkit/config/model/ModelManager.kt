@@ -108,13 +108,13 @@ class ModelManager(
             qualifiedName
         }
         val snapshot = SavedTrainPackageSnapshot.build(pkg.manifest.name, pkg.actions, pkg.behavior,
-            pkg.control, models.mapValues { it.value.car.control })
+            pkg.control, models.mapValues { it.value.car.control }, pkg.displays)
         val sourceSnapshots = models.keys.associateWith { name ->
             val owner = requireNotNull(available[getCar(available, name)?.packageName]) {
                 "Car '$name' has no source package"
             }
             SavedTrainPackageSnapshot.build(owner.manifest.name, owner.actions, owner.behavior,
-                owner.control, owner.cars.mapKeys { "${owner.manifest.name}/${it.key}" }.mapValues { it.value.control })
+                owner.control, owner.cars.mapKeys { "${owner.manifest.name}/${it.key}" }.mapValues { it.value.control }, owner.displays)
         }
         return TrainResourceVersion(snapshot, java.util.Collections.unmodifiableMap(models),
             java.util.Collections.unmodifiableMap(sourceSnapshots), java.util.List.copyOf(composition))

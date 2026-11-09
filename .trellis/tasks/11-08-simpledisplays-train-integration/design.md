@@ -1,6 +1,6 @@
 # Design
 
-> Current slice: XML-embedded JS with the document API. The standalone JS implementation was abandoned; the library branch was reset directly to `21f7686` at the user's request. [Authoritative replacement contract](research/xml-document-js-contract.md). Older standalone-JS notes below are historical.
+> Current slice: package display XML loading and source-package snapshots; see [approved contract](research/package-display-loading-contract.md). Independent XML/document JS is complete at SimpleDisplays `410af2e`. Standalone-JS notes below are historical; the old-format consistency child remains deferred until pre-acceptance.
 
 ## Ownership and boundaries
 
@@ -212,4 +212,8 @@ Current implementation: SimpleDisplays `410af2e`, XML → invocation-local docum
 
 ## 配置表达规范与模板声明草案
 
-用户确认先建立同类概念的共同表达规则，再设计显示配置。参见[共同规范及逐项对照](research/config-schema-conventions.md)、[displays.yml草案](schema/displays.example.yml)和[草案schema](schema/displays-draft.schema.json)。这是设计材料；不调整已有内联部件版本、动画定义集合或正式schema。模板统一引用XML，内嵌JS由SimpleDisplays处理，无独立type/重复尺寸。下一实施批次需以审阅后的格式为准。
+用户确认先建立同类概念的共同表达规则，再设计显示配置。参见[共同规范及逐项对照](research/config-schema-conventions.md)、[displays.yml草案](schema/displays.example.yml)和[草案schema](../../../schemas/train-model/displays-v1.schema.json)。这是设计材料；不调整已有内联部件版本、动画定义集合或正式schema。模板统一引用XML，内嵌JS由SimpleDisplays处理，无独立type/重复尺寸。下一实施批次需以审阅后的格式为准。
+
+## 显示资源加载批次完成
+
+包内XML原文和类别默认映射已接入PackageLoader、主包/来源车厢快照及现有Store重算。正式schema归入schemas/train-model，不保留完整task副本。维护机制见[显示模板包资源](../../spec/bukkit-plugin/backend/package-displays.md)，本轮证据见[验证记录](research/package-display-loading-validation.md)。尚未编译XML或接屏幕实体。

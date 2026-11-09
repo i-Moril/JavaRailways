@@ -6,3 +6,4 @@
 {"file":".trellis/tasks/11-08-simpledisplays-train-integration/design.md","reason":"Check implementation against approved boundaries and precedence."}
 {"file": ".trellis/spec/bukkit-plugin/backend/optional-simpledisplays.md", "reason": "Stage 1 optional API loading, exact service identity, dependency provenance and lifecycle retirement contract."}
 {"file": ".trellis/spec/bukkit-plugin/backend/screen-parts.md", "reason": "Approved narrow screen-part definition slice: schema/parser, inline/import tree copies, transform-only model behavior and canonical hash preservation."}
+{"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/package-display-loading-contract.md", "reason": "用户已批准本批边界：displays.yml加载/路径引用校验及来源包内容快照；不提前做渲染或旧格式一致性调整。"}

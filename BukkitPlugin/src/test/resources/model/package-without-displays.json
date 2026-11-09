@@ -1,0 +1,1 @@
+{"hash":"5d84a4c86fd800a161165c46a04388f259fdac5a3d2f63bd1274c46ea659bd20","packageName":"test","actions":{"bell":{"name":"bell","sounds":[{"key":"minecraft:block.note_block.bell"}]}},"behavior":{"fileName":"behavior.js","source":"function door() {}"},"control":{},"carControls":{"head":{"mass":1000.0}}}

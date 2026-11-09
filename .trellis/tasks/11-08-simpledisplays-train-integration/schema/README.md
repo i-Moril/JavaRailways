@@ -52,6 +52,6 @@ import、内联和嵌套；目前模型构建只保留变换、动画和子节�
 视距留在服务端和玩家设置中；车内外属性留在部件定义中。无屏幕车包无需新字段。
 不为 screen 嵌套配置新增 schema version，不修改现有版本常量；后续格式变化仍遵守发布基线政策。
 
-## 显示模板配置草案（未实现）
+## 显示模板配置（加载与快照批次）
 
-新增的 `displays-draft.schema.json` 和 `displays.example.yml` 是后续模板加载批次的审阅材料，不属于已经实现的screen-part合同。模板统一引用XML，动态脚本写在XML内；不包含type或重复的逻辑尺寸。共同表达规则及现有格式差异见[配置规范草案](../research/config-schema-conventions.md)。当前正式模型schema、版本及解析器均未修改。
+显示配置正式schema已迁入 `schemas/train-model/displays-v1.schema.json`，任务内仅保留 `displays.example.yml` 示例，不保存平行完整schema。模板统一引用XML，动态脚本写在XML内；不包含type或重复的逻辑尺寸。本批加载/快照范围见[合同](../research/package-display-loading-contract.md)；模板编译和屏幕渲染仍待后续。共同表达原则见[规范草案](../research/config-schema-conventions.md)，已有部件/动画格式调整仍在延期子任务中。

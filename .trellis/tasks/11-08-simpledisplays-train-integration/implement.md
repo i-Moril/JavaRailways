@@ -1,6 +1,6 @@
 # Implementation Plan
 
-> Current slice: XML-embedded JS with the document API. The standalone JS implementation was abandoned; the library branch was reset directly to `21f7686` at the user's request. [Authoritative replacement contract](research/xml-document-js-contract.md). Older standalone-JS notes below are historical.
+> Current slice: package display XML loading and source-package snapshots; see [approved contract](research/package-display-loading-contract.md). Independent XML/document JS is complete at SimpleDisplays `410af2e`. Standalone-JS notes below are historical; the old-format consistency child remains deferred until pre-acceptance.
 
 ## 1. Baseline and optional API loading
 
@@ -22,13 +22,13 @@ The checklist below is not one implementation batch.
 - [x] Write the schema draft and examples as `type: screen` parts, supporting existing inline/import forms. Remove the rejected car-level screen-list draft.
 - [x] User confirmed the part-tree shape and inline `screen` definition (2026-11-09); runtime implementation remains pending.
 - [x] Record initial visibility policy: exterior screens follow the car body; interior screens use config/player-command viewing distance without occupancy or other screen-specific culling (2026-11-09).
-- [ ] Confirm package manifest/snapshot release baseline before changing persistent models.
+- [x] Record version decision for this additive slice: new displays.yml starts at 1; default-empty snapshot field preserves existing version/hash. No release/freeze history is assumed; later breaking changes still require the version gate.
 - [x] Add screen-part model/parser support first; package style/default models are a separate later slice.
 - [x] Integrate the reviewed shape into the official part schema and cover inline/import/nested parsing, invalid fields, copy preservation and screen-free hash stability.
 - [x] Compile all PartType consumers; screen nodes currently provide only the ordinary transform/group behavior, without rendering screen content.
 - [ ] Add and validate interior/exterior installation metadata, including pinned snapshots and fixtures; cabin occupancy geometry is not required by the initial policy.
 - [ ] Parse and validate parent-relative position/rotation, dimensions, category, part references, style IDs, and package XML assets.
-- [ ] Include display declarations and required style content in pinned package snapshots/hashes.
+- [x] Include package display declarations, XML source and category defaults in source-package snapshots/hashes; point-specific style bindings remain later work.
 - [ ] Add fixtures for screen-free packages, multiple points per category, point-specific defaults, and invalid references.
 - [ ] Document recommended category names without restricting custom categories.
 - [ ] Commit and stop for review.
@@ -127,3 +127,14 @@ The user superseded the standalone JS design and asked to redo from `21f7686` wi
 - [x] Review library source/docs, record replacement evidence and commit the focused slice.
 
 Replacement committed as SimpleDisplays `410af2e`, directly parented by `21f7686`; no revert commit. See [replacement validation](research/xml-document-js-validation.md): 15 passing actual Graal tests, independent full review, API-only consumer and successful standalone Paper probe. Stop for review; whole train-integration task remains in progress.
+
+## 当前执行：显示模板包加载与快照
+
+用户已批准按[本批合同](research/package-display-loading-contract.md)实施。
+
+- [x] 正式displays.yml schema、严格配置和包内XML源码加载。
+- [x] LoadedTrainPackage/ModelManager来源资源和既有包快照/hash接入。
+- [x] 固定无显示基线、显示内容/默认映射、路径/引用、来源隔离和失败重载测试。
+- [x] 独立审查、打包/编译检查、文档与局部提交；随后停止供复核。
+
+本批已实现并通过26项定向测试/独立审查；完整Bukkit759项仍有已记录的同一表达式失败，打包/Dev编译通过。见[验证记录](research/package-display-loading-validation.md)。下批候选为模板编译缓存与类别默认选择。

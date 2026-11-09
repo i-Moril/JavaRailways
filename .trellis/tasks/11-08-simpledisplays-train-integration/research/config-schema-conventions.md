@@ -1,6 +1,6 @@
 # 模型包配置的共同表达规范
 
-状态：TARGET，作者侧设计草案；依据用户确认的共同规则整理，尚未修改已有格式或解析器。范围是 JavaRailways 模型包及即将新增的显示模板配置，不扩展到所有插件配置或 Minecraft 资源包。显示模板 schema 供本轮审阅，加载实现仍未开始。
+状态：TARGET，作者侧设计草案；依据用户确认的共同规则整理，尚未修改已有格式或解析器。范围是 JavaRailways 模型包及即将新增的显示模板配置，不扩展到所有插件配置或 Minecraft 资源包。显示模板声明已进入加载与快照实现批次，正式schema为 `schemas/train-model/displays-v1.schema.json`；其他既有格式调整仍按子任务排期。
 
 ## 执行安排（用户指定）
 
@@ -14,7 +14,7 @@
 - `offset`、`rotation`、向量分量、共同字段的缺省值和单位复用已有合同。相同形状但语义/默认值不同的对象不强行合并，例如位置向量默认0、缩放向量默认1；米制安装尺寸与 XML 逻辑尺寸也不是同一字段。
 - 独立配置文档声明 config-version，嵌套对象继承所属边界版本。已有版本不强行统一数字，不因实现批次升版，不为 XML 中的 script 增加版本。
 - 严格拒绝未知字段、错误类型、非法数值和歧义引用；默认值由解析器实施，schema 的 default 只是说明。YAML 重复 key 必须在映射构造前拒绝，不能先覆盖后再校验。
-- 公共内容结构由官方 schemas/train-model 的 $defs 复用。文件入口、内联入口只包裹公共定义；不长期维护平行完整 schema。新增显示 schema 当前处于任务草案阶段，批准实施后再迁入正式目录。
+- 公共内容结构由官方 schemas/train-model 的 $defs 复用。文件入口、内联入口只包裹公共定义；不长期维护平行完整 schema。显示schema现已迁入正式目录，任务内不再保存平行完整副本。
 
 ## 用现有配置验证这些规则
 
@@ -32,7 +32,7 @@
 
 ## 显示模板如何沿用共同规范
 
-包根目录增加可选的 displays.yml，保持 PackageLoader 的单包加载入口。独立YAML文档初始 config-version 为1（新草案），不修改已有manifest或snapshot版本。
+包根目录增加可选的 displays.yml，保持 PackageLoader 的单包加载入口。独立YAML文档初始 config-version 为1，不修改已有manifest或snapshot版本。
 
 - templates：必填的命名定义map，可为空；key是模板身份，值只有file。既然所有模板都由XML承载，删除冗余type，逻辑width/height由XML声明；JS写在XML内。此处暂不新增YAML内联XML或外部JS加载能力。
 - defaults：可选的 category → 模板名映射，缺失等于空map。类别继续使用屏幕已有的自定义category，不推断内外属性。
@@ -46,8 +46,8 @@
 
 ## 审阅和验证边界
 
-草案文件：schema/displays-draft.schema.json、schema/displays.example.yml。不写入正式schema目录，不改变运行时行为。后续校验需覆盖正常映射、空模板集合、缺失defaults、未知字段、冗余type/尺寸、错误版本、错误扩展名、空白身份和错误引用类型；文件系统及跨字段引用校验留给后续loader测试。
+正式schema：`schemas/train-model/displays-v1.schema.json`，示例：schema/displays.example.yml；原任务schema副本已删除。加载/快照实现依据[本批合同](package-display-loading-contract.md)。校验覆盖正常映射、空模板集合、缺失defaults、未知字段、冗余type/尺寸、错误版本、错误扩展名、空白身份和错误引用类型；文件系统及跨字段引用校验留给后续loader测试。
 
-待实施时应验证：来源包隔离、同一XML多类别复用、带script的XML、坏引用/路径越界/重复key、无显示配置、插件缺失、模板内容改动改变快照hash、同内容不变、失败重载保留旧资源以及模板关闭。当前文档不宣称这些运行时行为已实现。
+待实施时应验证：来源包隔离、同一XML多类别复用、带script的XML、坏引用/路径越界/重复key、无显示配置、插件缺失、模板内容改动改变快照hash、同内容不变、失败重载保留旧资源以及模板关闭。当前加载/快照的实际验证见本批验证记录；模板编译和close仍属于后续批次。
 
 源码依据：PackageLoader.kt、PartRegistry.kt、TrainActionConfig.kt、ModelManager.kt、SavedTrainPackageSnapshot.kt 及 schemas/train-model 的 manifest/car/part/actions/control/model-common schema。

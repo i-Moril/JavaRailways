@@ -46,7 +46,7 @@ object TrainPackageSnapshotStore {
                     "Unsupported train package snapshot schema ${it.schemaVersion}"
                 }
                 require(it.hash == hash && SavedTrainPackageSnapshot.build(it.packageName, it.actions,
-                    it.behavior, it.control, it.carControls).hash == hash) {
+                    it.behavior, it.control, it.carControls, it.displays).hash == hash) {
                     "Train package snapshot hash does not match its contents"
                 }
             }

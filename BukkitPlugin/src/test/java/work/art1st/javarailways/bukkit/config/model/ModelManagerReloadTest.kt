@@ -253,6 +253,67 @@ class ModelManagerReloadTest {
         assertThrows<IllegalArgumentException> { ModelManager(dataFolder).loadAll() }
     }
 
+    @Test
+    fun `display reload publishes captured raw sources while failures retain old catalog independently`() {
+        val first = writePackage("first")
+        val second = writePackage("second")
+        writeDisplays(first, "first old")
+        writeDisplays(second, "second old")
+        val manager = ModelManager(dataFolder)
+        manager.loadAll()
+        val old = manager.resourceVersion("first")
+        first.resolve("display.xml").writeText("first new <script>raw</script>")
+        val prepared = manager.prepareReload()
+        val updated = prepared.versions.getValue("first")
+        assertEquals("first old", old.packageSnapshot.displays.templates.getValue("main").source)
+        assertEquals("first new <script>raw</script>", updated.packageSnapshot.displays.templates.getValue("main").source)
+        assertTrue(old.packageSnapshot.hash != updated.packageSnapshot.hash)
+        assertSame(old, manager.resourceVersion("first"))
+        manager.publishReload(prepared)
+        assertSame(updated, manager.resourceVersion("first"))
+        // Both missing references and missing declared XML reject the candidate, never erase old resources.
+        for (badConfig in listOf("config-version: 1\ntemplates: {}\ndefaults: {cabin: missing}\n",
+            "config-version: 1\ntemplates: {main: {file: missing.xml}}\n")) {
+            first.resolve("displays.yml").writeText(badConfig)
+            val secondText = "second update $badConfig"
+            second.resolve("display.xml").writeText(secondText)
+            val candidate = manager.prepareReload()
+            assertEquals(setOf("first"), candidate.failures.keys)
+            manager.publishReload(candidate)
+            assertSame(updated, manager.resourceVersion("first"))
+            assertEquals(secondText, manager.resourceVersion("second").packageSnapshot.displays.templates.getValue("main").source)
+            assertEquals("first old", old.packageSnapshot.displays.templates.getValue("main").source)
+        }
+    }
+
+    @Test
+    fun `external source cars capture their own package displays rather than composition defaults`() {
+        val first = writePackage("first", composition = listOf("first/head", "second/head"))
+        val second = writePackage("second")
+        writeDisplays(first, "composition XML", "first-category")
+        writeDisplays(second, "source XML", "second-category")
+        val manager = ModelManager(dataFolder)
+        manager.loadAll()
+        val version = manager.resourceVersion("first")
+        val main = version.packageSnapshot.displays
+        val firstCar = version.carPackages.getValue("first/head").displays
+        val secondCar = version.carPackages.getValue("second/head").displays
+        assertEquals("composition XML", main.templates.getValue("main").source)
+        assertEquals(main, firstCar)
+        assertEquals("source XML", secondCar.templates.getValue("main").source)
+        assertEquals(mapOf("second-category" to "main"), secondCar.defaults)
+        assertTrue("first-category" !in secondCar.defaults)
+        second.resolve("display.xml").writeText("new source XML")
+        manager.publishReload(manager.prepareReload())
+        assertEquals("source XML", secondCar.templates.getValue("main").source)
+        assertEquals("new source XML", manager.resourceVersion("first").carPackages.getValue("second/head").displays.templates.getValue("main").source)
+    }
+
+    private fun writeDisplays(directory: File, source: String, category: String = "cabin") {
+        directory.resolve("display.xml").writeText(source)
+        directory.resolve("displays.yml").writeText("config-version: 1\ntemplates: {main: {file: display.xml}}\ndefaults: {$category: main}\n")
+    }
+
     private fun writePackage(name: String, speed: Double = 20.0, directory: String = name,
         composition: List<String> = listOf("$name/head")): File {
         val dir = File(dataFolder, "trains/$directory").apply { mkdirs() }

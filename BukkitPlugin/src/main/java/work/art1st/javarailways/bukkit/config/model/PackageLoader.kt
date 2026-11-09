@@ -141,7 +141,8 @@ class PackageLoader(
             train = train,
             actions = actions,
             behavior = behavior,
-            control = control
+            control = control,
+            displays = loadTrainDisplays(packageDir)
         )
     }
 

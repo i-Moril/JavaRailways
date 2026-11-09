@@ -1,12 +1,15 @@
 package work.art1st.javarailways.bukkit.config.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.security.MessageDigest
 import java.util.TreeMap
 
 /** Immutable operational resources used by a train created under the snapshot policy. */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class SavedTrainPackageSnapshot(
     val schemaVersion: Int = SCHEMA_VERSION,
@@ -15,7 +18,9 @@ data class SavedTrainPackageSnapshot(
     val actions: Map<String, TrainActionConfig>,
     val behavior: TrainBehaviorScript? = null,
     val control: TrainControlConfig,
-    val carControls: Map<String, CarControlConfig>
+    val carControls: Map<String, CarControlConfig>,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val displays: TrainDisplayResources = TrainDisplayResources()
 ) {
     companion object {
         const val SCHEMA_VERSION = 1
@@ -26,7 +31,8 @@ data class SavedTrainPackageSnapshot(
             actions: Map<String, TrainActionConfig>,
             behavior: TrainBehaviorScript?,
             control: TrainControlConfig,
-            carControls: Map<String, CarControlConfig>
+            carControls: Map<String, CarControlConfig>,
+            displays: TrainDisplayResources = TrainDisplayResources()
         ): SavedTrainPackageSnapshot {
             val canonicalActions = TreeMap(actions).toMap()
             val canonicalCarControls = TreeMap(carControls).toMap()
@@ -36,7 +42,8 @@ data class SavedTrainPackageSnapshot(
                 actions = canonicalActions,
                 behavior = behavior,
                 control = control,
-                carControls = canonicalCarControls
+                carControls = canonicalCarControls,
+                displays = TrainDisplayResources(displays.templates, displays.defaults)
             )
             val digest = MessageDigest.getInstance("SHA-256")
                 .digest(json.encodeToString(unhashed).toByteArray(Charsets.UTF_8))

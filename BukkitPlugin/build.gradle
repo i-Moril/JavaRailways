@@ -82,6 +82,18 @@ base {
 }
 
 repositories {
+    // Only this optional API is resolved from the explicitly prepared local repository.
+    // See BukkitPlugin/docs/simpledisplays-integration.md for the source revision and publication command.
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "simpleDisplaysApi"
+                url = uri(providers.gradleProperty("simpleDisplaysRepository")
+                    .getOrElse(new File(System.getProperty("user.home"), ".m2/repository").toURI().toString()))
+            }
+        }
+        filter { includeModule("simpledisplays", "simpledisplays-api") }
+    }
     mavenCentral()
     maven {
         name = "papermc-repo"
@@ -92,6 +104,8 @@ repositories {
 }
 
 dependencies {
+    compileOnly("simpledisplays:simpledisplays-api:0.1.0-SNAPSHOT")
+    testImplementation("simpledisplays:simpledisplays-api:0.1.0-SNAPSHOT")
     implementation(project(':Diagnostics'))
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     paperweight.paperDevBundle("1.21.11-R0.1-SNAPSHOT")
@@ -288,6 +302,7 @@ bukkitPluginYaml {
     authors.add("__ART1st__")
 
     // Embedded PacketEvents must load after other protocol injectors when they are present.
+    softDepend.add("SimpleDisplays")
     softDepend.addAll("ProtocolLib", "ProtocolSupport", "ViaVersion", "ViaBackwards", "ViaRewind", "Geyser-Spigot")
 
     permissions.register("javarailways.admin") {

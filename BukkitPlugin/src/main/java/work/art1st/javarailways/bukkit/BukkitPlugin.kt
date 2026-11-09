@@ -128,6 +128,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var timetableScriptSandbox: TimetableScriptSandbox
     lateinit var globalTimetableReloadCoordinator: GlobalTimetableReloadCoordinator
 
+    private var optionalSimpleDisplays: work.art1st.javarailways.bukkit.integration.simpledisplays.OptionalSimpleDisplays? = null
+
     private var packetEntityRuntime: PacketEntityRuntime? = null
     private var timetableHttpBridge: TimetableHttpBridge? = null
     private var timetableWebUiSidecar: TimetableWebUiSidecar? = null
@@ -219,6 +221,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     }
 
     private fun enablePlugin() {
+        optionalSimpleDisplays = work.art1st.javarailways.bukkit.integration.simpledisplays.OptionalSimpleDisplays(this)
+            .also { it.start() }
         BukkitExtensionDataSerializers.register()
         val packetRuntime = checkNotNull(packetEntityRuntime) {
             "Packet entity runtime was not loaded"
@@ -378,6 +382,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     }
 
     override fun onDisable() {
+        runShutdownStep("optional SimpleDisplays service") { optionalSimpleDisplays?.close() }
+        optionalSimpleDisplays = null
         server.servicesManager.unregisterAll(this)
         if (::editorTextServiceImpl.isInitialized) {
             runShutdownStep("editor text service") { editorTextServiceImpl.close() }

@@ -1,0 +1,7 @@
+{"file":".trellis/spec/bukkit-plugin/backend/index.md","reason":"Check Bukkit integration, renderer, Folia, and packaging quality gates."}
+{"file":".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md","reason":"Check ownership and cleanup across enable, render, reload, unload, and disable."}
+{"file":".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md","reason":"Check backend parity and package/persistence behavior."}
+{"file":".trellis/spec/javarailways/shared/versioning.md","reason":"Reject speculative version bumps or unapproved compatibility paths."}
+{"file":".trellis/tasks/11-08-simpledisplays-train-integration/prd.md","reason":"Check every requirement and acceptance criterion."}
+{"file":".trellis/tasks/11-08-simpledisplays-train-integration/design.md","reason":"Check implementation against approved boundaries and precedence."}
+{"file": ".trellis/spec/bukkit-plugin/backend/optional-simpledisplays.md", "reason": "Stage 1 optional API loading, exact service identity, dependency provenance and lifecycle retirement contract."}

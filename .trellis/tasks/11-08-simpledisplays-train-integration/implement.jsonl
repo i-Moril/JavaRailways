@@ -1,0 +1,7 @@
+{"file":".trellis/spec/bukkit-plugin/backend/index.md","reason":"Bukkit composition, optional services, renderer ownership, testing, and Folia rules."}
+{"file":".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md","reason":"Enable/disable ordering, target ownership, train rendering, and cleanup contracts."}
+{"file":".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md","reason":"Render backend, model configuration, package snapshots, and persistence boundaries."}
+{"file":".trellis/spec/javarailways/shared/versioning.md","reason":"Required gate before modifying package manifests, snapshots, or other persisted formats."}
+{"file":".trellis/spec/javarailways/simpleato/index.md","reason":"Operational timetable and stopping-pattern state stays owned by SimpleATO."}
+{"file":".trellis/tasks/11-08-simpledisplays-train-integration/design.md","reason":"Approved component boundaries, style precedence, data flow, and lifecycle design."}
+{"file": ".trellis/spec/bukkit-plugin/backend/optional-simpledisplays.md", "reason": "Stage 1 optional API loading, exact service identity, dependency provenance and lifecycle retirement contract."}

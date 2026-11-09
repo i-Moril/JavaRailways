@@ -44,3 +44,21 @@ Soft-integrate the SimpleDisplays display engine with JavaRailways train package
 
 - The user selected the distance-based initial policy above. The user also approved inline/imported screen parts with required `category`, `interior`, `width` and `height` under `screen`. Config keys, numeric defaults, command syntax, distance reference point and player-setting persistence remain implementation-design details to specify before coding; no values or persistence behavior have been agreed here. The player command is for viewing distance, distinct from deferred category-style switching.
 - Continue work in `/home/user/.codex/worktrees/ddf5/JavaRailways` on `codex/simpledisplays-train-integration`, starting from `ce2bcd44`. The main checkout has other work and must not be used for implementation or builds of this task.
+
+## Template discussion (2026-11-09)
+
+- The user proposes reusing SimpleDisplays XML directly and adding placeholder API adaptation rather than designing another display-template language.
+- Existing SimpleDisplays supports `<span bind="key">fallback</span>` and `DisplayTemplate.draw(Map<String, String>, elapsedTicks)`; the host can supply scalar values without rewriting XML or duplicating the compiler.
+- Confirmed: “placeholder API” means the external Bukkit PlaceholderAPI plugin. The user also asks about JS-generated dynamic elements inside SimpleDisplays. JS input/output shape, template storage and refresh policy remain under discussion; the user subsequently authorized the scoped SimpleDisplays JS implementation below.
+
+- Confirmed: as a reusable library, SimpleDisplays must allow the same display instance/template to produce different content for different viewers. Viewer-specific content is a supported capability, not restricted to a JavaRailways-only special case. Identical train information may still be reused, but callers must not be forced to share one frame among all viewers.
+
+## Authorized SimpleDisplays JS slice (2026-11-09)
+
+- Implement only the independent library's JS compile/render API: generic structured display data, explicit per-viewer input, elapsed ticks and renderer-neutral text/icon output. Preserve the existing XML API.
+- An injected placeholder resolver may be called from JS; the actual Bukkit PlaceholderAPI adapter is later work. JavaRailways sends data through the direct library API, not through PAPI.
+- Execute one bounded render invocation without cross-viewer mutable script-state leakage. Validate full output before returning a frame and clean up script resources on template/service/plugin close.
+- Do not implement JavaRailways script resource loading, train data capture, native/entitylib mounted text output, visibility settings or commands in this slice.
+- Independent source worktree: `/home/user/.codex/worktrees/ddf5/SimpleDisplays`, branch `codex/js-rendering`, base `21f7686`. Keep the original SimpleDisplays and JavaRailways main checkouts unchanged.
+
+- Completed independent library slice as SimpleDisplays `db9c65e`; API documentation lives in that repository README. See [validation](research/simpledisplays-js-validation.md). Actual PAPI adaptation and JavaRailways use of JS remain pending.

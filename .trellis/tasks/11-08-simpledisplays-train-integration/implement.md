@@ -89,3 +89,18 @@ See [validation report](research/stage1-validation.md) for API/artifact provenan
 ## Screen-definition slice evidence (2026-11-09)
 
 Model/schema/parser implementation and independent review are complete. See [validation record](research/screen-definition-validation.md): 29 scoped tests pass, official schemas/examples validate, packaging and developer compilation pass. The full isolated suite has 747 tests with the same expression-test failure recorded in stage 1 (1 failure, 1 skipped). No screen visuals or view-distance controls are implemented. Stop after the focused slice commit for review.
+
+## Independent SimpleDisplays JS slice (user approved 2026-11-09)
+
+This slice precedes template/package wiring and does not implement the entire integration plan.
+
+- [x] Add public JS compile/context/template interfaces without Graal/Bukkit implementation types in the API artifact; retain existing XML compile/draw.
+- [x] Implement structured generic data, explicit viewer inputs and elapsed ticks, with a real injected placeholder resolver hook (no PAPI plugin dependency yet).
+- [x] Add text/icon draw commands, strict complete-frame validation, invocation isolation, cancellable deadlines, bounded inputs/output and close lifecycle.
+- [x] Package runtime dependencies for standalone SimpleDisplays startup; test real GraalJS behavior and existing XML regressions.
+- [x] Verify the API-only artifact and actual plugin service loading independently of JavaRailways; record runtime/packaging limits.
+- [x] Review, document the library API, commit the independent library slice and stop for review.
+
+Source location: `/home/user/.codex/worktrees/ddf5/SimpleDisplays`, `codex/js-rendering`; never build this slice in either original main checkout.
+
+Completed locally as SimpleDisplays `db9c65e`. See [JS validation record](research/simpledisplays-js-validation.md) for 13 passing tests, API-only consumer compilation, actual standalone Paper service probe, artifact hashes and remaining limits. The broader integration task stays in progress; stop here for review.

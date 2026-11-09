@@ -21,6 +21,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Stage 1 committed as ce2bcd44. Narrow screen-part definition/schema/parser slice implemented in ddf5: inline/import/nested support, strict metadata, transform-only node, canonical hash preservation. 29 scoped tests pass; full isolated Bukkit suite 747 tests, 1 same expression-test failure, 1 skipped. Packaging/Dev compilation and JSON Schema checks pass. See research/screen-definition-validation.md. Styles, actual screen rendering, visibility config/commands remain pending; stop after focused commit for review.",
+  "notes": "Stage 1 ce2bcd44; screen definitions 8cc6bf35. Independent SimpleDisplays JS slice committed as db9c65e in /home/user/.codex/worktrees/ddf5/SimpleDisplays (codex/js-rendering): structured/viewer context, text/icon commands, restricted invocation-local JS, bounded execution and lifecycle. 13 tests pass; API-only consumer and real standalone Paper probe pass. See research/simpledisplays-js-validation.md. Actual PAPI adapter, JR template loading/train snapshots/rendering, visibility config/commands remain pending. Stop for review.",
   "meta": {}
 }

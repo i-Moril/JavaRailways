@@ -27,6 +27,37 @@ import java.nio.file.Path
 
 class ModelTreeBuilderTest {
     @Test
+    fun `screen definitions retain transform animation and children without creating visuals`() = withWorld { world ->
+        val child = PartDefinition("train/child", PartType.DUMMY, offset = Vec3Config(y = 2.0))
+        val screen = PartDefinition("train/lcd", PartType.SCREEN,
+            offset = Vec3Config(x = 3.0),
+            screen = PartScreenConfig("cabin_lcd", true, 0.8, 0.45),
+            parts = listOf(PartRefEntry(child.name, inline = child)),
+            animations = listOf(PartAnimationConfig("position", keyframes = listOf(
+                PartAnimationKeyframeConfig(0.0, "base"),
+                PartAnimationKeyframeConfig(1.0, "raised", offset = Vec3Config(y = 1.0))
+            )))
+        )
+        var roots = 0
+        val model = ModelTreeBuilder(world, SnapshotPartRegistry(emptyMap())) {
+            roots++
+            RecordingRoot()
+        }.buildCarBody(CarDefinition("train/car", bodyParts = listOf(PartRefEntry(screen.name, inline = screen))),
+            Location(null, 0.0, 0.0, 0.0))
+        try {
+            assertEquals(1, roots)
+            val nodes = nodes(model)
+            assertEquals(2, nodes.size)
+            assertTrue(nodes.all { it is DummyModel })
+            assertSame(nodes[1], nodes[0].attachedModels.single())
+            assertEquals(Vector3d(3.0, 0.0, 0.0), nodes[0].state.localTransform.position)
+            assertTrue(model.setAnimationScenes(mapOf("position" to "raised")))
+            nodes[0].updateState(CompactTransform(), CompactTransform(), Vector3d())
+            assertEquals(Vector3d(3.0, 3.0, 0.0), nodes[1].state.position)
+        } finally { model.destroy() }
+    }
+
+    @Test
     fun `loaded YAML applies inline transforms once and preserves import transforms`(@TempDir directory: Path) = withWorld { world ->
         val namespace = directory.resolve("train").toFile().apply { mkdirs() }
         namespace.resolve("body.yml").writeText("""

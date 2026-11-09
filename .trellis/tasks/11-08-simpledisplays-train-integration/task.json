@@ -12,15 +12,15 @@
   "assignee": "ARTI5T",
   "createdAt": "2026-11-08",
   "completedAt": null,
-  "branch": "feat/simpledisplays-train-integration",
+  "branch": "codex/simpledisplays-train-integration",
   "base_branch": "main",
-  "worktree_path": null,
+  "worktree_path": "/home/user/.codex/worktrees/ddf5/JavaRailways",
   "commit": null,
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Stage 1 implemented and reviewed; optional API loading, packaging and Paper startup with/without SimpleDisplays verified. See research/stage1-validation.md. Stop after focused stage commit for review; stages 2-7 remain pending. Full Bukkit suite: 749 tests, 1 unrelated expression test failure, 1 skipped; standalone failure reproduced, no baseline replay. Focused integration tests: 7 passed.",
+  "notes": "Stage 1 committed as ce2bcd44. Narrow screen-part definition/schema/parser slice implemented in ddf5: inline/import/nested support, strict metadata, transform-only node, canonical hash preservation. 29 scoped tests pass; full isolated Bukkit suite 747 tests, 1 same expression-test failure, 1 skipped. Packaging/Dev compilation and JSON Schema checks pass. See research/screen-definition-validation.md. Styles, actual screen rendering, visibility config/commands remain pending; stop after focused commit for review.",
   "meta": {}
 }

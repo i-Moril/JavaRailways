@@ -18,6 +18,7 @@
 | --- | --- |
 | [Lifecycle 与线程归属](./lifecycle-and-threading.md) | composition root、world tick、Folia scheduler、shutdown |
 | [SimpleDisplays 可选服务](./optional-simpledisplays.md) | compile-only API、延迟类加载、服务 owner 和连接退休 |
+| [屏幕部件定义](./screen-parts.md) | screen 部件、内联/import、配置校验与树/快照元数据保留 |
 | [Wand 配置界面](./wand-config.md) | 配置项、注册、会话、动态显示和提交错误 |
 | [交互、渲染与持久化](./interaction-render-persistence.md) | Cloud/Wand/Dialog、backend/model、add-on API、snapshot/sidecar |
 | [一次性离线开发服迁移](./offline-development-migration.md) | 整目录外部归档、旧split转换、受限曲线修复和真实restore；不进入JAR |

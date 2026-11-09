@@ -5,3 +5,4 @@
 {"file":".trellis/tasks/11-08-simpledisplays-train-integration/prd.md","reason":"Check every requirement and acceptance criterion."}
 {"file":".trellis/tasks/11-08-simpledisplays-train-integration/design.md","reason":"Check implementation against approved boundaries and precedence."}
 {"file": ".trellis/spec/bukkit-plugin/backend/optional-simpledisplays.md", "reason": "Stage 1 optional API loading, exact service identity, dependency provenance and lifecycle retirement contract."}
+{"file": ".trellis/spec/bukkit-plugin/backend/screen-parts.md", "reason": "Approved narrow screen-part definition slice: schema/parser, inline/import tree copies, transform-only model behavior and canonical hash preservation."}

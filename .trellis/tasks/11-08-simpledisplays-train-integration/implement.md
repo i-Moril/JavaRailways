@@ -11,9 +11,21 @@
 
 ## 2. Package declarations and style assets
 
+2026-11-09 scope refinement: the immediate slice is [screen part definitions/schema/parser](schema/README.md).
+The user approved implementing only the reviewed screen-part model/schema/parser slice. Style assets, package defaults,
+new package/snapshot formats, rendering and distance config/commands are later slices. Existing model-tree serialization
+and copies must preserve the new metadata; that does not authorize a separate persistence redesign.
+The checklist below is not one implementation batch.
+
+- [x] Write the schema draft and examples as `type: screen` parts, supporting existing inline/import forms. Remove the rejected car-level screen-list draft.
+- [x] User confirmed the part-tree shape and inline `screen` definition (2026-11-09); runtime implementation remains pending.
+- [x] Record initial visibility policy: exterior screens follow the car body; interior screens use config/player-command viewing distance without occupancy or other screen-specific culling (2026-11-09).
 - [ ] Confirm package manifest/snapshot release baseline before changing persistent models.
-- [ ] Add installation-point and package style/default models with explicit empty defaults.
-- [ ] Parse and validate position, rotation, dimensions, category, point ID, style IDs, and package XML assets.
+- [x] Add screen-part model/parser support first; package style/default models are a separate later slice.
+- [x] Integrate the reviewed shape into the official part schema and cover inline/import/nested parsing, invalid fields, copy preservation and screen-free hash stability.
+- [x] Compile all PartType consumers; screen nodes currently provide only the ordinary transform/group behavior, without rendering screen content.
+- [ ] Add and validate interior/exterior installation metadata, including pinned snapshots and fixtures; cabin occupancy geometry is not required by the initial policy.
+- [ ] Parse and validate parent-relative position/rotation, dimensions, category, part references, style IDs, and package XML assets.
 - [ ] Include display declarations and required style content in pinned package snapshots/hashes.
 - [ ] Add fixtures for screen-free packages, multiple points per category, point-specific defaults, and invalid references.
 - [ ] Document recommended category names without restricting custom categories.
@@ -38,6 +50,9 @@
 
 ## 5. Car-mounted screen groups
 
+- [ ] Specify interior-screen config keys, default/allowed distances, player command syntax, distance reference point and player-setting lifetime using existing view-distance contracts before implementation.
+- [ ] Add server-configured interior-screen viewing distance and player command overrides; changing the setting refreshes that player's recipients.
+- [ ] Exterior screens follow car-body visibility; enforce interior-screen distance filtering before spawning/sending. Test distance boundaries, players inside/outside cars, moving trains beside stationary players, and recipient removal without occupancy/FOV/occlusion checks.
 - [ ] Build screen groups from car installation points and resolved templates.
 - [ ] Convert top-left logical draw coordinates into the installation plane and fit the physical dimensions.
 - [ ] Attach groups to car body motion, packet bundling, audience handling, rebuild, reverse, and destruction lifecycle.
@@ -70,3 +85,7 @@ Each completed phase ends in one focused commit and a user report before proceed
 ## Stage 1 evidence (2026-11-09)
 
 See [validation report](research/stage1-validation.md) for API/artifact provenance, seven passing integration tests, packaging, successful Paper startup with/without SimpleDisplays, and the unrelated full-suite expression-test failure. Full-suite success is not claimed. Review this stage before starting stage 2.
+
+## Screen-definition slice evidence (2026-11-09)
+
+Model/schema/parser implementation and independent review are complete. See [validation record](research/screen-definition-validation.md): 29 scoped tests pass, official schemas/examples validate, packaging and developer compilation pass. The full isolated suite has 747 tests with the same expression-test failure recorded in stage 1 (1 failure, 1 skipped). No screen visuals or view-distance controls are implemented. Stop after the focused slice commit for review.

@@ -8,7 +8,7 @@ import kotlinx.serialization.Serializable
  * Parts define the building blocks of car models.
  * A part can be of type ITEM_DISPLAY (renders as ItemDisplay entity),
  * INTERACT (Interaction hitbox), SEAT (invisible minecart), PLATFORM
- * (collision platform), or DUMMY (pure transform group).
+ * (collision platform), SCREEN (screen installation), or DUMMY (pure transform group).
  *
  * Parts can reference sub-parts via [parts], forming a hierarchical model tree.
  */
@@ -22,22 +22,23 @@ data class PartDefinition(
     val offset: Vec3Config = Vec3Config(),        // Local offset
     val rotation: Vec3Config = Vec3Config(),      // Local rotation (degrees)
     val parts: List<PartRefEntry> = emptyList(),  // Sub-part references
-    val animations: List<PartAnimationConfig> = emptyList() // Part-level animations
+    val animations: List<PartAnimationConfig> = emptyList(), // Part-level animations
+    val screen: PartScreenConfig? = null          // Present only for SCREEN type
 ) {
+    init {
+        require((type == PartType.SCREEN) == (screen != null)) {
+            "Part '$name' must declare screen exactly when type is SCREEN"
+        }
+    }
+
     /**
      * Resolve this part's sub-part references into a tree of PartNode.
      */
     fun resolveTree(registry: PartRegistry): PartNode {
         val children = parts.map { entry ->
-            val resolved = registry.resolve(entry.name, this.namespace)
-            val childDef = resolved.resolved
+            val childDef = entry.inline ?: registry.resolve(entry.name, this.namespace).resolved
             // Merge the reference's offset/rotation on top of the child's own offset/rotation
-            val mergedDef = PartDefinition(
-                name = childDef.name,
-                type = childDef.type,
-                item = childDef.item,
-                interaction = childDef.interaction,
-                platform = childDef.platform,
+            val mergedDef = childDef.copy(
                 offset = Vec3Config(
                     x = childDef.offset.x + entry.offset.x,
                     y = childDef.offset.y + entry.offset.y,
@@ -47,9 +48,7 @@ data class PartDefinition(
                     x = childDef.rotation.x + entry.rotation.x,
                     y = childDef.rotation.y + entry.rotation.y,
                     z = childDef.rotation.z + entry.rotation.z
-                ),
-                parts = childDef.parts,
-                animations = childDef.animations
+                )
             )
             mergedDef.resolveTree(registry)
         }

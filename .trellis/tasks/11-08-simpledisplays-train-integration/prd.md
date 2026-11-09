@@ -8,7 +8,8 @@ Soft-integrate the SimpleDisplays display engine with JavaRailways train package
 
 - JavaRailways Bukkit must declare `SimpleDisplays` as a soft dependency. The railway plugin must continue to load and run trains when SimpleDisplays is absent.
 - SimpleDisplays remains an independently usable Bukkit/Paper/Folia plugin with its own commands. JavaRailways consumes its public API and must not depend on its implementation package.
-- A car package can declare zero or more display installation points. Each point has a car-local pose, physical dimensions, a point ID, and a stable category.
+- Screens are `type: screen` nodes in the existing part tree, supporting both inline definitions and imports in `body-parts`/`parts`. They reuse common part names and parent-relative transforms; `screen` contains category, interior/exterior classification and physical dimensions. Do not add a parallel car-level `screens` list or a separate screen ID system.
+- Each screen part must declare whether its screen is inside the car. Exterior screens follow the same rendering/visibility strategy as the car body. In the first release, interior screens use distance-based per-player visibility, with a server-configured viewing distance and player command overrides, analogous to train/rail viewing distance. Interior occupancy, screen-facing, camera-frustum and occlusion checks are not part of this initial policy.
 - Recommended categories initially include `head_led`, `side_led`, `cabin_side_lcd`, and `cabin_end_led`. Packages may use additional stable category IDs.
 - A train package can include SimpleDisplays XML styles and provide category-level defaults. It can additionally bind a particular installation point to a style for screens whose proportions or layout differ.
 - Server-side configuration can override the style for a category on a particular train. The initial precedence is train category override, package point default, then package category default.
@@ -26,6 +27,7 @@ Soft-integrate the SimpleDisplays display engine with JavaRailways train package
 - [ ] Point-specific defaults override package category defaults, and a train-specific category override supersedes both.
 - [ ] Missing SimpleDisplays, absent optional styles, or a screen-free car never prevents the train model from loading. Invalid declared styles fail with an actionable package/train/category/point diagnostic according to the agreed validation boundary.
 - [ ] The same static head/side display and cabin LCD render through native and EntityLib backends and remain aligned through curves, slopes, reversing, model rebuild, audience changes, and unload.
+- [ ] Exterior screens follow car-body visibility. Interior screens obey the server viewing-distance setting and player command overrides; leaving range removes their visuals and stops further screen updates for that player. Visibility does not require being seated or physically inside the car.
 - [ ] A cabin LCD can render the actual ordered future stops for two runs of the same rolling stock with different stopping patterns.
 - [ ] Passing a station and performing a short turn refreshes the affected LCD and destination display without rebuilding the whole train model.
 - [ ] SimpleDisplays' independent demo/preview command continues to render the same template through its own native `TextDisplay` renderer on Paper/Folia.
@@ -36,4 +38,9 @@ Soft-integrate the SimpleDisplays display engine with JavaRailways train package
 
 - SimpleDisplays lives at `../SimpleDisplays` and is a separate Git repository.
 - Existing SimpleDisplays commits are `cf6b5c8` (public rendering service and independent demo), `150dfc3` (split public API types), and `21f7686` (separate API artifact).
-- The JavaRailways working tree already contains unrelated user changes. Stage only files owned by this task.
+- This task uses the dedicated `ddf5` worktree. The main checkout contains unrelated work and is not an implementation/build target.
+
+## Confirmed visibility decision (2026-11-09)
+
+- The user selected the distance-based initial policy above. The user also approved inline/imported screen parts with required `category`, `interior`, `width` and `height` under `screen`. Config keys, numeric defaults, command syntax, distance reference point and player-setting persistence remain implementation-design details to specify before coding; no values or persistence behavior have been agreed here. The player command is for viewing distance, distinct from deferred category-style switching.
+- Continue work in `/home/user/.codex/worktrees/ddf5/JavaRailways` on `codex/simpledisplays-train-integration`, starting from `ce2bcd44`. The main checkout has other work and must not be used for implementation or builds of this task.

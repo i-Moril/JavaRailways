@@ -126,6 +126,18 @@
         "spacing": {"$ref": "#/$defs/vector"}
       }
     },
+    "screen": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "interior", "width", "height"],
+      "description": "Screen installation in part-local XY, centred at the origin and facing +Z. Dimensions are metres.",
+      "properties": {
+        "category": {"type": "string", "minLength": 1, "pattern": "^\\S+$"},
+        "interior": {"type": "boolean", "description": "Interior screens use viewing distance; exterior screens follow the car body. Visibility is implemented separately."},
+        "width": {"type": "number", "exclusiveMinimum": 0},
+        "height": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
     "partDefinition": {
       "type": "object",
       "additionalProperties": false,
@@ -135,11 +147,12 @@
         "name": {"$ref": "#/$defs/nonEmptyString"},
         "type": {
           "type": "string",
-          "enum": ["dummy", "item_display", "interact", "seat", "platform"]
+          "enum": ["dummy", "item_display", "interact", "seat", "platform", "screen"]
         },
         "item": {"$ref": "#/$defs/item"},
         "interaction": {"$ref": "#/$defs/interaction"},
         "platform": {"$ref": "#/$defs/platform"},
+        "screen": {"$ref": "#/$defs/screen"},
         "offset": {"$ref": "#/$defs/vector"},
         "rotation": {"$ref": "#/$defs/vector"},
         "parts": {
@@ -158,6 +171,11 @@
             "properties": {"item": {"$ref": "#/$defs/item"}},
             "required": ["item"]
           }
+        },
+        {
+          "if": {"properties": {"type": {"const": "screen"}}, "required": ["type"]},
+          "then": {"required": ["screen"]},
+          "else": {"not": {"required": ["screen"]}}
         }
       ]
     },

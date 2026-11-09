@@ -11,7 +11,8 @@ enum class PartType {
     INTERACT,
     DUMMY,
     SEAT,
-    PLATFORM;
+    PLATFORM,
+    SCREEN;
 
     companion object {
         fun fromString(s: String): PartType = when (s.lowercase()) {
@@ -20,6 +21,7 @@ enum class PartType {
             "dummy" -> DUMMY
             "seat" -> SEAT
             "platform" -> PLATFORM
+            "screen" -> SCREEN
             else -> throw IllegalArgumentException("Unknown part type: $s")
         }
     }

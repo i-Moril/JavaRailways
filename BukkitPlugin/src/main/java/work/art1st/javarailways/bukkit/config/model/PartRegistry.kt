@@ -114,7 +114,7 @@ class PartRegistry(
 
         private val PART_KEYS = setOf(
             "config-version", "name", "type", "item", "interaction", "platform",
-            "offset", "rotation", "parts", "animations"
+            "offset", "rotation", "parts", "animations", "screen"
         )
         private val TRANSFORM_KEYS = setOf("x", "y", "z")
         private val SCALE_KEYS = setOf("x", "y", "z")
@@ -133,6 +133,11 @@ class PartRegistry(
             require(typeStr == typeStr.lowercase()) { "Part '$qualifiedName'.type must be lowercase" }
             val type = PartType.fromString(typeStr)
 
+            val screenMap = map.optionalMap("screen", "part '$qualifiedName'")
+            require((type == PartType.SCREEN) == (screenMap != null)) {
+                "Part '$qualifiedName' must declare screen exactly when type is screen"
+            }
+            val screen = screenMap?.let { parseScreenConfig(it, "part '$qualifiedName'.screen") }
             val item = parseItemConfig(map.optionalMap("item", "part '$qualifiedName'"))
             val interaction = parseInteractionConfig(map.optionalMap("interaction", "part '$qualifiedName'"))
             val platform = parsePlatformConfig(map.optionalMap("platform", "part '$qualifiedName'"))
@@ -153,7 +158,21 @@ class PartRegistry(
                 offset = offset,
                 rotation = rotation,
                 parts = parts,
-                animations = animations
+                animations = animations,
+                screen = screen
+            )
+        }
+
+        private fun parseScreenConfig(map: Map<String, Any>, subject: String): PartScreenConfig {
+            map.requireOnlyKeys(setOf("category", "interior", "width", "height"), subject)
+            return PartScreenConfig(
+                category = map.requireString("category", subject),
+                interior = map.optionalBooleanValue("interior", subject)
+                    ?: throw IllegalArgumentException("$subject.interior is required"),
+                width = map.optionalDoubleValue("width", subject)
+                    ?: throw IllegalArgumentException("$subject.width is required"),
+                height = map.optionalDoubleValue("height", subject)
+                    ?: throw IllegalArgumentException("$subject.height is required")
             )
         }
 

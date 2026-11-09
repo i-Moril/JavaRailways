@@ -15,5 +15,6 @@ internal data class TopologyInput(
     val revision: Long,
     val rails: List<TopologyInputRail>,
     val continuations: Map<RailEndpointRef, Set<RailEndpointRef>>,
-    val atGradeCrossings: List<AtGradeRailCrossing> = emptyList()
+    val atGradeCrossings: List<AtGradeRailCrossing> = emptyList(),
+    val joinedEndpoints: Map<RailEndpointRef, Set<RailEndpointRef>> = continuations
 )

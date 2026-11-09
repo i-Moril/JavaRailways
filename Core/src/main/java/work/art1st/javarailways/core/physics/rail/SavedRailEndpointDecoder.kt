@@ -9,7 +9,8 @@ import java.util.UUID
 /** One exact, ordered endpoint state decoded from a saved rail snapshot. */
 internal data class SnapshotEndpointState(
     val connectedEndpoints: List<RailEndpointRef>,
-    val activeEndpoint: RailEndpointRef?
+    val activeEndpoint: RailEndpointRef?,
+    val joinedEndpoints: Set<RailEndpointRef>
 )
 
 /** Validates declared endpoint identities; geometry never substitutes another endpoint. */
@@ -17,7 +18,8 @@ internal fun decodeSavedRailEndpoint(
     source: RailEndpointRef,
     connections: List<SavedRailEndpointRef>,
     activeConnection: SavedRailEndpointRef?,
-    curveById: (UUID) -> PrimeCurve?
+    curveById: (UUID) -> PrimeCurve?,
+    joinedEndpoints: List<SavedRailEndpointRef>
 ): SnapshotEndpointState {
     val sourceCurve = requireNotNull(curveById(source.railId)) { "snapshot source rail is missing: $source" }
     val sourcePosition = sourceCurve.getPointAt(
@@ -47,7 +49,17 @@ internal fun decodeSavedRailEndpoint(
         require(active in targets) { "snapshot active endpoint $active is not connected at $source" }
         active
     }
-    return SnapshotEndpointState(targets, active)
+    val joined = joinedEndpoints.map { decode(it, "joined endpoint") }
+    require(joined.distinct().size == joined.size && source !in joined) {
+        "snapshot joined endpoints at $source must be unique peers"
+    }
+    val legal = RailEndpointGeometry.legalContinuations(listOf(source) + joined) { railId ->
+        requireNotNull(curveById(railId)) { "snapshot joined endpoint at $source references missing rail $railId" }
+    }
+    require(targets.toSet() == legal.getValue(source)) {
+        "snapshot connections do not match endpoint group geometry at $source: joined peers=$joined"
+    }
+    return SnapshotEndpointState(targets, active, joined.toSet())
 }
 
 private fun parseRailId(text: String, source: RailEndpointRef, role: String): UUID =
@@ -70,11 +82,18 @@ internal fun decodeSavedRailGraph(
                 source,
                 if (endpoint == RailEndpoint.A) saved.connectionsAtA else saved.connectionsAtB,
                 if (endpoint == RailEndpoint.A) saved.activeConnectionAtA else saved.activeConnectionAtB,
-                curvesById::get
+                curvesById::get,
+                if (endpoint == RailEndpoint.A) saved.joinedEndpointsAtA else saved.joinedEndpointsAtB
             )
         }
     }
     states.forEach { (source, state) ->
+        val group = state.joinedEndpoints + source
+        state.joinedEndpoints.forEach { peer ->
+            require(states.getValue(peer).joinedEndpoints + peer == group) {
+                "snapshot endpoint group is not complete and symmetric: $source <-> $peer"
+            }
+        }
         state.connectedEndpoints.forEach { target ->
             require(source in states.getValue(target).connectedEndpoints) {
                 "snapshot connection is not symmetric: $source <-> $target"

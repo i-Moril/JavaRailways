@@ -9,7 +9,7 @@
 ## Owner、类型与 transaction
 
 - `CoreWorld`拥有rail map、`RailSpatialIndex`、增量`AtGradeRailCrossingIndex`与`ReentrantReadWriteLock`。两份索引共享curve真实piecewise-linear断点，不用`stream()`的1m直线虚拟点；spatial index沿相邻断点的线段填充cell，而不只记录断点所在cell。交叉检测从相同/相邻cell取候选后仍须做三维exact segment检查，并只在专用20 cm平交容差内发布近似交点；该常量不改变`Curve.TOLERANCE`或普通连接/occupancy容差。
-- `CoreRail`拥有canonical curve与AB/BA views；迁移期间`RailView.nextRails`是Core内部physical connection编辑模型，发布给consumer的authoritative连通结构是同一transaction产生的`TopologyState`；`nextActiveRail`是runtime selected branch，不进入structural state，但会经同一world-frame的`ActiveRailContinuationsSnapshot`作为只读物理观测发布。
+- `CoreRail`拥有canonical curve与AB/BA views；显式joined endpoint成员记录建造接点，`RailView.nextRails`只记录可行车的合法后续段，不能代替组成员。发布给consumer的authoritative连通结构是同一transaction产生的`TopologyState`；`nextActiveRail`是runtime selected branch，不进入structural state，但会经同一world-frame的`ActiveRailContinuationsSnapshot`作为只读物理观测发布。
 - Basic `allowedDirection`/route allocation不是Core physical topology。
 - structural owner调用 `CoreWorld.railTopologyTransaction(action)`：先用协调器帧间门禁阻止新epoch并等待exact `PhysicsTicket`，再持write lock；expensive curve build在transaction外。两重载均遵守此顺序，不能在write lock内等待worker。
 - live rail创建使用两阶段批量协议：平台worker调用`CoreWorld.prepareRailCreationBatch(curves, excludedIds)`，owner线程调用`installPreparedRails(batch)`；Core不持有executor或future。`CoreRail`构造本身不注册world。持久化restore在physics启动前只使用Core内部同步`createRailInTransaction`重建索引；同步测试建轨只存在于不打入runtime JAR的Core test fixture，runtime不暴露同步创建入口。
@@ -142,7 +142,10 @@ owner/world thread
 
 replacement/split/merge必须把同一事务将删除的rail ID作为`excludedIds`整体准备，不能逐rail分别prepare；否则新rail之间的crossing和批次顺序无法在一个root上证明。含excluded ID的batch只能安装在尚未改变rail inventory的outer transaction，且这些source rail必须在该transaction发布前全部移除。安装前world不一致、相关 geometry candidate/source 已变化或缺失、outer transaction已改变rail inventory或batch身份冲突均抛`PreparedRailCreationRejectedException`及稳定reason，且batch本身产生零mutation；connection选择等不改变候选geometry的后续编辑可在安装后完成。Bukkit向玩家提示重试，不自动无限retry。安装后的后续编辑失败仍遵循现有transaction fault/rollback规则。
 
-Rail创建和replacement的连接只能来自调用方已经明确的endpoint关系，不存在按距离自动选择相邻轨道的生产机制。
+Rail创建和replacement的接点联结只能来自调用方已经明确的endpoint关系，不存在按距离自动选择相邻轨道的生产机制。
+显式添加的一对端点表示合并它们所属的已知接点组，由Core对完整组统一派生合法通路，不直接把该对端点写成可行车后续段。
+首次创建同侧岔后腿可得到合法通路为空的未完成组；以后从任一成员添加公共腿，都必须生成相同的直股/侧股通路。
+prepared计划、快照、rollback和删除必须携带完整成员，不能仅沿`nextRails`追踪影响；精确restore必须保留独立成员及明确null active。
 新建独立轨道默认不连接；锚点连接只连接玩家选中的endpoint与批内明确相邻的分段；replacement通过旧endpoint到新endpoint
 的显式映射保留既有关系。`PreparedRailConnectionPlan`绑定同一个prepared batch、`TopologyState` root与所有相关既有rail
 实例，只记录每个明确endpoint的最终`next/active`状态。capture只验证声明的对称关系、endpoint位置与容量，不扫描附近

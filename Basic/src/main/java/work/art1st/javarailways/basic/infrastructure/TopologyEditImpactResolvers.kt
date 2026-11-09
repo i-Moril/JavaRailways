@@ -15,9 +15,9 @@ import java.util.UUID
  * Resolves Basic-owned pre-edit identities for an exact set of rails being removed or replaced.
  *
  * This does not guess spatial candidates. The source rails are supplied by the edit itself. Their
- * frozen endpoint connections identify the additional existing rails whose connection lists will
- * change. Old node/turnout identities are collected at source endpoints; a deterministic loop
- * anchor is also collected from the source rail's own edge because replacing any rail in that loop
+ * frozen authored endpoint groups identify the additional existing rails whose group membership
+ * or legal connection lists will change. Old node/turnout identities are collected at source
+ * endpoints; a deterministic loop anchor is also collected from the source rail's own edge because replacing any rail in that loop
  * can relocate the anchor. Old diamond identities come only from crossings involving a source rail.
  * Resolution never scans the world graph.
  */
@@ -41,7 +41,7 @@ object PhysicalTopologyReplacementOrRemovalImpactResolver {
                 if (node != null) {
                     affectedNodes += node
                     when (node) {
-                        is TopologyNode.Turnout -> node.legalContinuations.getValue(port)
+                        is TopologyNode.Turnout -> node.ports
                             .mapTo(affectedRailIds, RailEndpointRef::railId)
                         is TopologyNode.LoopAnchor -> node.ports.asSequence()
                             .filter { candidate -> candidate != port }

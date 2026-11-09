@@ -58,6 +58,7 @@ internal fun buildPreparedTargetRailSnapshot(
     baseSnapshot: List<CoreRail.SavedRailV1>,
     targetRailIds: Set<UUID>,
     targetConnections: Map<RailEndpointRef, Set<RailEndpointRef>>,
+    targetJoinedEndpoints: Map<RailEndpointRef, Set<RailEndpointRef>>,
     finalConnectionOrder: Map<RailEndpointRef, List<RailEndpointRef>>,
     addedRailCurves: Map<UUID, PrimeCurve>,
     finalActiveEndpoints: Map<RailEndpointRef, RailEndpointRef?>
@@ -98,7 +99,9 @@ internal fun buildPreparedTargetRailSnapshot(
             connectionsAtA = atA,
             connectionsAtB = atB,
             activeConnectionAtA = active(endpointA, atA, base?.activeConnectionAtA),
-            activeConnectionAtB = active(endpointB, atB, base?.activeConnectionAtB)
+            activeConnectionAtB = active(endpointB, atB, base?.activeConnectionAtB),
+            joinedEndpointsAtA = targetJoinedEndpoints[endpointA].orEmpty().sorted().map(SavedRailEndpointRef::fromEndpoint),
+            joinedEndpointsAtB = targetJoinedEndpoints[endpointB].orEmpty().sorted().map(SavedRailEndpointRef::fromEndpoint)
         )
     }
 }

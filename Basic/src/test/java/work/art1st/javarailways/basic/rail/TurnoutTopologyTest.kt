@@ -6,6 +6,8 @@ import work.art1st.javarailways.core.physics.createRailForTest
 
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.testing.TestBasicWorldDataRegistry
@@ -45,6 +47,42 @@ class TurnoutTopologyTest {
         assertEquals(expected, TurnoutTopology.turnoutRailsTouching(listOf(stem)).mapTo(hashSetOf()) { it.id })
         assertEquals(expected, TurnoutTopology.turnoutRailsTouching(listOf(straight)).mapTo(hashSetOf()) { it.id })
         assertEquals(expected, TurnoutTopology.turnoutRailsTouching(listOf(branch)).mapTo(hashSetOf()) { it.id })
+    }
+
+    @Test
+    fun `incomplete same-side pair retains full authored maintenance closure`() {
+        val world = newTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
+        val straight = rail(world, Vector3d(), Vector3d(10.0, 0.0, 0.0))
+        val branch = rail(world, Vector3d(), Vector3d(10.0, 0.0, 3.0))
+        val unrelated = rail(world, Vector3d(), Vector3d(0.0, 0.0, 10.0))
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(straight, branch) }
+
+        assertTrue(straight.viewBA.nextRails.isEmpty())
+        assertTrue(branch.viewBA.nextRails.isEmpty())
+        assertTrue(TurnoutTopology.isTurnoutEndpoint(straight.viewBA))
+        assertTrue(TurnoutTopology.hasTurnoutEndpoint(branch))
+        assertFalse(TurnoutTopology.hasTurnoutEndpoint(unrelated))
+        assertEquals(setOf(straight, branch), TurnoutTopology.turnoutRailsTouching(listOf(straight)))
+        assertEquals(setOf(straight, branch), TurnoutTopology.turnoutRailsTouching(listOf(branch)))
+
+        val stem = rail(world, Vector3d(-10.0, 0.0, 0.0), Vector3d())
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, branch) }
+        assertEquals(setOf(straight, branch, stem), TurnoutTopology.turnoutRailsTouching(listOf(straight)))
+        IsolatedSimulationThreadMarker.run { world.removeRail(stem) }
+        assertTrue(straight.viewBA.nextRails.isEmpty())
+        assertEquals(setOf(straight, branch), TurnoutTopology.turnoutRailsTouching(listOf(straight)))
+    }
+
+    @Test
+    fun `ordinary two-leg continuation remains available for normal geometry editing`() {
+        val world = newTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
+        val before = rail(world, Vector3d(-10.0, 0.0, 0.0), Vector3d())
+        val after = rail(world, Vector3d(), Vector3d(10.0, 0.0, 0.0))
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(before, after) }
+
+        assertFalse(TurnoutTopology.hasTurnoutEndpoint(before))
+        assertFalse(TurnoutTopology.hasTurnoutEndpoint(after))
+        assertTrue(TurnoutTopology.turnoutRailsTouching(listOf(before, after)).isEmpty())
     }
 
     private fun turnout(): Triple<CoreRail, CoreRail, CoreRail> {

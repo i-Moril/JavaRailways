@@ -110,7 +110,9 @@ class CoreRail @MainThread private constructor(
             viewBA.nextRails.map(SavedRailEndpointRef::fromAwayView),
             viewAB.nextRails.map(SavedRailEndpointRef::fromAwayView),
             viewBA.nextActiveRail?.let(SavedRailEndpointRef::fromAwayView),
-            viewAB.nextActiveRail?.let(SavedRailEndpointRef::fromAwayView)
+            viewAB.nextActiveRail?.let(SavedRailEndpointRef::fromAwayView),
+            viewBA.joinedEndpoints.sorted().map(SavedRailEndpointRef::fromEndpoint),
+            viewAB.joinedEndpoints.sorted().map(SavedRailEndpointRef::fromEndpoint)
         )
     }
 
@@ -121,7 +123,9 @@ class CoreRail @MainThread private constructor(
         val connectionsAtA: List<SavedRailEndpointRef>,
         val connectionsAtB: List<SavedRailEndpointRef>,
         val activeConnectionAtA: SavedRailEndpointRef?,
-        val activeConnectionAtB: SavedRailEndpointRef?
+        val activeConnectionAtB: SavedRailEndpointRef?,
+        val joinedEndpointsAtA: List<SavedRailEndpointRef>,
+        val joinedEndpointsAtB: List<SavedRailEndpointRef>
     ) : Loads<CoreRail, SavedRailV1.Dependency> {
         override fun load(dependency: Dependency): CoreRail =
             dependency.world.railTopologyTransaction {
@@ -147,10 +151,10 @@ class CoreRail @MainThread private constructor(
         private fun restoreConnectionsInTransaction(rail: CoreRail, dependency: Dependency) {
             val curveById = { railId: UUID -> dependency.world.getRail(railId)?.curve }
             val stateA = decodeSavedRailEndpoint(
-                RailEndpointRef(rail.id, RailEndpoint.A), connectionsAtA, activeConnectionAtA, curveById
+                RailEndpointRef(rail.id, RailEndpoint.A), connectionsAtA, activeConnectionAtA, curveById, joinedEndpointsAtA
             )
             val stateB = decodeSavedRailEndpoint(
-                RailEndpointRef(rail.id, RailEndpoint.B), connectionsAtB, activeConnectionAtB, curveById
+                RailEndpointRef(rail.id, RailEndpoint.B), connectionsAtB, activeConnectionAtB, curveById, joinedEndpointsAtB
             )
             restoreValidatedConnections(rail, dependency, stateA, stateB)
         }
@@ -167,18 +171,25 @@ class CoreRail @MainThread private constructor(
             val nextAtB = stateB.connectedEndpoints.map(::awayView)
             val activeAtA = stateA.activeEndpoint?.let(::awayView)
             val activeAtB = stateB.activeEndpoint?.let(::awayView)
-            val affected = (listOf(rail.id) + rail.viewBA.nextRails.map { it.rail.id } +
-                rail.viewAB.nextRails.map { it.rail.id } + nextAtA.map { it.rail.id } + nextAtB.map { it.rail.id }).toSet()
+            val affected = (listOf(rail.id) + rail.viewBA.joinedEndpoints.map { it.railId } +
+                rail.viewAB.joinedEndpoints.map { it.railId } + stateA.joinedEndpoints.map { it.railId } +
+                stateB.joinedEndpoints.map { it.railId }).toSet()
             dependency.world.ensureRailEditProtected(affected)
             require(dependency.world.occupyingTrainIds(affected).isEmpty()) { "Cannot restore occupied rail connections" }
             rail.viewBA.activeRail = null
             rail.viewBA.mutableNextRails.clear()
             rail.viewBA.mutableNextRails.addAll(nextAtA)
+            rail.viewBA.mutableJoinedEndpoints.clear()
+            rail.viewBA.mutableJoinedEndpoints.addAll(stateA.joinedEndpoints)
             rail.viewBA.activeRail = activeAtA
             rail.viewAB.activeRail = null
             rail.viewAB.mutableNextRails.clear()
             rail.viewAB.mutableNextRails.addAll(nextAtB)
+            rail.viewAB.mutableJoinedEndpoints.clear()
+            rail.viewAB.mutableJoinedEndpoints.addAll(stateB.joinedEndpoints)
             rail.viewAB.activeRail = activeAtB
+            if (nextAtA.isEmpty()) rail.viewBA.selectDefaultConnection()
+            if (nextAtB.isEmpty()) rail.viewAB.selectDefaultConnection()
         }
 
         data class Dependency(

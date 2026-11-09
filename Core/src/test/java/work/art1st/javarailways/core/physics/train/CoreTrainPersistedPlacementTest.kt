@@ -165,8 +165,8 @@ class CoreTrainPersistedPlacementTest {
         val previous = world.createRailForTest(straight(0.0, 100.0))
         val junction = world.createRailForTest(straight(100.0, 200.0))
         val alternate = world.createRailForTest(PrimeCurve.fromPoints(listOf(
-            Curve.RawPoint(Vector3d(100.0, 0.0, 0.0), Vector3d(0.0, 0.0, 1.0), Vector3d(0.0, 1.0, 0.0), 0.0),
-            Curve.RawPoint(Vector3d(100.0, 0.0, 50.0), Vector3d(0.0, 0.0, 1.0), Vector3d(0.0, 1.0, 0.0), 50.0)
+            Curve.RawPoint(Vector3d(100.0, 0.0, 0.0), Vector3d(-1.0, 0.0, 1.0).normalize(), Vector3d(0.0, 1.0, 0.0), 0.0),
+            Curve.RawPoint(Vector3d(50.0, 0.0, 50.0), Vector3d(-1.0, 0.0, 1.0).normalize(), Vector3d(0.0, 1.0, 0.0), kotlin.math.sqrt(5000.0))
         )))
         IsolatedSimulationThreadMarker.run { CoreRail.connect(previous, junction) }
         IsolatedSimulationThreadMarker.run { CoreRail.connect(alternate, junction) }

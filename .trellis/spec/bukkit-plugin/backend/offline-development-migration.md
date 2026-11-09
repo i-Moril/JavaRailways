@@ -21,7 +21,13 @@
 - 每个current及既有`.bak`各自配对同名infrastructure/runtime。缺配对、孤立runtime、版本或revision/epoch不符均失败。
   gzip按magic识别，输出保持原transport。未知字段由旧边界或当前严格codec拒绝。
 - 用真实`CoreWorld.load`、Basic infrastructure/runtime restore及SimpleATO infrastructure/runtime restore验证所有候选；
-  fresh隔离世界不tick、不移动列车、不授予资源。依赖服务一旦被要求修改live依赖直接失败。
+  fresh隔离世界不tick、不移动列车、不授予行车资源。非空 dispatcher checkpoint 恢复时，将 applied-plan 依赖注册到
+  该 fresh CoreWorld 的生产 `InfrastructureCoordinationRegistry`，使用调用方局部 owner token；引用/owner/revision
+  校验真实执行。成功或失败后显式 close 该独立 registry，不解析 live world/Bukkit service。
+  原线路因接点修正不可达时，真实 timetable restore 拒绝整个候选，不清除 clocks/runs、不改 runtime 以绕过检查。
+- 独立工具在首次严格 runtime decode 前调用生产 `BukkitExtensionDataSerializers.register()`，复用 current 的
+  `car_render_state` / `train_render_state` codec；直接 conversion 和 materialize 入口共用该初始化，不实例化 Bukkit 插件。
+  未知 type ID/version/字段仍拒绝，不反射或删改 payload；固定非空列车 fixture 覆盖真实 restore、render payload 和 runtime 原字节保持。
 - `--validate-data-directory`另外读取当前config/physics及实际train/rail包，使用现有loader，不改模型。
   此类离线加载不证明真实客户端画面或服务器启用；缺真实Paper registry必须报告为验证缺口，不能mock后声称通过。
 
@@ -29,7 +35,7 @@
 
 `-PmigrationEndpointsOnly`对应独立入口`convertEndpoints(infrastructure, runtime)`及CLI `--endpoints-only`。
 输入必须是current outer2配对文件及Core infrastructure2；此模式不运行ownership拆分，也不限制已是current形状的runtime为空。
-它仅替换Core rail中UUID-only连接字段，Basic/SimpleATO及其他outer值原样保留；输出runtime保持原始字节（包括gzip），
+它先替换Core rail中UUID-only连接字段，再串接下方接点成员转换；Basic/SimpleATO及其他outer值原样保留；输出runtime保持原始字节（包括gzip），
 current显式形状和空rail文档通过严格验证后保持原始基础设施字节。模式禁止与`repairRedundantCurvePoints`并用。
 
 `RailEndpointMigration.convert`只在该独立source set中识别旧`nextRailAtA/B`、`activeTrackAtA/B`和新
@@ -56,6 +62,37 @@ Core旧metadata版本1只供原ownership转换组合使用，不是端点模式�
 # 审阅dry-run后，仅写新的本地输出目录；这不是远端应用命令。
 ./gradlew :BukkitPlugin:migrateDevelopmentWorlds -PmigrationSource=/absolute/source/worlds -PmigrationEndpointsOnly -PmigrationOutput=/absolute/new-output
 ```
+
+### 显式连接到独立接点成员
+
+`-PmigrationJunctionsOnly` / `--junctions-only` 调用独立入口 `convertJunctions(infrastructure, runtime)`。
+只接受 current outer2 / Core infrastructure2 配对文件，Core rail 必须全部为旧显式连接形状或全部为含
+`joinedEndpointsAtA/B` 的 current 形状；不接受 UUID-only 输入、混合形状、不完整成员字段或未知字段。
+版本不变，不在 runtime 添加旧开发输入兼容。原 ownership/endpoint 模式在严格 current decode 前也串接接点转换。
+
+旧显式图先校验 UUID 唯一、目标端点存在、每端至多两个精确且唯一的目标、active 属于原目标、每条边有精确反向声明。
+之后仅按已声明连接求连通组件，不按位置或距离合并其他轨道。组件全体写成每端的完整 peer 列表（不含自身）；
+孤立端点为空列表。每个组件复用 Core `RailEndpointGeometry.legalContinuations`：逐对验证 5 mm 共点与有效方向，
+以归一化 outward tangent 点积 `<0` 派生所有合法通路。同侧腿仍保留成员关系但不互通；公共腿与每条异侧支腿互通，
+可补齐原图漏掉的合法通路。合法通路保留原相对顺序，新派生通路按稳定 endpoint 顺序追加。
+
+原 active 仍合法或原本为 null 则原样保留；失效且无合法出口置 null，有唯一出口则确定修复，有多个出口则整次失败并报告歧义。
+逐组件、删边、补边、active 修复和汇总均写报告。完整 current 输入仍经严格 decoder 和真实业务 restore 校验，合法 no-op 保留原字节。
+不改 rail identity、curve JSON（坐标/采样/弧长）、Basic/SimpleATO 数据、revision/epoch 或列车摆位；runtime 包含 gzip 在内逐字节不变。
+仍使用既有全批配对、源字节捕获/复核、fresh output 与真实 Core→Basic→SimpleATO restore，不运行物理或授予资源。
+禁止与 endpoint 模式或 curve repair 合用；任一输入失败均不创建输出目录。
+
+```bash
+./gradlew :BukkitPlugin:migrateDevelopmentWorlds -PmigrationSource=/absolute/source/worlds -PmigrationJunctionsOnly
+./gradlew :BukkitPlugin:migrateDevelopmentWorlds -PmigrationSource=/absolute/source/worlds -PmigrationJunctionsOnly -PmigrationOutput=/absolute/new-output
+```
+
+支持窗口仅限仍需保留的显式连接开发数据；用户确认所有保留数据已转后另批删除，不让 current reader 猜接点。
+测试需覆盖同侧双腿保留组但零通路、三腿删错边/补漏边、合法第二 active 和 null、未声明但共点轨道不加入、
+active 修复歧义拒绝、坏/混合/current 成员输入、gzip/runtime/source 字节保持、备份配对、fresh output 和 no-op。
+真实存档副本 dry-run 与其真实列车 restore 单独记录，不能以空 fixture 代替；不将在线采样副本当停服恢复点。
+旧图解析/组件遍历为 `O(N+E)`；各组件成员数为 `k` 时，共点检查、合法路径派生及完整 peer 输出另需 `O(k²)`，
+总内存还包括原始文件/curve 样本、目标树和 `Σk²` 成员输出。此成本只在离线工具，不增加 tick 查询或持久缓存。
 
 ### 受限的旧曲线重复点修复
 

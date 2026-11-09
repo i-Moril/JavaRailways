@@ -14,6 +14,7 @@ import work.art1st.javarailways.bukkit.persistence.*
 import work.art1st.javarailways.bukkit.config.PhysicsConfig
 import work.art1st.javarailways.bukkit.config.JavaRailwaysConfig
 import work.art1st.javarailways.bukkit.config.model.PackageLoader
+import work.art1st.javarailways.bukkit.extension.train.BukkitExtensionDataSerializers
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
@@ -37,9 +38,15 @@ import java.util.zip.GZIPOutputStream
 import kotlin.io.path.*
 import kotlin.math.abs
 
-/** Bounded one-time converter for the audited empty-train pre-SimpleATO development save. */
+/** Bounded one-time converter for the explicitly supported development-save shapes. */
 object DevelopmentWorldMigration {
     private val json = Json { prettyPrint = true; encodeDefaults = true; ignoreUnknownKeys = false }
+
+    init {
+        // Production DTO registration must precede the first strict runtime decode, including
+        // standalone conversion calls. This also bootstraps direct materialize calls without Bukkit.
+        BukkitExtensionDataSerializers.register()
+    }
 
     data class ConvertedPair(val infrastructure: InfrastructureFileV2, val runtime: RuntimeFileV2,
                              val repairs: List<String>)
@@ -78,7 +85,8 @@ object DevelopmentWorldMigration {
         val repairs = mutableListOf<String>()
         val source = json.parseToJsonElement(infrastructure).jsonObject
         val core = json.parseToJsonElement(source.getValue("coreSnapshotJson").jsonPrimitive.content).jsonObject
-        val repaired = RailEndpointMigration.convert(repairCurvePoints(core, repairRedundantPoints, repairs), repairs)
+        val endpoints = RailEndpointMigration.convert(repairCurvePoints(core, repairRedundantPoints, repairs), repairs)
+        val repaired = RailJunctionMigration.convert(endpoints, repairs)
         val infra = RailInfrastructureMetadataMigration.migrate(json.encodeToString(JsonObject.serializer(),
             JsonObject(source + ("coreSnapshotJson" to JsonPrimitive(repaired.toString()))))).file
         val oldRuntime = json.parseToJsonElement(runtime).jsonObject
@@ -122,7 +130,25 @@ object DevelopmentWorldMigration {
         require(core.getValue("formatVersion").jsonPrimitive.int == CoreWorld.INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION) {
             "Endpoint mode requires current Core infrastructure"
         }
-        val converted = RailEndpointMigration.convert(core, reports)
+        val converted = RailJunctionMigration.convert(RailEndpointMigration.convert(core, reports), reports)
+        val target = source.copy(coreSnapshotJson = if (converted == core) source.coreSnapshotJson else converted.toString())
+        val currentRuntime = SplitWorldSnapshotCodec.decodeRuntime(runtime)
+        require(target.infrastructureRevision == currentRuntime.infrastructureRevision) { "Infrastructure/runtime revision mismatch" }
+        target.core(); target.basic(); target.simpleAto()
+        currentRuntime.core(); currentRuntime.basic(); currentRuntime.simpleAto()
+        materialize(target, currentRuntime)
+        return ConvertedPair(target, currentRuntime, reports)
+    }
+
+    /** Already explicit endpoint documents: preserve associations independently of legal paths. */
+    fun convertJunctions(infrastructure: String, runtime: String): ConvertedPair {
+        val source = SplitWorldSnapshotCodec.decodeInfrastructure(infrastructure)
+        val reports = mutableListOf<String>()
+        val core = json.parseToJsonElement(source.coreSnapshotJson).jsonObject
+        require(core.getValue("formatVersion").jsonPrimitive.int == CoreWorld.INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION) {
+            "Junction mode requires current Core infrastructure"
+        }
+        val converted = RailJunctionMigration.convert(core, reports)
         val target = source.copy(coreSnapshotJson = if (converted == core) source.coreSnapshotJson else converted.toString())
         val currentRuntime = SplitWorldSnapshotCodec.decodeRuntime(runtime)
         require(target.infrastructureRevision == currentRuntime.infrastructureRevision) { "Infrastructure/runtime revision mismatch" }
@@ -189,27 +215,39 @@ object DevelopmentWorldMigration {
                         sourceUnavailable = { _, _, failure -> throw failure })
                     val signal = SignalEpochRuntime(coordinator.worldId, restrictions,
                         restrictions::completeEpoch, inspection::markDirty)
+                    // This CoreWorld and token belong solely to this synchronous offline restore.
+                    // Reuse the production registry to validate references/owners and retain actual
+                    // timetable dependencies; never resolve a Bukkit service or a live world here.
+                    val dependencyOwner = Any()
                     val dependencies = object : InfrastructureDependencyService {
                         override fun set(request: InfrastructureDependencyRequest): InfrastructureDependencyMutationResult =
-                            error("Offline materialization must not install live dependencies")
+                            restored.infrastructureCoordination.setInfrastructureDependencies(dependencyOwner, request)
                         override fun remove(owner: InfrastructureOwner): InfrastructureDependencyMutationResult =
-                            error("Offline materialization must not remove live dependencies")
+                            restored.infrastructureCoordination.removeInfrastructureDependencies(dependencyOwner, owner)
                     }
                     val dispatcher = TimetableDispatcher({ null }, restrictions, inspection, dependencies)
                     restored.registerExtensionData(atoPlugin,
                         SimpleATOWorldData(coordinator, dispatcher, signal, restrictions, inspection,
                             basic.railObjects, basic.safetyInterlock))
-                    infrastructure.basic().restore(restored)
-                    infrastructure.simpleAto().restore(restored)
-                    runtime.basic().restore()
-                    runtime.simpleAto().restore(restored)
+                    try {
+                        infrastructure.basic().restore(restored)
+                        infrastructure.simpleAto().restore(restored)
+                        runtime.basic().restore()
+                        runtime.simpleAto().restore(restored)
+                    } finally {
+                        // Fresh offline-only state must not outlive either a successful audit or
+                        // a rejected checkpoint. No live coordination registry is accessible here.
+                        restored.infrastructureCoordination.close()
+                    }
                 }
             }
         }
     }
 
-    fun run(source: Path, output: Path?, repairRedundantPoints: Boolean, endpointsOnly: Boolean = false): List<String> {
+    fun run(source: Path, output: Path?, repairRedundantPoints: Boolean, endpointsOnly: Boolean = false,
+            junctionsOnly: Boolean = false): List<String> {
         require(!endpointsOnly || !repairRedundantPoints) { "Endpoint mode does not repair curves" }
+        require(!junctionsOnly || (!endpointsOnly && !repairRedundantPoints)) { "Junction mode cannot combine endpoint conversion or curve repair" }
         val root = source.toRealPath()
         require(root.isDirectory()) { "Source must be a worlds directory" }
         if (output != null) {
@@ -228,11 +266,14 @@ object DevelopmentWorldMigration {
             val infraBytes = originalBytes.getValue(infraPath)
             val infraText = unpack(infraBytes)
             val runtimeText = unpack(runtimeBytes)
-            val pair = if (endpointsOnly) convertEndpoints(infraText, runtimeText)
-                else convert(infraText, runtimeText, repairRedundantPoints)
-            val unchanged = endpointsOnly && pair.infrastructure == SplitWorldSnapshotCodec.decodeInfrastructure(infraText)
+            val pair = when {
+                junctionsOnly -> convertJunctions(infraText, runtimeText)
+                endpointsOnly -> convertEndpoints(infraText, runtimeText)
+                else -> convert(infraText, runtimeText, repairRedundantPoints)
+            }
+            val unchanged = (endpointsOnly || junctionsOnly) && pair.infrastructure == SplitWorldSnapshotCodec.decodeInfrastructure(infraText)
             converted[infraPath.name] = if (unchanged) infraBytes else pack(SplitWorldSnapshotCodec.encode(pair.infrastructure), infraBytes)
-            converted[runtimePath.name] = if (endpointsOnly) runtimeBytes else pack(SplitWorldSnapshotCodec.encode(pair.runtime), runtimeBytes)
+            converted[runtimePath.name] = if (endpointsOnly || junctionsOnly) runtimeBytes else pack(SplitWorldSnapshotCodec.encode(pair.runtime), runtimeBytes)
             reports += "${infraPath.name}: revision=${pair.infrastructure.infrastructureRevision}, epoch=${pair.runtime.physicsEpoch}, rails=${pair.infrastructure.core().rails.size}, directedConnections=${pair.infrastructure.core().rails.sumOf { it.connectionsAtA.size + it.connectionsAtB.size }}, metadata=${pair.infrastructure.basic().railMetadata.size}, directions=${pair.infrastructure.basic().operatingDirections.size}, destinations=${pair.infrastructure.simpleAto().destinations.size}, lines=${pair.infrastructure.simpleAto().lines.size}"
             reports += pair.repairs.map { "${infraPath.name}: $it" }
         }
@@ -271,20 +312,22 @@ fun main(args: Array<String>) {
         DevelopmentWorldMigration.validateConfigDirectory(Path.of(args[1])).forEach(::println)
         return
     }
-    require(args.isNotEmpty()) { "Usage: source/worlds [--output NEW-directory] [--repair-redundant-curve-points] [--endpoints-only]" }
+    require(args.isNotEmpty()) { "Usage: source/worlds [--output NEW-directory] [--repair-redundant-curve-points] [--endpoints-only | --junctions-only]" }
     var output: Path? = null
     var repair = false
     var endpointsOnly = false
+    var junctionsOnly = false
     var index = 1
     while (index < args.size) {
         when (args[index]) {
             "--output" -> { require(output == null); output = Path.of(args[++index]) }
             "--repair-redundant-curve-points" -> repair = true
             "--endpoints-only" -> endpointsOnly = true
+            "--junctions-only" -> junctionsOnly = true
             else -> error("Unknown option: ${args[index]}")
         }
         index++
     }
-    DevelopmentWorldMigration.run(Path.of(args[0]), output, repair, endpointsOnly).forEach(::println)
+    DevelopmentWorldMigration.run(Path.of(args[0]), output, repair, endpointsOnly, junctionsOnly).forEach(::println)
     println(if (output == null) "Dry-run validated; no files written." else "Validated migration written to NEW directory: $output")
 }

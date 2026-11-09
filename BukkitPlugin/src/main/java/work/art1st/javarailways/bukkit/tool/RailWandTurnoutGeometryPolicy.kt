@@ -8,6 +8,9 @@ import work.art1st.javarailways.basic.rail.TurnoutTopology
 import work.art1st.javarailways.basic.api.route.RailViewRef
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailView
@@ -18,7 +21,8 @@ private const val TURNOUT_FRAME_DIRECTION_DOT = 1.0 - 1.0e-10
 internal data class TurnoutViewSnapshot(
     val view: RailViewRef,
     val next: List<RailViewRef>,
-    val active: RailViewRef?
+    val active: RailViewRef?,
+    val joinedEndpoints: List<RailEndpointRef>
 )
 
 /** Returns null when rebuilding [oldLanes] keeps every touched turnout node frame unchanged. */
@@ -61,7 +65,9 @@ internal fun captureTurnoutViewSnapshots(rails: Collection<CoreRail>): List<Turn
             TurnoutViewSnapshot(
                 view = RailViewRef.from(view),
                 next = view.nextRails.map(RailViewRef::from),
-                active = view.activeRail?.let(RailViewRef::from)
+                active = view.activeRail?.let(RailViewRef::from),
+                joinedEndpoints = view.rail.world.topologyState.endpointGroupAt(endpointOf(view))
+                    .filter { it != endpointOf(view) }.sorted()
             )
         }
         .distinctBy(TurnoutViewSnapshot::view)
@@ -81,9 +87,14 @@ internal fun restoreMappedTurnoutViewSnapshots(
     snapshots.forEach { snapshot ->
         val mappedView = remap(snapshot.view)
         val view = resolve(mappedView)
+        val joined = snapshot.joinedEndpoints.map { endpoint ->
+            endpoint.copy(railId = oldToNew[endpoint.railId] ?: endpoint.railId)
+        }
         val expectedRefs = snapshot.next.map(::remap).distinct()
         val actualRefs = view.nextRails.map(RailViewRef::from)
-        if (actualRefs.size != expectedRefs.size || actualRefs.toSet() != expectedRefs.toSet()) {
+        if (view.joinedEndpoints != joined.toSet() ||
+            actualRefs.size != expectedRefs.size || actualRefs.toSet() != expectedRefs.toSet()
+        ) {
             throw RailWandLocalizedException("failure.turnout_topology_mismatch", mappedView)
         }
         val expectedNext = expectedRefs.map(::resolve)
@@ -91,9 +102,14 @@ internal fun restoreMappedTurnoutViewSnapshots(
         if (expectedActive != null && expectedActive !in expectedNext) {
             throw RailWandLocalizedException("failure.turnout_active_branch_missing", mappedView)
         }
-        view.restoreConnections(expectedNext, expectedActive)
+        view.restoreConnections(expectedNext, expectedActive, joined)
     }
 }
+
+private fun endpointOf(view: RailView): RailEndpointRef = RailEndpointRef(
+    view.rail.id,
+    if (view.viewDirection == ViewDirection.AB) RailEndpoint.B else RailEndpoint.A
+)
 
 /** Full maintenance preflight for a geometry replacement that touches a turnout node. */
 internal fun turnoutGeometryMaintenanceError(

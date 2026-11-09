@@ -18,8 +18,35 @@ import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveImpl
 import work.art1st.javarailways.core.physics.train.createTestWorld
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 class PhysicalTopologyReplacementOrRemovalImpactResolverTest {
+    @Test
+    fun `removing incomplete junction leg protects authored peers without legal continuations`() {
+        val world = createTestWorld()
+        try {
+            val straight = world.createRailForTest(curve(Vector3d(), Vector3d(10.0, 0.0, 0.0)))
+            val branch = world.createRailForTest(curve(Vector3d(), Vector3d(10.0, 0.0, 3.0)))
+            val unrelated = world.createRailForTest(curve(Vector3d(), Vector3d(0.0, 0.0, 10.0)))
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(straight, branch) }
+            val junction = world.topologyState.structuralNodeAt(RailEndpointRef(straight.id, RailEndpoint.A))
+                as TopologyNode.Turnout
+            assertTrue(junction.legalContinuations.values.all { it.isEmpty() })
+
+            val impact = PhysicalTopologyReplacementOrRemovalImpactResolver.resolve(world.topologyState, listOf(straight.id))
+
+            assertEquals(setOf(straight.id, branch.id), impact.railIds)
+            assertTrue(unrelated.id !in impact.railIds)
+            assertTrue(StableTopologyNodeKey(junction.ports) in impact.topologyNodeKeys)
+            assertTrue(TurnoutResourceIdentity.fromPorts(junction.ports) in impact.resourceIds)
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
     @Test
     fun `snapshot impact guards existing rail at prospective diamond without inventing target resource`() {
         val world = createTestWorld()
@@ -189,7 +216,7 @@ class PhysicalTopologyReplacementOrRemovalImpactResolverTest {
     }
 
     @Test
-    fun `turnout branch replacement excludes its unconnected sibling branch rail`() {
+    fun `turnout branch replacement includes its same-side authored sibling`() {
         val world = createTestWorld()
         try {
             val stem = world.createRailForTest(curve(Vector3d(-5.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)))
@@ -207,10 +234,10 @@ class PhysicalTopologyReplacementOrRemovalImpactResolverTest {
                 listOf(firstBranch.id)
             )
 
-            assertEquals(setOf(firstBranch.id, stem.id), impact.railIds)
+            assertEquals(setOf(firstBranch.id, stem.id, siblingBranch.id), impact.railIds)
             assertTrue(StableTopologyNodeKey(turnout.ports) in impact.topologyNodeKeys)
             assertTrue(TurnoutResourceIdentity.fromPorts(turnout.ports) in impact.resourceIds)
-            assertTrue(siblingBranch.id !in impact.railIds)
+            assertTrue(siblingBranch.id in impact.railIds)
         } finally {
             world.physicsCoordinator.close()
             (world.tickManager as AutoCloseable).close()
@@ -221,9 +248,9 @@ class PhysicalTopologyReplacementOrRemovalImpactResolverTest {
     fun `replacement anywhere in a pure loop includes its deterministic anchor`() {
         val world = createTestWorld()
         try {
-            val first = world.createRailForTest(curve(Vector3d(0.0, 0.0, 0.0), Vector3d(5.0, 0.0, 0.0)))
-            val second = world.createRailForTest(curve(Vector3d(5.0, 0.0, 0.0), Vector3d(5.0, 0.0, 5.0)))
-            val third = world.createRailForTest(curve(Vector3d(5.0, 0.0, 5.0), Vector3d(0.0, 0.0, 0.0)))
+            val first = world.createRailForTest(circlePart(0))
+            val second = world.createRailForTest(circlePart(1))
+            val third = world.createRailForTest(circlePart(2))
             IsolatedSimulationThreadMarker.run { CoreRail.connect(first, second) }
             IsolatedSimulationThreadMarker.run { CoreRail.connect(second, third) }
             IsolatedSimulationThreadMarker.run { CoreRail.connect(third, first) }
@@ -298,9 +325,9 @@ class PhysicalTopologyReplacementOrRemovalImpactResolverTest {
     fun `explicit connection change in a pure loop includes its deterministic anchor`() {
         val world = createTestWorld()
         try {
-            val first = world.createRailForTest(curve(Vector3d(0.0, 0.0, 0.0), Vector3d(5.0, 0.0, 0.0)))
-            val second = world.createRailForTest(curve(Vector3d(5.0, 0.0, 0.0), Vector3d(5.0, 0.0, 5.0)))
-            val third = world.createRailForTest(curve(Vector3d(5.0, 0.0, 5.0), Vector3d(0.0, 0.0, 0.0)))
+            val first = world.createRailForTest(circlePart(0))
+            val second = world.createRailForTest(circlePart(1))
+            val third = world.createRailForTest(circlePart(2))
             IsolatedSimulationThreadMarker.run { CoreRail.connect(first, second) }
             IsolatedSimulationThreadMarker.run { CoreRail.connect(second, third) }
             IsolatedSimulationThreadMarker.run { CoreRail.connect(third, first) }
@@ -331,11 +358,24 @@ class PhysicalTopologyReplacementOrRemovalImpactResolverTest {
         ))
     }
 
+    /** Three sampled circular arcs make a real loop with continuous endpoint directions. */
+    private fun circlePart(index: Int): PrimeCurve = PrimeCurve.fromPoints((0..24).map { sample ->
+        val angle = (index + sample / 24.0) * 2.0 * PI / 3.0
+        Curve.RawPoint(
+            Vector3d(5.0 * cos(angle), 0.0, 5.0 * sin(angle)),
+            Vector3d(-sin(angle), 0.0, cos(angle)),
+            Vector3d(0.0, 1.0, 0.0),
+            sample / 24.0 * 5.0 * 2.0 * PI / 3.0
+        )
+    })
+
     private fun savedRail(id: java.util.UUID, curve: PrimeCurve) = CoreRail.SavedRailV1(
         id = id.toString(),
         curveAB = curve.save() as PrimeCurveImpl.SavedPrimeCurveV1,
         connectionsAtA = emptyList(),
         connectionsAtB = emptyList(),
+        joinedEndpointsAtA = emptyList(),
+        joinedEndpointsAtB = emptyList(),
         activeConnectionAtA = null,
         activeConnectionAtB = null
     )

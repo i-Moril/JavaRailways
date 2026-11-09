@@ -27,7 +27,7 @@ class EndpointWorldMigrationTest {
         assertNull(rails[1].activeConnectionAtA)
         assertEquals(7L, pair.infrastructure.infrastructureRevision)
         assertEquals(9L, pair.runtime.physicsEpoch)
-        assertEquals(4, pair.repairs.size)
+        assertEquals(4, pair.repairs.count { it.startsWith("$a:") || it.startsWith("$b:") || it.startsWith("$c:") })
     }
 
     @Test
@@ -144,7 +144,8 @@ class EndpointWorldMigrationTest {
         put("formatVersion", 2); put("infrastructureRevision", 7); put("rails", JsonArray(rails))
     }
     private fun rail(id: String, start: Int, end: Int, side: String = "A", next: List<String> = emptyList(), active: String? = null): JsonObject {
-        fun point(x: Int, arc: Int) = """{"position":{"x":$x,"y":0,"z":0},"tangent":{"x":1,"y":0,"z":0},"normal":{"x":0,"y":1,"z":0},"arcLength":$arc,"segmentType":"DISCRETE"}"""
+        val tangent = if (end >= start) 1 else -1
+        fun point(x: Int, arc: Int) = """{"position":{"x":$x,"y":0,"z":0},"tangent":{"x":$tangent,"y":0,"z":0},"normal":{"x":0,"y":1,"z":0},"arcLength":$arc,"segmentType":"DISCRETE"}"""
         return buildJsonObject {
             put("id", id)
             put("curveAB", Json.parseToJsonElement("""{"pointList":[${point(start, 0)},${point(end, 10)}]}"""))

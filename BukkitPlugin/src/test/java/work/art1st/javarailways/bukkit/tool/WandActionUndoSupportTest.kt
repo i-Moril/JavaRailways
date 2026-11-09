@@ -230,7 +230,10 @@ class WandActionUndoSupportTest {
             Curve.RawPoint(Vector3d(10.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 10.0)
         )).save() as PrimeCurveImpl.SavedPrimeCurveV1
         fun saved(active: SavedRailEndpointRef?) = CoreRail.SavedRailV1(
-            railId.toString(), curve, emptyList(), listOf(secondBranch, firstBranch), null, active
+            id = railId.toString(), curveAB = curve,
+            connectionsAtA = emptyList(), connectionsAtB = listOf(secondBranch, firstBranch),
+            joinedEndpointsAtA = emptyList(), joinedEndpointsAtB = listOf(firstBranch, secondBranch),
+            activeConnectionAtA = null, activeConnectionAtB = active
         )
         fun snapshot(rail: CoreRail.SavedRailV1) = RailWorldUndoSnapshot(
             listOf(rail), emptyList(), emptyMap(), emptyMap(), emptyList(), emptyList()
@@ -244,6 +247,7 @@ class WandActionUndoSupportTest {
         assertEquals(null, prepared.before.rails.single().activeConnectionAtB)
         assertEquals(null, prepared.expectedAfter.rails.single().activeConnectionAtB)
         assertEquals(listOf(secondBranch, firstBranch), prepared.before.rails.single().connectionsAtB)
+        assertEquals(listOf(firstBranch, secondBranch), prepared.before.rails.single().joinedEndpointsAtB)
         assertEquals(prepared.before.rails, prepared.expectedAfter.rails)
     }
     @Test

@@ -152,6 +152,7 @@ class SavedRailConnectionsTest {
             val root = world.topologyState
             val invalid = original.copy(
                 connectionsAtA = emptyList(),
+                joinedEndpointsAtA = emptyList(),
                 activeConnectionAtA = null,
                 connectionsAtB = listOf(ref(after.id.toString(), RailEndpoint.A), ref(MISSING_ID, RailEndpoint.A))
             )
@@ -186,7 +187,8 @@ class SavedRailConnectionsTest {
               {"position":{"x":10.0,"y":0.0,"z":0.0},"tangent":{"x":1.0,"y":0.0,"z":0.0},"normal":{"x":0.0,"y":1.0,"z":0.0},"arcLength":10.0,"segmentType":"DISCRETE"}
             ]},
             "connectionsAtA":[],"connectionsAtB":[{"railId":"00000000-0000-0000-0000-000000000002","endpoint":"B"}],
-            "activeConnectionAtA":null,"activeConnectionAtB":{"railId":"00000000-0000-0000-0000-000000000002","endpoint":"B"}
+            "activeConnectionAtA":null,"activeConnectionAtB":{"railId":"00000000-0000-0000-0000-000000000002","endpoint":"B"},
+            "joinedEndpointsAtA":[],"joinedEndpointsAtB":[{"railId":"00000000-0000-0000-0000-000000000002","endpoint":"B"}]
           }]
         }"""
         val decoded = WorldSnapshotCodec.decodeInfrastructure(fixed)
@@ -211,7 +213,14 @@ class SavedRailConnectionsTest {
                 activeB = ref(FIRST_ID, RailEndpoint.B)),
             savedRail(FIRST_ID, anchor, Vector3d(10.001, 0.0, 0.0),
                 atA = listOf(ref(SOURCE_ID, RailEndpoint.B)),
-                atB = listOf(ref(SOURCE_ID, RailEndpoint.B)))
+                atB = listOf(ref(SOURCE_ID, RailEndpoint.B)),
+                joinedA = listOf(ref(SOURCE_ID, RailEndpoint.B), ref(FIRST_ID, RailEndpoint.B)),
+                joinedB = listOf(ref(SOURCE_ID, RailEndpoint.B), ref(FIRST_ID, RailEndpoint.A)))
+                .copy(curveAB = PrimeCurve.fromPoints(listOf(
+                    Curve.RawPoint(anchor, Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0),
+                    Curve.RawPoint(Vector3d(20.0, 0.0, 5.0), Vector3d(0.0, 0.0, 1.0), Vector3d(0.0, 1.0, 0.0), 12.0),
+                    Curve.RawPoint(Vector3d(10.001, 0.0, 0.0), Vector3d(-1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 24.0)
+                )).save() as PrimeCurveImpl.SavedPrimeCurveV1)
         )
         fun verify(world: CoreWorld) {
             val source = requireNotNull(world.getRail(UUID.fromString(SOURCE_ID)))
@@ -299,11 +308,13 @@ class SavedRailConnectionsTest {
         ),
         savedRail(
             FIRST_ID, Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0),
-            atA = listOf(ref(SOURCE_ID, RailEndpoint.B)), activeA = ref(SOURCE_ID, RailEndpoint.B)
+            atA = listOf(ref(SOURCE_ID, RailEndpoint.B)), activeA = ref(SOURCE_ID, RailEndpoint.B),
+            joinedA = listOf(ref(SOURCE_ID, RailEndpoint.B), ref(SECOND_ID, RailEndpoint.A))
         ),
         savedRail(
             SECOND_ID, Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 5.0),
-            atA = listOf(ref(SOURCE_ID, RailEndpoint.B)), activeA = ref(SOURCE_ID, RailEndpoint.B)
+            atA = listOf(ref(SOURCE_ID, RailEndpoint.B)), activeA = ref(SOURCE_ID, RailEndpoint.B),
+            joinedA = listOf(ref(SOURCE_ID, RailEndpoint.B), ref(FIRST_ID, RailEndpoint.A))
         )
     )
 
@@ -345,10 +356,12 @@ class SavedRailConnectionsTest {
         atA: List<SavedRailEndpointRef> = emptyList(),
         atB: List<SavedRailEndpointRef> = emptyList(),
         activeA: SavedRailEndpointRef? = null,
-        activeB: SavedRailEndpointRef? = null
+        activeB: SavedRailEndpointRef? = null,
+        joinedA: List<SavedRailEndpointRef> = atA,
+        joinedB: List<SavedRailEndpointRef> = atB
     ) = CoreRail.SavedRailV1(
         id, line(from, to).save() as PrimeCurveImpl.SavedPrimeCurveV1,
-        atA, atB, activeA, activeB
+        atA, atB, activeA, activeB, joinedA, joinedB
     )
 
     private fun line(from: Vector3d, to: Vector3d): PrimeCurve {

@@ -38,7 +38,9 @@ internal object CoreTopologyInputAdapter {
                 }
             }
         }
-        return TopologyInput(source.revision, rails, continuations, source.atGradeCrossings)
+        val joins = rails.flatMap { rail -> RailEndpoint.entries.map { RailEndpointRef(rail.id, it) } }
+            .associateWith { port -> source.endpointGroupAt(port) - port }
+        return TopologyInput(source.revision, rails, continuations, source.atGradeCrossings, joins)
     }
 
     fun capture(
@@ -63,13 +65,28 @@ internal object CoreTopologyInputAdapter {
             }
         }
 
+        val endpointViews = railsById.values.flatMap { rail -> listOf(rail.viewAB, rail.viewBA) }
+            .associateBy { it.endpointRef() }
+        endpointViews.forEach { (port, view) ->
+            val group = view.joinedEndpoints + port
+            require(port !in view.joinedEndpoints) { "An authored endpoint group cannot contain itself as a peer: $port" }
+            view.joinedEndpoints.forEach { peer ->
+                val peerView = requireNotNull(endpointViews[peer]) { "Joined endpoint $port references a rail outside the captured world: $peer" }
+                require(peerView.joinedEndpoints + peer == group) {
+                    "Authored endpoint group is not complete and symmetric: $port <-> $peer"
+                }
+            }
+        }
+
         return TopologyInput(
             revision = revision,
             rails = railsById.values.map { rail ->
                 TopologyInputRail(rail.id, rail.curve.totalArcLength, rail.topologyIdentity)
             },
             continuations = continuations.mapValues { (_, targets) -> targets.toSet() },
-            atGradeCrossings = atGradeCrossings
+            atGradeCrossings = atGradeCrossings,
+            joinedEndpoints = railsById.values.flatMap { rail -> listOf(rail.viewAB, rail.viewBA) }
+                .associate { view -> view.endpointRef() to view.joinedEndpoints.toSet() }
         )
     }
 

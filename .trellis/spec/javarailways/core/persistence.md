@@ -61,15 +61,17 @@ bytes/text → read boundary version → optional pure upcast（仅任务明确�
 
 ### 显式目标端点的保存和恢复
 
-`CURRENT`，Core拥有该连接格式及校验。`SavedRailV1`的`connectionsAtA/B`为有序`List<SavedRailEndpointRef>`，
+`CURRENT`，Core拥有该连接格式及校验。`SavedRailV1`新增必填`joinedEndpointsAtA/B`，保存本端所属接点的全部其他成员；
+成员关系不表示可行车，必须构成完整、对称、共点的端点组。同侧两腿、没有公共腿时仍保存该组，合法出口列表为空。
+`connectionsAtA/B`为有序`List<SavedRailEndpointRef>`，只保存由接点成员及几何方向确定的合法通路，
 `activeConnectionAtA/B`为同一值类型或null。每个值为`{"railId":"<uuid>","endpoint":"A"}`，端点只接受`A/B`。
 source端由所属A/B字段决定；target的UUID与端点共同构成身份，active也必须按两者比较，不能只比较railId。
 writer直接从目标away-view取身份：AB进入目标A、BA进入目标B。连接仍在rail-local列表双向保存，不增加世界级连接catalog。
 
 正常加载先以UUID索引所有保存的rail并拒绝重复ID，再解码每份curve，通过`decodeSavedRailGraph(savedById, curvesById)`
-生成完整端点状态图。该函数与prepared restore共享`decodeSavedRailEndpoint`：检查source存在、目标UUID有效且存在、
+生成完整端点状态图。该函数与prepared restore共享`decodeSavedRailEndpoint`：同时验证接点成员和合法通路，检查source存在、目标UUID有效且存在、
 无同端自引用、精确端点不重复、至多两项、非null active属于本端列表，再按目标声明端点检查`Curve.TOLERANCE=5e-3 m`共点。
-最后检查所有有向记录的精确反向声明。所有这些检查完成后才创建CoreWorld和disconnected rails；已解码curve与已验证state直接用于安装，
+最后检查完整组成员的精确反向声明，以及合法通路与Core统一方向派生结果一致。成员切向量使用“从接点进入本轨道”的方向：A取AB tangent，B取其负值；仅两个单位向量点积严格小于0时可互通，同侧及正交不互通。所有这些检查完成后才创建CoreWorld和disconnected rails；已解码curve与已验证state直接用于安装，
 不为每条连接重新解码curve。单rail restore仍先解析并resolve双端，再修改任一live endpoint。
 
 几何只验证声明身份：例如source B只与target A共点时，输入target B必须拒绝，不能因为A更近而改为A。
@@ -78,12 +80,15 @@ writer直接从目标away-view取身份：AB进入目标A、BA进入目标B。�
 合法null、连接顺序和第二条active原样保留；active-only restore复用同一topology root，structural undo按完整身份保留仍有效active，
 具体事务语义归[rail topology](./rail-topology-and-occupancy.md)。隔离模拟按railId再endpoint确定排序选择，不按几何猜测。
 
-索引和连接验证为`O(N+E)`时间与空间，另计各curve解码及既有空间索引成本；仅在保存/加载/结构prepare路径，不增加tick查询。
+索引和连接验证随rail数、保存的成员引用和合法通路引用增长。对含 `k` 个成员的组，单次共享方向派生为 `O(k²)`；
+当前 decoder 对每个端点分别调用该函数，整组校验最坏为 `O(k³)`，另计各curve解码及既有空间索引成本。
+只在保存/加载/结构prepare路径执行，不增加tick几何判断；通常接头为两端或三腿，本批未增加整组派生缓存。
 curve只在本次prepare/load内复用，没有跨revision持久缓存。
 
 该未发布开发格式直接修正，Core infrastructure仍为2，runtime仍为1，不因改字段增加版本或新增SavedRailV2。
 UUID-only字段`nextRailAtA/B`、`activeTrackAtA/B`只在[独立离线工具](../../bukkit-plugin/backend/offline-development-migration.md)中转换，
-current reader不同时接受两套形状。错误做法是启用未知字段容忍或根据距离补齐当前缺失身份；正确做法是完整外部恢复点后离线转换并严格验证。
+current reader不同时接受两套形状。缺少`joinedEndpointsAtA/B`的开发存档也只经独立离线接点迁移转换；运行时不从旧通路猜成员。
+错误做法是启用未知字段容忍或根据距离补齐当前缺失身份；正确做法是完整外部恢复点后离线转换并严格验证。
 该兼容转换只服务保留的开发数据，用户确认全部转换后可另批删除；不进入插件JAR。远端应用与新JAR部署需要单独授权。
 
 固定测试需覆盖JSON明确端点及未知token拒绝、A-A/A-B/B-A/B-B、同railId不同端点的active比较、顺序/null/第二active、

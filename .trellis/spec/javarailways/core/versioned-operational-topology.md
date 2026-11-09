@@ -34,7 +34,13 @@ rail structural transaction
 
 ### 3.1 图归一化
 
-构建器先把rail endpoint connection表示成ports。以下位置成为结构节点：可选择continuation的turnout、单端terminus，以及无结构节点纯环所需的deterministic anchor；其余普通二度连接不是节点。菱形交叉不改变任一线路的continuation，因此不是结构节点，也不切分寻路edge。
+构建器先把rail endpoint表示成ports，按显式接点成员建立组，再读取各port的合法continuation；不能从合法通路反推接点成员。
+以下位置成为结构节点：turnout（包括两条同侧腿已建造、合法通路全空的未完成接点）、单端terminus，以及无结构节点纯环所需的deterministic anchor；普通双端互通接头不是节点。菱形交叉不改变任一线路的continuation，因此不是结构节点，也不切分寻路edge。
+
+`TopologyState.endpointGroupAt(port)`返回该root内精确的接点成员，供编辑、保护及展示复用；`continuationsAt`只返回合法目的port。
+同坐标但没有显式组关联的轨道不自动成组。补公共腿、删除公共腿、替换/切分/重建必须保留或明确更新完整成员；
+成员变化即使未改变任何合法通路，也属于结构编辑，进入局部stale/影响/占用保护、`preservesRails`和revision/fingerprint判定。
+未完成组复用现有Turnout节点，其`legalContinuations`每个port均可为空；寻路不能生成同侧腿之间的跨接弧。
 
 从每个结构节点的尚未访问port开始，按唯一continuation连续行走，直到下一个结构节点；沿途按行进次序记录`RailSliceRef(railId,startAb,endAb)`并形成一个`TrackEdge`。每个物理rail slice必须被恰好一个edge覆盖；重复、遗漏、断裂或方向不相容使candidate无效。若一个连通分量全部是二度连接而没有结构节点，构建器选择一个可确定重建的anchor再执行同样遍历，避免产生无端点edge。
 

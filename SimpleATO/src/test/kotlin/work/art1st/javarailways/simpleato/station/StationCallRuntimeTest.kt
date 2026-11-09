@@ -100,6 +100,63 @@ class StationCallRuntimeTest {
         assertTrue(StationBerthDetector.isBerthed(0.05, 0.0))
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(doubles = [0.2995, 0.3005])
+    fun `unberthed overrun uses the same position boundary as berth acceptance`(overrun: Double) {
+        val fixture = fixture("overrun-$overrun")
+        val mission = fixture.ato.submitMission(AtoMissionRequest(
+            id = "tt/service", revision = 1L, origin = WayPointRef("A"),
+            points = listOf(AtoMissionPoint.Stop(WayPointRef("C")))
+        )) as AtoMissionSubmissionResult.Accepted
+        assertTrue(fixture.ato.submitStationCall(fixture.resolvedCall(1L, mission.mission)) is
+            StationCallSubmissionResult.Accepted)
+        fixture.tick(0.0)
+
+        fixture.placeHeadBeyondBerth(overrun)
+        fixture.tick(0.0)
+
+        val shouldStall = !StationBerthDetector.isBerthed(-overrun, 0.0)
+        val coordinator = fixture.world.simpleAtoWorldData.atoCoordinator
+        assertEquals(shouldStall, coordinator.isStalled, coordinator.lastStall?.message)
+        if (shouldStall) {
+            assertTrue(coordinator.lastStall?.message?.contains("before BERTHED") == true)
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(doubles = [0.2995, 0.3005])
+    fun `departure is reported immediately outside the berth position boundary`(overrun: Double) {
+        val fixture = fixture("departure-$overrun")
+        val mission = fixture.ato.submitMission(AtoMissionRequest(
+            id = "tt/service", revision = 1L, origin = WayPointRef("A"),
+            points = listOf(AtoMissionPoint.Stop(WayPointRef("C")))
+        )) as AtoMissionSubmissionResult.Accepted
+        assertTrue(fixture.ato.submitStationCall(fixture.resolvedCall(1L, mission.mission)) is
+            StationCallSubmissionResult.Accepted)
+        fixture.ato.setMovementAuthority(1L, fixture.ato.terminalMovementAuthorityLimitMeters(
+            mission.mission.legs.single().plannedRoute.expandedRoute.totalLength
+        ))
+        var berthed = false
+        for (tick in 0 until 2_000) {
+            fixture.tick()
+            if (fixture.ato.drainStationCallNotifications().any { it.type == StationCallNotificationType.BERTHED }) {
+                berthed = true
+                break
+            }
+        }
+        assertTrue(berthed, fixture.world.simpleAtoWorldData.atoCoordinator.lastStall?.message)
+
+        fixture.ato.grantStationDeparture("call-1", 1L)
+        fixture.placeHeadBeyondBerth(overrun)
+        fixture.tick(0.0)
+
+        val departed = fixture.ato.drainStationCallNotifications().any {
+            it.type == StationCallNotificationType.DEPARTED
+        }
+        assertEquals(!StationBerthDetector.isBerthed(-overrun, 0.0), departed)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
     @Test
     fun `station call revision must match the latest accepted mission`() {
         val fixture = fixture("revision")
@@ -413,6 +470,14 @@ class StationCallRuntimeTest {
         val ato: SimpleATO,
         val actuator: KinematicTrainActuator
     ) {
+        fun placeHeadBeyondBerth(distance: Double) = world.onOwnerForTest {
+            train.setLocation(work.art1st.javarailways.core.physics.rail.RailLocationWithFacing(
+                train.head.location.rail.viewAB,
+                berth.location.arcLengthIn(ViewDirection.AB) + distance
+            ))
+            train.commit()
+        }
+
         fun resolvedCall(revision: Long, mission: AtoMission, offset: Double = 0.0): work.art1st.javarailways.simpleato.api.station.ResolvedStationCall {
             val request = request(revision).let { it.copy(call = it.call.copy(stoppingOffsetMetersBeforeOverride = offset)) }
             val prefix = requireNotNull(stationCallRoutePrefix(world, mission.origin.id, request.call,

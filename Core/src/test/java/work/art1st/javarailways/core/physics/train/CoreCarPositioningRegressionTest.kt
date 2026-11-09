@@ -102,10 +102,10 @@ class CoreCarPositioningRegressionTest {
         val direction = prepared.direction.toVector3d()
         val centre = prepared.position.toVector3d()
         val headEnd = Vector3d(centre).add(Vector3d(direction).mul(if (reversed) -5.0 else 5.0))
-        assertEquals(5.0, a.distance(b), 1e-6, "3D axle chord")
-        assertEquals(0.0, Vector3d(centre).add(Vector3d(direction).mul(3.0)).distance(a), 1e-6)
-        assertEquals(0.0, Vector3d(centre).sub(Vector3d(direction).mul(2.0)).distance(b), 1e-6)
-        assertEquals(if (reversed) 1.2 else 0.6, headEnd.distance(anchor), 1e-5, "physical front connector")
+        assertEquals(5.0, a.distance(b), 0.001, "3D axle chord")
+        assertEquals(0.0, Vector3d(centre).add(Vector3d(direction).mul(3.0)).distance(a), 0.001)
+        assertEquals(0.0, Vector3d(centre).sub(Vector3d(direction).mul(2.0)).distance(b), 0.001)
+        assertEquals(if (reversed) 1.2 else 0.6, headEnd.distance(anchor), 0.001, "physical front connector")
         assertEquals(0.0, prepared.normal.toVector3d().dot(direction), 1e-12)
         assertEquals(1.0, prepared.normal.toVector3d().length(), 1e-12)
         assertEquals(reversed, prepared.desiredReversed)
@@ -133,6 +133,30 @@ class CoreCarPositioningRegressionTest {
 
         car.publishPhysicsState()
         assertEquals(before, carState(car))
+    }
+
+    @ParameterizedTest
+    @ValueSource(doubles = [0.0005, 0.0015])
+    fun `axle and coupler predictions share the one millimetre residual budget`(residual: Double) = withWorld { world ->
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        val car = preparedTestCar(world, rail)
+        val path = RailSegments(listOf(RailSegment(rail.viewAB, 10.0, 60.0)))
+        // Both predicted residuals equal residual: tail x=18, head x=23+residual,
+        // body front x=25+residual, and the configured front connectors total 0.6m.
+        val anchor = Vector3d(25.6 + 2.0 * residual, 0.5, 0.0)
+        val prepared = car.prepareFollowingCarOnPath(
+            path, false, anchor, 0.4, maximumTailDistance = 20.0,
+            predictedTailDistance = 8.0, predictedBogieSpacing = 5.0 + residual
+        )
+        val a = Vector3d(prepared.bogieALocation.position).add(0.0, 0.5, 0.0)
+        val b = Vector3d(prepared.bogieBLocation.position).add(0.0, 0.5, 0.0)
+        val front = prepared.position.toVector3d().add(prepared.direction.toVector3d().mul(5.0))
+        assertEquals(5.0, a.distance(b), 0.001, "axle residual must be within 1mm")
+        assertEquals(0.6, front.distance(anchor), 0.001, "coupler residual must be within 1mm")
+        if (residual < 0.001) {
+            assertEquals(18.0, prepared.bogieBLocation.arcLength, 1e-12, "accepted coupler prediction")
+            assertEquals(23.0 + residual, prepared.bogieALocation.arcLength, 1e-12, "accepted axle prediction")
+        }
     }
 
     private fun preparedTestCar(world: CoreWorld, rail: CoreRail): CoreCar {

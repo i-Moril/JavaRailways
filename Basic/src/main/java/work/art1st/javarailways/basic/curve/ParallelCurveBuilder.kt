@@ -30,23 +30,30 @@ internal object ParallelCurveBuilder {
             unmatchedEnds.remove(match)
             match.first
         }
-        val tolerance = maxOf(0.25, estimatedSpacing(offsets) * 0.1)
         val preserveAnchorEndpointTangents = centerResult.selectedTemplate != RailCurveTemplateType.STRAIGHT
-        val curves = offsets.mapIndexed { index, offset ->
+        val correctedLanes = offsets.mapIndexed { index, offset ->
             offsetCurve(
                 centerCurve,
                 offset,
                 fromAnchors[index],
                 matchedEnds[index],
-                tolerance,
                 preserveAnchorEndpointTangents
-            )
+            )?.let { lane ->
+                val fractions = RailCurvePartitioner.remapBreakFractions(centerCurve, lane, centerResult.logicalBreakFractions)
+                try {
+                    CurveEndpointCorrection.correct(lane, fromAnchors[index].position,
+                        matchedEnds[index].position, fractions)
+                } catch (_: IllegalArgumentException) {
+                    null
+                }
+            }
                 ?: return RailParallelCurveBuildResult.failure(
                     "并行曲线端点偏离锚点过大: ${fromAnchors[index].id}→${matchedEnds[index].id}",
                     centerResult.selectedTemplate,
                     centerResult.selectedReason
                 )
         }
+        val curves = correctedLanes.map { it.curve }
         curves.forEachIndexed { index, curve ->
             val startDistance = curve.getPointAt(0.0).position.distance(fromAnchors[index].position)
             val endDistance = curve.getPointAt(curve.totalArcLength).position.distance(matchedEnds[index].position)
@@ -62,7 +69,7 @@ internal object ParallelCurveBuilder {
             curves,
             centerResult.selectedTemplate,
             centerResult.selectedReason,
-            curves.map { RailCurvePartitioner.remapBreakFractions(centerCurve, it, centerResult.logicalBreakFractions) }
+            correctedLanes.map { it.logicalBreakFractions }
         )
     }
 
@@ -94,18 +101,12 @@ internal object ParallelCurveBuilder {
         return horizontal.normalize().cross(Vector3d(0.0, 1.0, 0.0)).normalize()
     }
 
-    private fun estimatedSpacing(offsets: List<Double>): Double {
-        if (offsets.size < 2) return 0.0
-        return offsets.sorted().zipWithNext { a, b -> abs(b - a) }.average()
-    }
-
     @OptIn(Heavy::class)
     private fun offsetCurve(
         curve: PrimeCurve,
         offset: Double,
         fromAnchor: Anchor,
         toAnchor: Anchor,
-        maxEndpointCorrection: Double,
         preserveAnchorEndpointTangents: Boolean
     ): PrimeCurve? {
         val centerPoints = curve.stream().toList()
@@ -113,24 +114,7 @@ internal object ParallelCurveBuilder {
             val right = rightVector(point.tangent) ?: Vector3d(1.0, 0.0, 0.0)
             Vector3d(point.position).fma(offset, right)
         }
-        val startCorrection = Vector3d(fromAnchor.position).sub(rawOffsetPositions.first())
-        val endCorrection = Vector3d(toAnchor.position).sub(rawOffsetPositions.last())
-        if (startCorrection.length() > maxEndpointCorrection || endCorrection.length() > maxEndpointCorrection) {
-            return null
-        }
-        val totalArc = curve.totalArcLength
-        val offsetPositions = rawOffsetPositions.mapIndexed { index, position ->
-            val ratio = if (totalArc > 1e-12) {
-                (centerPoints[index].arcLength / totalArc).coerceIn(0.0, 1.0)
-            } else if (rawOffsetPositions.size > 1) {
-                index.toDouble() / (rawOffsetPositions.size - 1).toDouble()
-            } else {
-                0.0
-            }
-            Vector3d(position)
-                .fma(1.0 - ratio, startCorrection)
-                .fma(ratio, endCorrection)
-        }
+        val offsetPositions = rawOffsetPositions
         val cumulative = MutableList(offsetPositions.size) { 0.0 }
         for (i in 1 until offsetPositions.size) {
             cumulative[i] = cumulative[i - 1] + offsetPositions[i - 1].distance(offsetPositions[i])

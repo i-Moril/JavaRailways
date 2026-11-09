@@ -116,12 +116,20 @@ object RailCurveFactory {
             else -> CurveTemplateMatch(options.template, "用户指定模板: ${options.template.displayName}")
         }
 
-        return when (match.template) {
+        val result = when (match.template) {
             RailCurveTemplateType.STRAIGHT,
             RailCurveTemplateType.TWO_POINT_STRAIGHT -> buildStraight(prepared, options, match)
             RailCurveTemplateType.FIVE_SEGMENT -> buildFiveSegment(prepared, options, match)
             RailCurveTemplateType.S_CURVE -> buildSCurve(prepared, options, match)
             RailCurveTemplateType.AUTO -> error("AUTO should be resolved before build")
+        }
+        if (result !is RailCurveBuildResult.Success) return result
+        return try {
+            val corrected = CurveEndpointCorrection.correct(result.curve, prepared.fromPos,
+                prepared.toPos, result.logicalBreakFractions)
+            result.copy(curve = corrected.curve, logicalBreakFractions = corrected.logicalBreakFractions)
+        } catch (failure: IllegalArgumentException) {
+            RailCurveBuildResult.failure(failure.message ?: "曲线端点修正失败", match.template, match.reason)
         }
     }
 

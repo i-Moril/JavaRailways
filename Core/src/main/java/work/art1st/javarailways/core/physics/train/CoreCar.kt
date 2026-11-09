@@ -301,8 +301,8 @@ class CoreCar @MainThread internal constructor(
             var traversed = 0.0
             for (segment in segments) {
                 if (segment.railView === target.railView &&
-                    target.arcLength >= segment.startArcLength - AXLE_TOLERANCE &&
-                    target.arcLength <= segment.endArcLength + AXLE_TOLERANCE
+                    target.arcLength >= segment.startArcLength - PATH_LOCATION_EPSILON_METERS &&
+                    target.arcLength <= segment.endArcLength + PATH_LOCATION_EPSILON_METERS
                 ) return traversed + target.arcLength - segment.startArcLength
                 traversed += segment.totalArcLength
             }
@@ -395,7 +395,7 @@ class CoreCar @MainThread internal constructor(
                 val start = previousTail.railView.getRailLocationAt(previousTail.arcLength + lower)
                 val path = SolvePath(start.peekCurve(deltaS - lower + FORWARD_SEARCH_RADIUS_METERS + bogieDistance * 2))
                 val headDistance = path.distanceTo(headBogieNewLocation) ?: return null
-                return solveDistance(headDistance, deltaS - lower, AXLE_TOLERANCE,
+                return solveDistance(headDistance, deltaS - lower, GEOMETRY_SOLVE_TOLERANCE_METERS,
                     { distance -> path.locationAt(distance) },
                     { tail -> connectorPosition(tail).distance(headPosition) - bogieDistance }
                 )
@@ -416,7 +416,7 @@ class CoreCar @MainThread internal constructor(
         path: SolvePath
     ): IntermediateResult {
         val headPosition = connectorPosition(headLocation)
-        val distance = solveDistance(path.length, bogieDistance, AXLE_TOLERANCE,
+        val distance = solveDistance(path.length, bogieDistance, GEOMETRY_SOLVE_TOLERANCE_METERS,
             { it }, { distance -> connectorPosition(path.locationAt(distance).reversed).distance(headPosition) - bogieDistance }
         ) ?: throw BogieException(activeTailBogie)
         return positionFromBogies(headLocation, path.locationAt(distance).reversed)
@@ -439,7 +439,7 @@ class CoreCar @MainThread internal constructor(
         val tailPosition = connectorPosition(tailLocation)
         val headDistance = solveDistance(
             minOf(path.length - tailDistance, placementAxleSearchDistance),
-            predictedSpacing, AXLE_TOLERANCE,
+            predictedSpacing, GEOMETRY_SOLVE_TOLERANCE_METERS,
             { it },
             { distance -> connectorPosition(path.locationAt(tailDistance + distance)).distance(tailPosition) - bogieDistance }
         ) ?: throw BogieException(if (reversed) bogieB else bogieA)
@@ -506,7 +506,7 @@ class CoreCar @MainThread internal constructor(
             // A finite path can end before the nominal inner search range; retain the existing
             // chord-based last feasible tail rather than using axle arc length as a substitute.
             val endPosition = connectorPosition(path.locationAt(path.length))
-            val lastTail = solveDistance(path.length, path.length - predictedBogieSpacing, AXLE_TOLERANCE,
+            val lastTail = solveDistance(path.length, path.length - predictedBogieSpacing, GEOMETRY_SOLVE_TOLERANCE_METERS,
                 { distance -> distance },
                 { distance -> connectorPosition(path.locationAt(distance)).distance(endPosition) - bogieDistance }
             ) ?: return null
@@ -514,7 +514,7 @@ class CoreCar @MainThread internal constructor(
         }
         val couplerLength = predecessorTailConnectorLength +
             if (desiredReversed) connectorLengthAtB else connectorLengthAtA
-        val result = solveDistance(maximumDistance, predictedTailDistance, COUPLER_TOLERANCE,
+        val result = solveDistance(maximumDistance, predictedTailDistance, GEOMETRY_SOLVE_TOLERANCE_METERS,
             { distance -> calculatePositionByTailBogie(
                 path.locationAt(distance), path, distance, predictedBogieSpacing, desiredReversed
             ) },
@@ -667,7 +667,7 @@ class CoreCar @MainThread internal constructor(
             deltaS != null -> searchForwardFromPreviousTail(deltaS, prevCarTailPosition, prevCar.activeTailConnectorLength)
             else -> {
                 val path = SolvePath(prevCar.activeTailBogie.activeLocation.peekCurve(-tailBogieSearchDistance * 2))
-                val result = solveDistance(path.length, tailBogieSearchDistance, COUPLER_TOLERANCE,
+                val result = solveDistance(path.length, tailBogieSearchDistance, GEOMETRY_SOLVE_TOLERANCE_METERS,
                     { distance -> calculatePositionByTailBogie(path.locationAt(distance).reversed) },
                     couplerError
                 ) ?: throw BogieException(activeTailBogie)
@@ -802,9 +802,9 @@ class CoreCar @MainThread internal constructor(
 
     companion object {
         internal const val FORWARD_SEARCH_RADIUS_METERS = 1.0
-        // Keep axle anchoring error well below the final 5mm geometry budget, including reload.
-        internal const val AXLE_TOLERANCE = 1e-6
-        private const val COUPLER_TOLERANCE = COUPLER_CONTACT_EPSILON_METERS
+        private const val PATH_LOCATION_EPSILON_METERS = 1e-6
+        // Shared distance residual for axle and coupler solves; final geometry permits 5mm.
+        internal const val GEOMETRY_SOLVE_TOLERANCE_METERS = 1e-3
 
         @JvmStatic
         fun create(

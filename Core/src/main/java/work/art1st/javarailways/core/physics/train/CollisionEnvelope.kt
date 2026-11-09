@@ -13,7 +13,7 @@ import work.art1st.javarailways.core.physics.rail.SweptRailSpan
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailView
 
-/** Same numerical residual as the rigid coupler solve, not the public 5mm geometry tolerance. */
+/** Physical contact comparison epsilon, independent of the 1mm rigid geometry solve residual. */
 internal const val COUPLER_CONTACT_EPSILON_METERS = 1e-5
 
 /** Current contact geometry and finite captured dependencies; not another world index. */

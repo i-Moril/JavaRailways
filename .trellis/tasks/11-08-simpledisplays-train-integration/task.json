@@ -21,6 +21,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Stage 1 ce2bcd44; screen definitions 8cc6bf35. Independent SimpleDisplays JS slice committed as db9c65e in /home/user/.codex/worktrees/ddf5/SimpleDisplays (codex/js-rendering): structured/viewer context, text/icon commands, restricted invocation-local JS, bounded execution and lifecycle. 13 tests pass; API-only consumer and real standalone Paper probe pass. See research/simpledisplays-js-validation.md. Actual PAPI adapter, JR template loading/train snapshots/rendering, visibility config/commands remain pending. Stop for review.",
+  "notes": "Stage1 ce2bcd44; screen definitions8cc6bf35. User rejected standalone JS db9c65e; isolated SimpleDisplays branch reset directly to21f7686 without revert. Replacement XML embedded scripts/document API committed410af2e with direct parent21f7686. 15 actual Graal tests pass, independent review/API-only compilation/real standalone Paper probe pass. See research/xml-document-js-contract.md and xml-document-js-validation.md. Actual Folia/client acceptance unverified. JR package template loading, PAPI adapter, mounted rendering/train data and distance controls deferred. Stop for review.",
   "meta": {}
 }

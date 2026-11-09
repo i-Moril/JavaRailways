@@ -1,5 +1,7 @@
 # Design
 
+> Current slice: XML-embedded JS with the document API. The standalone JS implementation was abandoned; the library branch was reset directly to `21f7686` at the user's request. [Authoritative replacement contract](research/xml-document-js-contract.md). Older standalone-JS notes below are historical.
+
 ## Ownership and boundaries
 
 SimpleDisplays owns XML compilation, data binding, icon animation, logical screen coordinates, and the public draw-result types. Its standalone plugin owns its preview command and native world placement.
@@ -201,3 +203,9 @@ as the mechanism owner. JavaRailways remains only the task planning/evidence hol
 ## Implemented library milestone (2026-11-09)
 
 The independent JS library slice above is now implemented as SimpleDisplays `db9c65e`. Earlier discussion sections describe the pre-implementation baseline and alternatives, not the current absence of JS. The implemented contract uses synchronous `render(ctx, draw)` command emission, a caller-injected synchronous placeholder resolver, fresh contexts and fixed execution/data limits. Future JR caching, asynchronous scheduling and actual PAPI integration remain proposals. See [the validation record](research/simpledisplays-js-validation.md) and the SimpleDisplays README for the actual API and limits.
+
+## XML/document JS revision (2026-11-09)
+
+The user superseded the standalone JS design and asked to redo from `21f7686` without a revert commit. The authoritative current slice is [XML/document JS contract](research/xml-document-js-contract.md). Earlier standalone-JS implementation/evidence is historical and not the current API. Package template wiring remains deferred.
+
+Current implementation: SimpleDisplays `410af2e`, XML → invocation-local document/JS → existing XML layout → TextDraw. Direct parent `21f7686`; no revert. See [replacement evidence](research/xml-document-js-validation.md).

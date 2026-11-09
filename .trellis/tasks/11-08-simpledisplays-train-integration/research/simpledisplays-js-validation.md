@@ -1,3 +1,5 @@
+> SUPERSEDED: The user rejected the standalone-JS design and requested resetting the isolated branch directly to `21f7686`, with no revert commit. The results below apply only to abandoned commit `db9c65e`, not the replacement XML/document implementation. See [current contract](xml-document-js-contract.md).
+
 # Independent SimpleDisplays JS validation — 2026-11-09
 
 ## Scope and provenance

@@ -1,5 +1,7 @@
 # Implementation Plan
 
+> Current slice: XML-embedded JS with the document API. The standalone JS implementation was abandoned; the library branch was reset directly to `21f7686` at the user's request. [Authoritative replacement contract](research/xml-document-js-contract.md). Older standalone-JS notes below are historical.
+
 ## 1. Baseline and optional API loading
 
 - [x] Record SimpleDisplays API artifact/version consumption for local development and release packaging.
@@ -104,3 +106,18 @@ This slice precedes template/package wiring and does not implement the entire in
 Source location: `/home/user/.codex/worktrees/ddf5/SimpleDisplays`, `codex/js-rendering`; never build this slice in either original main checkout.
 
 Completed locally as SimpleDisplays `db9c65e`. See [JS validation record](research/simpledisplays-js-validation.md) for 13 passing tests, API-only consumer compilation, actual standalone Paper service probe, artifact hashes and remaining limits. The broader integration task stays in progress; stop here for review.
+
+## XML/document JS revision (2026-11-09)
+
+The user superseded the standalone JS design and asked to redo from `21f7686` without a revert commit. The authoritative current slice is [XML/document JS contract](research/xml-document-js-contract.md). Earlier standalone-JS implementation/evidence is historical and not the current API. Package template wiring remains deferred.
+
+### Replacement XML/document implementation checklist
+
+- [x] Redo from `21f7686` without a revert commit; remove the standalone JS template/API approach.
+- [x] Compile XML with inline scripts and preserve plain XML/scalar binding semantics.
+- [x] Add per-viewer structured context and fresh document-style element operations, followed by existing layout.
+- [x] Bound/validate DOM mutations and full-frame output; verify isolation, cancellation and resource close.
+- [x] Test actual Graal execution, API-only consumer and standalone Paper service loading.
+- [x] Review library source/docs, record replacement evidence and commit the focused slice.
+
+Replacement committed as SimpleDisplays `410af2e`, directly parented by `21f7686`; no revert commit. See [replacement validation](research/xml-document-js-validation.md): 15 passing actual Graal tests, independent full review, API-only consumer and successful standalone Paper probe. Stop for review; whole train-integration task remains in progress.

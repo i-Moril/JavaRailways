@@ -1,5 +1,7 @@
 # Integrate SimpleDisplays with train-mounted displays
 
+> Current slice: XML-embedded JS with the document API. The standalone JS implementation was abandoned; the library branch was reset directly to `21f7686` at the user's request. [Authoritative replacement contract](research/xml-document-js-contract.md). Older standalone-JS notes below are historical.
+
 ## Goal
 
 Soft-integrate the SimpleDisplays display engine with JavaRailways train packages, display categories, package-provided styles, runtime overrides, and train-mounted rendering.
@@ -62,3 +64,9 @@ Soft-integrate the SimpleDisplays display engine with JavaRailways train package
 - Independent source worktree: `/home/user/.codex/worktrees/ddf5/SimpleDisplays`, branch `codex/js-rendering`, base `21f7686`. Keep the original SimpleDisplays and JavaRailways main checkouts unchanged.
 
 - Completed independent library slice as SimpleDisplays `db9c65e`; API documentation lives in that repository README. See [validation](research/simpledisplays-js-validation.md). Actual PAPI adaptation and JavaRailways use of JS remain pending.
+
+## XML/document JS revision (2026-11-09)
+
+The user superseded the standalone JS design and asked to redo from `21f7686` without a revert commit. The authoritative current slice is [XML/document JS contract](research/xml-document-js-contract.md). Earlier standalone-JS implementation/evidence is historical and not the current API. Package template wiring remains deferred.
+
+Replacement library slice completed as `410af2e` with XML embedded scripts/document API. See [replacement validation](research/xml-document-js-validation.md); package template loading and train rendering remain pending.

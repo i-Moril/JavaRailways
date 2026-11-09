@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "displays-draft.schema.json",
+  "title": "JavaRailways package display configuration draft",
+  "description": "Review-only draft; runtime loader is not implemented.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "config-version",
+    "templates"
+  ],
+  "properties": {
+    "config-version": {
+      "const": 1
+    },
+    "templates": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/template"
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "default": {},
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/identifier"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\S+$"
+    },
+    "template": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\\\]+\\.xml$",
+          "description": "Package-relative XML path. Loader must enforce canonical containment and readable file existence."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+# 设计示例，尚无运行时加载器；引用的XML文件仅用于说明。
+config-version: 1
+
+templates:
+  destination:
+    file: displays/destination.xml
+  cabin_stops:
+    file: displays/cabin_stops.xml
+
+defaults:
+  head_led: destination
+  side_led: destination
+  cabin_side_lcd: cabin_stops

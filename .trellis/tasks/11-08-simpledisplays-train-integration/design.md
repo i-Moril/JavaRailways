@@ -209,3 +209,7 @@ The independent JS library slice above is now implemented as SimpleDisplays `db9
 The user superseded the standalone JS design and asked to redo from `21f7686` without a revert commit. The authoritative current slice is [XML/document JS contract](research/xml-document-js-contract.md). Earlier standalone-JS implementation/evidence is historical and not the current API. Package template wiring remains deferred.
 
 Current implementation: SimpleDisplays `410af2e`, XML → invocation-local document/JS → existing XML layout → TextDraw. Direct parent `21f7686`; no revert. See [replacement evidence](research/xml-document-js-validation.md).
+
+## 配置表达规范与模板声明草案
+
+用户确认先建立同类概念的共同表达规则，再设计显示配置。参见[共同规范及逐项对照](research/config-schema-conventions.md)、[displays.yml草案](schema/displays.example.yml)和[草案schema](schema/displays-draft.schema.json)。这是设计材料；不调整已有内联部件版本、动画定义集合或正式schema。模板统一引用XML，内嵌JS由SimpleDisplays处理，无独立type/重复尺寸。下一实施批次需以审阅后的格式为准。

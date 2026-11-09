@@ -71,6 +71,12 @@ The checklist below is not one implementation batch.
 - [ ] Test two runs of the same train package with different stop patterns and pass stations.
 - [ ] Commit and stop for review.
 
+## 6.5 配置格式一致性子任务（最终验收前）
+
+- [ ] 完成其余SimpleDisplays集成功能后，执行子任务 [11-09-model-config-schema-consistency](../11-09-model-config-schema-consistency/prd.md)。
+- [ ] 内联部件版本归属与命名动画定义格式调整在该子任务独立实现/审查/提交；当前继续功能开发，不提前修改旧格式。
+- [ ] 子任务完成并同步所有相关schema、解析器和样例后，再进行父任务最终综合验收；日常开发测试不受此排序限制。
+
 ## 7. Overrides, validation, and smoke checks
 
 - [ ] Add server-side train/category style overrides with the agreed non-runtime configuration entry point.

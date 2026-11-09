@@ -2,6 +2,10 @@
 
 状态：TARGET，作者侧设计草案；依据用户确认的共同规则整理，尚未修改已有格式或解析器。范围是 JavaRailways 模型包及即将新增的显示模板配置，不扩展到所有插件配置或 Minecraft 资源包。显示模板 schema 供本轮审阅，加载实现仍未开始。
 
+## 执行安排（用户指定）
+
+已有格式调整已拆为独立子任务 [11-09-model-config-schema-consistency](../../11-09-model-config-schema-consistency/prd.md)，在SimpleDisplays其他工作完成后、父任务最终综合验收前执行。当前只沿用这些原则设计新增显示配置，不提前修改内联部件版本或动画定义格式。
+
 ## 表达同一种含义时使用同一种结构
 
 - YAML 字段使用 kebab-case；`name` 是独立命名定义的身份，`display-name` 是展示文本。包内命名集合的 map key 是该条定义的身份，不在值中重复声明 name/id。独立文件有需要时保留 name；这与集合中的 key 是同一身份在不同容器中的表达。

@@ -1,0 +1,28 @@
+{
+  "id": "model-config-schema-consistency",
+  "name": "model-config-schema-consistency",
+  "title": "统一模型包配置的同类结构表达",
+  "description": "在SimpleDisplays其余集成工作完成后、最终验收前，独立统一内联部件版本归属和命名动画定义等同类结构表达，并同步schema、解析器、样例与验证。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": "模型包内联部件版本归属与命名动画定义表达；同步对应schema/解析器/样例/消费者",
+  "package": "bukkit-plugin",
+  "priority": "P1",
+  "creator": "ARTI5T",
+  "assignee": "ARTI5T",
+  "createdAt": "2026-11-09",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "11-08-simpledisplays-train-integration",
+  "relatedFiles": [],
+  "notes": "用户明确指定延期子任务：SimpleDisplays其余工作结束后、父任务最终综合验收前执行。当前仅登记，保持planning，不激活。新增displays.yml按共同原则继续开发，旧格式调整在此集中处理。",
+  "meta": {
+    "execution_order": "after_remaining_simpledisplays_work_before_final_acceptance"
+  }
+}

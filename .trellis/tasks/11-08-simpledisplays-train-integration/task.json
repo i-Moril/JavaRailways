@@ -18,9 +18,11 @@
   "commit": null,
   "pr_url": null,
   "subtasks": [],
-  "children": [],
+  "children": [
+    "11-09-model-config-schema-consistency"
+  ],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Stage1 ce2bcd44; screen definitions8cc6bf35. User rejected standalone JS db9c65e; isolated SimpleDisplays branch reset directly to21f7686 without revert. Replacement XML embedded scripts/document API committed410af2e with direct parent21f7686. 15 actual Graal tests pass, independent review/API-only compilation/real standalone Paper probe pass. See research/xml-document-js-contract.md and xml-document-js-validation.md. Actual Folia/client acceptance unverified. JR package template loading, PAPI adapter, mounted rendering/train data and distance controls deferred. Stop for review.",
+  "notes": "Stage1 ce2bcd44; screen definitions8cc6bf35. User rejected standalone JS db9c65e; isolated SimpleDisplays branch reset directly to21f7686 without revert. Replacement XML embedded scripts/document API committed410af2e with direct parent21f7686. 15 actual Graal tests pass, independent review/API-only compilation/real standalone Paper probe pass. See research/xml-document-js-contract.md and xml-document-js-validation.md. Actual Folia/client acceptance unverified. JR package template loading, PAPI adapter, mounted rendering/train data and distance controls deferred. Stop for review. 用户另指定配置格式一致性调整为延期子任务11-09-model-config-schema-consistency：其余SimpleDisplays工作完成后、最终综合验收前执行；当前不启动。",
   "meta": {}
 }

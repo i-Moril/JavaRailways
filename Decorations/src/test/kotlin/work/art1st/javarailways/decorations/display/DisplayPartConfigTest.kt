@@ -1,12 +1,42 @@
 package work.art1st.javarailways.decorations.display
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
 class DisplayPartConfigTest {
+    @Test fun `optional template defaults to absent and accepts only valid string identifiers`() {
+        val base = Json.parseToJsonElement("""{"category":"cabin","interior":true,"width":0.8,"height":0.45}""").jsonObject
+        assertNull(DisplayPartConfig.parse(base, "part cabin").template)
+        val explicit = kotlinx.serialization.json.JsonObject(base + ("template" to JsonPrimitive("cabin-main")))
+        assertEquals("cabin-main", DisplayPartConfig.parse(explicit, "part cabin").template)
+        listOf(JsonNull, JsonPrimitive(1), JsonPrimitive(true), JsonPrimitive(""), JsonPrimitive("bad id"),
+            Json.parseToJsonElement("[]"), Json.parseToJsonElement("{}")).forEach { invalid ->
+            assertThrows<IllegalArgumentException> {
+                DisplayPartConfig.parse(kotlinx.serialization.json.JsonObject(base + ("template" to invalid)), "part cabin")
+            }
+        }
+        assertThrows<IllegalArgumentException> { DisplayPartConfig("cabin", true, 1.0, 1.0, "bad id") }
+    }
+
+    @Test fun `optional installation door side is strict lowercase and defaults absent`() {
+        val base = Json.parseToJsonElement("""{"category":"cabin","interior":true,"width":0.8,"height":0.45}""").jsonObject
+        assertNull(DisplayPartConfig.parse(base, "part cabin").doorSide)
+        for (side in listOf("left", "right")) {
+            assertEquals(side, DisplayPartConfig.parse(kotlinx.serialization.json.JsonObject(base + ("door-side" to JsonPrimitive(side))), "part cabin").doorSide)
+        }
+        for (invalid in listOf(JsonNull, JsonPrimitive(1), JsonPrimitive(true), JsonPrimitive(""), JsonPrimitive("LEFT"), JsonPrimitive("both"), JsonPrimitive(" left "))) {
+            assertThrows<IllegalArgumentException> {
+                DisplayPartConfig.parse(kotlinx.serialization.json.JsonObject(base + ("door-side" to invalid)), "part cabin")
+            }
+        }
+        assertThrows<IllegalArgumentException> { DisplayPartConfig("cabin", true, 1.0, 1.0, doorSide = "RIGHT") }
+    }
+
     @Test fun `four display fields retain installation semantics`() {
         assertEquals(DisplayPartConfig("custom-category", true, 0.8, 0.45),
             DisplayPartConfig.parse(Json.parseToJsonElement("""{"category":"custom-category","interior":true,"width":0.8,"height":0.45}""").jsonObject, "part cabin"))

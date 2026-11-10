@@ -110,7 +110,7 @@ internal class SimpleDisplaysBinding(host: Plugin, owner: Plugin) : SimpleDispla
                 require(compiled.width.isFinite() && compiled.width > 0 && compiled.height.isFinite() && compiled.height > 0) { "Invalid logical canvas dimensions" }
                 val unit = minOf(config.width / compiled.width, config.height / compiled.height)
                 require(unit.isFinite() && unit > 0) { "Invalid canvas fitting scale" }
-                val data = input.data.entries.associate { it.key to jsonValue(it.value, 0) }
+                val data = withDisplayInstallation(input.data, config).entries.associate { it.key to jsonValue(it.value, 0) }
                 val draws = compiled.draw(DisplayContext(data = data, elapsedTicks = input.elapsedTicks))
                 require(draws.size <= 1024) { "Display frame exceeds 1024 text nodes" }
                 PartExtensionFrame(draws.map { draw ->

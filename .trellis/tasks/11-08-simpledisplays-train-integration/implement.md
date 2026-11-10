@@ -1,6 +1,6 @@
 # Implementation Plan
 
-> Current slice: package display XML loading and source-package snapshots; see [approved contract](research/package-display-loading-contract.md). Independent XML/document JS is complete at SimpleDisplays `410af2e`. Standalone-JS notes below are historical; the old-format consistency child remains deferred until pre-acceptance.
+> Current: [interior distance](research/interior-distance-contract.md), implemented with compilation only; user defers integrated testing until the remaining work is complete. Operational data changes remain uncommitted. Culling is assessment only; fixed-unit style overrides are implemented with compilation only.
 
 ## 1. Baseline and optional API loading
 
@@ -198,4 +198,80 @@ Replacement committed as SimpleDisplays `410af2e`, directly parented by `21f7686
 - [x] 动态文字复用/数量变化/EMPTY/清理，自动验证及实际Paper双后端。
 - [x] 同步文档、记录证据，提交前报告。
 
-本批完成、尚未提交。宿主定向43项、Decorations39项通过；宿主全量787项仅有既有ProgramExpressionsTest失败、1skip、0errors。打包/Devcompile/thinJAR gate通过；真实Paper双后端XML/document JS的结构化数据、elapsed ticks、实体复用、grow/EMPTY/recover及清理通过，缺失插件组合通过。见[动态验证](research/dynamic-train-input-validation.md)。运营站点/目的地/种别、逐观看者画面、车内距离设置后续分批；PAPI适配不属于本任务。
+本批已提交09da5fbc。宿主定向43项、Decorations39项通过；宿主全量787项仅有既有ProgramExpressionsTest失败、1skip、0errors。打包/Devcompile/thinJAR gate通过；真实Paper双后端XML/document JS的结构化数据、elapsed ticks、实体复用、grow/EMPTY/recover及清理通过，缺失插件组合通过。见[动态验证](research/dynamic-train-input-validation.md)。运营站点/目的地/种别、逐观看者画面、车内距离设置后续分批；PAPI适配不属于本任务。
+
+## 当前实施：实际运营显示输入
+
+动态刷新已提交09da5fbc；按[运营输入合同](research/operational-display-input-contract.md)实施。
+
+- [x] SimpleATO fresh owner batch/unit identity/revision/current berth proof。
+- [x] Bukkit immutable authored values/remaining stop occurrences/aliases projection。
+- [x] post-dispatcher sampling and stale-context invalidation/clear/cadence。
+- [x] 回归、打包与实际Paper双后端，规范/验证记录及提交前报告。
+
+本批实现与验证完成，尚未提交。SimpleATO824、Core546、Basic469通过；宿主全量799仅有既有ProgramExpressionsTest失败、1skip、0errors。宿主定向39与Decorations39、打包/Devcompile/Javaconsumer/thinJAR gate及实际Paper双后端运营投影/JS/失效清屏/恢复通过。详见[运营输入验证](research/operational-display-input-validation.md)。下一批候选为车内观看距离/config/player命令；逐观看者画面和覆盖式样仍另分批，PAPI不属于本任务。
+
+## 当前实施：车内屏幕视距
+
+用户确认按玩家距屏幕计算，整体验证留到全部完成之后；详见[视距合同](research/interior-distance-contract.md)及[Culling评估](research/interior-display-culling-assessment.md)。
+
+- [x] 宿主通用 immutable audience policy、逐屏幕最终坐标与玩家眼睛距离、候选/可见观众分离。
+- [x] root-only移动、父级/动画变换、已有观众合并刷新、命令即时刷新、late replay复查。
+- [x] 无可见观众暂停draw、warm-open不默认draw、保留最新输入与source clock、返回补帧。
+- [x] Decorations默认32/最大128格严格config、0关闭、查询/设置/reset命令、权限、quit/disable清理。
+- [x] 准备host/addon回归案例；源码和测试源码编译检查（不执行测试）。
+- [x] culling可行性/复杂度与限制记录；没有启用背面/视锥/遮挡算法。
+- [ ] 最终统一执行测试套件、真实Paper双后端、Folia和客户端验收（用户要求延后）。
+
+本批未提交、未部署。视距改变了旧Paper无观众探针的前提；后续统一验证需要真实/显式观众，不能复用此前无观众仍draw的旧通过记录作为当前验收证据。下一批为样式覆盖，先确认覆盖对象和生命周期。
+
+## 当前实施：样式选择流程
+
+用户确认先不加额外剔除策略，完成流程后统一验证。按[样式合同](research/style-selection-contract.md)先接独立的屏幕默认模板 > 包类别默认模板与严格来源引用校验。运行期覆盖的对象/生命周期已提出文字澄清；它决定解编重联继承与是否持久化，相关实现等待答复，不把提案写成已确认决策。
+
+- [x] 屏幕可选template默认、精确来源引用校验及schema/案例；源码/测试源码编译通过，尚未运行测试。
+- [ ] 按用户选择补运行期覆盖对象、生命周期和替换会话合同，再实现覆盖入口。
+- [ ] 最后统一执行测试与服务端/客户端验收。
+
+静态模板默认编译记录：/tmp/jr-style-default-compile.log，BUILD SUCCESSFUL（3s），未运行测试/服务器、未提交。用户要求比较运行期覆盖方案，尚未选择；当前只实现不依赖该选择的静态默认。额外culling已明确不加入。
+
+
+## 当前实施：固定单元样式覆盖（2026-11-10，方案2）
+
+用户选择 fixed unit + category，runtime-only；详见[确认合同](research/style-selection-contract.md#confirmed-fixed-unit-runtime-slice-user-selected-option2)。本节取代上方等待 scope 答复的历史状态。
+
+- [x] 世界/actual unit ID/类别 store、全部 captured catalog 原子校验、交集查询、重建/解编/重联保留。
+- [x] 公开 DisplayStyleService、玩家查询/设置/reset 命令、OP权限、entity scheduler、world unload/disable清理与epoch。
+- [x] host 通用 metadata update/render revision/注册刷新；隐藏只更新绑定；切换清旧输出拒绝旧帧、按需替换private模板、保留source clock。
+- [x] 准备 store/routing/command/host deferred 回归；host及Decorations源码/测试源码编译通过。
+- [ ] 统一执行测试、Paper双后端、Folia、真实客户端与解编重联/重建/卸载验证。
+
+编译日志 /tmp/jr-unit-style-compile.log（BUILD SUCCESSFUL，5s）；未执行测试/服务器，未提交/推送/部署。最后提交仍09da5fbc。当前树包含此前运营投影、视距、静态默认及本批覆盖，不能将旧批测试通过当成当前验收。逐观看者挂载内容、schema一致性子任务及总验收仍未完成。
+
+
+## 后移逐观看者内容（用户确认，2026-11-10）
+
+逐观看者挂载画面与 PlaceholderAPI 一起后移，不作为本次验收前置。当前只验收共享画面及每玩家独立视距；独立 SimpleDisplays 库已有 viewer 输入能力保持不变。下一阶段为已登记的 schema 一致性子任务，再统一验证。之前“逐观看者挂载内容仍需验收前完成”的状态由本节取代。
+
+
+## 车辆信息显示切换时机后移（2026-11-10）
+
+当前阶段仅跟随 actual currentRun，在实际运行线期间保持显示。提前切换到下一运行线、独立displayRun或切换动作均不实现；后续讨论项登记在PRD TODO。站点输入改为完整有序站点序列+精确索引+到站/在途状态，替代本轮最初的completedStops额外列表提案；该新接口仍待实现，不宣称已完成。
+
+
+## 当前实施：完整站点序列与进度接口
+
+用户允许按[站点接口合同](research/stop-sequence-contract.md)修改。最小owner为SimpleATO的call/到站进度，宿主仅做immutable JSON投影；保持实际currentRun，无提前切换显示。
+
+- [x] 完整有序stops、exact occurrence索引和到站/在途/未知/结束状态。
+- [x] 宿主投影、模板接口文档、deferred回归与语义失效接线。
+- [x] 串行源码及测试源码编译、静态检查；不执行统一测试或部署。
+
+本批已实现、静态复查与源码/测试源码编译通过；详见[证据](research/stop-sequence-validation.md)。测试执行与Paper/Folia/client仍待统一验收，未提交或部署。
+
+
+## 本侧/对侧开门接口
+
+用户确认复用实际开门的折返与逐车安装方向语义，按[本批合同](research/door-side-display-contract.md)实现。原始开门侧由SimpleATO拥有，逐车操纵端换算由宿主复用已有helper，Decorations只比较固定安装侧。继续仅编译/静态检查，测试及服务器验收后置。
+
+本侧/对侧开门数据接入已完成：SimpleATO有效站停门侧、host逐车操纵端、Decorations固定安装侧比较；源码/测试源码编译与独立静态复查通过。详见[证据](research/door-side-display-validation.md)。未执行测试、未提交或部署；实际模板和客户端验收随后。

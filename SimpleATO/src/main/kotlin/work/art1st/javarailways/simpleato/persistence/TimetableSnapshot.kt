@@ -660,10 +660,10 @@ data class SavedTimetableRunCallV1(val id: String, val stationId: String, val de
 @Serializable
 data class SavedTimetableRunSegmentV1(val runId: String, val lineId: String, val startStepIndex: Int,
     val endStepIndexExclusive: Int, val diagramLineId: String? = null, val lineDirection: SavedDiagramDirectionV1? = null,
-    val calls: List<SavedTimetableRunCallV1> = emptyList()) {
+    val calls: List<SavedTimetableRunCallV1> = emptyList(), val metadata: JsonObject = JsonObject(emptyMap())) {
     fun restore() = TimetableRunSegment(runId,LineId(lineId),startStepIndex,endStepIndexExclusive,diagramLineId,
-        lineDirection?.let { work.art1st.javarailways.simpleato.api.line.LineDirection.valueOf(it.name) },calls.map { it.restore() })
-    companion object { fun capture(value: TimetableRunSegment) = SavedTimetableRunSegmentV1(value.runId,value.lineId.value,value.startStepIndex,value.endStepIndexExclusive,value.diagramLineId,value.lineDirection?.let { SavedDiagramDirectionV1.valueOf(it.name) },value.calls.map(SavedTimetableRunCallV1::capture)) }
+        lineDirection?.let { work.art1st.javarailways.simpleato.api.line.LineDirection.valueOf(it.name) },calls.map { it.restore() },metadata)
+    companion object { fun capture(value: TimetableRunSegment) = SavedTimetableRunSegmentV1(value.runId,value.lineId.value,value.startStepIndex,value.endStepIndexExclusive,value.diagramLineId,value.lineDirection?.let { SavedDiagramDirectionV1.valueOf(it.name) },value.calls.map(SavedTimetableRunCallV1::capture),value.metadata) }
 }
 @Serializable
 data class SavedTimetableOperationalTripSegmentV1(val serviceId: String, val runId: String, val unitSlots: List<Int>) {

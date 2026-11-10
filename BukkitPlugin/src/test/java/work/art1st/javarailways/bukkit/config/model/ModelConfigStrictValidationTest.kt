@@ -22,7 +22,7 @@ class ModelConfigStrictValidationTest {
 
         for ((field, time) in listOf("commands" to "duration", "keyframes" to "at")) {
             val animationFailure = assertThrows(IllegalArgumentException::class.java) {
-                PartRegistry.parseAnimations(listOf(mapOf("name" to "doors", field to listOf(
+                PartRegistry.parseAnimations(mapOf("doors" to mapOf(field to listOf(
                     mapOf(time to 0.0, "item-type" to "NOT_A_MATERIAL")
                 ))))
             }

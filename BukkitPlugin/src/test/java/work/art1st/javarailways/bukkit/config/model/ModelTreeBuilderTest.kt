@@ -67,8 +67,7 @@ class ModelTreeBuilderTest {
             offset: {x: 2.0}
             rotation: {z: 10.0}
             parts:
-              - config-version: 1
-                name: inline
+              - name: inline
                 type: dummy
                 offset: {x: 1.0, y: 3.0}
                 rotation: {z: 30.0}

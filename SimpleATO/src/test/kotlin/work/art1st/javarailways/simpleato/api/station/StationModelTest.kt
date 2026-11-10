@@ -1,5 +1,14 @@
 package work.art1st.javarailways.simpleato.api.station
 
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+
 import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 import org.junit.jupiter.api.function.Executable
 import org.junit.jupiter.api.Assertions.assertAll
@@ -151,6 +160,8 @@ class StationModelTest {
 
         firstStations.register(station, listOf(firstBerth))
         secondStations.register(station, listOf(secondBerth))
+        firstStations.updateMetadata(stationId, JsonObject(mapOf("world" to JsonPrimitive("first"))), JsonObject(emptyMap()))
+        assertEquals(JsonObject(emptyMap()), secondStations[stationId]!!.metadata)
         firstStations.remove(stationId)
 
         assertNull(firstStations[stationId])
@@ -158,6 +169,78 @@ class StationModelTest {
         assertEquals(RailObjectLifecycleState.ACTIVE, secondBerth.lifecycleState)
         assertNotSame(firstStations, secondStations)
         assertTrue(secondStations.all().single().id == stationId)
+    }
+
+    @Test
+    fun `metadata is recursively immutable and object key order does not create conflicts`() {
+        val location = fixture("metadata").location
+        val store = StationStore(RailObjectStore())
+        val id = StationId("central")
+        val ref = StationBerthRef(id, "one")
+        val nested = linkedMapOf<String, JsonElement>("name" to JsonPrimitive("Line 2"))
+        val transfers = mutableListOf<JsonElement>(JsonObject(nested))
+        val source = linkedMapOf<String, JsonElement>(
+            "transfers" to JsonArray(transfers), "notice" to JsonPrimitive("hello")
+        )
+        store.register(Station(id, "Central", listOf(ref), metadata = JsonObject(source)),
+            listOf(StationBerth(ref, location)))
+        nested.clear()
+        transfers.clear()
+        source.clear()
+        val original = requireNotNull(store[id]).metadata
+        assertEquals("Line 2", original["transfers"]!!.jsonArray.single().jsonObject["name"]!!.jsonPrimitive.content)
+        assertThrows(UnsupportedOperationException::class.java) {
+            (original["transfers"]!!.jsonArray.subList(0, 1) as MutableList<JsonElement>).clear()
+        }
+        assertThrows(UnsupportedOperationException::class.java) {
+            (original["transfers"]!!.jsonArray.single().jsonObject.values as MutableCollection<JsonElement>).clear()
+        }
+        val expectedReordered = JsonObject(original.entries.reversed().associate { it.toPair() })
+        val updated = store.updateMetadata(id, JsonObject(mapOf("notice" to JsonPrimitive("changed"))), expectedReordered)
+        assertEquals("changed", updated.metadata["notice"]!!.jsonPrimitive.content)
+        assertThrows(StationMetadataConflict::class.java) { store.updateMetadata(id, original, original) }
+        assertEquals(updated, store[id])
+        assertThrows(NoSuchElementException::class.java) {
+            store.updateMetadata(StationId("missing"), JsonObject(emptyMap()), JsonObject(emptyMap()))
+        }
+    }
+
+    @Test
+    fun `metadata survives berth edits but deleting the final berth removes it`() {
+        val location = fixture("metadata-berths").location
+        val store = StationStore(RailObjectStore())
+        val id = StationId("central")
+        val first = StationBerthRef(id, "one")
+        val second = StationBerthRef(id, "two")
+        val metadata = JsonObject(mapOf("enabled" to JsonPrimitive(true)))
+        store.addBerth(id, "Central", StationBerth(first, location))
+        store.updateMetadata(id, metadata, JsonObject(emptyMap()))
+        store.addBerth(id, "Central", StationBerth(second, location))
+        assertEquals(metadata, store[id]!!.metadata)
+        store.removeBerth(first)
+        assertEquals(metadata, store[id]!!.metadata)
+        store.removeBerth(second)
+        assertNull(store[id])
+        store.addBerth(id, "Central", StationBerth(first, location))
+        assertEquals(JsonObject(emptyMap()), store[id]!!.metadata)
+    }
+
+    @Test
+    fun `metadata rejects invalid numbers excessive depth size and node count`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            StationMetadata.immutableCopy(JsonObject(mapOf("bad" to JsonPrimitive(Double.NaN))))
+        }
+        var deep: JsonElement = JsonNull
+        repeat(StationMetadata.MAX_DEPTH + 1) { deep = JsonArray(listOf(deep)) }
+        assertThrows(IllegalArgumentException::class.java) {
+            StationMetadata.immutableCopy(JsonObject(mapOf("deep" to deep)))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            StationMetadata.immutableCopy(JsonObject(mapOf("large" to JsonPrimitive("界".repeat(StationMetadata.MAX_BYTES / 2)))))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            StationMetadata.immutableCopy(JsonObject(mapOf("many" to JsonArray(List(StationMetadata.MAX_NODES) { JsonNull }))))
+        }
     }
 
     private fun fixture(id: String): Fixture {

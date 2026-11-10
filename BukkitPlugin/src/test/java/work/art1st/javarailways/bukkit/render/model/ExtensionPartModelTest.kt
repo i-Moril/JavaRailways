@@ -37,7 +37,7 @@ class ExtensionPartModelTest {
         try {
             composite.setAnimationScenes(mapOf("position" to "raised"))
             composite.updateState(CompactTransform(position = Vector3d(1.0, 0.0, 0.0)))
-            assertTrue(entered.await(2, TimeUnit.SECONDS))
+            f.driveUntil(composite) { entered.count == 0L }
             composite.showTo(f.player)
             f.calls.clear()
             composite.updateRootPosition(Vector3d(50.0, 0.0, 0.0))
@@ -83,7 +83,7 @@ class ExtensionPartModelTest {
     @Test fun `same UUID replacement viewer gets a new token and stale player hide cannot revoke it`() = fixture { f ->
         val registration = f.register { f.frame() }
         val composite = f.composite(f.group())
-        val replacement = proxy(Player::class.java) { name, _ -> if (name == "getUniqueId") VIEWER else error(name) }
+        val replacement = f.viewer(VIEWER)
         try {
             composite.showTo(f.player)
             composite.updateState(CompactTransform())
@@ -115,7 +115,7 @@ class ExtensionPartModelTest {
         val composite = f.composite(f.group())
         try {
             composite.updateState(CompactTransform())
-            assertTrue(entered.await(2, TimeUnit.SECONDS))
+            f.driveUntil(composite) { entered.count == 0L }
             val retired = composite.destroy().toCompletableFuture()
             assertFalse(retired.isDone)
             release.countDown()
@@ -235,6 +235,109 @@ class ExtensionPartModelTest {
         } finally { composite.destroy().toCompletableFuture().join(); registration.close() }
     }
 
+    @Test fun `context reset clears old labels and queued audience replay before failed draw and bypasses cadence`() = fixture { f ->
+        val cleanup = CompletableFuture<Void>(); f.pendingCleanup = cleanup
+        val fail = java.util.concurrent.atomic.AtomicBoolean(false)
+        val registration = f.register { if (fail.get()) error("new context draw failed") else f.frame() }
+        val composite = f.composite(f.group())
+        try {
+            composite.showTo(f.player)
+            composite.updateExtensionInput(JsonObject(emptyMap()), 100)
+            composite.updateState(CompactTransform()); f.awaitApplied(composite)
+            composite.invalidateExtensionContext()
+            assertEquals(1, f.visuals.single().destroys)
+            f.calls.clear(); f.dispatcher.drain()
+            assertFalse(f.calls.contains("text-show"), "old queued viewer replay must be invalidated")
+            fail.set(true)
+            composite.updateExtensionInput(JsonObject(emptyMap()), 101)
+            f.driveUntil(composite) { f.inputs.size == 2 }
+            assertEquals(1L, f.inputs.last().elapsedTicks)
+            assertEquals(1, f.descriptors.size, "failed new context must leave the group blank")
+            fail.set(false); f.pendingCleanup = null
+            composite.invalidateExtensionContext()
+            composite.updateExtensionInput(JsonObject(emptyMap()), 102)
+            f.driveUntil(composite) { f.descriptors.size == 2 }
+            assertEquals(2L, f.inputs.last().elapsedTicks, "semantic reset preserves original clock origin")
+            assertEquals(1, f.opens.get(), "semantic reset must reuse the private compiled session")
+            val retired = registration.closeAsync().toCompletableFuture()
+            assertFalse(retired.isDone, "old context cleanup remains owned")
+            cleanup.complete(null); retired.get(2, TimeUnit.SECONDS)
+            assertEquals(0, f.child.destroyed)
+        } finally { cleanup.complete(null); composite.destroy().toCompletableFuture().join(); registration.close() }
+    }
+
+    @Test fun `hidden group warms without drawing then resumes latest source time and settings refresh needs no movement`() = fixture { f ->
+        val limit = java.util.concurrent.atomic.AtomicReference(0.0)
+        f.audiencePolicy = PartExtensionAudiencePolicy { limit.get() }
+        val registration = f.register { f.frame() }
+        val composite = f.composite(f.group())
+        try {
+            composite.updateExtensionInput(JsonObject(emptyMap()), 100)
+            composite.updateState(CompactTransform())
+            f.driveUntil(composite) { f.opens.get() == 1 }
+            f.dispatcher.drain()
+            assertTrue(f.inputs.isEmpty(), "warm open must not evaluate default invisible output")
+            composite.updateExtensionInput(JsonObject(emptyMap()), 150)
+            assertTrue(f.inputs.isEmpty())
+            limit.set(1.0)
+            registration.refreshAudience(VIEWER)
+            f.dispatcher.drain()
+            f.awaitApplied(composite)
+            assertEquals(50L, f.inputs.last().elapsedTicks)
+            f.dispatcher.drain()
+            limit.set(0.0)
+            registration.refreshAudience(VIEWER)
+            f.dispatcher.drain()
+            val draws = f.inputs.size
+            composite.updateExtensionInput(JsonObject(emptyMap()), 160)
+            assertEquals(draws, f.inputs.size)
+            limit.set(1.0)
+            registration.refreshAudience(VIEWER)
+            f.dispatcher.drain()
+            f.driveUntil(composite) { f.inputs.size > draws }
+            assertEquals(60L, f.inputs.last().elapsedTicks)
+        } finally { registration.close(); composite.destroy().toCompletableFuture().join() }
+    }
+
+    @Test fun `distance uses screen offset and root only motion refreshes stationary viewer with coalesced tasks`() = fixture { f ->
+        f.audiencePolicy = PartExtensionAudiencePolicy { 1.0 }
+        val registration = f.register { f.frame() }
+        val composite = f.composite(f.group()) // Eye x3, screen x3, car center x0.
+        try {
+            composite.updateState(CompactTransform())
+            f.awaitApplied(composite)
+            f.dispatcher.drain()
+            f.calls.clear()
+            composite.updateRootPosition(Vector3d(50.0, 0.0, 0.0))
+            composite.updateRootPosition(Vector3d(60.0, 0.0, 0.0))
+            assertEquals(1, f.dispatcher.actions.size, "one refresh per viewer despite repeated root movement")
+            f.dispatcher.drain()
+            assertTrue(f.calls.contains("text-hide"))
+            f.calls.clear()
+            composite.updateRootPosition(Vector3d())
+            f.dispatcher.drain()
+            assertTrue(f.calls.contains("text-show"), "screen returns to the stationary eye at x3")
+        } finally { registration.close(); composite.destroy().toCompletableFuture().join() }
+    }
+
+    @Test fun `style revision retires old frame and redraws same source tick without rebuilding session`() = fixture { f ->
+        val registration = f.register { f.frame() }
+        val composite = f.composite(f.group())
+        try {
+            composite.updateExtensionInput(JsonObject(emptyMap()), 100)
+            f.awaitApplied(composite)
+            registration.refreshRendering()
+            assertEquals(0, f.visuals.first().destroys, "same effective revision must keep output")
+            f.renderRevision.incrementAndGet()
+            registration.refreshRendering()
+            assertEquals(1, f.visuals.first().destroys, "changed selection must clear old output immediately")
+            f.driveUntil(composite) { f.descriptors.size == 2 }
+            assertEquals(0L, f.inputs.last().elapsedTicks, "style selection preserves source clock")
+            assertEquals(1, f.opens.get())
+            assertEquals(0, f.child.destroyed)
+        } finally { composite.destroy().toCompletableFuture().join(); registration.close() }
+    }
+
     private fun fixture(block: (Fixture) -> Unit) {
         val f = Fixture()
         try { block(f) } finally {
@@ -251,10 +354,20 @@ class ExtensionPartModelTest {
         val descriptors = mutableListOf<DisplayVisualDescriptor>()
         val visuals = mutableListOf<Visual>()
         val inputs = java.util.concurrent.CopyOnWriteArrayList<PartExtensionRenderInput>()
+        val opens = java.util.concurrent.atomic.AtomicInteger()
+        val renderRevision = java.util.concurrent.atomic.AtomicLong()
         val dispatcher = QueuedDispatcher()
         val bundles = TrainPacketBundleCoordinator { _, _ -> }
-        val bukkitWorld = proxy(World::class.java) { name, _ -> error("Unexpected world call $name") }
-        val player = proxy(Player::class.java) { name, _ -> if (name == "getUniqueId") VIEWER else error(name) }
+        val worldId = UUID.randomUUID()
+        val bukkitWorld = proxy(World::class.java) { name, _ -> if (name == "getUID") worldId else error("Unexpected world call $name") }
+        var eyeX = 3.0
+        var audiencePolicy = PartExtensionAudiencePolicy.UNRESTRICTED
+        fun viewer(id: UUID) = proxy(Player::class.java) { name, _ -> when (name) {
+            "getUniqueId" -> id
+            "getEyeLocation" -> Location(bukkitWorld, eyeX, 0.0, 0.0)
+            else -> error(name)
+        } }
+        val player = viewer(VIEWER)
         val root = Visual("root", calls)
         val child = Child(world, calls)
         var pendingCleanup: CompletableFuture<Void>? = null
@@ -275,9 +388,14 @@ class ExtensionPartModelTest {
         } }, object : PartExtensionRenderer {
             override val typeId = TYPE
             override fun validate(context: PartExtensionPackage) = Unit
-            override fun open(context: PartExtensionRenderContext) = object : PartExtensionRenderSession {
-                override fun draw(input: PartExtensionRenderInput): PartExtensionFrame { inputs += input; return prepare.invoke() }
-                override fun close() = Unit
+            override fun open(context: PartExtensionRenderContext): PartExtensionRenderSession {
+                opens.incrementAndGet()
+                return object : PartExtensionRenderSession {
+                    override val audiencePolicy = this@Fixture.audiencePolicy
+                    override val renderRevision: Long get() = this@Fixture.renderRevision.get()
+                    override fun draw(input: PartExtensionRenderInput): PartExtensionFrame { inputs += input; return prepare.invoke() }
+                    override fun close() = Unit
+                }
             }
         })
         fun frame() = PartExtensionFrame(listOf(PartExtensionText(Component.text("fixed"), ModelPose(2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0))))
@@ -287,13 +405,20 @@ class ExtensionPartModelTest {
                 .toRuntimeAnimationMap(), TYPE,
             PartExtensionRenderContext("car-source", "pinned", PartExtensionPart("foreign/install", 1, JsonObject(emptyMap())), null),
             service, backend, dispatcher, bundles, 2f)
-        fun composite(group: ExtensionPartModel) = CompositeModel(world, listOf(group), root, bukkitWorld)
+        fun composite(group: ExtensionPartModel, show: Boolean = true) =
+            CompositeModel(world, listOf(group), root, bukkitWorld).also { if (show) it.showTo(player) }
         fun awaitApplied(composite: CompositeModel, x: Double = 0.0) = drive(composite, x) { descriptors.isNotEmpty() }
         fun awaitAttempted(composite: CompositeModel) = drive(composite, 0.0) { attempts > 0 }
         fun driveUntil(composite: CompositeModel, done: () -> Boolean) = drive(composite, 0.0, done)
         private fun drive(composite: CompositeModel, x: Double, done: () -> Boolean) {
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
-            while (!done() && System.nanoTime() < deadline) { composite.updateRootPosition(Vector3d(x, 0.0, 0.0)); Thread.sleep(2) }
+            while (!done() && System.nanoTime() < deadline) {
+                composite.updateRootPosition(Vector3d(x, 0.0, 0.0))
+                // Resolve warm-open/distance refresh before drawing, but leave a completed frame's
+                // queued audience replay for each test to inspect and drain explicitly.
+                if (!done()) dispatcher.drain()
+                Thread.sleep(2)
+            }
             assertTrue(done(), "worker frame was not consumed by owned root commit")
         }
     }

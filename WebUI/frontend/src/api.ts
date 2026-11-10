@@ -1,7 +1,7 @@
 import {ApiError, parseApiError} from './apiErrors';
 import { authoringDocumentForSave,type TimetableAuthoringDocumentV1 } from './authoring';
 import { demoApi, frontendDemoEnabled } from './frontendDev';
-import type { ProgramSimulationRequest, ProgramSimulationResult, StationProgramDefinition, StationProgramRecord, CompiledTimetableSource, DraftSummary, EditorDocumentSummary, LineCollection, LineSimulationRequest,LineSimulationResult, LineV1, RailMapFile, RenderedTimetableScript, SavedLineResult, SavedTimetableV1, TimetableScriptSummary, TimetableSimulationProfileAssignment, TimetableSimulationResult, ValidationResult, WebSessionStatus, WorldMetadata, WorldSummary, WorldIssue, ServerLogSources, ServerLogPage, ServerLogQuery } from './types';
+import type { StationCollection, StationDescriptor, StationMetadataObject, ProgramSimulationRequest, ProgramSimulationResult, StationProgramDefinition, StationProgramRecord, CompiledTimetableSource, DraftSummary, EditorDocumentSummary, LineCollection, LineSimulationRequest,LineSimulationResult, LineV1, RailMapFile, RenderedTimetableScript, SavedLineResult, SavedTimetableV1, TimetableScriptSummary, TimetableSimulationProfileAssignment, TimetableSimulationResult, ValidationResult, WebSessionStatus, WorldMetadata, WorldSummary, WorldIssue, ServerLogSources, ServerLogPage, ServerLogQuery } from './types';
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
  let response:Response;
  try { response=await fetch(url,{...init,headers:{'Content-Type':'application/json',...init?.headers}}); }
@@ -19,6 +19,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 const base = (worldId: string) => `/api/v1/worlds/${encodeURIComponent(worldId)}`;
 const liveApi = {
+ stations:(worldId:string)=>request<StationCollection>(`${base(worldId)}/stations`),
+ saveStationMetadata:(worldId:string,stationId:string,metadata:StationMetadataObject,expectedMetadata:StationMetadataObject)=>request<StationDescriptor>(`${base(worldId)}/stations/${encodeURIComponent(stationId)}/metadata`,{method:'PUT',body:JSON.stringify({metadata,expectedMetadata})}),
  logSources:()=>request<ServerLogSources>('/api/v1/logs/sources'),
  logs:({source,query,cursor}:ServerLogQuery)=>{const params=new URLSearchParams({source});if(query)params.set('query',query);if(cursor)params.set('cursor',cursor);return request<ServerLogPage>(`/api/v1/logs?${params}`);},
  exchangeLoginToken:(token:string)=>request<void>('/auth/exchange',{method:'POST',body:JSON.stringify({token})}),
@@ -60,4 +62,4 @@ const liveApi = {
  validate: (worldId: string, value: SavedTimetableV1) => request<ValidationResult>(`${base(worldId)}/validate`, { method:'POST', body:JSON.stringify(value) }),
  publish: (worldId: string, value: SavedTimetableV1) => request<void>(`${base(worldId)}/publish`, { method:'POST', body:JSON.stringify(value) })
 };
-export const api:typeof liveApi=frontendDemoEnabled?{...demoApi,exchangeLoginToken:liveApi.exchangeLoginToken,logSources:liveApi.logSources,logs:liveApi.logs}:liveApi;
+export const api:typeof liveApi=frontendDemoEnabled?{...demoApi,stations:liveApi.stations,saveStationMetadata:liveApi.saveStationMetadata,exchangeLoginToken:liveApi.exchangeLoginToken,logSources:liveApi.logSources,logs:liveApi.logs}:liveApi;

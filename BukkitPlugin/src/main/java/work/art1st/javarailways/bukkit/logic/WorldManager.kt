@@ -18,6 +18,8 @@ import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
 import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueInput
 import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueKind
+import work.art1st.javarailways.bukkit.behavior.behaviorRelativeTail
+import work.art1st.javarailways.bukkit.config.model.DriverControlEnd
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationService
 import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureResourceService
@@ -29,8 +31,11 @@ import work.art1st.javarailways.bukkit.debug.AbnormalTrainMarker
 import work.art1st.javarailways.bukkit.debug.JavaRailwaysServerTickMetrics
 import work.art1st.javarailways.bukkit.debug.TrainDebugLog
 import work.art1st.javarailways.bukkit.extension.renderChunkManager
+import work.art1st.javarailways.bukkit.extension.train.OperationalPartRenderProjection
+import work.art1st.javarailways.bukkit.extension.train.projectOperationalPartRender
+import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.bukkit.extension.train.TrainPartRenderSnapshot
-import work.art1st.javarailways.bukkit.extension.train.captureTrainPartRenderSnapshot
+import work.art1st.javarailways.bukkit.extension.train.TrainPartRenderSampleCache
 import work.art1st.javarailways.bukkit.extension.train.CarExtension
 import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
 import work.art1st.javarailways.bukkit.extension.bukkitWorldData
@@ -103,7 +108,8 @@ class WorldManager internal constructor(
     }
     private val pendingPeriodicSnapshots = ConcurrentHashMap<BukkitWorld, WorldSnapshotCapture>()
     private val snapshotRevisions = ConcurrentHashMap<CoreWorld, Long>()
-    private val partRenderClockBuckets = ConcurrentHashMap<CoreWorld, Long>()
+    private val partRenderClocks = ConcurrentHashMap<CoreWorld, PartRenderSamplingClock>()
+    private val partRenderSamples = ConcurrentHashMap<CoreWorld, TrainPartRenderSampleCache>()
     private val snapshotWrites = ConcurrentHashMap<BukkitWorld, Future<*>>()
     private val worldTickRunners = WorldTickRunnerRegistry<World>()
     private val worldTickMetrics = ConcurrentHashMap<BukkitWorld, JavaRailwaysServerTickMetrics>()
@@ -124,7 +130,8 @@ class WorldManager internal constructor(
         tickTask?.cancel()
         tickTask = null
         worldTickRunners.close()
-        partRenderClockBuckets.clear()
+        partRenderClocks.clear()
+        partRenderSamples.clear()
         carFrameDispatcher.clear()
         platformCommitDispatcher.clear()
     }
@@ -492,7 +499,8 @@ class WorldManager internal constructor(
                         railWorlds.remove(bukkitWorld, ownedWorld)
                         if (ownedWorld is CoreWorld) {
                             snapshotRevisions.remove(ownedWorld)
-                            partRenderClockBuckets.remove(ownedWorld)
+                            partRenderClocks.remove(ownedWorld)
+                            partRenderSamples.remove(ownedWorld)
                         }
                     }
                 }
@@ -593,13 +601,13 @@ class WorldManager internal constructor(
                         phaseBreakdown["world:${world.name}:observation_publish"] = nanos
                         computeNanos += nanos
                     },
-                    beforeDispatcher = {
-                        val nanos = measureNanoTime { dispatchPublishedTrainFrames(world, coreWorld, tickIndex) }
-                        phaseBreakdown["world:${world.name}:train_visual_frame_consume"] = nanos
-                        computeNanos += nanos
-                    },
                     operationalTick = tickIndex
                 )
+                // Operational display actions and postTick effects must finish before this capture.
+                // Observation, dispatcher and physics publication ordering above remains unchanged.
+                val renderNanos = measureNanoTime { dispatchPublishedTrainFrames(world, coreWorld, tickIndex) }
+                phaseBreakdown["world:${world.name}:train_visual_frame_consume"] = renderNanos
+                computeNanos += renderNanos
             }
         }
 
@@ -690,11 +698,35 @@ class WorldManager internal constructor(
 
     /** Keeps at most one in-flight and one latest pending region task per car. */
     private fun dispatchPublishedTrainFrames(bukkitWorld: BukkitWorld, coreWorld: CoreWorld, tickIndex: Long) {
-        val bucket = tickIndex / 10L
-        val refreshStationary = partRenderClockBuckets.put(coreWorld, bucket) != bucket
-        consumeTrainRenderFrames(coreWorld, refreshStationary,
+        val data = coreWorld.simpleAtoWorldData
+        val sampleInputs = partRenderClocks.getOrPut(coreWorld, ::PartRenderSamplingClock)
+            .sample(tickIndex, data.dispatcher.unitDisplayRevision(coreWorld))
+        val samples = partRenderSamples.getOrPut(coreWorld, ::TrainPartRenderSampleCache)
+        if (sampleInputs) samples.clear()
+        val displayLines = if (sampleInputs)
+            work.art1st.javarailways.bukkit.extension.train.captureDisplayLineIndex(data.lines.snapshot().lines)
+        else kotlinx.serialization.json.JsonObject(emptyMap())
+        val operationalByCar = if (sampleInputs) {
+            val byCar = linkedMapOf<String, OperationalPartRenderProjection>()
+            data.dispatcher.captureUnitDisplays(coreWorld).forEach { context ->
+                val projection = projectOperationalPartRender(context, stationMetadata = { stationId ->
+                    data.stations[StationId(stationId)]?.metadata ?: kotlinx.serialization.json.JsonObject(emptyMap())
+                }) { stationId ->
+                    data.stations[StationId(stationId)]?.displayName
+                }
+                context.carIds.forEach { carId ->
+                    check(byCar.put(carId, projection) == null) { "Car '$carId' belongs to overlapping display units" }
+                }
+            }
+            byCar
+        } else emptyMap()
+        consumeTrainRenderFrames(coreWorld, sampleInputs,
             needsClock = { it.carRendererOrNull?.hasDynamicExtensionModel == true }) { train, trainFrame, indices ->
             val trainType = train.rendererOrNull?.modelPackageName()
+            // Capture the same operating-end basis used by TrainExtension door execution.
+            val controlTail = if (sampleInputs)
+                BukkitPlugin.INSTANCE.trainControlManager.operatingControlEndFor(train) == DriverControlEnd.TAIL
+            else null
             for (index in indices) {
                 queueCarFrame(
                     PendingCarFrame(
@@ -703,7 +735,12 @@ class WorldManager internal constructor(
                         car = train.cars[index],
                         frame = trainFrame.cars[index],
                         revision = trainFrame.revision,
-                        partRenderSnapshot = captureTrainPartRenderSnapshot(trainFrame, index, trainType, tickIndex)
+                        partRenderSnapshot = if (sampleInputs) samples.capture(
+                            trainFrame, index, trainType, tickIndex,
+                            operationalByCar[trainFrame.cars[index].carId] ?: OperationalPartRenderProjection.EMPTY,
+                            train.publicationStreamId, displayLines,
+                            operatingTail = train.behaviorRelativeTail(train.cars[index], checkNotNull(controlTail))
+                        ) else samples.latest(trainFrame, index, train.publicationStreamId)
                     )
                 )
             }
@@ -849,7 +886,7 @@ class WorldManager internal constructor(
         val car: CoreCar,
         val frame: CarFrameSnapshot,
         val revision: Long,
-        val partRenderSnapshot: TrainPartRenderSnapshot
+        val partRenderSnapshot: TrainPartRenderSnapshot?
     )
 
     private data class PendingPlatformCommit(

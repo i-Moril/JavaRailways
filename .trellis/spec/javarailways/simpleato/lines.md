@@ -91,3 +91,7 @@ CURRENT：最高速度在 Lines 页面编辑，run 只引用线路，不再持�
 持久化新增 nullable 字段使用缺省 null，不提升开发格式版本。已有开发线路需要在 Lines 中明确设置速度；本次不自动把任意时刻表文档的速度合并进线路，因为不同文档可能冲突。部署前应补齐所需线路配置，不新增永久旧格式兼容路径。
 
 回归验证覆盖线路速度的非法值和快照往返、HTTP 输入输出、km/h 转换、run 无编辑入口、生成/Reset 使用当前线路及缺省错误。
+
+## Line metadata（2026-11-10，编译检查阶段）
+
+Line增加trailing metadata:JsonObject={}，使用api.metadata.JsonMetadata的递归不可变JSON policy（depth16/nodes4096/UTF8 65536byte、有限数字）。现有expectedRevision gate不变；SavedLineV1默认字段捕获/恢复保留metadata，基础设施formatVersion不变。未知自定义字段不丢失、不执行；业务字段color/maximumSpeed与metadata不同，不隐式互相覆盖。StationMetadata委派同一个中立JSON policy，不让Line依赖站点语义。显示索引按actual infrastructure LineId，不按diagramLineId。

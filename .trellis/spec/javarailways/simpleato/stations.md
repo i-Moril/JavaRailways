@@ -166,3 +166,7 @@ ATO停准、门操作、dwell、任务与车尾释放仍保持原有规则。物
 解析共用原有站台生命周期、长度、方向、offset及门侧校验。retained route仍须使用该origin身份和
 该call的synthetic station target身份，并验证准确两端几何；上游从已证明的完整路线截取站台prefix。
 `StationCallResolverTest`验证真实物理来源不搜路、不注册，缺少证据、错方向及坐标漂移明确拒绝。
+
+## 车站 metadata（2026-11-10，源码/测试源码编译阶段）
+
+Station.metadata 默认{}，递归不可变 JSON，按 world-local StationStore 中 station ID 唯一持有，不复制到每个 berth role。StationMetadata 校验深度16、4096节点、UTF8 65536字节及合法有限数字；业务不解释自定义字段，不执行其中字符串。updateMetadata(id,metadata,expectedMetadata) 在store锁内比较旧值；冲突 StationMetadataConflict，不覆盖。普通add/remove berth保留剩余站点metadata；同station目的地replace（含最后berth重建及失败回滚）保留；真正删除车站则删除。读者只拿immutable value，无live对象跨worker。

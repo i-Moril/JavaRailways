@@ -13,7 +13,9 @@ internal class PartExtensionAttachment(
     private val acquireRenderer: () -> PartExtensionRenderer?,
     retireVisuals: () -> CompletionStage<Void>,
     private val detach: (PartExtensionAttachment) -> Unit,
-    private val report: (String, Throwable) -> Unit
+    private val report: (String, Throwable) -> Unit,
+    private val refreshAudience: (java.util.UUID) -> Unit = {},
+    private val refreshRendering: () -> Unit = {}
 ) {
     private val lock = Any()
     private var context: PartExtensionRenderContext? = context
@@ -25,26 +27,53 @@ internal class PartExtensionAttachment(
     val canRender: Boolean get() = synchronized(lock) { isActive && !unavailable }
     private var opened = false
     private var unavailable = false
-    private var session: PartExtensionRenderSession? = null
+    @Volatile private var session: PartExtensionRenderSession? = null
+    @Volatile var audiencePolicy: PartExtensionAudiencePolicy? = null
+        private set
     private var pending: PartExtensionFrame? = null
-    private var latest: PartExtensionRenderInput? = null
+    private data class Request(val input: PartExtensionRenderInput, val generation: Long, val draw: Boolean = true)
+    private var contextGeneration = 0L
+    private var latest: Request? = null
     private var task: Work? = null
     private var running: Thread? = null
     private var failedEpisode = false
     private val sessionCleanup = CompletableFuture<Void>()
     private val cleanup = CompletableFuture<Void>()
 
-    fun start() = synchronized(lock) {
+    fun start(initialDraw: Boolean = true) = synchronized(lock) {
         if (!isActive || started) return@synchronized
         started = true
-        if (latest == null) latest = PartExtensionRenderInput()
+        if (initialDraw && latest == null) latest = Request(PartExtensionRenderInput(), contextGeneration)
         enqueue()
     }
 
-    fun request(input: PartExtensionRenderInput) = synchronized(lock) {
+    fun refreshAudience(viewerId: java.util.UUID) {
+        if (isActive) refreshAudience.invoke(viewerId)
+    }
+
+    fun refreshRendering() {
+        if (isActive) refreshRendering.invoke()
+    }
+
+    fun renderRevision(): Long? {
+        if (!isActive) return null
+        val owned = session ?: return null
+        return owned.renderRevision.also { require(it >= 0L) { "Extension render revision must be nonnegative" } }
+    }
+
+    fun request(input: PartExtensionRenderInput, draw: Boolean = true) = synchronized(lock) {
         if (!isActive || unavailable) return@synchronized
-        latest = input
+        latest = Request(input, contextGeneration, draw)
         if (started && task == null && running == null) enqueue()
+    }
+
+    /** Retain the private session, but reject every queued/completed result from the old data identity. */
+    fun invalidateContext() = synchronized(lock) {
+        if (!isActive) return@synchronized
+        contextGeneration = Math.incrementExact(contextGeneration)
+        pending = null
+        latest = null
+        failedEpisode = false
     }
 
     /** Called under lock; execute cannot race retirement and leave canceled queue history. */
@@ -77,22 +106,35 @@ internal class PartExtensionAttachment(
                     val renderer = acquireRenderer()
                     session = if (captured != null && renderer != null && isActive) renderer.open(captured) else null
                     context = null
+                    val policy = session?.audiencePolicy
+                    synchronized(lock) { if (isActive) audiencePolicy = policy }
                     if (session == null) synchronized(lock) { unavailable = true; latest = null }
                 }
                 val owned = session
                 if (isActive && owned != null && input != null && acquireRenderer() != null) {
-                    val frame = owned.draw(input)
+                    if (synchronized(lock) { input.generation != contextGeneration }) return
+                    // Routing/binding remains current even while expensive drawing is paused.
+                    owned.update(input.input)
+                    if (!input.draw) return
+                    val frame = owned.draw(input.input)
                     // Publish completed results even if a newer request arrived during this draw.
                     // Dropping every superseded completion would starve slower evaluators.
-                    synchronized(lock) { if (isActive) pending = frame }
-                    failedEpisode = false
+                    synchronized(lock) {
+                        if (isActive && input.generation == contextGeneration) {
+                            pending = frame
+                            failedEpisode = false
+                        }
+                    }
                 }
             } catch (failure: Throwable) {
                 if (!opened || session == null) synchronized(lock) { unavailable = true; latest = null; context = null }
-                if (isActive && !failedEpisode) {
-                    failedEpisode = true
-                    report("Extension rendering failed for $subject", failure)
+                val reportFailure = synchronized(lock) {
+                    if (isActive && (input == null || input.generation == contextGeneration) && !failedEpisode) {
+                        failedEpisode = true
+                        true
+                    } else false
                 }
+                if (reportFailure) report("Extension rendering failed for $subject", failure)
             } finally {
                 val retire = synchronized(lock) {
                     if (isActive) {
@@ -114,6 +156,7 @@ internal class PartExtensionAttachment(
     private fun closeSession() {
         val owned = session
         session = null
+        audiencePolicy = null
         context = null
         try { owned?.close(); sessionCleanup.complete(null) }
         catch (failure: Throwable) { sessionCleanup.completeExceptionally(failure) }
@@ -127,6 +170,7 @@ internal class PartExtensionAttachment(
         val retire = synchronized(lock) {
             if (!isActive) return cleanup
             isActive = false
+            audiencePolicy = null
             pending = null
             latest = null
             context = null

@@ -5,7 +5,7 @@ item:
   type: IRON_NUGGET
   item-model: "art1st/tc/s100/left_door_light"
 animations:
-  - name: doors_l_light
+  doors_l_light:
     keep-final-state: true
     keyframes:
       - at: 0.0

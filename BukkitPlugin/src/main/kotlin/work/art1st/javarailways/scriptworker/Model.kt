@@ -135,7 +135,8 @@ import kotlinx.serialization.json.JsonObject
     val status: SavedRunCallStatusV1, val arrivalTick: Long? = null, val departureTick: Long? = null, val viaIds: List<String> = emptyList())
 @Serializable data class SavedTimetableRunSegmentV1(val runId: String, val lineId: String,
     val startStepIndex: Int, val endStepIndexExclusive: Int, val diagramLineId: String? = null,
-    val lineDirection: SavedLineDirectionV1? = null, val calls: List<SavedTimetableRunCallV1> = emptyList())
+    val lineDirection: SavedLineDirectionV1? = null, val calls: List<SavedTimetableRunCallV1> = emptyList(),
+    val metadata: JsonObject = JsonObject(emptyMap()))
 @Serializable data class SavedTimetableOperationalTripSegmentV1(val serviceId: String, val runId: String, val unitSlots: List<Int>)
 @Serializable data class SavedTimetableOperationalTripV1(val id: String, val defaults: JsonObject = JsonObject(emptyMap()),
     val segments: List<SavedTimetableOperationalTripSegmentV1>)

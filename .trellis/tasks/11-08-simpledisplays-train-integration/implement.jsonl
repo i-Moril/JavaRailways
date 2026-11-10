@@ -12,3 +12,11 @@
 {"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/text-backends-contract.md", "reason": "User-approved current slice: native/EntityLib text in existing backend lifecycle only; no mounted model or extension runtime API."}
 {"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/static-extension-mount-contract.md", "reason": "Current authorized static mount slice: worker value preparation, exact snapshots, owner/root/audience/cleanup and real Decorations XML consumer."}
 {"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/dynamic-train-input-contract.md", "reason": "Current authorized dynamic session/basic train values slice; PAPI excluded, operating stops deferred"}
+{"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/operational-display-input-contract.md", "reason": "Current operational unit presentation slice; authoritative identity/ordering/invalidation and module ownership"}
+{"file": ".trellis/spec/javarailways/simpleato/through-running-and-unit-displays.md", "reason": "Actual unit/trip/cycle ownership, occurrence semantics and fresh display capture."}
+{"file": ".trellis/spec/javarailways/simpleato/stations.md", "reason": "Physical berth proof, current placement and canonical station ownership."}
+{"file": ".trellis/spec/decorations/backend/index.md", "reason": "Decorations ownership/config/audience policy and deferred verification."}
+{"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/interior-distance-contract.md", "reason": "Current authorized distance slice; player-to-screen origin, API/command/config and all-test deferral."}
+{"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/interior-display-culling-assessment.md", "reason": "Culling feasibility assessment only; no frustum/backface/occlusion implementation authorized in this slice."}
+{"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/stop-sequence-contract.md", "reason": "Current approved ordered-call/cursor/phase input contract; tests deferred, source compilation only."}
+{"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/door-side-display-contract.md", "reason": "Current same/opposite-side display mapping, raw operating side and installed car basis; compilation-only validation."}

@@ -1,3 +1,4 @@
+import { parseMetadata } from './metadata';
 import {DEFAULT_SIMULATION_TIMEOUT_MILLIS,validSimulationTimeout} from './SimulationTimeoutInput';
 import {SimulationSetupDialog} from './SimulationSetupDialog';
 import {SimulationProgressBar} from './SimulationProgressBar';
@@ -106,6 +107,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   });
   const sidebarResize=useRef<{startX:number;startWidth:number}|null>(null);
   const [graphLineId,setGraphLineId]=useState(initialRecovery?.graphLineId??'');
+  const [runMetadataDrafts,setRunMetadataDrafts]=useState<Record<string,{baseline:string;draft:string}>>({});
   const invalidDrafts=useRef(new Set<string>());
   const [focusedArrivalStep,setFocusedArrivalStep]=useState('');
   const [reportedEditorDraftInvalid,setEditorDraftInvalid]=useState(false);
@@ -164,6 +166,14 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     setEditorDraftInvalid(!allValid);
     if(!allValid){setCompiledState(undefined);setSimulationState(undefined);setCompileFailure(undefined);}
   },[]);
+  const metadataDraftFor=(run:AuthoringRunV1)=>{const entry=runMetadataDrafts[run.id];return entry?.baseline===JSON.stringify(run.metadata??{})?entry.draft:JSON.stringify(run.metadata??{},null,2);};
+  const editRunMetadata=(run:AuthoringRunV1,draft:string)=>{
+    const parsed=parseMetadata(draft);
+    onDraftValidityChange(`metadata/${run.id}`,!parsed.error);
+    setRunMetadataDrafts((current)=>({...current,[run.id]:{baseline:JSON.stringify(parsed.error?run.metadata??{}:parsed.value),draft}}));
+    if(!parsed.error)setValue((current)=>({...current,runs:current.runs.map((candidate)=>candidate.id===run.id?{...candidate,metadata:parsed.value}:candidate)}));
+  };
+  useEffect(()=>{for(const key of [...invalidDrafts.current])if(key.startsWith('metadata/')){const run=value.runs.find((candidate)=>key===`metadata/${candidate.id}`);if(!run||!parseMetadata(metadataDraftFor(run)).error)onDraftValidityChange(key,true);}},[value.runs,runMetadataDrafts,onDraftValidityChange]);
   const onArrivalValidityChange=useCallback((stationId:string,_callId:string,valid:boolean)=>onDraftValidityChange(`station/${stationId}`,valid),[onDraftValidityChange]);
   useEffect(()=>{for(const key of [...invalidDrafts.current])if(key.startsWith('station/')&&!value.runs.some((run)=>run.calls.some((call)=>call.status!=='PASS'&&key===`station/${call.stationId}`)))onDraftValidityChange(key,true);},[value.runs,onDraftValidityChange]);
   const simulationProfiles=metadata.simulationProfiles||[];
@@ -263,7 +273,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
   },[autosave,value,documentId,resumeReady,world,busy,recoveryOwner]);
   const acceptLoadedDocument=(id:string,loaded:TimetableAuthoringDocumentV1)=>{
     const normalized=normalizeAuthoringDocument(loaded);
-    blockDraftKey.current=id||normalized.id;invalidDrafts.current.clear();editorDraftValidity.current={valid:true,revision:editorDraftValidity.current.revision+1};setEditorDraftInvalid(false);
+    setRunMetadataDrafts({});blockDraftKey.current=id||normalized.id;invalidDrafts.current.clear();editorDraftValidity.current={valid:true,revision:editorDraftValidity.current.revision+1};setEditorDraftInvalid(false);
     previousSelectedRun.current=undefined;setDocumentId(id);setCompiledState(undefined);setSimulationState(undefined);setCompileFailure(undefined);
     const loadedScriptName=normalized.formalScriptName||defaultScriptName(normalized.id);
     savedDocumentJson.current=JSON.stringify(normalized);clearAuthoringRecovery(recoveryOwner,world);documentHistory.reset(normalized);setFormalScriptName(loadedScriptName);setPersistedFormalScriptName(normalized.formalScriptName||'');setSelectedRun(normalized.runs[0]?.id||'');setSelectedDuty(normalized.duties[0]?.id||'');
@@ -674,7 +684,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
       onSearchChange={setRunSearch} onSelectRun={(id)=>{setSelectedRun(id);setFocusedCall('');}} onAddRun={addRun} assignmentFor={(runId)=>assigned.get(runId)}
       graph={<Graph serviceColorIds={value.runs.map(run=>run.id)} onEditEvent={openGraphEvent} onEventContext={(context)=>{setEventDraft(undefined);setSelectedPoint(undefined);setDutyOperationMenu(undefined);setEventMenu({...context,scope:eventScope});}} operations={projectedOperations} onDutyOperationContext={(context)=>{setEventMenu(undefined);setEventDraft(undefined);setSelectedPoint(undefined);setDutyOperationMenu({...context,scope:eventScope});}} onOpenDutyOperation={openDutyOperation} value={graphValue} metadata={metadata} line={lines.find((line)=>line.id===graphLineId)} graphLineId={graphLineId||undefined}
         serviceColors={graphServiceColors} highlightedServiceIds={highlightedRunIds} previewServiceIds={previewRunIds} onSelect={selectGraphRun} onSelectPoint={selectPoint} onDismissPoint={()=>{if(!moveOpen)setSelectedPoint(undefined);setEventMenu(undefined);setDutyOperationMenu(undefined);}} onClearSelection={()=>{setSelectedRun('');setFocusedCall('');setSelectedPoint(undefined);setMoveOpen(false);setCopyOpen(false);}}/>}
-      inspector={!selectedRunValue?<p className="empty inspector-empty">{t('duties.selectRun')}</p>:<RunRouteEditor events={value.events} stationPrograms={value.stationPrograms} automaticColor={graphServiceColor(theme,selectedRunValue.id,value.runs.map(run=>run.id),lines.find((line)=>line.id===graphLineId)?.color)} onStationProgramChange={(program)=>setValue((current)=>({...current,stationPrograms:[...(current.stationPrograms??[]).filter((item)=>item.stationId!==program.stationId),program]}))} programDraftScope={programDraftScope} onArrivalValidityChange={onArrivalValidityChange} focusedArrivalStep={focusedArrivalStep} onUndo={documentHistory.undo} onRedo={documentHistory.redo} onRename={renameRun} fieldScope={fieldScope} focusedCallId={focusedCall} tools={runTools} issues={generated.issues.filter((issue)=>issue.path.startsWith(`runs[${value.runs.findIndex((run)=>run.id===selectedRunValue.id)}]`))} run={selectedRunValue} lines={lines} metadata={metadata} busy={busy} onError={onError} onChange={replaceRun} onDelete={deleteSelectedRun}/>}
+      inspector={!selectedRunValue?<p className="empty inspector-empty">{t('duties.selectRun')}</p>:<RunRouteEditor metadataDraft={metadataDraftFor(selectedRunValue)} onMetadataDraftChange={(draft)=>editRunMetadata(selectedRunValue,draft)} events={value.events} stationPrograms={value.stationPrograms} automaticColor={graphServiceColor(theme,selectedRunValue.id,value.runs.map(run=>run.id),lines.find((line)=>line.id===graphLineId)?.color)} onStationProgramChange={(program)=>setValue((current)=>({...current,stationPrograms:[...(current.stationPrograms??[]).filter((item)=>item.stationId!==program.stationId),program]}))} programDraftScope={programDraftScope} onArrivalValidityChange={onArrivalValidityChange} focusedArrivalStep={focusedArrivalStep} onUndo={documentHistory.undo} onRedo={documentHistory.redo} onRename={renameRun} fieldScope={fieldScope} focusedCallId={focusedCall} tools={runTools} issues={generated.issues.filter((issue)=>issue.path.startsWith(`runs[${value.runs.findIndex((run)=>run.id===selectedRunValue.id)}]`))} run={selectedRunValue} lines={lines} metadata={metadata} busy={busy} onError={onError} onChange={replaceRun} onDelete={deleteSelectedRun}/>}
       graphActions={<Popover trigger="click" placement="bottomRight" title={t('common.documentSettings')} content={documentSettings}><Button aria-label={t('common.documentSettings')} type="text" icon={<SettingOutlined/>}/></Popover>}
       graphPreviewActive={Boolean(previewRun)} saved={JSON.stringify(value)===savedDocumentJson.current}/><TimetableEventsEditor operations={projectedOperations} onEdit={openGraphEvent} onCopy={openCopyEvent} onOpenDuty={openDutyOperation} stationNames={stationNames}/></>}
 

@@ -328,7 +328,7 @@ class ServiceBuilder(private val branchDepth: Int = 0, initialTick: Long = 0L, i
     @HostAccess.Export fun runSegment(options: Value, callback: Value): ServiceBuilder {
         require(branchDepth == 0 && !insideRunSegment) { "run segments cannot be nested or conditional" }
         requireNoPendingRoute()
-        options.requireOnly(setOf("runId", "lineId", "diagramLineId", "lineDirection", "calls"), "run segment")
+        options.requireOnly(setOf("runId", "lineId", "diagramLineId", "lineDirection", "calls", "metadata"), "run segment")
         val raw = toJson(options, 24) as? JsonObject ?: error("run segment must be an object")
         val start = steps.size
         require(callback.canExecute()) { "run segment builder must be a function" }

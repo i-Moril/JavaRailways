@@ -113,17 +113,22 @@ class PartRegistry(
         const val CONFIG_VERSION = 1
 
         private val PART_KEYS = setOf(
-            "config-version", "name", "type", "item", "interaction", "platform",
+            "name", "type", "item", "interaction", "platform",
             "offset", "rotation", "parts", "animations", "schema-version", "config"
         )
         private val TRANSFORM_KEYS = setOf("x", "y", "z")
         private val SCALE_KEYS = setOf("x", "y", "z")
 
         fun parsePartDefinition(map: Map<String, Any>, namespace: String): PartDefinition {
-            map.requireOnlyKeys(PART_KEYS, "part definition")
+            map.requireOnlyKeys(PART_KEYS + "config-version", "part definition")
             val version = map.requireInt("config-version", "part definition")
             require(version == CONFIG_VERSION) { "Unsupported config-version: $version" }
+            return parsePartContent(map - "config-version", namespace)
+        }
 
+        /** Inline content inherits its validated containing document's version. */
+        private fun parsePartContent(map: Map<String, Any>, namespace: String): PartDefinition {
+            map.requireOnlyKeys(PART_KEYS, "inline part definition")
             val simpleName = map.requireString("name", "part definition")
             require(simpleName.isNotBlank()) { "part definition.name must not be blank" }
             val qualifiedName = if (namespace.isEmpty()) simpleName else "$namespace/$simpleName"
@@ -147,7 +152,7 @@ class PartRegistry(
             val offset = parseVec3(map.optionalMap("offset", "part '$qualifiedName'"))
             val rotation = parseVec3(map.optionalMap("rotation", "part '$qualifiedName'"))
             val parts = parsePartList(map.optionalList("parts", "part '$qualifiedName'"), namespace)
-            val animations = parseAnimations(map.optionalList("animations", "part '$qualifiedName'"))
+            val animations = parseAnimations(map.optionalMap("animations", "part '$qualifiedName'"))
             require(type != PartType.ITEM_DISPLAY || item != null) {
                 "Part '$qualifiedName' of type item_display must declare item"
             }
@@ -266,7 +271,7 @@ class PartRegistry(
                     }
                     entryMap.containsKey("type") -> {
                         entryMap.requireOnlyKeys(PART_KEYS, "parts[$index]")
-                        val def = parsePartDefinition(entryMap, namespace)
+                        val def = parsePartContent(entryMap, namespace)
                         // Inline transforms already belong to the definition. Only imports
                         // carry an additional reference-local transform.
                         PartRefEntry(name = def.name, inline = def)
@@ -278,24 +283,26 @@ class PartRegistry(
             }
         }
 
-        fun parseAnimations(list: List<*>?): List<PartAnimationConfig> {
-            if (list == null) return emptyList()
-            return list.mapIndexed { index, entry ->
-                val entryMap = (entry as? Map<*, *>)?.toStringKeyMap("animations[$index]")
-                    ?: throw IllegalArgumentException("animations[$index] must be a map")
+        fun parseAnimations(map: Map<String, Any>?): List<PartAnimationConfig> {
+            if (map == null) return emptyList()
+            // Keep insertion order in the internal snapshot/runtime list. Identity belongs to
+            // the definition map key, while command/keyframe execution remains ordered.
+            return map.map { (name, entry) ->
+                require(name.isNotBlank()) { "Animation name must not be blank" }
+                val subject = "animations[$name]"
+                val entryMap = (entry as? Map<*, *>)?.toStringKeyMap(subject)
+                    ?: throw IllegalArgumentException("$subject must be a map")
                 entryMap.requireOnlyKeys(
-                    setOf("name", "keep-final-state", "commands", "keyframes"),
-                    "animations[$index]"
+                    setOf("keep-final-state", "commands", "keyframes"),
+                    subject
                 )
-                val name = entryMap.requireString("name", "animations[$index]")
-                require(name.isNotBlank()) { "animations[$index].name must not be blank" }
-                val commands = parseAnimationCommands(entryMap.optionalList("commands", "animations[$index]"))
-                val keyframes = parseAnimationKeyframes(entryMap.optionalList("keyframes", "animations[$index]"))
+                val commands = parseAnimationCommands(entryMap.optionalList("commands", subject))
+                val keyframes = parseAnimationKeyframes(entryMap.optionalList("keyframes", subject))
                 validateUniqueScenes(name, commands.mapNotNull { it.scene } + keyframes.mapNotNull { it.scene })
 
                 PartAnimationConfig(
                     name = name,
-                    keepFinalState = entryMap.optionalBooleanValue("keep-final-state", "animations[$index]") ?: true,
+                    keepFinalState = entryMap.optionalBooleanValue("keep-final-state", subject) ?: true,
                     commands = commands,
                     keyframes = keyframes.sortedBy { it.at }
                 )

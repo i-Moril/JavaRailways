@@ -35,6 +35,8 @@ class ScriptWorkerTest {
     @Test fun `nested and empty segments and invalid display slots fail closed`() {
         listOf(
             "t.runSegment({runId:'r',lineId:'A'},r=>{});",
+            "t.runSegment({runId:'r',lineId:'A',metadata:[]},r=>r.halt());",
+            "t.runSegment({runId:'r',lineId:'A',metadata:null},r=>r.halt());",
             "t.runSegment({runId:'r',lineId:'A'},r=>r.runSegment({runId:'nested',lineId:'A'},a=>a.halt()));",
             "t.setDisplay([0],{});", "t.resetDisplay([1,1]);", "t.setDisplay(['1'],{});"
         ).forEach { body -> assertThrows(Throwable::class.java) {

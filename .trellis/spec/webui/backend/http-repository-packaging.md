@@ -114,3 +114,7 @@ events与交路PROGRAM共用时刻、可选stationId/label/duration/program结�
 
 
 编辑文档运行线允许可选`color`，仅接受完整`#RRGGBB`且大小写均可，省略为自动配色；null、CSS名称/函数、缩写与alpha均非该字段形状。Java保存端验证并原样持久化完整authoring JSON；此显示字段不进入运行时DTO，无schema升版或兼容分支。详见[Studio颜色合同](../frontend/studio-authoring.md)。
+
+## Station metadata API（2026-11-10）
+
+GET /api/v1/worlds/{world}/stations 返回 {stations:[{id,displayName,metadata}]}；PUT /api/v1/worlds/{world}/stations/{station}/metadata 接收且只接收 {metadata:object,expectedMetadata:object}，返回station对象。经既有session认证、server-only bearer和encoded segment代理到Bukkit同world路径，不加入public allowlist。400非法JSON/root/字段；404车站不存在；409 STATION_METADATA_CONFLICT为原值比较失败。资料由SimpleATO StationStore和基础设施快照持久化，不由sidecar再维护一份文件。HTTP更新后沿正常world-save落盘，无同步文件写入的虚假保证。

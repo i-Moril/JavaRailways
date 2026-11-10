@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simpleato.api.station
 
+import kotlinx.serialization.json.JsonObject
 import work.art1st.javarailways.basic.api.rail.RailObjectStore
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.core.api.physics.rail.RailLocation
@@ -86,14 +87,16 @@ data class Station private constructor(
     val id: StationId,
     val displayName: String,
     val berthRefs: List<StationBerthRef>,
-    val defaultDwellTicks: Long = 0L
+    val defaultDwellTicks: Long = 0L,
+    val metadata: JsonObject
 ) {
     constructor(
         id: StationId,
         displayName: String,
         berthRefs: Collection<StationBerthRef>,
-        defaultDwellTicks: Long = 0L
-    ) : this(id, displayName, immutableBerthRefs(berthRefs), defaultDwellTicks)
+        defaultDwellTicks: Long = 0L,
+        metadata: JsonObject = JsonObject(emptyMap())
+    ) : this(id, displayName, immutableBerthRefs(berthRefs), defaultDwellTicks, StationMetadata.immutableCopy(metadata))
 
     init {
         require(displayName.isNotBlank() && displayName == displayName.trim())
@@ -247,7 +250,8 @@ class StationStore(private val railObjects: RailObjectStore) {
                 current.id,
                 current.displayName,
                 current.berthRefs + berth.berthRef,
-                current.defaultDwellTicks
+                current.defaultDwellTicks,
+                current.metadata
             )
         }
         railObjects.register(berth)
@@ -271,11 +275,26 @@ class StationStore(private val railObjects: RailObjectStore) {
                     current.id,
                     current.displayName,
                     remaining,
-                    current.defaultDwellTicks
+                    current.defaultDwellTicks,
+                    current.metadata
                 )
             }
         }
         berth
+    }
+
+    /** Compare-and-set the one metadata object shared by all berths of this station. */
+    @MainThread
+    fun updateMetadata(id: StationId, metadata: JsonObject, expectedMetadata: JsonObject): Station {
+        val detached = StationMetadata.immutableCopy(metadata)
+        val expected = StationMetadata.immutableCopy(expectedMetadata)
+        return synchronized(lock) {
+            val current = stations[id] ?: throw NoSuchElementException("Station not found: $id")
+            if (current.metadata != expected) throw StationMetadataConflict(id)
+            if (current.metadata == detached) return@synchronized current
+            Station(current.id, current.displayName, current.berthRefs,
+                current.defaultDwellTicks, detached).also { stations[id] = it }
+        }
     }
 
     operator fun get(id: StationId): Station? = stations[id]

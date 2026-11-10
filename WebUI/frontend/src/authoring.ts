@@ -1,10 +1,11 @@
+import { metadataValueResult } from './metadata';
 import {projectDutyTimeline} from './dutyTimeline';
 import {resolveDutyTimedOperation,timedOperationCall,validateTimedOperation} from './timedOperations';
 import {defaultStationStopProgram,resolveEventWaits,validateStopProgram} from './stationPlans';
 import {stationProgramFirstMovement,stationProgramReverses} from './stationPrograms';
 import {validateFormationAuthoring,formationPlannedEnd,type AuthoringFormationEvent} from './formationAuthoring';
 import { copyStationProgram,validateArrivalProgram,stationProgramSchedule,resolveProgramValue,displayValuesError,validateStationProgram,validateStationProgramCall } from './stationPrograms';
-import type { StationStopProgram,TimetableEventPoint,OperationalTrip,StationProgramRecord,TimedOperation,TimedOperationProgram,TimedOperationDuration,DiagramLineV1, LineDirection, LineSimulationRequest,LineSimulationResult, LineV1, SavedTimetableV1, SimulationProfile, TimetableActionV1, WorldMetadata } from './types';
+import type { MetadataObject,StationStopProgram,TimetableEventPoint,OperationalTrip,StationProgramRecord,TimedOperation,TimedOperationProgram,TimedOperationDuration,DiagramLineV1, LineDirection, LineSimulationRequest,LineSimulationResult, LineV1, SavedTimetableV1, SimulationProfile, TimetableActionV1, WorldMetadata } from './types';
 
 export type AuthoringDoorSide = 'NONE'|'LEFT'|'RIGHT'|'BOTH';
 export type AuthoringRunCallStatusV1 = 'ORIGIN'|'STOP'|'PASS'|'TERMINAL';
@@ -21,6 +22,7 @@ export interface AuthoringRunCallV1 {
   viaIds?:string[];
 }
 export interface AuthoringRunV1 {
+  metadata?:MetadataObject;
   id:string;
   color?:string;
   type:'PASSENGER'|'DEADHEAD';
@@ -444,6 +446,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,
   const runIds=new Set<string>();
   document.runs.forEach((run,runIndex)=>{
     const path=`runs[${runIndex}]`;
+    if(run.metadata!==undefined&&metadataValueResult(run.metadata).error)issues.push(issue(`${path}.metadata`,'Run metadata must be a JSON object with finite values'));
     if(!run.id.trim()) issues.push(issue(`${path}.id`,'Run ID is required'));
     else if(runIds.has(run.id)) issues.push(issue(`${path}.id`,`Duplicate run ID: ${run.id}`));
     runIds.add(run.id);
@@ -739,7 +742,7 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1,in
         const run=document.runs.find((candidate)=>candidate.id===element.runId);
         if(!run) continue;
         const scoped='runScope';
-        const segment={runId:run.id,lineId:run.lineId,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,calls:run.calls.map(authoringCallForSave).map(({targetId,berthId:_,stoppingOffsetMetersBefore:__,doorSide:___,...call})=>({...call,destinationId:targetId,arrivalTick:document.arrivalOverrides.find((o)=>o.runId===run.id&&o.callId===call.id)?.tick??call.arrivalTick}))};
+        const segment={metadata:run.metadata??{},runId:run.id,lineId:run.lineId,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,calls:run.calls.map(authoringCallForSave).map(({targetId,berthId:_,stoppingOffsetMetersBefore:__,doorSide:___,...call})=>({...call,destinationId:targetId,arrivalTick:document.arrivalOverrides.find((o)=>o.runId===run.id&&o.callId===call.id)?.tick??call.arrivalTick}))};
         lines.push(`        t.origin(${quote(origin(duty.id,element.id,run.id))}, scoped => {`, `          scoped.runSegment(JSON.parse(${quote(JSON.stringify(segment))}), ${scoped} => {`);
         if(!emittedCheck&&duty.selector.type==='TRAIN_NAME'&&run.calls[0]?.targetId) {
           lines.push(`            ${scoped}.check(${quote(run.calls[0].targetId)})`);

@@ -3,7 +3,7 @@
   "name": "model-config-schema-consistency",
   "title": "统一模型包配置的同类结构表达",
   "description": "在SimpleDisplays其余集成工作完成后、最终验收前，独立统一内联部件版本归属和命名动画定义等同类结构表达，并同步schema、解析器、样例与验证。",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": "模型包内联部件版本归属与命名动画定义表达；同步对应schema/解析器/样例/消费者",
   "package": "bukkit-plugin",
@@ -12,7 +12,7 @@
   "assignee": "ARTI5T",
   "createdAt": "2026-11-09",
   "completedAt": null,
-  "branch": null,
+  "branch": "codex/simpledisplays-train-integration",
   "base_branch": "main",
   "worktree_path": null,
   "commit": null,
@@ -21,7 +21,7 @@
   "children": [],
   "parent": "11-08-simpledisplays-train-integration",
   "relatedFiles": [],
-  "notes": "用户明确指定延期子任务：SimpleDisplays其余工作结束后、父任务最终综合验收前执行。当前仅登记，保持planning，不激活。新增displays.yml按共同原则继续开发，旧格式调整在此集中处理。",
+  "notes": "User approved implementation and examples/test-room package conversion2026-11-10. Parser+common schema+Kotlin fixtures implemented; local16YAML+2ZIP+parts-tree example converted, originals/manifests retained. Source/test-source compile passed4s, no tests/server/client verification executed per deferred acceptance. Test-room exact16YAML+config.zip candidate and verified originals staged at /opt/mcsmanager/backups/javarailways/model-schema-20261110; live packages unchanged because old deployed reader cannot read new shape. Awaiting user scheduling choice for coordinated plugin/package deployment. DTO snapshots unchanged, versions unchanged, no runtime legacy reader. No commit/push.",
   "meta": {
     "execution_order": "after_remaining_simpledisplays_work_before_final_acceptance"
   }

@@ -64,6 +64,137 @@ import work.art1st.javarailways.core.api.threading.host.ThreadGuardRegistration
 class TimetableStationCallDispatcherTest {
     private val worldFixtures = mutableListOf<TestWorldFixture>()
 
+    @Test fun `display progress captures exact origin arrival and departure despite prepared future missions`() =
+        assertDisplayProgressDoorSide(DoorSide.NONE,DoorSide.NONE)
+
+    @Test fun `explicit OPEN_DOORS override is captured instead of inherited berth side`() =
+        assertDisplayProgressDoorSide(DoorSide.LEFT,DoorSide.RIGHT,
+            initialActions=listOf(TimetableAction.OpenDoors(DoorSide.RIGHT),TimetableAction.CloseDoors))
+
+    @Test fun `origin station program override is captured instead of berth side`() =
+        assertDisplayProgressDoorSide(DoorSide.LEFT,DoorSide.RIGHT,originPrograms=StationStopPrograms(
+            "origin","origin-program",StationStopRole.ORIGIN,
+            listOf(StationProgramAction.OpenDoors,StationProgramAction.End),
+            listOf(StationProgramAction.CloseDoors,StationProgramAction.End),
+            StationPreparationLead.constant(40L),100L,"origin@one",DoorSide.RIGHT))
+
+    private fun assertDisplayProgressDoorSide(originSide: DoorSide, expectedOriginSide: DoorSide,
+        initialActions: List<TimetableAction> = emptyList(), originPrograms: StationStopPrograms? = null) {
+        val gateway = ControllableOperationGateway()
+        val f = fixture(firstTargetOffsetMeters = 40.0, nextTargetOffsetMeters = 100.0,
+            canonicalOriginDoorSide = originSide, canonicalTarget = true,
+            stationMovementTick = 100L, nextMovementTick = 1_000L,
+            initialActions=initialActions,originPrograms=originPrograms,operationGateway=gateway)
+        val world = f.world
+        world.onOwnerForTest {
+            val depot = work.art1st.javarailways.simpleato.api.depot.DepotId("progress-home")
+            val ref = work.art1st.javarailways.simpleato.api.depot.StablingPointRef(depot,"one")
+            world.simpleAtoWorldData.depots.addStablingPoint(depot,"Progress home",
+                work.art1st.javarailways.simpleato.api.depot.DepotStablingPoint(ref,"origin@one"))
+            val cars = f.train.publishedFrame.cars.map { it.carId }
+            world.simpleAtoWorldData.depots.registerFixedUnit(
+                work.art1st.javarailways.simpleato.api.depot.FixedEmuUnit("unit",depot,cars,"family"),cars)
+            val end = checkNotNull(f.data.wayPoints["D"])
+            work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService(world).register(
+                work.art1st.javarailways.simpleato.api.destination.OperationalDestination("end@one",end.railId,
+                    end.arcLength,ViewDirection.AB,
+                    work.art1st.javarailways.simpleato.api.destination.DestinationRole.StationBerthRole(
+                        StationId("end"),berthId="one",doorSide=DoorSide.NONE)))
+            val lineId = work.art1st.javarailways.simpleato.api.line.LineId("progress-line")
+            val stations = listOf(StationId("origin"),StationId("central"),StationId("end"))
+            world.simpleAtoWorldData.lines.put(work.art1st.javarailways.simpleato.api.line.Line(
+                lineId,"Progress",stations,stations.reversed()),world.simpleAtoWorldData.lines.snapshot().revision)
+            val table = checkNotNull(world.simpleAtoWorldData.timetables["tt"])
+            val source = table.services.single()
+            val steps = source.steps.dropLast(1) + TimetableStep.At(1_000L,TimetableAction.GoTo("end@one"))
+            val segment = TimetableRunSegment("run",lineId,0,steps.size,calls=listOf(
+                TimetableRunCall("origin-call","origin","origin@one",TimetableServiceStopStatus.ORIGIN),
+                TimetableRunCall("central-call","central","central@one",TimetableServiceStopStatus.STOP),
+                TimetableRunCall("end-call","end","end@one",TimetableServiceStopStatus.TERMINAL)))
+            world.simpleAtoWorldData.timetables.add(table.copy(services=listOf(source.copy(steps=steps,runSegments=listOf(segment))),
+                lineSpeedLimits=listOf(TimetableLineSpeedLimit(lineId,8.0)),
+                operationalTrips=listOf(TimetableOperationalTrip("trip",segments=listOf(
+                    TimetableOperationalTripSegment("service","run",listOf(1)))))))
+            val result = f.dispatcher.startService(world,"tt","service")
+            assertTrue(result is TimetableServiceStartResult.Started,result.toString())
+            val origin = f.dispatcher.captureUnitDisplays(world).single()
+            assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.AT_STATION,0),origin.progress)
+            assertEquals(expectedOriginSide,origin.doorSide)
+            if (initialActions.isEmpty() && originPrograms == null)
+                assertTrue(checkNotNull(f.dispatcher.status(TimetableServiceRunId("tt","service"))).missionRevision > 0,
+                    "future mission has already been submitted at origin; controller consumes it on a later tick")
+        }
+        var departedOrigin = false
+        var arrivedCentralWithFutureMission = false
+        var departedCentral = false
+        repeat(1_500) {
+            if (departedCentral) return@repeat
+            gateway.tickets.toList().forEach { it.succeed() }
+            f.tick()
+            world.onOwnerForTest {
+                val context = f.dispatcher.captureUnitDisplays(world).single()
+                if (context.progress == TimetableDisplayProgress(TimetableDisplayPhase.AT_STATION,0))
+                    assertEquals(expectedOriginSide,context.doorSide)
+                if (context.progress == TimetableDisplayProgress(TimetableDisplayPhase.IN_TRANSIT,1)) {
+                    departedOrigin = true
+                    assertNull(context.doorSide,"actual departure clears the origin's effective opening side")
+                }
+                if (context.progress == TimetableDisplayProgress(TimetableDisplayPhase.AT_STATION,1)) {
+                    assertEquals(0.0,f.train.publishedFrame.speedMetersPerSecond)
+                    assertEquals(DoorSide.NONE,context.doorSide)
+                    val target = (f.train.controller as SimpleATO).currentMission?.legs?.lastOrNull()?.point?.target?.id
+                    if (target == "end@one") arrivedCentralWithFutureMission = true
+                }
+                if (context.progress == TimetableDisplayProgress(TimetableDisplayPhase.IN_TRANSIT,2)) departedCentral = true
+            }
+        }
+        assertTrue(departedOrigin,"real movement establishes en-route progress")
+        assertTrue(arrivedCentralWithFutureMission,"preparing the next mission does not erase arrived occurrence")
+        assertTrue(departedCentral,"only physical departure advances the visible station cursor")
+    }
+
+    @Test fun `owner batch resolves registered current berth proof then removes it on actual departure movement`() {
+        val gateway = ControllableOperationGateway()
+        // First Mission submission deliberately clears confirmedDoorStop even before scheduled
+        // departure. Observe the real CHECK proof while an actual door ticket still holds it.
+        val fixture = fixture(canonicalOriginDoorSide = DoorSide.LEFT, operationGateway = gateway,
+            initialActions = listOf(TimetableAction.OpenDoors(), TimetableAction.CloseDoors))
+        val world = fixture.world
+        world.onOwnerForTest {
+            assertTrue(fixture.dispatcher.captureUnitDisplays(world).isEmpty(), "ordinary unregistered train has no claimed fixed unit")
+            val depot = work.art1st.javarailways.simpleato.api.depot.DepotId("display-home")
+            val ref = work.art1st.javarailways.simpleato.api.depot.StablingPointRef(depot, "one")
+            world.simpleAtoWorldData.depots.addStablingPoint(depot, "Display home",
+                work.art1st.javarailways.simpleato.api.depot.DepotStablingPoint(ref, "origin@one"))
+            val carIds = fixture.train.publishedFrame.cars.map { it.carId }
+            world.simpleAtoWorldData.depots.registerFixedUnit(
+                work.art1st.javarailways.simpleato.api.depot.FixedEmuUnit("display-unit",depot,carIds,"family"),carIds)
+            val contextless = fixture.dispatcher.captureUnitDisplays(world).single()
+            assertEquals(carIds, contextless.carIds)
+            assertNull(contextless.display); assertNull(contextless.timetableId); assertNull(contextless.currentBerth)
+            val started = fixture.dispatcher.startService(world,"tt","service")
+            assertTrue(started is TimetableServiceStartResult.Started, started.toString())
+        }
+        world.onOwnerForTest {
+            val stopped = fixture.dispatcher.captureUnitDisplays(world).single()
+            assertEquals(StationBerthRef(StationId("origin"),"one"),stopped.currentBerth,
+                fixture.dispatcher.status(TimetableServiceRunId("tt","service")).toString())
+            assertNull(stopped.display, "physical berth proof does not invent an operational trip")
+            assertEquals(TrainOperation.OpenDoors(DoorSide.LEFT), gateway.requests.single().operation)
+        }
+        for (tick in 0 until 1000) {
+            gateway.tickets.toList().forEach { it.succeed() }
+            fixture.tick()
+            if (fixture.train.publishedFrame.speedMetersPerSecond > 0.0) break
+        }
+        assertTrue(fixture.train.publishedFrame.speedMetersPerSecond > 0.0, "real controller must have departed the origin")
+        world.onOwnerForTest {
+            val moved = fixture.dispatcher.captureUnitDisplays(world).single()
+            assertEquals("display-unit",moved.unitId)
+            assertNull(moved.currentBerth, "previous confirmed berth must not survive movement")
+        }
+    }
+
     @Test fun `global reset releases a stopped train occupied route without tail clearance`() {
         val fixture = fixture(firstTargetOffsetMeters = 100.0)
         val world = fixture.world

@@ -6,8 +6,7 @@ body-parts:
     offset: {x: -1.2, y: 1.6, z: 2.0}
     rotation: {y: 90}
 
-  - config-version: 1
-    name: cabin_lcd_right
+  - name: cabin_lcd_right
     type: decorations:display
     offset: {x: 1.2, y: 1.6, z: 2.0}
     rotation: {y: -90}
@@ -17,13 +16,11 @@ body-parts:
       width: 0.8
       height: 0.45
 
-  - config-version: 1
-    name: head_display_group
+  - name: head_display_group
     type: dummy
     offset: {x: 0, y: 1.8, z: 8.5}
     parts:
-      - config-version: 1
-        name: head_destination
+      - name: head_destination
         type: decorations:display
         config:
           category: head_led

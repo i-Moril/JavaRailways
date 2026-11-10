@@ -1,0 +1,4 @@
+displays:
+  interior-distance:
+    default-blocks: 32.0
+    max-blocks: 128.0

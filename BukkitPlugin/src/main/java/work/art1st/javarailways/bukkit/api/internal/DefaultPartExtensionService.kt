@@ -69,6 +69,18 @@ class DefaultPartExtensionService(
         val capturedFailures: Map<String, String> = Collections.unmodifiableMap(failures)
         return object : PartExtensionRegistration {
             override val existingPackageFailures = capturedFailures
+            override fun refreshAudience(viewerId: java.util.UUID) {
+                val active = synchronized(lock) {
+                    if (closed || entries[typeId] !== entry) emptyList() else entry.attachments.toList()
+                }
+                active.forEach { it.refreshAudience(viewerId) }
+            }
+            override fun refreshRendering() {
+                val active = synchronized(lock) {
+                    if (closed || entries[typeId] !== entry) emptyList() else entry.attachments.toList()
+                }
+                active.forEach { it.refreshRendering() }
+            }
             override fun closeAsync(): CompletionStage<Void> = retire(entry)
         }
     }
@@ -102,6 +114,8 @@ class DefaultPartExtensionService(
     internal fun createAttachment(
         typeId: String,
         context: PartExtensionRenderContext,
+        refreshAudience: (java.util.UUID) -> Unit = {},
+        refreshRendering: () -> Unit = {},
         retireVisuals: () -> CompletionStage<Void>
     ): PartExtensionAttachment? = synchronized(lock) {
         if (closed) return null
@@ -117,7 +131,9 @@ class DefaultPartExtensionService(
             },
             retireVisuals = retireVisuals,
             detach = { attachment -> synchronized(lock) { entry.attachments.remove(attachment) } },
-            report = reportFailure
+            report = reportFailure,
+            refreshAudience = refreshAudience,
+            refreshRendering = refreshRendering
         ).also { entry.attachments.add(it) }
     }
 

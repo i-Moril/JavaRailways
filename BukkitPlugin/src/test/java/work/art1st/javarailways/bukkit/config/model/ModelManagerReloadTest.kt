@@ -241,8 +241,7 @@ class ModelManagerReloadTest {
             name: a
             type: dummy
             parts:
-              - config-version: 1
-                name: b
+              - name: b
                 type: dummy
                 parts: [{import: a}]
         """.trimIndent())

@@ -203,6 +203,31 @@ class OptionalSimpleDisplaysTest {
     }
 
     @Test
+    fun `typed display context receives detached installation hints and refreshes reversal facts`() {
+        val fixture = Fixture()
+        val contexts = mutableListOf<DisplayContext>()
+        fixture.compileTemplate = { Template(contexts = { context -> contexts.add(context); emptyList() }) }
+        val optional = OptionalSimpleDisplays(fixture.host)
+        optional.start()
+        val session = requireNotNull(optional.openTemplate(renderContext(),
+            DisplayPartConfig("cabin", true, 1.0, 1.0, doorSide = "left"), "main", DisplayTemplateSource("main.xml", "source")))
+        val first = Json.parseToJsonElement("""{"car":{"operatingEnd":"head"},"operational":{"doorSide":"LEFT"}}""").jsonObject
+        val reversed = Json.parseToJsonElement("""{"car":{"operatingEnd":"tail"},"operational":{"doorSide":"RIGHT"}}""").jsonObject
+        val opposite = Json.parseToJsonElement("""{"car":{"operatingEnd":"tail"},"operational":{"doorSide":"LEFT"}}""").jsonObject
+        session.draw(PartExtensionRenderInput(first, 0))
+        session.draw(PartExtensionRenderInput(reversed, 10))
+        session.draw(PartExtensionRenderInput(opposite, 20))
+        session.draw(PartExtensionRenderInput(elapsedTicks = 30))
+        assertEquals(listOf("this", "this", "opposite", null), contexts.map { (it.data["display"] as Map<*, *>)["openingSide"] })
+        assertTrue(contexts.all { (it.data["display"] as Map<*, *>)["doorSide"] == "left" })
+        assertFalse("display" in first)
+        assertEquals("head", (contexts[0].data["car"] as Map<*, *>)["operatingEnd"])
+        assertEquals("LEFT", (contexts[0].data["operational"] as Map<*, *>)["doorSide"])
+        session.close()
+        optional.close()
+    }
+
+    @Test
     fun `session compiles once draws structured data and time repeatedly and preserves physical fitting`() {
         val fixture = Fixture()
         val styled = Component.text("Destination").font(Key.key("custom:font"))

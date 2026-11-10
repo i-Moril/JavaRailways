@@ -1,6 +1,6 @@
 # 模型包配置的共同表达规范
 
-状态：TARGET，作者侧设计草案；依据用户确认的共同规则整理，尚未修改已有格式或解析器。范围是 JavaRailways 模型包及即将新增的显示模板配置，不扩展到所有插件配置或 Minecraft 资源包。显示模板声明已进入加载与快照实现批次，正式schema为 `schemas/train-model/displays-v1.schema.json`；其他既有格式调整仍按子任务排期。
+状态：CURRENT（2026-11-10）。内联部件版本包装及命名动画map已实施，源码/测试源码编译通过；测试与服务器实际切换仍待统一验证。其余原则作为约束，不代表全仓格式已统一。范围是 JavaRailways 模型包及即将新增的显示模板配置，不扩展到所有插件配置或 Minecraft 资源包。显示模板声明已进入加载与快照实现批次，正式schema为 `schemas/train-model/displays-v1.schema.json`；其他既有格式调整仍按子任务排期。
 
 ## 执行安排（用户指定）
 
@@ -20,9 +20,9 @@
 
 **部件和安装引用。** 现有 PartRegistry 的 body-parts/parts/wheel-parts 共用 parsePartList，使用 inline type 或 import，附加 offset/rotation。这种 list 表示安装树，允许相同部件重复安装，应该保留。独立部件有 name/type；不能给每个安装实例强加全局唯一的定义名。未来点级样式覆盖仍需要单独解决实例寻址，不在本草案把 name 当实例ID。
 
-现有内联部件仍要求 config-version，这是继承版本规则的待调整项。本批不删除该字段；日后调整前需遵守版本/发布基线门槛，并同步官方schema、解析器、样例和快照相关fixture。不能仅因本草案出现就开始兼容两种开发格式。
+当前内联部件禁止重复 config-version，继承所属文档；独立part文件保留版本。共同partContent由独立/内联schema包装复用；仅当前格式，无开发期双reader。
 
-**动作和动画。** actions.yml 的 actions 是按名称查找的 map，符合定义集合规则。动作中的 animations/sounds 是执行条目列表，条目里的 name/key 是目标引用，可以重复，不应改为 map。部件上的 animations 则是带 name 的定义列表；未来是否改成命名map要先核对顺序、重复名和已有消费者，不能与动作执行列表混为一谈。
+**动作和动画。** actions.yml 的 actions 是按名称查找的 map，符合定义集合规则。动作中的 animations/sounds 是执行条目列表，条目里的 name/key 是目标引用，可以重复，不应改为 map。部件上的 animations 现在为命名map，key是动画身份，值不重复name。内部list DTO保持插入顺序和既有引用语义；YAML重复key在构造前拒绝，动作执行列表保持不变。
 
 **列车组合。** manifest.composition 是有序且可重复的车型引用list，保持不变。
 

@@ -1,16 +1,8 @@
 # Design
 
-> Current: [dynamic frames/basic train input](research/dynamic-train-input-contract.md), after static mount commit a4604a43. Bukkit PlaceholderAPI excluded from this task.
+> Current: [interior screen viewing distance](research/interior-distance-contract.md), with eye-to-transformed-screen distance explicitly required by the user. Integrated verification is deferred until all work is complete. [Culling assessment](research/interior-display-culling-assessment.md) is advisory; no extra culling enabled. Operational data batch remains implemented/uncommitted; PAPI is excluded.
 
-> Current: [static extension mount contract](research/static-extension-mount-contract.md) supersedes prior no-runtime notes for this new authorized slice.
-
-> Current continuation: [text backend contract](research/text-backends-contract.md). No extension runtime mounting in this slice.
-
-> Current continuation: [template compilation contract](research/decorations-template-compilation-contract.md). Foundation module boundary is committed at `95935639`.
-
-> 2026-11-10: the approved [Decorations foundation contract](research/decorations-foundation-contract.md) and updated [PRD](prd.md) supersede ownership/format details below. Host provides generic parts/resources; Decorations owns display and optional SimpleDisplays. Missing add-on preserves transforms, animation and children. Current batch has no mounting/runtime rendering API. The earlier design below is historical reference for later stages.
-
-> Current slice: package display XML loading and source-package snapshots; see [approved contract](research/package-display-loading-contract.md). Independent XML/document JS is complete at SimpleDisplays `410af2e`. Standalone-JS notes below are historical; the old-format consistency child remains deferred until pre-acceptance.
+> Completed milestones: Decorations foundation `95935639`, template compilation `84b804fc`, native/packet text backends `3aaa3af3`, static mounting `a4604a43`, dynamic sessions/basic train input `09da5fbc`. Independent SimpleDisplays XML/document JS is at `410af2e`. Current module boundaries and contracts supersede historical built-in screen/loading notes below; schema consistency remains a separate child before acceptance.
 
 ## Ownership and boundaries
 
@@ -41,8 +33,8 @@ The package snapshot/pinning behavior must include everything required to reprod
 
 Resolve one style per installation point using this order:
 
-1. train-instance category override
-2. package point-specific default
+1. runtime world/fixed-unit/category override
+2. screen config.template default
 3. package category default
 
 No match means the installation point is inactive. A category is a selector and semantic convention, not an enum discriminator. Recommended names are documented, while custom names remain legal.
@@ -69,23 +61,21 @@ Discover the optional service during BukkitPlugin enable after optional dependen
 
 All entity operations use the existing target-aware render ownership paths. Model rebuild, world unload, car removal, audience loss, plugin disable, and partial construction failure retire every screen visual. A failed screen creation rolls back the partially created screen group without discarding the rest of the car model unless package validation had already declared the model invalid.
 
-## Deferred runtime switching
+## Runtime switching (confirmed option2, implemented; integrated verification deferred)
 
-Record command and JS switching as TODO work. The future API should share one style-override service, but this task does not decide whether overrides target a train, operating unit, car, or installation point, or whether they persist across lifecycle changes.
+Decorations owns DisplayStyleService, keyed by world UUID / actual fixed-unit ID / category. Player commands and API share atomic captured-catalog validation. Overrides survive reverse/split/couple/model rebuild and clear on accepted world unload or plugin disable/restart. No persistence is added. Hidden metadata updates preserve unit binding; effective-selection revisions clear old output and replace only affected private templates. See [the exact contract](research/style-selection-contract.md#confirmed-fixed-unit-runtime-slice-user-selected-option2). JS-triggered switching remains future work.
 
-This deferral concerns category-style switching only. Player commands for interior-screen viewing distance are part of the confirmed visibility requirement.
-
-## Screen visibility decision (user confirmed, 2026-11-09; not yet implemented)
+## Screen visibility decision (updated 2026-11-10; implemented, integrated verification deferred)
 
 Exterior screens are simple and use the same rendering/visibility strategy as the car body; no additional screen-specific culling policy is required for them. Interior screens initially use a configurable viewing distance, analogous to existing train/rail viewing distance. Server config supplies the setting and players can override their own interior-screen distance using a command. The screen part's interior/exterior attribute selects the policy; category names do not imply it.
 
 Reuse the existing car audience as the candidate set and apply the effective interior-screen distance as an additional filter. Do not require a cabin occupancy box, seat membership or same-car membership. A player outside the car may receive its interior screens when within the effective viewing range and the existing car audience. The first release does not add screen-backface, camera-FOV/frustum, raycast or mesh-occlusion tests.
 
-Existing evidence: `RenderChunkManager` spatially indexes car candidates and refreshes on player movement and moving renderables; `ViewDistanceManager` stores player-specific distance settings; `CarExtension` has a separate distance-based detail audience. Reuse these ownership and refresh patterns rather than scanning all world players per screen. Concrete config/command integration and the distance reference point still need design; no key names, numeric defaults, persistence behavior or exact comparison formula are frozen by this decision.
+Existing evidence: `RenderChunkManager` spatially indexes car candidates and refreshes on player movement and moving renderables; `ViewDistanceManager` stores player-specific distance settings; `CarExtension` has a separate distance-based detail audience. Reuse these ownership and refresh patterns rather than scanning all world players per screen. The user now explicitly requires eye-to-screen distance at the fully transformed part origin. Decorations owns default32/max128 block settings and login-only player commands; exact contract is research/interior-distance-contract.md. No car-center approximation. Integrated verification is intentionally deferred.
 
 On player entry, send the group's current state; on exit, remove its visuals for that player and stop movement/content packets. Do not broadcast metadata to excluded players. A group with no viewers should not evaluate animation frames solely for invisible output; reconstruct its current frame from the animation clock when a viewer returns. Actual backend parity and ownership must be verified in the screen-group implementation stage. A moving train must refresh stationary-player eligibility, and command changes must refresh the requesting player's audience. Capture player state on its entity owner and consume immutable car frame data, without cross-region live-player reads.
 
-Stage 2 declares, validates and snapshots the interior/exterior screen-part metadata. Stage 5 implements distance filtering, config and player command support with screen groups. The screen-part interior field is implemented; the visibility algorithm, config and commands remain unimplemented.
+Stage 2 declares, validates and snapshots the interior/exterior screen-part metadata. Stage 5 implements distance filtering, config and player command support with screen groups. The screen-part interior field is implemented; the distance policy/config/player command are now implemented with compilation checks; integrated testing is deferred.
 
 ## XML / placeholder discussion (not yet implemented)
 
@@ -227,3 +217,13 @@ Current implementation: SimpleDisplays `410af2e`, XML → invocation-local docum
 ## 显示资源加载批次完成
 
 包内XML原文和类别默认映射已接入PackageLoader、主包/来源车厢快照及现有Store重算。正式schema归入schemas/train-model，不保留完整task副本。维护机制见[显示模板包资源](../../spec/bukkit-plugin/backend/package-displays.md)，本轮证据见[验证记录](research/package-display-loading-validation.md)。尚未编译XML或接屏幕实体。
+
+
+## 完整站点序列与真实进度（2026-11-10）
+
+按[当前合同](research/stop-sequence-contract.md)实现：SimpleATO owns transient occurrence/arrival/departure facts，宿主只发布一份完整stops、nullable0-based stationIndex和phase。不将completed诊断等同于已经驶离；不按站名、stationId、速度或计划时刻猜本站。重复到访及合法TERMINAL/ORIGIN合并通过exact call身份映射到序列索引。actual currentRun规则保持；车辆信息切换时机留TODO，无displayRun/提前切换。只改transient接口，不改持久化边界或schema版本；现有HTTP诊断模型不随JS专用输入机械替换。
+
+
+## 本侧/对侧开门接口
+
+用户确认复用实际开门的折返与逐车安装方向语义，按[本批合同](research/door-side-display-contract.md)实现。原始开门侧由SimpleATO拥有，逐车操纵端换算由宿主复用已有helper，Decorations只比较固定安装侧。继续仅编译/静态检查，测试及服务器验收后置。

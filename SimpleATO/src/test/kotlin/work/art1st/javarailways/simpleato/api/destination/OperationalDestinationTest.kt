@@ -1,5 +1,8 @@
 package work.art1st.javarailways.simpleato.api.destination
 
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+
 import org.junit.jupiter.api.function.Executable
 import org.junit.jupiter.api.Assertions.assertAll
 import work.art1st.javarailways.core.physics.train.TestWorldFixture
@@ -43,6 +46,33 @@ class OperationalDestinationTest {
     }
 
 
+
+    @Test
+    fun `last berth replacement and failed replacement preserve station metadata`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
+        val service = OperationalDestinationService(world)
+        val id = StationId("central")
+        val original = OperationalDestination(
+            id = "central@one", railId = rail.id, arcLengthInAbMeters = 20.0,
+            role = DestinationRole.StationBerthRole(id, "Central", "one", DoorSide.LEFT)
+        )
+        service.register(original)
+        val metadata = JsonObject(mapOf("notice" to JsonPrimitive("Transfer here")))
+        world.simpleAtoWorldData.stations.updateMetadata(id, metadata, JsonObject(emptyMap()))
+        val moved = original.copy(arcLengthInAbMeters = 40.0)
+        service.replace(original.id, moved)
+        assertEquals(metadata, world.simpleAtoWorldData.stations[id]!!.metadata)
+        assertThrows(IllegalArgumentException::class.java) {
+            service.replace(moved.id, moved.copy(railId = java.util.UUID.randomUUID()))
+        }
+        assertEquals(moved, service[moved.id])
+        assertEquals(metadata, world.simpleAtoWorldData.stations[id]!!.metadata)
+        service.remove(moved.id)
+        service.register(original)
+        assertEquals(JsonObject(emptyMap()), world.simpleAtoWorldData.stations[id]!!.metadata)
+    }
 
     @Test
     fun `role-owned destination IDs use canonical owner at point format`() {

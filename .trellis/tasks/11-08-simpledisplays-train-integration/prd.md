@@ -1,14 +1,8 @@
 # Train-mounted displays through Decorations
 
-> Current: [dynamic frames/basic train input](research/dynamic-train-input-contract.md), after static mount commit a4604a43. Bukkit PlaceholderAPI excluded from this task.
+> Current: [ordered stops and exact display progress](research/stop-sequence-contract.md), approved after cabin/exterior layout discussion. Prior operational inputs, interior distance, style overrides, metadata and schema-consistency changes remain uncommitted. Integrated verification is deferred until all work is complete; no extra culling or PAPI.
 
-> Scope decision (2026-11-10): Bukkit PlaceholderAPI adaptation is excluded from this task. Train data goes directly through the library API; a PAPI bridge may be a separate future task. User approved committing the static mount slice and continuing to the next slice.
-
-> Current authorized slice: [static extension mounting](research/static-extension-mount-contract.md), after text backends3aaa3af3. Worker-prepared generic text values, exact car source resources, real Decorations XML first frame, inherited model/audience/cleanup; dynamic data/refresh/distance later.
-
-> Current authorized slice: [native/EntityLib text backends](research/text-backends-contract.md). Template compilation committed84b804fc. This adds real internal text visuals only; implementation and [validation](research/text-backends-validation.md) complete, currently uncommitted. Train-part runtime mounting follows separately.
-
-> Current slice: [Decorations template compilation](research/decorations-template-compilation-contract.md). Foundation committed as `95935639`; user approved continuation. This slice is implemented, uncommitted, with [validation](research/decorations-template-compilation-validation.md): actual XML/embedded-JS syntax compilation and bounded cache; runtime mounting follows separately.
+> Completed milestones: Decorations foundation `95935639`, template compilation `84b804fc`, native/packet text backends `3aaa3af3`, static mounting `a4604a43`, dynamic sessions/basic train input `09da5fbc`. Independent SimpleDisplays XML/document JS is at `410af2e`. Current module boundaries and contracts supersede historical built-in screen/loading notes below; schema consistency remains a separate child before acceptance.
 
 ## Confirmed module boundary (2026-11-10)
 
@@ -37,7 +31,7 @@ Completed: independent SimpleDisplays XML/document-JS410af2e; generic extension 
 Remaining after this slice:
 
 - Project actual operational unit metadata, destination/run-type author values, current/next station and ordered stop occurrences through direct library inputs. Reuse TimetableUnitDisplaySnapshot, preserve unresolved branches and real fixed-unit membership; do not guess from line station order.
-- Implement per-viewer mounted output on both backends. The independent library already accepts viewer input; shared native entity metadata alone does not satisfy differing viewer content.
+- Deferred by user2026-11-10: per-viewer mounted output on both backends, alongside PlaceholderAPI. Current acceptance covers shared mounted content; independent SimpleDisplays viewer input remains available.
 - Preserve confirmed visibility policy: exterior screens follow car-body audience; interior screens use configurable per-player distance with config and player command. Occupancy/facing/frustum/occlusion remain outside initial policy.
 - Extend category defaults with point defaults/train overrides as reviewed later. Runtime style switching addressing/commands/persistence remain deferred until target/composition semantics are agreed.
 - Run deferred11-09-model-config-schema-consistency after functional work and before acceptance.
@@ -53,7 +47,7 @@ Historical discussion below records prior decisions; this confirmed module bound
 
 ## Confirmed visibility decision (2026-11-09)
 
-- The user selected the distance-based initial policy above. The user also approved inline/imported screen parts with required `category`, `interior`, `width` and `height` under the extension-owned `config` (original built-in `screen` shape superseded by Decorations). Config keys, numeric defaults, command syntax, distance reference point and player-setting persistence remain implementation-design details to specify before coding; no values or persistence behavior have been agreed here. The player command is for viewing distance, distinct from deferred category-style switching.
+- The user selected the distance-based initial policy above. The user also approved inline/imported screen parts with required `category`, `interior`, `width` and `height` under the extension-owned `config` (original built-in `screen` shape superseded by Decorations). The user subsequently required player-to-screen distance (2026-11-10); current implemented choices and defaults are in research/interior-distance-contract.md, with integrated verification deferred. The player command is for viewing distance, distinct from deferred category-style switching.
 - Continue work in `/home/user/.codex/worktrees/ddf5/JavaRailways` on `codex/simpledisplays-train-integration`, starting from `ce2bcd44`. The main checkout has other work and must not be used for implementation or builds of this task.
 
 ## Template discussion (2026-11-09)
@@ -79,3 +73,26 @@ Historical discussion below records prior decisions; this confirmed module bound
 The user superseded the standalone JS design and asked to redo from `21f7686` without a revert commit. The authoritative current slice is [XML/document JS contract](research/xml-document-js-contract.md). Earlier standalone-JS implementation/evidence is historical and not the current API. Package template wiring remains deferred.
 
 Replacement library slice completed as `410af2e` with XML embedded scripts/document API. See [replacement validation](research/xml-document-js-validation.md); package template loading and train rendering remain pending.
+
+
+## Scope update — 2026-11-10
+
+User confirmed per-viewer mounted content can be done later, alongside PlaceholderAPI; it is not a blocker for this task's current acceptance. Existing mounted screens share content while retaining per-player viewing distance. Operational input, viewing distance, static template defaults and fixed-unit/category runtime styles are implemented; latest slices have compilation evidence only. Next: the registered schema consistency child, then unified tests and live backend/Folia/client acceptance. No extra culling. No new commit/push/deploy authorized by this scope update.
+
+
+## 显示运行线范围与后续 TODO（2026-11-10）
+
+用户确认当前阶段在实际运行线期间保持相应显示，沿用 actual currentRun 的真实执行范围；不新增 displayRun、提前切换或根据下一站推测运行线的策略。段外继续保留当前未知/null语义，不自动沿用上一段或提前绑定下一段。
+
+- [ ] TODO（后续讨论，不属于当前实现）：车辆信息显示的切换时机。覆盖跨线站、终点折返、站内等待及下一班始发时线路名称、种别、目的地等信息何时切换；届时再确定是否需要独立展示上下文或显式切换动作。
+
+站点输入方向按用户建议调整为当前运营车次的完整有序站点序列、精确 occurrence 索引和到站/在途状态；替代此前新增 completedStops 列表的提案。此接口的具体 owner/未知状态/到站与驶离语义需按后续实现合同落实，不能把 completed 等同于已经驶过。
+
+## 车外版式与共享语言轮播（2026-11-10）
+
+- 车外屏幕采用【种别（独立背景色）】目的地，不包含车内线路图、下一站和开门提示。种别、目的地支持中英文，种别背景色为模板消费的运行线metadata展示约定，不参与运营决策。
+- 用户明确车内/车外均按固定时间自动切换语言，不按玩家语言或viewerData选择。相同屏幕对所有观看者共享同一语言页；此要求不依赖后移的逐观看者内容或PlaceholderAPI。
+- 用户指定：每页15秒，中英文交替。使用宿主已有elapsedTicks source clock（20ticks/s，即每300ticks切换），模板内可调整间隔。暂停/无观众/恢复时跟随既有source-clock语义，不新建每屏定时器，不在draw之间保存JS全局状态。若用户之后要求真实墙钟秒，则另明确时钟契约。
+- 车内两语言共用固定画布、相同线路图几何；车外轮播也不得改变物理屏幕尺寸。
+
+- 车外版式细化：目的地在种别以外的右侧区域居中；未配置种别时移除整个左侧色块和占位，目的地整屏居中。优先使用较大字体，长目的地按可用区域处理；语言/种别有无不改变屏幕物理尺寸，游戏内可读性仍待客户端验收。

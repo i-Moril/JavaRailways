@@ -58,6 +58,17 @@ bukkitPluginYaml {
     authors.add('__ART1st__')
     depend.add('JavaRailways')
     softDepend.add('SimpleDisplays')
+    commands.register('decorations') {
+        description.set('Configure train display viewing distance and fixed-unit styles')
+    }
+    permissions.register('decorations.display-style') {
+        description.set('Allows changing fixed-unit train display styles')
+        getDefault().set(xyz.jpenilla.resourcefactory.bukkit.Permission.Default.OP)
+    }
+    permissions.register('decorations.display-distance') {
+        description.set('Allows changing your interior train display viewing distance')
+        getDefault().set(xyz.jpenilla.resourcefactory.bukkit.Permission.Default.TRUE)
+    }
 }
 
 // Plain JAR: host API, optional provider API and their runtime libraries are supplied by owners.
@@ -72,9 +83,11 @@ def verifyPluginJar = tasks.register('verifyPluginJar') {
         if (!entries.contains('plugin.yml')) throw new GradleException('Decorations JAR does not contain plugin.yml')
         def descriptor = jarTree.matching { include('plugin.yml') }.singleFile.getText('UTF-8')
         ['name: Decorations', 'main: work.art1st.javarailways.decorations.DecorationsPlugin',
-         'api-version: 1.21.11', 'JavaRailways', 'SimpleDisplays', 'folia-supported: true'].each { text ->
+         'api-version: 1.21.11', 'JavaRailways', 'SimpleDisplays', 'folia-supported: true',
+         'decorations:', 'decorations.display-distance:', 'decorations.display-style:'].each { text ->
             if (!descriptor.contains(text)) throw new GradleException("Decorations plugin.yml is missing: ${text}")
         }
+        if (!entries.contains('config.yml')) throw new GradleException('Decorations JAR does not contain config.yml')
         if (descriptor =~ /org\.jetbrains\.kotlin:|org\.jetbrains\.kotlinx:kotlinx-serialization-/)
             throw new GradleException('Decorations must inherit Kotlin/serialization through JavaRailways')
         def forbidden = ['work/art1st/javarailways/bukkit/', 'work/art1st/javarailways/core/',

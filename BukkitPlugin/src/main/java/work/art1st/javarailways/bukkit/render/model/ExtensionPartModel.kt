@@ -47,19 +47,80 @@ internal class ExtensionPartModel(
     private var lastRequestedTick: Long? = null
     private var applyFailed = false
     private val viewers = linkedMapOf<UUID, Viewer>()
-    private val attachment: PartExtensionAttachment? = service.createAttachment(typeId, context, ::retireGenerated)
+    private var screenPoint: ExtensionAudiencePoint? = null
+    private var sharedRootPoint: ExtensionAudiencePoint? = null
+    private var latestInput: PartExtensionRenderInput? = null
+    private var latestSourceTick: Long? = null
+    private var lastSourceData: JsonObject? = null
+    private var policyFailed = false
+    private var audiencePolicyReady = false
+    private var observedRenderRevision = 0L
+    private var revisionFailed = false
+    private val attachment: PartExtensionAttachment? = service.createAttachment(
+        typeId, context, refreshAudience = ::refreshAudience, refreshRendering = ::refreshRendering,
+        retireVisuals = ::retireGenerated
+    )
 
     val hasRenderer: Boolean get() = attachment?.canRender == true
 
     @Synchronized fun bindRoot(root: DisplayVisual) { check(this.root == null); this.root = root }
 
+    /** A semantic context change must go blank before attempting replacement data. */
+    @Synchronized fun invalidateContext() {
+        if (destroyed) return
+        attachment?.invalidateContext()
+        lastRequestedTick = null
+        latestInput = null
+        latestSourceTick = null
+        lastSourceData = null
+        applyFailed = false
+        // Preserve observers of every obsolete/in-flight cleanup until real model retirement.
+        val cleanup = retireGenerated()
+        obsoleteCleanup += cleanup
+    }
+
+    /** Unit/style changes invalidate only this group's generated frame, not the car model/session. */
+    @Synchronized private fun refreshRendering() {
+        if (destroyed) return
+        val active = attachment ?: return
+        val revision = try {
+            active.renderRevision()?.also { revisionFailed = false } ?: return
+        } catch (failure: Exception) {
+            if (!revisionFailed) service.reportRuntimeFailure("Could not read extension render revision", failure)
+            revisionFailed = true
+            return
+        }
+        if (observedRenderRevision == revision) return
+        observedRenderRevision = revision
+        active.invalidateContext()
+        lastRequestedTick = null
+        applyFailed = false
+        obsoleteCleanup += retireGenerated()
+        requestLatest(force = true)
+    }
+
     @Synchronized fun updateInput(data: JsonObject, tick: Long) {
         require(tick >= 0L) { "Extension source tick must be nonnegative" }
         if (destroyed || attachment?.isActive != true) return
         val first = firstSourceTick ?: tick.also { firstSourceTick = it }
+        if (tick < first) return
+        if (latestSourceTick != tick || lastSourceData !== data) {
+            latestInput = PartExtensionRenderInput(data, tick - first)
+            latestSourceTick = tick
+            lastSourceData = data
+        }
+        requestLatest()
+    }
+
+    private fun requestLatest(force: Boolean = false) {
+        val active = attachment ?: return
+        if (!active.isActive) return
+        val tick = latestSourceTick
         val last = lastRequestedTick
-        if (tick < first || (last != null && tick - last < 10L)) return
-        attachment.request(PartExtensionRenderInput(data, tick - first))
+        if (!force && tick != null && last != null && tick - last < 10L) return
+        val draw = viewers.values.any { it.visible }
+        val input = latestInput ?: if (draw) PartExtensionRenderInput() else return
+        active.request(input, draw = draw)
         lastRequestedTick = tick
     }
 
@@ -69,6 +130,20 @@ internal class ExtensionPartModel(
         lastRoot = CompactTransform(rootTransform)
         lastVelocity = Vector3d(rootVelocity)
         texts.forEach { it.updateState(state.rootRelativeTransform, rootTransform, rootVelocity, transformDirty) }
+        // Parent/car rotations and independent part animations can move the screen while its root
+        // remains still. Only immutable point/eye values cross the model/viewer owner boundary.
+        val current = screenPoint
+        val base = sharedRootPoint
+        if (current != null && base != null) {
+            // AbstractModel can replay an animation against the last full-walk root. Its local
+            // offset remains correct; combine it with the latest root-only translation instead.
+            val offset = state.rootRelativeTransform.position
+            val point = current.copy(x = base.x + offset.x(), y = base.y + offset.y(), z = base.z + offset.z())
+            if (point != current) {
+                screenPoint = point
+                viewers.values.toList().forEach(::scheduleRefresh)
+            }
+        }
     }
 
     /** Called only from the existing model owner commit, including far/root-only commits. */
@@ -77,7 +152,20 @@ internal class ExtensionPartModel(
         val oldRoot = lastRoot ?: return // No attachment before the first complete group transform.
         val active = attachment ?: return
         if (destroyed || !active.isActive) return
-        active.start()
+        // Warm compilation publishes the policy without drawing invisible/default output.
+        active.start(initialDraw = false)
+        val relative = state.rootRelativeTransform.position
+        sharedRootPoint = ExtensionAudiencePoint(requireNotNull(location.world).uid, location.x, location.y, location.z)
+        val point = ExtensionAudiencePoint(requireNotNull(location.world).uid,
+            location.x + relative.x(), location.y + relative.y(), location.z + relative.z())
+        val ready = active.audiencePolicy != null
+        val policyChanged = audiencePolicyReady != ready
+        audiencePolicyReady = ready
+        if (screenPoint != point || policyChanged) {
+            screenPoint = point
+            viewers.values.toList().forEach(::scheduleRefresh)
+        }
+        refreshRendering()
         val frame = active.poll() ?: return
         obsoleteCleanup.removeAll { it.toCompletableFuture().let { future -> future.isDone && !future.isCompletedExceptionally } }
         val latestRoot = oldRoot.copy(position = Vector3d(location.x, location.y, location.z))
@@ -125,7 +213,7 @@ internal class ExtensionPartModel(
                 if (failure == null) applyingCompletion.complete(null) else applyingCompletion.completeExceptionally(failure)
             }
             applyFailed = false
-            viewers.values.toList().forEach { viewer -> replay(viewer, prepared, active, mountedRoot) }
+            viewers.values.toList().forEach { viewer -> replay(viewer, prepared, active) }
         } catch (failure: Throwable) {
             val cleanup = if (failure is DisplayCleanupException) failure.cleanup else CompletableFuture.completedFuture(null)
             cleanup.whenComplete { _, cleanupFailure ->
@@ -142,31 +230,109 @@ internal class ExtensionPartModel(
         applyFailed = true
     }
 
-    private fun replay(viewer: Viewer, prepared: List<TextModel>, active: PartExtensionAttachment, mountedRoot: DisplayVisual) {
+    private fun eligible(viewer: Viewer, point: ExtensionAudiencePoint): Boolean {
+        val policy = attachment?.audiencePolicy ?: return false
+        val eye = viewer.eye ?: return false
+        return try {
+            val limit = policy.maximumDistanceBlocks(viewer.id)
+            require(limit == null || limit.isFinite() && limit >= 0.0) { "Invalid extension audience distance: $limit" }
+            policyFailed = false
+            eye.isWithin(point, limit)
+        } catch (failure: Exception) {
+            if (!policyFailed) service.reportRuntimeFailure("Could not evaluate extension audience", failure)
+            policyFailed = true
+            false
+        }
+    }
+
+    /** Caller owns this player's entity. No player getter is used on the model/worker side. */
+    private fun refreshViewer(viewer: Viewer, replay: List<TextModel>? = null) {
+        val active = attachment ?: return
+        val point = screenPoint
+        val eye = viewer.player.eyeLocation
+        viewer.eye = ExtensionAudiencePoint(requireNotNull(eye.world).uid, eye.x, eye.y, eye.z)
+        val visible = !destroyed && active.isActive && point != null && eligible(viewer, point)
+        val changed = viewer.visible != visible
+        viewer.visible = visible
+        if (changed || visible && replay != null) bundles.frame {
+            if (visible) (replay ?: texts).forEach { it.showVisualsTo(viewer.player) }
+            else texts.forEach { it.hideVisualsFrom(viewer.player) }
+            root?.refreshPassengersFor(viewer.player)
+        }
+        if (changed) {
+            if (visible) requestLatest(force = true)
+            else if (viewers.values.none { it.visible }) {
+                active.invalidateContext() // Reject an invisible in-flight/queued frame as well.
+                lastRequestedTick = null
+            }
+        }
+    }
+
+    /** At most one queued refresh per existing viewer; the callback uses the latest point/policy. */
+    private fun scheduleRefresh(viewer: Viewer) {
+        if (destroyed || viewers[viewer.id] !== viewer || viewer.refreshScheduled) return
+        // If both values are known and the decision is unchanged, geometry causes no extra task.
+        val point = screenPoint
+        if (point != null && viewer.eye != null && eligible(viewer, point) == viewer.visible) return
+        viewer.refreshScheduled = true
+        try {
+            val accepted = dispatcher.runForEntity(viewer.player, action = {
+                synchronized(this) {
+                    viewer.refreshScheduled = false
+                    if (destroyed || attachment?.isActive != true || viewers[viewer.id] !== viewer) return@runForEntity
+                    refreshViewer(viewer)
+                }
+            }, retired = { synchronized(this) { removeViewer(viewer) } })
+            if (!accepted) removeViewer(viewer)
+        } catch (failure: RuntimeException) {
+            viewer.refreshScheduled = false
+            service.reportRuntimeFailure("Could not refresh extension audience", failure)
+        }
+    }
+
+    @Synchronized private fun refreshAudience(viewerId: UUID) {
+        viewers[viewerId]?.let { viewer ->
+            // Settings changed even when the previous position-based decision looked unchanged.
+            viewer.eye = null
+            scheduleRefresh(viewer)
+        }
+    }
+
+    private fun removeViewer(viewer: Viewer) {
+        if (viewers[viewer.id] !== viewer) return
+        viewers.remove(viewer.id)
+        if (viewer.visible && viewers.values.none { it.visible }) {
+            attachment?.invalidateContext()
+            lastRequestedTick = null
+        }
+    }
+
+    private fun replay(viewer: Viewer, prepared: List<TextModel>, active: PartExtensionAttachment) {
         try {
             dispatcher.runForEntity(viewer.player, action = {
                 synchronized(this) {
                     if (destroyed || !active.isActive || viewers[viewer.id] !== viewer || texts !== prepared) return@runForEntity
-                    bundles.frame {
-                        prepared.forEach { it.showVisualsTo(viewer.player) }
-                        mountedRoot.refreshPassengersFor(viewer.player)
-                    }
+                    refreshViewer(viewer, prepared)
                 }
-            }, retired = { synchronized(this) { if (viewers[viewer.id] === viewer) viewers.remove(viewer.id) } })
+            }, retired = { synchronized(this) { removeViewer(viewer) } })
         } catch (failure: RuntimeException) { service.reportRuntimeFailure("Could not expose extension text to its existing viewer", failure) }
     }
 
     @Synchronized override fun showVisualsTo(player: Player) {
         if (destroyed) return
         val id = player.uniqueId
-        if (viewers[id]?.player !== player) viewers[id] = Viewer(id, player)
-        if (attachment?.isActive == true) texts.forEach { it.showVisualsTo(player) }
+        val viewer = viewers[id]?.takeIf { it.player === player } ?: Viewer(id, player).also { viewers[id] = it }
+        refreshViewer(viewer)
+        if (viewer.visible) texts.forEach { it.showVisualsTo(player) }
         super.showVisualsTo(player)
     }
+    @Synchronized override fun refreshVisualsFor(player: Player) {
+        viewers[player.uniqueId]?.takeIf { it.player === player }?.let { refreshViewer(it) }
+        super.refreshVisualsFor(player)
+    }
     @Synchronized override fun hideVisualsFrom(player: Player) {
-        val id = player.uniqueId
-        if (viewers[id]?.player !== player) return
-        viewers.remove(id)
+        val viewer = viewers[player.uniqueId]?.takeIf { it.player === player } ?: return
+        removeViewer(viewer)
         texts.forEach { it.hideVisualsFrom(player) }
         super.hideVisualsFrom(player)
     }
@@ -189,5 +355,9 @@ internal class ExtensionPartModel(
         super.collectDestruction(steps)
     }
 
-    private class Viewer(val id: UUID, val player: Player)
+    private class Viewer(val id: UUID, val player: Player) {
+        var eye: ExtensionAudiencePoint? = null
+        var visible = false
+        var refreshScheduled = false
+    }
 }

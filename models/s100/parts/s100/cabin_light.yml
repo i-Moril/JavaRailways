@@ -5,7 +5,7 @@ item:
   type: IRON_NUGGET
   item-model: "art1st/tc/s100/cabin_light"
 animations:
-  - name: cabin_lights
+  cabin_lights:
     keep-final-state: true
     keyframes:
       - at: 0.0

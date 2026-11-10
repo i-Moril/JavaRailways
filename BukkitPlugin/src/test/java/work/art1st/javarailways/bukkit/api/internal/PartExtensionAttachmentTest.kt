@@ -279,6 +279,86 @@ class PartExtensionAttachmentTest {
         } finally { attachment.closeAsync().toCompletableFuture().get(2, TimeUnit.SECONDS); service.close() }
     }
 
+    @Test fun `context invalidation rejects old inflight and completed frames while retaining one serial session`() {
+        val service = DefaultPartExtensionService()
+        val oldEntered = CountDownLatch(1); val oldRelease = CountDownLatch(1)
+        val newEntered = CountDownLatch(1); val newRelease = CountDownLatch(1)
+        val opens = java.util.concurrent.atomic.AtomicInteger()
+        val inputs = java.util.concurrent.CopyOnWriteArrayList<Long>()
+        service.register(owner(), object : PartExtensionRenderer {
+            override val typeId = TYPE
+            override fun validate(context: PartExtensionPackage) = Unit
+            override fun open(context: PartExtensionRenderContext): PartExtensionRenderSession {
+                opens.incrementAndGet()
+                return object : PartExtensionRenderSession {
+                    override fun draw(input: PartExtensionRenderInput): PartExtensionFrame {
+                        inputs += input.elapsedTicks
+                        if (inputs.size == 1) { oldEntered.countDown(); awaitIgnoringInterrupt(oldRelease) }
+                        else { newEntered.countDown(); awaitIgnoringInterrupt(newRelease) }
+                        return PartExtensionFrame(listOf(PartExtensionText(Component.text(input.elapsedTicks))))
+                    }
+                    override fun close() = Unit
+                }
+            }
+        })
+        val attachment = service.createAttachment(TYPE, context()) { CompletableFuture.completedFuture(null) }!!
+        try {
+            attachment.start(); assertTrue(oldEntered.await(2, TimeUnit.SECONDS))
+            attachment.request(PartExtensionRenderInput(elapsedTicks = 10))
+            attachment.invalidateContext()
+            attachment.request(PartExtensionRenderInput(elapsedTicks = 11))
+            oldRelease.countDown(); assertTrue(newEntered.await(2, TimeUnit.SECONDS))
+            assertNull(attachment.poll(), "old context completion must not publish while replacement draw is running")
+            assertEquals(listOf(0L,11L), inputs)
+            newRelease.countDown()
+            assertEquals(Component.text(11L), awaitFrame(attachment).texts.single().text)
+            attachment.request(PartExtensionRenderInput(elapsedTicks = 12))
+            awaitCondition { inputs.size == 3 }
+            // Wait for callback completion without consuming its pending frame.
+            val worker = PartExtensionAttachment::class.java.getDeclaredField("running").also { it.isAccessible = true }
+            val lock = PartExtensionAttachment::class.java.getDeclaredField("lock").also { it.isAccessible = true }.get(attachment)
+            awaitCondition { synchronized(lock) { worker.get(attachment) == null } }
+            attachment.invalidateContext()
+            assertNull(attachment.poll(), "completed old frame must be cleared too")
+            assertEquals(1, opens.get())
+        } finally {
+            oldRelease.countDown(); newRelease.countDown()
+            attachment.closeAsync().toCompletableFuture().get(2, TimeUnit.SECONDS); service.close()
+        }
+    }
+
+    @Test fun `hidden requests update detached binding without drawing and visible requests update before draw`() {
+        val service = DefaultPartExtensionService()
+        val updated = java.util.concurrent.CopyOnWriteArrayList<Long>()
+        val drawn = java.util.concurrent.CopyOnWriteArrayList<Long>()
+        service.register(owner(), object : PartExtensionRenderer {
+            override val typeId = TYPE
+            override fun validate(context: PartExtensionPackage) = Unit
+            override fun open(context: PartExtensionRenderContext) = object : PartExtensionRenderSession {
+                override val renderRevision: Long get() = updated.lastOrNull() ?: 0L
+                override fun update(input: PartExtensionRenderInput) { updated += input.elapsedTicks }
+                override fun draw(input: PartExtensionRenderInput): PartExtensionFrame {
+                    assertEquals(input.elapsedTicks, updated.last())
+                    drawn += input.elapsedTicks
+                    return PartExtensionFrame.EMPTY
+                }
+                override fun close() = Unit
+            }
+        })
+        val attachment = service.createAttachment(TYPE, context()) { CompletableFuture.completedFuture(null) }!!
+        try {
+            attachment.start(initialDraw = false)
+            attachment.request(PartExtensionRenderInput(elapsedTicks = 10), draw = false)
+            awaitCondition { updated.contains(10L) }
+            assertTrue(drawn.isEmpty())
+            assertNull(attachment.poll())
+            assertEquals(10L, attachment.renderRevision())
+            attachment.request(PartExtensionRenderInput(elapsedTicks = 11))
+            awaitFrame(attachment)
+            assertEquals(listOf(11L), drawn)
+        } finally { attachment.closeAsync().toCompletableFuture().join(); service.close() }
+    }
+
     private fun awaitCondition(condition: () -> Boolean) {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
         while (!condition() && System.nanoTime() < deadline) Thread.sleep(2)

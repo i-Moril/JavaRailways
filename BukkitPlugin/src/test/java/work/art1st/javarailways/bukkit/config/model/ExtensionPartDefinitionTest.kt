@@ -56,8 +56,7 @@ class ExtensionPartDefinitionTest {
             offset: {x: 1}
             config: {category: custom_lcd, interior: true, width: 0.8, height: 0.45}
             parts:
-              - config-version: 1
-                name: child
+              - name: child
                 type: dummy
         """.trimIndent())
         namespace.resolve("body.yml").writeText("""
@@ -67,12 +66,10 @@ class ExtensionPartDefinitionTest {
             parts:
               - import: lcd
                 offset: {y: 2}
-              - config-version: 1
-                name: group
+              - name: group
                 type: dummy
                 parts:
-                  - config-version: 1
-                    name: inline_lcd
+                  - name: inline_lcd
                     type: decorations:display
                     offset: {x: 4, z: 2}
                     rotation: {y: 90}

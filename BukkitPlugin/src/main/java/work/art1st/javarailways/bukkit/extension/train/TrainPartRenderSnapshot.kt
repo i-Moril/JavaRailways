@@ -1,5 +1,6 @@
 package work.art1st.javarailways.bukkit.extension.train
 
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -8,8 +9,13 @@ import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.bukkit.api.model.extension.immutablePartExtensionJson
 
 /** Presentation values captured on the simulation owner, transported with the same car frame. */
-internal class TrainPartRenderSnapshot(data: JsonObject, val tick: Long) {
+internal class TrainPartRenderSnapshot(
+    data: JsonObject,
+    val tick: Long,
+    contextKey: JsonObject = OperationalPartRenderProjection.EMPTY.contextKey,
+) {
     val data: JsonObject = immutablePartExtensionJson(data, 0) as JsonObject
+    val contextKey: JsonObject = immutablePartExtensionJson(contextKey, 0) as JsonObject
     init { require(tick >= 0L) { "Train part render tick must be non-negative" } }
 }
 
@@ -18,7 +24,10 @@ internal fun captureTrainPartRenderSnapshot(
     frame: TrainFrameSnapshot,
     carIndex: Int,
     trainType: String?,
-    tick: Long
+    tick: Long,
+    operational: OperationalPartRenderProjection = OperationalPartRenderProjection.EMPTY,
+    lines: JsonObject = JsonObject(emptyMap()),
+    operatingTail: Boolean? = null,
 ): TrainPartRenderSnapshot {
     val car = frame.cars[carIndex]
     val train = buildJsonObject {
@@ -32,10 +41,15 @@ internal fun captureTrainPartRenderSnapshot(
     }
     val data = buildJsonObject {
         put("train", train)
+        put("unit", operational.unit)
+        put("operational", operational.operational)
+        put("lines", lines)
+        operational.aliases.forEach { (key, value) -> put(key, value) }
         put("car", buildJsonObject {
             put("id", car.carId)
             put("index", carIndex)
             put("number", carIndex + 1)
+            put("operatingEnd", operatingTail?.let { if (it) "tail" else "head" }?.let(::JsonPrimitive) ?: JsonNull)
         })
         // SimpleDisplays XML bind accepts top-level strings; JS keeps the typed objects above.
         put("trainId", frame.trainId)
@@ -44,5 +58,9 @@ internal fun captureTrainPartRenderSnapshot(
         put("carId", car.carId)
         put("carNumber", (carIndex + 1).toString())
     }
-    return TrainPartRenderSnapshot(data, tick)
+    val key = if (operatingTail == null) operational.contextKey else buildJsonObject {
+        operational.contextKey.forEach { (name, value) -> put(name, value) }
+        put("carOperatingEnd", if (operatingTail) "tail" else "head")
+    }
+    return TrainPartRenderSnapshot(data, tick, key)
 }

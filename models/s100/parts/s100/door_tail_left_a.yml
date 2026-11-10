@@ -5,7 +5,7 @@ item:
   type: IRON_NUGGET
   item-model: "art1st/tc/s100/door_a"
 animations:
-  - name: doors_l
+  doors_l:
     keep-final-state: true
     keyframes:
       - at: 0.0

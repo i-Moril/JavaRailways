@@ -57,6 +57,10 @@ class CompositeModel internal constructor(
         updateRootPosition(rootTransform.position)
     }
 
+    fun invalidateExtensionContext() {
+        extensionGroups.forEach { it.invalidateContext() }
+    }
+
     /** Value-only input is supplied before the existing full or root-only model commit. */
     fun updateExtensionInput(data: kotlinx.serialization.json.JsonObject, tick: Long) {
         extensionGroups.forEach { it.updateInput(data, tick) }

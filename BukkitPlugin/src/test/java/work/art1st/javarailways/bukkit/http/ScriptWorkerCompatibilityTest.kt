@@ -16,7 +16,7 @@ class ScriptWorkerCompatibilityTest {
               timetable.operationalTrip('outbound',{defaults:{destination:'E'},segments:[{serviceId:'s',runId:'main',unitSlots:[1]}]});
               timetable.service('s','train',t=>{
                 t.check('A');
-                t.runSegment({runId:'main',lineId:'A',diagramLineId:'plot',lineDirection:'UP',calls:[
+                t.runSegment({runId:'main',lineId:'A',metadata:{notice:'airport service',custom:[true,null]},diagramLineId:'plot',lineDirection:'UP',calls:[
                   {id:'a',stationId:'A',destinationId:'A@1',status:'ORIGIN',departureTick:10},
                   {id:'c',stationId:'C',destinationId:'C@1',status:'TERMINAL',arrivalTick:20}]},r=>{
                     r.at(10).setDisplay([1],{kind:'rapid'},['old']);r.at(20).destination('C@1');r.resetDisplay([1]);
@@ -27,6 +27,7 @@ class ScriptWorkerCompatibilityTest {
         val saved = TimetableSnapshotCodec.decode(output)
         val restored = saved.restore()
         assertEquals("main", restored.services.single().runSegments.single().runId)
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("airport service"), restored.services.single().runSegments.single().metadata["notice"])
         assertEquals(1, restored.services.single().runSegments.single().startStepIndex)
         assertEquals("outbound", restored.operationalTrips.single().id)
         assertEquals(TimetableAction.SetDisplay::class,

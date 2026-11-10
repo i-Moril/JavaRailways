@@ -320,7 +320,7 @@ class ModelTreeBuilder internal constructor(
                     work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderContext(
                         source.packageName, source.hash,
                         work.art1st.javarailways.bukkit.api.model.extension.PartExtensionPart(def.name, payload.schemaVersion, payload.config),
-                        source.extensions[payload.typeId]),
+                        source.extensions[payload.typeId], spawnLoc.world?.uid),
                     extensions, backend ?: BukkitPlugin.INSTANCE.displayRenderBackend,
                     BukkitPlugin.INSTANCE.platformDispatcher, BukkitPlugin.INSTANCE.trainPacketBundles,
                     viewRange ?: displayViewRangeForDistance(BukkitPlugin.INSTANCE.javaRailwaysConfig.displayRenderer.playerDistance.maxBlocks))

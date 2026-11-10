@@ -18,6 +18,10 @@ interface PartExtensionService {
 }
 
 interface PartExtensionRegistration : AutoCloseable {
+    /** Refresh only this provider's existing train-audience membership on the viewer owner. */
+    fun refreshAudience(viewerId: java.util.UUID) = Unit
+    /** Ask existing attachments to observe their session revision; only changed output is cleared. */
+    fun refreshRendering() = Unit
     val existingPackageFailures: Map<String, String>
     /** Retires callbacks immediately and completes after all generated visuals have been removed. */
     fun closeAsync(): java.util.concurrent.CompletionStage<Void>

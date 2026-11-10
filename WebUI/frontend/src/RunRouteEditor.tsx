@@ -1,3 +1,4 @@
+import { MetadataJsonEditor } from './MetadataJsonEditor';
 import {EditableIdList} from './EditableIdSelect';
 import {waypointOptions} from './idOptions';
 import { useEffect,useMemo,useState,type ReactNode } from 'react';
@@ -17,6 +18,8 @@ const uid=(prefix:string)=>`${prefix}-${Date.now().toString(36)}-${Math.random()
 const stationIds=(line:LineV1,direction:LineDirection)=>direction==='UP'?line.upStationIds:line.downStationIds;
 
 interface RunRouteEditorProps {
+  metadataDraft?:string;
+  onMetadataDraftChange?:(draft:string)=>void;
   tools?:ReactNode;
   automaticColor:string;
   stationPrograms?:StationStopProgram[];
@@ -40,7 +43,7 @@ interface RunRouteEditorProps {
   onDelete:()=>void;
 }
 
-export function RunRouteEditor({automaticColor,events=[],stationPrograms=[],onStationProgramChange,run,lines,metadata,busy,onError,onChange,onDelete,tools,issues=[],focusedCallId,fieldScope='',onRename,onArrivalValidityChange,focusedArrivalStep,onUndo,onRedo,programDraftScope=fieldScope}:RunRouteEditorProps) {
+export function RunRouteEditor({metadataDraft,onMetadataDraftChange,automaticColor,events=[],stationPrograms=[],onStationProgramChange,run,lines,metadata,busy,onError,onChange,onDelete,tools,issues=[],focusedCallId,fieldScope='',onRename,onArrivalValidityChange,focusedArrivalStep,onUndo,onRedo,programDraftScope=fieldScope}:RunRouteEditorProps) {
   const {locale,t}=useI18n();
   const [inspectorTab,setInspectorTab]=useState<'calls'|'options'|'issues'>('calls');
   const [selectedCallId,setSelectedCallId]=useState(focusedCallId??'');
@@ -107,6 +110,7 @@ export function RunRouteEditor({automaticColor,events=[],stationPrograms=[],onSt
   const options=<div className="run-options-page">
 
     {tools}
+    {onMetadataDraftChange&&<section className="option-section"><MetadataJsonEditor draft={metadataDraft??JSON.stringify(run.metadata??{},null,2)} onChange={onMetadataDraftChange} disabled={busy}/></section>}
     <section className="option-section"><label>{t('editor.passengerOperation')}<Switch aria-label={t('editor.passengerOperation')} checked={run.type==='PASSENGER'} disabled={busy} onChange={(passenger)=>onChange(passenger?{...run,type:'PASSENGER'}:clearDeadheadTerminalDeparture({...run,type:'DEADHEAD'}))}/></label><Typography.Paragraph type="secondary">{t('editor.passengerOperationHint')}</Typography.Paragraph></section>
     <section className="option-section"><Typography.Title level={5}>{t('editor.runColor')}</Typography.Title><Flex gap={12} align="center" wrap><Input type="color" aria-label={t('editor.runColor')} value={run.color??automaticColor} disabled={busy} style={{width:64,height:36,padding:4}} onChange={(event)=>onChange({...run,color:event.target.value})}/><Button disabled={busy||!run.color} onClick={()=>{const {color:_,...next}=run;onChange(next);}}>{t('editor.runColorAuto')}</Button></Flex><Typography.Text type="secondary">{t('editor.runColorHint')}</Typography.Text></section>
     <section className="option-section"><Typography.Title level={5}>{t('editor.runEndpoints')}</Typography.Title><Typography.Text type="secondary">{t('editor.runEndpointsHint')}</Typography.Text><div className="endpoint-options"><label>{t('status.origin')}<Select value={run.calls[0]?.stationId} onChange={(station)=>resize(station,run.calls.at(-1)!.stationId)} options={routeStations.map((station,index)=>({value:station,label:labelStation(station),disabled:index>=terminalIndex}))}/></label><label>{t('status.terminal')}<Select value={run.calls.at(-1)?.stationId} onChange={(station)=>resize(run.calls[0].stationId,station)} options={routeStations.map((station,index)=>({value:station,label:labelStation(station),disabled:index<=originIndex}))}/></label></div></section>

@@ -5,7 +5,7 @@
   "description": "Soft-integrate the SimpleDisplays display engine with JavaRailways train packages, display categories, package-provided styles, runtime overrides, and train-mounted rendering.",
   "status": "in_progress",
   "dev_type": null,
-  "scope": "Generic host extension parts/resources/session lifecycle; Decorations dynamic XML rendering and train data; optional SimpleDisplays. Bukkit PlaceholderAPI excluded.",
+  "scope": "Generic host extension parts/resources/session lifecycle; Decorations shared operational XML rendering, interior viewing distance and fixed-unit category style overrides. PAPI and per-viewer mounted content deferred; schema consistency then integrated acceptance.",
   "package": "bukkit-plugin",
   "priority": "P1",
   "creator": "ARTI5T",
@@ -19,10 +19,12 @@
   "pr_url": null,
   "subtasks": [],
   "children": [
-    "11-09-model-config-schema-consistency"
+    "11-09-model-config-schema-consistency",
+    "11-10-station-metadata-display",
+    "11-10-line-run-metadata-display"
   ],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Committed foundation95935639, compilation84b804fc, text backends3aaa3af3, static mounts a4604a43. Current uncommitted dynamic session/basic train input slice implemented and checked: hostfocused43 + Decorations39 pass; fullhost787 has only known ProgramExpressionsTest failure+1skip,0errors; shadowJar/Devcompile/thin JAR gate and real Paper both-backend dynamic XML/JS + missing-SD/addon preservation pass. See research/dynamic-train-input-validation.md. Uses same physical frame projection and 2Hz active-model stationary heartbeat; no new Core/persistence schema. Operational unit metadata/stops/destination/run-type, per-viewer mounted output, interior distance/config/command and style overrides remain. PAPI adapter explicitly excluded by user2026-11-10. Schema consistency child deferred until before final acceptance. Report this slice before committing; no push/deploy.",
+  "notes": "Last committed09da5fbc. Operational unit projection previously validated but uncommitted. Interior distance, optional per-screen template default and fixed-unit/category runtime overrides implemented with source/test-source compilation only; tests/Paper/Folia/client deferred by user. Runtime styles use world UUID/actual unit ID/category, all captured-catalog validation, survive reverse/split/couple/rebuild, clear accepted world unload/disable/restart; no persistence. Public API + player commands, generic host revisions/hidden metadata binding. Compile log /tmp/jr-unit-style-compile.log BUILD SUCCESSFUL5s. No extra culling, commit/push/deploy. Per-viewer mounted content and schema consistency child remain before acceptance. User confirmed2026-11-10: per-viewer mounted content deferred alongside PAPI, not required for current acceptance. Independent SimpleDisplays viewer input remains available. Next remaining implementation is schema consistency child, followed by unified verification. Station metadata child11-10 implemented: domain/store/persistence, authenticated JSON WebUI, detached current/next/remaining display projection. Source+test compilation/typecheck only; unified tests/browser/server/client pending. No deployment or commit. Line/run metadata child11-10 implemented and compiled/typechecked: JSON editors, default fields in line/run snapshots+worker mirror, ctx.data.lines[id].metadata and exact operational.currentRun. Tests/unified acceptance still deferred; no commit/deploy. Ordered stop-sequence input implemented2026-11-10: operational.stops/stationIndex/phase, exact runtime arrival/departure evidence and ordered via/call cursor, no remainingStops duplicate; currentRun timing unchanged, no displayRun. Independent static review and source/test-source compilation passed (/tmp/jr-stop-sequence-compile-final.log); test execution/server/client deferred. No commit/deploy. See research/stop-sequence-validation.md. Door-side display data implemented2026-11-10: operational.doorSide + owner-captured car.operatingEnd, Decorations optional fixed door-side + derived display.openingSide. Reversal reuses actual control/installed-direction semantics; unknown/departure clears. Static review/schema parse/source+test-source compile passed (/tmp/jr-door-side-display-compile.log); tests/game acceptance deferred. No commit/deploy. Actual XML/glyph templates still remaining.",
   "meta": {}
 }

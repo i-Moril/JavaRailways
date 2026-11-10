@@ -315,7 +315,7 @@ class CarExtension : TrainComponentExtension<Car>() {
         frame: CarFrameSnapshot,
         publicationStreamId: UUID,
         revision: Long,
-        partRenderSnapshot: TrainPartRenderSnapshot
+        partRenderSnapshot: TrainPartRenderSnapshot?
     ) {
         require(revision >= 0L) { "published car frame revision must be non-negative" }
         ensureFrameLocationOwned(frame)
@@ -324,23 +324,34 @@ class CarExtension : TrainComponentExtension<Car>() {
         // accepted source too, so a transfer before that first frame cannot reuse an old session.
         val streamChanged = latestPartRenderStream != publicationStreamId &&
             (latestPartRenderStream != null || hasDynamicExtensionModel)
-        latestPartRenderSnapshot = partRenderSnapshot
+        val contextChanged = partRenderSnapshot != null &&
+            latestPartRenderSnapshot?.contextKey != partRenderSnapshot.contextKey
+        // A geometry-only envelope carries no new metadata. It may retain the last sample only
+        // within the same train stream; never borrow the old train's values after split/join.
+        if (streamChanged) latestPartRenderSnapshot = null
+        if (partRenderSnapshot != null) latestPartRenderSnapshot = partRenderSnapshot
         latestPartRenderStream = publicationStreamId
         applyFrameState(
             frame,
             locationOwnershipChecked = true,
-            rebuildForStreamChange = streamChanged
+            rebuildForStreamChange = streamChanged,
+            invalidateExtensionContext = contextChanged && !streamChanged
         )
     }
 
     private fun applyFrameState(
         frame: CarFrameSnapshot,
         locationOwnershipChecked: Boolean = false,
-        rebuildForStreamChange: Boolean = false
+        rebuildForStreamChange: Boolean = false,
+        invalidateExtensionContext: Boolean = false
     ) {
         if (!locationOwnershipChecked) ensureFrameLocationOwned(frame)
         val oldPosition = latestFrame?.state?.positionVector() ?: self.initialRenderState.position
         latestFrame = frame
+        if (invalidateExtensionContext) {
+            bodyModel?.invalidateExtensionContext()
+            bogieModels.forEach { it.invalidateExtensionContext() }
+        }
         self.world.renderChunkManager.update(self, oldPosition, frame.state.positionVector())
         if (rebuildForStreamChange) rebuildModelIfBuilt()
         super.commit()

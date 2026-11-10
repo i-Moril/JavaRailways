@@ -1,5 +1,9 @@
 package work.art1st.javarailways.simpleato.persistence
 
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+
 import org.junit.jupiter.api.function.Executable
 import org.junit.jupiter.api.Assertions.assertAll
 import work.art1st.javarailways.core.physics.train.TestWorldFixture
@@ -68,6 +72,10 @@ class SimpleATOInfrastructureSnapshotTest {
     fun `round trips canonical destinations stations and lines`() {
         val source = worldWithStations()
         source.simpleAtoWorldData.lines.put(line(), expectedRevision = 0L)
+        val metadata = JsonObject(mapOf("transfers" to JsonArray(listOf(
+            JsonObject(mapOf("lineId" to JsonPrimitive("metro-2"), "color" to JsonPrimitive("#0080FF")))
+        ))))
+        source.simpleAtoWorldData.stations.updateMetadata(StationId("central"), metadata, JsonObject(emptyMap()))
         val sourceRail = requireNotNull(source.getRail(
             source.simpleAtoWorldData.destinations["central@one"]!!.railId
         ))
@@ -91,6 +99,8 @@ class SimpleATOInfrastructureSnapshotTest {
 
         val restoredLines = restored.simpleAtoWorldData.lines.snapshot()
         assertEquals(7L, snapshot.infrastructureRevision)
+        assertEquals(metadata, snapshot.stationMetadata["central"])
+        assertEquals(metadata, restored.simpleAtoWorldData.stations[StationId("central")]!!.metadata)
         assertEquals(2, basicSnapshot.formatVersion)
         assertEquals(1, snapshot.formatVersion)
         assertFalse(SimpleATOInfrastructureSnapshotCodec.encode(snapshot).contains("operatingDirections"))
@@ -166,6 +176,42 @@ class SimpleATOInfrastructureSnapshotTest {
         assertTrue(failure.message.orEmpty().contains("DepotStore is not empty"))
         assertEquals(pointRef, world.simpleAtoWorldData.depots.stablingPoints(depotId).single().point.ref)
         assertTrue(world.simpleAtoWorldData.destinations.all().isEmpty())
+    }
+
+    @Test
+    fun `fixed snapshot without metadata reads explicit empty default without version change`() {
+        val decoded = SimpleATOInfrastructureSnapshotCodec.decode(
+            """{"formatVersion":1,"infrastructureRevision":0,"destinations":[],"lines":[],"lineRevision":0}"""
+        )
+        assertEquals(emptyMap<String, JsonObject>(), decoded.stationMetadata)
+        assertEquals(1, decoded.formatVersion)
+        assertTrue(SimpleATOInfrastructureSnapshotCodec.encode(decoded).contains("stationMetadata"))
+    }
+
+    @Test
+    fun `metadata for unknown stations and oversized metadata fail before materialization`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
+        val snapshot = SimpleATOInfrastructureSnapshotV1(
+            formatVersion = 1, infrastructureRevision = 0,
+            destinations = listOf(SavedOperationalDestinationV1.capture(berth("central", 20.0, rail.id))),
+            lines = emptyList(), lineRevision = 0,
+            stationMetadata = mapOf("unknown" to JsonObject(emptyMap()))
+        )
+        assertThrows(IllegalArgumentException::class.java) { snapshot.restore(world) }
+        val oversized = snapshot.copy(stationMetadata = mapOf("central" to JsonObject(mapOf(
+            "huge" to JsonPrimitive("x".repeat(65537))
+        ))))
+        assertThrows(IllegalArgumentException::class.java) { oversized.restore(world) }
+        val nonFinite = snapshot.copy(stationMetadata = mapOf("central" to JsonObject(mapOf(
+            "bad" to JsonPrimitive(Double.POSITIVE_INFINITY)
+        ))))
+        assertThrows(IllegalArgumentException::class.java) { nonFinite.restore(world) }
+        assertTrue(world.simpleAtoWorldData.destinations.all().isEmpty())
+        assertTrue(world.simpleAtoWorldData.stations.all().isEmpty())
+        assertTrue(world.basicWorldData.wayPoints.all().isEmpty())
+        assertTrue(world.basicWorldData.railObjects.objectsOnRail(rail.id).isEmpty())
     }
 
     private fun worldWithStations(): CoreWorld {

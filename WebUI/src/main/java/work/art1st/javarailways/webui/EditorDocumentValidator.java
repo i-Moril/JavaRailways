@@ -115,6 +115,7 @@ final class EditorDocumentValidator {
     }
 
     private static void validateRun(JsonNode run) {
+        if (run.has("metadata")) JsonMetadataValidator.validate(run.path("metadata"));
         requireText(run, "id", "run");
         requireText(run, "type", "run");
         requireText(run, "lineDirection", "run");

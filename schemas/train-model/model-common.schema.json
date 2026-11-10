@@ -67,9 +67,7 @@
     "animation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name"],
       "properties": {
-        "name": {"$ref": "#/$defs/nonEmptyString"},
         "keep-final-state": {"type": "boolean", "default": true},
         "commands": {
           "type": "array",
@@ -130,12 +128,10 @@
       "type": "string",
       "pattern": "^[a-z0-9_.-]+:[a-z0-9_./-]+$(?![\\s\\S])"
     },
-    "partDefinition": {
+    "partContent": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["config-version", "name", "type"],
+      "required": ["name", "type"],
       "properties": {
-        "config-version": {"const": 1},
         "name": {"$ref": "#/$defs/nonEmptyString"},
         "type": {
           "type": "string",
@@ -156,8 +152,9 @@
           "items": {"$ref": "#/$defs/partReference"}
         },
         "animations": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/animation"}
+          "type": "object",
+          "propertyNames": {"type": "string", "pattern": "\\S"},
+          "additionalProperties": {"$ref": "#/$defs/animation"}
         }
       },
       "allOf": [
@@ -178,6 +175,18 @@
         }
       ]
     },
+    "partDefinition": {
+      "description": "Standalone part document; nested parts inherit this version.",
+      "allOf": [{"$ref": "#/$defs/partContent"}],
+      "required": ["config-version"],
+      "properties": {"config-version": {"const": 1}},
+      "unevaluatedProperties": false
+    },
+    "inlinePartDefinition": {
+      "description": "Inline part content inherits the containing document version.",
+      "allOf": [{"$ref": "#/$defs/partContent"}],
+      "unevaluatedProperties": false
+    },
     "importReference": {
       "type": "object",
       "additionalProperties": false,
@@ -191,7 +200,7 @@
     "partReference": {
       "oneOf": [
         {"$ref": "#/$defs/importReference"},
-        {"$ref": "#/$defs/partDefinition"}
+        {"$ref": "#/$defs/inlinePartDefinition"}
       ]
     }
   }

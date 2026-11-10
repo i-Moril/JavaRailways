@@ -1448,6 +1448,8 @@ class TimetableDispatcher(
                 run.state == TimetableServiceRunState.REPLAN_REQUIRED
             val controlTransferred = manualRouted || fullManual
             if (run.currentUnitIds.isNotEmpty()) refreshUnitDisplays(world,run)
+            if (run.reverseOperation == null && run.displayPosition.observe(run.train.publishedFrame))
+                displayRuntime.progressChanged()
             val publishedAtoState = run.ato.publishedState
             // A past berth observation must not survive a departure, even if the train later returns.
             run.confirmedDoorStop?.let { stop ->
@@ -2086,6 +2088,70 @@ class TimetableDispatcher(
         val cars = train.cars.map { it.id }.let { if (train.isReversed) it.reversed() else it }
         val units = world.simpleAtoWorldData.depots.fixedUnitsForFormation(cars).map { it.id }
         return displayRuntime.snapshots(timetable,cycleIndex,units)
+    }
+
+    /** Fresh value-only display facts, captured only inside this world's serialized owner boundary. */
+    @MainThread
+    fun captureUnitDisplays(world: World): List<TimetableUnitDisplayContext> {
+        ensureOwner(world)
+        check(boundWorld == null || boundWorld === world) { "display runtime belongs to a different world" }
+        val data = world.simpleAtoWorldData
+        val units = data.depots.allFixedUnits()
+        val result = arrayListOf<TimetableUnitDisplayContext>()
+        for (train in world.allTrains) {
+            val frame = train.publishedFrame ?: continue
+            val complete = completeDisplayUnits(frame.cars.map { it.carId }, units)
+            if (complete.isEmpty()) continue
+            val berth = runs.values.filter { it.train === train && !it.state.isTerminal() }.mapNotNull { run ->
+                val proof = run.confirmedDoorStop ?: return@mapNotNull null
+                if (frame.speedMetersPerSecond != 0.0 || !doorStopPlacementMatches(run,proof) ||
+                    data.stations.berth(proof.berth.berthRef) !== proof.berth ||
+                    proof.berth.lifecycleState != work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState.ACTIVE)
+                    null else proof.berth.berthRef
+            }.distinct().singleOrNull()
+            for (unit in complete) {
+                val current = displayRuntime.currentSnapshot(unit.id) { data.timetables[it] }
+                val displayOwner = current?.takeIf { it.second.active }?.let { (timetableId, display) ->
+                    runs.values.filter { run ->
+                        run.train === train && !run.state.isTerminal() && run.id.timetableId == timetableId &&
+                            run.cycleIndex == display.cycleIndex && unit.id in run.currentUnitIds
+                    }.singleOrNull()
+                }
+                val enteredOwner = displayOwner?.takeIf { run ->
+                    run.currentSegment?.let { segment ->
+                        val index = run.activeStepAddress?.topLevelIndex ?: run.nextStepIndex
+                        index >= segment.startStepIndex && index < segment.endStepIndexExclusive
+                    } == true
+                }
+                val currentRun = enteredOwner?.let { run ->
+                    captureTimetableRunDisplayContext(run.id.serviceId,run.currentSegment,
+                        run.activeStepAddress?.topLevelIndex ?: run.nextStepIndex)
+                }
+                val progress = enteredOwner?.takeIf { run ->
+                    run.reverseOperation == null && run.displayCallCursor?.valid == true &&
+                        run.controlMode == TimetableControlMode.AUTOMATIC &&
+                        run.state != TimetableServiceRunState.SUSPENDED && run.state != TimetableServiceRunState.REPLAN_REQUIRED
+                }?.let { owner ->
+                    if (owner.displayPosition.observe(frame)) displayRuntime.progressChanged()
+                    data.timetables[owner.id.timetableId]?.let { timetable ->
+                        displayRuntime.captureProgress(timetable,owner.cycleIndex,unit.id,
+                            owner.displayPosition.arrivedCall,owner.displayPosition.inTransit)
+                    }
+                } ?: TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN)
+                val doorSide = if (progress.phase == TimetableDisplayPhase.AT_STATION)
+                    enteredOwner?.displayPosition?.doorSide else null
+                result += TimetableUnitDisplayContext(train.id,unit.id,unit.carIds,current?.first,current?.second,berth,currentRun,progress,doorSide)
+            }
+        }
+        return java.util.List.copyOf(result)
+    }
+
+    /** Runtime wakeup evidence for authored/unit changes, not a persistent schema version. */
+    @MainThread
+    fun unitDisplayRevision(world: World): Long {
+        ensureOwner(world)
+        check(boundWorld == null || boundWorld === world) { "display runtime belongs to a different world" }
+        return displayRuntime.revision
     }
 
     private fun findRun(id: TimetableServiceRunId, cycleIndex: Long? = null): ActiveRun? =
@@ -3041,6 +3107,7 @@ class TimetableDispatcher(
         run.admissionCandidate = null
         run.nextAdmissionAttemptTick = 0L
         run.reverseOperation = null
+        if (run.displayPosition.rebaseReversal(run.train.publishedFrame)) displayRuntime.progressChanged()
         run.confirmedDoorStop = run.confirmedDoorStop?.let { previous ->
             val frame = run.train.publishedFrame
             previous.copy(side = reversedDoorSide(previous.side), head = frame.head, tail = frame.tail,
@@ -4133,6 +4200,21 @@ class TimetableDispatcher(
         return true
     }
 
+    /** Uses the same effective-side selection as the actual current stop handlers. */
+    private fun displayDoorSideAtArrival(world: World, run: ActiveRun, runtime: MissionRuntime, target: String): DoorSide? {
+        run.stationCall?.takeIf { call ->
+            call.missionRuntime === runtime && target == OperationalDestinationIds.stationBerth(
+                call.resolved.berthRef.stationId,call.resolved.berthRef.berthId)
+        }?.let { return it.stopPrograms?.doorSide ?: it.resolved.doorSide }
+        val role = world.simpleAtoWorldData.destinations[target]?.role as?
+            work.art1st.javarailways.simpleato.api.destination.DestinationRole.StationBerthRole
+        run.destinationStop?.takeIf { it.missionRuntime === runtime && it.options.destinationId == target }?.let { stop ->
+            return stop.options.stopPrograms?.doorSide ?: stop.options.doorSide ?:
+                if (stop.options.stopPrograms != null) role?.doorSide ?: DoorSide.NONE else DoorSide.NONE
+        }
+        return role?.doorSide
+    }
+
     private fun reportWaypointProgress(
         world: World,
         run: ActiveRun,
@@ -4165,9 +4247,17 @@ class TimetableDispatcher(
             if (leg.point is AtoMissionPoint.Stop && !validateCommittedAuthority(world, run)) return
             runtime.reportedPointCount = index + 1
             run.currentSegment?.let { segment ->
-                val call = segment.calls.firstOrNull { it.destinationId == leg.point.target.id && it.id !in run.completedCallIds }
+                val cursor = run.displayCallCursor
+                val wasValid = cursor?.valid == true
+                val call = cursor?.reached(leg.point.target.id,leg.point is AtoMissionPoint.Via)
+                if (wasValid && cursor?.valid == false) displayRuntime.progressChanged()
                 if (call != null) {
                     run.completedCallIds += call.id
+                    val changed = if (leg.point is AtoMissionPoint.Stop)
+                        run.displayPosition.arrive(Triple(run.service.id,segment.runId,call.id),snapshot,
+                            displayDoorSideAtArrival(world,run,runtime,call.destinationId))
+                    else run.displayPosition.passed()
+                    if (changed) displayRuntime.progressChanged()
                     displayRuntime.reached(run.id.timetableId,run.cycleIndex,run.service.id,segment.runId,call.id,run.currentUnitIds)
                     refreshUnitDisplays(world,run)
                 }
@@ -4220,6 +4310,7 @@ class TimetableDispatcher(
                 startStationProgramAction(world, run, execution, action, taskId, instruction)
             }, { operationGateway.estimateDoorCloseDurationTicks(run.train.id, effectiveSide) })
         run.confirmedDoorStop = run.confirmedDoorStop?.copy(side = effectiveSide)
+        if (run.displayPosition.updateDoorSide(effectiveSide,run.train.publishedFrame)) displayRuntime.progressChanged()
         run.ato.setSpeedLimit(stationProgramHoldKey(run), 0.0)
         run.state = TimetableServiceRunState.DWELLING
         run.message = "station ${programs.stationId}/${programs.callId} ${programs.role.name.lowercase()} tasks"
@@ -4443,6 +4534,7 @@ class TimetableDispatcher(
             val side = if (open) (action as TimetableAction.OpenDoors).doorSideOverride ?: inheritedDoorSide(world, run)
                 else DoorSide.BOTH
             if (open && side == DoorSide.NONE) {
+                if (run.displayPosition.updateDoorSide(side,run.train.publishedFrame)) displayRuntime.progressChanged()
                 run.programCursor = run.programCursor.advance()
                 advanceService(world, run)
                 return
@@ -4459,6 +4551,7 @@ class TimetableDispatcher(
             }
             val checked = operationTicket(result.ticket, request)
             run.doorOperation = DispatcherDoorOperation(result.ticket, checked, open, dispatcherTick, run.programCursor.advance())
+            if (open && run.displayPosition.updateDoorSide(side,run.train.publishedFrame)) displayRuntime.progressChanged()
             run.state = TimetableServiceRunState.WAITING_DOOR_OPERATION
             pollDoorOperation(world, run)
         } catch (failure: Exception) {
@@ -4535,6 +4628,13 @@ class TimetableDispatcher(
                     run.currentWayPointId = step.wayPointId
                     run.physicalOriginPending = false
                     confirmWaypointDoorStop(world, run, step.wayPointId)
+                    run.currentSegment?.let { segment ->
+                        run.displayCallCursor?.originForCheck(step.wayPointId)?.let { call ->
+                            if (run.displayPosition.arrive(Triple(run.service.id,segment.runId,call.id),run.train.publishedFrame,
+                                run.confirmedDoorStop?.takeIf { doorStopPlacementMatches(run,it) }?.side))
+                                displayRuntime.progressChanged()
+                        }
+                    }
                     run.programCursor = run.programCursor.advance()
                 }
                 is TimetableStep.At -> when (val action = step.action) {
@@ -6857,10 +6957,22 @@ class TimetableDispatcher(
                 proveUnitFuture(world,run,timetable,segment,units)
             }
             run.currentSegment = segment
+            run.displayCallCursor = TimetableRunCallCursor(segment.calls)
             run.currentUnitIds = units
             run.completedCallIds.clear()
             segment.calls.firstOrNull()?.takeIf { it.status == TimetableServiceStopStatus.ORIGIN }?.let { call ->
                 run.completedCallIds += call.id
+                // Entering an authored ORIGIN is not itself a physical arrival proof.
+                // Only an actual retained berth proof can seed this exact occurrence.
+                run.confirmedDoorStop?.takeIf { proof ->
+                    doorStopPlacementMatches(run,proof) &&
+                        world.simpleAtoWorldData.stations.berth(proof.berth.berthRef) === proof.berth &&
+                        proof.berth.lifecycleState == work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState.ACTIVE &&
+                        call.destinationId == OperationalDestinationIds.stationBerth(proof.berth.berthRef.stationId,proof.berth.berthRef.berthId)
+                }?.let { proof ->
+                    if (run.displayPosition.arrive(Triple(run.service.id,segment.runId,call.id),run.train.publishedFrame,proof.side))
+                        displayRuntime.progressChanged()
+                }
                 displayRuntime.reached(timetable.id,run.cycleIndex,run.service.id,segment.runId,call.id,units)
             }
             refreshUnitDisplays(world,run)
@@ -7260,6 +7372,8 @@ class TimetableDispatcher(
         val taskTimings = mutableListOf<TimetableTaskTiming>()
         var unitDisplays: List<TimetableUnitDisplaySnapshot> = emptyList()
         val completedCallIds = hashSetOf<String>()
+        val displayPosition = TimetableDisplayPosition()
+        var displayCallCursor: TimetableRunCallCursor? = null
         var currentRuntimeOrNull: MissionRuntime? = currentRuntime
         var currentRuntime: MissionRuntime
             get() = checkNotNull(currentRuntimeOrNull) { "service $id has not submitted its first Mission" }

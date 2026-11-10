@@ -19,6 +19,68 @@ class TimetableRunMetadataTest {
         calls = listOf(TimetableRunCall("$id-origin","C","C",TimetableServiceStopStatus.ORIGIN),
             TimetableRunCall("$id-end","E","E",TimetableServiceStopStatus.TERMINAL)))
 
+    @Test fun `runtime owned lookup preserves held peer cycles and revision observes fresh SET reset and retire`() {
+        val segment = segment("run",0,1)
+        val service = TimetableService("duty",steps=listOf(TimetableStep.Check("C")),runSegments=listOf(segment))
+        val trip = TimetableOperationalTrip("trip",values("E"),listOf(TimetableOperationalTripSegment("duty","run",listOf(1,2))))
+        val table = Timetable("table",services=listOf(service),operationalTrips=listOf(trip))
+        val runtime = TimetableDisplayRuntime()
+        assertEquals(0L,runtime.revision)
+        assertNull(runtime.currentSnapshot("U1") { table })
+        runtime.enter(table,0,service,segment,listOf("U1","U2"))
+        val entered = runtime.revision
+        assertTrue(entered > 0)
+        runtime.set("table",0,listOf("U1"),values("late SET"))
+        assertTrue(runtime.revision > entered)
+        val changed = runtime.revision
+        assertEquals("late SET",runtime.currentSnapshot("U1") { table }!!.second.values.getValue("destination").jsonPrimitive.content)
+        runtime.set("table",0,listOf("U1"),values("late SET"))
+        assertEquals(changed,runtime.revision,"equal author values do not wake stationary consumers again")
+        runtime.set("table",0,listOf("U1"),null)
+        assertTrue(runtime.revision > changed)
+        val one = TimetableOperationalTrip("trip",values("new"),listOf(TimetableOperationalTripSegment("duty","run",listOf(1))))
+        val next = table.copy(operationalTrips=listOf(one))
+        runtime.enter(next,1,service,segment,listOf("U1"))
+        assertEquals(1L,runtime.currentSnapshot("U1") { next }!!.second.cycleIndex)
+        assertEquals(0L,runtime.currentSnapshot("U2") { next }!!.second.cycleIndex,"held peer keeps its owned cycle")
+        assertNull(runtime.currentSnapshot("U1") { null },"missing table cannot borrow another context")
+        val beforeRetire = runtime.revision
+        runtime.retire("table",1,listOf("U1"))
+        assertTrue(runtime.revision > beforeRetire)
+        assertFalse(runtime.currentSnapshot("U1") { next }!!.second.active)
+        val retired = runtime.revision
+        runtime.retire("table",1,listOf("U1"))
+        assertEquals(retired,runtime.revision)
+        runtime.clear()
+        assertTrue(runtime.revision > retired)
+        assertNull(runtime.currentSnapshot("U2") { next })
+    }
+
+    @Test fun `future proof reach finish and retained cycle removal advance only when state changes`() {
+        val first = segment("first",0,1); val next = segment("next",1,2)
+        val service = TimetableService("duty",steps=listOf(TimetableStep.Check("C"),TimetableStep.Check("C")),runSegments=listOf(first,next))
+        val trip = TimetableOperationalTrip("trip",segments=listOf(TimetableOperationalTripSegment("duty","first",listOf(1)),TimetableOperationalTripSegment("duty","next",listOf(1))))
+        val table = Timetable("table",services=listOf(service),operationalTrips=listOf(trip))
+        val runtime = TimetableDisplayRuntime()
+        runtime.enter(table,0,service,first,listOf("U"))
+        var revision = runtime.revision
+        runtime.proveFuture(table,0,service,first,listOf("U")) { _,_ -> null }
+        assertTrue(runtime.revision > revision); revision = runtime.revision
+        runtime.proveFuture(table,0,service,first,listOf("U")) { _,_ -> null }
+        assertEquals(revision,runtime.revision)
+        runtime.reached("table",0,"duty","first","first-end",listOf("U"))
+        assertTrue(runtime.revision > revision); revision = runtime.revision
+        runtime.reached("table",0,"duty","first","first-end",listOf("U"))
+        assertEquals(revision,runtime.revision)
+        runtime.enter(table,0,service,next,listOf("U")); revision = runtime.revision
+        runtime.finish(table,0,"duty",listOf("U"))
+        assertTrue(runtime.revision > revision); revision = runtime.revision
+        runtime.retainCycles(setOf("table" to 0L))
+        assertEquals(revision,runtime.revision)
+        runtime.retainCycles(emptySet())
+        assertTrue(runtime.revision > revision)
+    }
+
     @Test
     fun `current segment cap survives station program gap and only changes at next scope`() {
         val service = TimetableService("duty",lineId=LineId("unused"),runSegments=listOf(segment("main",1,3),segment("branch",5,7)))

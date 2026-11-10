@@ -163,7 +163,7 @@ Replacement committed as SimpleDisplays `410af2e`, directly parented by `21f7686
 - [x] 单元测试、独立审查、真实Paper编译/坏候选保留验证。
 - [x] 文档与验证记录；实际挂载另批。
 
-本批已完成，当前未提交。Decorations28项和宿主28项定向回归全部通过；真实Paper三个组合通过，实际编译验证确认坏XML/JS拒绝与旧snapshot保留。见[验证记录](research/decorations-template-compilation-validation.md)。下一阶段为通用列车part运行时挂载与双后端文字渲染。
+本批已提交84b804fc。Decorations28项和宿主28项定向回归全部通过；真实Paper三个组合通过，实际编译验证确认坏XML/JS拒绝与旧snapshot保留。见[验证记录](research/decorations-template-compilation-validation.md)。下一阶段为通用列车part运行时挂载与双后端文字渲染。
 
 ## 当前实施：双后端文字
 
@@ -174,4 +174,16 @@ Replacement committed as SimpleDisplays `410af2e`, directly parented by `21f7686
 - [x] 独立审查、串行测试/打包/Dev编译、真实Paper后端状态探针。
 - [x] 同步规范/验证记录并报告；runtime挂载随后单独做。
 
-本批完成、未提交。定向73项全过；全量764项仍有既有表达式失败1项和1skip。shadowJar/Dev编译及实际Paper双后端状态/移动/销毁通过。见[验证记录](research/text-backends-validation.md)。
+本批已提交3aaa3af3。定向73项全过；全量764项仍有既有表达式失败1项和1skip。shadowJar/Dev编译及实际Paper双后端状态/移动/销毁通过。见[验证记录](research/text-backends-validation.md)。
+
+## 当前实施：静态扩展挂载
+
+文字后端已提交3aaa3af3。按[静态挂载合同](research/static-extension-mount-contract.md)实施。
+
+- [x] 公共renderer值接口与宿主worker/准确owner附件生命周期。
+- [x] 模型group/root/变换/观众/清理集成及来源快照接线。
+- [x] Decorations真实XML静态帧与物理尺寸转换。
+- [x] 审查、自动测试/打包与真实Paper双后端探针。
+- [x] 规范和验证记录，提交前报告。
+
+本批完成、尚未提交。宿主定向50项、Decorations35项全过；全量宿主776项仅有既有ProgramExpressionsTest失败和1skip，0errors。打包/Dev编译/thinJAR gate与实际Paper双后端XML挂载、来源隔离、移动、退休清理及缺失插件组合通过。见[验证记录](research/static-extension-mount-validation.md)。等待本批提交许可；数据/PAPI/动态刷新/车内距离策略后续分批。

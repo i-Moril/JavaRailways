@@ -373,10 +373,10 @@ class CarExtension : TrainComponentExtension<Car>() {
     private var animationCapabilities: Map<String, Set<String>> = emptyMap()
 
     /** Same resource policy as display construction, independent of visibility. */
-    private fun resolveModelSnapshot(): SavedCarModelTree {
+    private fun resolveModelSnapshot(policy: TrainModelUpdatePolicy = BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy): SavedCarModelTree {
         val modelName = requireNotNull(carModelName) { "Car model name not set" }
         val modelManager = BukkitPlugin.INSTANCE.modelManager
-        return if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT) {
+        return if (policy == TrainModelUpdatePolicy.SNAPSHOT) {
             savedModelSnapshot ?: requireNotNull(CarModelSnapshotStore.load(requireNotNull(savedModelSnapshotHash) {
                 "Car '${self.id}' has no creation-time model snapshot"
             })) { "Pinned car model snapshot '$savedModelSnapshotHash' is unavailable" }.also { savedModelSnapshot = it }
@@ -389,8 +389,7 @@ class CarExtension : TrainComponentExtension<Car>() {
 
     private var playbackModel: SavedCarModelTree? = null
     private var playbackParts: List<Map<String, work.art1st.javarailways.bukkit.render.Animation>> = emptyList()
-    private fun animationParts(): List<Map<String, work.art1st.javarailways.bukkit.render.Animation>> {
-        val source = resolveModelSnapshot()
+    private fun animationParts(source: SavedCarModelTree = resolveModelSnapshot()): List<Map<String, work.art1st.javarailways.bukkit.render.Animation>> {
         if (playbackModel !== source) {
             if (playbackModel != null) playback.resetForSourceChange()
             playbackParts = source.captureAnimationParts()
@@ -421,12 +420,17 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     private fun buildPreparedModel() {
-        animationParts() // Settle old model-slot playback before publishing another tree's node ordering.
         val modelManager = BukkitPlugin.INSTANCE.modelManager
-        val modelGeneration = modelManager.generation
-        val snapshot = resolveModelSnapshot()
+        val policy = BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy
+        val live = if (policy == TrainModelUpdatePolicy.SNAPSHOT) null else modelManager.captureResourceVersion(requireNotNull(resourceType))
+        val modelGeneration = live?.first ?: modelManager.generation
+        val snapshot = if (live == null) resolveModelSnapshot(policy) else live.second.models.getValue(requireNotNull(carModelName))
+        val sourcePackage = requireNotNull(operationalSnapshot(policy, TrainPackageSnapshotStore::load) { live!!.second }) {
+            "Car '${self.id}' has no source package snapshot"
+        }
+        animationParts(snapshot) // Settle old playback using this exact construction version.
         val carDef = snapshot.car
-        val builder = modelManager.createTreeBuilder(self.world, snapshot.partResolver())
+        val builder = modelManager.createTreeBuilder(self.world, snapshot.partResolver(), sourcePackage)
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
         val rootState = renderFrame().state
         val rootLocation = Location(bukkitWorld, rootState.positionX, rootState.positionY, rootState.positionZ)

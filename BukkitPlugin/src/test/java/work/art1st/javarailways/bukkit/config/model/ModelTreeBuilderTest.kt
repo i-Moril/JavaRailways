@@ -271,6 +271,7 @@ class ModelTreeBuilderTest {
         override fun setItemStack(itemStack: ItemStack) = Unit
         override fun setBrightness(blockLight: Int, skyLight: Int) = Unit
         override fun clearBrightness() = Unit
+        override fun refreshPassengersFor(player: Player) = Unit
         override fun addPassenger(passenger: DisplayVisual): Boolean { mountFailure?.let { throw it }; return true }
         override fun destroy(): java.util.concurrent.CompletionStage<Void> { destroyCalls++; return java.util.concurrent.CompletableFuture.completedFuture(null) }
     }

@@ -20,12 +20,16 @@ class DecorationsPlugin : JavaPlugin() {
         try {
             // Existing published packages are validated during register, so discover the compiler first.
             optional.start()
-            registration = service.register(this, DisplayPartProvider(optional::validateTemplates))
+            registration = service.register(this, DisplayPartProvider(prepareTemplate = optional::prepareTemplate, validateTemplates = optional::validateTemplates))
             registration!!.existingPackageFailures.forEach { (name, reason) ->
                 logger.warning("Existing package '$name' has invalid ${DisplayPartProvider.TYPE_ID} definitions: $reason")
             }
         } catch (failure: Throwable) {
-            try { registration?.close() } catch (cleanup: Throwable) { failure.addSuppressed(cleanup) }
+            try {
+                registration?.closeAsync()?.whenComplete { _, cleanup ->
+                    if (cleanup != null) logger.log(Level.WARNING, "Failed to clean up Decorations registration after enable failure", cleanup)
+                }
+            } catch (cleanup: Throwable) { failure.addSuppressed(cleanup) }
             registration = null
             try { optional.close() } catch (cleanup: Throwable) { failure.addSuppressed(cleanup) }
             simpleDisplays = null
@@ -34,7 +38,11 @@ class DecorationsPlugin : JavaPlugin() {
     }
 
     override fun onDisable() {
-        try { registration?.close() } catch (failure: Exception) {
+        try {
+            registration?.closeAsync()?.whenComplete { _, failure ->
+                if (failure != null) logger.log(Level.WARNING, "Failed to remove Decorations visuals during unregister", failure)
+            }
+        } catch (failure: Exception) {
             logger.log(Level.WARNING, "Failed to unregister Decorations part provider", failure)
         } finally {
             registration = null

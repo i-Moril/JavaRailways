@@ -43,6 +43,8 @@ interface DisplayVisual {
     /** Remove the override so the client uses natural world light. */
     fun clearBrightness()
     fun addPassenger(passenger: DisplayVisual): Boolean
+    /** Replays owner-captured passenger IDs after late child spawn; caller owns the viewer. */
+    fun refreshPassengersFor(player: Player)
     /** Completes when backend removal finishes; repeated calls retain the same outcome. */
     fun destroy(): CompletionStage<Void>
 }

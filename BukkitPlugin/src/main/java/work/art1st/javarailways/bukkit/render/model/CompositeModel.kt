@@ -22,9 +22,11 @@ class CompositeModel internal constructor(
     private val targetWorld: org.bukkit.World? = null
 ) : Destroyable {
     internal val affinityEntity get() = rootVisual.affinityEntity
+    private val extensionGroups = mutableListOf<ExtensionPartModel>()
     init {
         forEachModelRecursive {
             if (it is DisplayModel) it.mountTo(rootVisual)
+            if (it is ExtensionPartModel) { it.bindRoot(rootVisual); extensionGroups.add(it) }
         }
     }
 
@@ -58,6 +60,7 @@ class CompositeModel internal constructor(
         val bukkitWorld = targetWorld ?: world.bukkitWorldData.bukkitWorld
         val location = Location(bukkitWorld, position.x(), position.y(), position.z())
         rootVisual.teleport(location)
+        extensionGroups.forEach { it.commitPending(location) }
     }
 
     fun applyAnimation(name: String): Boolean {
@@ -93,6 +96,7 @@ class CompositeModel internal constructor(
         // Spawn children before the root sends its passenger packet.
         models.forEach { it.showVisualsTo(player) }
         rootVisual.showTo(player)
+        if (extensionGroups.isNotEmpty()) rootVisual.refreshPassengersFor(player)
     }
 
     @MainThread

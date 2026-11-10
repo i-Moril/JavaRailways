@@ -1,6 +1,7 @@
 package work.art1st.javarailways.bukkit.render.backend
 
 import java.util.concurrent.CompletionStage
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetPassengers
 import work.art1st.javarailways.core.api.util.Destruction
 
 import io.papermc.paper.entity.TeleportFlag
@@ -80,13 +81,27 @@ internal class NativeDisplayVisual(
     private val dispatcher: PlatformDispatcher = BukkitPlugin.INSTANCE.platformDispatcher
 ) : DisplayVisual {
     override val affinityEntity get() = entity
-    override val packetEntityId get() = entity.entityId
+    override val packetEntityId = entity.entityId
     override val packetGlowBaseline get() = ((if (entity.isVisualFire || entity.fireTicks > 0) 1 else 0) or
         (if (entity.isSneaking) 2 else 0) or (if (entity.isInvisible) 0x20 else 0) or
         (if (entity.isGlowing) 0x40 else 0)).toByte() to (entity.glowColorOverride?.asRGB() ?: -1)
     @Volatile
     private var destroyed = false
     private val destruction = Destruction()
+    @Volatile private var passengerIds: List<Int> = emptyList()
+    @Volatile private var passengerParent: NativeDisplayVisual? = null
+
+    @Synchronized private fun rememberPassenger(id: Int) { if (id !in passengerIds) passengerIds = passengerIds + id }
+    @Synchronized private fun forgetPassenger(id: Int) { passengerIds = passengerIds.filter { it != id } }
+
+    override fun refreshPassengersFor(player: Player) {
+        if (destroyed) return
+        val captured = passengerIds.toIntArray()
+        BukkitPlugin.INSTANCE.trainPacketBundles.enqueue(listOf(player.uniqueId)) {
+            WrapperPlayServerSetPassengers(packetEntityId, captured)
+        }
+    }
+
 
     @Synchronized
     override fun showTo(player: Player) {
@@ -130,14 +145,22 @@ internal class NativeDisplayVisual(
         val nativePassenger = passenger as? NativeDisplayVisual
             ?: throw IllegalArgumentException("Cannot mix native and packet display passengers")
         if (nativePassenger.destroyed) return false
-        if (nativePassenger.entity.vehicle == entity) return true
-        nativePassenger.entity.vehicle?.removePassenger(nativePassenger.entity)
-        return entity.addPassenger(nativePassenger.entity)
+        if (nativePassenger.entity.vehicle != entity) {
+            nativePassenger.entity.vehicle?.removePassenger(nativePassenger.entity)
+            if (!entity.addPassenger(nativePassenger.entity)) return false
+        }
+        nativePassenger.passengerParent?.forgetPassenger(nativePassenger.packetEntityId)
+        nativePassenger.passengerParent = this
+        rememberPassenger(nativePassenger.packetEntityId)
+        return true
     }
 
     @Synchronized
     override fun destroy(): CompletionStage<Void> = destruction.run {
         destroyed = true
+        passengerParent?.forgetPassenger(packetEntityId)
+        passengerParent = null
+        passengerIds = emptyList()
         dispatcher.runForEntityCompletion(entity) { entity.remove() }
     }
 }

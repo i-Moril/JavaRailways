@@ -9,6 +9,13 @@ import work.art1st.javarailways.bukkit.config.model.*
 import java.util.Collections
 import java.util.IdentityHashMap
 import java.util.TreeMap
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionStage
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import work.art1st.javarailways.core.api.util.DestructionSteps
 
 /** Owner registry and package validation boundary. Never invokes plugin code under the registry lock. */
 class DefaultPartExtensionService(
@@ -16,6 +23,11 @@ class DefaultPartExtensionService(
     private val reportFailure: (String, Throwable) -> Unit = { _, _ -> }
 ) : PartExtensionService, AutoCloseable {
     private val lock = Any()
+    private val workerSequence = AtomicInteger()
+    private val workers = ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS, LinkedBlockingQueue()) { action ->
+        Thread(action, "JavaRailways-part-prepare-${workerSequence.incrementAndGet()}").apply { isDaemon = true }
+    }
+    private var shutdown: CompletionStage<Void>? = null
     private val entries = linkedMapOf<String, Entry>()
     private var closed = false
     private var generation = 0L
@@ -55,7 +67,7 @@ class DefaultPartExtensionService(
         val capturedFailures: Map<String, String> = Collections.unmodifiableMap(failures)
         return object : PartExtensionRegistration {
             override val existingPackageFailures = capturedFailures
-            override fun close() { retire(entry) }
+            override fun closeAsync(): CompletionStage<Void> = retire(entry)
         }
     }
 
@@ -85,27 +97,81 @@ class DefaultPartExtensionService(
         acquired.second.validate(context)
     }
 
-    fun unregisterOwner(owner: Plugin) {
-        synchronized(lock) {
-            entries.values.filter { it.owner === owner }.toList().forEach(::retireLocked)
+    internal fun createAttachment(
+        typeId: String,
+        context: PartExtensionRenderContext,
+        retireVisuals: () -> CompletionStage<Void>
+    ): PartExtensionAttachment? = synchronized(lock) {
+        if (closed) return null
+        val entry = entries[typeId] ?: return null
+        if (entry.provider !is PartExtensionRenderer) return null
+        PartExtensionAttachment(context, workers,
+            acquireRenderer = {
+                val captured = synchronized(lock) {
+                    if (entries[typeId] !== entry || closed) null else entry.owner?.let { it to entry.provider }
+                }
+                if (captured == null || !captured.first.isEnabled || entry.owner !== captured.first || entry.provider !== captured.second) null
+                else captured.second as? PartExtensionRenderer
+            },
+            retireVisuals = retireVisuals,
+            detach = { attachment -> synchronized(lock) { entry.attachments.remove(attachment) } },
+            report = reportFailure
+        ).also { entry.attachments.add(it) }
+    }
+
+    internal fun reportRuntimeFailure(subject: String, failure: Throwable) = reportFailure(subject, failure)
+
+    fun unregisterOwner(owner: Plugin): CompletionStage<Void> {
+        val owned = synchronized(lock) { entries.values.filter { it.owner === owner } }
+        val steps = DestructionSteps()
+        owned.forEach { entry -> steps.await { retire(entry) } }
+        return steps.finish()
+    }
+
+    private fun retire(entry: Entry): CompletionStage<Void> {
+        val attachments = synchronized(lock) {
+            entry.cleanup?.let { return it }
+            entry.cleanup = CompletableFuture()
+            if (entries[entry.typeId] === entry) { entries.remove(entry.typeId); generation++ }
+            entry.provider = null
+            entry.owner = null
+            entry.attachments.toList().also { entry.attachments.clear() }
         }
+        val steps = DestructionSteps()
+        attachments.forEach { attachment -> steps.await { attachment.closeAsync() } }
+        steps.finish().whenComplete { _, failure ->
+            if (failure == null) entry.cleanup!!.complete(null) else entry.cleanup!!.completeExceptionally(failure)
+        }
+        return entry.cleanup!!
     }
 
-    private fun retire(entry: Entry) = synchronized(lock) { retireLocked(entry) }
-    private fun retireLocked(entry: Entry) {
-        if (entries[entry.typeId] === entry) { entries.remove(entry.typeId); generation++ }
-        entry.provider = null
-        entry.owner = null
+    fun closeAsync(): CompletionStage<Void> {
+        val owned = synchronized(lock) {
+            shutdown?.let { return it }
+            shutdown = CompletableFuture<Void>()
+            closed = true
+            generation++
+            packages = null
+            entries.values.toList()
+        }
+        val steps = DestructionSteps()
+        owned.forEach { entry -> steps.await { retire(entry) } }
+        workers.shutdownNow()
+        steps.finish().whenComplete { _, failure ->
+            val completion = shutdown as CompletableFuture<Void>
+            if (failure == null) completion.complete(null) else completion.completeExceptionally(failure)
+        }
+        return shutdown!!
     }
 
-    override fun close() = synchronized(lock) {
-        closed = true
-        generation++
-        entries.values.toList().forEach(::retireLocked)
-        packages = null
+    override fun close() {
+        closeAsync().whenComplete { _, failure -> if (failure != null) reportFailure("Part extension shutdown cleanup failed", failure) }
     }
 
-    private class Entry(val typeId: String, @Volatile var owner: Plugin?, @Volatile var provider: PartExtensionProvider?)
+    private class Entry(val typeId: String, @Volatile var owner: Plugin?, @Volatile var provider: PartExtensionProvider?) {
+        val attachments = mutableSetOf<PartExtensionAttachment>()
+        var cleanup: CompletableFuture<Void>? = null
+    }
 
     private fun contexts(pkg: LoadedTrainPackage): Map<String, PartExtensionPackage> {
         val definitions = linkedMapOf<String, MutableList<PartExtensionPart>>()
@@ -135,5 +201,10 @@ class DefaultPartExtensionService(
 
 class PartExtensionOwnerLifecycleListener(private val service: DefaultPartExtensionService) : Listener {
     @EventHandler
-    fun onPluginDisable(event: PluginDisableEvent) { service.unregisterOwner(event.plugin) }
+    fun onPluginDisable(event: PluginDisableEvent) {
+        val subject = "Part extension cleanup failed for disabled plugin '${event.plugin.name}'"
+        service.unregisterOwner(event.plugin).whenComplete { _, failure ->
+            if (failure != null) service.reportRuntimeFailure(subject, failure)
+        }
+    }
 }

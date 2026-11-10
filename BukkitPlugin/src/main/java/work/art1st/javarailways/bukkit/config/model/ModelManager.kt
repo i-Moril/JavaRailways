@@ -99,6 +99,9 @@ class ModelManager(
     }
 
     @Synchronized
+    internal fun captureResourceVersion(packageName: String): Pair<Long, TrainResourceVersion> = generation to resourceVersion(packageName)
+
+    @Synchronized
     fun resourceVersion(packageName: String): TrainResourceVersion {
         val pkg = trainPackages[packageName] ?: throw IllegalArgumentException("Unknown train package: $packageName")
         if (versionOwners[packageName] === pkg) return resourceVersions.getValue(packageName)
@@ -214,6 +217,11 @@ class ModelManager(
 
     fun createTreeBuilder(world: World, partResolver: PartResolver): ModelTreeBuilder {
         return ModelTreeBuilder(world, partResolver)
+    }
+
+    internal fun createTreeBuilder(world: World, partResolver: PartResolver, sourcePackage: SavedTrainPackageSnapshot): ModelTreeBuilder {
+        val service = extensionService ?: return ModelTreeBuilder(world, partResolver)
+        return ModelTreeBuilder(world, partResolver, sourcePackage, service)
     }
 
     fun getPartResolver(packageName: String): PartResolver =

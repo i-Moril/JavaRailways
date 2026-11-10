@@ -19,7 +19,9 @@ interface PartExtensionService {
 
 interface PartExtensionRegistration : AutoCloseable {
     val existingPackageFailures: Map<String, String>
-    override fun close()
+    /** Retires callbacks immediately and completes after all generated visuals have been removed. */
+    fun closeAsync(): java.util.concurrent.CompletionStage<Void>
+    override fun close() { closeAsync() }
 }
 
 class PartExtensionPackage(

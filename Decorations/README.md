@@ -1,6 +1,6 @@
 # Decorations
 
-Independent JavaRailways add-on for decorative train/rail content. Decorations implements display definitions, captured package resources and optional SimpleDisplays template compilation. It does not yet create screen visuals.
+Independent JavaRailways add-on for decorative train/rail content. Decorations implements display definitions, captured package resources and optional SimpleDisplays template compilation and static first-frame rendering on train parts.
 
 JavaRailways owns common parts-tree structure, transforms/animations, generic config and source-package snapshots. Decorations registers `decorations:display` through the public host service. Without Decorations, trains load with intact extension nodes and children; captured source resources remain available.
 
@@ -64,4 +64,12 @@ Discovery runs before part registration, so already loaded packages are compiled
 
 Each connection caches at most 64 compiled templates in least-recently-used order, keyed by exact XML source; current package resources declare no custom icon map. Repeated source across IDs/packages reuses compilation, while a changed source compiles separately. This is a bounded validation cache, not a store of mounted live templates. It has no active package-name alias or effect on snapshot selection; successful partial compilations from rejected candidates may remain cached until eviction.
 
-Eviction, service unregister, provider disable and Decorations disable close owned templates and release their references. Concurrent duplicate compilations close the loser; compilation finishing after retirement cannot enter the cache. Compiler/close callbacks run outside its lock. Cleanup attempts every owned template and reports failures. Decorations never closes the shared DisplayService. Templates are not drawn or given viewer/train/PAPI inputs in this stage.
+Eviction, service unregister, provider disable and Decorations disable close owned templates and release their references. Concurrent duplicate compilations close the loser; compilation finishing after retirement cannot enter the cache. Compiler/close callbacks run outside its lock. Cleanup attempts every owned template and reports failures. Decorations never closes the shared DisplayService. Runtime mounting uses a fresh privately owned template rather than borrowing this validation cache. It draws once with empty data and elapsed time zero, copies the resulting text primitives, and closes the private template on every path. The shared DisplayService remains open.
+
+## Static train rendering
+
+The host prepares each mounted extension once on its own worker pool. Decorations resolves the category default from the owning car’s captured source package, compiles that exact XML, and returns immutable text values. The logical canvas fits the physical part dimensions with preserved aspect ratio and centered margins. XML scripts execute once during drawing; train, PlaceholderAPI and viewer data are not supplied yet.
+
+JavaRailways creates and mounts the text through its native or packet backend, applies the existing part transforms/animations, and uses the existing train audience. Missing Decorations, SimpleDisplays or a category default preserves the extension group and its children without generated text. Preparation errors are reported without breaking the car tree. Installing or re-enabling a provider affects the next model rebuild.
+
+Closing the part registration asynchronously removes generated text while preserving original nodes. Detached static text can outlive a SimpleDisplays connection because it retains no template or engine handle. Dynamic refresh, per-viewer content and interior display distance/config/commands remain future work.

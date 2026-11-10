@@ -1,6 +1,7 @@
 package work.art1st.javarailways.bukkit.render.backend
 
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetPassengers
 import com.github.retrooper.packetevents.wrapper.PacketWrapper
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityMetadata
 import me.tofaa.entitylib.EntityLib
@@ -42,6 +43,7 @@ class TextDisplayBackendTest {
         val state = linkedMapOf<String, Any?>()
         val display = proxy(TextDisplay::class.java) { name, args ->
             when (name) {
+                "getEntityId" -> 42
                 "text", "setPersistent", "setVisibleByDefault", "setInterpolationDelay", "setInterpolationDuration",
                 "setTeleportDuration", "setViewRange", "setTransformation", "setBillboard", "setAlignment",
                 "setLineWidth", "setTextOpacity", "setShadowed", "setSeeThrough", "setDefaultBackground", "setBackgroundColor" -> {
@@ -87,6 +89,7 @@ class TextDisplayBackendTest {
         val calls = mutableListOf<String>()
         var current: Component = Component.empty()
         val display = proxy(TextDisplay::class.java) { name, args -> when (name) {
+            "getEntityId" -> 42
             "text" -> { current = args!![0] as Component; calls += name; null }
             "setTransformation", "setBrightness", "remove" -> { calls += name; null }
             "teleport" -> { calls += name; true }
@@ -123,7 +126,7 @@ class TextDisplayBackendTest {
     @Test
     fun `native nontext visuals reject text while live and ignore it after destruction`() {
         for (type in listOf(ItemDisplay::class.java, BlockDisplay::class.java)) {
-            val entity = proxy(type) { name, _ -> check(name == "remove"); null }
+            val entity = proxy(type) { name, _ -> when (name) { "getEntityId" -> 42; "remove" -> null; else -> error(name) } }
             val visual = NativeDisplayVisual(plugin(), entity,
                 EntityCleanupDispatcher().apply { immediate = true })
             val failure = assertThrows(IllegalArgumentException::class.java) { visual.setText(Component.empty()) }
@@ -203,15 +206,66 @@ class TextDisplayBackendTest {
         }
     }
 
+    @Test
+    fun `packet late passenger refresh uses captured IDs and child retirement also clears actual wrapper passengers`() = withEntityLibMetadata {
+        val sent = mutableListOf<WrapperPlayServerSetPassengers>()
+        withHost(TrainPacketBundleCoordinator { _, packets -> sent += packets.map { it as WrapperPlayServerSetPassengers } }) {
+            val parentWrapper = WrapperEntity(42, UUID.randomUUID(), EntityTypes.ITEM_DISPLAY, ItemDisplayMeta(42, Metadata(42)))
+            val childWrapper = WrapperEntity(43, UUID.randomUUID(), EntityTypes.TEXT_DISPLAY, TextDisplayMeta(43, Metadata(43)))
+            val parent = packetVisual(parentWrapper)
+            val child = packetVisual(childWrapper)
+            val player = proxy(Player::class.java) { name, _ -> if (name == "getUniqueId") UUID(0, 1) else error(name) }
+            assertTrue(parent.addPassenger(child))
+            assertTrue(parentWrapper.passengers.contains(43))
+            parent.refreshPassengersFor(player)
+            assertEquals(42, sent.single().entityId)
+            assertArrayEquals(intArrayOf(43), sent.single().passengers)
+            child.destroy().toCompletableFuture().join()
+            assertFalse(parentWrapper.passengers.contains(43), "cached packet IDs alone do not repair EntityLib's own parent state")
+            parent.refreshPassengersFor(player)
+            assertArrayEquals(intArrayOf(), sent.last().passengers)
+            parent.destroy().toCompletableFuture().join()
+        }
+    }
+
+    @Test
+    fun `native late passenger refresh reads no entity getters from viewer owner and forgets destroyed child IDs`() = withPacketVersion {
+        val sent = mutableListOf<WrapperPlayServerSetPassengers>()
+        withHost(TrainPacketBundleCoordinator { _, packets -> sent += packets.map { it as WrapperPlayServerSetPassengers } }) { host ->
+            var ownerReadsAllowed = true
+            fun entity(id: Int): TextDisplay = proxy(TextDisplay::class.java) { name, _ -> when (name) {
+                "getEntityId" -> { check(ownerReadsAllowed); id }
+                "getVehicle" -> { check(ownerReadsAllowed); null }
+                "addPassenger" -> { check(ownerReadsAllowed); true }
+                "remove" -> null
+                else -> error("Unexpected entity call: $name")
+            } }
+            val dispatcher = EntityCleanupDispatcher().apply { immediate = true }
+            val parent = NativeDisplayVisual(host, entity(42), dispatcher)
+            val child = NativeDisplayVisual(host, entity(43), dispatcher)
+            assertTrue(parent.addPassenger(child))
+            ownerReadsAllowed = false
+            val player = proxy(Player::class.java) { name, _ -> if (name == "getUniqueId") UUID(0, 1) else error(name) }
+            parent.refreshPassengersFor(player)
+            assertArrayEquals(intArrayOf(43), sent.single().passengers)
+            child.destroy().toCompletableFuture().join()
+            parent.refreshPassengersFor(player)
+            assertArrayEquals(intArrayOf(), sent.last().passengers)
+            parent.destroy().toCompletableFuture().join()
+        }
+    }
+
     private fun withEntityLibMetadata(block: () -> Unit) = withPacketVersion {
         synchronized(EntityLib::class.java) {
             val field = EntityLib::class.java.getDeclaredField("api").also { it.isAccessible = true }
             val previous = field.get(null)
+            val settings = me.tofaa.entitylib.APIConfig(com.github.retrooper.packetevents.PacketEvents.getAPI())
             // Supply the existing PacketEvents version binding and no spawned entities. This fixture
             // has no container or live entities and never starts the EntityLib platform/network.
             val api = proxy(EntityLibAPI::class.java) { name, _ ->
                 when (name) {
                     "getPacketEvents" -> com.github.retrooper.packetevents.PacketEvents.getAPI()
+                    "getSettings" -> settings
                     "getEntity" -> null
                     else -> error("Unexpected EntityLib API call: $name")
                 }

@@ -1,5 +1,7 @@
 # Design
 
+> Current: [static extension mount contract](research/static-extension-mount-contract.md) supersedes prior no-runtime notes for this new authorized slice.
+
 > Current continuation: [text backend contract](research/text-backends-contract.md). No extension runtime mounting in this slice.
 
 > Current continuation: [template compilation contract](research/decorations-template-compilation-contract.md). Foundation module boundary is committed at `95935639`.

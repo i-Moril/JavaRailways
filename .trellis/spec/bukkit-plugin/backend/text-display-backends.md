@@ -1,10 +1,10 @@
 # 通用文字 Display 后端
 
-CURRENT：`DisplayVisualContent.Text(Component)` 与 `DisplayVisual.setText(Component)` 为列车渲染后端内部能力。没有新增 addon 公共挂载接口、TextModel、包 schema、配置或持久化字段；Decorations 尚未把 draw 输出挂到列车。EditorTextService 保持独立的原生编辑标记生命周期。
+CURRENT：`DisplayVisualContent.Text(Component)` 与 `DisplayVisual.setText(Component)` 为列车渲染后端内部能力。通用 extension 挂载已通过内部 TextModel 复用此能力；公开边界仅接收 immutable 文字帧，不暴露 backend handle。包 schema、配置和持久化字段不变。EditorTextService 保持独立的原生编辑标记生命周期。
 
 NativeDisplayRenderBackend 创建真实 Bukkit TextDisplay；EntityLibDisplayRenderBackend 创建 TEXT_DISPLAY wrapper/TextDisplayMeta。共用既有 location/transformation/viewRange/interpolation/teleportDuration，继续显式观众管理和原有挂载/亮度/销毁路径。文本保留不可变 Adventure Component 的内容、字体、颜色和样式，允许空 Component 清屏。
 
-两个后端的文字基线相同：FIXED billboard、CENTER 对齐（packet 两侧对齐位都为 false）、Int.MAX_VALUE 行宽避免自动换行、255/full opacity（协议 byte -1）、无 shadow/seeThrough/defaultBackground、背景 ARGB0。字体大小、逻辑像素换算、文字基线补偿和屏幕平面位置由未来内容适配层决定，不能由 backend 猜测屏幕物理尺寸。
+两个后端的文字基线相同：FIXED billboard、CENTER 对齐（packet 两侧对齐位都为 false）、Int.MAX_VALUE 行宽避免自动换行、255/full opacity（协议 byte -1）、无 shadow/seeThrough/defaultBackground、背景 ARGB0。字体大小、逻辑像素换算、文字基线补偿和屏幕平面位置由内容适配层决定，不能由 backend 猜测屏幕物理尺寸。
 
 setText 在已销毁后无副作用；未销毁的 Item/Block visual 明确拒绝文字 setter。Native 直接更新对应 TextDisplay，Packet 修改实际 TextDisplayMeta 后走既有 queueMetadata/trainPacketBundles；不新增发送器、tick、scheduler、观众扫描或第二条移动协议。新观众仍使用 wrapper 中最新 metadata。
 

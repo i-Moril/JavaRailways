@@ -10,7 +10,7 @@ manifest 的 `extensions.decorations:display.directory: decorations` 捕获目�
 
 OptionalSimpleDisplays 保持 API-free 加载边界：仅启用的命名 SimpleDisplays 插件存在时延迟加载 typed binding。binding 验证 Bukkit service owner 和 API 类身份。缺失/不兼容不阻止 Decorations 或列车加载。provider disable/service unregister/Decorations disable 释放连接和 listener；不自动重连，替换后需重启 Decorations。缺失 API 的独立 classloader 测试不能用 null service 替代。
 
-本批不定义 runtime mount factory、backend text handle 或 no-op renderer，不宣称已显示屏幕。后续 actual rendering 必须遵循宿主 Folia ownership，并复用 native/EntityLib 后端生命周期。测试命令：`:Decorations:test :Decorations:verifyPluginJar`；宿主改动另运行 BukkitPlugin 测试/打包。
+CURRENT：provider 实现公开 PartExtensionRenderer，宿主 worker 调用 prepare；Decorations 只返回 immutable PartExtensionFrame，不取得实体、World、Car 或 backend handle。实际挂载复用宿主 native/EntityLib 的 owner、观众与清理路径。测试命令：`:Decorations:test :Decorations:verifyPluginJar`；宿主改动另运行 BukkitPlugin 测试/打包。
 
 定义及资源 schema 位于 Decorations/schemas，使用示例/构建说明见 Decorations/README.md。
 
@@ -18,6 +18,12 @@ OptionalSimpleDisplays 保持 API-free 加载边界：仅启用的命名 SimpleD
 
 `OptionalSimpleDisplays.validateTemplates(String, DisplayResources)` 保持 API-free；实际 typed binding 通过 `DisplayService.compile` 编译，ABI 必须支持 `DisplayTemplate : AutoCloseable`。当前独立 API 基线 410af2e，不能只凭 SNAPSHOT 坐标推测产物版本。
 
-每连接最多 64 项 exact-source LRU，当前无 icons 声明，源码相同才复用。缓存只记忆校验，不按 package-name 发布 active 状态，不供挂载直接持有；未来渲染必须先定义 lease/lifetime。坏候选的部分成功编译可留在有界缓存，不改变已发布 snapshot。重复并发编译关闭 loser，退休后完成的对象关闭且不能安装。compile 和 close 都不能在 cache lock 下执行。
+每连接最多 64 项 exact-source LRU，当前无 icons 声明，源码相同才复用。缓存只记忆校验，不按 package-name 发布 active 状态，不供挂载直接持有；静态首帧不借用此缓存，独立 compile/draw/close。坏候选的部分成功编译可留在有界缓存，不改变已发布 snapshot。重复并发编译关闭 loser，退休后完成的对象关闭且不能安装。compile 和 close 都不能在 cache lock 下执行。
 
 close/eviction 逐一尝试释放并聚合报告，不能因一个失败跳过后续对象，也不能关闭共享 DisplayService。service unregister、provider disable、Decorations disable 均清空缓存/引用。连接跨 reload worker/生命周期线程读取使用明确可见性。异常保留 package/template/file 和真实 cause；编译错误不能伪装成缺少服务。定向回归覆盖有界/LRU/重试/部分成功、并发 duplicate/retire、任意 callback 不持锁、API 缺失的新增入口和真实 Paper 语法拒绝/保留旧快照。
+
+## 静态首帧（CURRENT）
+
+使用 exact owning-car source snapshot 的资源及 category default；不按引用 part 的 namespace 查找、不读当前磁盘、不按 package-name 覆盖来源。缺少服务或默认模板返回 EMPTY。fresh compile 后 draw(emptyMap(),0L)，复制文字和物理几何并 finally close 私有模板；失败保留主异常与 suppressed cleanup，不关闭共享服务。退休前后以连接身份阻止晚结果通过；已经脱离引擎的静态输出可独立于 SimpleDisplays 存活，Decorations 退休则必须删除其生成文字。
+
+等比居中：u=min(physicalWidth/logicalWidth,physicalHeight/logicalHeight)，x=(draw.x-logicalWidth/2)*u，y=(logicalHeight/2-draw.y-draw.size)*u，z=0；glyph scale=draw.size*u*40/9（三轴一致）。logical/derived geometry 必须有限且尺寸为正；最多1024文字。此换算属于适配层，不由 backend 猜测。JS 只运行一次，当前不传 train/PAPI/viewer 输入、不做定时刷新或独立观众判定。

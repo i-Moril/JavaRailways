@@ -50,6 +50,7 @@ class DisplayAppearanceBackendTest {
         var brightness: Display.Brightness? = null
         val display = Proxy.newProxyInstance(ItemDisplay::class.java.classLoader, arrayOf(ItemDisplay::class.java)) { _, method, args ->
             when (method.name) {
+                "getEntityId" -> 42
                 "setItemStack" -> { item = args!![0] as ItemStack; null }
                 "setBrightness" -> { brightness = args!![0] as Display.Brightness?; null }
                 "remove" -> null
@@ -102,6 +103,7 @@ class DisplayAppearanceBackendTest {
         val failure = IllegalStateException("cannot remove display")
         val display = Proxy.newProxyInstance(ItemDisplay::class.java.classLoader, arrayOf(ItemDisplay::class.java)) { _, method, _ ->
             when (method.name) {
+                "getEntityId" -> 42
                 "remove" -> { removes++; throw failure }
                 else -> error("Unexpected native call: ${method.name}")
             }

@@ -299,6 +299,7 @@ class OrdinaryModelTest {
         override fun setItemStack(itemStack: ItemStack) { this.itemStack = itemStack.clone(); calls++ }
         override fun setBrightness(blockLight: Int, skyLight: Int) { brightness = ItemAppearance.Brightness(blockLight, skyLight); calls++ }
         override fun clearBrightness() { brightness = null; clearBrightnessCalls++; calls++ }
+        override fun refreshPassengersFor(player: Player) = Unit
         override fun addPassenger(passenger: DisplayVisual): Boolean { check(!failMount) { "Scripted mount failure" }; return true }
         override fun destroy(): java.util.concurrent.CompletionStage<Void> {
             destroyCalls++; calls++

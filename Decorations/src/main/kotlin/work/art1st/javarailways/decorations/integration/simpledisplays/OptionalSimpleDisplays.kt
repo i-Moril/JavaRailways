@@ -7,6 +7,10 @@ import org.bukkit.event.server.PluginDisableEvent
 import org.bukkit.event.server.ServiceUnregisterEvent
 import org.bukkit.plugin.Plugin
 import work.art1st.javarailways.decorations.display.DisplayResources
+import work.art1st.javarailways.decorations.display.DisplayPartConfig
+import work.art1st.javarailways.decorations.display.DisplayTemplateSource
+import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderContext
+import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionFrame
 import java.lang.reflect.InvocationTargetException
 import java.util.logging.Level
 
@@ -54,6 +58,11 @@ internal class OptionalSimpleDisplays(private val host: Plugin) : Listener, Auto
         connection?.validateTemplates(packageName, resources)
     }
 
+    /** Called by the host preparation worker; descriptors contain no optional library classes. */
+    fun prepareTemplate(context: PartExtensionRenderContext, config: DisplayPartConfig, templateId: String,
+        template: DisplayTemplateSource): PartExtensionFrame =
+        connection?.prepareTemplate(context, config, templateId, template) ?: PartExtensionFrame(emptyList())
+
     @EventHandler
     fun onPluginDisable(event: PluginDisableEvent) {
         if (event.plugin === providerOwner) close()
@@ -91,4 +100,6 @@ internal interface SimpleDisplaysConnection : AutoCloseable {
     val serviceType: Class<*>
     val provider: Any?
     fun validateTemplates(packageName: String, resources: DisplayResources)
+    fun prepareTemplate(context: PartExtensionRenderContext, config: DisplayPartConfig, templateId: String,
+        template: DisplayTemplateSource): PartExtensionFrame
 }

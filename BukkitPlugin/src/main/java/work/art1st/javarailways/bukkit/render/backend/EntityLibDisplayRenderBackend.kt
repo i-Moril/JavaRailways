@@ -1,6 +1,7 @@
 package work.art1st.javarailways.bukkit.render.backend
 
 import java.util.concurrent.CompletionStage
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetPassengers
 import work.art1st.javarailways.core.api.util.Destruction
 import work.art1st.javarailways.core.api.util.DestructionSteps
 
@@ -107,6 +108,20 @@ private class EntityLibDisplayVisual(
     @Volatile
     private var destroyed = false
     private val destruction = Destruction()
+    @Volatile private var passengerIds: List<Int> = emptyList()
+    @Volatile private var passengerParent: EntityLibDisplayVisual? = null
+
+    @Synchronized private fun rememberPassenger(id: Int) { if (id !in passengerIds) passengerIds = passengerIds + id }
+    @Synchronized private fun forgetPassenger(id: Int) { passengerIds = passengerIds.filter { it != id } }
+
+    override fun refreshPassengersFor(player: Player) {
+        if (destroyed) return
+        val captured = passengerIds.toIntArray()
+        BukkitPlugin.INSTANCE.trainPacketBundles.enqueue(listOf(player.uniqueId)) {
+            WrapperPlayServerSetPassengers(packetEntityId, captured)
+        }
+    }
+
 
     init {
         entity.entityMeta.setNotifyAboutChanges(false)
@@ -197,13 +212,23 @@ private class EntityLibDisplayVisual(
         if (!entity.hasPassenger(packetPassenger.entity)) {
             entity.addPassenger(packetPassenger.entity)
         }
+        packetPassenger.passengerParent?.forgetPassenger(packetPassenger.packetEntityId)
+        packetPassenger.passengerParent = this
+        rememberPassenger(packetPassenger.packetEntityId)
         return true
     }
 
     @Synchronized
     override fun destroy(): CompletionStage<Void> = destruction.run {
         destroyed = true
+        val oldParent = passengerParent
+        oldParent?.forgetPassenger(packetEntityId)
+        passengerParent = null
+        passengerIds = emptyList()
         val steps = DestructionSteps()
+        steps.action {
+            if (oldParent != null && oldParent.entity.hasPassenger(packetEntityId)) oldParent.entity.removePassenger(packetEntityId)
+        }
         steps.action { entity.remove() }
         steps.finish()
     }

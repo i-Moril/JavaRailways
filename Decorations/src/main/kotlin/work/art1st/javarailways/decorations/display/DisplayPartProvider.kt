@@ -1,12 +1,15 @@
 package work.art1st.javarailways.decorations.display
 
 import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionPackage
-import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionProvider
+import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderer
+import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderContext
+import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionFrame
 
-/** Validates existing metadata capability. Runtime mounting/rendering is deliberately a later API. */
+/** Validates resources and prepares one detached static frame on the host-owned worker. */
 class DisplayPartProvider(
+    private val prepareTemplate: (PartExtensionRenderContext, DisplayPartConfig, String, DisplayTemplateSource) -> PartExtensionFrame,
     private val validateTemplates: (String, DisplayResources) -> Unit = { _, _ -> },
-) : PartExtensionProvider {
+) : PartExtensionRenderer {
     override val typeId: String = TYPE_ID
 
     override fun validate(context: PartExtensionPackage) {
@@ -20,6 +23,17 @@ class DisplayPartProvider(
             val displays = DisplayResourceParser.parse(resources.files, context.packageName)
             validateTemplates(context.packageName, displays)
         }
+    }
+
+    override fun prepare(context: PartExtensionRenderContext): PartExtensionFrame {
+        val subject = "package '${context.packageName}' snapshot '${context.packageHash}' part '${context.part.name}' $TYPE_ID"
+        require(context.part.schemaVersion == 1) { "$subject unsupported schema-version ${context.part.schemaVersion}; expected 1" }
+        val config = DisplayPartConfig.parse(context.part.config, subject)
+        val captured = context.resources ?: return PartExtensionFrame(emptyList())
+        require(captured.schemaVersion == 1) { "$subject resources unsupported schema-version ${captured.schemaVersion}; expected 1" }
+        val displays = DisplayResourceParser.parse(captured.files, context.packageName)
+        val id = displays.defaults[config.category] ?: return PartExtensionFrame(emptyList())
+        return prepareTemplate(context, config, id, displays.templates.getValue(id))
     }
 
     companion object { const val TYPE_ID = "decorations:display" }

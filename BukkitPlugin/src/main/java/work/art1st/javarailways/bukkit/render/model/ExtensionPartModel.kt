@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit.render.model
 
+import kotlinx.serialization.json.JsonObject
+import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderInput
 import org.bukkit.Location
 import org.bukkit.entity.Player
 import org.bukkit.util.Transformation
@@ -40,10 +42,26 @@ internal class ExtensionPartModel(
     private var lastVelocity: Vector3dc = Vector3d()
     private var destroyed = false
     private var applying: CompletableFuture<Void>? = null
+    private val obsoleteCleanup = mutableListOf<CompletionStage<Void>>()
+    private var firstSourceTick: Long? = null
+    private var lastRequestedTick: Long? = null
+    private var applyFailed = false
     private val viewers = linkedMapOf<UUID, Viewer>()
     private val attachment: PartExtensionAttachment? = service.createAttachment(typeId, context, ::retireGenerated)
 
+    val hasRenderer: Boolean get() = attachment?.canRender == true
+
     @Synchronized fun bindRoot(root: DisplayVisual) { check(this.root == null); this.root = root }
+
+    @Synchronized fun updateInput(data: JsonObject, tick: Long) {
+        require(tick >= 0L) { "Extension source tick must be nonnegative" }
+        if (destroyed || attachment?.isActive != true) return
+        val first = firstSourceTick ?: tick.also { firstSourceTick = it }
+        val last = lastRequestedTick
+        if (tick < first || (last != null && tick - last < 10L)) return
+        attachment.request(PartExtensionRenderInput(data, tick - first))
+        lastRequestedTick = tick
+    }
 
     @Synchronized
     override fun updateState(parentRelativeTransform: CompactTransform, rootTransform: CompactTransform, rootVelocity: Vector3dc, transformDirty: Boolean) {
@@ -61,7 +79,20 @@ internal class ExtensionPartModel(
         if (destroyed || !active.isActive) return
         active.start()
         val frame = active.poll() ?: return
-        if (frame.texts.isEmpty()) return
+        obsoleteCleanup.removeAll { it.toCompletableFuture().let { future -> future.isDone && !future.isCompletedExceptionally } }
+        val latestRoot = oldRoot.copy(position = Vector3d(location.x, location.y, location.z))
+        if (frame.texts.size == texts.size) {
+            try {
+                texts.zip(frame.texts).forEach { (model, text) ->
+                    if (!active.isActive || destroyed) throw CancellationException("Extension attachment was retired")
+                    model.updateContent(text)
+                    if (!active.isActive || destroyed) throw CancellationException("Extension attachment was retired")
+                    model.updateState(state.rootRelativeTransform, latestRoot, lastVelocity, true)
+                }
+                applyFailed = false
+            } catch (failure: Throwable) { if (failure !is CancellationException) reportApplyFailure(failure) }
+            return
+        }
         val applyingCompletion = CompletableFuture<Void>()
         applying = applyingCompletion
         try {
@@ -73,11 +104,10 @@ internal class ExtensionPartModel(
                         Transformation(Vector3f(), Quaternionf(), Vector3f(1f), Quaternionf()), viewRange,
                         TRAIN_DISPLAY_INTERPOLATION_TICKS, TRAIN_DISPLAY_TELEPORT_TICKS))
                     construction.own(visual, visual::destroy)
-                    val model = TextModel(world, ModelState(text.pose.toCompactTransform(text.scale)), visual)
+                    val model = TextModel(world, ModelState(text.pose.toCompactTransform(text.scale)), visual, text)
                     construction.own(model, model::destroy)
                     construction.transfer(visual)
                     model.mountTo(mountedRoot)
-                    val latestRoot = oldRoot.copy(position = Vector3d(location.x, location.y, location.z))
                     model.updateState(state.rootRelativeTransform, latestRoot, lastVelocity, true)
                     model
                 }
@@ -85,8 +115,16 @@ internal class ExtensionPartModel(
                 generated.forEach(construction::transfer)
                 generated
             }
+            val old = texts
             texts = prepared
-            applyingCompletion.complete(null)
+            val retirement = DestructionSteps()
+            old.forEach { model -> retirement.await { model.destroy() } }
+            val retired = retirement.finish()
+            obsoleteCleanup += retired
+            retired.whenComplete { _, failure ->
+                if (failure == null) applyingCompletion.complete(null) else applyingCompletion.completeExceptionally(failure)
+            }
+            applyFailed = false
             viewers.values.toList().forEach { viewer -> replay(viewer, prepared, active, mountedRoot) }
         } catch (failure: Throwable) {
             val cleanup = if (failure is DisplayCleanupException) failure.cleanup else CompletableFuture.completedFuture(null)
@@ -94,8 +132,14 @@ internal class ExtensionPartModel(
                 if (cleanupFailure == null) applyingCompletion.complete(null) else applyingCompletion.completeExceptionally(cleanupFailure)
             }
             val cause = if (failure is DisplayCleanupException) failure.cause ?: failure else failure
-            if (cause !is CancellationException) service.reportRuntimeFailure("Could not apply extension text", cause)
+            if (cause !is CancellationException) reportApplyFailure(cause)
+            obsoleteCleanup += applyingCompletion
         } finally { if (applyingCompletion.isDone && !applyingCompletion.isCompletedExceptionally) applying = null }
+    }
+
+    private fun reportApplyFailure(failure: Throwable) {
+        if (!applyFailed) service.reportRuntimeFailure("Could not apply extension text", failure)
+        applyFailed = true
     }
 
     private fun replay(viewer: Viewer, prepared: List<TextModel>, active: PartExtensionAttachment, mountedRoot: DisplayVisual) {
@@ -130,6 +174,8 @@ internal class ExtensionPartModel(
     @Synchronized private fun retireGenerated(): CompletionStage<Void> {
         val steps = DestructionSteps()
         applying?.let { completion -> steps.await { completion } }
+        obsoleteCleanup.forEach { completion -> steps.await { completion } }
+        obsoleteCleanup.clear()
         val old = texts
         texts = emptyList()
         old.forEach { text -> steps.await { text.destroy() } }

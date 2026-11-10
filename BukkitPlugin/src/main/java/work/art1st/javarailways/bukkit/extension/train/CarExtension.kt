@@ -98,6 +98,10 @@ class CarExtension : TrainComponentExtension<Car>() {
     private var forceNextModelUpdate: Boolean = false
     private val publishedFrameGate = CarFramePublicationGate()
     @Volatile private var latestFrame: CarFrameSnapshot? = null
+    private var latestPartRenderSnapshot: TrainPartRenderSnapshot? = null
+    private var latestPartRenderStream: UUID? = null
+    @Volatile internal var hasDynamicExtensionModel: Boolean = false
+        private set
     private var builtModelGeneration: Long = -1L
     private val detailAudience: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
 
@@ -310,25 +314,35 @@ class CarExtension : TrainComponentExtension<Car>() {
     internal fun applyPublishedFrame(
         frame: CarFrameSnapshot,
         publicationStreamId: UUID,
-        revision: Long
+        revision: Long,
+        partRenderSnapshot: TrainPartRenderSnapshot
     ) {
         require(revision >= 0L) { "published car frame revision must be non-negative" }
         ensureFrameLocationOwned(frame)
         if (!publishedFrameGate.accept(self as CoreCar, publicationStreamId, revision)) return
+        // A pre-publication model has no source identity yet; retire it on its first
+        // accepted source too, so a transfer before that first frame cannot reuse an old session.
+        val streamChanged = latestPartRenderStream != publicationStreamId &&
+            (latestPartRenderStream != null || hasDynamicExtensionModel)
+        latestPartRenderSnapshot = partRenderSnapshot
+        latestPartRenderStream = publicationStreamId
         applyFrameState(
             frame,
-            locationOwnershipChecked = true
+            locationOwnershipChecked = true,
+            rebuildForStreamChange = streamChanged
         )
     }
 
     private fun applyFrameState(
         frame: CarFrameSnapshot,
-        locationOwnershipChecked: Boolean = false
+        locationOwnershipChecked: Boolean = false,
+        rebuildForStreamChange: Boolean = false
     ) {
         if (!locationOwnershipChecked) ensureFrameLocationOwned(frame)
         val oldPosition = latestFrame?.state?.positionVector() ?: self.initialRenderState.position
         latestFrame = frame
         self.world.renderChunkManager.update(self, oldPosition, frame.state.positionVector())
+        if (rebuildForStreamChange) rebuildModelIfBuilt()
         super.commit()
     }
 
@@ -461,6 +475,7 @@ class CarExtension : TrainComponentExtension<Car>() {
             }
             playback.projectCurrentFrames()
         }
+        hasDynamicExtensionModel = bodyModel?.hasExtensionRenderers == true || bogieModels.any { it.hasExtensionRenderers }
         builtModelGeneration = modelGeneration
     }
 
@@ -477,6 +492,11 @@ class CarExtension : TrainComponentExtension<Car>() {
 
     private fun updateModelBundled() {
         val model = bodyModel ?: return
+        hasDynamicExtensionModel = model.hasExtensionRenderers || bogieModels.any { it.hasExtensionRenderers }
+        latestPartRenderSnapshot?.let { input ->
+            model.updateExtensionInput(input.data, input.tick)
+            bogieModels.forEach { it.updateExtensionInput(input.data, input.tick) }
+        }
         val frame = renderFrame()
         val state = frame.state
         val position = state.positionVector()
@@ -561,6 +581,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     override fun destroyModel(): CompletionStage<Void> {
+        hasDynamicExtensionModel = false
         val steps = DestructionSteps()
         steps.action { snapshotHeldScenesForReload() }
         bodyModel?.let { model -> steps.await { model.destroy() } }

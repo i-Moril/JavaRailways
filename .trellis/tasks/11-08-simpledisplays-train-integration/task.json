@@ -5,7 +5,7 @@
   "description": "Soft-integrate the SimpleDisplays display engine with JavaRailways train packages, display categories, package-provided styles, runtime overrides, and train-mounted rendering.",
   "status": "in_progress",
   "dev_type": null,
-  "scope": "Generic host extension parts/resources/provider lifecycle; Decorations display definitions/resources and optional SimpleDisplays adapter; later mounted rendering and train data",
+  "scope": "Generic host extension parts/resources/session lifecycle; Decorations dynamic XML rendering and train data; optional SimpleDisplays. Bukkit PlaceholderAPI excluded.",
   "package": "bukkit-plugin",
   "priority": "P1",
   "creator": "ARTI5T",
@@ -23,6 +23,6 @@
   ],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Foundation95935639, template compilation84b804fc and text backends3aaa3af3 committed. Current uncommitted slice implements public immutable extension renderer/frame API, host worker and static mount ownership, exact car-source snapshot wiring, Decorations fresh XML first-frame preparation/fitting/close. Focused host50 and Decorations35 pass; shadowJar/Devcompile/thin JAR gate pass; real Paper both backend XML mounts/movement/retirement and missing-SD/addon preservation pass. Full host776 has only the known ProgramExpressionsTest failure plus1skip,0errors. See research/static-extension-mount-validation.md. No train/PAPI/per-viewer refresh or interior distance settings yet; schema-consistency child remains deferred until before acceptance. Report before commit; do not push/deploy.",
+  "notes": "Committed foundation95935639, compilation84b804fc, text backends3aaa3af3, static mounts a4604a43. Current uncommitted dynamic session/basic train input slice implemented and checked: hostfocused43 + Decorations39 pass; fullhost787 has only known ProgramExpressionsTest failure+1skip,0errors; shadowJar/Devcompile/thin JAR gate and real Paper both-backend dynamic XML/JS + missing-SD/addon preservation pass. See research/dynamic-train-input-validation.md. Uses same physical frame projection and 2Hz active-model stationary heartbeat; no new Core/persistence schema. Operational unit metadata/stops/destination/run-type, per-viewer mounted output, interior distance/config/command and style overrides remain. PAPI adapter explicitly excluded by user2026-11-10. Schema consistency child deferred until before final acceptance. Report this slice before committing; no push/deploy.",
   "meta": {}
 }

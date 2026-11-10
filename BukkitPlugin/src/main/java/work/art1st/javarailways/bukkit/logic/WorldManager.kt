@@ -29,6 +29,8 @@ import work.art1st.javarailways.bukkit.debug.AbnormalTrainMarker
 import work.art1st.javarailways.bukkit.debug.JavaRailwaysServerTickMetrics
 import work.art1st.javarailways.bukkit.debug.TrainDebugLog
 import work.art1st.javarailways.bukkit.extension.renderChunkManager
+import work.art1st.javarailways.bukkit.extension.train.TrainPartRenderSnapshot
+import work.art1st.javarailways.bukkit.extension.train.captureTrainPartRenderSnapshot
 import work.art1st.javarailways.bukkit.extension.train.CarExtension
 import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
 import work.art1st.javarailways.bukkit.extension.bukkitWorldData
@@ -101,6 +103,7 @@ class WorldManager internal constructor(
     }
     private val pendingPeriodicSnapshots = ConcurrentHashMap<BukkitWorld, WorldSnapshotCapture>()
     private val snapshotRevisions = ConcurrentHashMap<CoreWorld, Long>()
+    private val partRenderClockBuckets = ConcurrentHashMap<CoreWorld, Long>()
     private val snapshotWrites = ConcurrentHashMap<BukkitWorld, Future<*>>()
     private val worldTickRunners = WorldTickRunnerRegistry<World>()
     private val worldTickMetrics = ConcurrentHashMap<BukkitWorld, JavaRailwaysServerTickMetrics>()
@@ -121,6 +124,7 @@ class WorldManager internal constructor(
         tickTask?.cancel()
         tickTask = null
         worldTickRunners.close()
+        partRenderClockBuckets.clear()
         carFrameDispatcher.clear()
         platformCommitDispatcher.clear()
     }
@@ -486,7 +490,10 @@ class WorldManager internal constructor(
                 attempt {
                     if (ownedWorld != null) {
                         railWorlds.remove(bukkitWorld, ownedWorld)
-                        if (ownedWorld is CoreWorld) snapshotRevisions.remove(ownedWorld)
+                        if (ownedWorld is CoreWorld) {
+                            snapshotRevisions.remove(ownedWorld)
+                            partRenderClockBuckets.remove(ownedWorld)
+                        }
                     }
                 }
                 firstFailure?.let { throw it }
@@ -587,7 +594,7 @@ class WorldManager internal constructor(
                         computeNanos += nanos
                     },
                     beforeDispatcher = {
-                        val nanos = measureNanoTime { dispatchPublishedTrainFrames(world, coreWorld) }
+                        val nanos = measureNanoTime { dispatchPublishedTrainFrames(world, coreWorld, tickIndex) }
                         phaseBreakdown["world:${world.name}:train_visual_frame_consume"] = nanos
                         computeNanos += nanos
                     },
@@ -682,16 +689,21 @@ class WorldManager internal constructor(
     }
 
     /** Keeps at most one in-flight and one latest pending region task per car. */
-    private fun dispatchPublishedTrainFrames(bukkitWorld: BukkitWorld, coreWorld: CoreWorld) {
-        consumePendingTrainFrames(coreWorld) { train, trainFrame ->
-            for (index in trainFrame.cars.indices) {
+    private fun dispatchPublishedTrainFrames(bukkitWorld: BukkitWorld, coreWorld: CoreWorld, tickIndex: Long) {
+        val bucket = tickIndex / 10L
+        val refreshStationary = partRenderClockBuckets.put(coreWorld, bucket) != bucket
+        consumeTrainRenderFrames(coreWorld, refreshStationary,
+            needsClock = { it.carRendererOrNull?.hasDynamicExtensionModel == true }) { train, trainFrame, indices ->
+            val trainType = train.rendererOrNull?.modelPackageName()
+            for (index in indices) {
                 queueCarFrame(
                     PendingCarFrame(
                         bukkitWorld = bukkitWorld,
                         publicationStreamId = train.publicationStreamId,
                         car = train.cars[index],
                         frame = trainFrame.cars[index],
-                        revision = trainFrame.revision
+                        revision = trainFrame.revision,
+                        partRenderSnapshot = captureTrainPartRenderSnapshot(trainFrame, index, trainType, tickIndex)
                     )
                 )
             }
@@ -719,7 +731,8 @@ class WorldManager internal constructor(
                     pending.car.carRendererOrNull?.applyPublishedFrame(
                         frame,
                         pending.publicationStreamId,
-                        pending.revision
+                        pending.revision,
+                        pending.partRenderSnapshot
                     )
                 }
             } finally {
@@ -835,7 +848,8 @@ class WorldManager internal constructor(
         val publicationStreamId: UUID,
         val car: CoreCar,
         val frame: CarFrameSnapshot,
-        val revision: Long
+        val revision: Long,
+        val partRenderSnapshot: TrainPartRenderSnapshot
     )
 
     private data class PendingPlatformCommit(
@@ -912,5 +926,29 @@ internal fun consumePendingTrainFrames(
         val train = coreWorld.getTrain(queuedFrame.trainId) ?: return@forEach
         val latestFrame = train.publishedFrame
         consume(train, latestFrame)
+    }
+}
+
+/** Preserve Core's stationary mailbox suppression; only live extension models need a 2Hz clock. */
+internal fun consumeTrainRenderFrames(
+    coreWorld: CoreWorld,
+    refreshStationary: Boolean,
+    needsClock: (CoreCar) -> Boolean,
+    consume: (CoreTrain, TrainFrameSnapshot, List<Int>) -> Unit
+) {
+    val dispatched = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<CoreCar, Boolean>())
+    consumePendingTrainFrames(coreWorld) { train, frame ->
+        val indices = frame.cars.indices.toList()
+        indices.forEach { dispatched.add(train.cars[it]) }
+        consume(train, frame, indices)
+    }
+    if (!refreshStationary) return
+    coreWorld.allTrains.forEach { train ->
+        val frame = train.publishedFrame
+        val indices = frame.cars.indices.filter { index ->
+            val car = train.cars[index]
+            car !in dispatched && needsClock(car)
+        }
+        if (indices.isNotEmpty()) consume(train, frame, indices)
     }
 }

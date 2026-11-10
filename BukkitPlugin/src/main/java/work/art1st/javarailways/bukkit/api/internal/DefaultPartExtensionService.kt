@@ -29,6 +29,8 @@ class DefaultPartExtensionService(
     }
     private var shutdown: CompletionStage<Void>? = null
     private val entries = linkedMapOf<String, Entry>()
+    // Entries leave the registry before callbacks finish. Keep their real cleanup owned meanwhile.
+    private val retiring = mutableSetOf<CompletableFuture<Void>>()
     private var closed = false
     private var generation = 0L
 
@@ -132,6 +134,7 @@ class DefaultPartExtensionService(
         val attachments = synchronized(lock) {
             entry.cleanup?.let { return it }
             entry.cleanup = CompletableFuture()
+            retiring.add(entry.cleanup!!)
             if (entries[entry.typeId] === entry) { entries.remove(entry.typeId); generation++ }
             entry.provider = null
             entry.owner = null
@@ -141,6 +144,7 @@ class DefaultPartExtensionService(
         attachments.forEach { attachment -> steps.await { attachment.closeAsync() } }
         steps.finish().whenComplete { _, failure ->
             if (failure == null) entry.cleanup!!.complete(null) else entry.cleanup!!.completeExceptionally(failure)
+            synchronized(lock) { retiring.remove(entry.cleanup!!) }
         }
         return entry.cleanup!!
     }
@@ -152,12 +156,15 @@ class DefaultPartExtensionService(
             closed = true
             generation++
             packages = null
-            entries.values.toList()
+            entries.values.toList() to retiring.toList()
         }
         val steps = DestructionSteps()
-        owned.forEach { entry -> steps.await { retire(entry) } }
-        workers.shutdownNow()
+        owned.second.forEach { retirement -> steps.await { retirement } }
+        owned.first.forEach { entry -> steps.await { retire(entry) } }
         steps.finish().whenComplete { _, failure ->
+            // Registration retirement can still be scheduling idle-session close tasks. Shutdown
+            // only after every callback has exited and every owned session has actually closed.
+            workers.shutdown()
             val completion = shutdown as CompletableFuture<Void>
             if (failure == null) completion.complete(null) else completion.completeExceptionally(failure)
         }

@@ -1,13 +1,25 @@
 package work.art1st.javarailways.bukkit.api.model.extension
 
+import kotlinx.serialization.json.JsonObject
 import net.kyori.adventure.text.Component
 import work.art1st.javarailways.bukkit.api.model.ModelPose
 import work.art1st.javarailways.bukkit.api.model.ModelScale
 import java.util.Collections
 
-/** Optional runtime capability. Called once per attachment on a host worker, never a render owner. */
+/** Optional runtime capability. One private session is opened on a host worker per attachment. */
 interface PartExtensionRenderer : PartExtensionProvider {
-    fun prepare(context: PartExtensionRenderContext): PartExtensionFrame
+    fun open(context: PartExtensionRenderContext): PartExtensionRenderSession?
+}
+
+/** Open, draw and close are serialized on host workers, outside registry and attachment locks. */
+interface PartExtensionRenderSession : AutoCloseable {
+    fun draw(input: PartExtensionRenderInput): PartExtensionFrame
+    override fun close()
+}
+
+class PartExtensionRenderInput(data: JsonObject = JsonObject(emptyMap()), val elapsedTicks: Long = 0L) {
+    val data: JsonObject = immutablePartExtensionJson(data, 0) as JsonObject
+    init { require(elapsedTicks >= 0L) { "Extension elapsed ticks must be nonnegative" } }
 }
 
 /** Exact owning car package snapshot. No filesystem, world, car or backend objects are exposed. */

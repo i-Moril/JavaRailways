@@ -1,14 +1,12 @@
 package work.art1st.javarailways.bukkit.api.internal
 
-import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionFrame
-import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderContext
-import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderer
+import work.art1st.javarailways.bukkit.api.model.extension.*
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
-import java.util.concurrent.FutureTask
 import java.util.concurrent.ThreadPoolExecutor
+import work.art1st.javarailways.core.api.util.DestructionSteps
 
-/** One immutable preparation result and one cancellable job; no Bukkit access from completion. */
+/** One serial session, latest request and latest completed value. Workers never access Bukkit. */
 internal class PartExtensionAttachment(
     context: PartExtensionRenderContext,
     private val executor: ThreadPoolExecutor,
@@ -19,42 +17,106 @@ internal class PartExtensionAttachment(
 ) {
     private val lock = Any()
     private var context: PartExtensionRenderContext? = context
+    private val subject = "package '${context.packageName}' part '${context.part.name}'"
     private var retireVisuals: (() -> CompletionStage<Void>)? = retireVisuals
     @Volatile var isActive = true
         private set
     private var started = false
+    val canRender: Boolean get() = synchronized(lock) { isActive && !unavailable }
+    private var opened = false
+    private var unavailable = false
+    private var session: PartExtensionRenderSession? = null
     private var pending: PartExtensionFrame? = null
-    private var job: FutureTask<Unit>? = null
+    private var latest: PartExtensionRenderInput? = null
+    private var task: Work? = null
+    private var running: Thread? = null
+    private var failedEpisode = false
+    private val sessionCleanup = CompletableFuture<Void>()
     private val cleanup = CompletableFuture<Void>()
 
-    fun start() {
-        val task = synchronized(lock) {
-            if (!isActive || started) return
-            started = true
-            val captured = context!!
-            FutureTask<Unit> {
-                try {
-                    val renderer = acquireRenderer() ?: return@FutureTask Unit
-                    if (!isActive) return@FutureTask Unit
-                    val frame = renderer.prepare(captured)
-                    // The DTO has no addon/runtime handles. Never schedule platform work here.
-                    val stillCurrent = acquireRenderer() === renderer
-                    synchronized(lock) { if (isActive && stillCurrent) pending = frame }
-                } catch (failure: Throwable) {
-                    if (isActive) report("Extension preparation failed for package '${captured.packageName}' part '${captured.part.name}'", failure)
-                    if (failure !is Exception && failure !is LinkageError) throw failure
-                } finally { synchronized(lock) { context = null; job = null } }
-                Unit
-            }.also { job = it }
+    fun start() = synchronized(lock) {
+        if (!isActive || started) return@synchronized
+        started = true
+        if (latest == null) latest = PartExtensionRenderInput()
+        enqueue()
+    }
+
+    fun request(input: PartExtensionRenderInput) = synchronized(lock) {
+        if (!isActive || unavailable) return@synchronized
+        latest = input
+        if (started && task == null && running == null) enqueue()
+    }
+
+    /** Called under lock; execute cannot race retirement and leave canceled queue history. */
+    private fun enqueue() {
+        val next = Work()
+        task = next
+        try { executor.execute(next) }
+        catch (failure: RuntimeException) {
+            task = null
+            latest = null
+            unavailable = true
+            // An owned session has not been closed merely because its task was rejected.
+            // Keep its cleanup barrier pending; service shutdown ordering prevents this case.
+            if (session == null) sessionCleanup.completeExceptionally(failure)
         }
-        try {
-            executor.execute(task)
-            // Close may have canceled between task capture and enqueue. Do not retain canceled history.
-            synchronized(lock) { if (!isActive) { task.cancel(true); executor.remove(task) } }
-        } catch (failure: RuntimeException) {
-            synchronized(lock) { context = null; job = null }
-            if (isActive) report("Extension preparation was rejected", failure)
+    }
+
+    private inner class Work : Runnable {
+        override fun run() {
+            val input = synchronized(lock) {
+                if (task !== this) return
+                task = null
+                running = Thread.currentThread()
+                latest.also { latest = null }
+            }
+            try {
+                if (isActive && !opened) {
+                    opened = true
+                    val captured = context
+                    val renderer = acquireRenderer()
+                    session = if (captured != null && renderer != null && isActive) renderer.open(captured) else null
+                    context = null
+                    if (session == null) synchronized(lock) { unavailable = true; latest = null }
+                }
+                val owned = session
+                if (isActive && owned != null && input != null && acquireRenderer() != null) {
+                    val frame = owned.draw(input)
+                    // Publish completed results even if a newer request arrived during this draw.
+                    // Dropping every superseded completion would starve slower evaluators.
+                    synchronized(lock) { if (isActive) pending = frame }
+                    failedEpisode = false
+                }
+            } catch (failure: Throwable) {
+                if (!opened || session == null) synchronized(lock) { unavailable = true; latest = null; context = null }
+                if (isActive && !failedEpisode) {
+                    failedEpisode = true
+                    report("Extension rendering failed for $subject", failure)
+                }
+            } finally {
+                val retire = synchronized(lock) {
+                    if (isActive) {
+                        running = null
+                        if (latest != null && !unavailable) enqueue()
+                        false
+                    } else true
+                }
+                if (retire) {
+                    // Cancellation is a request; completion tracks callback EXIT and real close.
+                    Thread.interrupted()
+                    closeSession()
+                    synchronized(lock) { running = null }
+                }
+            }
         }
+    }
+
+    private fun closeSession() {
+        val owned = session
+        session = null
+        context = null
+        try { owned?.close(); sessionCleanup.complete(null) }
+        catch (failure: Throwable) { sessionCleanup.completeExceptionally(failure) }
     }
 
     fun poll(): PartExtensionFrame? = synchronized(lock) {
@@ -66,17 +128,22 @@ internal class PartExtensionAttachment(
             if (!isActive) return cleanup
             isActive = false
             pending = null
+            latest = null
             context = null
-            job?.let { it.cancel(true); executor.remove(it) }
-            job = null
+            task?.let { executor.remove(it) }
+            task = null
+            if (running != null) running!!.interrupt()
+            else if (session != null) enqueue() // Work closes it on a worker; shutdown() drains this task.
+            else sessionCleanup.complete(null)
             retireVisuals.also { retireVisuals = null }
         }
         detach(this)
-        try {
-            (retire?.invoke() ?: CompletableFuture.completedFuture(null)).whenComplete { _, failure ->
-                if (failure == null) cleanup.complete(null) else cleanup.completeExceptionally(failure)
-            }
-        } catch (failure: Throwable) { cleanup.completeExceptionally(failure) }
+        val steps = DestructionSteps()
+        steps.await { sessionCleanup }
+        steps.await { retire?.invoke() ?: CompletableFuture.completedFuture(null) }
+        steps.finish().whenComplete { _, failure ->
+            if (failure == null) cleanup.complete(null) else cleanup.completeExceptionally(failure)
+        }
         return cleanup
     }
 }

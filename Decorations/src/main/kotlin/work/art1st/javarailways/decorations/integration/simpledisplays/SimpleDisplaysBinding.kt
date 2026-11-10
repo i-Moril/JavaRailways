@@ -2,6 +2,10 @@ package work.art1st.javarailways.decorations.integration.simpledisplays
 
 import org.bukkit.plugin.Plugin
 import simpledisplays.api.DisplayService
+import simpledisplays.api.DisplayContext
+import kotlinx.serialization.json.*
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionException
 import simpledisplays.api.DisplayTemplate
 import simpledisplays.api.TextDraw
 import java.lang.reflect.Modifier
@@ -13,11 +17,14 @@ import work.art1st.javarailways.bukkit.api.model.ModelPose
 import work.art1st.javarailways.bukkit.api.model.ModelScale
 import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderContext
 import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionFrame
+import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderSession
+import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderInput
 import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionText
 
 /** The only eagerly linked API boundary; instantiated reflectively after the plugin presence check. */
 internal class SimpleDisplaysBinding(host: Plugin, owner: Plugin) : SimpleDisplaysConnection {
     private val lifecycle = Any()
+    private val sessions = mutableSetOf<Session>()
     @Volatile
     internal var service: DisplayService? = null
         private set
@@ -35,6 +42,7 @@ internal class SimpleDisplaysBinding(host: Plugin, owner: Plugin) : SimpleDispla
         check(DisplayTemplate::class.java.getMethod("getWidth").returnType == Double::class.javaPrimitiveType)
         check(DisplayTemplate::class.java.getMethod("getHeight").returnType == Double::class.javaPrimitiveType)
         check(DisplayTemplate::class.java.getMethod("draw", Map::class.java, Long::class.javaPrimitiveType).returnType == List::class.java)
+        check(DisplayTemplate::class.java.getMethod("draw", DisplayContext::class.java).returnType == List::class.java)
         check(AutoCloseable::class.java.isAssignableFrom(DisplayTemplate::class.java)) { "DisplayTemplate must support close" }
         val close = DisplayTemplate::class.java.getMethod("close")
         check(close.returnType == Void.TYPE && close.declaringClass == DisplayTemplate::class.java) { "Unexpected DisplayTemplate.close contract" }
@@ -61,20 +69,50 @@ internal class SimpleDisplaysBinding(host: Plugin, owner: Plugin) : SimpleDispla
         }
     }
 
-    override fun prepareTemplate(context: PartExtensionRenderContext, config: DisplayPartConfig,
-        templateId: String, template: DisplayTemplateSource): PartExtensionFrame {
+    override fun openTemplate(context: PartExtensionRenderContext, config: DisplayPartConfig,
+        templateId: String, template: DisplayTemplateSource): PartExtensionRenderSession? {
         val subject = "package '${context.packageName}' snapshot '${context.packageHash}' part '${context.part.name}' display template '$templateId' file '${template.file}'"
         try {
-            val compiler = synchronized(lifecycle) { checkNotNull(service) { "SimpleDisplays connection is retired" } }
-            // A fresh private template cannot be evicted by concurrent validation or used by another draw.
+            val compiler = synchronized(lifecycle) { service } ?: return null
             val compiled = compiler.compile(template.source)
+            val session = Session(subject, config, compiled)
+            val accepted = synchronized(lifecycle) {
+                if (service === compiler) { sessions.add(session); true } else false
+            }
+            if (!accepted) { session.close(); return null }
+            return session
+        } catch (failure: Exception) {
+            throw IllegalArgumentException("$subject failed to open display session: ${failure.message ?: failure.javaClass.simpleName}", failure)
+        }
+    }
+
+    private inner class Session(
+        private val subject: String,
+        private val config: DisplayPartConfig,
+        compiled: DisplayTemplate,
+    ) : PartExtensionRenderSession {
+        private val state = Any()
+        private var template: DisplayTemplate? = compiled
+        private var disposed = false
+        private var active = false
+        private var closeStarted = false
+        private val cleanup = CompletableFuture<Void>()
+
+        override fun draw(input: PartExtensionRenderInput): PartExtensionFrame {
+            val compiled = synchronized(state) {
+                if (disposed) return PartExtensionFrame.EMPTY
+                check(!active) { "$subject draw must be serialized" }
+                active = true
+                checkNotNull(template)
+            }
             var primary: Throwable? = null
             val frame = try {
                 require(compiled.width.isFinite() && compiled.width > 0 && compiled.height.isFinite() && compiled.height > 0) { "Invalid logical canvas dimensions" }
                 val unit = minOf(config.width / compiled.width, config.height / compiled.height)
                 require(unit.isFinite() && unit > 0) { "Invalid canvas fitting scale" }
-                val draws = compiled.draw(emptyMap(), 0L)
-                require(draws.size <= 1024) { "Static display frame exceeds 1024 text nodes" }
+                val data = input.data.entries.associate { it.key to jsonValue(it.value, 0) }
+                val draws = compiled.draw(DisplayContext(data = data, elapsedTicks = input.elapsedTicks))
+                require(draws.size <= 1024) { "Display frame exceeds 1024 text nodes" }
                 PartExtensionFrame(draws.map { draw ->
                     require(draw.x.isFinite() && draw.y.isFinite() && draw.size.isFinite() && draw.size > 0) { "Invalid logical text geometry" }
                     val x = (draw.x - compiled.width / 2) * unit
@@ -85,25 +123,89 @@ internal class SimpleDisplaysBinding(host: Plugin, owner: Plugin) : SimpleDispla
                 })
             } catch (failure: Throwable) {
                 primary = failure
-                throw failure
+                if (failure !is Exception) throw failure
+                throw IllegalArgumentException("$subject failed to draw display frame: ${failure.message ?: failure.javaClass.simpleName}", failure)
             } finally {
-                try { compiled.close() } catch (cleanup: Throwable) {
-                    if (primary == null) throw cleanup
-                    if (primary !== cleanup) primary.addSuppressed(cleanup)
+                val release = synchronized(state) {
+                    active = false
+                    claimClose()
+                }
+                if (release != null) {
+                    try { finishClose(release) } catch (failure: Throwable) {
+                        if (primary == null) throw failure
+                        if (primary !== failure) primary.addSuppressed(failure)
+                    }
                 }
             }
-            // Linearize completed detachment with retirement. Already detached frames may outlive SimpleDisplays.
-            return synchronized(lifecycle) {
-                check(service === compiler) { "SimpleDisplays connection retired during static preparation" }
-                frame
+            return synchronized(state) { if (disposed) PartExtensionFrame.EMPTY else frame }
+        }
+
+        /** Retirement never waits for an active guest. Its finally owns deferred cleanup. */
+        fun retire(): Boolean {
+            val (wasActive, release) = synchronized(state) {
+                disposed = true
+                active to claimClose()
             }
-        } catch (failure: Exception) {
-            throw IllegalArgumentException("$subject failed to prepare static frame: ${failure.message ?: failure.javaClass.simpleName}", failure)
+            release?.let(::finishClose)
+            return wasActive
+        }
+
+        override fun close() {
+            val wasActive = retire()
+            if (!wasActive) {
+                // Another idle closer may already own the external callback. Host callers are workers.
+                try { cleanup.join() } catch (failure: CompletionException) { throw (failure.cause ?: failure) }
+            }
+        }
+
+        private fun claimClose(): DisplayTemplate? {
+            if (!disposed || active || closeStarted) return null
+            closeStarted = true
+            return template.also { template = null }
+        }
+
+        private fun finishClose(release: DisplayTemplate) {
+            try {
+                release.close()
+                cleanup.complete(null)
+            } catch (failure: Throwable) {
+                cleanup.completeExceptionally(failure)
+                throw failure
+            } finally {
+                synchronized(lifecycle) { sessions.remove(this) }
+            }
+        }
+    }
+
+    private fun jsonValue(value: JsonElement, depth: Int): Any? {
+        require(depth <= 32) { "Display data exceeds maximum nesting depth" }
+        return when (value) {
+            JsonNull -> null
+            is JsonObject -> value.entries.associate { it.key to jsonValue(it.value, depth + 1) }
+            is JsonArray -> value.map { jsonValue(it, depth + 1) }
+            is JsonPrimitive -> when {
+                value.isString -> value.content
+                value.booleanOrNull != null -> value.booleanOrNull
+                else -> requireNotNull(value.doubleOrNull) { "Unsupported display data primitive" }.also {
+                    require(it.isFinite()) { "Nonfinite display data number" }
+                }
+            }
         }
     }
 
     override fun close() {
-        synchronized(lifecycle) { service = null }
-        cache.close()
+        val retired = synchronized(lifecycle) {
+            service = null
+            sessions.toList()
+        }
+        var failure: Throwable? = null
+        fun attempt(action: () -> Unit) {
+            try { action() } catch (error: Throwable) {
+                if (failure == null) failure = error else if (failure !== error) failure!!.addSuppressed(error)
+            }
+        }
+        retired.forEach { attempt { it.retire() } }
+        attempt { cache.close() }
+        failure?.let { throw it }
     }
 }

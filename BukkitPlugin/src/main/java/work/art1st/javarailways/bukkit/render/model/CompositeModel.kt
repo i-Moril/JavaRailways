@@ -30,6 +30,8 @@ class CompositeModel internal constructor(
         }
     }
 
+    val hasExtensionRenderers: Boolean get() = extensionGroups.any { it.hasRenderer }
+
     private var lastRotation: Quaterniond? = null
     private val destruction = Destruction()
 
@@ -53,6 +55,11 @@ class CompositeModel internal constructor(
         models.forEach { it.updateState(rotatedTransform, worldRoot, rootVelocity, rotationChanged || forceTransformUpdate) }
 
         updateRootPosition(rootTransform.position)
+    }
+
+    /** Value-only input is supplied before the existing full or root-only model commit. */
+    fun updateExtensionInput(data: kotlinx.serialization.json.JsonObject, tick: Long) {
+        extensionGroups.forEach { it.updateInput(data, tick) }
     }
 
     /** Move the shared root without traversing or recomputing the detailed child model tree. */

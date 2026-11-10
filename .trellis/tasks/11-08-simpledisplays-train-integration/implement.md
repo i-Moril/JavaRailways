@@ -186,4 +186,16 @@ Replacement committed as SimpleDisplays `410af2e`, directly parented by `21f7686
 - [x] 审查、自动测试/打包与真实Paper双后端探针。
 - [x] 规范和验证记录，提交前报告。
 
-本批完成、尚未提交。宿主定向50项、Decorations35项全过；全量宿主776项仅有既有ProgramExpressionsTest失败和1skip，0errors。打包/Dev编译/thinJAR gate与实际Paper双后端XML挂载、来源隔离、移动、退休清理及缺失插件组合通过。见[验证记录](research/static-extension-mount-validation.md)。等待本批提交许可；数据/PAPI/动态刷新/车内距离策略后续分批。
+本批已提交a4604a43。宿主定向50项、Decorations35项全过；全量宿主776项仅有既有ProgramExpressionsTest失败和1skip，0errors。打包/Dev编译/thinJAR gate与实际Paper双后端XML挂载、来源隔离、移动、退休清理及缺失插件组合通过。见[验证记录](research/static-extension-mount-validation.md)。等待本批提交许可；数据/PAPI/动态刷新/车内距离策略后续分批。
+
+## 当前实施：动态帧与基础列车输入
+
+上一批静态挂载已提交a4604a43；PAPI适配移出本任务。按[动态合同](research/dynamic-train-input-contract.md)实施。
+
+- [x] 宿主owned session/immutable input/串行合并刷新和关闭完成。
+- [x] 同一physics frame的基础列车/车厢投影及stream身份接线。
+- [x] Decorations真实结构化DisplayContext、复用私有模板及重复draw。
+- [x] 动态文字复用/数量变化/EMPTY/清理，自动验证及实际Paper双后端。
+- [x] 同步文档、记录证据，提交前报告。
+
+本批完成、尚未提交。宿主定向43项、Decorations39项通过；宿主全量787项仅有既有ProgramExpressionsTest失败、1skip、0errors。打包/Devcompile/thinJAR gate通过；真实Paper双后端XML/document JS的结构化数据、elapsed ticks、实体复用、grow/EMPTY/recover及清理通过，缺失插件组合通过。见[动态验证](research/dynamic-train-input-validation.md)。运营站点/目的地/种别、逐观看者画面、车内距离设置后续分批；PAPI适配不属于本任务。

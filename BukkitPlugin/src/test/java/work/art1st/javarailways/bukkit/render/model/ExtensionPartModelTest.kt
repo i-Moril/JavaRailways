@@ -116,8 +116,10 @@ class ExtensionPartModelTest {
         try {
             composite.updateState(CompactTransform())
             assertTrue(entered.await(2, TimeUnit.SECONDS))
-            composite.destroy().toCompletableFuture().join()
+            val retired = composite.destroy().toCompletableFuture()
+            assertFalse(retired.isDone)
             release.countDown()
+            retired.get(2, TimeUnit.SECONDS)
             composite.updateRootPosition(Vector3d(99.0, 0.0, 0.0))
             assertTrue(f.descriptors.isEmpty())
         } finally { release.countDown(); registration.close() }
@@ -160,6 +162,79 @@ class ExtensionPartModelTest {
         } finally { cleanup.complete(null); composite.destroy().toCompletableFuture().join(); registration.close() }
     }
 
+    @Test fun `source ticks throttle serial redraw and same count updates text and pose without rebuilding leaves`() = fixture { f ->
+        val next = java.util.concurrent.atomic.AtomicReference(f.frame())
+        val registration = f.register { next.get() }
+        val composite = f.composite(f.group())
+        try {
+            composite.updateExtensionInput(JsonObject(emptyMap()), 100)
+            composite.updateState(CompactTransform())
+            f.awaitApplied(composite)
+            assertEquals(listOf(0L), f.inputs.map { it.elapsedTicks })
+            composite.updateExtensionInput(JsonObject(emptyMap()), 109)
+            assertEquals(1, f.inputs.size)
+            next.set(PartExtensionFrame(listOf(PartExtensionText(Component.text("updated"), ModelPose(4.0,0.0,0.0,0.0,0.0,0.0,1.0)))))
+            composite.updateExtensionInput(JsonObject(emptyMap()), 110)
+            f.driveUntil(composite) { f.visuals.single().textUpdates == 1 }
+            assertEquals(Component.text("updated"), f.visuals.single().textValue)
+            assertEquals(7f, f.visuals.single().transformationValue!!.translation.x())
+            assertEquals(1, f.descriptors.size)
+            val transforms = f.calls.count { it == "text-transform" }
+            composite.updateExtensionInput(JsonObject(emptyMap()), 120)
+            f.driveUntil(composite) { f.inputs.size == 3 }
+            // Wait until the completed result has been consumed as well.
+            repeat(10) { composite.updateRootPosition(Vector3d()); Thread.sleep(2) }
+            assertEquals(1, f.visuals.single().textUpdates)
+            assertEquals(transforms, f.calls.count { it == "text-transform" })
+            assertEquals(listOf(0L,10L,20L), f.inputs.map { it.elapsedTicks })
+        } finally { composite.destroy().toCompletableFuture().join(); registration.close() }
+    }
+
+    @Test fun `dynamic growth and EMPTY preserve original children and await obsolete visual cleanup`() = fixture { f ->
+        val cleanup = CompletableFuture<Void>(); f.pendingCleanup = cleanup
+        val next = java.util.concurrent.atomic.AtomicReference(f.frame())
+        val registration = f.register { next.get() }
+        val composite = f.composite(f.group())
+        try {
+            composite.updateExtensionInput(JsonObject(emptyMap()), 0)
+            composite.updateState(CompactTransform()); f.awaitApplied(composite)
+            f.pendingCleanup = null
+            next.set(PartExtensionFrame(listOf(f.frame().texts.single(), f.frame().texts.single())))
+            composite.updateExtensionInput(JsonObject(emptyMap()), 10)
+            f.driveUntil(composite) { f.descriptors.size == 3 }
+            assertEquals(1, f.visuals.first().destroys)
+            assertEquals(0, f.child.destroyed)
+            next.set(PartExtensionFrame.EMPTY)
+            composite.updateExtensionInput(JsonObject(emptyMap()), 20)
+            f.driveUntil(composite) { f.visuals.all { it.destroys == 1 } }
+            val close = registration.closeAsync().toCompletableFuture()
+            assertFalse(close.isDone, "obsolete resources must remain in the retirement barrier")
+            cleanup.complete(null); close.get(2, TimeUnit.SECONDS)
+            assertEquals(0, f.child.destroyed)
+        } finally { cleanup.complete(null); composite.destroy().toCompletableFuture().join(); registration.close() }
+    }
+
+    @Test fun `replacement creation failure retains previously successful text and later sample can recover`() = fixture { f ->
+        val next = java.util.concurrent.atomic.AtomicReference(f.frame())
+        val registration = f.register { next.get() }
+        val composite = f.composite(f.group())
+        try {
+            composite.updateExtensionInput(JsonObject(emptyMap()), 0)
+            composite.updateState(CompactTransform()); f.awaitApplied(composite)
+            f.failCreateAt = 3
+            next.set(PartExtensionFrame(listOf(f.frame().texts.single(), f.frame().texts.single())))
+            composite.updateExtensionInput(JsonObject(emptyMap()), 10)
+            f.driveUntil(composite) { f.attempts == 3 }
+            assertEquals(0, f.visuals.first().destroys)
+            assertEquals(1, f.visuals[1].destroys)
+            f.failCreateAt = -1
+            composite.updateExtensionInput(JsonObject(emptyMap()), 20)
+            f.driveUntil(composite) { f.descriptors.size == 4 }
+            assertEquals(1, f.visuals.first().destroys)
+            assertEquals(0, f.visuals.last().destroys)
+        } finally { composite.destroy().toCompletableFuture().join(); registration.close() }
+    }
+
     private fun fixture(block: (Fixture) -> Unit) {
         val f = Fixture()
         try { block(f) } finally {
@@ -175,6 +250,7 @@ class ExtensionPartModelTest {
         val calls = mutableListOf<String>()
         val descriptors = mutableListOf<DisplayVisualDescriptor>()
         val visuals = mutableListOf<Visual>()
+        val inputs = java.util.concurrent.CopyOnWriteArrayList<PartExtensionRenderInput>()
         val dispatcher = QueuedDispatcher()
         val bundles = TrainPacketBundleCoordinator { _, _ -> }
         val bukkitWorld = proxy(World::class.java) { name, _ -> error("Unexpected world call $name") }
@@ -199,7 +275,10 @@ class ExtensionPartModelTest {
         } }, object : PartExtensionRenderer {
             override val typeId = TYPE
             override fun validate(context: PartExtensionPackage) = Unit
-            override fun prepare(context: PartExtensionRenderContext) = prepare.invoke()
+            override fun open(context: PartExtensionRenderContext) = object : PartExtensionRenderSession {
+                override fun draw(input: PartExtensionRenderInput): PartExtensionFrame { inputs += input; return prepare.invoke() }
+                override fun close() = Unit
+            }
         })
         fun frame() = PartExtensionFrame(listOf(PartExtensionText(Component.text("fixed"), ModelPose(2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0))))
         fun group() = ExtensionPartModel(world, ModelState(CompactTransform(position = Vector3d(3.0, 0.0, 0.0))),
@@ -211,6 +290,7 @@ class ExtensionPartModelTest {
         fun composite(group: ExtensionPartModel) = CompositeModel(world, listOf(group), root, bukkitWorld)
         fun awaitApplied(composite: CompositeModel, x: Double = 0.0) = drive(composite, x) { descriptors.isNotEmpty() }
         fun awaitAttempted(composite: CompositeModel) = drive(composite, 0.0) { attempts > 0 }
+        fun driveUntil(composite: CompositeModel, done: () -> Boolean) = drive(composite, 0.0, done)
         private fun drive(composite: CompositeModel, x: Double, done: () -> Boolean) {
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
             while (!done() && System.nanoTime() < deadline) { composite.updateRootPosition(Vector3d(x, 0.0, 0.0)); Thread.sleep(2) }
@@ -235,7 +315,9 @@ class ExtensionPartModelTest {
         override fun teleport(location: Location) { calls += "$name-move" }
         override fun setTransformation(transformation: Transformation) { transformationValue = transformation; calls += "$name-transform" }
         override fun setItemStack(itemStack: ItemStack) = error("Not an item test")
-        override fun setText(text: Component) = Unit
+        var textValue: Component? = null
+        var textUpdates = 0
+        override fun setText(text: Component) { textValue = text; textUpdates++ }
         override fun setBrightness(blockLight: Int, skyLight: Int) = Unit
         override fun clearBrightness() = Unit
         override fun addPassenger(passenger: DisplayVisual): Boolean { calls += "$name-mount"; return !failMount }

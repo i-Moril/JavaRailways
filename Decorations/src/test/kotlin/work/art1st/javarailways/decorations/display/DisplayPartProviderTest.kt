@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderContext
 import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionFrame
+import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderSession
+import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderInput
 import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionText
 import net.kyori.adventure.text.Component
 import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionPackage
@@ -17,7 +19,7 @@ class DisplayPartProviderTest {
     private val config = Json.parseToJsonElement("""{"category":"cabin","interior":true,"width":0.8,"height":0.45}""").jsonObject
     // Explicit test stub: metadata-only tests do not install a runtime bridge.
     private fun metadataProvider(validate: (String, DisplayResources) -> Unit = { _, _ -> }) =
-        DisplayPartProvider(prepareTemplate = { _, _, _, _ -> PartExtensionFrame.EMPTY }, validateTemplates = validate)
+        DisplayPartProvider(openTemplate = { _, _, _, _ -> null }, validateTemplates = validate)
     private fun part(version: Int = 1) = PartExtensionPart("cabin-lcd", version, config)
 
     @Test fun `provider validates metadata without requiring templates or SimpleDisplays service`() {
@@ -74,9 +76,12 @@ class DisplayPartProviderTest {
             "main.xml" to "pinned source", "unused.xml" to "other source",
         ))
         val context = PartExtensionRenderContext("car-source-package", "pinned-hash", part(), resources)
-        val expected = PartExtensionFrame(listOf(PartExtensionText(Component.text("prepared"))))
+        val expected = object : PartExtensionRenderSession {
+            override fun draw(input: PartExtensionRenderInput) = PartExtensionFrame(listOf(PartExtensionText(Component.text("prepared"))))
+            override fun close() {}
+        }
         var calls = 0
-        val provider = DisplayPartProvider(prepareTemplate = { actual, installation, id, source ->
+        val provider = DisplayPartProvider(openTemplate = { actual, installation, id, source ->
             calls++
             assertSame(context, actual)
             assertEquals(DisplayPartConfig("cabin", true, 0.8, 0.45), installation)
@@ -84,30 +89,30 @@ class DisplayPartProviderTest {
             assertEquals(DisplayTemplateSource("main.xml", "pinned source"), source)
             expected
         })
-        assertSame(expected, provider.prepare(context))
+        assertSame(expected, provider.open(context))
         assertEquals(1, calls)
     }
 
     @Test fun `runtime without captured resources category default or optional bridge is inactive`() {
         var calls = 0
-        val provider = DisplayPartProvider(prepareTemplate = { _, _, _, _ -> calls++; error("Must not prepare without a category default") })
-        assertTrue(provider.prepare(PartExtensionRenderContext("fleet", "hash", part(), null)).texts.isEmpty())
-        assertTrue(provider.prepare(PartExtensionRenderContext("fleet", "hash", part(), PartExtensionResources())).texts.isEmpty())
+        val provider = DisplayPartProvider(openTemplate = { _, _, _, _ -> calls++; error("Must not prepare without a category default") })
+        assertNull(provider.open(PartExtensionRenderContext("fleet", "hash", part(), null)))
+        assertNull(provider.open(PartExtensionRenderContext("fleet", "hash", part(), PartExtensionResources())))
         val withoutDefault = PartExtensionResources(files = mapOf("displays.yml" to "config-version: 1\ntemplates: {main: {file: main.xml}}", "main.xml" to "source"))
-        assertTrue(provider.prepare(PartExtensionRenderContext("fleet", "hash", part(), withoutDefault)).texts.isEmpty())
+        assertNull(provider.open(PartExtensionRenderContext("fleet", "hash", part(), withoutDefault)))
         assertEquals(0, calls)
         val withDefault = PartExtensionResources(files = withoutDefault.files + ("displays.yml" to "config-version: 1\ntemplates: {main: {file: main.xml}}\ndefaults: {cabin: main}"))
-        assertTrue(metadataProvider().prepare(PartExtensionRenderContext("fleet", "hash", part(), withDefault)).texts.isEmpty())
+        assertNull(metadataProvider().open(PartExtensionRenderContext("fleet", "hash", part(), withDefault)))
     }
 
     @Test fun `runtime validates payload versions before preparation and propagates worker failures`() {
         val provider = metadataProvider()
-        assertThrows<IllegalArgumentException> { provider.prepare(PartExtensionRenderContext("fleet", "hash", part(2), null)) }
-        assertThrows<IllegalArgumentException> { provider.prepare(PartExtensionRenderContext("fleet", "hash", part(), PartExtensionResources(schemaVersion = 2))) }
+        assertThrows<IllegalArgumentException> { provider.open(PartExtensionRenderContext("fleet", "hash", part(2), null)) }
+        assertThrows<IllegalArgumentException> { provider.open(PartExtensionRenderContext("fleet", "hash", part(), PartExtensionResources(schemaVersion = 2))) }
         val captured = PartExtensionResources(files = mapOf("displays.yml" to "config-version: 1\ntemplates: {main: {file: main.xml}}\ndefaults: {cabin: main}", "main.xml" to "source"))
         val failure = IllegalArgumentException("draw failed")
-        val failing = DisplayPartProvider(prepareTemplate = { _, _, _, _ -> throw failure })
-        assertSame(failure, assertThrows<IllegalArgumentException> { failing.prepare(PartExtensionRenderContext("fleet", "hash", part(), captured)) })
+        val failing = DisplayPartProvider(openTemplate = { _, _, _, _ -> throw failure })
+        assertSame(failure, assertThrows<IllegalArgumentException> { failing.open(PartExtensionRenderContext("fleet", "hash", part(), captured)) })
     }
 
     @Test fun `provider delegates field validation and captured local-reference validation`() {

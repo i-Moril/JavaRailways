@@ -1,5 +1,7 @@
 # Train-mounted displays through Decorations
 
+> Current: [dynamic frames/basic train input](research/dynamic-train-input-contract.md), after static mount commit a4604a43. Bukkit PlaceholderAPI excluded from this task.
+
 > Scope decision (2026-11-10): Bukkit PlaceholderAPI adaptation is excluded from this task. Train data goes directly through the library API; a PAPI bridge may be a separate future task. User approved committing the static mount slice and continuing to the next slice.
 
 > Current authorized slice: [static extension mounting](research/static-extension-mount-contract.md), after text backends3aaa3af3. Worker-prepared generic text values, exact car source resources, real Decorations XML first frame, inherited model/audience/cleanup; dynamic data/refresh/distance later.
@@ -28,18 +30,20 @@ The approved current foundation slice is [the Decorations contract](research/dec
 
 Validation: [foundation record](research/decorations-foundation-validation.md). Complete host suite retains one previously recorded expression failure; do not claim whole-suite green. No commit yet.
 
-## Remaining display integration
+## Milestones and remaining integration
 
-- Compile captured XML/document-JS templates through the independent SimpleDisplays API; preserve viewer-specific content and isolated script state.
-- Define generic train-part runtime mounting and cleanup APIs, then implement Decorations rendering through native Bukkit and EntityLib backends, with Folia ownership.
-- Reuse parts-tree names, transforms, inline definitions and imports. Display config requires category, interior, physical width and height. No parallel screen list or separate point identity.
-- Preserve confirmed visibility policy: exterior screens follow car-body visibility; interior screens initially use configurable per-player distance, including a player command. Occupancy, facing, frustum and occlusion are outside the first policy.
-- Resolve package/category/point defaults and train category overrides. Initial precedence remains train override, package point default, package category default; current resource format only implements category defaults.
-- Supply train/run type, destination, current/next station and actual ordered future stops directly through the library API. Actual Bukkit PlaceholderAPI adaptation is optional subsequent work, not the transport between JavaRailways and SimpleDisplays.
-- Fit logical template coordinates (128 units per block/metre) to the physical installation dimensions.
-- Verify movement, curves, slopes, reversing, audience changes, rebuild and unload through both rendering backends on real Paper/Folia. Static tests and plugin health do not prove client rendering.
-- Runtime style-switching command/per-car JS addressing and persistence remain TODO pending target and composition semantics.
-- Run deferred `11-09-model-config-schema-consistency` after other display work and before final acceptance.
+Completed: independent SimpleDisplays XML/document-JS410af2e; generic extension definitions/resources and Decorations95935639; compile validation/cache84b804fc; native/packet text3aaa3af3; static train-part mounta4604a43. Current uncommitted slice adds owned render sessions,10-tick dynamic refresh and basic same-frame train/car values; see [contract](research/dynamic-train-input-contract.md).
+
+Remaining after this slice:
+
+- Project actual operational unit metadata, destination/run-type author values, current/next station and ordered stop occurrences through direct library inputs. Reuse TimetableUnitDisplaySnapshot, preserve unresolved branches and real fixed-unit membership; do not guess from line station order.
+- Implement per-viewer mounted output on both backends. The independent library already accepts viewer input; shared native entity metadata alone does not satisfy differing viewer content.
+- Preserve confirmed visibility policy: exterior screens follow car-body audience; interior screens use configurable per-player distance with config and player command. Occupancy/facing/frustum/occlusion remain outside initial policy.
+- Extend category defaults with point defaults/train overrides as reviewed later. Runtime style switching addressing/commands/persistence remain deferred until target/composition semantics are agreed.
+- Run deferred11-09-model-config-schema-consistency after functional work and before acceptance.
+- Final live train movement/curve/slope/reversing/audience/rebuild/unload verification on real Paper/Folia and game clients. Server-side probes and static tests do not prove client rendering.
+
+Bukkit PlaceholderAPI adaptation is explicitly excluded from this task by user decision2026-11-10. It is not the train-data transport.
 
 ## Workspace and provenance
 

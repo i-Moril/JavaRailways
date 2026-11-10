@@ -1,5 +1,7 @@
 # Design
 
+> Current: [dynamic frames/basic train input](research/dynamic-train-input-contract.md), after static mount commit a4604a43. Bukkit PlaceholderAPI excluded from this task.
+
 > Current: [static extension mount contract](research/static-extension-mount-contract.md) supersedes prior no-runtime notes for this new authorized slice.
 
 > Current continuation: [text backend contract](research/text-backends-contract.md). No extension runtime mounting in this slice.

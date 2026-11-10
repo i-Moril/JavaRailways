@@ -20,6 +20,45 @@ import work.art1st.javarailways.core.physics.train.setControllerForTest
 import java.util.concurrent.TimeUnit
 
 class PendingTrainFramesTest {
+    @Test
+    fun `stationary heartbeat only refreshes active extension cars without duplicating ordinary frames`() {
+        PhysicsCoordinator(1, automaticFallback = false).use { coordinator ->
+            TestWorldFixture.create(coordinator).use { fixture ->
+                val world = fixture.world
+                val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+                val train = createTrainWithConfig("clock", rail, world, listOf(10.0, 10.0))
+                val calls = mutableListOf<List<Int>>()
+                world.onOwnerForTest {
+                    consumeTrainRenderFrames(world, true, { it === train.cars.last() }) { _, frame, indices ->
+                        assertSame(train.publishedFrame, frame)
+                        calls += indices
+                    }
+                }
+                assertEquals(listOf(listOf(0, 1)), calls, "normal queued car frames take priority over clock refresh")
+                calls.clear()
+                coordinator.start()
+                repeat(3) { coordinator.stepSimulation(50.0).await() }
+                world.drainPublishedTrainFrames() // Discard any initial alignment notification.
+                coordinator.stepSimulation(50.0).await()
+                assertTrue(world.drainPublishedTrainFrames().isEmpty(), "stationary mailbox suppression remains unchanged")
+                world.onOwnerForTest {
+                    consumeTrainRenderFrames(world, false, { true }) { _, _, indices -> calls += indices }
+                    assertTrue(calls.isEmpty(), "no heartbeat outside the chosen time bucket")
+                    consumeTrainRenderFrames(world, true, { it === train.cars.last() }) { _, frame, indices ->
+                        assertSame(train.publishedFrame, frame)
+                        calls += indices
+                    }
+                }
+                assertEquals(listOf(listOf(1)), calls)
+                calls.clear()
+                world.onOwnerForTest {
+                    consumeTrainRenderFrames(world, true, { false }) { _, _, indices -> calls += indices }
+                }
+                assertTrue(calls.isEmpty(), "retired or ordinary models need no region heartbeat")
+            }
+        }
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = [false, true])
     fun `initial refresh survives stationary epochs for created and restored trains`(restore: Boolean) {

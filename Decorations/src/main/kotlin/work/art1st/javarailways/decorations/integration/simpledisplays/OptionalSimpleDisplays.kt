@@ -10,7 +10,7 @@ import work.art1st.javarailways.decorations.display.DisplayResources
 import work.art1st.javarailways.decorations.display.DisplayPartConfig
 import work.art1st.javarailways.decorations.display.DisplayTemplateSource
 import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderContext
-import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionFrame
+import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderSession
 import java.lang.reflect.InvocationTargetException
 import java.util.logging.Level
 
@@ -59,9 +59,9 @@ internal class OptionalSimpleDisplays(private val host: Plugin) : Listener, Auto
     }
 
     /** Called by the host preparation worker; descriptors contain no optional library classes. */
-    fun prepareTemplate(context: PartExtensionRenderContext, config: DisplayPartConfig, templateId: String,
-        template: DisplayTemplateSource): PartExtensionFrame =
-        connection?.prepareTemplate(context, config, templateId, template) ?: PartExtensionFrame(emptyList())
+    fun openTemplate(context: PartExtensionRenderContext, config: DisplayPartConfig, templateId: String,
+        template: DisplayTemplateSource): PartExtensionRenderSession? =
+        connection?.openTemplate(context, config, templateId, template)
 
     @EventHandler
     fun onPluginDisable(event: PluginDisableEvent) {
@@ -100,6 +100,6 @@ internal interface SimpleDisplaysConnection : AutoCloseable {
     val serviceType: Class<*>
     val provider: Any?
     fun validateTemplates(packageName: String, resources: DisplayResources)
-    fun prepareTemplate(context: PartExtensionRenderContext, config: DisplayPartConfig, templateId: String,
-        template: DisplayTemplateSource): PartExtensionFrame
+    fun openTemplate(context: PartExtensionRenderContext, config: DisplayPartConfig, templateId: String,
+        template: DisplayTemplateSource): PartExtensionRenderSession?
 }

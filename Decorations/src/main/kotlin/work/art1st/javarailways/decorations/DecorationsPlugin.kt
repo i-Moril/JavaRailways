@@ -20,7 +20,7 @@ class DecorationsPlugin : JavaPlugin() {
         try {
             // Existing published packages are validated during register, so discover the compiler first.
             optional.start()
-            registration = service.register(this, DisplayPartProvider(prepareTemplate = optional::prepareTemplate, validateTemplates = optional::validateTemplates))
+            registration = service.register(this, DisplayPartProvider(openTemplate = optional::openTemplate, validateTemplates = optional::validateTemplates))
             registration!!.existingPackageFailures.forEach { (name, reason) ->
                 logger.warning("Existing package '$name' has invalid ${DisplayPartProvider.TYPE_ID} definitions: $reason")
             }

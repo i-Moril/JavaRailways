@@ -307,3 +307,7 @@ SimpleDisplays新增rect/DOM rect、TextDraw独立scaleX/Y，SDL负责原点补�
 源码与测试源码编译通过：SDL /tmp/simpledisplays-native-rect-compile.log，Decorations /tmp/jr-native-rect-compile.log（13s）。新API隔离发布于/tmp/javarailways-simpledisplays-native-rect-maven，旧410af2e产物不再满足rect的scale ABI。已准备SDL墨迹边界/DOM错误与host物理边界回归源码，仍未运行测试套件。独立静态复查和源/归档一致性通过，六类矩形PNG清除；真实客户端效果仍待验收。本批两个仓库均未提交，线上仍为此前a7dbe621+410af2e，未自动再次部署。
 
 补充定向诊断（非统一测试套件）：使用实际新SDL XmlDisplayService和Graal引擎绘制三份真实XML的中文/英文页面，日志/tmp/jr-native-rect-draw-probe.log。前显/侧显各4draws/2rect，内显中文90draws、英文146draws、各19rect；所有rect按官方原生墨迹边界重建后在canvas内，内显恰有一个覆盖(336,0)至(800,200)的右侧白底。SDL矩形显式禁用全部五种文字修饰，最终编译/publish通过（20s），无JUnit执行。原版资源/字节码测量与真实SDL输出诊断不能代替客户端GPU实际画面验收。
+
+## 原版矩形修正已提交部署（2026-11-10，用户明确授权）
+
+SDL fe2898d、Decorations/模板 c1508bc9，9项更新配套部署至测试服。保留含主JAR在内的8个既有插件哈希、线上车辆定义及其12份归档内容；正常保存/重启、恢复备份逐项校验。Folia启用、新API模板编译、资源重载、Bridge/WebUI本机健康正常。详细恢复点与验收边界见[本轮部署记录](research/native-rectangle-deployment-20261110.md)。线上已更新至新的原版矩形实现；上文“未提交/未部署”是历史阶段。英文整段旋转、8:3侧显挂载、统一测试和实际客户端画面验收仍未完成。未推送Git。

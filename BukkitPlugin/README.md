@@ -32,6 +32,6 @@ reloadDependentsMode: REQUIRED_ONLY
 
 不要用只针对主插件的 `disable` → `enable` 或手工 `unload` → `load` 代替上述操作：PlugManX 的 Paper backend 会替换主插件类加载器，而仍加载的附属插件持有旧 API Class，重新查询服务无法修复。必须分步操作时，先卸载附属插件，再卸载/加载主插件，最后加载附属插件。
 
-独立 PacketEvents 保持运行，不随 JavaRailways 一起重载。本轮没有修改实际服务器或 PlugManX 的配置，也没有引入自动重载其他插件的集成。Cloud 保留现状；跨实例的关闭失败保护仍是后续工作，关闭报告失败时不能据此约定认为可以安全继续重载。
+独立 PacketEvents 保持运行，不随 JavaRailways 一起重载。本轮没有修改实际服务器或 PlugManX 的配置，也没有引入自动重载其他插件的集成。Cloud 保留现状；暂不增加跨实例的关闭失败拦截。发现清理失败时，控制台会以 SEVERE 汇总失败组件，警告 PlugManX 仍可能继续加载新实例；应停止继续热重载，检查详细错误及 PID、保留快照/备份，确认遗留 WebUI 子进程退出后重启服务器。
 
 依据：[PlugManX 配置](https://github.com/Test-Account666/PlugManX/blob/v3.2.1/plugman-core/src/main/resources/config.yml)、[依赖级联实现](https://github.com/Test-Account666/PlugManX/blob/v3.2.1/plugman-core/src/main/java/core/com/rylinaux/plugman/commands/executables/CascadingPluginCommand.java)。

@@ -70,6 +70,7 @@ BukkitPlugin、WorldManager、dispatcher、模型/工具和 add-on 在同实例�
 - services/HTTP/dispatcher producer 停止失败：跳过最终 snapshot，保留已有恢复材料。
 - native cleanup 失败/超时：汇总错误；超时 batch 的晚到任务禁止再执行。不完整关闭后同实例再次 enable 必须失败并要求重启服务器，防止仍运行的旧回调进入新 runtime。
 - 旧服务引用/回调：拒绝新操作，不能解析下一轮 WorldManager。
+- 关闭失败诊断：逐组件异常保留，finishShutdown 的 SEVERE 汇总列出失败组件，并明确 PlugManX 可能继续卸载/加载、停止后续热重载、检查 PID/详细错误和恢复材料后重启。成功关闭不输出此警告；用户暂缓跨实例运行标记，日志不能被描述成已经阻止新实例启动。
 - Folia server stopping：仅 `platformCapabilities.folia && server.isStopping` 时使用 `PlatformCleanup.runAndAwait(skipOwnerTasks = true)`；停止提交 region/entity 动作，保留本地 teardown 与最终快照 writer，见下节。
 
 ### 5. 正常、基本和失败场景

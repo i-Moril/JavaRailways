@@ -75,3 +75,10 @@ JAR 实查：`BukkitPlugin/build/libs/JavaRailways-1.0-SNAPSHOT-all.jar` 的 plu
 另外执行 BukkitPluginDev:compileKotlin 核对新 DialogRenderer 调用，仍仅因基线 ConfigApiTest:274 缺 NUMBER_TEXT 分支失败；没有 renderer 构造签名或 import 错误。没有混修此前错误，不能宣称全仓构建通过。
 
 第1项已作为部署操作约定和硬依赖核对完成，未修改实际服务器的 PlugManX 配置。Cloud 和跨实例关闭失败标记保持原样。无实服、真实子进程、客户端或存档验收；未提交、推送、部署。`git diff --check` 通过。
+
+
+## 2026-11-10：关闭失败警告
+
+基线af656dea。仅更改 BukkitPlugin.finishShutdown 已有失败汇总的文案；逐项异常仍记录，成功路径不输出此警告，不增加调度/广播/磁盘标记/跨实例保护。独立 trellis-check 审查通过。
+
+`./gradlew :BukkitPlugin:test :BukkitPlugin:shadowJar --offline --console=plain --no-parallel --max-workers=2` BUILD SUCCESSFUL，261 tests、0 failure/error/skip。文案改动不新增镜像实现测试。git diff --check通过；无实服、提交、推送、部署。

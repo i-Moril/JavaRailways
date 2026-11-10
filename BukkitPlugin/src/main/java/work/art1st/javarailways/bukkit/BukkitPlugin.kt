@@ -380,7 +380,10 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         if (shutdownFailures.isNotEmpty()) {
             logger.severe(
                 "JavaRailways shutdown was incomplete: ${shutdownFailures.joinToString()}. " +
-                    "Preserve worlds/ snapshots and .bak files before recovery; hot reload is not verified safe."
+                    "PlugManX may still unload the plugin and load a new instance despite these cleanup failures. " +
+                    "Do not continue hot reloading. Inspect the detailed errors and any process PID above, " +
+                    "preserve worlds/ snapshots and .bak files, confirm any leftover WebUI process has exited, " +
+                    "then restart the server."
             )
         }
     }

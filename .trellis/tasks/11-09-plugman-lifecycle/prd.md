@@ -61,3 +61,8 @@ Folia 禁用阶段 owner cleanup、Cloud 命令恢复、PacketEvents 在线玩�
 预期文件：BukkitPlugin/README.md（第1项）；DialogRenderer、TrainControlDialog、RailWand/RailObjectWand构造点以及Dev ConfigApiTest构造点（第3项，仅更新调用，NUMBER_TEXT既有编译错误不混修）；TimetableWebUiSidecar与BukkitPlugin停止步骤（第5项）；有必要的生命周期/进程失败测试。保持public业务模型、磁盘schema、Cloud和外部PacketEvents生命周期不变。
 
 验证：生产回调在本轮可执行；关闭后旧回调和排队回调拒绝；新一轮可执行且旧回调不会读取新dispatcher。子进程正常退出、强制后退出、二次超时、已退出、重复停止、interrupt失败均验证退出判断与引用保留。运行Bukkit测试/打包和TBB下游检查；Dev已知错误单独记录，不据此声称全仓构建通过。实服PlugManX矩阵仍未执行。
+
+
+## 2026-11-10：第4项暂缓，仅明确关闭失败警告
+
+用户认为跨实例运行标记暂时不必要，要求发现关闭失败时发送警告。本轮仅增强现有控制台 SEVERE 汇总：列出失败组件，说明 PlugManX 可能继续卸载/加载，提示停止继续热重载、查看详细错误/PID、保留快照及备份、确认遗留 WebUI 子进程退出后重启。保留原来逐项异常日志；成功关闭不打印此警告。不增加磁盘标记、跨实例拦截、在线玩家广播或新的调度行为。本轮不自动提交/推送/部署。

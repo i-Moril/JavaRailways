@@ -81,3 +81,9 @@
 - [x] 独立审查后补齐通用 Process 异常 PID 上下文及断言；Bukkit261测试与TBB34测试均通过，两个 shadowJar 打包通过。
 - [ ] Cloud 本轮明确不改；跨类加载器失败标记（第4项）明确暂缓。
 - [ ] 实际 Paper/Folia + PlugManX、客户端旧 Dialog 点击和真实子进程退出验收未执行。
+
+
+## 2026-11-10：暂缓第4项，保留明确警告
+
+- [x] 不增加跨实例运行标记；只强化现有非空 shutdownFailures 的 SEVERE 汇总，列出失败组件及 PlugManX 仍可能继续加载的风险和后续处理。逐项异常、关闭流程、成功路径、同实例失败保护均保持原样。
+- [x] 独立审查无发现；Bukkit261项测试及shadowJar通过，git diff --check通过。未提交或部署。

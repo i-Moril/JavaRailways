@@ -34,3 +34,8 @@ Exterior preview checks: actual elapsed-time check confirmed Chinese remains bef
 ## Exterior alignment, absent class and readability refinement
 
 User requested destination centered in its right-hand area. If no service class is configured, omit the badge and its reserved column entirely, center destination over the whole screen. Enlarge typography: preview short destination targets66px at desktop; class56px (English30px). Long destinations use available area with wrapping and bounded fit, rather than forcing all labels to the smaller long-name size. Physical screen bounds remain fixed across languages and absent/present class.15-second language rotation unchanged. Preview now includes an explicit unset-class option. Exact Minecraft legibility still needs client acceptance; CSS font sizes do not establish game readability.
+
+
+## S100 classification and resource packaging (user corrected, 2026-11-10)
+
+The real body-joint exterior screens are the existing 8:3 side_display faces. Together with the 8.5:1 front screens they use the exterior service-class badge + destination family and bundle templates with S100. The previously reported 2:1 faces are halves of the interior screen housing, not a separate screen type; that candidate XML has been removed. Door-area LCDs remain 4:1 and reference the independent cabin-route.route style. The shared15-second bilingual rotation remains unchanged. See [mount inventory](s100-screen-mount-inventory.md) for corrected counts and geometry.

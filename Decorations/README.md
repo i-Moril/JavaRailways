@@ -22,7 +22,7 @@ type: decorations:display
 schema-version: 1
 config:
   category: cabin_side_lcd
-  # Optional template ID from this car package; otherwise use the category default.
+  # Optional template ID from this car package or an enabled external style bundle.
   # template: destination
   interior: true
   # Optional fixed car/model HEAD side; omit when this screen has no side association.
@@ -32,7 +32,7 @@ config:
 parts: []
 ```
 
-A part’s optional `config.template` takes precedence over its category default. Explicit template references must exist in the owning car’s captured resources, including for imported part geometry; an unknown explicit reference is rejected. Selection order is runtime fixed-unit/category override, part template, then package category default. Without any selection the group has no generated screen content.
+A part’s optional `config.template` takes precedence over its category default. Explicit template references must exist in the owning car’s captured resources or the enabled external style catalog, including for imported part geometry; an unknown explicit reference is rejected. Selection order is runtime fixed-unit/category override, part template, then package category default. Without any selection the group has no generated screen content.
 
 Optional `decorations/displays.yml`:
 
@@ -48,6 +48,28 @@ defaults:
 File paths are relative to the captured extension directory, with forward slashes and no absolute/drive/dot/parent segments. Host capture enforces UTF-8 and safe real paths; Decorations validates YAML and local references. XML, including embedded document scripts, is stored as source. When SimpleDisplays is available, all declared templates are compiled during provider validation; malformed XML/layout or script syntax fails reload preparation with package/template/file context. Compilation parses JS without running it. Without SimpleDisplays, metadata and captured source continue to load normally. Template dimensions belong in XML; physical dimensions belong to the part.
 
 Schemas: `schemas/display-part-v1.schema.json` adds display-specific validation to the host common part schema; nested tree validation is enforced by the registered provider. `schemas/displays-v1.schema.json` describes the resources file. Config payload and resources each default to schema-version 1; no legacy built-in screen reader is provided.
+
+## Independent display styles
+
+Install an independent style directory below `plugins/Decorations/styles/`, for example:
+
+```text
+styles/cabin-route/displays.yml
+styles/cabin-route/displays/route.xml
+```
+
+The file uses the same `displays.yml` schema, with a bundle-qualified template ID:
+
+```yaml
+config-version: 1
+templates:
+  cabin-route.route:
+    file: displays/route.xml
+```
+
+Bundle directory names use lowercase letters, numbers, underscores and hyphens; every template ID must start with the directory name and a dot. External bundles cannot supply category defaults. A car chooses this template with `config.template: cabin-route.route` or the existing fixed-unit/category style override. Local category defaults continue to select local templates. A duplicate ID between a car catalog and an external bundle is an error, with no implicit precedence.
+
+Decorations captures all external XML sources once during enable and validates their syntax when SimpleDisplays is available. Each car's exact captured catalog is merged with that immutable enable-time catalog for validation, mounting and runtime style selection. Editing files requires restarting Decorations; drawing never reads the filesystem. A missing styles directory is allowed; an installed malformed bundle or missing explicitly referenced template produces a diagnostic rather than falling back. Ordinary files must be UTF-8, without symbolic links; source limits are 256 files, 4 MiB per file and 16 MiB total, with at most 16 directory levels and 1024 entries per bundle. Extra documentation files are ignored. This style installation does not change train package or payload schema versions.
 
 ## Build and dependencies
 

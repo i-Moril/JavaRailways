@@ -113,13 +113,18 @@ internal class SimpleDisplaysBinding(host: Plugin, owner: Plugin) : SimpleDispla
                 val data = withDisplayInstallation(input.data, config).entries.associate { it.key to jsonValue(it.value, 0) }
                 val draws = compiled.draw(DisplayContext(data = data, elapsedTicks = input.elapsedTicks))
                 require(draws.size <= 1024) { "Display frame exceeds 1024 text nodes" }
-                PartExtensionFrame(draws.map { draw ->
+                PartExtensionFrame(draws.mapIndexed { index, draw ->
                     require(draw.x.isFinite() && draw.y.isFinite() && draw.size.isFinite() && draw.size > 0) { "Invalid logical text geometry" }
                     val x = (draw.x - compiled.width / 2) * unit
                     val y = (compiled.height / 2 - draw.y - draw.size) * unit
                     val scale = draw.size * unit * 40.0 / 9.0
                     require(x.isFinite() && y.isFinite() && scale.isFinite() && scale > 0) { "Invalid derived physical text geometry" }
-                    PartExtensionText(draw.text, ModelPose(x, y, 0.0, 0.0, 0.0, 0.0, 1.0), ModelScale(scale, scale, scale))
+                    // Preserve XML painter order on separate text entities: later ink sits
+                    // slightly toward the viewer, avoiding coplanar glyph backgrounds.
+                    // Bound the whole stack to 0.01 of the smaller physical dimension.
+                    // Use the actual frame count so short frames retain useful depth spacing.
+                    val z = index.toDouble() / maxOf(1, draws.size - 1) * minOf(config.width, config.height) * 0.01
+                    PartExtensionText(draw.text, ModelPose(x, y, z, 0.0, 0.0, 0.0, 1.0), ModelScale(scale, scale, scale))
                 })
             } catch (failure: Throwable) {
                 primary = failure

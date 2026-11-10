@@ -1,0 +1,8 @@
+config-version: 1
+templates:
+  s100_front_destination:
+    file: displays/front-destination.xml
+  s100_side_destination:
+    file: displays/side-destination.xml
+defaults:
+  exterior_front: s100_front_destination

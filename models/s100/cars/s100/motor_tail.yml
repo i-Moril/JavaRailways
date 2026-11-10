@@ -124,7 +124,7 @@ body-parts:
     rotation: {y: 180}
 
   # Displays
-  - import: door_display
+  - import: door_display_reversed
     offset: {x: 0, y: 1.25, z: 6.0}
     rotation: {y: 180}
   - import: door_display

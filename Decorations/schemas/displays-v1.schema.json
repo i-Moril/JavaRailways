@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "displays-v1.schema.json",
-  "title": "JavaRailways train-package display templates v1",
-  "description": "Package-local XML template declarations and category defaults. Filesystem containment/existence and local reference resolution are validated by the loader.",
+  "title": "JavaRailways display templates v1",
+  "description": "XML template declarations for captured train-package resources or independent Decorations style bundles. External bundle IDs require the directory-name prefix followed by a dot, and external bundles cannot declare category defaults. Filesystem containment/existence and reference resolution are validated by the loader.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -50,7 +50,7 @@
           "type": "string",
           "minLength": 1,
           "pattern": "^(?!/)(?![A-Za-z]:)(?![\\s\\S]*(?:^|/)\\.{1,2}(?:/|$))(?![\\s\\S]*//)[^\\u0000\\\\]+\\.xml$(?![\\s\\S])",
-          "description": "Package-relative POSIX XML path with no empty, dot or parent segments. Loader also enforces real-path containment and readable file existence."
+          "description": "Resource-directory-relative POSIX XML path with no empty, dot or parent segments. Loader also enforces safe containment and readable file existence."
         }
       }
     }

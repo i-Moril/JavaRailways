@@ -8,3 +8,7 @@ composition:
   - trailer
   - motor_tail
   - head_tail
+extensions:
+  decorations:display:
+    schema-version: 1
+    directory: decorations

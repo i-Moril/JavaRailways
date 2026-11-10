@@ -275,3 +275,21 @@ Replacement committed as SimpleDisplays `410af2e`, directly parented by `21f7686
 用户确认复用实际开门的折返与逐车安装方向语义，按[本批合同](research/door-side-display-contract.md)实现。原始开门侧由SimpleATO拥有，逐车操纵端换算由宿主复用已有helper，Decorations只比较固定安装侧。继续仅编译/静态检查，测试及服务器验收后置。
 
 本侧/对侧开门数据接入已完成：SimpleATO有效站停门侧、host逐车操纵端、Decorations固定安装侧比较；源码/测试源码编译与独立静态复查通过。详见[证据](research/door-side-display-validation.md)。未执行测试、未提交或部署；实际模板和客户端验收随后。
+
+
+## 实际S100模板资源（2026-11-10）
+
+- 已提交此前集成批次：cad8d2cd。
+- 新增真实XML/document-JS：车包内部前显8.5:1、候选2:1、现有侧显候选8:3；独立4:1门区 `cabin-route.route`。固定300tick语言切换，使用真实运营metadata/有序站序/安装侧输入。
+- Decorations启用时捕获独立样式包，合并本地catalog，严格拒绝重复和坏引用；绘制顺序有界深度偏移；补回归源码，仅编译不运行。
+- 已挂载车头2面与门区30面；body_head/door_display静态LCD内容改为黑色实体背板，保留原树与镜像变换。
+- 发现此前位置解释错误：2:1内嵌面实际朝车内，外侧被壳遮挡；已请求确认车体拼接处是否应使用已有8:3 side_display。答复前不新增外部2:1几何，也不擅自激活侧显。详见research/s100-screen-mount-inventory.md。
+- `scripts/display-assets/package.py` 生成s100.zip、cabin-route-style.zip和resourcepack-s100-displays-1.21.11-26.2.zip；资源包保留既有透明度/版本overlay，仅补显示素材。
+- 当前批次未提交、未部署、未运行测试或SDL画面；编译和静态检查记录后续更新。统一测试与Paper/Folia/client验收仍后置。
+
+本批检查记录：`/tmp/jr-display-resources-compile.log`（BUILD SUCCESSFUL，生产/测试源码编译），`/tmp/jr-display-resources-schema.json`（schema转换dry-run零变更）。XML/JS词汇和语法静态检查通过；车包/独立样式ZIP逐文件等同源码，客户端包保留原pack.mcmeta与overlay，新增10个显示素材、仅修改3个既有显示模型。独立静态复查通过，未运行测试或SDL脚本画面，未部署。车体位置问题仍待用户答复。
+
+
+## 移除误识别的2:1模板（用户确认）
+
+2:1模型面是门区4:1屏幕外壳的一半，不是额外屏幕。已删除body-destination.xml及其catalog/default引用，修正清单与模板合同，重建车包与样式/客户端归档。车头种别徽章仍使用E002矩形图元，因此保留该通用图元。已有8:3侧显模板保留，挂载仍待下一步；不新增任何屏幕几何。本项覆盖上文等待2:1位置确认的历史状态。未提交或部署，统一测试继续后置。

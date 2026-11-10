@@ -55,3 +55,12 @@ DisplayStyleService 经 Bukkit ServicesManager 公开 immutable 查询及 set/re
 DisplayPartConfig 可选 `door-side: left|right`，严格小写；省略表示未声明。基准固定为安装车辆/model 的 HEAD 左右，不随反向修改；payload schema-version 仍为 1。Decorations 在 typed SimpleDisplays draw 边界向 detached 数据添加 `ctx.data.display`，不修改输入、宿主公共结构或服务生命周期。字段为 `{doorSide: left|right|null, openingSide: this|opposite|both|none|null}`。
 
 仅从 `operational.doorSide` 的 LEFT/RIGHT/BOTH/NONE/null 和 `car.operatingEnd` 的 head/tail/null 推导：LEFT/RIGHT 在 tail 时先交换为固定车体侧，再比较安装侧；缺少已知 end 或安装侧返回 null。BOTH 始终 both，NONE 始终 none，不要求安装侧或 end。未知值返回 null；不从 transform、车号、metadata 或未来停车站猜测。事实仅表示有效开门侧，不能证明门动画已打开。回归覆盖原始输入不变、反向前后同侧、相反安装侧、both/none/unknown 和真实 typed DisplayContext 交付；本批只准备测试源码，按用户要求暂不执行测试。
+
+
+## 独立样式包与图元资源（已实现源码，统一验收待执行）
+
+启用时从 `plugins/Decorations/styles/<bundle>/displays.yml` 与引用XML捕获不可变样式。复用DisplayResourceParser，目录包名限定小写字母数字/连字符/下划线，模板ID必须以 `<bundle>.` 开头，独立包不能声明类别默认；符号链接、非法UTF-8、非普通文件、过量条目/字节和坏引用拒绝。没有目录等于空catalog，不添加版本或开发旧格式reader。编辑文件后需重启Decorations，draw不读磁盘。
+
+Provider在validate/open把该启用期catalog与owning-car captured资源合并，重复ID拒绝；config.template和runtime override均可显式选择外置ID，原包default仍由包本地定义。缺少SimpleDisplays仍保留资源与树；坏显式引用不能回退。S100门区显式引用 `cabin-route.route`，前显由车包内部XML提供。
+
+图形通过资源包 `javarailways:display_geometry` 字体的白色bitmap glyph和span color完成，不使用未支持的XML/CSS图形。适配层按XML输出顺序增加朝向屏幕正面的z，整个帧总厚度不超过屏幕较小尺寸的1%，以实际draw数均分，保持背景/文字的painter顺序；这是绘制适配，不改变宿主通用帧协议。客户端字体加载、深度精度、字形可读性和物理方向仍需真实验收。构建脚本 `scripts/display-assets/package.py` 生成车包、独立样式包和保留既有客户端overlay的完整资源包，不部署服务器。

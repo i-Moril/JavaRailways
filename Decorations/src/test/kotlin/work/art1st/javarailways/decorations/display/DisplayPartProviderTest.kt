@@ -26,6 +26,32 @@ class DisplayPartProviderTest {
         DisplayPartProvider(openTemplate = { _, _, _, _ -> null }, validateTemplates = validate)
     private fun part(version: Int = 1) = PartExtensionPart("cabin-lcd", version, config)
 
+    @Test fun `external styles resolve for a car without resources and share validation and open catalog`() {
+        val external = DisplayResources(mapOf("cabin-route.route" to DisplayTemplateSource("displays/route.xml", "external source")))
+        val installation = PartExtensionPart("door-lcd", 1, JsonObject(config + ("template" to JsonPrimitive("cabin-route.route"))))
+        var validated: DisplayResources? = null
+        var opened: DisplayTemplateSource? = null
+        val provider = DisplayPartProvider(
+            openTemplate = { _, _, id, source ->
+                assertEquals("cabin-route.route", id)
+                opened = source
+                null
+            },
+            validateTemplates = { _, resources -> validated = resources },
+            externalStyles = external,
+        )
+        provider.validate(PartExtensionPackage("car", listOf(installation), null))
+        assertNull(provider.open(PartExtensionRenderContext("car", "captured-hash", installation, null)))
+        assertEquals(external.templates.getValue("cabin-route.route"), opened)
+        assertEquals(validated!!.templates.getValue("cabin-route.route"), opened)
+        val collision = PartExtensionResources(files = mapOf(
+            "displays.yml" to "config-version: 1\ntemplates: {cabin-route.route: {file: local.xml}}",
+            "local.xml" to "local source",
+        ))
+        assertThrows<IllegalArgumentException> { provider.validate(PartExtensionPackage("car", listOf(installation), collision)) }
+        assertThrows<IllegalArgumentException> { provider.open(PartExtensionRenderContext("car", "hash", installation, collision)) }
+    }
+
     @Test fun `explicit installation template wins within exact captured resources and retains interior policy`() {
         val resources = PartExtensionResources(files = mapOf(
             "displays.yml" to "config-version: 1\ntemplates: {main: {file: main.xml}, point: {file: point.xml}}\ndefaults: {cabin: main}\n",

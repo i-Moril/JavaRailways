@@ -1,0 +1,62 @@
+<screen width="320" height="120">
+  <div id="content"/>
+  <script><![CDATA[
+
+    const FONT = "javarailways:display_geometry";
+    const G = { square:"\uE000", wide:"\uE001", body:"\uE002", cabin:"\uE003", ring:"\uE004", dot:"\uE005", rail:"\uE006", side:"\uE007" };
+    function object(v) { return v && typeof v === "object" && !Array.isArray(v) ? v : {}; }
+    function localized(v, lang, fallback) {
+        if (typeof v === "string") return v;
+        const m = object(v);
+        return typeof m[lang] === "string" ? m[lang] : typeof m.zh === "string" ? m.zh : typeof m.en === "string" ? m.en : (fallback || "");
+    }
+    function color(v, fallback) { return typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v) ? v : fallback; }
+    function span(parent, text, x, y, size, ink, font) {
+        if (!text) return;
+        const node = document.createElement("span");
+        if (font) node.setAttribute("font", font);
+        node.setAttribute("style", "left:" + x + ";top:" + y + ";font-size:" + size + ";color:" + ink);
+        node.textContent = String(text);
+        parent.appendChild(node);
+    }
+    function textUnits(text) {
+        return Array.from(text).reduce((n, c) => n + (c.codePointAt(0) > 255 ? 1 : 0.7), 0);
+    }
+    function label(parent, text, x, y, maxSize, width, ink) {
+        if (!text) return;
+        // Conservative default-font fit; no browser metrics or implicit clipping.
+        const size = Math.min(maxSize, width / Math.max(1, textUnits(text)));
+        span(parent, text, x, y + (maxSize - size) / 2, size, ink);
+    }
+    function data(ctx) {
+        const op = object(ctx.data.operational);
+        const run = object(op.currentRun);
+        const rm = object(run.metadata);
+        const line = object(object(ctx.data.lines)[run.lineId]);
+        const lm = object(line.metadata);
+        const lang = Math.floor(ctx.elapsedTicks / 300) % 2 === 0 ? "zh" : "en";
+        return {op:op, run:run, rm:rm, line:line, lm:lm, lang:lang,
+            theme:color(lm.themeColor, color(line.color, "#126EAA")),
+            destination:localized(object(op.values).destination, lang, ""),
+            service:localized(rm.class, lang, "")};
+    }
+
+    function render(ctx) {
+        const d = data(ctx);
+        const root = document.getElementById("content");
+        const w = ctx.width, h = ctx.height;
+        span(root, G.side, w / 2, 0, h, "#101820", FONT);
+        const badgeWidth = d.service ? Math.min(h, w * 0.28) : 0;
+        if (d.service) {
+            // A square badge is vertically centered; destination owns the remaining width.
+            span(root, G.square, badgeWidth / 2, (h - badgeWidth) / 2, badgeWidth,
+                color(d.rm.classColor, d.theme), FONT);
+            label(root, d.service, badgeWidth / 2, h * 0.30, h * 0.40,
+                badgeWidth - 8, "#FFFFFF");
+        }
+        const x = badgeWidth + (w - badgeWidth) / 2;
+        label(root, d.destination, x, h * 0.22, h * 0.56,
+            w - badgeWidth - 16, "#FFFFFF");
+    }
+  ]]></script>
+</screen>

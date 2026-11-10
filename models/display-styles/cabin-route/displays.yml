@@ -1,0 +1,4 @@
+config-version: 1
+templates:
+  cabin-route.route:
+    file: displays/cabin-route.xml

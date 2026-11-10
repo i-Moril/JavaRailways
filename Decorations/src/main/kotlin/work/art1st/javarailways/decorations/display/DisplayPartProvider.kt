@@ -12,6 +12,7 @@ class DisplayPartProvider(
     private val validateTemplates: (String, DisplayResources) -> Unit = { _, _ -> },
     private val interiorAudiencePolicy: PartExtensionAudiencePolicy = PartExtensionAudiencePolicy.UNRESTRICTED,
     private val runtimeStyles: RuntimeDisplayStyles? = null,
+    private val externalStyles: DisplayResources = DisplayResources(),
 ) : PartExtensionRenderer {
     override val typeId: String = TYPE_ID
 
@@ -21,10 +22,11 @@ class DisplayPartProvider(
             require(part.schemaVersion == 1) { "$subject unsupported schema-version ${part.schemaVersion}; expected 1" }
             subject to DisplayPartConfig.parse(part.config, subject)
         }
-        val displays = context.resources?.let { resources ->
+        val local = context.resources?.let { resources ->
             require(resources.schemaVersion == 1) { "package '${context.packageName}' $TYPE_ID resources unsupported schema-version ${resources.schemaVersion}; expected 1" }
             DisplayResourceParser.parse(resources.files, context.packageName)
         }
+        val displays = DisplayStyleBundles.merge(local, externalStyles, "package '${context.packageName}'")
         configs.forEach { (subject, config) -> selectTemplate(config, displays, subject) }
         displays?.let { validateTemplates(context.packageName, it) }
     }
@@ -33,10 +35,11 @@ class DisplayPartProvider(
         val subject = "package '${context.packageName}' snapshot '${context.packageHash}' part '${context.part.name}' $TYPE_ID"
         require(context.part.schemaVersion == 1) { "$subject unsupported schema-version ${context.part.schemaVersion}; expected 1" }
         val config = DisplayPartConfig.parse(context.part.config, subject)
-        val displays = context.resources?.let { captured ->
+        val local = context.resources?.let { captured ->
             require(captured.schemaVersion == 1) { "$subject resources unsupported schema-version ${captured.schemaVersion}; expected 1" }
             DisplayResourceParser.parse(captured.files, context.packageName)
         }
+        val displays = DisplayStyleBundles.merge(local, externalStyles, subject)
         val id = selectTemplate(config, displays, subject)
         if (runtimeStyles != null && displays != null && displays.templates.isNotEmpty()) {
             return RoutingDisplaySession(runtimeStyles, context, config, displays, id,
@@ -54,7 +57,7 @@ class DisplayPartProvider(
     private fun selectTemplate(config: DisplayPartConfig, displays: DisplayResources?, subject: String): String? {
         config.template?.let { id ->
             require(displays != null && id in displays.templates) {
-                "$subject config.template references unknown template '$id' in captured package resources"
+                "$subject config.template references unknown template '$id' in captured package resources or enabled external styles"
             }
             return id
         }

@@ -19,6 +19,7 @@ import work.art1st.javarailways.decorations.display.DisplayPartProvider
 import work.art1st.javarailways.decorations.display.DisplayDistanceCommand
 import work.art1st.javarailways.decorations.display.DisplayDistanceConfig
 import work.art1st.javarailways.decorations.display.DisplayDistanceSettings
+import work.art1st.javarailways.decorations.display.DisplayStyleBundles
 import work.art1st.javarailways.decorations.integration.simpledisplays.OptionalSimpleDisplays
 import java.util.logging.Level
 
@@ -38,16 +39,19 @@ class DecorationsPlugin : JavaPlugin() {
         val optional = OptionalSimpleDisplays(this)
         simpleDisplays = optional
         try {
+            val externalStyles = DisplayStyleBundles.load(dataFolder.resolve("styles").toPath())
             val styles = RuntimeDisplayStyles { registration?.refreshRendering() }
             displayStyles = styles
             server.servicesManager.register(DisplayStyleService::class.java, styles, this, ServicePriority.Normal)
             // Existing published packages are validated during register, so discover the compiler first.
             optional.start()
+            optional.validateTemplates("external display styles", externalStyles)
             registration = service.register(this, DisplayPartProvider(
                 openTemplate = optional::openTemplate,
                 validateTemplates = optional::validateTemplates,
                 interiorAudiencePolicy = PartExtensionAudiencePolicy { id -> distances.distanceFor(id) },
                 runtimeStyles = styles,
+                externalStyles = externalStyles,
             ))
             registration!!.existingPackageFailures.forEach { (name, reason) ->
                 logger.warning("Existing package '$name' has invalid ${DisplayPartProvider.TYPE_ID} definitions: $reason")

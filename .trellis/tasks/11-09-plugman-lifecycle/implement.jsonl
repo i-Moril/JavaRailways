@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "Lifecycle, simulation, owner cleanup"}
+{"file": ".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md", "reason": "Commands, models, services, snapshots"}
+{"file": ".trellis/spec/tunnel-bridge-builder/backend/index.md", "reason": "Independent add-on lifecycle"}
+{"file": "ai_tasks/persistence_schema_evolution_rules.md", "reason": "Preserve current schema and strict recovery"}

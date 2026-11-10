@@ -90,6 +90,7 @@ import work.art1st.javarailways.core.physics.rail.RailView
 import java.util.*
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.*
 
@@ -635,14 +636,37 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         registerWandConfig()
     }
 
+    private var previewTask: ScheduledTask? = null
+
     override fun onAfterRegisterEvents() {
-        plugin.platformDispatcher.runGlobalAtFixedRate(1L, 4L) {
+        previewTask = plugin.platformDispatcher.runGlobalAtFixedRate(1L, 4L) {
             BukkitThreadGuardBridge.runInSimulationContext {
+                if (!isRunning) return@runInSimulationContext
                 updateSplitPreviews()
                 updateDecorationPreviews()
             }
         }
         plugin.logger.info("RailWand initialized")
+    }
+
+    override fun onClose() {
+        previewTask?.cancel()
+        previewTask = null
+        val anchors = anchorEntities.values.flatMap { it.values }.flatMap { it.toList() }
+        anchorEntities.clear()
+        anchors.forEach(::removeAnchorEntity)
+        val labels = speedLimitEntities.values.flatMap { it.toList() }
+        speedLimitEntities.clear()
+        labels.forEach { entity ->
+            plugin.platformDispatcher.runForEntity(entity, action = { entity.remove() })
+        }
+        transientAnchors.clear()
+        anchorCreationOperations.clear()
+        splitPreviewTargets.clear()
+        splitPreviewRequests.clear()
+        splitPreviewViewers.clear()
+        decorationPreviewViewers.clear()
+        anchorViewers.clear()
     }
 
     // ═══════════════════════════════════════════
@@ -1327,6 +1351,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val turnoutGeometry = plugin.physicsConfig.turnoutGeometry(standard)
         val cantDeficiencyMeters = state.allowableCantDeficiencyMm / 1000.0
         val derailAcceleration = plugin.physicsConfig.overspeed.derailLateralAccelerationMetersPerSecondSquared
+        val operationGeneration = generation
         BukkitAsyncTasks.supply(
             plugin = plugin,
             completionEntity = player,
@@ -1348,6 +1373,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 }
             },
             onSuccess = { builtTurnout ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
@@ -1420,6 +1446,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 ).color(NamedTextColor.GREEN))
             },
             onFailure = { error ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 plugin.logger.warning("RailWand turnout build failed: ${error.message ?: error::class.simpleName}")
                 plugin.server.getPlayer(player.uniqueId)?.let { livePlayer ->
@@ -1557,6 +1584,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             "message.generating_curves"
         ).color(NamedTextColor.GRAY))
 
+        val operationGeneration = generation
         BukkitAsyncTasks.supply(
             plugin = plugin,
             completionEntity = player,
@@ -1571,6 +1599,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 )
             },
             onSuccess = { connectionBuild ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
@@ -1790,6 +1819,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 }
             },
             onFailure = { error ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 plugin.logger.warning(
                     "RailWand connect failed for player ${player.name}: ${error::class.simpleName}: ${error.message ?: ""}"
@@ -1906,6 +1936,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             "message.rebuilding_rail"
         ).color(NamedTextColor.GRAY))
 
+        val operationGeneration = generation
         BukkitAsyncTasks.supply(
             plugin = plugin,
             completionEntity = player,
@@ -1938,6 +1969,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 curvesByRailId
             },
             onSuccess = { curvesByRailId ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
@@ -2077,6 +2109,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 }
             },
             onFailure = { error ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 plugin.logger.warning(
                     "RailWand endpoint rebuild failed for player ${player.name}: ${error::class.simpleName}: ${error.message ?: ""}"
@@ -2576,6 +2609,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             player,
             "message.solving_grade"
         ).color(NamedTextColor.GRAY))
+        val operationGeneration = generation
         BukkitAsyncTasks.supply(
             plugin = plugin,
             completionEntity = player,
@@ -2598,6 +2632,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 rebuilt
             },
             onSuccess = { rebuilt ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
@@ -2623,6 +2658,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 commitGradeSmoothing(livePlayer, oldRails, rebuilt, selectedSnapshot)
             },
             onFailure = { error ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 plugin.logger.warning("Rail grade smoothing failed: ${error.message ?: error::class.simpleName}")
                 plugin.server.getPlayer(player.uniqueId)?.let { livePlayer ->
@@ -2887,12 +2923,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             player,
             "message.measuring_rail"
         ).color(NamedTextColor.GRAY))
+        val operationGeneration = generation
         BukkitAsyncTasks.supply(
             plugin = plugin,
             completionEntity = player,
             operation = "RailWand.editRail.measure",
             supplier = { measureRailActualValues(selectedLogicalRails) },
             onSuccess = { actual ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
@@ -2910,6 +2948,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 openRailEditDialog(livePlayer, rail.id, actual)
             },
             onFailure = { failure ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 plugin.logger.warning("Rail actual-value measurement failed: ${failure.message ?: failure::class.simpleName}")
                 plugin.server.getPlayer(player.uniqueId)?.let { livePlayer ->
@@ -3101,6 +3140,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             "message.calculating_speed"
         ).color(NamedTextColor.GRAY))
 
+        val operationGeneration = generation
         BukkitAsyncTasks.supply(
             plugin = plugin,
             completionEntity = player,
@@ -3141,6 +3181,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 }
             },
             onSuccess = { updates ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
@@ -3184,6 +3225,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 }
             },
             onFailure = { failure ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 plugin.logger.warning("Rail curve speed update failed: ${failure.message ?: failure::class.simpleName}")
                 plugin.server.getPlayer(player.uniqueId)?.let { livePlayer ->
@@ -3286,6 +3328,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             "message.rebuilding_curve"
         ).color(NamedTextColor.GRAY))
 
+        val operationGeneration = generation
         BukkitAsyncTasks.supply(
             plugin = plugin,
             completionEntity = player,
@@ -3296,6 +3339,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 }
             },
             onSuccess = { builtLanes ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
@@ -3491,6 +3535,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 }
             },
             onFailure = { error ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 plugin.logger.warning("Rail radius rebuild failed: ${error.message ?: error::class.simpleName}")
                 plugin.server.getPlayer(player.uniqueId)?.let { livePlayer ->
@@ -3765,6 +3810,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             HeavyRailQueries.DEFAULT_TARGET_MAX_DISTANCE,
             HeavyRailQueries.DEFAULT_TARGET_HIT_RADIUS
         ).toList()
+        val operationGeneration = generation
         BukkitAsyncTasks.supply(
             plugin = plugin,
             completionEntity = player,
@@ -3779,6 +3825,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 )
             },
             onSuccess = { match ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 splitPreviewRequests.remove(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId || getState(livePlayer).mode != WandMode.SPLIT) return@supply
@@ -3791,6 +3838,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 spawnSplitParticle(livePlayer, target.position, Color.AQUA, 1.0f)
             },
             onFailure = { error ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 splitPreviewRequests.remove(player.uniqueId)
                 plugin.logger.warning(
                     "RailWand split preview failed for ${player.name}: ${error::class.simpleName}: ${error.message ?: ""}"
@@ -3909,12 +3957,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val worldId = player.world.uid
         val curveSnapshot = rail.curve
         val metadataSnapshot = rail.metadata
+        val operationGeneration = generation
         BukkitAsyncTasks.supply(
             plugin = plugin,
             completionEntity = player,
             operation = "RailWand.confirmSplit",
             supplier = { curveSnapshot.splitAt(arcLength) },
             onSuccess = { curves ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
@@ -4022,6 +4072,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 }
             },
             onFailure = { error ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 plugin.logger.warning("Rail curve split failed: ${error::class.simpleName}: ${error.message ?: ""}")
                 plugin.server.getPlayer(player.uniqueId)?.let { livePlayer ->
@@ -4110,12 +4161,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val worldId = player.world.uid
         val beforeCurve = before.curve
         val afterCurve = after.curve
+        val operationGeneration = generation
         BukkitAsyncTasks.supply(
             plugin = plugin,
             completionEntity = player,
             operation = "RailWand.mergeSplitAnchor",
             supplier = { beforeCurve.concatenate(afterCurve) },
             onSuccess = { mergedCurve ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
@@ -4236,6 +4289,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 }
             },
             onFailure = { error ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 plugin.logger.warning("Rail curve merge failed: ${error::class.simpleName}: ${error.message ?: ""}")
                 plugin.server.getPlayer(player.uniqueId)?.let { livePlayer ->
@@ -4471,12 +4525,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             "message.finding_rail"
         ).color(NamedTextColor.GRAY))
 
+        val operationGeneration = generation
         BukkitAsyncTasks.supply(
             plugin = plugin,
             completionEntity = player,
             operation = "RailWand.findLookedAtRail",
             supplier = { HeavyRailQueries.findLookedAtRail(candidates, origin, direction, maxDistance, hitRadius) },
             onSuccess = { railId ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
@@ -4484,6 +4540,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 onResolved(liveRail)
             },
             onFailure = { error ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 plugin.logger.warning(
                     "RailWand look-at rail search failed for player ${player.name}: ${error::class.simpleName}: ${error.message ?: ""}"
@@ -4773,8 +4830,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         plugin.platformDispatcher.runAt(location) spawnTask@{
             if (anchorEntities[playerId]?.get(anchor.id) !== entities) return@spawnTask
             val displayEntity = world.spawn(location, ItemDisplay::class.java) { entity ->
-                entity.setItemStack(ItemStack(material))
                 entity.isPersistent = false
+                entity.setItemStack(ItemStack(material))
                 entity.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.GROUND
                 entity.customName(displayName?.let { Component.text(it) })
                 entity.isCustomNameVisible = displayName != null
@@ -4787,6 +4844,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 entity.isVisibleByDefault = false
             }
             entities.add(displayEntity)
+            if (anchorEntities[playerId]?.get(anchor.id) !== entities) {
+                displayEntity.remove()
+                return@spawnTask
+            }
             plugin.platformDispatcher.runForEntity(
                 entity = player,
                 action = {
@@ -4894,17 +4955,23 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     plugin.platformDispatcher.runAt(location) spawnTask@{
                         if (speedLimitEntities[player.uniqueId] !== entities) return@spawnTask
                         val display = player.world.spawn(location, TextDisplay::class.java) { entity ->
+                            entity.isPersistent = false
                             entity.text(Component.text(plan.text, NamedTextColor.YELLOW))
                             entity.billboard = Display.Billboard.CENTER
-                            entity.isPersistent = false
                             entity.isVisibleByDefault = false
                             entity.isShadowed = true
                         }
                         entities.add(display)
+                        if (speedLimitEntities[player.uniqueId] !== entities) {
+                            display.remove()
+                            return@spawnTask
+                        }
                         plugin.platformDispatcher.runForEntity(player, action = {
                             if (speedLimitEntities[player.uniqueId] === entities) player.showEntity(plugin, display)
-                            else display.remove()
-                        }, retired = { display.remove() })
+                            else plugin.platformDispatcher.runForEntity(display, action = { display.remove() })
+                        }, retired = {
+                            plugin.platformDispatcher.runForEntity(display, action = { display.remove() })
+                        })
                     }
                 }
             })

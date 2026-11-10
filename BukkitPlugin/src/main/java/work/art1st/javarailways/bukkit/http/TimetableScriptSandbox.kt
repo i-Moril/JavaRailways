@@ -117,6 +117,9 @@ class TimetableScriptSandbox private constructor(private val scriptsDirectory: P
 
     override fun close() {
         executor.shutdownNow()
+        check(executor.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) {
+            "Timetable script executor did not terminate"
+        }
     }
 
     private fun resolveScript(scriptName: String): Path = existingScriptPath(scriptName)

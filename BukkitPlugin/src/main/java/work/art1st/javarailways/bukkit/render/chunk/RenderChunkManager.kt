@@ -47,12 +47,29 @@ class RenderChunkManager(
     private val processedUpdates = AtomicLong()
     private val authoritativePassengerRefreshRequests = AtomicLong()
     private val authoritativePassengerRefreshes = AtomicLong()
+    @Volatile private var closed = false
 
     init {
         Bukkit.getPluginManager().registerEvents(this, BukkitPlugin.INSTANCE)
     }
 
     fun close() {
+        if (closed) return
+        closed = true
+        // Retire every model, including models without a current observer. Backend/native removal
+        // uses its own entity owner; cleanup must not depend on player visibility callbacks running.
+        val renderables = renderableObjects.values.flatMap { it.toList() }.toSet() + renderablePositions.keys
+        val failures = mutableListOf<Exception>()
+        renderables.forEach { renderable ->
+            try {
+                when (renderable) {
+                    is Car -> renderable.renderer.destroy()
+                    is RailArcVisualSegment -> renderable.renderer.destroy()
+                }
+            } catch (failure: Exception) {
+                failures.add(failure)
+            }
+        }
         visibleByPlayer.keys.toList().forEach { playerId ->
             val player = Bukkit.getPlayer(playerId)
             if (player == null) {
@@ -62,9 +79,15 @@ class RenderChunkManager(
             }
         }
         pendingAudienceUpdates.clear()
+        renderableObjects.clear()
+        visibleByPlayer.clear()
+        refreshStateByPlayer.clear()
         renderablePositions.clear()
         audienceIndex.clear()
         HandlerList.unregisterAll(this)
+        if (failures.isNotEmpty()) throw IllegalStateException("Failed to destroy world render models").also {
+            failures.forEach(it::addSuppressed)
+        }
     }
 
     fun getRenderablesAround(position: Vector3dc, radius: Double): Collection<Renderable> {
@@ -183,6 +206,7 @@ class RenderChunkManager(
     }
 
     private fun setVisible(player: Player, renderable: Renderable, visible: Boolean, refreshExisting: Boolean = false) {
+        if (closed && visible) return
         if (visible) {
             val renderables = visibleByPlayer.computeIfAbsent(player.uniqueId) { ConcurrentHashMap.newKeySet() }
             audienceIndex.markVisible(player.uniqueId, renderable)
@@ -266,6 +290,7 @@ class RenderChunkManager(
     }
 
     internal fun update(renderable: Renderable, oldPosition: Vector3dc?, newPosition: Vector3dc) {
+        if (closed) return
         val newChunk = RenderChunk(newPosition)
         val oldChunk = oldPosition?.let(::RenderChunk)
         val positionSnapshot = Vector3Snapshot.capture(newPosition)

@@ -31,7 +31,7 @@
 
 - 根、`Core`、`Basic`、`ConfigLib`、`Annotation` 和 `WebUI` 使用 Java/Kotlin 17 toolchain/target。
 - 当前 `BukkitPlugin`、`BukkitPluginDev`、`TunnelBridgeBuilder` build 使用 JVM 25；根 CI 也安装 JDK 25。以 build 文件为准，不依赖可能滞后的说明文档。
-- `BukkitPlugin:shadowJar` 合并 runtime、重定位 PacketEvents/EntityLib/Cloud，并嵌入 `WebUI:shadowJar`。
+- `BukkitPlugin:shadowJar` 合并 runtime、重定位 EntityLib/Cloud，并嵌入 `WebUI:shadowJar`。PacketEvents 使用 `compileOnly`，由独立安装的 `packetevents` 插件提供；主插件声明硬依赖，EntityLib 的传递依赖不得重新引入 PacketEvents。打包检查必须确认 JAR 不含原始或重定位后的 PacketEvents 类。
 - `TunnelBridgeBuilder:shadowJar` 只产出 add-on；JavaRailways 与语言运行库由插件依赖/Paper libraries 提供。
 - 根 Dokka 只聚合 `Core` 与 `Basic` 的候选 API，相关 suppress regex 只公开 `core.api`/`basic.api`。
 

@@ -1,8 +1,7 @@
 package work.art1st.javarailways.tunnelbridgebuilder
 
 import org.bukkit.plugin.java.JavaPlugin
-import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
-import work.art1st.javarailways.bukkit.api.rail.RailTargetService
+import work.art1st.javarailways.tunnelbridgebuilder.rail.JavaRailwaysServices
 import work.art1st.javarailways.tunnelbridgebuilder.rail.RailSweepService
 import work.art1st.javarailways.tunnelbridgebuilder.wand.BlockWandCommand
 import work.art1st.javarailways.tunnelbridgebuilder.wand.BlockWandItem
@@ -16,15 +15,20 @@ class TunnelBridgeBuilderPlugin : JavaPlugin() {
     lateinit var railSweepService: RailSweepService
         private set
 
+    private var serviceBinding: JavaRailwaysServices? = null
+
+    override fun onDisable() {
+        serviceBinding?.close()
+        serviceBinding = null
+    }
+
     override fun onEnable() {
-        val railTargets = requireNotNull(server.servicesManager.load(RailTargetService::class.java)) {
-            "JavaRailways did not register RailTargetService"
-        }
-        val playerOperations = requireNotNull(server.servicesManager.load(PlayerOperationService::class.java)) {
-            "JavaRailways did not register PlayerOperationService"
-        }
+        val services = JavaRailwaysServices(this)
+        serviceBinding = services
+        requireNotNull(services.acquire()) { "JavaRailways did not register its required services" }
+        server.pluginManager.registerEvents(services, this)
         blockWandItem = BlockWandItem(this)
-        railSweepService = RailSweepService(this, railTargets, playerOperations)
+        railSweepService = RailSweepService(this, services)
         val menu = BlockWandMenu(this, blockWandItem)
         server.pluginManager.registerEvents(menu, this)
         server.pluginManager.registerEvents(BlockWandListener(blockWandItem, menu, railSweepService), this)

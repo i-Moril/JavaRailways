@@ -41,7 +41,7 @@ class CoreWorld(
     private val signals: MutableMap<String, Signal>,
     override val tickManager: TickManager,
     val physicsCoordinator: PhysicsCoordinator,
-    worldParent: WorldParentContext,
+    private val worldParent: WorldParentContext,
     private val extensionDataContainer: ExtensionDataContainer<Any> = ExtensionDataContainer()
 ) : World, Extendable<Any> by extensionDataContainer {
     private val railSpatialIndex = RailSpatialIndex()
@@ -60,7 +60,21 @@ class CoreWorld(
             }
         }
         worldParent.attachWorld(this)
-        physicsCoordinator.attachWorld(this)
+        try {
+            physicsCoordinator.attachWorld(this)
+        } catch (failure: Throwable) {
+            try {
+                worldParent.detachWorld(this)
+            } catch (cleanupFailure: Throwable) {
+                failure.addSuppressed(cleanupFailure)
+            }
+            throw failure
+        }
+    }
+
+    /** Releases world-scoped DI references after all world activity and cleanup has stopped. */
+    fun releaseRuntimeContext() {
+        worldParent.detachWorld(this)
     }
 
     private constructor(
@@ -102,23 +116,32 @@ class CoreWorld(
                 dependency.physicsCoordinator,
                 dependency.worldParent
             )
-            val railDependency = CoreRail.SavedRailV1.Dependency(world)
-            val loadedRails = infrastructure.rails.map { it.loadDisconnected(railDependency) }
-            infrastructure.rails.zip(loadedRails).forEach { (savedRail, rail) ->
-                savedRail.restoreConnections(rail, railDependency)
-            }
-            runtime?.trains.orEmpty().forEach { savedTrain ->
-                val train = try {
-                    savedTrain.load(world)
-                } catch (failure: Exception) {
-                    throw IllegalStateException(
-                        "Failed to restore train '${savedTrain.name}' [${savedTrain.id}]",
-                        failure
-                    )
+            try {
+                val railDependency = CoreRail.SavedRailV1.Dependency(world)
+                val loadedRails = infrastructure.rails.map { it.loadDisconnected(railDependency) }
+                infrastructure.rails.zip(loadedRails).forEach { (savedRail, rail) ->
+                    savedRail.restoreConnections(rail, railDependency)
                 }
-                world.addTrain(train)
+                runtime?.trains.orEmpty().forEach { savedTrain ->
+                    val train = try {
+                        savedTrain.load(world)
+                    } catch (failure: Exception) {
+                        throw IllegalStateException(
+                            "Failed to restore train '${savedTrain.name}' [${savedTrain.id}]",
+                            failure
+                        )
+                    }
+                    world.addTrain(train)
+                }
+                return world
+            } catch (failure: Throwable) {
+                try {
+                    world.releaseRuntimeContext()
+                } catch (cleanupFailure: Throwable) {
+                    failure.addSuppressed(cleanupFailure)
+                }
+                throw failure
             }
-            return world
         }
     }
 

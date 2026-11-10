@@ -10,9 +10,11 @@ import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.plugin.Plugin
 import org.bukkit.util.Transformation
+import work.art1st.javarailways.bukkit.util.PlatformDispatcher
 
 class NativeDisplayRenderBackend(
-    private val plugin: Plugin
+    private val plugin: Plugin,
+    private val dispatcher: PlatformDispatcher
 ) : DisplayRenderBackend {
     override fun create(world: World, descriptor: DisplayVisualDescriptor): DisplayVisual {
         val entity = when (val content = descriptor.content) {
@@ -33,7 +35,7 @@ class NativeDisplayRenderBackend(
                 display.block = content.blockData.clone()
             }
         }
-        return NativeDisplayVisual(plugin, entity)
+        return NativeDisplayVisual(plugin, entity, dispatcher)
     }
 
     private fun configureCommon(display: Display, descriptor: DisplayVisualDescriptor) {
@@ -49,7 +51,8 @@ class NativeDisplayRenderBackend(
 
 private class NativeDisplayVisual(
     private val plugin: Plugin,
-    private val entity: Display
+    private val entity: Display,
+    private val dispatcher: PlatformDispatcher
 ) : DisplayVisual {
     private var destroyed = false
 
@@ -91,6 +94,6 @@ private class NativeDisplayVisual(
     override fun destroy() {
         if (destroyed) return
         destroyed = true
-        entity.remove()
+        dispatcher.runForEntity(entity, action = { entity.remove() })
     }
 }

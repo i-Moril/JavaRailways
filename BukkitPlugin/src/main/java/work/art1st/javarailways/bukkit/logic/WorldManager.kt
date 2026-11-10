@@ -27,6 +27,7 @@ import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.bukkit.util.BukkitThreadOwnership
 import work.art1st.javarailways.bukkit.util.LatestAffinityTaskDispatcher
 import work.art1st.javarailways.bukkit.util.PlatformCommitAffinity
+import work.art1st.javarailways.bukkit.util.PlatformCleanup
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.api.physics.train.CarFrameSnapshot
@@ -38,6 +39,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
 import java.util.logging.Level
 import kotlin.system.measureNanoTime
 
@@ -86,10 +88,12 @@ class WorldManager(
     }
 
     fun finishStopping() {
+        val failures = mutableListOf<Exception>()
         snapshotWrites.forEach { (world, write) ->
             try {
                 write.get()
             } catch (failure: Exception) {
+                failures.add(failure)
                 BukkitPlugin.INSTANCE.logger.log(
                     Level.SEVERE,
                     "Failed to finish snapshot write for world ${world.uid} (${world.name})",
@@ -98,6 +102,26 @@ class WorldManager(
             }
         }
         snapshotWriter.shutdown()
+        check(snapshotWriter.awaitTermination(10L, TimeUnit.SECONDS)) { "World snapshot writer did not terminate" }
+        if (failures.isNotEmpty()) throw IllegalStateException("World snapshot writes failed").also {
+            failures.forEach(it::addSuppressed)
+        }
+    }
+
+    /** Stop fallback physics before releasing controllers or capturing the final world state. */
+    fun quiescePhysics() {
+        ThreadGuard.ensureMainThread("WorldManager.quiescePhysics")
+        val failures = mutableListOf<Exception>()
+        railWorlds.values.forEach { world ->
+            try {
+                (world as? CoreWorld)?.physicsCoordinator?.stopAndAwait()
+            } catch (failure: Exception) {
+                failures.add(failure)
+            }
+        }
+        if (failures.isNotEmpty()) throw IllegalStateException("Failed to stop world physics").also {
+            failures.forEach(it::addSuppressed)
+        }
     }
 
     fun latestServerTickMetrics(): JavaRailwaysServerTickMetrics? = latestServerTickMetricsSnapshot
@@ -215,36 +239,60 @@ class WorldManager(
             }
     }
 
-    fun unregisterRailWorld(bukkitWorld: BukkitWorld) {
+    fun unregisterRailWorld(bukkitWorld: BukkitWorld, saveSnapshot: Boolean = true) {
         ThreadGuard.ensureMainThread("WorldManager.unregisterRailWorld")
         unloadingWorlds.add(bukkitWorld)
+        val failures = mutableListOf<Exception>()
+        fun cleanup(action: () -> Unit) {
+            try { action() } catch (failure: Exception) { failures.add(failure) }
+        }
         railWorlds[bukkitWorld]?.let { rw ->
             val coreWorld = rw as? CoreWorld
             try {
+                coreWorld?.physicsCoordinator?.stopAndAwait()
                 val ticket = coreWorld?.physicsCoordinator?.captureCurrentTicket()
                 ticket?.await()
-                coreWorld?.let {
+                coreWorld?.takeIf { saveSnapshot }?.let {
                     val snapshots = captureSnapshots(it, ticket?.epoch ?: 0L)
-                    snapshotWrites.remove(bukkitWorld)?.get()
+                    // The executor serializes this final write after older writes. A failed periodic
+                    // write must not prevent a fresh final snapshot from being attempted.
+                    snapshotWrites.remove(bukkitWorld)?.let { write ->
+                        runCatching { write.get() }.onFailure { failure ->
+                            BukkitPlugin.INSTANCE.logger.log(Level.WARNING, "Previous snapshot write failed", failure)
+                        }
+                    }
+                    pendingPeriodicSnapshots.remove(bukkitWorld)
                     val worldId = bukkitWorld.uid
                     snapshotWriter.submit {
                         WorldPersistence.saveSplitSnapshots(worldId, snapshots)
                     }.get()
                 }
+                if (!saveSnapshot) {
+                    BukkitPlugin.INSTANCE.logger.severe(
+                        "Skipped final snapshot for ${bukkitWorld.uid}: runtime producers did not stop cleanly; " +
+                            "preserving the existing snapshots and backups"
+                    )
+                }
+            } catch (failure: Exception) {
+                failures.add(failure)
             } finally {
-                coreWorld?.let { world ->
-                    speedSafetyMonitors.remove(world)?.let(world.physicsCoordinator::unregisterPublishedFrameProcessor)
+                cleanup {
+                    coreWorld?.let { world ->
+                        speedSafetyMonitors.remove(world)?.let(world.physicsCoordinator::unregisterPublishedFrameProcessor)
+                    }
                 }
-                coreWorld?.physicsCoordinator?.close()
-                try {
-                    rw.renderChunkManager.close()
-                } finally {
-                    (rw.tickManager as? AutoCloseable)?.close()
-                }
+                cleanup { coreWorld?.physicsCoordinator?.close() }
+                rw.allTrains.forEach { train -> cleanup { train.rendererOrNull?.close() } }
+                cleanup { rw.renderChunkManager.close() }
+                cleanup { (rw.tickManager as? AutoCloseable)?.close() }
+                cleanup { coreWorld?.releaseRuntimeContext() }
             }
         }
         AbnormalTrainMarker.clearWorld(bukkitWorld)
         railWorlds.remove(bukkitWorld)
+        if (failures.isNotEmpty()) throw IllegalStateException(
+            "World ${bukkitWorld.uid} did not save/close cleanly; preserve its snapshot and backup files"
+        ).also { aggregate -> failures.forEach(aggregate::addSuppressed) }
     }
 
     @EventHandler
@@ -254,7 +302,7 @@ class WorldManager(
 
     @EventHandler
     fun onWorldUnload(event: WorldUnloadEvent) {
-        withSimulationContext { unregisterRailWorld(event.world) }
+        PlatformCleanup.runAndAwait { withSimulationContext { unregisterRailWorld(event.world) } }
     }
 
     private fun tick() {
@@ -266,7 +314,8 @@ class WorldManager(
         ThreadGuard.ensureMainThread("WorldManager.tickStart")
         serverTickIndex += 1L
         val currentTimeMs = System.currentTimeMillis()
-        railWorlds.forEach { (_, railWorld) ->
+        railWorlds.forEach { (world, railWorld) ->
+            if (stopping || world in unloadingWorlds) return@forEach
             (railWorld as? CoreWorld)?.physicsCoordinator?.wakeFromMainThread()
             railWorld.tickManager.preTick(currentTimeMs)
         }
@@ -279,6 +328,7 @@ class WorldManager(
         var blockedWaitAsyncNanos = 0L
 
         railWorlds.forEach { (world, railWorld) ->
+            if (stopping || world in unloadingWorlds) return@forEach
             var publishedPhysicsEpoch = 0L
             (railWorld as? CoreWorld)?.let { coreWorld ->
                 // Capture once: if the fallback timer currently owns an epoch, TickEnd must wait

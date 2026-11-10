@@ -8,6 +8,17 @@ import java.util.UUID
 
 class WebUiLoginTokensTest {
     @Test
+    fun `shutdown invalidates unconsumed grants while new grants remain usable`() {
+        val tokens = WebUiLoginTokens()
+        val player = UUID.randomUUID()
+        val oldToken = tokens.issue(player, "Alice", "world").first
+        tokens.clear()
+        assertNull(tokens.consume(oldToken))
+        val (freshToken, grant) = tokens.issue(player, "Alice", "world")
+        assertEquals(grant, tokens.consume(freshToken))
+    }
+
+    @Test
     fun `token is one-time and expires`() {
         var now = 1_000L
         val tokens = WebUiLoginTokens(2_000L) { now }

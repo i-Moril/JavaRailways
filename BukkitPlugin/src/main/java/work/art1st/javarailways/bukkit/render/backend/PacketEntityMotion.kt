@@ -1,6 +1,7 @@
 package work.art1st.javarailways.bukkit.render.backend
 
 import com.github.retrooper.packetevents.PacketEvents
+import com.github.retrooper.packetevents.event.EventManager
 import com.github.retrooper.packetevents.event.PacketListenerAbstract
 import com.github.retrooper.packetevents.event.PacketListenerCommon
 import com.github.retrooper.packetevents.event.PacketListenerPriority
@@ -46,7 +47,8 @@ import kotlin.math.floor
 class PacketEntityMotion(
     private val plugin: Plugin,
     private val dispatcher: PlatformDispatcher,
-    private val bundles: TrainPacketBundleCoordinator
+    private val bundles: TrainPacketBundleCoordinator,
+    private val eventManager: EventManager = PacketEvents.getAPI().eventManager
 ) : AutoCloseable {
     private val entities = ConcurrentHashMap<Int, ManagedEntity>()
     private val entitiesByIdentity = Collections.synchronizedMap(IdentityHashMap<Entity, ManagedEntity>())
@@ -62,7 +64,8 @@ class PacketEntityMotion(
 
     fun start() {
         check(registeredListener == null) { "Packet entity motion is already started" }
-        registeredListener = PacketEvents.getAPI().eventManager.registerListener(listener)
+        registeredListener = listener
+        eventManager.registerListener(listener)
     }
 
     fun sync(entity: Entity, target: Location, viewers: Collection<Player>) {
@@ -228,7 +231,7 @@ class PacketEntityMotion(
     }
 
     override fun close() {
-        registeredListener?.let { PacketEvents.getAPI().eventManager.unregisterListener(it) }
+        registeredListener?.let { eventManager.unregisterListener(it) }
         registeredListener = null
         entities.values.forEach(ManagedEntity::retire)
         entities.clear()

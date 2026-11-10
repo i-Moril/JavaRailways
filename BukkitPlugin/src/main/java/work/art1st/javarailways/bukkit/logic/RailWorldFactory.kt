@@ -29,6 +29,8 @@ import work.art1st.javarailways.bukkit.persistence.RailRenderMetaStore
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.api.util.annotation.Heavy
 import work.art1st.javarailways.core.util.ThreadGuard
+import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
+import work.art1st.javarailways.bukkit.util.PlatformCleanup
 import work.art1st.javarailways.core.util.TickManagerImpl
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import java.util.concurrent.Executors
@@ -55,71 +57,97 @@ object RailWorldFactory {
         )
         val worldParent = KoinWorldParentContext(javaRailwaysParentScope())
         val dependency = CoreWorld.SnapshotDependency(tickManager, worldParent, physicsCoordinator)
-        val coreWorld = if (infrastructure != null) {
-            CoreWorld.load(infrastructure, runtime, dependency)
-        } else {
-            CoreWorld.createEmpty(tickManager, worldParent, physicsCoordinator)
-        }
-        val renderChunkManager = RenderChunkManager(bukkitWorld)
-        coreWorld.registerExtensionData(
-            BukkitPlugin.INSTANCE,
-            BukkitWorldData(renderChunkManager, bukkitWorld)
-        )
-        val plugin = BukkitPlugin.INSTANCE
-        val atoLogger = plugin.logger
-        val pluginDataFolder = plugin.dataFolder
-        val physicsConfig = plugin.physicsConfig
-        val basicData = BasicWorldData(
-                dispatcher = TimetableDispatcher(
-                    operationGateway = BukkitTrainOperationGateway(
-                    coreWorld,
-                    operationDispatcher = RegionTrainOperationDispatcher(BukkitPlugin.INSTANCE)
-                ),
-                    atoFactory = TimetableAtoFactory { train, world ->
-                        val profile = AtoSafetyProfile()
-                        val maximumSpeed = train.rendererOrNull?.resolveControl()?.maxSpeed
-                            ?: throw IllegalArgumentException("Train ${train.id} has no model control profile")
-                        SimpleATO(
-                            train,
-                            world,
-                            KinematicTrainActuator(maximumSpeed, profile),
-                            profile
-                        )
-                    }
-                ),
-                atoCoordinator = AtoWorldCoordinator(bukkitWorld.uid.toString()) { report ->
-                    atoLogger.severe(report.format())
-                    PluginDiagnosticLog.ato("WORLD_STALLED", report.format())
-                    runCatching { AtoStallDiagnostics.write(pluginDataFolder, report) }
-                        .onSuccess { file ->
-                            atoLogger.warning("ATO Stall diagnostics written to ${file.absolutePath}")
-                        }
-                        .onFailure { error ->
-                            atoLogger.severe(
-                                "Failed to write ATO Stall diagnostics: " +
-                                    "${error::class.simpleName}: ${error.message.orEmpty()}"
+        var createdWorld: CoreWorld? = null
+        var createdRenderManager: RenderChunkManager? = null
+        try {
+            val coreWorld = if (infrastructure != null) {
+                CoreWorld.load(infrastructure, runtime, dependency)
+            } else {
+                CoreWorld.createEmpty(tickManager, worldParent, physicsCoordinator)
+            }
+            createdWorld = coreWorld
+            val renderChunkManager = RenderChunkManager(bukkitWorld)
+            createdRenderManager = renderChunkManager
+            coreWorld.registerExtensionData(
+                BukkitPlugin.INSTANCE,
+                BukkitWorldData(renderChunkManager, bukkitWorld)
+            )
+            val plugin = BukkitPlugin.INSTANCE
+            val atoLogger = plugin.logger
+            val pluginDataFolder = plugin.dataFolder
+            val physicsConfig = plugin.physicsConfig
+            val basicData = BasicWorldData(
+                    dispatcher = TimetableDispatcher(
+                        operationGateway = BukkitTrainOperationGateway(
+                        coreWorld,
+                        operationDispatcher = RegionTrainOperationDispatcher(BukkitPlugin.INSTANCE)
+                    ),
+                        atoFactory = TimetableAtoFactory { train, world ->
+                            val profile = AtoSafetyProfile()
+                            val maximumSpeed = train.rendererOrNull?.resolveControl()?.maxSpeed
+                                ?: throw IllegalArgumentException("Train ${train.id} has no model control profile")
+                            SimpleATO(
+                                train,
+                                world,
+                                KinematicTrainActuator(maximumSpeed, profile),
+                                profile
                             )
                         }
-                },
-                turnoutSafetyDefaults = physicsConfig.turnoutSafety.let {
-                    TurnoutSafetyDefaults(
-                        protectionDistanceMeters = it.defaultProtectionDistanceMeters,
-                        lockingDistanceMeters = it.defaultLockingDistanceMeters,
-                        decisionLeadTicks = it.decisionLeadTicks,
-                        retryTicks = it.allocationRetryTicks
-                    )
+                    ),
+                    atoCoordinator = AtoWorldCoordinator(bukkitWorld.uid.toString()) { report ->
+                        atoLogger.severe(report.format())
+                        PluginDiagnosticLog.ato("WORLD_STALLED", report.format())
+                        runCatching { AtoStallDiagnostics.write(pluginDataFolder, report) }
+                            .onSuccess { file ->
+                                atoLogger.warning("ATO Stall diagnostics written to ${file.absolutePath}")
+                            }
+                            .onFailure { error ->
+                                atoLogger.severe(
+                                    "Failed to write ATO Stall diagnostics: " +
+                                        "${error::class.simpleName}: ${error.message.orEmpty()}"
+                                )
+                            }
+                    },
+                    turnoutSafetyDefaults = physicsConfig.turnoutSafety.let {
+                        TurnoutSafetyDefaults(
+                            protectionDistanceMeters = it.defaultProtectionDistanceMeters,
+                            lockingDistanceMeters = it.defaultLockingDistanceMeters,
+                            decisionLeadTicks = it.decisionLeadTicks,
+                            retryTicks = it.allocationRetryTicks
+                        )
+                    }
+                )
+            coreWorld.registerExtensionData(BasicPlugin.INSTANCE, basicData)
+            basicInfrastructure?.restore(coreWorld)
+            basicRuntime?.restore(coreWorld)
+            OperationalSpeedLimitSignalMaterializer.materialize(coreWorld)
+            val persisted = RailRenderMetaStore.load(bukkitWorld)
+            val restored = persisted.filter { RailVisualBootstrap.fromPersisted(coreWorld, it) }
+            if (restored.size != persisted.size) {
+                RailRenderMetaStore.saveAll(bukkitWorld, restored)
+            }
+            physicsCoordinator.start()
+            return coreWorld
+        } catch (failure: Throwable) {
+            // A failed factory has not entered WorldManager's map and will not be visited by
+            // normal plugin shutdown. Release each already-created owner here, without saving.
+            try {
+                BukkitThreadGuardBridge.runOutsideSimulationContext {
+                    PlatformCleanup.runAndAwait {
+                        listOf<() -> Unit>(
+                            { physicsCoordinator.close() },
+                            { createdRenderManager?.close() },
+                            { tickManager.close() },
+                            { createdWorld?.releaseRuntimeContext() }
+                        ).forEach { close ->
+                            try { close() } catch (cleanupFailure: Throwable) { failure.addSuppressed(cleanupFailure) }
+                        }
+                    }
                 }
-            )
-        coreWorld.registerExtensionData(BasicPlugin.INSTANCE, basicData)
-        basicInfrastructure?.restore(coreWorld)
-        basicRuntime?.restore(coreWorld)
-        OperationalSpeedLimitSignalMaterializer.materialize(coreWorld)
-        val persisted = RailRenderMetaStore.load(bukkitWorld)
-        val restored = persisted.filter { RailVisualBootstrap.fromPersisted(coreWorld, it) }
-        if (restored.size != persisted.size) {
-            RailRenderMetaStore.saveAll(bukkitWorld, restored)
+            } catch (cleanupFailure: Throwable) {
+                failure.addSuppressed(cleanupFailure)
+            }
+            throw failure
         }
-        physicsCoordinator.start()
-        return coreWorld
     }
 }

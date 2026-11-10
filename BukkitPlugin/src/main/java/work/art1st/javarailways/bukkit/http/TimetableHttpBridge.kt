@@ -59,6 +59,7 @@ private data class LineSimulationSnapshot(
 )
 
 class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
+    @Volatile private var stopped = false
     private val json = Json { encodeDefaults = true; prettyPrint = true; ignoreUnknownKeys = false }
     private var server: HttpServer? = null
     private val executor = Executors.newCachedThreadPool { Thread(it, "JavaRailways-timetable-http").apply { isDaemon = true } }
@@ -92,12 +93,15 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
     fun onWorldUnload(event:WorldUnloadEvent)=railMapPreview.invalidate(event.world.name)
 
     fun stop() {
+        stopped = true
         HandlerList.unregisterAll(this)
         server?.stop(0)
         server = null
         executor.shutdownNow()
         simulationExecutor.shutdownNow()
         railMapPreview.close()
+        check(executor.awaitTermination(10, TimeUnit.SECONDS)) { "Timetable HTTP executor did not terminate" }
+        check(simulationExecutor.awaitTermination(10, TimeUnit.SECONDS)) { "Timetable simulation executor did not terminate" }
     }
 
     private inner class Handler(
@@ -123,6 +127,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
         }
 
         private fun route(exchange: HttpExchange) {
+            if (stopped) throw HttpFailure(503, "JavaRailways is stopping")
             val parts = exchange.requestURI.path.trim('/').split('/').filter { it.isNotEmpty() }
             when {
                 exchange.requestMethod == "GET" && parts == listOf("health") -> exchange.respond(200, "{\"ok\":true}")
@@ -205,7 +210,10 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             val state = AtomicReference(RequestState.PENDING)
             plugin.platformDispatcher.runGlobal {
                 if (!state.compareAndSet(RequestState.PENDING, RequestState.RUNNING)) return@runGlobal
-                try { future.complete(BukkitThreadGuardBridge.runInSimulationContext(action)) }
+                try { future.complete(BukkitThreadGuardBridge.runInSimulationContext {
+                    if (stopped) throw HttpFailure(503, "JavaRailways is stopping")
+                    action()
+                }) }
                 catch (t: Throwable) { future.completeExceptionally(t) }
                 finally { state.set(RequestState.COMPLETED) }
             }

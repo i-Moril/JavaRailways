@@ -50,6 +50,11 @@ data class PlatformDispatchMetrics(
 class PaperPlatformDispatcher(
     private val plugin: Plugin
 ) : PlatformDispatcher {
+    private val lifecycle = PlatformDispatchLifecycle()
+
+    /** Called outside the simulation lock while the plugin is still enabled. */
+    fun stopAndAwait() = lifecycle.stopAndAwait()
+
     private val globalExecutions = AtomicLong()
     private val asyncExecutions = AtomicLong()
     private val regionSubmissions = AtomicLong()
@@ -61,8 +66,10 @@ class PaperPlatformDispatcher(
 
     override fun runGlobal(action: () -> Unit) {
         Bukkit.getGlobalRegionScheduler().execute(plugin, Runnable {
-            globalExecutions.incrementAndGet()
-            action()
+            lifecycle.execute {
+                globalExecutions.incrementAndGet()
+                action()
+            }
         })
     }
 
@@ -73,46 +80,71 @@ class PaperPlatformDispatcher(
     ): ScheduledTask {
         require(initialDelayTicks > 0L) { "global scheduler initial delay must be positive" }
         require(periodTicks > 0L) { "global scheduler period must be positive" }
-        return Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin, {
-            globalExecutions.incrementAndGet()
-            action()
+        return Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin, { task ->
+            if (!lifecycle.execute {
+                    globalExecutions.incrementAndGet()
+                    action()
+                }) task.cancel()
         }, initialDelayTicks, periodTicks)
     }
 
     override fun runAsync(action: () -> Unit) {
         Bukkit.getAsyncScheduler().runNow(plugin) {
-            asyncExecutions.incrementAndGet()
-            action()
+            lifecycle.execute {
+                asyncExecutions.incrementAndGet()
+                action()
+            }
         }
     }
 
     override fun runAt(location: Location, action: () -> Unit) {
+        if (PlatformCleanup.skipsOwnerTasks()) return
+        val cleanup = PlatformCleanup.capture(action)
+        if (cleanup == null && !lifecycle.isActive()) return
         if (owns(location)) {
             directExecutions.incrementAndGet()
-            action()
+            if (cleanup != null) cleanup.run() else lifecycle.execute(action)
             return
         }
         regionSubmissions.incrementAndGet()
-        Bukkit.getRegionScheduler().execute(plugin, location, Runnable {
-            regionExecutions.incrementAndGet()
-            action()
-        })
+        try {
+            Bukkit.getRegionScheduler().execute(plugin, location, Runnable {
+                regionExecutions.incrementAndGet()
+                if (cleanup != null) cleanup.run() else lifecycle.execute(action)
+            })
+        } catch (failure: Exception) {
+            cleanup?.failed(failure)
+            throw failure
+        }
     }
 
     override fun runForEntity(entity: Entity, action: () -> Unit, retired: () -> Unit): Boolean {
+        if (PlatformCleanup.skipsOwnerTasks()) return false
+        val cleanup = PlatformCleanup.capture(action)
+        if (cleanup == null && !lifecycle.isActive()) {
+            retired()
+            return false
+        }
         if (owns(entity)) {
             directExecutions.incrementAndGet()
-            action()
+            if (cleanup != null) cleanup.run() else lifecycle.execute(action)
             return true
         }
         entitySubmissions.incrementAndGet()
-        return entity.scheduler.execute(plugin, Runnable {
-            entityExecutions.incrementAndGet()
-            action()
-        }, Runnable {
-            retiredTasks.incrementAndGet()
-            retired()
-        }, 0L)
+        try {
+            val accepted = entity.scheduler.execute(plugin, Runnable {
+                entityExecutions.incrementAndGet()
+                if (cleanup != null) cleanup.run() else if (!lifecycle.execute(action)) retired()
+            }, Runnable {
+                retiredTasks.incrementAndGet()
+                if (cleanup != null) cleanup.retired(retired) else retired()
+            }, 0L)
+            if (!accepted) cleanup?.retired(retired)
+            return accepted
+        } catch (failure: Exception) {
+            cleanup?.failed(failure)
+            throw failure
+        }
     }
 
     override fun runForEntityLater(
@@ -122,14 +154,27 @@ class PaperPlatformDispatcher(
         retired: () -> Unit
     ): ScheduledTask? {
         require(delayTicks > 0L) { "entity scheduler delay must be positive" }
-        entitySubmissions.incrementAndGet()
-        return entity.scheduler.runDelayed(plugin, {
-            entityExecutions.incrementAndGet()
-            action()
-        }, Runnable {
-            retiredTasks.incrementAndGet()
+        if (PlatformCleanup.skipsOwnerTasks()) return null
+        val cleanup = PlatformCleanup.capture(action)
+        if (cleanup == null && !lifecycle.isActive()) {
             retired()
-        }, delayTicks)
+            return null
+        }
+        entitySubmissions.incrementAndGet()
+        try {
+            val task = entity.scheduler.runDelayed(plugin, {
+                entityExecutions.incrementAndGet()
+                if (cleanup != null) cleanup.run() else if (!lifecycle.execute(action)) retired()
+            }, Runnable {
+                retiredTasks.incrementAndGet()
+                if (cleanup != null) cleanup.retired(retired) else retired()
+            }, delayTicks)
+            if (task == null) cleanup?.retired(retired)
+            return task
+        } catch (failure: Exception) {
+            cleanup?.failed(failure)
+            throw failure
+        }
     }
 
     override fun runForEntityAtFixedRate(
@@ -143,8 +188,10 @@ class PaperPlatformDispatcher(
         require(periodTicks > 0L) { "entity scheduler period must be positive" }
         entitySubmissions.incrementAndGet()
         return entity.scheduler.runAtFixedRate(plugin, { task ->
-            entityExecutions.incrementAndGet()
-            action(task)
+            if (!lifecycle.execute {
+                    entityExecutions.incrementAndGet()
+                    action(task)
+                }) task.cancel()
         }, Runnable {
             retiredTasks.incrementAndGet()
             retired()

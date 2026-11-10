@@ -75,6 +75,7 @@ internal fun computeRailDisplayPlacement(
 class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderable<RailArcVisualSegment> {
     private lateinit var self: RailArcVisualSegment
     private val audience: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
+    private var retired = false
 
     override fun initialize(host: RailArcVisualSegment, savedExtensionData: Map<String, SerializableExtensionData>) {
         self = host
@@ -87,6 +88,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
     @MainThread
     @Synchronized
     override fun sendTo(player: Player) {
+        if (retired) return
         BukkitThreadOwnership.ensureEntity(player, "RailExtension.sendTo")
         audience.add(player.uniqueId)
         buildModel()
@@ -160,6 +162,8 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
     @MainThread
     @Synchronized
     override fun destroy() {
+        if (retired) return
+        retired = true
         audience.clear()
         self.world.renderChunkManager.remove(self)
         destroyModel()

@@ -45,6 +45,7 @@ import work.art1st.javarailways.bukkit.util.PlayerOperationGate
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import java.util.UUID
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 import java.util.concurrent.ConcurrentHashMap
 
 enum class RailObjectWandMode(
@@ -209,8 +210,11 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         registerConfig()
     }
 
+    private var particleTask: ScheduledTask? = null
+
     override fun onAfterRegisterEvents() {
-        plugin.platformDispatcher.runGlobalAtFixedRate(PARTICLE_REFRESH_TICKS, PARTICLE_REFRESH_TICKS) {
+        particleTask = plugin.platformDispatcher.runGlobalAtFixedRate(PARTICLE_REFRESH_TICKS, PARTICLE_REFRESH_TICKS) {
+            if (!isRunning) return@runGlobalAtFixedRate
             directionParticleFrame++
             particleViewers.forEach { playerId ->
                 val player = plugin.server.getPlayer(playerId)
@@ -219,6 +223,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                 } else {
                     plugin.platformDispatcher.runForEntity(player, action = {
                         BukkitThreadGuardBridge.runInSimulationContext {
+                            if (!isRunning) return@runInSimulationContext
                             renderDirectionRestrictionParticles(player)
                             renderWayPointApproachParticles(player)
                         }
@@ -227,6 +232,19 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
             }
         }
         plugin.logger.info("RailObjectWand initialized")
+    }
+
+    override fun onClose() {
+        particleTask?.cancel()
+        particleTask = null
+        val markers = markerEntities.values.flatMap { it.values }.mapNotNull { it.entity }
+        markerEntities.clear()
+        markers.forEach(::removeMarkerEntity)
+        editingWayPoint.clear()
+        pendingWayPoints.clear()
+        visibleDirectionRails.clear()
+        visibleApproachWayPoints.clear()
+        particleViewers.clear()
     }
 
     private fun registerConfig() {
@@ -475,6 +493,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         val wayPointSnapshot = coreWorld.basicWorldData.wayPoints.all()
         player.sendActionBar(Component.text("正在查找指向的轨道点...", NamedTextColor.GRAY))
 
+        val operationGeneration = generation
         BukkitAsyncTasks.supply(
             plugin = plugin,
             completionEntity = player,
@@ -498,6 +517,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                 CreateWayPointLookup(pointedRail, existing)
             },
             onSuccess = { result ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
@@ -532,6 +552,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                 showWayPointDialog(livePlayer, pendingId, getState(livePlayer).defaultWayPointType)
             },
             onFailure = { error ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 plugin.logger.warning(
                     "RailObjectWand heavy lookup failed for player ${player.name}: ${error::class.simpleName}: ${error.message ?: ""}"
@@ -610,6 +631,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
             HeavyRailQueries.DEFAULT_TARGET_MAX_DISTANCE,
             HeavyRailQueries.DEFAULT_TARGET_HIT_RADIUS
         ).toList()
+        val operationGeneration = generation
         BukkitAsyncTasks.supply(
             plugin = plugin,
             completionEntity = player,
@@ -625,6 +647,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                 )
             },
             onSuccess = { lookup ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
@@ -662,6 +685,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                 ))
             },
             onFailure = { error ->
+                if (!isRunning || operationGeneration != generation) return@supply
                 heavyOperationGate.finish(player.uniqueId)
                 plugin.logger.warning("RailObjectWand direction lookup failed: ${error.message ?: error::class.simpleName}")
                 plugin.server.getPlayer(player.uniqueId)?.sendActionBar(
@@ -938,14 +962,19 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
 
         plugin.platformDispatcher.runAt(location) markerTask@{
             if (markerEntities[playerId]?.get(handle.id) !== handle) return@markerTask
-            val entity = world.spawn(location, ItemDisplay::class.java)
-            entity.setItemStack(ItemStack(handle.material))
-            entity.isPersistent = false
+            val entity = world.spawn(location, ItemDisplay::class.java) {
+                it.isPersistent = false
+                it.setItemStack(ItemStack(handle.material))
+            }
             entity.isVisibleByDefault = false
             entity.isGlowing = true
             entity.customName(Component.text(handle.displayName, NamedTextColor.GREEN))
             entity.isCustomNameVisible = true
             handle.entity = entity
+            if (markerEntities[playerId]?.get(handle.id) !== handle) {
+                entity.remove()
+                return@markerTask
+            }
             plugin.platformDispatcher.runForEntity(
                 entity = player,
                 action = {
@@ -1012,7 +1041,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     private fun scheduleMarkerVisibilityRefresh(player: Player) {
         plugin.platformDispatcher.runForEntityLater(player, 1L, action = {
             BukkitThreadGuardBridge.runInSimulationContext {
-                refreshMarkersForPlayer(player)
+                if (isRunning) refreshMarkersForPlayer(player)
             }
         })
     }

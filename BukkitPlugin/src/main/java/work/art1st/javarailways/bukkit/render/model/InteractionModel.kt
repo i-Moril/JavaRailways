@@ -49,10 +49,11 @@ class InteractionModel internal constructor(
         BukkitPlugin.INSTANCE.platformDispatcher.runAt(spawnLocation) {
             try {
                 if (retired || entity != null) return@runAt
-                val interaction = bukkitWorld.spawn(spawnLocation, Interaction::class.java)
-                interaction.isPersistent = false
-                interaction.setInteractionWidth(interactionConfig.width.toFloat())
-                interaction.setInteractionHeight(interactionConfig.height.toFloat())
+                val interaction = bukkitWorld.spawn(spawnLocation, Interaction::class.java) {
+                    it.isPersistent = false
+                    it.setInteractionWidth(interactionConfig.width.toFloat())
+                    it.setInteractionHeight(interactionConfig.height.toFloat())
+                }
                 entity = interaction
             } finally {
                 spawnScheduled.set(false)

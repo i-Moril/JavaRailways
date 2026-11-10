@@ -42,3 +42,14 @@ controller prepare/tick on workers
 - `getNearestRail` 是 `@Heavy` 且要求 off-main-thread；类似全量/几何查询应复用 spatial index 或明确 worker boundary。
 
 测试优先复现 epoch、方向、占用与 topology 边界，而不是只断言单个 getter。
+
+
+## Runtime 停止与解绑
+
+`PhysicsCoordinator.stopAndAwait(timeoutMillis = 10_000)` 封住 timer/main/manual 新 epoch，等待准确 in-flight ticket 和 owned executors；成功后 `captureCurrentTicket()` 仍可用于最终 snapshot，再 `close()`。失败进入 STALLED，不能保存旧成功 frame；timeout 必须报告不能退出的 worker。`close()` 幂等并防止迟到 worker 把 CLOSED 改回运行状态。
+
+`CoreWorld.releaseRuntimeContext()` 幂等解绑所属 `WorldParentContext`；materialize 失败同样解绑。所有 world 释放后才调用 `releaseJavaRailwaysKoinRuntime()`，它只关闭自有 child/parent/module，不停止共享 GlobalContext。
+
+`PluginRegistry.unregister(owner)` 仅移除该实例，保留 identifier 槽位；退休条目不保留 Class/classloader。`plugins` 是活跃 owner 列表，列表下标不等于 identifier。扩展必须通过 `plugin.identifier` 定位。
+
+验证见 `PhysicsCoordinatorTest`、`JavaRailwaysKoinLifecycleTest`、`ExtensionDataContainerTest`，覆盖 blocked epoch、worker failure/timeout、共享 Koin 存续、重复重建和稳定扩展槽。

@@ -17,6 +17,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicLong
 
 /** Identifies who caused a physics epoch to start. */
@@ -123,6 +124,9 @@ class PhysicsCoordinator(
     }
 
     private val stateLock = Any()
+    private val stopLock = Any()
+    private var stopping = false
+    private var aborted = false
     private val controllers = ConcurrentHashMap<String, TrainController>()
     private val publishedFrameProcessors = CopyOnWriteArrayList<PublishedTrainFrameProcessor>()
     private val trainsPublishingMotionFrames = ConcurrentHashMap.newKeySet<String>()
@@ -167,18 +171,19 @@ class PhysicsCoordinator(
     fun start() {
         synchronized(stateLock) {
             check(status != PhysicsCoordinatorStatus.CLOSED) { "PhysicsCoordinator is closed" }
+            check(!stopping) { "PhysicsCoordinator is stopping" }
             if (started) return
             check(world != null) { "PhysicsCoordinator must be attached to a world before start" }
             world!!.rebuildSweptOccupancyIndex()
             started = true
-        }
-        if (automaticFallback) {
-            fallbackTimer.scheduleAtFixedRate(
-                ::timerWake,
-                fallbackPeriodMillis,
-                fallbackPeriodMillis,
-                TimeUnit.MILLISECONDS
-            )
+            if (automaticFallback) {
+                fallbackTimer.scheduleAtFixedRate(
+                    ::timerWake,
+                    fallbackPeriodMillis,
+                    fallbackPeriodMillis,
+                    TimeUnit.MILLISECONDS
+                )
+            }
         }
     }
 
@@ -299,15 +304,12 @@ class PhysicsCoordinator(
     }
 
     private fun timerWake() {
-        val shouldWake = synchronized(stateLock) {
-            if (!started || status != PhysicsCoordinatorStatus.RUNNING) {
-                false
-            } else {
+        synchronized(stateLock) {
+            if (started && !stopping && status == PhysicsCoordinatorStatus.RUNNING &&
                 nanoTime() - lastMainWakeNanos >= TimeUnit.MILLISECONDS.toNanos(mainHeartbeatTimeoutMillis)
+            ) {
+                requestStep(PhysicsWakeSource.TIMER_FALLBACK)
             }
-        }
-        if (shouldWake) {
-            requestStep(PhysicsWakeSource.TIMER_FALLBACK)
         }
     }
 
@@ -318,6 +320,7 @@ class PhysicsCoordinator(
         val deltaMillis: Double
         synchronized(stateLock) {
             ensureUsableLocked()
+            check(!stopping) { "PhysicsCoordinator is stopping" }
             inFlight?.let { return it }
             check(started) { "PhysicsCoordinator has not been started" }
 
@@ -339,10 +342,9 @@ class PhysicsCoordinator(
 
             ticket = PhysicsTicket(nextEpoch++, CompletableFuture())
             inFlight = ticket
-        }
-
-        coordinatorExecutor.execute {
-            runEpoch(ticket, source, startNanos, rawDeltaMillis, deltaMillis)
+            coordinatorExecutor.execute {
+                runEpoch(ticket, source, startNanos, rawDeltaMillis, deltaMillis)
+            }
         }
         return ticket
     }
@@ -384,6 +386,9 @@ class PhysicsCoordinator(
             }
             futures.forEach { it.get() }
 
+            synchronized(stateLock) {
+                check(!aborted) { "Physics epoch ${ticket.epoch} was aborted during shutdown" }
+            }
             val coordinatorStart = nanoTime()
             // Publish only after every worker has finished reading the previous epoch.
             val publishedTrains = LinkedHashSet<CoreTrain>()
@@ -447,7 +452,7 @@ class PhysicsCoordinator(
                         "${epochOverloadThresholdMillis}ms within ${overloadWindowMillis}ms"
                 )
                 synchronized(stateLock) {
-                    status = PhysicsCoordinatorStatus.STALLED
+                    if (status != PhysicsCoordinatorStatus.CLOSED) status = PhysicsCoordinatorStatus.STALLED
                     inFlight = null
                 }
                 ticket.completion.completeExceptionally(failure)
@@ -464,7 +469,7 @@ class PhysicsCoordinator(
                 PhysicsStalledException("Physics epoch ${ticket.epoch} failed", t)
             }
             synchronized(stateLock) {
-                status = PhysicsCoordinatorStatus.STALLED
+                if (status != PhysicsCoordinatorStatus.CLOSED) status = PhysicsCoordinatorStatus.STALLED
                 inFlight = null
             }
             ticket.completion.completeExceptionally(failure)
@@ -538,18 +543,82 @@ class PhysicsCoordinator(
         }
     }
 
-    override fun close() {
-        synchronized(stateLock) {
-            if (status == PhysicsCoordinatorStatus.CLOSED) return
-            status = PhysicsCoordinatorStatus.CLOSED
-            inFlight?.completion?.completeExceptionally(
-                PhysicsStalledException("PhysicsCoordinator closed while an epoch was running")
-            )
-            inFlight = null
+    /**
+     * Permanently stops new epochs and waits for the exact running epoch and all owned executors.
+     * Call only after stopping external tick/simulation producers, and never from a physics worker
+     * or frame processor. A successful return leaves the last ticket readable for final snapshots;
+     * [close] may then release the coordinator. Failure/timeout must prevent a final snapshot.
+     * Controllers must cooperate with interruption; failure to terminate is reported, not hidden.
+     */
+    fun stopAndAwait(timeoutMillis: Long = STOP_TIMEOUT_MILLIS) {
+        require(timeoutMillis > 0) { "timeoutMillis must be > 0" }
+        synchronized(stopLock) {
+            val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+            val ticket = synchronized(stateLock) {
+                check(status != PhysicsCoordinatorStatus.CLOSED) { "PhysicsCoordinator is closed" }
+                stopping = true
+                inFlight ?: latestCompleted
+            }
+            fallbackTimer.shutdownNow()
+            try {
+                synchronized(stateLock) { ensureUsableLocked() }
+                ticket.completion.get(remainingNanos(deadline), TimeUnit.NANOSECONDS)
+                coordinatorExecutor.shutdown()
+                workerPool.shutdown()
+                awaitTermination(coordinatorExecutor, deadline)
+                awaitTermination(workerPool, deadline)
+                awaitTermination(fallbackTimer, deadline)
+                synchronized(stateLock) { ensureUsableLocked() }
+            } catch (failure: Throwable) {
+                synchronized(stateLock) {
+                    aborted = true
+                    if (status != PhysicsCoordinatorStatus.CLOSED) status = PhysicsCoordinatorStatus.STALLED
+                    ticket.completion.completeExceptionally(failure)
+                }
+                coordinatorExecutor.shutdownNow()
+                workerPool.shutdownNow()
+                listOf(coordinatorExecutor, workerPool, fallbackTimer).forEach { executor ->
+                    try {
+                        awaitTermination(executor, deadline)
+                    } catch (terminationFailure: Throwable) {
+                        failure.addSuppressed(terminationFailure)
+                    }
+                }
+                throw failure
+            }
         }
-        fallbackTimer.shutdownNow()
-        coordinatorExecutor.shutdownNow()
-        workerPool.shutdownNow()
+    }
+
+    override fun close() {
+        synchronized(stopLock) {
+            synchronized(stateLock) {
+                if (status == PhysicsCoordinatorStatus.CLOSED) return
+            }
+            try {
+                if (status == PhysicsCoordinatorStatus.RUNNING) stopAndAwait()
+            } finally {
+                synchronized(stateLock) {
+                    aborted = true
+                    status = PhysicsCoordinatorStatus.CLOSED
+                }
+                fallbackTimer.shutdownNow()
+                coordinatorExecutor.shutdownNow()
+                workerPool.shutdownNow()
+                val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(STOP_TIMEOUT_MILLIS)
+                awaitTermination(coordinatorExecutor, deadline)
+                awaitTermination(workerPool, deadline)
+                awaitTermination(fallbackTimer, deadline)
+            }
+        }
+    }
+
+    private fun remainingNanos(deadline: Long): Long =
+        (deadline - System.nanoTime()).coerceAtLeast(0L)
+
+    private fun awaitTermination(executor: ExecutorService, deadline: Long) {
+        if (!executor.awaitTermination(remainingNanos(deadline), TimeUnit.NANOSECONDS)) {
+            throw TimeoutException("Physics executor did not terminate during shutdown")
+        }
     }
 
     private fun completedBootstrapTicket(): PhysicsTicket {
@@ -593,6 +662,7 @@ class PhysicsCoordinator(
         const val DEFAULT_MAX_PHYSICS_DELTA_MILLIS = 200.0
         const val OVERLOAD_WINDOW_MILLIS = 10_000L
         const val OVERLOADS_BEFORE_STALL = 3
+        private const val STOP_TIMEOUT_MILLIS = 10_000L
         private const val CLAMP_LOG_INTERVAL_MILLIS = 10_000L
 
         private val WORKER_SEQUENCE = AtomicLong()

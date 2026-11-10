@@ -53,6 +53,13 @@ class TrainExtension : CoreTrainExtension {
     private var savedPackageSnapshotHash: String? = null
     private var savedPackageSnapshot: SavedTrainPackageSnapshot? = null
 
+    fun close() {
+        behaviorRuntime?.close()
+        behaviorRuntime = null
+        behaviorScript = null
+        actionExecutionTracker = null
+    }
+
     override fun initialize(host: Train, savedExtensionData: Map<String, SerializableExtensionData>) {
         self = host
         val savedState = savedExtensionData[BukkitPlugin.EXTENSION_ID] as? SavedTrainRenderState

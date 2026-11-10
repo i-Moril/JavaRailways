@@ -3,7 +3,7 @@
 ## Commands、Wand 与 Dialog
 
 - Cloud `PaperCommandManager` 是 `/javarailways`/`/jr` 的注册入口；`CloudCommandRegistrar.ROUTES` 与 `JavaRailwaysCommand` delegate 必须同步。新增 nested route 同时测试 route set、trailing-space suggestion token 和 permission/console/player boundary。参考 `CloudCommandRegistrar.kt`、`CloudCommandRegistrarTest.kt`。
-- `AbstractWand` 将每个 item instance UUID 与 state 写入 PDC。decode 损坏时保留原 encoded data、使用内存 default 并记录警告；禁止自动覆盖不可读状态。interaction 进入 simulation context，但 player/entity UI 仍要 owner-aware。
+- `AbstractWand` 将每个 item instance UUID 与 state 写入 PDC。每个持久化状态变更需在玩家 owner 上立即写回；Folia 停服不依赖最后扫描背包。decode 损坏时保留原 encoded data、使用内存 default 并记录警告；禁止自动覆盖不可读状态。interaction 进入 simulation context，但 player/entity UI 仍要 owner-aware。
 - Dialog 输入 key 只允许 Paper 支持字符，当前用 `.` → `_`；NUMBER_TEXT 先 parse 再检查 finite，trigger enum 变更 commit 后重建可见字段。新增 `ConfigValueType` 时同步 input、capture、validation 与 tests。
 - 玩家文本使用 Adventure `Component` 和资源/locale owner；固定 enum/JSON token 不翻译。
 
@@ -15,7 +15,7 @@
 - `DisplayRenderBackendFactory` 根据 config 选择 `NATIVE`/`ENTITYLIB`，backend-specific entity/packet 细节隐藏在 `render.backend`。
 - composite visual 显示顺序是 children before root passenger packet；隐藏顺序是 root before children。`CompositeModelVisibilityTest` 固定该 contract。
 - model/audience/revision pipeline 保持 latest-wins、有界队列和 stale revision rejection；不要引入每车遍历全服玩家或每 tick 无界 scheduler submission。
-- destroy/unload 必须幂等并清理 child/root/backend resources。
+- destroy/unload 必须幂等并清理 child/root/backend resources。所有原生临时实体在 `World.spawn` consumer 内、加入世界前设置 `isPersistent = false`；不能等 spawn 返回后再设置。Folia 真正停服可以跳过 native owner 删除，但本地 teardown、JR 快照和已写入的玩家工具 PDC 仍保留，参见 lifecycle 停服契约。
 
 ## Add-on API 边界
 

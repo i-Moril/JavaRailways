@@ -1,5 +1,7 @@
 # Packet Entity 渲染后端改进计划
 
+> 2026-11-10 部署方案更新：用户要求改为独立安装 PacketEvents，已取代下文的历史内嵌 bootstrap 方案。JavaRailways 仅 compileOnly 依赖 PacketEvents 2.12.1，声明硬依赖 `packetevents`；EntityLib 仍内嵌并重定位。安装说明见 [BukkitPlugin/README.md](../BukkitPlugin/README.md)。
+
 ## 1. 目标
 
 为 JavaRailways 增加管理员可选的展示实体渲染后端，同时保留现有行为：

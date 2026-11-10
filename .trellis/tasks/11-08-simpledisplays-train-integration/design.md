@@ -1,5 +1,7 @@
 # Design
 
+> 2026-11-10: the approved [Decorations foundation contract](research/decorations-foundation-contract.md) and updated [PRD](prd.md) supersede ownership/format details below. Host provides generic parts/resources; Decorations owns display and optional SimpleDisplays. Missing add-on preserves transforms, animation and children. Current batch has no mounting/runtime rendering API. The earlier design below is historical reference for later stages.
+
 > Current slice: package display XML loading and source-package snapshots; see [approved contract](research/package-display-loading-contract.md). Independent XML/document JS is complete at SimpleDisplays `410af2e`. Standalone-JS notes below are historical; the old-format consistency child remains deferred until pre-acceptance.
 
 ## Ownership and boundaries

@@ -5,7 +5,8 @@ import work.art1st.javarailways.core.api.physics.World
 import java.io.File
 
 class ModelManager(
-    private val dataFolder: File
+    private val dataFolder: File,
+    private val extensionService: work.art1st.javarailways.bukkit.api.internal.DefaultPartExtensionService? = null
 ) {
     val trainPackages: MutableMap<String, LoadedTrainPackage> = mutableMapOf()
     val railPackages: MutableMap<String, LoadedRailPackage> = mutableMapOf()
@@ -19,6 +20,10 @@ class ModelManager(
     var lastReloadFailures: Map<String, Throwable> = emptyMap()
         private set
 
+    init {
+        extensionService?.bindPackages { synchronized(this) { trainPackages.values.toList() } }
+    }
+
     /** Strict startup entry point. Reload callers may publish independent valid train types. */
     fun loadAll(): ModelReloadResult {
         val prepared = prepareReload()
@@ -28,6 +33,7 @@ class ModelManager(
 
     /** No published registry is mutated while files and complete model snapshots are prepared. */
     internal fun prepareReload(): PreparedModelReload {
+        val extensionGeneration = extensionService?.generation() ?: 0L
         val baseline = synchronized(this) { Triple(generation, trainPackages.toMap(), trainSources) }
         val failures = linkedMapOf<String, Throwable>()
         val sources = linkedMapOf<String, String>()
@@ -50,7 +56,13 @@ class ModelManager(
         baseline.second.keys.filter { it !in candidates && it !in failures }.forEach { name ->
             failures[name] = IllegalArgumentException("Train package '$name' is no longer available")
         }
-        // Only fresh registries are wired. Retained packages keep their original reference graph.
+        // Extension validation needs only local/inline definitions and detached captured resources.
+        // Remove rejected providers' candidates before resolving any composition's source cars.
+        for ((name, pkg) in candidates) {
+            try { extensionService?.validatePackage(pkg) } catch (failure: Exception) { failures[name] = failure }
+        }
+        failures.keys.forEach(candidates::remove)
+        // Only fresh registries are wired. Rejected source packages resolve to their retained baseline.
         val available = baseline.second + candidates
         wireCrossPackageReferences(candidates, available)
         val versions = linkedMapOf<String, TrainResourceVersion>()
@@ -63,12 +75,13 @@ class ModelManager(
         }
         failures.keys.forEach { candidates.remove(it); versions.remove(it) }
         return PreparedModelReload(baseline.first, candidates.toMap(), loadRailPackages(), versions.toMap(),
-            failures.toMap(), sources.toMap())
+            failures.toMap(), sources.toMap(), extensionGeneration)
     }
 
     /** Publish only prepared successful types; every failed/rejected type retains its old catalog. */
     @Synchronized
     internal fun publishReload(prepared: PreparedModelReload, rejected: Map<String, Throwable> = emptyMap()): ModelReloadResult {
+        check(prepared.extensionGeneration == (extensionService?.generation() ?: 0L)) { "Part extension providers changed while reload was being prepared" }
         check(prepared.baseGeneration == generation) { "Model resources changed while reload was being prepared" }
         val failures = prepared.failures + rejected
         val accepted = prepared.trainPackages.filterKeys { it !in failures }
@@ -108,13 +121,13 @@ class ModelManager(
             qualifiedName
         }
         val snapshot = SavedTrainPackageSnapshot.build(pkg.manifest.name, pkg.actions, pkg.behavior,
-            pkg.control, models.mapValues { it.value.car.control }, pkg.displays)
+            pkg.control, models.mapValues { it.value.car.control }, pkg.extensions)
         val sourceSnapshots = models.keys.associateWith { name ->
             val owner = requireNotNull(available[getCar(available, name)?.packageName]) {
                 "Car '$name' has no source package"
             }
             SavedTrainPackageSnapshot.build(owner.manifest.name, owner.actions, owner.behavior,
-                owner.control, owner.cars.mapKeys { "${owner.manifest.name}/${it.key}" }.mapValues { it.value.control }, owner.displays)
+                owner.control, owner.cars.mapKeys { "${owner.manifest.name}/${it.key}" }.mapValues { it.value.control }, owner.extensions)
         }
         return TrainResourceVersion(snapshot, java.util.Collections.unmodifiableMap(models),
             java.util.Collections.unmodifiableMap(sourceSnapshots), java.util.List.copyOf(composition))

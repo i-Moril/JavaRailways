@@ -126,17 +126,9 @@
         "spacing": {"$ref": "#/$defs/vector"}
       }
     },
-    "screen": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["category", "interior", "width", "height"],
-      "description": "Screen installation in part-local XY, centred at the origin and facing +Z. Dimensions are metres.",
-      "properties": {
-        "category": {"type": "string", "minLength": 1, "pattern": "^\\S+$"},
-        "interior": {"type": "boolean", "description": "Interior screens use viewing distance; exterior screens follow the car body. Visibility is implemented separately."},
-        "width": {"type": "number", "exclusiveMinimum": 0},
-        "height": {"type": "number", "exclusiveMinimum": 0}
-      }
+    "extensionTypeId": {
+      "type": "string",
+      "pattern": "^[a-z0-9_.-]+:[a-z0-9_./-]+$(?![\\s\\S])"
     },
     "partDefinition": {
       "type": "object",
@@ -147,12 +139,16 @@
         "name": {"$ref": "#/$defs/nonEmptyString"},
         "type": {
           "type": "string",
-          "enum": ["dummy", "item_display", "interact", "seat", "platform", "screen"]
+          "oneOf": [
+            {"enum": ["dummy", "item_display", "interact", "seat", "platform"]},
+            {"$ref": "#/$defs/extensionTypeId"}
+          ]
         },
         "item": {"$ref": "#/$defs/item"},
         "interaction": {"$ref": "#/$defs/interaction"},
         "platform": {"$ref": "#/$defs/platform"},
-        "screen": {"$ref": "#/$defs/screen"},
+        "config": {"type": "object", "description": "Opaque extension-owned configuration; its provider validates fields."},
+        "schema-version": {"type": "integer", "minimum": 1, "default": 1},
         "offset": {"$ref": "#/$defs/vector"},
         "rotation": {"$ref": "#/$defs/vector"},
         "parts": {
@@ -173,9 +169,12 @@
           }
         },
         {
-          "if": {"properties": {"type": {"const": "screen"}}, "required": ["type"]},
-          "then": {"required": ["screen"]},
-          "else": {"not": {"required": ["screen"]}}
+          "if": {"properties": {"type": {"$ref": "#/$defs/extensionTypeId"}}, "required": ["type"]},
+          "then": {
+            "required": ["config"],
+            "properties": {"item": false, "interaction": false, "platform": false}
+          },
+          "else": {"properties": {"config": false, "schema-version": false}}
         }
       ]
     },

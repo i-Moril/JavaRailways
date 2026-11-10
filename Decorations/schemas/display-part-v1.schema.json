@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "display-part-v1.schema.json",
+  "title": "Decorations display part (host part schema plus display configuration)",
+  "allOf": [
+    {
+      "$ref": "../../schemas/train-model/model-common.schema.json#/$defs/partDefinition"
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "decorations:display"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "schema-version": {
+            "const": 1
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "category",
+              "interior",
+              "width",
+              "height"
+            ],
+            "properties": {
+              "category": {
+                "type": "string",
+                "pattern": "^\\S+$(?![\\s\\S])"
+              },
+              "interior": {
+                "type": "boolean"
+              },
+              "width": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "height": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

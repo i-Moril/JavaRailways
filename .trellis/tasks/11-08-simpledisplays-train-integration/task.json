@@ -5,7 +5,7 @@
   "description": "Soft-integrate the SimpleDisplays display engine with JavaRailways train packages, display categories, package-provided styles, runtime overrides, and train-mounted rendering.",
   "status": "in_progress",
   "dev_type": null,
-  "scope": "BukkitPlugin optional SimpleDisplays API integration, train package display declarations/styles, mounted rendering, and SimpleATO display-data projection",
+  "scope": "Generic host extension parts/resources/provider lifecycle; Decorations display definitions/resources and optional SimpleDisplays adapter; later mounted rendering and train data",
   "package": "bukkit-plugin",
   "priority": "P1",
   "creator": "ARTI5T",
@@ -23,6 +23,6 @@
   ],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Stage1 ce2bcd44; screen definitions8cc6bf35; independent SimpleDisplays XML/document JS410af2e (supersedes standalone JS). Current displays.yml loading/source snapshots slice complete: strict YAML/paths/UTF8/local refs, immutable raw XML/default maps, both source paths and Store hash.26 focused tests pass; full759 tests has same known ProgramExpressionsTest failure and1skip; shadowJar/Dev compile/schema checks pass. See research/package-display-loading-validation.md. Compilation cache/style selection/rendering/domain/PAPI/view distances remain pending. Existing-format consistency child stays planning and runs after other features before final acceptance.",
+  "notes": "2026-11-10 Decorations foundation implemented, uncommitted pending requested change/module report. Generic host extension parts/raw resources/provider lifecycle; missing addon retains transforms/animations/children. Related46host+18Decorations tests pass; full host758 has known ProgramExpressionsTest failure and1skip; shadowJar/Dev compile, schema30cases and3actualPaper combinations pass. See research/decorations-foundation-validation.md. Runtime mounting/backends/template compilation/train data/PAPI/view distance remain later work. Independent XML/document JS410af2e unchanged; deferred schema-consistency child remains planning.",
   "meta": {}
 }

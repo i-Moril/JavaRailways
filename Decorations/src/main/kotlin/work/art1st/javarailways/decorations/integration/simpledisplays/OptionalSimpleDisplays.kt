@@ -1,4 +1,4 @@
-package work.art1st.javarailways.bukkit.integration.simpledisplays
+package work.art1st.javarailways.decorations.integration.simpledisplays
 
 import org.bukkit.event.EventHandler
 import org.bukkit.event.HandlerList
@@ -19,7 +19,7 @@ internal class OptionalSimpleDisplays(private val host: Plugin) : Listener, Auto
         check(connection == null && providerOwner == null) { "SimpleDisplays discovery already started" }
         val provider = host.server.pluginManager.getPlugin("SimpleDisplays")
         if (provider == null || !provider.isEnabled) {
-            host.logger.info("SimpleDisplays is absent or disabled; train displays are unavailable")
+            host.logger.info("SimpleDisplays is absent or disabled; display integration are unavailable")
             return
         }
         try {
@@ -60,7 +60,7 @@ internal class OptionalSimpleDisplays(private val host: Plugin) : Listener, Auto
 
     private fun unavailable(failure: Throwable) {
         clear()
-        host.logger.log(Level.WARNING, "SimpleDisplays API service is unavailable or incompatible; train displays are disabled", failure)
+        host.logger.log(Level.WARNING, "SimpleDisplays API service is unavailable or incompatible; display integration are disabled", failure)
     }
 
     private fun clear() {
@@ -75,7 +75,7 @@ internal class OptionalSimpleDisplays(private val host: Plugin) : Listener, Auto
     }
 
     private companion object {
-        const val PACKAGE = "work.art1st.javarailways.bukkit.integration.simpledisplays"
+        const val PACKAGE = "work.art1st.javarailways.decorations.integration.simpledisplays"
     }
 }
 

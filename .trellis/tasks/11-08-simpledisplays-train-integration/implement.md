@@ -138,3 +138,18 @@ Replacement committed as SimpleDisplays `410af2e`, directly parented by `21f7686
 - [x] 独立审查、打包/编译检查、文档与局部提交；随后停止供复核。
 
 本批已实现并通过26项定向测试/独立审查；完整Bukkit759项仍有已记录的同一表达式失败，打包/Dev编译通过。见[验证记录](research/package-display-loading-validation.md)。下批候选为模板编译缓存与类别默认选择。
+
+## 2026-11-10 计划修订：Decorations（先调查，未启动实施）
+
+用户将SimpleDisplays适配迁至新的Decorations附属插件，本轮只做display。先明确宿主通用parts注册、来源资源快照和挂载生命周期，详见[边界调查](research/decorations-extension-boundary.md)。原先下一批直接在宿主实现模板编译缓存的安排被取代；缺失扩展策略及注册时序方案确定并审阅后再进入实现。配置一致性子任务仍保持最终验收前执行。
+
+## 当前实施：Decorations基础与既有display迁移
+
+按[当前合同](research/decorations-foundation-contract.md)实现。用户明确缺失插件保留变换/子树、提交前报告，本批不创建提交。
+
+- [x] 宿主通用part类型/配置及插件owner注册与late validation。
+- [x] manifest通用资源目录捕获和不依赖addon的来源快照/hash。
+- [x] 独立Decorations模块，迁移display配置/可选SimpleDisplays适配。
+- [x] composition/schema/文档/样例和完整验证；提交前报告模块与改动。
+
+本批基础迁移已完成，尚未提交。最终相关46+18项测试全过；完整Bukkit758项保留同一ProgramExpressionsTest失败和1skip。打包/Dev编译及三个真实Paper启动组合通过；见[验证记录](research/decorations-foundation-validation.md)。实际挂载渲染仍为后续批次。

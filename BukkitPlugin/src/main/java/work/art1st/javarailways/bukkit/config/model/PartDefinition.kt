@@ -8,7 +8,7 @@ import kotlinx.serialization.Serializable
  * Parts define the building blocks of car models.
  * A part can be of type ITEM_DISPLAY (renders as ItemDisplay entity),
  * INTERACT (Interaction hitbox), SEAT (invisible minecart), PLATFORM
- * (collision platform), SCREEN (screen installation), or DUMMY (pure transform group).
+ * (collision platform), EXTENSION (opaque decorative metadata), or DUMMY (pure transform group).
  *
  * Parts can reference sub-parts via [parts], forming a hierarchical model tree.
  */
@@ -23,11 +23,11 @@ data class PartDefinition(
     val rotation: Vec3Config = Vec3Config(),      // Local rotation (degrees)
     val parts: List<PartRefEntry> = emptyList(),  // Sub-part references
     val animations: List<PartAnimationConfig> = emptyList(), // Part-level animations
-    val screen: PartScreenConfig? = null          // Present only for SCREEN type
+    val extension: PartExtensionPayload? = null   // Present only for EXTENSION type
 ) {
     init {
-        require((type == PartType.SCREEN) == (screen != null)) {
-            "Part '$name' must declare screen exactly when type is SCREEN"
+        require((type == PartType.EXTENSION) == (extension != null)) {
+            "Part '$name' must declare extension exactly when type is EXTENSION"
         }
     }
 

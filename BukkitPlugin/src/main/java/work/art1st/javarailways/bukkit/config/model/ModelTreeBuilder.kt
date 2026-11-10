@@ -302,9 +302,9 @@ class ModelTreeBuilder internal constructor(
             PartType.PLATFORM -> {
                 PlatformModel(world = world, state = modelState, attachedModels = children, animation = animations, initialLocation = spawnLoc, platformConfig = def.platform)
             }
-            // Definitions are loadable before the screen renderer is introduced.
-            // Keep the transform, animations and children; create no screen visual.
-            PartType.SCREEN, PartType.DUMMY -> {
+            // Decorative extension definitions remain usable with no provider.
+            // Preserve the transform, animations and children as a grouping node.
+            PartType.EXTENSION, PartType.DUMMY -> {
                 DummyModel(world = world, state = modelState, attachedModels = children, animation = animations)
             }
         }.also { model ->

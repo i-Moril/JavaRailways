@@ -1,50 +1,47 @@
-# Integrate SimpleDisplays with train-mounted displays
+# Train-mounted displays through Decorations
 
-> Current slice: package display XML loading and source-package snapshots; see [approved contract](research/package-display-loading-contract.md). Independent XML/document JS is complete at SimpleDisplays `410af2e`. Standalone-JS notes below are historical; the old-format consistency child remains deferred until pre-acceptance.
+## Confirmed module boundary (2026-11-10)
 
-## Goal
+JavaRailways supplies generic namespaced part definitions, immutable extension package resources and provider registration. The independent `Decorations` plugin owns `decorations:display`, display resource semantics and the optional SimpleDisplays connection. SimpleDisplays remains a separate reusable XML/document-JS library/plugin.
 
-Soft-integrate the SimpleDisplays display engine with JavaRailways train packages, display categories, package-provided styles, runtime overrides, and train-mounted rendering.
+Without Decorations, a train must load normally. Unknown namespaced nodes retain their configuration, transforms, animations and complete child subtree. A diagnostic identifies the unavailable extension. Unknown unnamespaced part types remain errors. No reflective loading from saved type IDs is permitted.
 
-## Requirements
+The approved current foundation slice is [the Decorations contract](research/decorations-foundation-contract.md). It migrates existing definitions/resource loading/service discovery without implementing visuals. Main-package and exact per-car source snapshots capture raw extension data without a provider. Late provider registration validates already loaded packages; reload publication must reject stale provider generations. Provider disable retires its registration without removing model trees.
 
-- JavaRailways Bukkit must declare `SimpleDisplays` as a soft dependency. The railway plugin must continue to load and run trains when SimpleDisplays is absent.
-- SimpleDisplays remains an independently usable Bukkit/Paper/Folia plugin with its own commands. JavaRailways consumes its public API and must not depend on its implementation package.
-- Screens are `type: screen` nodes in the existing part tree, supporting both inline definitions and imports in `body-parts`/`parts`. They reuse common part names and parent-relative transforms; `screen` contains category, interior/exterior classification and physical dimensions. Do not add a parallel car-level `screens` list or a separate screen ID system.
-- Each screen part must declare whether its screen is inside the car. Exterior screens follow the same rendering/visibility strategy as the car body. In the first release, interior screens use distance-based per-player visibility, with a server-configured viewing distance and player command overrides, analogous to train/rail viewing distance. Interior occupancy, screen-facing, camera-frustum and occlusion checks are not part of this initial policy.
-- Recommended categories initially include `head_led`, `side_led`, `cabin_side_lcd`, and `cabin_end_led`. Packages may use additional stable category IDs.
-- A train package can include SimpleDisplays XML styles and provide category-level defaults. It can additionally bind a particular installation point to a style for screens whose proportions or layout differ.
-- Server-side configuration can override the style for a category on a particular train. The initial precedence is train category override, package point default, then package category default.
-- Screen coordinates use the SimpleDisplays convention of 128 logical units per block/metre. Templates are fitted to each installation point's physical width and height without changing the car model geometry.
-- JavaRailways supplies runtime display values. The first dynamic contract covers service/train type, destination, current station, next station, and the ordered future stopping pattern. Passed stations are excluded and short turns update destination and future stops.
-- Both the native Bukkit display backend and the EntityLib packet backend must render the same SimpleDisplays draw output and participate in existing train visibility, motion, model rebuild, and cleanup lifecycles.
-- Folia ownership rules apply to spawning, updating, moving, and destroying screen visuals.
-- Minecraft-command and per-car JS APIs for changing category styles at runtime remain a documented TODO until target scope and persistence across restart, coupling, splitting, and re-composition are decided.
-- Persisted/configuration changes follow the repository versioning gate. Additive fields with explicit defaults do not cause speculative schema-version changes.
+## Current foundation acceptance
 
-## Acceptance Criteria
+- [x] Host has no SimpleDisplays API dependency, adapter or descriptor dependency.
+- [x] Decorations registers display semantics through public host API, with lifecycle cleanup and a separate thin plugin JAR.
+- [x] Missing add-on preserves extension nodes, transforms, animations, imports and children.
+- [x] Declared extension directories capture immutable UTF-8 resources with safe paths and deterministic snapshots, including per-car source packages.
+- [x] Invalid installed-provider config fails preparation; late registration reports per-package failures; stale candidates cannot publish across registration changes.
+- [x] Existing built-in/no-extension snapshot hashes remain fixed; current schema versions remain unchanged.
+- [x] Schemas, examples, targeted tests, packaging and available runtime smoke evidence agree.
 
-- [x] JavaRailways starts successfully both with and without SimpleDisplays installed, and the generated plugin descriptor contains `SimpleDisplays` under soft dependencies.
-- [ ] A package can declare multiple installation points sharing one category and can include default XML styles.
-- [ ] Point-specific defaults override package category defaults, and a train-specific category override supersedes both.
-- [ ] Missing SimpleDisplays, absent optional styles, or a screen-free car never prevents the train model from loading. Invalid declared styles fail with an actionable package/train/category/point diagnostic according to the agreed validation boundary.
-- [ ] The same static head/side display and cabin LCD render through native and EntityLib backends and remain aligned through curves, slopes, reversing, model rebuild, audience changes, and unload.
-- [ ] Exterior screens follow car-body visibility. Interior screens obey the server viewing-distance setting and player command overrides; leaving range removes their visuals and stops further screen updates for that player. Visibility does not require being seated or physically inside the car.
-- [ ] A cabin LCD can render the actual ordered future stops for two runs of the same rolling stock with different stopping patterns.
-- [ ] Passing a station and performing a short turn refreshes the affected LCD and destination display without rebuilding the whole train model.
-- [ ] SimpleDisplays' independent demo/preview command continues to render the same template through its own native `TextDisplay` renderer on Paper/Folia.
-- [ ] Automated tests cover service discovery, style resolution precedence, configuration validation, display-data projection, and backend lifecycle cleanup.
-- [ ] Targeted BukkitPlugin tests, packaging checks, Kotlin compilation, and recorded Paper/Folia smoke scenarios pass.
+Validation: [foundation record](research/decorations-foundation-validation.md). Complete host suite retains one previously recorded expression failure; do not claim whole-suite green. No commit yet.
 
-## Notes
+## Remaining display integration
 
-- SimpleDisplays lives at `../SimpleDisplays` and is a separate Git repository.
-- Existing SimpleDisplays commits are `cf6b5c8` (public rendering service and independent demo), `150dfc3` (split public API types), and `21f7686` (separate API artifact).
-- This task uses the dedicated `ddf5` worktree. The main checkout contains unrelated work and is not an implementation/build target.
+- Compile captured XML/document-JS templates through the independent SimpleDisplays API; preserve viewer-specific content and isolated script state.
+- Define generic train-part runtime mounting and cleanup APIs, then implement Decorations rendering through native Bukkit and EntityLib backends, with Folia ownership.
+- Reuse parts-tree names, transforms, inline definitions and imports. Display config requires category, interior, physical width and height. No parallel screen list or separate point identity.
+- Preserve confirmed visibility policy: exterior screens follow car-body visibility; interior screens initially use configurable per-player distance, including a player command. Occupancy, facing, frustum and occlusion are outside the first policy.
+- Resolve package/category/point defaults and train category overrides. Initial precedence remains train override, package point default, package category default; current resource format only implements category defaults.
+- Supply train/run type, destination, current/next station and actual ordered future stops directly through the library API. Actual Bukkit PlaceholderAPI adaptation is optional subsequent work, not the transport between JavaRailways and SimpleDisplays.
+- Fit logical template coordinates (128 units per block/metre) to the physical installation dimensions.
+- Verify movement, curves, slopes, reversing, audience changes, rebuild and unload through both rendering backends on real Paper/Folia. Static tests and plugin health do not prove client rendering.
+- Runtime style-switching command/per-car JS addressing and persistence remain TODO pending target and composition semantics.
+- Run deferred `11-09-model-config-schema-consistency` after other display work and before final acceptance.
+
+## Workspace and provenance
+
+Use only the dedicated `ddf5/JavaRailways` worktree on `codex/simpledisplays-train-integration`; the main checkout contains unrelated work. Independent SimpleDisplays XML/document JS is at `410af2e`, reimplemented from `21f7686` without a revert commit. Earlier built-in screen and root displays.yml formats were unshipped development shapes and are replaced directly, with no legacy runtime reader or speculative version increase.
+
+Historical discussion below records prior decisions; this confirmed module boundary and foundation contract supersede obsolete ownership/format claims.
 
 ## Confirmed visibility decision (2026-11-09)
 
-- The user selected the distance-based initial policy above. The user also approved inline/imported screen parts with required `category`, `interior`, `width` and `height` under `screen`. Config keys, numeric defaults, command syntax, distance reference point and player-setting persistence remain implementation-design details to specify before coding; no values or persistence behavior have been agreed here. The player command is for viewing distance, distinct from deferred category-style switching.
+- The user selected the distance-based initial policy above. The user also approved inline/imported screen parts with required `category`, `interior`, `width` and `height` under the extension-owned `config` (original built-in `screen` shape superseded by Decorations). Config keys, numeric defaults, command syntax, distance reference point and player-setting persistence remain implementation-design details to specify before coding; no values or persistence behavior have been agreed here. The player command is for viewing distance, distinct from deferred category-style switching.
 - Continue work in `/home/user/.codex/worktrees/ddf5/JavaRailways` on `codex/simpledisplays-train-integration`, starting from `ce2bcd44`. The main checkout has other work and must not be used for implementation or builds of this task.
 
 ## Template discussion (2026-11-09)

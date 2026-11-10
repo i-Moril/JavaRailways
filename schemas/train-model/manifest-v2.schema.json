@@ -14,7 +14,21 @@
       "type": "array",
       "items": {"type": "string", "minLength": 1}
     },
-    "rail-config": {"type": "string", "minLength": 1}
+    "rail-config": {"type": "string", "minLength": 1},
+    "extensions": {
+      "type": "object",
+      "propertyNames": {"$ref": "model-common.schema.json#/$defs/extensionTypeId"},
+      "additionalProperties": {
+        "type": "object", "additionalProperties": false, "required": ["directory"],
+        "properties": {
+          "directory": {
+            "type": "string", "minLength": 1,
+            "pattern": "^(?!/)(?=[^\\u0000]*\\S)(?![A-Za-z]:)(?![\\s\\S]*(?:^|/)\\.{1,2}(?:/|$))(?![\\s\\S]*//)(?![\\s\\S]*/$(?![\\s\\S]))[^\\u0000\\\\]+$(?![\\s\\S])"
+          },
+          "schema-version": {"type": "integer", "minimum": 1, "default": 1}
+        }
+      }
+    }
   },
   "oneOf": [
     {
@@ -29,6 +43,7 @@
       "properties": {
         "type": {"const": "rail"},
         "composition": false,
+        "extensions": false,
         "rail-config": {"type": "string"}
       },
       "required": ["type", "rail-config"]

@@ -1,4 +1,4 @@
-package work.art1st.javarailways.bukkit.integration.simpledisplays
+package work.art1st.javarailways.decorations.integration.simpledisplays
 
 import org.bukkit.Server
 import org.bukkit.event.server.PluginDisableEvent
@@ -10,7 +10,6 @@ import org.bukkit.plugin.ServicePriority
 import org.bukkit.plugin.ServicesManager
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.bukkit.api.internal.BukkitServiceTestSupport
 import simpledisplays.api.DisplayService
 import simpledisplays.api.DisplayTemplate
 import simpledisplays.api.IconFrame
@@ -138,7 +137,7 @@ class OptionalSimpleDisplaysTest {
                 apiAttempts++
                 throw ClassNotFoundException("API hidden by fixture: $name")
             }
-            if (name.startsWith("work.art1st.javarailways.bukkit.integration.simpledisplays.") &&
+            if (name.startsWith("work.art1st.javarailways.decorations.integration.simpledisplays.") &&
                 !name.contains("Test")) {
                 val loaded = findLoadedClass(name) ?: parent.getResourceAsStream(name.replace('.', '/') + ".class")!!.use {
                     val bytes = it.readBytes()
@@ -163,7 +162,7 @@ class OptionalSimpleDisplaysTest {
         init {
             lateinit var server: Server
             host = proxy(Plugin::class.java) { name, _ -> when (name) {
-                "getName" -> "JavaRailways"
+                "getName" -> "Decorations"
                 "isEnabled" -> true
                 "getServer" -> server
                 "getLogger" -> Logger.getLogger("optional-simpledisplays-test")

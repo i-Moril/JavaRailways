@@ -32,7 +32,8 @@ data class PackageManifest(
      * RAIL only: path to the rail model config YAML file,
      * relative to the package root. e.g. "rail_model.yml"
      */
-    val railConfigFile: String? = null
+    val railConfigFile: String? = null,
+    val extensions: Map<String, PackageExtensionDeclaration> = emptyMap()
 ) {
     companion object {
         const val CONFIG_VERSION = 2

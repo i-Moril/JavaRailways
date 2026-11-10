@@ -1,8 +1,9 @@
 # Reusable screen part; definition support only, no screen visuals yet.
 config-version: 1
 name: cabin_lcd
-type: screen
-screen:
+type: decorations:display
+schema-version: 1
+config:
   category: cabin_side_lcd
   interior: true
   width: 0.8

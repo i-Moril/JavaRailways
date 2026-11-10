@@ -1,4 +1,4 @@
-package work.art1st.javarailways.bukkit.integration.simpledisplays
+package work.art1st.javarailways.decorations.integration.simpledisplays
 
 import org.bukkit.plugin.Plugin
 import simpledisplays.api.DisplayService

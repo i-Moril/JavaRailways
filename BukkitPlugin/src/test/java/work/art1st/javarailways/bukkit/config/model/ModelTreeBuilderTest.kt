@@ -27,11 +27,11 @@ import java.nio.file.Path
 
 class ModelTreeBuilderTest {
     @Test
-    fun `screen definitions retain transform animation and children without creating visuals`() = withWorld { world ->
+    fun `unknown extension definitions retain transform animation and children without creating visuals`() = withWorld { world ->
         val child = PartDefinition("train/child", PartType.DUMMY, offset = Vec3Config(y = 2.0))
-        val screen = PartDefinition("train/lcd", PartType.SCREEN,
+        val screen = PartDefinition("train/lcd", PartType.EXTENSION,
             offset = Vec3Config(x = 3.0),
-            screen = PartScreenConfig("cabin_lcd", true, 0.8, 0.45),
+            extension = PartExtensionPayload("decorations:display", config = kotlinx.serialization.json.JsonObject(emptyMap())),
             parts = listOf(PartRefEntry(child.name, inline = child)),
             animations = listOf(PartAnimationConfig("position", keyframes = listOf(
                 PartAnimationKeyframeConfig(0.0, "base"),

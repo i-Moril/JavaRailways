@@ -128,7 +128,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var timetableScriptSandbox: TimetableScriptSandbox
     lateinit var globalTimetableReloadCoordinator: GlobalTimetableReloadCoordinator
 
-    private var optionalSimpleDisplays: work.art1st.javarailways.bukkit.integration.simpledisplays.OptionalSimpleDisplays? = null
+    private lateinit var partExtensions: work.art1st.javarailways.bukkit.api.internal.DefaultPartExtensionService
 
     private var packetEntityRuntime: PacketEntityRuntime? = null
     private var timetableHttpBridge: TimetableHttpBridge? = null
@@ -221,8 +221,6 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     }
 
     private fun enablePlugin() {
-        optionalSimpleDisplays = work.art1st.javarailways.bukkit.integration.simpledisplays.OptionalSimpleDisplays(this)
-            .also { it.start() }
         BukkitExtensionDataSerializers.register()
         val packetRuntime = checkNotNull(packetEntityRuntime) {
             "Packet entity runtime was not loaded"
@@ -264,6 +262,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             displayViewRangeForDistance(javaRailwaysConfig.displayRenderer.playerDistance.maxBlocks), logger
         )
         modelPresentationService = modelPresentationServiceImpl
+        partExtensions = work.art1st.javarailways.bukkit.api.internal.DefaultPartExtensionService(reportDiagnostic = { logger.info(it) }) { subject, failure ->
+            logger.log(Level.WARNING, "Part extension validation failed for $subject", failure)
+        }
         editorTextServiceImpl = DefaultEditorTextService(this, platformDispatcher, logger)
         editorTextService = editorTextServiceImpl
         worldManager = WorldManager(
@@ -301,6 +302,13 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         server.pluginManager.registerEvents(OperationOwnerLifecycleListener(playerOperationServiceImpl), this)
         server.pluginManager.registerEvents(ObservationOwnerLifecycleListener(railwayObservationServiceImpl), this)
         server.pluginManager.registerEvents(ModelOwnerLifecycleListener(modelPresentationServiceImpl, this), this)
+        server.servicesManager.register(
+            work.art1st.javarailways.bukkit.api.model.extension.PartExtensionService::class.java,
+            partExtensions, this, org.bukkit.plugin.ServicePriority.Normal
+        )
+        server.pluginManager.registerEvents(
+            work.art1st.javarailways.bukkit.api.internal.PartExtensionOwnerLifecycleListener(partExtensions), this
+        )
         server.pluginManager.registerEvents(EditorTextLifecycleListener(editorTextServiceImpl, this), this)
         server.pluginManager.registerEvents(
             InfrastructureOwnerLifecycleListener(infrastructureResourceServiceImpl, this),
@@ -343,7 +351,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         railModelConfig = loadRailModelConfigFromPlugin()
 
         // 加载版本化 trains/ 与 rails/ 模型包。
-        modelManager = ModelManager(dataFolder)
+        modelManager = ModelManager(dataFolder, partExtensions)
         val modelLoad = modelManager.publishReload(modelManager.prepareReload())
         modelLoad.failures.forEach { (type, failure) ->
             logger.log(Level.SEVERE, "Train resources unavailable for type $type", failure)
@@ -382,8 +390,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     }
 
     override fun onDisable() {
-        runShutdownStep("optional SimpleDisplays service") { optionalSimpleDisplays?.close() }
-        optionalSimpleDisplays = null
+        runShutdownStep("part extension registrations") {
+            if (::partExtensions.isInitialized) partExtensions.close()
+        }
         server.servicesManager.unregisterAll(this)
         if (::editorTextServiceImpl.isInitialized) {
             runShutdownStep("editor text service") { editorTextServiceImpl.close() }

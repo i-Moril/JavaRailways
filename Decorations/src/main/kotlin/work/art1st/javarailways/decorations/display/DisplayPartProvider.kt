@@ -4,7 +4,9 @@ import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionPackage
 import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionProvider
 
 /** Validates existing metadata capability. Runtime mounting/rendering is deliberately a later API. */
-class DisplayPartProvider : PartExtensionProvider {
+class DisplayPartProvider(
+    private val validateTemplates: (String, DisplayResources) -> Unit = { _, _ -> },
+) : PartExtensionProvider {
     override val typeId: String = TYPE_ID
 
     override fun validate(context: PartExtensionPackage) {
@@ -15,7 +17,8 @@ class DisplayPartProvider : PartExtensionProvider {
         }
         context.resources?.let { resources ->
             require(resources.schemaVersion == 1) { "package '${context.packageName}' $TYPE_ID resources unsupported schema-version ${resources.schemaVersion}; expected 1" }
-            DisplayResourceParser.parse(resources.files, context.packageName)
+            val displays = DisplayResourceParser.parse(resources.files, context.packageName)
+            validateTemplates(context.packageName, displays)
         }
     }
 

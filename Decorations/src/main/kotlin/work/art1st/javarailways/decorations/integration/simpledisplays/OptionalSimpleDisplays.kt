@@ -6,12 +6,14 @@ import org.bukkit.event.Listener
 import org.bukkit.event.server.PluginDisableEvent
 import org.bukkit.event.server.ServiceUnregisterEvent
 import org.bukkit.plugin.Plugin
+import work.art1st.javarailways.decorations.display.DisplayResources
 import java.lang.reflect.InvocationTargetException
 import java.util.logging.Level
 
 /** This class and its connection boundary must remain loadable with no SimpleDisplays API. */
 internal class OptionalSimpleDisplays(private val host: Plugin) : Listener, AutoCloseable {
     private var providerOwner: Plugin? = null
+    @Volatile
     internal var connection: SimpleDisplaysConnection? = null
         private set
 
@@ -19,7 +21,7 @@ internal class OptionalSimpleDisplays(private val host: Plugin) : Listener, Auto
         check(connection == null && providerOwner == null) { "SimpleDisplays discovery already started" }
         val provider = host.server.pluginManager.getPlugin("SimpleDisplays")
         if (provider == null || !provider.isEnabled) {
-            host.logger.info("SimpleDisplays is absent or disabled; display integration are unavailable")
+            host.logger.info("SimpleDisplays is absent or disabled; display integration is unavailable")
             return
         }
         try {
@@ -47,6 +49,11 @@ internal class OptionalSimpleDisplays(private val host: Plugin) : Listener, Auto
         }
     }
 
+    /** No API types here: callers can validate captured resources with the optional API absent. */
+    fun validateTemplates(packageName: String, resources: DisplayResources) {
+        connection?.validateTemplates(packageName, resources)
+    }
+
     @EventHandler
     fun onPluginDisable(event: PluginDisableEvent) {
         if (event.plugin === providerOwner) close()
@@ -60,18 +67,18 @@ internal class OptionalSimpleDisplays(private val host: Plugin) : Listener, Auto
 
     private fun unavailable(failure: Throwable) {
         clear()
-        host.logger.log(Level.WARNING, "SimpleDisplays API service is unavailable or incompatible; display integration are disabled", failure)
+        host.logger.log(Level.WARNING, "SimpleDisplays API service is unavailable or incompatible; display integration is disabled", failure)
     }
 
     private fun clear() {
-        connection?.close()
+        val retired = connection
         connection = null
         providerOwner = null
+        retired?.close()
     }
 
     override fun close() {
-        clear()
-        HandlerList.unregisterAll(this)
+        try { clear() } finally { HandlerList.unregisterAll(this) }
     }
 
     private companion object {
@@ -83,4 +90,5 @@ internal class OptionalSimpleDisplays(private val host: Plugin) : Listener, Auto
 internal interface SimpleDisplaysConnection : AutoCloseable {
     val serviceType: Class<*>
     val provider: Any?
+    fun validateTemplates(packageName: String, resources: DisplayResources)
 }

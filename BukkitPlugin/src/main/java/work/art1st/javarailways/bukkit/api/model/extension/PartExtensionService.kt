@@ -50,4 +50,3 @@ internal fun immutablePartExtensionJson(value: JsonElement, depth: Int): JsonEle
         }
     }
 }
-

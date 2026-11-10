@@ -8,3 +8,4 @@
 {"file": ".trellis/spec/bukkit-plugin/backend/screen-parts.md", "reason": "Approved narrow screen-part definition slice: schema/parser, inline/import tree copies, transform-only model behavior and canonical hash preservation."}
 {"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/package-display-loading-contract.md", "reason": "用户已批准本批边界：displays.yml加载/路径引用校验及来源包内容快照；不提前做渲染或旧格式一致性调整。"}
 {"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/decorations-foundation-contract.md", "reason": "用户批准Decorations基础/迁移；missing addon保留变换/子树，generic resources，提交前报告且本批不commit。"}
+{"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/decorations-template-compilation-contract.md", "reason": "Approved continuation: actual XML compilation via optional library, bounded per-connection validation cache and lifecycle; no mounting/rendering this slice."}

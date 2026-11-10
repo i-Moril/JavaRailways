@@ -27,6 +27,25 @@ class DisplayPartProviderTest {
         assertDoesNotThrow { provider.validate(PartExtensionPackage("fleet", emptyList(), resources)) }
     }
 
+    @Test fun `provider forwards captured decoded templates and preserves compiler failures`() {
+        val resources = PartExtensionResources(files = mapOf(
+            "displays.yml" to "config-version: 1\ntemplates: {main: {file: main.xml}}\ndefaults: {cabin: main}\n",
+            "main.xml" to "captured XML source",
+        ))
+        val calls = mutableListOf<Pair<String, DisplayResources>>()
+        val provider = DisplayPartProvider { name, displays -> calls.add(name to displays) }
+        provider.validate(PartExtensionPackage("fleet", emptyList(), resources))
+        assertEquals("fleet", calls.single().first)
+        assertEquals("captured XML source", calls.single().second.templates.getValue("main").source)
+        provider.validate(PartExtensionPackage("without-resources", listOf(part()), null))
+        assertEquals(1, calls.size)
+        val failure = IllegalArgumentException("invalid embedded script")
+        val failing = DisplayPartProvider { _, _ -> throw failure }
+        assertSame(failure, assertThrows<IllegalArgumentException> {
+            failing.validate(PartExtensionPackage("fleet", listOf(part()), resources))
+        })
+    }
+
     @Test fun `provider reports unsupported part and resource versions with package context`() {
         val provider = DisplayPartProvider()
         val partFailure = assertThrows<IllegalArgumentException> {

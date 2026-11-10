@@ -15,13 +15,16 @@ class DecorationsPlugin : JavaPlugin() {
         val service = checkNotNull(server.servicesManager.load(PartExtensionService::class.java)) {
             "JavaRailways did not register PartExtensionService"
         }
-        registration = service.register(this, DisplayPartProvider())
-        registration!!.existingPackageFailures.forEach { (name, reason) ->
-            logger.warning("Existing package '$name' has invalid ${DisplayPartProvider.TYPE_ID} definitions: $reason")
-        }
         val optional = OptionalSimpleDisplays(this)
         simpleDisplays = optional
-        try { optional.start() } catch (failure: Throwable) {
+        try {
+            // Existing published packages are validated during register, so discover the compiler first.
+            optional.start()
+            registration = service.register(this, DisplayPartProvider(optional::validateTemplates))
+            registration!!.existingPackageFailures.forEach { (name, reason) ->
+                logger.warning("Existing package '$name' has invalid ${DisplayPartProvider.TYPE_ID} definitions: $reason")
+            }
+        } catch (failure: Throwable) {
             try { registration?.close() } catch (cleanup: Throwable) { failure.addSuppressed(cleanup) }
             registration = null
             try { optional.close() } catch (cleanup: Throwable) { failure.addSuppressed(cleanup) }

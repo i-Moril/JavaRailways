@@ -10,9 +10,13 @@ import org.bukkit.plugin.ServicePriority
 import org.bukkit.plugin.ServicesManager
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import simpledisplays.api.DisplayService
 import simpledisplays.api.DisplayTemplate
 import simpledisplays.api.IconFrame
+import simpledisplays.api.TextDraw
+import work.art1st.javarailways.decorations.display.DisplayResources
+import work.art1st.javarailways.decorations.display.DisplayTemplateSource
 import java.lang.reflect.Proxy
 import java.util.logging.Logger
 
@@ -37,11 +41,16 @@ class OptionalSimpleDisplaysTest {
         val optional = OptionalSimpleDisplays(fixture.host)
         optional.start()
         val binding = optional.connection as SimpleDisplaysBinding
+        val template = Template()
+        fixture.compileTemplate = { template }
+        optional.validateTemplates("fleet", resources("XML"))
         optional.onPluginDisable(PluginDisableEvent(fixture.host))
         assertSame(binding, optional.connection)
         optional.onPluginDisable(PluginDisableEvent(fixture.owner))
         assertNull(optional.connection)
         assertNull(binding.service)
+        assertEquals(1, template.closes)
+        assertEquals(0, fixture.serviceCloses)
     }
 
     @Test
@@ -50,6 +59,9 @@ class OptionalSimpleDisplaysTest {
         val optional = OptionalSimpleDisplays(fixture.host)
         optional.start()
         val binding = optional.connection as SimpleDisplaysBinding
+        val template = Template()
+        fixture.compileTemplate = { template }
+        optional.validateTemplates("fleet", resources("XML"))
         val unrelated = RegisteredServiceProvider(String::class.java, "other", ServicePriority.Normal, fixture.owner)
         optional.onServiceUnregister(ServiceUnregisterEvent(unrelated))
         assertSame(binding, optional.connection)
@@ -61,6 +73,8 @@ class OptionalSimpleDisplaysTest {
         optional.onServiceUnregister(ServiceUnregisterEvent(fixture.registration!!))
         assertNull(optional.connection)
         assertNull(binding.service)
+        assertEquals(1, template.closes)
+        assertEquals(0, fixture.serviceCloses)
     }
 
     @Test
@@ -84,6 +98,8 @@ class OptionalSimpleDisplaysTest {
             val optional = loader.loadClass(OptionalSimpleDisplays::class.java.name)
                 .getConstructor(Plugin::class.java).newInstance(fixture.host)
             optional.javaClass.getMethod("start").invoke(optional)
+            optional.javaClass.getMethod("validateTemplates", String::class.java, DisplayResources::class.java)
+                .invoke(optional, "absent", resources("invalid but uncompiled XML"))
             assertEquals(0, loader.apiAttempts)
             assertEquals(0, fixture.listeners)
             (optional as AutoCloseable).close()
@@ -114,17 +130,89 @@ class OptionalSimpleDisplaysTest {
         (optional as AutoCloseable).close()
     }
 
+    @Test
+    fun `installed API missing template close declaration is rejected before registry access`() {
+        val fixture = Fixture()
+        val loader = IsolatedIntegrationLoader(blockApi = false, incompatibleTemplateAbi = true)
+        val optional = loader.loadClass(OptionalSimpleDisplays::class.java.name)
+            .getConstructor(Plugin::class.java).newInstance(fixture.host)
+        assertDoesNotThrow { optional.javaClass.getMethod("start").invoke(optional) }
+        assertTrue(loader.apiAttempts > 0)
+        assertEquals(0, fixture.listeners)
+        (optional as AutoCloseable).close()
+    }
+
+    @Test
+    fun `connection compiles exact captured sources reuses them across identities and closes on host exit`() {
+        val fixture = Fixture()
+        val output = mutableListOf<Template>()
+        val sources = mutableListOf<String>()
+        fixture.compileTemplate = { source -> sources.add(source); Template().also(output::add) }
+        val optional = OptionalSimpleDisplays(fixture.host)
+        optional.start()
+        optional.validateTemplates("first", resources("XML"))
+        optional.validateTemplates("second", DisplayResources(mapOf("another-id" to DisplayTemplateSource("elsewhere.xml", "XML"))))
+        optional.validateTemplates("first", resources("changed XML"))
+        assertEquals(listOf("XML", "changed XML"), sources)
+        optional.close()
+        assertTrue(output.all { it.closes == 1 })
+        assertEquals(0, fixture.serviceCloses)
+    }
+
+    @Test
+    fun `compiler failure keeps cause package template file context and can be retried`() {
+        val fixture = Fixture()
+        val original = IllegalArgumentException("invalid embedded script")
+        val output = mutableListOf<Template>()
+        var failing = true
+        fixture.compileTemplate = { source ->
+            if (source == "bad" && failing) throw original
+            Template().also(output::add)
+        }
+        val optional = OptionalSimpleDisplays(fixture.host)
+        optional.start()
+        val displays = DisplayResources(linkedMapOf("a-good" to DisplayTemplateSource("good.xml", "good"), "b-bad" to DisplayTemplateSource("bad.xml", "bad")))
+        val failure = assertThrows<IllegalArgumentException> { optional.validateTemplates("fleet", displays) }
+        assertSame(original, failure.cause)
+        assertTrue(failure.message.orEmpty().contains("fleet"))
+        assertTrue(failure.message.orEmpty().contains("b-bad"))
+        assertTrue(failure.message.orEmpty().contains("bad.xml"))
+        assertTrue(failure.message.orEmpty().contains("invalid embedded script"))
+        assertNotNull(optional.connection)
+        assertEquals(1, output.size)
+        failing = false
+        optional.validateTemplates("fleet", displays)
+        assertEquals(2, output.size)
+        optional.close()
+        assertTrue(output.all { it.closes == 1 })
+    }
+
+    private class Template : DisplayTemplate {
+        var closes = 0
+        override val width = 1.0
+        override val height = 1.0
+        override fun draw(values: Map<String, String>, elapsedTicks: Long): List<TextDraw> = error("Validation must not draw")
+        override fun close() { closes++ }
+    }
+
     /** Child defines real production integration bytecode and selectively hides/mutates the real API artifact. */
-    private class IsolatedIntegrationLoader(private val blockApi: Boolean, private val incompatibleAbi: Boolean = false) : ClassLoader(OptionalSimpleDisplaysTest::class.java.classLoader) {
+    private class IsolatedIntegrationLoader(private val blockApi: Boolean, private val incompatibleAbi: Boolean = false, private val incompatibleTemplateAbi: Boolean = false) : ClassLoader(OptionalSimpleDisplaysTest::class.java.classLoader) {
         var apiAttempts = 0
         override fun loadClass(name: String, resolve: Boolean): Class<*> {
-            if (incompatibleAbi && name == "simpledisplays.api.DisplayService") {
+            if (incompatibleTemplateAbi && name == "simpledisplays.api.DisplayService") {
+                return findLoadedClass(name) ?: parent.getResourceAsStream(name.replace('.', '/') + ".class")!!.use {
+                    val bytes = it.readBytes()
+                    defineClass(name, bytes, 0, bytes.size)
+                }
+            }
+            if ((incompatibleAbi && name == "simpledisplays.api.DisplayService") ||
+                (incompatibleTemplateAbi && name == "simpledisplays.api.DisplayTemplate")) {
                 apiAttempts++
                 return findLoadedClass(name) ?: parent.getResourceAsStream(name.replace('.', '/') + ".class")!!.use {
                     // Rename the real artifact's compile method in its UTF-8 constant pool entry.
                     // This is an incompatible binary fixture, not a substitute API implementation.
                     val bytes = it.readBytes()
-                    val methodName = "compile".toByteArray()
+                    val methodName = (if (incompatibleTemplateAbi) "close" else "compile").toByteArray()
                     val offset = (2..bytes.size - methodName.size).first { index ->
                         bytes[index - 2] == 0.toByte() && bytes[index - 1] == methodName.size.toByte() &&
                             methodName.indices.all { bytes[index + it] == methodName[it] }
@@ -152,9 +240,12 @@ class OptionalSimpleDisplaysTest {
 
     private class Fixture(present: Boolean = true, enabled: Boolean = true) {
         var listeners = 0
+        var serviceCloses = 0
+        var compileTemplate: (String) -> DisplayTemplate = { error("Discovery must not compile XML") }
         val service = object : DisplayService {
             override fun compile(xml: String, icons: Map<String, List<IconFrame>>): DisplayTemplate =
-                error("Discovery must not compile XML")
+                compileTemplate(xml)
+            override fun close() { serviceCloses++ }
         }
         val host: Plugin
         val owner: Plugin
@@ -192,6 +283,7 @@ class OptionalSimpleDisplaysTest {
     }
 
     private companion object {
+        fun resources(source: String) = DisplayResources(mapOf("main" to DisplayTemplateSource("screen.xml", source)))
         fun <T> proxy(type: Class<T>, call: (String, Array<out Any?>?) -> Any?): T = type.cast(
             Proxy.newProxyInstance(type.classLoader, arrayOf(type)) { instance, method, args -> when (method.name) {
                 "hashCode" -> System.identityHashCode(instance)

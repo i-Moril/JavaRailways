@@ -23,6 +23,6 @@
   ],
   "parent": null,
   "relatedFiles": [],
-  "notes": "2026-11-10 Decorations foundation implemented, uncommitted pending requested change/module report. Generic host extension parts/raw resources/provider lifecycle; missing addon retains transforms/animations/children. Related46host+18Decorations tests pass; full host758 has known ProgramExpressionsTest failure and1skip; shadowJar/Dev compile, schema30cases and3actualPaper combinations pass. See research/decorations-foundation-validation.md. Runtime mounting/backends/template compilation/train data/PAPI/view distance remain later work. Independent XML/document JS410af2e unchanged; deferred schema-consistency child remains planning.",
+  "notes": "Foundation committed95935639. Subsequent Decorations template compilation implemented and uncommitted: API-free bridge, exact-source LRU64, compile/close outside locks and race-safe retirement. Decorations28 +host28 focused tests pass;3realPaper combinations pass, including actual valid embeddedJS compile/noexecute, invalidXML/JS reject with baseline retention, valid replacement publish. See research/decorations-template-compilation-validation.md. Current SimpleDisplays410af2e API local publication; no librarysource changes. Fullhost prior ProgramExpressionsTest failure remains recorded, not fixed/repeated. Next runtime mounts/backends/data/PAPI/viewdistance; schema-consistency child remains planning.",
   "meta": {}
 }

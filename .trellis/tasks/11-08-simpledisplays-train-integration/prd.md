@@ -1,5 +1,7 @@
 # Train-mounted displays through Decorations
 
+> Current slice: [Decorations template compilation](research/decorations-template-compilation-contract.md). Foundation committed as `95935639`; user approved continuation. This slice is implemented, uncommitted, with [validation](research/decorations-template-compilation-validation.md): actual XML/embedded-JS syntax compilation and bounded cache; runtime mounting follows separately.
+
 ## Confirmed module boundary (2026-11-10)
 
 JavaRailways supplies generic namespaced part definitions, immutable extension package resources and provider registration. The independent `Decorations` plugin owns `decorations:display`, display resource semantics and the optional SimpleDisplays connection. SimpleDisplays remains a separate reusable XML/document-JS library/plugin.

@@ -153,3 +153,14 @@ Replacement committed as SimpleDisplays `410af2e`, directly parented by `21f7686
 - [x] composition/schema/文档/样例和完整验证；提交前报告模块与改动。
 
 本批基础迁移已完成，尚未提交。最终相关46+18项测试全过；完整Bukkit758项保留同一ProgramExpressionsTest失败和1skip。打包/Dev编译及三个真实Paper启动组合通过；见[验证记录](research/decorations-foundation-validation.md)。实际挂载渲染仍为后续批次。
+
+## 当前实施：Decorations模板编译
+
+基础已提交95935639；用户允许继续。按[模板编译合同](research/decorations-template-compilation-contract.md)实施。
+
+- [x] API-free桥接、启动顺序和生产provider编译接线。
+- [x] 每连接有界精确源码缓存及退出/并发/失败清理。
+- [x] 单元测试、独立审查、真实Paper编译/坏候选保留验证。
+- [x] 文档与验证记录；实际挂载另批。
+
+本批已完成，当前未提交。Decorations28项和宿主28项定向回归全部通过；真实Paper三个组合通过，实际编译验证确认坏XML/JS拒绝与旧snapshot保留。见[验证记录](research/decorations-template-compilation-validation.md)。下一阶段为通用列车part运行时挂载与双后端文字渲染。

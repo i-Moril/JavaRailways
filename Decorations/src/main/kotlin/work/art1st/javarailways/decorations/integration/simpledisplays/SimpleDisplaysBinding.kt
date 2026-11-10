@@ -47,6 +47,9 @@ internal class SimpleDisplaysBinding(host: Plugin, owner: Plugin) : SimpleDispla
         val close = DisplayTemplate::class.java.getMethod("close")
         check(close.returnType == Void.TYPE && close.declaringClass == DisplayTemplate::class.java) { "Unexpected DisplayTemplate.close contract" }
         check(TextDraw::class.java.getMethod("getText").returnType.name == "net.kyori.adventure.text.Component")
+        for (method in listOf("getScaleX", "getScaleY")) {
+            check(TextDraw::class.java.getMethod(method).returnType == Double::class.javaPrimitiveType) { "SimpleDisplays must support independent text scaling" }
+        }
         listOf("getX", "getY", "getSize").forEach { method ->
             check(TextDraw::class.java.getMethod(method).returnType == Double::class.javaPrimitiveType) { "Unexpected TextDraw.$method return type" }
         }
@@ -115,16 +118,20 @@ internal class SimpleDisplaysBinding(host: Plugin, owner: Plugin) : SimpleDispla
                 require(draws.size <= 1024) { "Display frame exceeds 1024 text nodes" }
                 PartExtensionFrame(draws.mapIndexed { index, draw ->
                     require(draw.x.isFinite() && draw.y.isFinite() && draw.size.isFinite() && draw.size > 0) { "Invalid logical text geometry" }
+                    require(draw.scaleX.isFinite() && draw.scaleX > 0 && draw.scaleY.isFinite() && draw.scaleY > 0) { "Invalid logical text scaling" }
                     val x = (draw.x - compiled.width / 2) * unit
                     val y = (compiled.height / 2 - draw.y - draw.size) * unit
                     val scale = draw.size * unit * 40.0 / 9.0
-                    require(x.isFinite() && y.isFinite() && scale.isFinite() && scale > 0) { "Invalid derived physical text geometry" }
+                    val scaleX = scale * draw.scaleX
+                    val scaleY = scale * draw.scaleY
+                    require(x.isFinite() && y.isFinite() && scale.isFinite() && scale > 0 &&
+                        scaleX.isFinite() && scaleX > 0 && scaleY.isFinite() && scaleY > 0) { "Invalid derived physical text geometry" }
                     // Preserve XML painter order on separate text entities: later ink sits
                     // slightly toward the viewer, avoiding coplanar glyph backgrounds.
                     // Bound the whole stack to 0.01 of the smaller physical dimension.
                     // Use the actual frame count so short frames retain useful depth spacing.
                     val z = index.toDouble() / maxOf(1, draws.size - 1) * minOf(config.width, config.height) * 0.01
-                    PartExtensionText(draw.text, ModelPose(x, y, z, 0.0, 0.0, 0.0, 1.0), ModelScale(scale, scale, scale))
+                    PartExtensionText(draw.text, ModelPose(x, y, z, 0.0, 0.0, 0.0, 1.0), ModelScale(scaleX, scaleY, scale))
                 })
             } catch (failure: Throwable) {
                 primary = failure

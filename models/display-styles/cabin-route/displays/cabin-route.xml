@@ -3,7 +3,7 @@
   <script><![CDATA[
 
     const FONT = "javarailways:display_geometry";
-    const G = { square:"\uE000", wide:"\uE001", body:"\uE002", cabin:"\uE003", ring:"\uE004", dot:"\uE005", rail:"\uE006" };
+    const G = { ring:"\uE004", dot:"\uE005" };
     function object(v) { return v && typeof v === "object" && !Array.isArray(v) ? v : {}; }
     function localized(v, lang, fallback) {
         if (typeof v === "string") return v;
@@ -15,8 +15,15 @@
         if (!text) return;
         const node = document.createElement("span");
         if (font) node.setAttribute("font", font);
+        // Ring/dot bitmap ink is one native font pixel right of the text origin.
+        if (font === FONT) x -= size / 9;
         node.setAttribute("style", "left:" + x + ";top:" + y + ";font-size:" + size + ";color:" + ink);
         node.textContent = String(text);
+        parent.appendChild(node);
+    }
+    function rect(parent, left, top, width, height, ink) {
+        const node = document.createElement("rect");
+        node.setAttribute("style", "left:" + left + ";top:" + top + ";width:" + width + ";height:" + height + ";color:" + ink);
         parent.appendChild(node);
     }
     function textUnits(text) {
@@ -57,43 +64,52 @@
         return explicit || transferLines(station, d, ctx).map(line => localized(object(line.metadata).badge, d.lang,
             localized(object(line.metadata).name, d.lang, line.displayName || line.id || ""))).join(" · ");
     }
-    function vertical(parent, text, x, y, size, maxRows, ink) {
-        const chars = Array.from(text);
-        const truncated = chars.length > maxRows;
-        const rows = chars.slice(0, maxRows);
-        if (truncated) rows[maxRows - 1] = "…";
-        rows.forEach((char, i) => span(parent, char, x, y + i * size, size, ink));
+    function vertical(parent, text, x, y, size, rowsPerColumn, ink) {
+        const chars = Array.from(text), capacity = rowsPerColumn * 2;
+        const shown = chars.slice(0, capacity);
+        if (chars.length > capacity) shown[capacity - 1] = "…";
+        const columns = Math.ceil(shown.length / rowsPerColumn), pitch = size + 4;
+        shown.forEach((char, i) => {
+            const column = Math.floor(i / rowsPerColumn), row = i % rowsPerColumn;
+            // Center the whole block; retain right-to-left column order for vertical names.
+            span(parent, char, x + ((columns - 1) / 2 - column) * pitch,
+                y + row * size, size, ink);
+        });
     }
     function render(ctx) {
         const d = data(ctx), op = d.op;
         const root = document.getElementById("content");
         const left = document.createElement("div"), right = document.createElement("div");
         root.appendChild(left); root.appendChild(right);
-        // The colored 200x200 information panel and white 600x200 route panel stay fixed in both languages.
-        span(left, G.square, 100, 0, 200, d.theme, FONT);
-        for (let i = 0; i < 3; i++) span(right, G.square, 300 + i * 200, 0, 200, "#FFFFFF", FONT);
+        // Keep the approved information hierarchy and shared-language 42/58 split.
+        const panelWidth = 336, titleY = 12, mainSize = 36;
+        rect(left, 0, 0, panelWidth, 200, d.theme);
+        rect(right, panelWidth, 0, 800 - panelWidth, 200, "#FFFFFF");
         const lineName = localized(d.rm.line, d.lang, localized(d.lm.name, d.lang, d.line.displayName || ""));
-        label(left, lineName, 100, 10, 19, 184, "#FFFFFF");
-        label(left, d.service, 100, 37, 18, 184, "#FFFFFF");
-        label(left, d.lang === "zh" ? "目的地" : "Destination", 100, 65, 11, 184, "#D6EDFF");
-        label(left, d.destination, 100, 81, 22, 184, "#FFFFFF");
+        label(left, lineName, d.service ? 116 : 168, titleY, mainSize * 0.67,
+            d.service ? 200 : 304, "#FFFFFF");
+        label(left, d.service, 276, titleY + 4, mainSize * 0.47, 88, "#FFFFFF");
+        label(left, d.lang === "zh" ? "开往" : "For", 46, 51, mainSize * 0.43, 60, "#D6EDFF");
+        label(left, d.destination, 206, 47, mainSize * 0.70, 228, "#FFFFFF");
         const at = op.phase === "at_station";
         const station = at ? op.currentStation : op.nextStation;
         label(left, d.lang === "zh" ? (at ? "本站" : "下一站") : (at ? "This station" : "Next station"),
-            100, 111, 11, 184, "#D6EDFF");
-        label(left, stationName(station, d.lang), 100, 127, 22, 184, "#FFFFFF");
+            168, 82, mainSize * 0.43, 304, "#D6EDFF");
+        label(left, stationName(station, d.lang), 168, 104, mainSize, 304, "#FFFFFF");
         const side = object(ctx.data.display).openingSide;
         const zh = {this:"本侧开门", opposite:"对侧开门", both:"两侧开门", none:"不开门"};
         const en = {this:"Doors on this side", opposite:"Doors on opposite side", both:"Doors on both sides", none:"Doors stay closed"};
-        label(left, (d.lang === "zh" ? zh : en)[side] || "", 100, 157, 12, 184, "#FFFFFF");
-        label(left, transferCaption(station, d, ctx), 100, 178, 11, 184, "#FFFFFF");
+        label(left, (d.lang === "zh" ? zh : en)[side] || "", 168, 153, mainSize * 0.47, 304, "#FFFFFF");
+        label(left, transferCaption(station, d, ctx), 168, 179, mainSize * 0.43, 304, "#FFFFFF");
         const calls = Array.isArray(op.stops) ? op.stops : [];
         const index = op.stationIndex;
         const known = (op.phase === "at_station" || op.phase === "in_transit") &&
             Number.isInteger(index) && index >= 0 && index < calls.length;
         if (!known) return;
         const slots = 8, start = Math.max(0, index - 2), shown = calls.slice(start, start + slots);
-        const railY = 83, spacing = 69, x0 = 500 - (shown.length - 1) * spacing / 2;
+        const railY = 91, routeCenter = panelWidth + (800 - panelWidth) / 2;
+        const spacing = Math.min(48, (800 - panelWidth - 64) / slots);
+        const x0 = routeCenter - (shown.length - 1) * spacing / 2;
         const routeColor = color(d.line.color, d.theme), gray = "#A6ADB4";
         let nextStop = -1;
         const nextStart = at ? index + 1 : index;
@@ -101,27 +117,27 @@
             if (calls[i].status === "STOP" || calls[i].status === "TERMINAL") { nextStop = i; break; }
         }
         // Stubs are visible only for genuinely omitted ordered occurrences; unresolved future is explicit too.
-        if (start > 0) span(right, G.rail, x0 - 14, railY - 2, 3.5, gray, FONT);
+        if (start > 0) rect(right, x0 - 28, railY - 2, 28, 4, gray);
         if (start + shown.length < calls.length || (Array.isArray(op.unresolvedRuns) && op.unresolvedRuns.length))
-            span(right, G.rail, x0 + (shown.length - 1) * spacing + 14, railY - 2, 3.5, routeColor, FONT);
+            rect(right, x0 + (shown.length - 1) * spacing, railY - 2, 28, 4, routeColor);
         shown.forEach((call, slot) => {
             const absolute = start + slot, x = x0 + slot * spacing, passed = absolute < index;
             const ink = passed ? gray : routeColor;
-            if (slot + 1 < shown.length) span(right, G.rail, x + spacing / 2, railY - 2, spacing / 8,
-                absolute < index ? gray : routeColor, FONT);
+            if (slot + 1 < shown.length) rect(right, x, railY - 2, spacing, 4,
+                absolute < index ? gray : routeColor);
             const transfers = transferLines(call, d, ctx), maxBadges = 3;
             transfers.slice(0, maxBadges).forEach((line, n) => {
-                const lm = object(line.metadata), badgeY = railY - 24 - n * 22;
-                span(right, G.square, x, badgeY, 18, color(lm.themeColor, color(line.color, "#555555")), FONT);
-                label(right, localized(lm.badge, d.lang, line.displayName || line.id || ""), x, badgeY + 3, 11, 16, "#FFFFFF");
+                const lm = object(line.metadata), badgeY = railY - 30 - n * 22;
+                rect(right, x - 14, badgeY, 28, 18, color(lm.themeColor, color(line.color, "#555555")));
+                label(right, localized(lm.badge, d.lang, line.displayName || line.id || ""), x, badgeY + 3, 12, 24, "#FFFFFF");
             });
-            if (transfers.length > maxBadges) span(right, "+", x + 15, railY - 68, 9, "#333333");
-            span(right, G.ring, x, railY - 8, 16, ink, FONT);
+            if (transfers.length > maxBadges) span(right, "+", x + 19, railY - 72, 11, "#333333");
+            span(right, G.ring, x, railY - 10, 20, ink, FONT);
             const stopping = call.status !== "PASS";
             if (stopping && (absolute !== nextStop || Math.floor(ctx.elapsedTicks / 10) % 2 === 0))
-                span(right, G.dot, x, railY - 3, 6, ink, FONT);
-            vertical(right, stationName(call, d.lang), x, railY + 16, d.lang === "zh" ? 14 : 10,
-                d.lang === "zh" ? 7 : 10, passed || !stopping ? gray : "#202830");
+                span(right, G.dot, x, railY - 4, 8, ink, FONT);
+            vertical(right, stationName(call, d.lang), x, 108, d.lang === "zh" ? 18 : 15,
+                d.lang === "zh" ? 5 : 6, passed || !stopping ? gray : "#202830");
         });
     }
   ]]></script>

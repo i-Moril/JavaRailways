@@ -228,6 +228,29 @@ class OptionalSimpleDisplaysTest {
     }
 
     @Test
+    fun `vanilla rectangle ink bounds survive independent host scaling and bearing compensation`() {
+        val fixture = Fixture()
+        // Native block ink: X[-0.0875,0.1125], Y[0.025,0.225] blocks.
+        // SDL rectangle left=10, top=5, width=60, height=20 on 100x50 canvas.
+        fixture.compileTemplate = { Template(width = 100.0, height = 50.0, contexts = {
+            listOf(TextDraw(36.25, 5.0, 22.5, Component.text("█").font(Key.key("minecraft:include/default")), false, 3.0, 1.0))
+        }) }
+        val optional = OptionalSimpleDisplays(fixture.host)
+        optional.start()
+        val session = requireNotNull(optional.openTemplate(renderContext(), DisplayPartConfig("cabin", true, 2.0, 1.0), "rect", DisplayTemplateSource("rect.xml", "source")))
+        try {
+            val ink = session.draw(PartExtensionRenderInput()).texts.single()
+            assertEquals(-0.8, ink.pose.x() - 0.0875 * ink.scale.x(), 1e-12)
+            assertEquals(0.4, ink.pose.x() + 0.1125 * ink.scale.x(), 1e-12)
+            assertEquals(0.4, ink.pose.y() + 0.225 * ink.scale.y(), 1e-12)
+            assertEquals(0.0, ink.pose.y() + 0.025 * ink.scale.y(), 1e-12)
+        } finally {
+            session.close()
+            optional.close()
+        }
+    }
+
+    @Test
     fun `session compiles once draws structured data and time repeatedly and preserves physical fitting`() {
         val fixture = Fixture()
         val styled = Component.text("Destination").font(Key.key("custom:font"))

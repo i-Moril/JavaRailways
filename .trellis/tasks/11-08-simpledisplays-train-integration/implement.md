@@ -297,3 +297,13 @@ Replacement committed as SimpleDisplays `410af2e`, directly parented by `21f7686
 ## 已提交并部署（用户授权，2026-11-10）
 
 显示资源提交22025409；合入线上e5809088及其基线修复后，部署a7dbe621。测试服Folia正常启动，Decorations/SimpleDisplays启用，前显/门区资源成功重载，Bridge/WebUI本机HTTP200、ATO RUNNING。首次重载因本地/线上车厢几何不同而拒绝，已保留线上原参数、仅叠加显示导入后成功；没有重建列车或手改存档。恢复点、哈希、实际范围和验收限制见[部署记录](research/deployment-20261110.md)。8:3侧显仍待挂载，统一测试与客户端画面验收仍未完成。客户端需手动更新资源包；未推送Git。
+
+## 原版字符矩形与布局纠正（2026-11-10，未再次部署）
+
+用户反馈矩形错误、文字比例偏离DEMO。考证官方26.1.2/26.2客户端资源与字节码，确认原版ASCII U+2588墨迹8×8/advance9，原生TextDisplay实际尺寸0.2×0.2格且中心偏移(0.0125,0.125)；minecraft:include/default避免强制Unicode下变成4×8。此前自定义字形留白计算遗漏TextDisplay+1平移，导致矩形/圆圈随字号放大的中心偏移。详见research/vanilla-rectangle-metrics.md。
+
+SimpleDisplays新增rect/DOM rect、TextDraw独立scaleX/Y，SDL负责原点补偿，Decorations保留非等比变换并显式检查新API。模板不再使用矩形PNG/三个方块拼底；只保留圈点图元并补偿size/9。恢复DEMO的42/58分栏、同排线路+种别/目的地、主要文字层级；主站名36，线路0.67、种别0.47、目的地0.70、辅助0.43–0.47。路线文字可两列：中文10字/英文12字，英文仍逐字符直立，尚不等同DEMO的混合竖排90度英文。浏览器demo原比例约2.3:1，与实屏4:1不同，本轮保留信息层级而压缩留白，不拉扁文字。此前仅凭名义字号解释字小不充分，不能据此宣称字形可读性已验收。
+
+源码与测试源码编译通过：SDL /tmp/simpledisplays-native-rect-compile.log，Decorations /tmp/jr-native-rect-compile.log（13s）。新API隔离发布于/tmp/javarailways-simpledisplays-native-rect-maven，旧410af2e产物不再满足rect的scale ABI。已准备SDL墨迹边界/DOM错误与host物理边界回归源码，仍未运行测试套件。独立静态复查和源/归档一致性通过，六类矩形PNG清除；真实客户端效果仍待验收。本批两个仓库均未提交，线上仍为此前a7dbe621+410af2e，未自动再次部署。
+
+补充定向诊断（非统一测试套件）：使用实际新SDL XmlDisplayService和Graal引擎绘制三份真实XML的中文/英文页面，日志/tmp/jr-native-rect-draw-probe.log。前显/侧显各4draws/2rect，内显中文90draws、英文146draws、各19rect；所有rect按官方原生墨迹边界重建后在canvas内，内显恰有一个覆盖(336,0)至(800,200)的右侧白底。SDL矩形显式禁用全部五种文字修饰，最终编译/publish通过（20s），无JUnit执行。原版资源/字节码测量与真实SDL输出诊断不能代替客户端GPU实际画面验收。

@@ -82,7 +82,7 @@ The API coordinate is `simpledisplays:simpledisplays-api:0.1.0-SNAPSHOT`, compil
 ./gradlew -PsimpleDisplaysRepository=/tmp/javarailways-simpledisplays-maven :Decorations:test :Decorations:verifyPluginJar
 ```
 
-The property resolves only that API module; default repository is ~/.m2/repository. Current compile/close API and independent XML/document JS implementation baseline is `410af2e`. No API classes are copied into either plugin. Build/release preparation must pin artifact provenance for its actual API usage.
+The property resolves only that API module; default repository is ~/.m2/repository. The current adapter requires independent SimpleDisplays revision `fe2898d` (XML/document JS plus `TextDraw.scaleX/scaleY` and native `<rect>` support). Previously deployed library revision `410af2e` lacks this rectangle ABI and must be upgraded together with Decorations. No API classes are copied into either plugin. Build/release preparation must pin artifact provenance for its actual API usage.
 
 Disable closes part registration and optional connection. Service unregister/provider disable retires the optional connection; restarting Decorations is required to reconnect. Paper/Folia rendering and dynamic plugin replacement require separate acceptance; unit tests and descriptor flags alone do not prove them.
 

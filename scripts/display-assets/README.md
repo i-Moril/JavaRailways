@@ -8,7 +8,9 @@ Run `python3 scripts/display-assets/package.py` from any directory (Python stand
 
 The independent style exports `cabin-route.route`. S100 references it explicitly; missing or invalid styles are reported, rather than silently choosing a different template. Host parts/transforms still load without Decorations/SimpleDisplays. Source is captured once on Decorations enable; editing files does not update active sessions.
 
-The generated `javarailways:display_geometry` bitmap font contains E000 square, E001 8.5:1 rectangle, E002 2:1 rectangle, E003 4:1 rectangle, E004 ring, E005 filled circle, E006 8:1 rail and E007 8:3 rectangle. White glyphs accept XML text color. All have logical ink height 9, ascent 7, and balanced horizontal padding for centered TextDisplay output. Their geometry comes from deterministic raster math, with no browser shapes or unsupported XML drawing primitives.
+Rectangles now use SimpleDisplays `<rect>` backed by the vanilla `█` glyph in `minecraft:include/default`, with independently scaled X/Y and measured ink-origin compensation. No rectangle bitmap font assets are generated. See the task's `research/vanilla-rectangle-metrics.md` for verified26.1.2/26.2 client glyph dimensions and native transform.
+
+The generated `javarailways:display_geometry` font now contains only E004 ring and E005 dot. These two existing textures retain logical ink height9/ascent7. Their actual ink center is one logical pixel to the right of the entity center; templates compensate by `x - size / 9`. The previous comment asserting that padding itself centers the ink was wrong.
 
 XML order maps to slightly increasing physical depth in Decorations, bounded to 0.01 of the smaller screen dimension, so backgrounds precede labels and markers. This supports painter ordering across separate text entities. Glyph loading, final text fit, coplanar depth precision and physical screen orientation still require client acceptance.
 

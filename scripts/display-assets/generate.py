@@ -22,10 +22,10 @@ def png(path, width, height, pixel):
 
 def main():
     providers = []
-    shapes = [('square', 18), ('front', 153), ('body', 36), ('cabin', 72), ('ring', 18), ('dot', 18), ('rail', 144), ('side', 48)]
-    for index, (name, ink_width) in enumerate(shapes):
-        # One logical pixel of left padding balances Minecraft bitmap advance's
-        # extra pixel, centering the actual ink in a centered TextDisplay span.
+    shapes = [(0xe004, 'ring', 18), (0xe005, 'dot', 18)]
+    for codepoint, name, ink_width in shapes:
+        # Preserve the existing circle textures. Their one-pixel ink-center
+        # offset is explicitly compensated by the template (x - size / 9).
         def pixel(x, y, name=name, ink_width=ink_width):
             x -= 2
             filled = 0 <= x < ink_width
@@ -35,7 +35,7 @@ def main():
             return (255, 255, 255, 255 if filled else 0)
         file = f'display/{name}.png'
         png(PACK / 'assets/javarailways/textures' / file, ink_width + 2, 18, pixel)
-        providers.append({'type': 'bitmap', 'file': 'javarailways:' + file, 'height': 9, 'ascent': 7, 'chars': [chr(0xe000 + index)]})
+        providers.append({'type': 'bitmap', 'file': 'javarailways:' + file, 'height': 9, 'ascent': 7, 'chars': [chr(codepoint)]})
     font = PACK / 'assets/javarailways/font/display_geometry.json'
     font.parent.mkdir(parents=True, exist_ok=True)
     font.write_text(json.dumps({'providers': providers}, ensure_ascii=True, indent=2) + '\n')

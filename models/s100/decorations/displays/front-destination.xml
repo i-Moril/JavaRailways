@@ -2,8 +2,6 @@
   <div id="content"/>
   <script><![CDATA[
 
-    const FONT = "javarailways:display_geometry";
-    const G = { square:"\uE000", wide:"\uE001", body:"\uE002", cabin:"\uE003", ring:"\uE004", dot:"\uE005", rail:"\uE006" };
     function object(v) { return v && typeof v === "object" && !Array.isArray(v) ? v : {}; }
     function localized(v, lang, fallback) {
         if (typeof v === "string") return v;
@@ -17,6 +15,11 @@
         if (font) node.setAttribute("font", font);
         node.setAttribute("style", "left:" + x + ";top:" + y + ";font-size:" + size + ";color:" + ink);
         node.textContent = String(text);
+        parent.appendChild(node);
+    }
+    function rect(parent, left, top, width, height, ink) {
+        const node = document.createElement("rect");
+        node.setAttribute("style", "left:" + left + ";top:" + top + ";width:" + width + ";height:" + height + ";color:" + ink);
         parent.appendChild(node);
     }
     function textUnits(text) {
@@ -45,18 +48,22 @@
         const d = data(ctx);
         const root = document.getElementById("content");
         const w = ctx.width, h = ctx.height;
-        span(root, G.wide, w / 2, 0, h, "#101820", FONT);
-        const badgeWidth = d.service ? Math.min(h * 2, w * 0.28) : 0;
+        rect(root, 0, 0, w, h, "#101820");
+        const pad = w * 0.02, contentWidth = w - 2 * pad;
+        const badgeWidth = d.service ? contentWidth * 0.30 : 0;
+        const gap = d.service ? w * 0.03 : 0;
         if (d.service) {
-            // A square badge is vertically centered; destination owns the remaining width.
-            span(root, G.body, badgeWidth / 2, 0, h,
-                color(d.rm.classColor, d.theme), FONT);
-            label(root, d.service, badgeWidth / 2, h * 0.30, h * 0.40,
-                badgeWidth - 8, "#FFFFFF");
+            rect(root, pad, h * 0.12, badgeWidth, h * 0.76,
+                color(d.rm.classColor, d.theme));
+            const classSize = h * (d.lang === "zh" ? 0.60 : 0.40);
+            label(root, d.service, pad + badgeWidth / 2, (h - classSize) / 2, classSize,
+                badgeWidth - 2 * pad, "#FFFFFF");
         }
-        const x = badgeWidth + (w - badgeWidth) / 2;
-        label(root, d.destination, x, h * 0.22, h * 0.56,
-            w - badgeWidth - 16, "#FFFFFF");
+        const destinationLeft = pad + badgeWidth + gap;
+        const destinationWidth = w - pad - destinationLeft;
+        const destinationSize = h * 0.70;
+        label(root, d.destination, destinationLeft + destinationWidth / 2,
+            (h - destinationSize) / 2, destinationSize, destinationWidth, "#FFFFFF");
     }
   ]]></script>
 </screen>

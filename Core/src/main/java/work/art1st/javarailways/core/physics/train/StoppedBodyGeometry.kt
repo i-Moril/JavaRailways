@@ -118,7 +118,7 @@ class StoppedBodyGeometry private constructor(private val world: World,
         // JOML length: three products, two additions, square root. Delta-coordinate subtraction
         // contributes its own absolute ULP bound; this is per residual evaluation, not per solver trial.
         val normError = up(up(sqrt(3.0) * Math.ulp(delta)) + up(gamma(6) * up(sqrt(3.0) * delta)))
-        require(originalMembers.all { it.a - it.b > up(2.0 * up(AXLE_RESIDUAL + normError)) }) {
+        require(originalMembers.all { it.a - it.b > up(2.0 * up(GEOMETRY_RESIDUAL + normError)) }) {
             "stopped-body axle scale is numerically unresolved" }
         // A normalized vector uses five norm-square operations, sqrt, reciprocal and multiplication.
         // With normal inputs its Euclidean magnitude is no greater than this directed upper bound.
@@ -132,11 +132,11 @@ class StoppedBodyGeometry private constructor(private val world: World,
         var connectors = 0.0
         selected.forEach { body = up(body + up(it.length * directionBound))
             connectors = up(connectors + up(it.connectorA + it.connectorB)) }
-        val gaps = up((selected.size - 1).toDouble() * up(COUPLER_CONTACT_EPSILON_METERS + residualError))
+        val gaps = up((selected.size - 1).toDouble() * up(GEOMETRY_RESIDUAL + residualError))
         val rigidEnds = up(2.0 * up(offset * directionBound))
         val railEnds = up(2.0 * up(up(lipschitz * up(offset + Curve.TOLERANCE)) + jumps + up(2.0 * interpolation)))
         val floors = up(2.0 * up(normal * maxFloor))
-        val radius = up(body + connectors + gaps + rigidEnds + railEnds + floors + up(2.0 * up(AXLE_RESIDUAL + residualError)))
+        val radius = up(body + connectors + gaps + rigidEnds + railEnds + floors + up(2.0 * up(GEOMETRY_RESIDUAL + residualError)))
         require(radius.isFinite()) { "stopped-body reach overflow" }
         val headBox = markerCurve.box(lowerAbMeters, upperAbMeters)
         val box = headBox.expanded(radius)
@@ -182,12 +182,12 @@ class StoppedBodyGeometry private constructor(private val world: World,
                     state.positionY + state.normalY * member.floor, state.positionZ + state.normalZ * member.floor)
             }
             val a = connector(0); val b = connector(1)
-            require(abs(distance(a, b) - (member.a - member.b)) <= AXLE_RESIDUAL + error) {
+            require(abs(distance(a, b) - (member.a - member.b)) <= GEOMETRY_RESIDUAL + error) {
                 "initial stopped-body axle geometry has no rigid residual witness" }
             val centre = frame.state
             val anchored = point(a.x - centre.directionX * member.a,
                 a.y - centre.directionY * member.a, a.z - centre.directionZ * member.a)
-            require(distance(anchored, point(centre.positionX, centre.positionY, centre.positionZ)) <= AXLE_RESIDUAL + error) {
+            require(distance(anchored, point(centre.positionX, centre.positionY, centre.positionZ)) <= GEOMETRY_RESIDUAL + error) {
                 "initial stopped-body centre is not rigidly anchored" }
         }
         val ordered = if (initialFrame.reversed) members.asReversed() else members
@@ -196,7 +196,7 @@ class StoppedBodyGeometry private constructor(private val world: World,
             val afterReversed = after.orientationParity xor initialFrame.reversed
             val expected = (if (beforeReversed) before.connectorA else before.connectorB) +
                 (if (afterReversed) after.connectorB else after.connectorA)
-            require(abs(distance(tip(before, false), tip(after, true)) - expected) <= COUPLER_CONTACT_EPSILON_METERS + error) {
+            require(abs(distance(tip(before, false), tip(after, true)) - expected) <= GEOMETRY_RESIDUAL + error) {
                 "initial stopped-body coupler geometry has no rigid residual witness" }
         }
     }
@@ -276,7 +276,7 @@ class StoppedBodyGeometry private constructor(private val world: World,
             // margin additionally bounds the finite sums and absolute-coordinate interpolation.
             val scale = maxOf(last.arcLength, abs(first.position.x()), abs(first.position.y()), abs(first.position.z()),
                 abs(last.position.x()), abs(last.position.y()), abs(last.position.z()), bodyLength, abs(a.first().floor), 1.0)
-            val error = up((a.size + b.size + 2) * (AXLE_RESIDUAL + COUPLER_CONTACT_EPSILON_METERS) +
+            val error = up((a.size + b.size + 2) * (GEOMETRY_RESIDUAL + GEOMETRY_RESIDUAL) +
                 gamma(128 * (a.size + b.size + 2)) * scale)
             val leading = ao.first()
             val leadingReversed = leading.orientationParity xor approachingReversed
@@ -368,7 +368,7 @@ private fun stoppedBody(frame: TrainFrameSnapshot): Boolean = frame.cars.all { c
     }
 }
 
-private const val AXLE_RESIDUAL = CoreCar.AXLE_TOLERANCE
+private const val GEOMETRY_RESIDUAL = CoreCar.GEOMETRY_SOLVE_TOLERANCE_METERS
 private const val UNIT_ROUNDOFF = 1.1102230246251565e-16
 private fun gamma(n: Int) = Math.nextUp(n * UNIT_ROUNDOFF / (1.0 - n * UNIT_ROUNDOFF))
 private fun up(x: Double): Double { require(x.isFinite()) { "stopped-body arithmetic overflow" }; return Math.nextUp(x).also { require(it.isFinite()) { "stopped-body outward bound overflow" } } }

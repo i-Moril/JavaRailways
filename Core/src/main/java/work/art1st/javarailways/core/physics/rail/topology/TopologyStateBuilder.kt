@@ -30,7 +30,14 @@ internal object TopologyStateBuilder {
             RailEndpoint.entries.map { endpoint -> RailEndpointRef(railId, endpoint) }
         }
         val continuations = validateContinuations(endpoints, input.continuations)
-        val endpointGroups = buildEndpointGroups(endpoints, continuations)
+        val joins = validateContinuations(endpoints, input.joinedEndpoints)
+        val endpointGroups = buildEndpointGroups(endpoints, joins)
+        val groupByEndpoint = endpointGroups.flatMap { (group, ports) -> ports.map { it to group } }.toMap()
+        continuations.forEach { (source, targets) ->
+            require(targets.all { groupByEndpoint[it] == groupByEndpoint[source] }) {
+                "Legal continuations must stay inside their authored endpoint group: $source"
+            }
+        }
         val initialKinds = endpointGroups.mapValues { (_, ports) -> classify(ports, continuations) }
         val nodeKinds = addLoopAnchors(rails.keys, endpointGroups, initialKinds)
 

@@ -69,6 +69,36 @@ class RouteResourceAdmissionEngineTest {
     private val admissionUpdates = arrayListOf<ActiveRouteAdmissionUpdate>()
 
     @Test
+    fun `derailed physical obstacle blocks a following request without blocking a disjoint route`() {
+        observation = observation(8L,
+            train("obstacle", 10.0, 11.0, 8L, derailed = true),
+            train("following", 0.0, 1.0, 8L),
+            train("independent", 50.0, 51.0, 8L))
+        val service = service()
+        val blocked = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.request(Any(), intent(ownerId = "test:following", trainId = "following")))
+        assertEquals(RouteAdmissionFailureCode.PHYSICALLY_OCCUPIED, blocked.failure.code)
+        assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.request(Any(), intent(ownerId = "test:independent", trainId = "independent",
+                routeStart = 50.0)))
+    }
+
+    @Test
+    fun `stationary derailed train keeps its grant across observations`() {
+        val requester = Any()
+        val service = service()
+        val grant = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.request(requester, intent())).grant
+        val before = registry.claimSnapshots().single().footprint
+        for (epoch in 8L..12L) {
+            observation = observation(epoch, train("first", 0.0, 1.0, epoch, derailed = true))
+            service.consumeObservation(observation)
+            assertEquals(before, registry.claimSnapshots().single().footprint)
+            assertFalse(service.endGrant(requester, grant.grantId))
+        }
+    }
+
+    @Test
     fun `administrative reset releases occupied grant only for its requester`() {
         val requester = Any()
         val service = service()
@@ -1597,10 +1627,11 @@ class RouteResourceAdmissionEngineTest {
         head: Double,
         epoch: Long,
         facing: ViewDirection = ViewDirection.AB,
-        reversed: Boolean = false
+        reversed: Boolean = false,
+        derailed: Boolean = false
     ) = TrainFrameSnapshot.create(
         trainId = id, trainName = id, revision = 1L, physicsEpoch = epoch,
-        speedMetersPerSecond = 0.0, derailed = false, reversed = reversed, cars = emptyList(),
+        speedMetersPerSecond = 0.0, derailed = derailed, reversed = reversed, cars = emptyList(),
         head = RailPositionSnapshot(railId, facing, head),
         tail = RailPositionSnapshot(railId, facing, tail),
         occupiedIntervals = listOf(RailInterval(railId, minOf(tail, head), maxOf(tail, head))),

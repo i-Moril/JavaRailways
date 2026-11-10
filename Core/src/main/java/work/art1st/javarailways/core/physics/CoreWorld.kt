@@ -549,6 +549,7 @@ class CoreWorld(
             finalConnections = orderedFinalConnections.associate { connection ->
                 connection.endpoint to connection.connectedEndpoints.toSet()
             },
+            finalJoinedEndpoints = orderedFinalConnections.associate { it.endpoint to it.joinedEndpoints },
             finalConnectionOrder = orderedFinalConnections.associate { connection ->
                 connection.endpoint to connection.connectedEndpoints
             },
@@ -610,6 +611,7 @@ class CoreWorld(
             removedRailIds = removedRailIds,
             addedRailCurves = emptyMap(),
             finalConnections = emptyMap(),
+            finalJoinedEndpoints = emptyMap(),
             finalConnectionOrder = emptyMap(),
             finalActiveEndpoints = emptyMap(),
             rawBaseCrossings = rawCrossings,
@@ -623,6 +625,7 @@ class CoreWorld(
         removedRailIds: Set<UUID>,
         addedRailCurves: Map<UUID, PrimeCurve>,
         finalConnections: Map<RailEndpointRef, Set<RailEndpointRef>>,
+        finalJoinedEndpoints: Map<RailEndpointRef, Set<RailEndpointRef>>,
         finalConnectionOrder: Map<RailEndpointRef, List<RailEndpointRef>>,
         finalActiveEndpoints: Map<RailEndpointRef, RailEndpointRef?>,
         rawBaseCrossings: List<AtGradeRailCrossing>,
@@ -634,6 +637,7 @@ class CoreWorld(
             removedRailIds = removedRailIds,
             addedRailCurves = addedRailCurves,
             finalConnections = finalConnections,
+            finalJoinedEndpoints = finalJoinedEndpoints,
             finalConnectionOrder = finalConnectionOrder,
             finalActiveEndpoints = finalActiveEndpoints,
             rawBaseCrossings = rawBaseCrossings,
@@ -648,6 +652,7 @@ class CoreWorld(
             expectedAddedRailCurves = addedRailCurves,
             removedRailIds = removedRailIds,
             expectedConnections = target.expectedConnections,
+            expectedJoinedEndpoints = target.expectedJoinedEndpoints,
             expectedCrossings = target.expectedCrossings
         )
     }
@@ -663,6 +668,7 @@ class CoreWorld(
         expectedAddedRailCurves: Map<UUID, PrimeCurve>,
         removedRailIds: Set<UUID>,
         expectedConnections: Map<RailEndpointRef, Set<RailEndpointRef>>,
+        expectedJoinedEndpoints: Map<RailEndpointRef, Set<RailEndpointRef>>,
         expectedCrossings: Map<AtGradeRailCrossingIndex.RailPair, AtGradeRailCrossing?>
     ): PreparedRailTopologyUpdate {
         val affectedRailIds = linkedSetOf<UUID>().apply {
@@ -671,6 +677,10 @@ class CoreWorld(
             expectedConnections.forEach { (endpoint, targets) ->
                 add(endpoint.railId)
                 targets.mapTo(this, RailEndpointRef::railId)
+            }
+            expectedJoinedEndpoints.forEach { (endpoint, peers) ->
+                add(endpoint.railId)
+                peers.mapTo(this, RailEndpointRef::railId)
             }
             expectedCrossings.keys.forEach { pair ->
                 add(pair.first)
@@ -691,10 +701,14 @@ class CoreWorld(
                 targetConnections[port] = targets.filterTo(linkedSetOf()) { it.railId in targetIds }
             }
             targetConnections.putAll(expectedConnections)
+            val targetJoined: MutableMap<RailEndpointRef, Set<RailEndpointRef>> = liveInput.joinedEndpoints.filterKeys { it.railId in targetIds }
+                .mapValues { (_, peers) -> peers.filterTo(linkedSetOf()) { it.railId in targetIds } }.toMutableMap()
+            targetJoined.putAll(expectedJoinedEndpoints)
             val targetRailSnapshot = buildPreparedTargetRailSnapshot(
                 baseRailSnapshot,
                 targetIds,
                 targetConnections,
+                targetJoined,
                 finalConnectionOrder,
                 expectedAddedRailCurves,
                 finalActiveEndpoints
@@ -719,10 +733,12 @@ class CoreWorld(
                 baseRailCount = rails.size,
                 baseRails = baseRails,
                 baseConnections = baseConnections,
+                baseJoinedEndpoints = baseConnections.keys.associateWith { endpoint -> endpointJoinedEndpoints(endpoint) },
                 baseCrossings = expectedCrossings.keys.associateWith(atGradeRailCrossingIndex::crossing),
                 expectedAddedRailCurves = expectedAddedRailCurves,
                 removedRailIds = removedRailIds,
                 expectedConnections = expectedConnections,
+                expectedJoinedEndpoints = expectedJoinedEndpoints,
                 expectedCrossings = expectedCrossings
             )
         }
@@ -761,6 +777,7 @@ class CoreWorld(
             val removedActive = view.activeRail?.rail in removedInstances
             if (removedActive) view.activeRail = null
             view.mutableNextRails.removeIf { it.rail in removedInstances }
+            view.mutableJoinedEndpoints.removeIf { it.railId in plan.removedOrReplacedRailIds }
             if (removedActive) view.selectDefaultConnection()
         }
         removed.forEach { rail ->
@@ -768,6 +785,8 @@ class CoreWorld(
             rail.viewBA.activeRail = null
             rail.viewAB.mutableNextRails.clear()
             rail.viewBA.mutableNextRails.clear()
+            rail.viewAB.mutableJoinedEndpoints.clear()
+            rail.viewBA.mutableJoinedEndpoints.clear()
             rails.remove(rail.id)
             atGradeRailCrossingIndex.remove(rail)
             trackRailCleanup(rail.destroyResources())
@@ -796,7 +815,7 @@ class CoreWorld(
                 }
             }
             toList().forEach { endpoint ->
-                plan.targetEndpointStates.getValue(endpoint).connectedEndpoints.forEach(::add)
+                plan.targetEndpointStates.getValue(endpoint).joinedEndpoints.forEach(::add)
             }
         }
         fun view(endpoint: RailEndpointRef): RailView {
@@ -811,12 +830,15 @@ class CoreWorld(
             sourceView.activeRail = null
             sourceView.mutableNextRails.clear()
             sourceView.mutableNextRails.addAll(target.connectedEndpoints.map { view(it).reversed })
+            sourceView.mutableJoinedEndpoints.clear()
+            sourceView.mutableJoinedEndpoints.addAll(target.joinedEndpoints)
             val activeEndpoint = if (plan.preserveCurrentActiveSelections) {
                 preservedActiveEndpoints[endpoint]?.takeIf(target.connectedEndpoints::contains)
             } else {
                 target.activeEndpoint
             }
             sourceView.activeRail = activeEndpoint?.let { view(it).reversed }
+            if (target.connectedEndpoints.isEmpty()) sourceView.selectDefaultConnection()
             if (plan.preserveCurrentActiveSelections && sourceView.activeRail == null &&
                 (endpoint !in preservedActiveEndpoints || preservedActiveEndpoints[endpoint] != null)
             ) {
@@ -1088,6 +1110,9 @@ class CoreWorld(
                 "Prepared topology endpoint result differs at $endpoint"
             }
         }
+        prepared.expectedJoinedEndpoints.forEach { (endpoint, peers) ->
+            check(endpointJoinedEndpoints(endpoint) == peers) { "Prepared topology endpoint group differs at $endpoint" }
+        }
         prepared.expectedCrossings.forEach { (pair, expectedCrossing) ->
             check(atGradeRailCrossingIndex.crossing(pair) == expectedCrossing) {
                 "Prepared topology crossing result differs for $pair"
@@ -1101,11 +1126,19 @@ class CoreWorld(
                 rails[endpoint.railId] == null || endpointConnections(endpoint) != expectedTargets
             }
         ) return false
+        if (prepared.baseJoinedEndpoints.any { (endpoint, peers) ->
+                rails[endpoint.railId] == null || endpointJoinedEndpoints(endpoint) != peers
+            }) return false
         if (prepared.baseCrossings.any { (pair, expectedCrossing) ->
                 atGradeRailCrossingIndex.crossing(pair) != expectedCrossing
             }
         ) return false
         return true
+    }
+
+    private fun endpointJoinedEndpoints(endpoint: RailEndpointRef): Set<RailEndpointRef> {
+        val rail = requireNotNull(rails[endpoint.railId]) { "Rail topology is missing endpoint $endpoint" }
+        return (if (endpoint.endpoint == RailEndpoint.A) rail.viewBA else rail.viewAB).joinedEndpoints.toSet()
     }
 
     private fun endpointConnections(
@@ -1240,8 +1273,11 @@ class CoreWorld(
     private fun removeRailInTransaction(removed: CoreRail) {
         check(rails[removed.id] === removed)
         val connectedEndpointViews = sequenceOf(removed.viewAB, removed.viewBA)
-            .flatMap { it.mutableNextRails.asSequence() }
-            .map(RailView::reversed)
+            .flatMap { it.joinedEndpoints.asSequence() }
+            .map { port ->
+                val peer = requireNotNull(rails[port.railId]) { "Missing joined endpoint $port" }
+                if (port.endpoint == RailEndpoint.A) peer.viewBA else peer.viewAB
+            }
             .distinct()
             .toList()
         val affectedRailIds = buildSet {
@@ -1258,12 +1294,15 @@ class CoreWorld(
             val removedWasActive = view.activeRail?.rail === removed
             if (removedWasActive) view.activeRail = null
             view.mutableNextRails.removeIf { it.rail === removed }
+            view.mutableJoinedEndpoints.removeIf { it.railId == removed.id }
             if (removedWasActive) view.selectDefaultConnection()
         }
         removed.viewAB.activeRail = null
         removed.viewBA.activeRail = null
         removed.viewAB.mutableNextRails.clear()
         removed.viewBA.mutableNextRails.clear()
+        removed.viewAB.mutableJoinedEndpoints.clear()
+        removed.viewBA.mutableJoinedEndpoints.clear()
         atGradeRailCrossingIndex.remove(removed)
         rails.remove(removed.id)
     }
@@ -1494,7 +1533,9 @@ class CoreWorld(
                     RailTopologyFingerprint.Entry(
                         rail = rail,
                         nextAtA = rail.viewBA.mutableNextRails.toList(),
-                        nextAtB = rail.viewAB.mutableNextRails.toList()
+                        nextAtB = rail.viewAB.mutableNextRails.toList(),
+                        joinedAtA = rail.viewBA.joinedEndpoints.toSet(),
+                        joinedAtB = rail.viewAB.joinedEndpoints.toSet()
                     )
                 }
         )
@@ -1503,7 +1544,9 @@ class CoreWorld(
         data class Entry(
             val rail: CoreRail,
             val nextAtA: List<RailView>,
-            val nextAtB: List<RailView>
+            val nextAtB: List<RailView>,
+            val joinedAtA: Set<RailEndpointRef>,
+            val joinedAtB: Set<RailEndpointRef>
         )
     }
 

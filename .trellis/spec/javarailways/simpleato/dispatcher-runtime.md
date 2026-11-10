@@ -74,6 +74,7 @@ Run state token包含WAITING_MISSION/TIME/ROUTE、RUNNING、WAITING_BERTH、stat
 | start run | validator success；train物理可用 | install ATO/run；无partial failure |
 | RUNNING | mission revision已physics publish | 可推进route progress |
 | route conflict/physical lock | retry tick | `WAITING_ROUTE`+authority at protection，不Stall |
+| 单列脱轨 | Core已发布derailed及最后有效摆位 | 仅该run FAILED，保留列车、admission与路线编辑保护；其他run继续 |
 | invalid resource/controller identity | invariant failure | world Stall，本Tick停止后续runs |
 | berth | exact non-exclusive call registration | submit station target; movement still requires rolling Basic grant |
 | shared station-program dwell | 实际到站publication（STATION取已记录BERTHED tick） | STOP最低发车时间从到站起算，开门完成不重置；非program旧station状态机另按其显式动作语义 |
@@ -82,6 +83,13 @@ Run state token包含WAITING_MISSION/TIME/ROUTE、RUNNING、WAITING_BERTH、stat
 | reverse | ATO preparation revision published | main reverse；下一Tick确认 |
 | extension action | start exactly once | 后续Ticks只inspect ticket |
 | terminal replace/remove | Basic grant ended、berth/storage clear且ATO stopped | runtime才可replace |
+
+单列脱轨在读取Core发布帧后、检查controller身份或推进站台/门/扩展动作之前隔离。
+故障run取消未完成的站停/门/扩展操作并记录原因，但不能调用world Stall、forceEndRoute、
+注销requester或删除物理列车。终态run继续沿原Basic progress/end生命周期排空；车尾未通过时不能释放claim。
+Core占用包含无controller的脱轨列车，其他列车继续通过既有物理占用、信号和授权边界制动等待。
+保留的是尚未释放的路线资源，可能包含未驶入的前方资源，不宣称只保留车身区间。
+真实资源/控制器不变量故障仍走world Stall；本规则不改变Core脱轨本车的物理停止行为。
 
 Train acquisition以live stopped train location/speed/derail/controller/run/geometry为authority；RollingStock只补metadata。First mission confirmed后Depot reservation才IN_SERVICE。Storage full envelope+old resources clear才handoff。
 

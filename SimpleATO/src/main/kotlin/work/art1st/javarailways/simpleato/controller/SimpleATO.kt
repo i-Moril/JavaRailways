@@ -1040,8 +1040,7 @@ class SimpleATO(
             directProjection != null -> directProjection
             active.projectedProgressMeters != null &&
                 active.projectedProgressMeters!! >=
-                resolved.stoppingDistanceMeters -
-                    (resolved.positionToleranceMeters + POSITION_EPSILON_METERS) ->
+                resolved.stoppingDistanceMeters - resolved.positionToleranceMeters ->
                 active.projectedProgressMeters!! + lastTravelDistanceMeters
             else -> error("train head left the StationCall Mission route before its berth: ${resolved.berthRef}")
         }
@@ -1051,8 +1050,7 @@ class SimpleATO(
             active.approachingReported = true
             reportStationCall(active, StationCallNotificationType.APPROACHING, positionError)
         }
-        val effectivePositionTolerance = resolved.positionToleranceMeters + POSITION_EPSILON_METERS
-        check(active.berthed || positionError >= -effectivePositionTolerance) {
+        check(active.berthed || positionError >= -resolved.positionToleranceMeters) {
             "train passed StationBerth stopping position before BERTHED: ${resolved.berthRef}; " +
                 "error=$positionError"
         }
@@ -1070,7 +1068,7 @@ class SimpleATO(
                 reportStationCall(active, StationCallNotificationType.BERTHED, positionError)
             }
         }
-        if (active.departureGranted && positionError < -effectivePositionTolerance) {
+        if (active.departureGranted && positionError < -resolved.positionToleranceMeters) {
             active.departed = true
             reportStationCall(active, StationCallNotificationType.DEPARTED, positionError)
             constraintManager.remove(STATION_OWNER)
@@ -1388,6 +1386,5 @@ class SimpleATO(
         val MISSION_OWNER = ConstraintOwner(ConstraintOwnerType.OPERATIONS, "basic:mission")
         val STATION_OWNER = ConstraintOwner(ConstraintOwnerType.OPERATIONS, "basic:station-call")
         val ENTRY_CLEARANCE_OWNER = ConstraintOwner(ConstraintOwnerType.SIGNALLING, "simpleato:entry-clearance")
-        const val POSITION_EPSILON_METERS = 1.0e-3
     }
 }

@@ -47,6 +47,13 @@ data class StationCall(
 | door open/close未success | 保留hold/berth | 不grant departure |
 | head离开但tail仍occupy | berth保持 | detector release后才free |
 
+停妥验收、尚未停妥时的过点检查、获准发车后的离站检查，以及停车点附近沿用末端行程的
+进度门槛，均使用同一份 `ResolvedStationCall.positionToleranceMeters`（当前共享策略为0.3m）。
+不得额外叠加1mm等位置余量：未停妥且误差小于 `-positionToleranceMeters` 时明确失败；
+已停妥并获准发车后，同一负向边界之外才发布 `DEPARTED`。停妥仍要求速度exact 0且保持制动已建立。
+例如已越过停车点0.3005m时，不能既不满足0.3m停妥验收，又因另一份0.301m边界而不报越界或不发布离站。
+`StationCallRuntimeTest`须覆盖0.2995m与0.3005m两侧的未停妥过点和获准发车行为。
+
 ## 已选停站目标只计算一次（CURRENT）
 
 停站目标的唯一运行态来源是 `ResolvedStationCall`。Dispatcher 从当前 Mission 选取到该次

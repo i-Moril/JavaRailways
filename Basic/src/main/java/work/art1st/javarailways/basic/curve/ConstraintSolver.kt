@@ -17,8 +17,13 @@ sealed class ConstraintSolveResult {
 }
 
 object ConstraintSolver {
-    /** The generator omits sub-centimetre tangent sections; partition stations use that same geometry. */
-    internal fun generatedStraightLength(length: Double): Double = if (length < 0.01) 0.0 else length
+    // Core raw samples require at least 1e-12 m between stations. Tangents have two
+    // intervals, with a factor-two rounding margin. This is a representation floor,
+    // not an engineering tolerance: millimetre and sub-millimetre sections remain intact.
+    private const val MIN_GENERATED_STRAIGHT_LENGTH = 4e-12
+
+    internal fun generatedStraightLength(length: Double): Double =
+        if (length < MIN_GENERATED_STRAIGHT_LENGTH) 0.0 else length
 
     /**
      * 给定 R，二分搜索 L1 使 straightA≥0 且 straightB≥0，误差=0。
@@ -106,7 +111,9 @@ object ConstraintSolver {
             Vector3d(fx).cross(Vector3d(0.0, 1.0, 0.0)).normalize()
         val pts = mutableListOf<Curve.RawPoint>()
         var s = 0.0
-        val totalLen = r.totalLength
+        val straightA = generatedStraightLength(r.straightA)
+        val straightB = generatedStraightLength(r.straightB)
+        val totalLen = straightA + r.L1 + r.Lc + r.L2 + straightB
         // 坡度: tangent.y / horizontal_norm
         val hLenA = sqrt(fromTangent.x()*fromTangent.x() + fromTangent.z()*fromTangent.z())
         val hLenB = sqrt(toTangent.x()*toTangent.x() + toTangent.z()*toTangent.z())
@@ -152,9 +159,9 @@ object ConstraintSolver {
         }
 
         // straightA
-        addSegment(r.straightA, fx, fromPos)
-        val curveOrigin = Vector3d(fromPos).fma(r.straightA, fx)
-        curveOrigin.y = heightAt(r.straightA)
+        addSegment(straightA, fx, fromPos)
+        val curveOrigin = Vector3d(fromPos).fma(straightA, fx)
+        curveOrigin.y = heightAt(straightA)
 
         // clothoid + arc + clothoid
         val curve = StandardRailCurve(r.R, r.L1, r.Lc, superelevationConfig)
@@ -188,7 +195,7 @@ object ConstraintSolver {
         // straightB
         val dp = r.totalAngle
         val endTan2d = Vector3d(fx.x()*cos(dp)+fz.x()*sin(dp), 0.0, fx.z()*cos(dp)+fz.z()*sin(dp)).normalize()
-        addSegment(r.straightB, endTan2d, pts.last().position)
+        addSegment(straightB, endTan2d, pts.last().position)
 
         return RailCurvePartitioner.withElevationArc(pts)
     }
@@ -214,7 +221,8 @@ object ConstraintSolver {
         val e = crv.positionAtAccurate(crv.totalLength)
         val sb = if (abs(sd) < 1e-12) 0.0 else (tz - e.z) / sd
         val sa = tx - e.x - sb * cd
-        return sa >= -0.001 && sb >= -0.001
+        val roundoff = tangentRoundoff(tx, tz, R)
+        return sa >= -roundoff && sb >= -roundoff
     }
 
     private fun build(L1: Double, R: Double, dp: Double,
@@ -226,12 +234,21 @@ object ConstraintSolver {
         val Lc = R * arcAngle
         val crv = StandardRailCurve(R, L1, Lc)
         val e = crv.positionAtAccurate(crv.totalLength)
-        val sb = maxOf(if (abs(sd) < 1e-12) 0.0 else (tz - e.z) / sd, 0.0)
-        val sa = maxOf(tx - e.x - sb * cd, 0.0)
+        val rawSb = if (abs(sd) < 1e-12) 0.0 else (tz - e.z) / sd
+        val rawSa = tx - e.x - rawSb * cd
+        val roundoff = tangentRoundoff(tx, tz, R)
+        require(rawSa >= -roundoff && rawSb >= -roundoff) { "Solved tangent lengths must be nonnegative" }
+        // Normalize numerical zero symmetrically; retaining positive roundoff would create
+        // unusable sub-picometre sampling intervals at a tangent-free boundary.
+        val sa = generatedStraightLength(if (abs(rawSa) <= roundoff) 0.0 else rawSa)
+        val sb = generatedStraightLength(if (abs(rawSb) <= roundoff) 0.0 else rawSb)
         return ConstraintSolveResult.Success(
             R, sa, L1, Lc, L1, sb, arcAngle, sa + crv.totalLength + sb, dp, leftTurn
         )
     }
+
+    private fun tangentRoundoff(tx: Double, tz: Double, radius: Double): Double =
+        32.0 * Math.ulp(maxOf(abs(tx), abs(tz), radius))
 
     private fun toLocalFrame(pt: Vector3dc, o: Vector3dc, t: Vector3dc): Pair<Double, Double> {
         val d = Vector3d(pt).sub(o, Vector3d())

@@ -85,13 +85,13 @@ class PreparedRailWorldSnapshotPlan private constructor(
                 RailEndpoint.entries.forEach { endpoint -> add(RailEndpointRef(railId, endpoint)) }
             }
             toList().forEach { endpoint ->
-                targetEndpointStates.getValue(endpoint).connectedEndpoints.forEach(::add)
+                targetEndpointStates.getValue(endpoint).joinedEndpoints.forEach(::add)
             }
         }
     }
 
     private fun endpointStateMatches(current: SnapshotEndpointState, captured: SnapshotEndpointState): Boolean =
-        current.connectedEndpoints == captured.connectedEndpoints &&
+        current.connectedEndpoints == captured.connectedEndpoints && current.joinedEndpoints == captured.joinedEndpoints &&
             (preserveCurrentActiveSelections || current.activeEndpoint == captured.activeEndpoint)
 
     companion object {
@@ -121,7 +121,7 @@ class PreparedRailWorldSnapshotPlan private constructor(
                 .filterTo(linkedSetOf()) { endpoint ->
                     val current = currentStates.getValue(endpoint)
                     val target = targetStates.getValue(endpoint)
-                    current.connectedEndpoints != target.connectedEndpoints ||
+                    current.connectedEndpoints != target.connectedEndpoints || current.joinedEndpoints != target.joinedEndpoints ||
                         (!preserveCurrentActiveSelections && current.activeEndpoint != target.activeEndpoint)
                 }
 
@@ -142,8 +142,8 @@ class PreparedRailWorldSnapshotPlan private constructor(
                 preparedCreations?.crossings.orEmpty()
             val structuralConnectionsChanged = currentStates.keys != targetStates.keys ||
                 currentStates.any { (endpoint, state) ->
-                    state.connectedEndpoints.toSet() !=
-                        targetStates[endpoint]?.connectedEndpoints?.toSet()
+                    state.connectedEndpoints.toSet() != targetStates[endpoint]?.connectedEndpoints?.toSet() ||
+                        state.joinedEndpoints != targetStates[endpoint]?.joinedEndpoints
                 }
             val structuralSnapshotChanged = removedOrReplacedRailIds.isNotEmpty() ||
                 createdOrReplacedRailIds.isNotEmpty() || structuralConnectionsChanged
@@ -157,6 +157,7 @@ class PreparedRailWorldSnapshotPlan private constructor(
                         continuations = targetStates.mapValues { (_, state) ->
                             state.connectedEndpoints.toSet()
                         },
+                        joinedEndpoints = targetStates.mapValues { (_, state) -> state.joinedEndpoints },
                         atGradeCrossings = rawTargetCrossings
                     )
                 )
@@ -169,7 +170,7 @@ class PreparedRailWorldSnapshotPlan private constructor(
                 changedExistingEndpoints.mapTo(this, RailEndpointRef::railId)
                 changedExistingEndpoints.flatMapTo(this) { endpoint ->
                     val state = currentStates.getValue(endpoint)
-                    state.connectedEndpoints.map(RailEndpointRef::railId)
+                    state.joinedEndpoints.map(RailEndpointRef::railId)
                 }
             }
             val affectedExistingIds = linkedSetOf<UUID>().apply {
@@ -182,7 +183,7 @@ class PreparedRailWorldSnapshotPlan private constructor(
                 }
                 removedOrReplacedRailIds.forEach { railId ->
                     RailEndpoint.entries.forEach { endpoint ->
-                        currentStates.getValue(RailEndpointRef(railId, endpoint)).connectedEndpoints
+                        currentStates.getValue(RailEndpointRef(railId, endpoint)).joinedEndpoints
                             .mapTo(this, RailEndpointRef::railId)
                     }
                 }
@@ -200,6 +201,9 @@ class PreparedRailWorldSnapshotPlan private constructor(
                     val ref = RailEndpointRef(railId, endpoint)
                     expectedConnections[ref] = targetStates.getValue(ref).connectedEndpoints.toSet()
                 }
+            }
+            val expectedJoinedEndpoints = expectedConnections.keys.associateWith { endpoint ->
+                targetStates.getValue(endpoint).joinedEndpoints
             }
             val expectedCrossings = linkedMapOf<AtGradeRailCrossingIndex.RailPair, AtGradeRailCrossing?>().apply {
                 rawCurrentCrossings.asSequence()
@@ -235,11 +239,15 @@ class PreparedRailWorldSnapshotPlan private constructor(
                         RailEndpoint.entries.asSequence().map { endpoint -> RailEndpointRef(railId, endpoint) }
                     }
                     .associateWith { endpoint -> currentStates.getValue(endpoint).connectedEndpoints.toSet() },
+                baseJoinedEndpoints = affectedExistingIds.asSequence()
+                    .flatMap { railId -> RailEndpoint.entries.asSequence().map { RailEndpointRef(railId, it) } }
+                    .associateWith { currentStates.getValue(it).joinedEndpoints },
                 baseCrossings = expectedCrossings.keys.associateWith(rawCurrentCrossingsByPair::get),
                 expectedAddedRailCurves = preparedCreations?.creations.orEmpty()
                     .associate { creation -> creation.railId to creation.curve },
                 removedRailIds = removedOrReplacedRailIds,
                 expectedConnections = expectedConnections,
+                expectedJoinedEndpoints = expectedJoinedEndpoints,
                 expectedCrossings = expectedCrossings
             )
             return PreparedRailWorldSnapshotPlan(
@@ -257,7 +265,8 @@ class PreparedRailWorldSnapshotPlan private constructor(
             val view = if (endpoint == RailEndpoint.A) rail.viewBA else rail.viewAB
             return SnapshotEndpointState(
                 view.mutableNextRails.map(::endpointOfAwayView),
-                view.activeRail?.let(::endpointOfAwayView)
+                view.activeRail?.let(::endpointOfAwayView),
+                view.joinedEndpoints.toSet()
             )
         }
 

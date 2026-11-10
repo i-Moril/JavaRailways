@@ -133,7 +133,7 @@ class CoreTrainRigidGeometryTest {
         train.cars.forEach { car ->
             val a = Vector3d(car.bogieA.position).add(Vector3d(car.bogieA.normal).mul(car.floorHeight))
             val b = Vector3d(car.bogieB.position).add(Vector3d(car.bogieB.normal).mul(car.floorHeight))
-            assertEquals(car.bogieAOffset - car.bogieBOffset, a.distance(b), Curve.TOLERANCE, "$context axle")
+            assertEquals(car.bogieAOffset - car.bogieBOffset, a.distance(b), 0.001, "$context axle")
             assertEquals(0.0, Vector3d(car.position).add(Vector3d(car.direction).mul(car.bogieAOffset)).distance(a),
                 Curve.TOLERANCE, "$context A offset")
             assertEquals(0.0, Vector3d(car.position).add(Vector3d(car.direction).mul(car.bogieBOffset)).distance(b),
@@ -147,7 +147,7 @@ class CoreTrainRigidGeometryTest {
             val head = Vector3d(following.position).add(Vector3d(followingDirection).mul(following.length / 2.0))
             val gap = tail.sub(head)
             assertEquals(leading.tailConnectorLength + following.headConnectorLength, gap.length(),
-                Curve.TOLERANCE, "$context coupler")
+                0.001, "$context coupler")
             assertTrue(gap.dot(followingDirection) >= -1e-6, "$context coupler side")
         }
     }

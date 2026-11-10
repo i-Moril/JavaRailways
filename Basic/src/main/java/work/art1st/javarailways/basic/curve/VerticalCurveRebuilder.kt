@@ -65,14 +65,22 @@ object VerticalCurveRebuilder {
         }
     }
 
+    /** A chain is one authored curve; its internal/partition pieces may be shorter than 1 m. */
     @OptIn(Heavy::class)
     fun rebuild(sourceCurves: List<PrimeCurve>, profile: VerticalProfileSolution): List<PrimeCurve> {
         require(sourceCurves.size == profile.segments.size) {
             "Curve count does not match vertical-profile segment count"
         }
-        return sourceCurves.mapIndexed { segmentIndex, source ->
+        require(sourceCurves.sumOf { it.totalArcLength } >= CurveEndpointCorrection.MINIMUM_LENGTH_METERS) {
+            "完整曲线长度不能短于 1 m"
+        }
+        val rebuilt = sourceCurves.mapIndexed { segmentIndex, source ->
             rebuildSegment(source, profile.segments[segmentIndex])
         }
+        require(rebuilt.sumOf { it.totalArcLength } >= CurveEndpointCorrection.MINIMUM_LENGTH_METERS) {
+            "重建后的完整曲线长度不能短于 1 m"
+        }
+        return rebuilt
     }
 
     @OptIn(Heavy::class)
@@ -87,7 +95,11 @@ object VerticalCurveRebuilder {
         }
 
         val positions = sourcePoints.mapIndexed { index, point ->
-            Vector3d(point.position.x(), profile.heightAt(horizontalStations[index]), point.position.z())
+            Vector3d(point.position.x(), when (index) {
+                0 -> profile.startElevation
+                sourcePoints.lastIndex -> profile.endElevation
+                else -> profile.heightAt(horizontalStations[index])
+            }, point.position.z())
         }
         val rebuilt = sourcePoints.mapIndexed { index, sourcePoint ->
             val horizontalDirection = horizontalDirection(sourcePoints, index)

@@ -26,10 +26,12 @@ class PreparedRailTopologyUpdate internal constructor(
     baseRailCount: Int,
     baseRails: Map<UUID, CoreRail?>,
     baseConnections: Map<RailEndpointRef, Set<RailEndpointRef>>,
+    baseJoinedEndpoints: Map<RailEndpointRef, Set<RailEndpointRef>>,
     baseCrossings: Map<AtGradeRailCrossingIndex.RailPair, AtGradeRailCrossing?>,
     expectedAddedRailCurves: Map<UUID, PrimeCurve>,
     removedRailIds: Set<UUID>,
     expectedConnections: Map<RailEndpointRef, Set<RailEndpointRef>>,
+    expectedJoinedEndpoints: Map<RailEndpointRef, Set<RailEndpointRef>>,
     expectedCrossings: Map<AtGradeRailCrossingIndex.RailPair, AtGradeRailCrossing?>
 ) {
     /** Preview invalidation only; live publication derives its change from the actual committed state. */
@@ -39,6 +41,9 @@ class PreparedRailTopologyUpdate internal constructor(
             addAll(expectedAddedRailCurves.keys)
             expectedConnections.forEach { (entry, targets) ->
                 if (baseConnections[entry] != targets) add(entry.railId)
+            }
+            expectedJoinedEndpoints.forEach { (entry, peers) ->
+                if (baseJoinedEndpoints[entry] != peers) add(entry.railId)
             }
             (baseCrossings.keys + expectedCrossings.keys).forEach { pair ->
                 if (baseCrossings[pair] != expectedCrossings[pair]) {
@@ -70,6 +75,14 @@ class PreparedRailTopologyUpdate internal constructor(
                 Collections.unmodifiableSet(LinkedHashSet(targets))
             })
         )
+
+    @get:JvmSynthetic
+    internal val baseJoinedEndpoints: Map<RailEndpointRef, Set<RailEndpointRef>> =
+        Collections.unmodifiableMap(baseJoinedEndpoints.mapValues { (_, peers) -> Collections.unmodifiableSet(LinkedHashSet(peers)) })
+
+    @get:JvmSynthetic
+    internal val expectedJoinedEndpoints: Map<RailEndpointRef, Set<RailEndpointRef>> =
+        Collections.unmodifiableMap(expectedJoinedEndpoints.mapValues { (_, peers) -> Collections.unmodifiableSet(LinkedHashSet(peers)) })
 
     @get:JvmSynthetic
     internal val baseCrossings: Map<AtGradeRailCrossingIndex.RailPair, AtGradeRailCrossing?> =
@@ -114,7 +127,9 @@ class PreparedRailTopologyUpdate internal constructor(
         Collections.unmodifiableList(values.map { saved ->
             saved.copy(
                 connectionsAtA = Collections.unmodifiableList(ArrayList(saved.connectionsAtA)),
-                connectionsAtB = Collections.unmodifiableList(ArrayList(saved.connectionsAtB))
+                connectionsAtB = Collections.unmodifiableList(ArrayList(saved.connectionsAtB)),
+                joinedEndpointsAtA = Collections.unmodifiableList(ArrayList(saved.joinedEndpointsAtA)),
+                joinedEndpointsAtB = Collections.unmodifiableList(ArrayList(saved.joinedEndpointsAtB))
             )
         })
 }

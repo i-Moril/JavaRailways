@@ -30,6 +30,9 @@ import work.art1st.javarailways.basic.infrastructure.admission.InfrastructurePre
 import work.art1st.javarailways.basic.infrastructure.admission.InfrastructurePreparationStart
 import work.art1st.javarailways.basic.infrastructure.admission.LiveInfrastructurePreparationActuator
 import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmissionEngine
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 /** Real Core turnout topology and live preparation, with coherent immutable observation inputs. */
 class BulbLineAdmissionTest {
@@ -57,11 +60,32 @@ class BulbLineAdmissionTest {
                     Curve.RawPoint(b, Vector3d(tangent), Vector3d(0.0, 1.0, 0.0), a.distance(b))
                 ))
             }
+            // A teardrop loop leaves the common point toward +X and returns toward -X.
+            // Its three parts share exact tangent frames, so only the common point is a turnout.
+            fun bulbPart(index: Int): PrimeCurve {
+                var arc = 0.0
+                var previous: Vector3d? = null
+                return PrimeCurve.fromPoints((0..32).map { sample ->
+                    val t = (index + sample / 32.0) / 3.0
+                    val angle = PI * t
+                    val position = Vector3d(
+                        sideMeters * sin(angle), 0.0,
+                        0.5 * sideMeters * sin(angle) * sin(2.0 * angle)
+                    )
+                    previous?.let { arc += it.distance(position) }
+                    previous = position
+                    val tangent = Vector3d(
+                        cos(angle), 0.0,
+                        0.5 * cos(angle) * sin(2.0 * angle) + sin(angle) * cos(2.0 * angle)
+                    ).normalize()
+                    Curve.RawPoint(position, tangent, Vector3d(0.0, 1.0, 0.0), arc)
+                })
+            }
             IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
                 stem = world.createRailForTest(curve(Vector3d(-340.0, 0.0, 0.0), Vector3d()))
-                outbound = world.createRailForTest(curve(Vector3d(), Vector3d(sideMeters, 0.0, 0.0)))
-                loop = world.createRailForTest(curve(Vector3d(sideMeters, 0.0, 0.0), Vector3d(sideMeters, 0.0, sideMeters)))
-                inbound = world.createRailForTest(curve(Vector3d(sideMeters, 0.0, sideMeters), Vector3d()))
+                outbound = world.createRailForTest(bulbPart(0))
+                loop = world.createRailForTest(bulbPart(1))
+                inbound = world.createRailForTest(bulbPart(2))
                 RailView.connect(stem.viewAB, outbound.viewBA)
                 RailView.connect(outbound.viewAB, loop.viewBA)
                 RailView.connect(loop.viewAB, inbound.viewBA)

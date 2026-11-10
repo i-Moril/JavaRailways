@@ -5,7 +5,7 @@ import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.PreparedRailConnectionPlan
 import work.art1st.javarailways.core.physics.rail.PreparedRailCreationBatch
 
-/** Builds exact endpoint states from caller-supplied replacements and connections; never searches geometry. */
+/** Joins explicit authored endpoint groups; Core derives legal routes without searching nearby rails. */
 internal object RailWandExplicitConnections {
     fun capture(
         world: CoreWorld,

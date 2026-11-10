@@ -1459,6 +1459,18 @@ class TimetableDispatcher(
             }
             run.lastPublishedAtoState = publishedAtoState
             val snapshot = capturePublishedTrainFrame(run)
+            if (snapshot.derailed) {
+                // Core retains the last valid placement and removes the derailed train's controller.
+                // Keep admission and edit protection alive; only this service has failed.
+                val reason = snapshot.derailReason ?: run.train.derailReason ?: "reason unavailable"
+                val effectiveReason = cancelRunOperations(world, run, "active timetable train derailed: $reason")
+                retireRunDisplays(world, run)
+                run.state = TimetableServiceRunState.FAILED
+                run.message = effectiveReason
+                waypointProgressListeners.remove(run.waypointProgressKey())
+                stationProgramReadyListeners.remove(run.waypointProgressKey())
+                return@forEach
+            }
             if (!fullManual) when (run.state) {
                 TimetableServiceRunState.BERTHED, TimetableServiceRunState.DOORS_OPENING,
                 TimetableServiceRunState.DWELLING, TimetableServiceRunState.DOORS_CLOSING,
@@ -1496,26 +1508,6 @@ class TimetableDispatcher(
 
             if (run.state.isTerminal()) {
                 finishControllerIfReleased(run, snapshot)
-                return@forEach
-            }
-            if (run.train.isDerailed) {
-                val derailReason = snapshot.derailReason ?: run.train.derailReason ?: "reason unavailable"
-                if (manualRouted) {
-                    stallManualRouted(
-                        world,
-                        run,
-                        snapshot,
-                        "MANUAL_ROUTED train derailed: $derailReason"
-                    )
-                } else {
-                    stallRun(
-                        world,
-                        run,
-                        "TrainDerailment",
-                        "active timetable train derailed: $derailReason",
-                        snapshot
-                    )
-                }
                 return@forEach
             }
             if (fullManual) {
@@ -4048,6 +4040,16 @@ class TimetableDispatcher(
         return true
     }
 
+    private fun cancelRunOperations(world: World, run: ActiveRun, reason: String): String {
+        val stationCancellation = run.stopExecution?.runtime?.cancelOutstanding()
+        val effectiveReason = listOfNotNull(reason, stationCancellation, cancelExtensionAction(run), cancelDoorOperation(run)).joinToString("; ")
+        if (run.depotReservationPending) {
+            run.depotAllocation?.let(world.simpleAtoWorldData.depots::cancelReservation)
+            run.depotReservationPending = false
+        }
+        return effectiveReason
+    }
+
     private fun stallRun(
         world: World,
         run: ActiveRun,
@@ -4058,12 +4060,7 @@ class TimetableDispatcher(
     ) {
         val addressedReason = if (errorType == "TimetableExtensionFailure" || errorType == "TimetableConditionFailure")
             "[${run.service.id}] ${run.programCursor.address ?: "completed"}: $reason" else reason
-        val stationCancellation = run.stopExecution?.runtime?.cancelOutstanding()
-        val effectiveReason = listOfNotNull(addressedReason, stationCancellation, cancelExtensionAction(run), cancelDoorOperation(run)).joinToString("; ")
-        if (run.depotReservationPending) {
-            run.depotAllocation?.let(world.simpleAtoWorldData.depots::cancelReservation)
-            run.depotReservationPending = false
-        }
+        val effectiveReason = cancelRunOperations(world, run, addressedReason)
         val failure = IllegalStateException(effectiveReason)
         world.simpleAtoWorldData.atoCoordinator.stall(
             AtoStallReport(

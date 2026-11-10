@@ -2700,6 +2700,70 @@ class TimetableDispatcherTest {
         assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
+    fun `derailed service retains its route while an independent train keeps moving`(manualRouted: Boolean) {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        val dispatcher = dispatcher()
+        val coordinator = AtoWorldCoordinator("dispatcher-derail-isolation", reportSink = {})
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
+        val firstRail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
+        val secondRail = rail(world, Vector3d(0.0, 0.0, 20.0), Vector3d(200.0, 0.0, 20.0))
+        val failed = createTrainWithConfig("failed", firstRail, world, listOf(10.0))
+        val healthy = createTrainWithConfig("healthy", secondRail, world, listOf(10.0))
+        data.wayPoints.add(WayPoint("F0", firstRail.id, failed.head.location.arcLength))
+        data.wayPoints.add(WayPoint("F1", firstRail.id, 180.0))
+        data.wayPoints.add(WayPoint("H0", secondRail.id, healthy.head.location.arcLength))
+        data.wayPoints.add(WayPoint("H1", secondRail.id, 180.0))
+        world.simpleAtoWorldData.timetables.add(Timetable("tt-isolation", services = listOf(
+            service("failed", failed.id, "F0", "F1"),
+            service("healthy", healthy.id, "H0", "H1")
+        )))
+        val failedId = TimetableServiceRunId("tt-isolation", "failed")
+        val healthyId = TimetableServiceRunId("tt-isolation", "healthy")
+        listOf(failedId, healthyId).forEach { id ->
+            assertTrue(world.onOwnerForTest { dispatcher.startService(world, id.timetableId, id.serviceId) }
+                is TimetableServiceStartResult.Started)
+        }
+        val failedAto = failed.controller as SimpleATO
+        val healthyAto = healthy.controller as SimpleATO
+        repeat(40) {
+            tickAndPublish(failedAto)
+            tickAndPublish(healthyAto)
+            world.onOwnerForTest { dispatcher.tick(world) }
+        }
+        assertTrue(healthy.speed > 0.0)
+        assertTrue(dispatcher.status(failedId)!!.routeGrantActive)
+        val speedBefore = healthy.speed
+        val headBefore = healthy.head.location.arcLength
+        if (manualRouted) {
+            assertTrue(world.onOwnerForTest { dispatcher.enterManualRoutedControl(world, failed.id, "driver") }
+                is TimetableControlTransferResult.ManualRouted)
+            val manual = ManualController(failed, maxSpeed = 8.0)
+            failed.setControllerForTest(manual)
+            assertTrue(world.onOwnerForTest { dispatcher.bindManualRoutedController(failed.id, "driver", manual) })
+        }
+        world.onOwnerForTest { failed.derail("test single-train fault") }
+        val failedHead = failed.head.location.arcLength
+        world.onOwnerForTest { dispatcher.tick(world) }
+        assertFalse(coordinator.isStalled)
+        assertEquals(speedBefore, healthy.speed)
+        assertEquals(TimetableServiceRunState.FAILED, dispatcher.status(failedId)!!.state)
+        assertTrue(dispatcher.status(failedId)!!.message.orEmpty().contains("test single-train fault"))
+        assertNull(failed.controller)
+        repeat(40) {
+            tickAndPublish(healthyAto)
+            world.onOwnerForTest { dispatcher.tick(world) }
+            assertFalse(coordinator.isStalled)
+            assertTrue(dispatcher.status(failedId)!!.routeGrantActive)
+            assertTrue(healthy.speed > 0.0)
+        }
+        assertTrue(healthy.head.location.arcLength > headBefore)
+        assertEquals(failedHead, failed.head.location.arcLength)
+        assertFalse(dispatcher.status(healthyId)!!.state == TimetableServiceRunState.FAILED)
+    }
+
     @Test
     fun `world stall aborts remaining route allocations in the same dispatcher tick`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world

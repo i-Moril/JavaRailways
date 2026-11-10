@@ -2,6 +2,9 @@ package work.art1st.javarailways.bukkit.persistence
 
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -10,6 +13,7 @@ import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotCod
 import work.art1st.javarailways.basic.rail.SpeedLimitType
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
+import work.art1st.javarailways.offline.RailJunctionMigration
 import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotCodec
 
 class RailInfrastructureMetadataMigrationTest {
@@ -40,7 +44,7 @@ class RailInfrastructureMetadataMigrationTest {
 
     @Test
     fun `migrates the real outer V1 and Basic V1 ownership boundary directly`() {
-        val migrated = RailInfrastructureMetadataMigration.migrate(
+        val migrated = migrate(
             outerV1(currentCore(), legacyBasicWithMetadata())
         )
         val core = WorldSnapshotCodec.decodeInfrastructure(migrated.file.coreSnapshotJson)
@@ -67,7 +71,7 @@ class RailInfrastructureMetadataMigrationTest {
 
     @Test
     fun `also folds legacy Core V1 metadata into the same real source transition`() {
-        val migrated = RailInfrastructureMetadataMigration.migrate(
+        val migrated = migrate(
             outerV1(legacyCoreWithMetadata(), legacyBasicWithoutMetadata())
         )
         val basic = BasicInfrastructureSnapshotCodec.decode(migrated.file.basicSnapshotJson)
@@ -82,7 +86,7 @@ class RailInfrastructureMetadataMigrationTest {
     @Test
     fun `rejects ambiguous metadata ownership instead of merging it`() {
         assertThrows(IllegalArgumentException::class.java) {
-            RailInfrastructureMetadataMigration.migrate(
+            migrate(
                 outerV1(legacyCoreWithMetadata(), legacyBasicWithMetadata())
             )
         }
@@ -91,7 +95,7 @@ class RailInfrastructureMetadataMigrationTest {
     @Test
     fun `rejects revision mismatches at both legacy owner boundaries`() {
         assertThrows(IllegalArgumentException::class.java) {
-            RailInfrastructureMetadataMigration.migrate(
+            migrate(
                 outerV1(
                     currentCore(),
                     legacyBasicWithMetadata().replaceFirst(
@@ -102,7 +106,7 @@ class RailInfrastructureMetadataMigrationTest {
             )
         }
         assertThrows(IllegalArgumentException::class.java) {
-            RailInfrastructureMetadataMigration.migrate(
+            migrate(
                 outerV1(
                     currentCore().replaceFirst(
                         "\"infrastructureRevision\":7",
@@ -123,10 +127,23 @@ class RailInfrastructureMetadataMigrationTest {
         )
     ).toString()
 
+    /** The standalone tool upgrades Core junctions before the ownership-only converter runs. */
+    private fun migrate(source: String): RailInfrastructureMetadataMigration.Result {
+        val outer = Json.parseToJsonElement(source).jsonObject
+        val core = Json.parseToJsonElement(outer.getValue("coreSnapshotJson").jsonPrimitive.content).jsonObject
+        val junctions = RailJunctionMigration.convert(core, mutableListOf())
+        return RailInfrastructureMetadataMigration.migrate(JsonObject(
+            outer + ("coreSnapshotJson" to JsonPrimitive(junctions.toString()))
+        ).toString())
+    }
+
     private fun currentCore(): String = """
         {"formatVersion":2,"infrastructureRevision":7,"rails":[{
           "id":"00000000-0000-0000-0000-000000000001",
-          "curveAB":{"pointList":[]},
+          "curveAB":{"pointList":[
+            {"position":{"x":0.0,"y":0.0,"z":0.0},"tangent":{"x":1.0,"y":0.0,"z":0.0},"normal":{"x":0.0,"y":1.0,"z":0.0},"arcLength":0.0,"segmentType":"DISCRETE"},
+            {"position":{"x":10.0,"y":0.0,"z":0.0},"tangent":{"x":1.0,"y":0.0,"z":0.0},"normal":{"x":0.0,"y":1.0,"z":0.0},"arcLength":10.0,"segmentType":"DISCRETE"}
+          ]},
           "connectionsAtA":[],"connectionsAtB":[],"activeConnectionAtA":null,"activeConnectionAtB":null
         }]}
     """.trimIndent()
@@ -134,7 +151,10 @@ class RailInfrastructureMetadataMigrationTest {
     private fun legacyCoreWithMetadata(): String = """
         {"formatVersion":1,"infrastructureRevision":7,"rails":[{
           "id":"00000000-0000-0000-0000-000000000001",
-          "curveAB":{"pointList":[]},
+          "curveAB":{"pointList":[
+            {"position":{"x":0.0,"y":0.0,"z":0.0},"tangent":{"x":1.0,"y":0.0,"z":0.0},"normal":{"x":0.0,"y":1.0,"z":0.0},"arcLength":0.0,"segmentType":"DISCRETE"},
+            {"position":{"x":10.0,"y":0.0,"z":0.0},"tangent":{"x":1.0,"y":0.0,"z":0.0},"normal":{"x":0.0,"y":1.0,"z":0.0},"arcLength":10.0,"segmentType":"DISCRETE"}
+          ]},
           "metadata":{"designSpeedMetersPerSecond":30.0,"speedLimitMetersPerSecond":20.0,
             "derailSpeedMetersPerSecond":25.0,"allowedDirection":"BA",
             "geometry":{"curveKind":"FIVE_SEGMENT","curveRadiusMeters":300.0,

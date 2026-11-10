@@ -422,8 +422,10 @@ class CoreWorldRailTopologyTransactionTest {
                 plan.apply(world)
                 IsolatedSimulationThreadMarker.run { first.viewAB.activeRail = null }
                 first.viewAB.mutableNextRails.clear()
+                first.viewAB.mutableJoinedEndpoints.clear()
                 IsolatedSimulationThreadMarker.run { second.viewBA.activeRail = null }
                 second.viewBA.mutableNextRails.clear()
+                second.viewBA.mutableJoinedEndpoints.clear()
                 error("failed after rollback")
             } }
         }
@@ -741,10 +743,12 @@ class CoreWorldRailTopologyTransactionTest {
         when (saved.id) {
             firstId.toString() -> saved.copy(
                 connectionsAtB = listOf(SavedRailEndpointRef(secondId.toString(), RailEndpoint.A)),
+                joinedEndpointsAtB = listOf(SavedRailEndpointRef(secondId.toString(), RailEndpoint.A)),
                 activeConnectionAtB = SavedRailEndpointRef(secondId.toString(), RailEndpoint.A)
             )
             secondId.toString() -> saved.copy(
                 connectionsAtA = listOf(SavedRailEndpointRef(firstId.toString(), RailEndpoint.B)),
+                joinedEndpointsAtA = listOf(SavedRailEndpointRef(firstId.toString(), RailEndpoint.B)),
                 activeConnectionAtA = SavedRailEndpointRef(firstId.toString(), RailEndpoint.B)
             )
             else -> saved

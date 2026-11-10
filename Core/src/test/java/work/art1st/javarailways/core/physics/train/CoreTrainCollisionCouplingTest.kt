@@ -61,8 +61,8 @@ class CoreTrainCollisionCouplingTest {
             assertTrue(proof.matches(train))
             world.onOwnerForTest {
                 world.railTopologyTransaction {
-                    first.viewAB.restoreConnections(emptyList(), null)
-                    second.viewBA.restoreConnections(emptyList(), null)
+                    first.viewAB.restoreConnections(emptyList(), null, emptySet())
+                    second.viewBA.restoreConnections(emptyList(), null, emptySet())
                 }
             }
             assertFalse(proof.matches(train), "removing a required directed link invalidates the proof")
@@ -104,8 +104,8 @@ class CoreTrainCollisionCouplingTest {
                         val origin = Vector3d(0.0, 0.0, 0.0)
                         val stem = rail(Vector3d(-30.0, 0.0, 0.0), origin)
                         val selected = rail(origin, Vector3d(30.0, 0.0, 0.0))
-                        val competing = rail(origin, Vector3d(30.0 * kotlin.math.cos(5 * Math.PI / 6), 0.0,
-                            30.0 * kotlin.math.sin(5 * Math.PI / 6)))
+                        val competing = rail(origin, Vector3d(30.0 * kotlin.math.cos(Math.PI / 6), 0.0,
+                            30.0 * kotlin.math.sin(Math.PI / 6)))
                         RailView.connect(stem.viewAB, selected.viewBA)
                         RailView.connect(stem.viewAB, competing.viewBA)
                         stem.viewAB.selectNextRail(selected.viewAB)
@@ -123,7 +123,10 @@ class CoreTrainCollisionCouplingTest {
                                 it.commitMaintenancePlacement()
                             } }
                         }
-                        val moving = train("selected-route", selected, towardJunction = true)
+                        // The train approaches the points from the common leg; the selected
+                        // route continues into `selected`, while the other train is on the
+                        // competing same-side branch. Their front couplers physically face.
+                        val moving = train("selected-route", stem, towardJunction = false)
                         val parked = train("unselected-route", competing, towardJunction = true)
                         val controllerTicks = AtomicInteger()
                         moving.setControllerForTest(object : TrainController(moving) {

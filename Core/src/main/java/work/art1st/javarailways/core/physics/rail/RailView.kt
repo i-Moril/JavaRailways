@@ -6,6 +6,8 @@ import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.exception.CannotConnectRailException
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.physics.rail.RailView as ApiRailView
 import work.art1st.javarailways.core.physics.train.TrainEnd
 import java.util.concurrent.CopyOnWriteArrayList
@@ -18,6 +20,10 @@ class RailView(
     nextActiveRail: RailView? = null
 ) : ApiRailView {
     internal val mutableNextRails: MutableList<RailView> = CopyOnWriteArrayList(mutableNextRails)
+    internal val mutableJoinedEndpoints: MutableSet<RailEndpointRef> = java.util.concurrent.CopyOnWriteArraySet()
+
+    /** Explicit peer members of this endpoint's authored group; never implies a legal route. */
+    val joinedEndpoints: Set<RailEndpointRef> = java.util.Collections.unmodifiableSet(mutableJoinedEndpoints)
 
     init {
         if (nextActiveRail != null && (mutableNextRails.isEmpty() || !mutableNextRails.contains(nextActiveRail))) {
@@ -27,10 +33,11 @@ class RailView(
 
     override val nextRails: List<RailView> = java.util.Collections.unmodifiableList(this.mutableNextRails)
 
-    /** Exact ordered restoration, including an explicit null selection, owned by the world boundary. */
-    fun restoreConnections(nextRails: List<RailView>, activeRail: RailView?) {
+    /** Restores exact legal paths and independently declared peer membership. */
+    fun restoreConnections(nextRails: List<RailView>, activeRail: RailView?, joinedEndpoints: Collection<RailEndpointRef>) {
         rail.world.railTopologyTransaction {
-            rail.world.ensureRailEditProtected(listOf(rail.id) + this.nextRails.map { it.rail.id } + nextRails.map { it.rail.id })
+            val affected = (listOf(rail.id) + this.joinedEndpoints.map { it.railId } + joinedEndpoints.map { it.railId }).toSet()
+            rail.world.ensureRailEditProtected(affected)
             require(rail.world.getRail(rail.id) === rail) { "Rail is not the registered instance" }
             require(nextRails.size <= 2 && nextRails.distinct().size == nextRails.size) {
                 "A rail endpoint supports at most two distinct continuations"
@@ -39,12 +46,23 @@ class RailView(
                 "Connections must refer to registered rails in the same world"
             }
             require(activeRail == null || activeRail in nextRails) { "Active rail must be a continuation" }
-            require(rail.world.occupyingTrainIds((listOf(rail.id) + this.nextRails.map { it.rail.id } + nextRails.map { it.rail.id }).toSet()).isEmpty()) {
+            require(joinedEndpoints.distinct().size == joinedEndpoints.size && endpointRef() !in joinedEndpoints) {
+                "Joined endpoints must be unique peer ports"
+            }
+            val legal = RailEndpointGeometry.legalContinuations(listOf(endpointRef()) + joinedEndpoints) { id ->
+                requireNotNull(rail.world.getRail(id)) { "Joined endpoint references a missing rail $id" }.curve
+            }
+            require(nextRails.mapTo(linkedSetOf(), ::endpointOfAwayView) == legal.getValue(endpointRef())) {
+                "Restored connections do not match the authored endpoint group geometry"
+            }
+            require(rail.world.occupyingTrainIds(affected).isEmpty()) {
                 "Cannot restore connections on occupied rails"
             }
             this.activeRail = null
             mutableNextRails.clear()
             mutableNextRails.addAll(nextRails)
+            mutableJoinedEndpoints.clear()
+            mutableJoinedEndpoints.addAll(joinedEndpoints)
             this.activeRail = activeRail
         }
     }
@@ -56,10 +74,7 @@ class RailView(
             val outgoing = next.startPoint.tangent
             incoming.dot(outgoing) / (incoming.length() * outgoing.length())
         }
-        activeSelectionExplicit = false
     }
-
-    private var activeSelectionExplicit = nextActiveRail != null
 
     @Volatile
     private var activeRailValue: RailView? = nextActiveRail
@@ -76,7 +91,6 @@ class RailView(
                     change = { activeRailValue = value }
                 )
             }
-            activeSelectionExplicit = true
         }
 
     override val nextActiveRail: ApiRailView?
@@ -105,6 +119,10 @@ class RailView(
             ViewDirection.BA -> rail.viewAB
         }
 
+    internal fun endpointRef(): RailEndpointRef = RailEndpointRef(
+        rail.id, if (viewDirection == ViewDirection.AB) RailEndpoint.B else RailEndpoint.A
+    )
+
     override fun selectNextRail(nextRail: ApiRailView?) {
         activeRail = nextRail?.let {
             it as? RailView ?: throw IllegalArgumentException("nextRail must be a Core RailView")
@@ -128,8 +146,10 @@ class RailView(
                 "cannot connect rails from different worlds"
             }
             viewIJ.rail.world.railTopologyTransaction {
-                viewIJ.rail.world.ensureRailEditProtected(listOf(viewIJ.rail.id, viewKJ.rail.id))
-                require(viewIJ.rail.world.occupyingTrainIds(setOf(viewIJ.rail.id, viewKJ.rail.id)).isEmpty()) {
+                val members = (viewIJ.joinedEndpoints + viewKJ.joinedEndpoints + viewIJ.endpointRef() + viewKJ.endpointRef())
+                val affected = members.mapTo(linkedSetOf()) { it.railId }
+                viewIJ.rail.world.ensureRailEditProtected(affected)
+                require(viewIJ.rail.world.occupyingTrainIds(affected).isEmpty()) {
                     "Cannot connect occupied rails"
                 }
                 connectInTransaction(viewIJ, viewKJ)
@@ -144,18 +164,31 @@ class RailView(
             if (j1.distance(j2) > Curve.TOLERANCE) {
                 throw CannotConnectRailException()
             }
-            val ijNext = viewKJ.reversed
-            val kjNext = viewIJ.reversed
-            require(ijNext in viewIJ.mutableNextRails || viewIJ.mutableNextRails.size < 2) {
-                "A rail endpoint supports at most two continuations"
+            val world = viewIJ.rail.world
+            val ports = (viewIJ.joinedEndpoints + viewKJ.joinedEndpoints + viewIJ.endpointRef() + viewKJ.endpointRef()).sorted()
+            val legal = RailEndpointGeometry.legalContinuations(ports) { id -> requireNotNull(world.getRail(id)).curve }
+            fun incoming(port: RailEndpointRef): RailView {
+                val rail = requireNotNull(world.getRail(port.railId))
+                return if (port.endpoint == RailEndpoint.A) rail.viewBA else rail.viewAB
             }
-            require(kjNext in viewKJ.mutableNextRails || viewKJ.mutableNextRails.size < 2) {
-                "A rail endpoint supports at most two continuations"
+            ports.forEach { port ->
+                val view = incoming(port)
+                val oldActive = view.activeRail
+                val hadLegalRoutes = view.mutableNextRails.isNotEmpty()
+                val oldOrder = view.mutableNextRails.filter { endpointOfAwayView(it) in legal.getValue(port) }
+                val next = oldOrder + legal.getValue(port).filterNot { target -> oldOrder.any { endpointOfAwayView(it) == target } }
+                    .map { incoming(it).reversed }
+                if (oldActive !in next) view.activeRail = null
+                view.mutableNextRails.clear()
+                view.mutableNextRails.addAll(next)
+                view.mutableJoinedEndpoints.clear()
+                view.mutableJoinedEndpoints.addAll(ports.filter { it != port })
+                if (oldActive != null && oldActive in next) view.activeRail = oldActive
+                else if (oldActive == null && hadLegalRoutes && next.isNotEmpty()) view.activeRail = null
+                else view.selectDefaultConnection()
             }
-            if (!viewIJ.mutableNextRails.contains(ijNext)) viewIJ.mutableNextRails.add(ijNext)
-            if (!viewKJ.mutableNextRails.contains(kjNext)) viewKJ.mutableNextRails.add(kjNext)
-            if (!viewIJ.activeSelectionExplicit) viewIJ.selectDefaultConnection()
-            if (!viewKJ.activeSelectionExplicit) viewKJ.selectDefaultConnection()
         }
+
+        private fun endpointOfAwayView(view: RailView): RailEndpointRef = view.reversed.endpointRef()
     }
 }

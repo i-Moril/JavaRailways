@@ -73,6 +73,11 @@ var Rail.infrastructureMetadata: RailInfrastructureMetadata
 
 ## Failure矩阵
 
+未完成道岔的几何可以存在：Core显式接点组的两条同侧腿没有合法通路，但Basic的`TurnoutTopology`仍需识别该组，
+为几何维护、占用保护和闭包提供完整成员。正常两条异侧互通的接头仍为普通接头。
+补上公共腿后，由Core对完整组更新合法通路；Basic不另外推断stem，也不把直股/侧股直接互接。
+公共腿删除后保留剩余成员而恢复未完成状态，不能因`nextRails`为空丢失建造关系。
+
 | condition | result/state |
 | --- | --- |
 | rails different world | `require`失败，无mutation |

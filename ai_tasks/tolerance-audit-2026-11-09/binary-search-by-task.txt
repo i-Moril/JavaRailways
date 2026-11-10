@@ -1,0 +1,103 @@
+JavaRailways 二分按业务任务重组及合并建议 — 2026-11-09 UTC
+共12组业务目的，完整覆盖上轮26处实现；仅为分析分组，本轮未改产品代码。
+合并结论区分：数值/索引原语复用、数据结构复用、业务算法合并。相同循环或数值不能直接证明业务相同。
+
+01. 列车运行中的整车位置计算（2处）
+    容差/边界：轴距0.001mm；车钩0.01mm；车尾沿轨残差5mm
+    建议：轴距、车钩已共用CoreCar.solveDistance；车尾端点优先验证直接沿轨定位，避免为了统一而保留不必要求根。
+    - 车厢轴距及车钩：solveDistance
+      /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/physics/train/CoreCar.kt:320
+    - 轨道弧长区间：searchArcRange
+      /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/physics/rail/RailSegment.kt:48
+
+02. 生成符合目标几何的轨道（2处）
+    容差/边界：缓和段区间宽5mm、可行性负直线1mm；S弯最终半径验收max(0.5m,R×0.5%)
+    建议：暂不合并求解算法：缓和段是单调可行性边界搜索，S弯是半径残差求根，且可能存在多个包围区间。S弯应单独修正固定48轮及精确命中不退出的问题。
+    - 五段式曲线缓和段长度L1：ConstraintSolver.solve
+      /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/ConstraintSolver.kt:46
+    - S弯Hermite手柄比例：fitHermiteHandlesToExactRadius
+      /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/HermiteSCurveBuilder.kt:279
+
+03. 曲线采样坐标定位与编辑坐标映射（2处）
+    容差/边界：曲线段查找无epsilon；编辑站点输入上界+1e-8m
+    建议：不合并业务：运行曲线查询和编辑样本映射的输入/输出不同。最多复用精确插入点查找，不共用输入修正容差。
+    - 轨道分割站点映射
+      /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurvePartitioner.kt:48
+    - 曲线采样段定位
+      /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/physics/rail/curve/PrimeCurveImpl.kt:368
+
+04. 寻路图切点与禁行区间查询（2处）
+    容差/边界：切点精确；覆盖/重叠1e-9m
+    建议：保持精确切点身份查找与区间覆盖判断分离；可复用局部索引原语，不将区间epsilon用于切点身份。
+    - 限制区间插入点及covers/overlaps
+      /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/route/TopologyRoutePlanner.kt:899
+    - 寻路边切点精确索引
+      /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/route/TopologyRoutePlanner.kt:453
+
+05. 资源和监测区间查询（5处）
+    容差/边界：资源锚点查询扩展5mm；资源保留重算和监测区查询精确；开闭端点与领域策略留在调用方
+    建议：优先合并其中3套区间重叠索引：RouteBoundResourceCatalog、PhysicalRouteResourceCompiler.rebaseReleaseEntries、RailwayAreaOccupancyTracker.matchingAreas。它们都按起点排序、建立终点前缀最大值、二分定位并扫描。其余两处分别为资源终点下界和监测边界穿越索引，不是相同数据结构。
+    - 轨道资源锚点重叠查询
+      /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/RouteBoundResourceCatalog.kt:258
+    - 资源保留边界前缀最大值查找
+      /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/PhysicalRouteResourceCompiler.kt:206
+    - 物理资源按终点lowerBoundByEnd
+      /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/PhysicalRouteResourceCompiler.kt:375
+    - 监测区边界lowerBound
+      /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/observation/RailwayAreaOccupancyTracker.kt:265
+    - 监测区间前缀lowerBoundPrefix
+      /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/observation/RailwayAreaOccupancyTracker.kt:354
+
+06. 将巡检声明绑定到路线并按进度取出（3处）
+    容差/边界：匹配路线出现次数1e-9m；运行期声明窗口精确比较
+    建议：lowerBound/upperBound两段可合为模块内精确边界查找原语；路线出现次数匹配与运行期声明激活仍是不同阶段，不能统一为带epsilon触发。
+    - 巡检声明匹配实际路线出现次数
+      /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/InspectionScheduler.kt:114
+    - 巡检声明lowerBound
+      /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/InspectionScheduler.kt:28
+    - 巡检声明upperBound
+      /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/InspectionScheduler.kt:42
+
+07. 确保授权请求覆盖被进入的完整窗口（1处）
+    容差/边界：1e-9m，触发点<请求边界-epsilon
+    建议：保留独立的授权请求算法；仅可复用精确索引原语。它判断严格进入窗口，不能与巡检触发或相邻闭塞连接策略合并。
+    - 授权请求触发点下界
+      /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/AuthorityRequestFloors.kt:59
+
+08. 判断列车能否进入需要净空的区段（1处）
+    容差/边界：二分无epsilon；列车长度和margin是业务距离，不是查找精度
+    建议：保持列车长度、停车约束、入口净空规则独立；仅复用边界查找原语。现有bound已支持两种开闭端点。
+    - 入口净空索引bound
+      /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/EntryClearance.kt:52
+
+09. 编译、验证和关联信号保护范围（5处）
+    容差/边界：包含坐标1e-9m；接续/关联/裁剪5mm；图切点精确
+    建议：不将5处合为一个业务算法：区域包含验证、出口接续、区间重叠、路线裁剪和图交叉归属是五个子任务。可以分别复用区间索引/包含判定；5mm附近相等与5mm短片段过滤不是同一语义。
+    - 保护进路替换后切片包含判断
+      /workspace/minecraft/JavaRailways/SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/region/ProtectionRouteTableCatalog.kt:368
+    - 保护区域出口接续固定闭塞
+      /workspace/minecraft/JavaRailways/SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/region/ProtectionRegionInspectionSource.kt:97
+    - 固定闭塞与保护区域切片重叠关联
+      /workspace/minecraft/JavaRailways/SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsWorldRuntime.kt:898
+    - 保护进路绑定窗口裁剪
+      /workspace/minecraft/JavaRailways/SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/signal/ProtectionRouteBindingCompiler.kt:81
+    - 保护区域交叉点所在切片索引
+      /workspace/minecraft/JavaRailways/SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/region/ProtectionRegionGraphResolver.kt:158
+
+10. 编辑器给同一物理边界归并名称（1处）
+    容差/边界：二分精确，左右邻居同点验收5mm
+    建议：保持编辑同点归并独立于运行期信号保护验证；不因同为5mm而合并策略。
+    - 边界名称同点归并
+      /workspace/minecraft/JavaRailways/SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/BoundaryNames.kt:26
+
+11. 查询制动包络的当前分段（1处）
+    容差/边界：无额外epsilon
+    建议：保留制动功/距离公式与分段边界规则；最多复用插入点原语，不加入别的任务的epsilon。
+    - 制动包络分段workAt
+      /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/api/ato/GradeAwareBrakingEnvelope.kt:116
+
+12. 地图标签适配显示宽度（1处）
+    容差/边界：整数二分，无额外epsilon
+    建议：保持独立：对整数字符数量求最大可行值，与物理求根和轨道索引没有共享领域合同。
+    - WebUI标签可显示字符数
+      /workspace/minecraft/JavaRailways/WebUI/frontend/src/railMap.ts:69

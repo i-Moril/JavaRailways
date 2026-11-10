@@ -79,10 +79,7 @@ class CoreTrainTailBogieTest {
     @Test
     fun `curved consist can move after stopping and reversing`() = withWorld { world ->
         val rail = world.createRailForTest(PrimeCurveGenerator.buildCircle(30.0, segmentCount = 1).single())
-        rail.viewAB.mutableNextRails.add(rail.viewAB)
-        IsolatedSimulationThreadMarker.run { rail.viewAB.activeRail = rail.viewAB }
-        rail.viewBA.mutableNextRails.add(rail.viewBA)
-        IsolatedSimulationThreadMarker.run { rail.viewBA.activeRail = rail.viewBA }
+        IsolatedSimulationThreadMarker.run { RailView.connect(rail.viewAB, rail.viewBA) }
         val initial = RailLocationWithFacing(rail.viewAB, 150.0)
         val cars = List(5) { index ->
             CoreCar(

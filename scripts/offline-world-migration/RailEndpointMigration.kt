@@ -10,6 +10,7 @@ object RailEndpointMigration {
     private val json = Json { ignoreUnknownKeys = false }
     private val legacy = setOf("nextRailAtA", "nextRailAtB", "activeTrackAtA", "activeTrackAtB")
     private val current = setOf("connectionsAtA", "connectionsAtB", "activeConnectionAtA", "activeConnectionAtB")
+    private val membership = setOf("joinedEndpointsAtA", "joinedEndpointsAtB")
 
     fun convert(core: JsonObject, report: MutableList<String>): JsonObject {
         require(core.keys == setOf("formatVersion", "infrastructureRevision", "rails")) { "Unexpected Core infrastructure fields" }
@@ -22,7 +23,9 @@ object RailEndpointMigration {
             val hasCurrent = rail.keys.any { it in current }
             require(hasOld != hasCurrent) { "Missing or mixed rail connection shapes" }
             val fields = if (hasOld) legacy else current
-            val allowed = setOf("id", "curveAB") + fields + if (version == 1) setOf("metadata") else emptySet()
+            val joined = rail.keys.intersect(membership)
+            require(joined.isEmpty() || (!hasOld && joined == membership)) { "Incomplete or mixed junction membership fields" }
+            val allowed = setOf("id", "curveAB") + fields + joined + if (version == 1) setOf("metadata") else emptySet()
             require(rail.keys == allowed) { "Unexpected rail fields: ${rail.keys}" }
             hasOld
         }

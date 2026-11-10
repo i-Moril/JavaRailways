@@ -282,7 +282,8 @@ data class TopologyState private constructor(
         (this === previous && railId in railProjection) || identity != null && railIdentities[railId] == identity &&
             RailEndpoint.entries.all { end ->
                 val port = RailEndpointRef(railId, end)
-                continuationsAt(port) == previous.continuationsAt(port)
+                continuationsAt(port) == previous.continuationsAt(port) &&
+                    endpointGroupAt(port) == previous.endpointGroupAt(port)
             } && atGradeCrossingsOn(railId) == previous.atGradeCrossingsOn(railId)
     }
 
@@ -292,6 +293,30 @@ data class TopologyState private constructor(
         is TopologyNode.LoopAnchor -> node.ports.filterTo(linkedSetOf()) { it != port }
         else -> ordinaryContinuationAt(port)?.let(::setOf) ?: emptySet()
     }
+
+    /**
+     * Immutable explicitly authored group containing [port], including the port itself.
+     *
+     * This constant-time value lookup is independent of legal routes and runtime selection.
+     * An unfinished junction can therefore contain several ports with no routes. Returns an
+     * empty set for an endpoint absent from this exact root; performs no live/proximity lookup.
+     */
+    fun endpointGroupAt(port: RailEndpointRef): Set<RailEndpointRef> = endpointGroupsByPort[port].orEmpty()
+
+    private val endpointGroupsByPort: Map<RailEndpointRef, Set<RailEndpointRef>> = immutableMap(
+        buildMap {
+            nodes.values.forEach { node ->
+                val members = immutableSet(node.ports)
+                node.ports.forEach { put(it, members) }
+            }
+            edges.values.forEach { edge ->
+                edge.railSlices.zipWithNext().forEach { (first, second) ->
+                    val members = immutableSet(listOf(sliceEndPort(first), sliceStartPort(second)))
+                    members.forEach { put(it, members) }
+                }
+            }
+        }
+    )
 
     private val structuralNodesByPort: Map<RailEndpointRef, TopologyNode> = immutableMap(
         nodes.values.flatMap { node -> node.ports.map { port -> port to node } }.toMap()

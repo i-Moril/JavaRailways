@@ -1523,8 +1523,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         "message.turnout_created",
                         standard.number,
                         (speedLimits.operatingLimitMetersPerSecond * 3.6).toInt(),
-                        if (parseRailEndpointAnchorId(anchor.id) == null) 0 else 1
+                        requireNotNull(createdRail).viewBA.nextRails.size
                     ).color(NamedTextColor.GREEN)) }
+                    railEditSuccess { refreshAllAnchorsForPlayer(preparedPlayer) }
                     },
                     failure = { failedPlayer, failure ->
                         plugin.logger.warning(
@@ -1559,6 +1560,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val baNext: List<RailView>,
         val abActive: RailView?,
         val baActive: RailView?,
+        val aJoinedEndpoints: Set<RailEndpointRef>,
+        val bJoinedEndpoints: Set<RailEndpointRef>,
         val metadata: RailInfrastructureMetadata
     )
 
@@ -2028,18 +2031,15 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             ).color(NamedTextColor.RED))
             return
         }
-        val editedRail = coreWorld.getRail(editedRailId) ?: run {
+        if (coreWorld.getRail(editedRailId) == null) {
             player.sendActionBar(RailWandI18n.component(
                 player,
                 "message.rail_missing"
             ).color(NamedTextColor.RED))
             return
         }
-        val movedPoint = if (editedEnd == 'A') editedRail.viewAB.startPoint.position else editedRail.viewAB.endPoint.position
-        val affectedRails = coreWorld.allRails.filter { rail ->
-            rail.viewAB.startPoint.position.distance(movedPoint) <= Curve.TOLERANCE ||
-                rail.viewAB.endPoint.position.distance(movedPoint) <= Curve.TOLERANCE
-        }
+        val affectedEndpoints = railWandEndpointEditTargets(coreWorld, railEndpointRef(editedRailId, editedEnd))
+        val affectedRails = affectedEndpoints.map { it.first }.distinct()
         if (affectedRails.isEmpty()) {
             player.sendActionBar(RailWandI18n.component(
                 player,
@@ -2069,14 +2069,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             return
         }
 
-        val rebuildInputs = affectedRails.mapNotNull { rail ->
-            val moveA = rail.viewAB.startPoint.position.distance(movedPoint) <= Curve.TOLERANCE
-            val moveB = rail.viewAB.endPoint.position.distance(movedPoint) <= Curve.TOLERANCE
-            val movedEnd = when {
-                moveA -> 'A'
-                moveB -> 'B'
-                else -> return@mapNotNull null
-            }
+        val rebuildInputs = affectedEndpoints.map { (rail, movedEnd) ->
             RailEndpointRebuildInput(
                 railId = rail.id,
                 movedEnd = movedEnd,
@@ -2358,19 +2351,19 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         baNext = rail.viewBA.nextRails.toList(),
         abActive = rail.viewAB.activeRail,
         baActive = rail.viewBA.activeRail,
+        aJoinedEndpoints = rail.world.topologyState.endpointGroupAt(railEndpointRef(rail.id, 'A')) -
+            railEndpointRef(rail.id, 'A'),
+        bJoinedEndpoints = rail.world.topologyState.endpointGroupAt(railEndpointRef(rail.id, 'B')) -
+            railEndpointRef(rail.id, 'B'),
         metadata = rail.metadata
     )
 
     private fun restoreRailConnections(snapshots: List<RailConnectionSnapshot>) {
         snapshots.forEach { snapshot ->
             snapshot.rail.metadata = snapshot.metadata
-            restoreViewConnections(snapshot.rail.viewAB, snapshot.abNext, snapshot.abActive)
-            restoreViewConnections(snapshot.rail.viewBA, snapshot.baNext, snapshot.baActive)
+            snapshot.rail.viewAB.restoreConnections(snapshot.abNext, snapshot.abActive, snapshot.bJoinedEndpoints)
+            snapshot.rail.viewBA.restoreConnections(snapshot.baNext, snapshot.baActive, snapshot.aJoinedEndpoints)
         }
-    }
-
-    private fun restoreViewConnections(view: RailView, nextRails: List<RailView>, activeRail: RailView?) {
-        view.restoreConnections(nextRails, activeRail)
     }
 
     private fun capturePreparedExplicitConnectionPlan(
@@ -2488,8 +2481,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val newBuilt = createCurvesWithSpeedLimits(startAnchors, endAnchors, settings).toMutableList()
         val replacements = linkedMapOf<UUID, BuiltCurve>()
         for (index in newBuilt.indices) {
-            val start = startAdjacent[index]
-            val end = endAdjacent[index]
+            val created = newBuilt[index].curve
+            val start = startAdjacent[index]?.takeIf {
+                canSmoothRailWandJunction(it.orientedCurve, created, adjacentAtStart = true)
+            }
+            val end = endAdjacent[index]?.takeIf {
+                canSmoothRailWandJunction(it.orientedCurve, created, adjacentAtStart = false)
+            }
             val chain = buildList {
                 start?.let { add(it.orientedCurve) }
                 add(newBuilt[index].curve)
@@ -5335,14 +5333,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     private fun anchorDisplayLabel(player: Player, anchor: Anchor): String? {
         val coreWorld = BukkitPlugin.INSTANCE.worldManager.railWorlds[player.world] as? CoreWorld
-        val endpointCount = coreWorld?.allRails?.sumOf { rail ->
-            listOf(rail.viewAB.startPoint, rail.viewAB.endPoint).count {
-                it.position.distance(anchor.position) <= Curve.TOLERANCE
-            }
-        } ?: 0
-        val turnout = endpointCount >= 3
+        val junctionLabelKey = parseRailEndpointRef(anchor.id)?.let { endpoint ->
+            coreWorld?.let { railWandJunctionLabelKey(it.topologyState, endpoint) }
+        }
         return buildString {
-            if (turnout) append("🔀")
+            junctionLabelKey?.let { append(RailWandI18n.format(player, it)) }
             if (isGradeLocked(anchor)) append("🔒")
         }.ifEmpty { null }
     }
@@ -5576,6 +5571,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     private fun refreshAnchorsForAllViewers() {
+        if (railEditSuccessNotifications.get() != null) {
+            railEditSuccess(::refreshAnchorsForAllViewers)
+            return
+        }
         anchorViewers.forEach { playerId ->
             val player = plugin.server.getPlayer(playerId)
             if (player == null) {
@@ -5611,6 +5610,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     /** 加载世界时刷新所有锚点展示 */
     fun refreshAllAnchorsForPlayer(player: Player) {
+        if (railEditSuccessNotifications.get() != null) {
+            railEditSuccess { refreshAllAnchorsForPlayer(player) }
+            return
+        }
         removeAllAnchorDisplays(player)
         removeSpeedLimitDisplays(player)
         getAllAnchors(player.world).forEach { spawnAnchorDisplay(player, it) }

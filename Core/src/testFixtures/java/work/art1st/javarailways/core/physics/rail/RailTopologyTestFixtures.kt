@@ -1,6 +1,8 @@
 package work.art1st.javarailways.core.physics.rail
 
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 
 /**
  * Installs one explicit turnout whose stem ends at B and whose branches start at A.
@@ -10,13 +12,12 @@ fun configureTurnoutForTest(stem: CoreRail, branches: List<CoreRail>) {
     require(branches.size == 2)
     require(branches.all { it.world === stem.world })
     IsolatedSimulationThreadMarker.run { stem.world.railTopologyTransaction {
-        setNextForTest(stem.viewAB, branches.map(CoreRail::viewAB))
+        val members = listOf(RailEndpointRef(stem.id, RailEndpoint.B)) + branches.map { RailEndpointRef(it.id, RailEndpoint.A) }
+        stem.viewAB.restoreConnections(branches.map(CoreRail::viewAB), branches.first().viewAB,
+            members.filter { it != RailEndpointRef(stem.id, RailEndpoint.B) })
         branches.forEach { branch ->
-            setNextForTest(branch.viewBA, listOf(stem.viewBA))
+            branch.viewBA.restoreConnections(listOf(stem.viewBA), stem.viewBA,
+                members.filter { it != RailEndpointRef(branch.id, RailEndpoint.A) })
         }
     } }
-}
-
-private fun setNextForTest(view: RailView, next: List<RailView>) {
-    view.restoreConnections(next, next.firstOrNull())
 }

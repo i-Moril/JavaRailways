@@ -35,13 +35,18 @@ class PreparedRailWorldSnapshotPlanTest {
                     curveAB = reversed.save() as PrimeCurveImpl.SavedPrimeCurveV1,
                     connectionsAtA = saved.connectionsAtB,
                     connectionsAtB = saved.connectionsAtA,
+                    joinedEndpointsAtA = saved.joinedEndpointsAtB,
+                    joinedEndpointsAtB = saved.joinedEndpointsAtA,
                     activeConnectionAtA = saved.activeConnectionAtB,
                     activeConnectionAtB = saved.activeConnectionAtA
                 ) else saved.copy(
                     connectionsAtA = saved.connectionsAtA.map { ref ->
                         if (ref.railId == source.id.toString()) ref.copy(endpoint = RailEndpoint.A) else ref
                     },
-                    activeConnectionAtA = saved.activeConnectionAtA?.copy(endpoint = RailEndpoint.A)
+                    activeConnectionAtA = saved.activeConnectionAtA?.copy(endpoint = RailEndpoint.A),
+                    joinedEndpointsAtA = saved.joinedEndpointsAtA.map { ref ->
+                        if (ref.railId == source.id.toString()) ref.copy(endpoint = RailEndpoint.A) else ref
+                    }
                 )
             }
 
@@ -74,12 +79,10 @@ class PreparedRailWorldSnapshotPlanTest {
             val target = current.map { saved ->
                 when (saved.id) {
                     first.id.toString() -> saved.copy(
-                        connectionsAtB = listOf(SavedRailEndpointRef(second.id.toString(), RailEndpoint.A)),
-                        activeConnectionAtB = SavedRailEndpointRef(second.id.toString(), RailEndpoint.A)
+                        joinedEndpointsAtB = listOf(SavedRailEndpointRef(second.id.toString(), RailEndpoint.A))
                     )
                     second.id.toString() -> saved.copy(
-                        connectionsAtA = listOf(SavedRailEndpointRef(first.id.toString(), RailEndpoint.B)),
-                        activeConnectionAtA = SavedRailEndpointRef(first.id.toString(), RailEndpoint.B)
+                        joinedEndpointsAtA = listOf(SavedRailEndpointRef(first.id.toString(), RailEndpoint.B))
                     )
                     else -> saved
                 }
@@ -350,15 +353,18 @@ class PreparedRailWorldSnapshotPlanTest {
                 when (saved.id) {
                     source.id.toString() -> saved.copy(
                         connectionsAtB = listOf(SavedRailEndpointRef(first.id.toString(), RailEndpoint.A)),
+                        joinedEndpointsAtB = listOf(SavedRailEndpointRef(first.id.toString(), RailEndpoint.A)),
                         activeConnectionAtA = null,
                         activeConnectionAtB = null
                     )
                     second.id.toString() -> saved.copy(
                         connectionsAtA = emptyList(),
+                        joinedEndpointsAtA = emptyList(),
                         activeConnectionAtA = null,
                         activeConnectionAtB = null
                     )
-                    else -> saved.copy(activeConnectionAtA = null, activeConnectionAtB = null)
+                    else -> saved.copy(activeConnectionAtA = null, activeConnectionAtB = null,
+                        joinedEndpointsAtA = saved.joinedEndpointsAtA.filterNot { it.railId == second.id.toString() })
                 }
             }
             val plan = world.prepareRailWorldSnapshotRestorePreservingActiveSelections(current, target)

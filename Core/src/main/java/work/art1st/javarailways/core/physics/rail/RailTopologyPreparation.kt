@@ -15,6 +15,7 @@ internal class RailTopologyTarget(
     val targetRoot: TopologyState,
     val expectedRailCount: Int,
     val expectedConnections: Map<RailEndpointRef, Set<RailEndpointRef>>,
+    val expectedJoinedEndpoints: Map<RailEndpointRef, Set<RailEndpointRef>>,
     val expectedCrossings: Map<AtGradeRailCrossingIndex.RailPair, AtGradeRailCrossing?>
 )
 
@@ -24,6 +25,7 @@ internal fun calculateRailTopologyTarget(
     removedRailIds: Set<UUID>,
     addedRailCurves: Map<UUID, PrimeCurve>,
     finalConnections: Map<RailEndpointRef, Set<RailEndpointRef>>,
+    finalJoinedEndpoints: Map<RailEndpointRef, Set<RailEndpointRef>>,
     finalConnectionOrder: Map<RailEndpointRef, List<RailEndpointRef>>,
     finalActiveEndpoints: Map<RailEndpointRef, RailEndpointRef?>,
     rawBaseCrossings: List<AtGradeRailCrossing>,
@@ -47,12 +49,21 @@ internal fun calculateRailTopologyTarget(
         }
         continuations[endpoint] = targets.toMutableSet()
     }
+    val joins = linkedMapOf<RailEndpointRef, Set<RailEndpointRef>>()
+    baseInput.joinedEndpoints.forEach { (endpoint, peers) ->
+        if (endpoint.railId !in removedRailIds) joins[endpoint] = peers.filterTo(linkedSetOf()) { it.railId !in removedRailIds }
+    }
+    finalJoinedEndpoints.forEach { (endpoint, peers) ->
+        require(endpoint.railId in targetRailIds && peers.all { it.railId in targetRailIds })
+        joins[endpoint] = peers
+    }
     val nextRevision = Math.addExact(baseRoot.revision, 1L)
     val targetInput = TopologyInput(
         revision = nextRevision,
         rails = baseInput.rails.filterNot { it.id in removedRailIds } +
             addedRailCurves.map { (railId, curve) -> TopologyInputRail(railId, curve.totalArcLength) },
         continuations = continuations.mapValues { (_, targets) -> targets.toSet() },
+        joinedEndpoints = joins,
         atGradeCrossings = rawBaseCrossings.filterNot { crossing ->
             crossing.first.railId in removedRailIds || crossing.second.railId in removedRailIds
         } + addedCrossings
@@ -72,6 +83,16 @@ internal fun calculateRailTopologyTarget(
         }
     }
     expectedConnections.putAll(finalConnections)
+    val expectedJoinedEndpoints = linkedMapOf<RailEndpointRef, Set<RailEndpointRef>>()
+    baseInput.joinedEndpoints.forEach { (endpoint, peers) ->
+        if (endpoint.railId !in removedRailIds && peers.any { it.railId in removedRailIds }) {
+            expectedJoinedEndpoints[endpoint] = peers.filterTo(linkedSetOf()) { it.railId !in removedRailIds }
+        }
+    }
+    addedRailCurves.keys.forEach { railId ->
+        RailEndpoint.entries.forEach { endpoint -> expectedJoinedEndpoints.putIfAbsent(RailEndpointRef(railId, endpoint), emptySet()) }
+    }
+    expectedJoinedEndpoints.putAll(finalJoinedEndpoints)
     val expectedCrossings = linkedMapOf<AtGradeRailCrossingIndex.RailPair, AtGradeRailCrossing?>()
     rawBaseCrossings.asSequence()
         .filter { crossing ->
@@ -97,6 +118,7 @@ internal fun calculateRailTopologyTarget(
         targetRoot = TopologyStateBuilder.build(targetInput),
         expectedRailCount = targetRailIds.size,
         expectedConnections = expectedConnections,
+        expectedJoinedEndpoints = expectedJoinedEndpoints,
         expectedCrossings = expectedCrossings
     )
 }

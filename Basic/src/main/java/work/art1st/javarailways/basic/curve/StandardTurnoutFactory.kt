@@ -85,7 +85,7 @@ object StandardTurnoutFactory {
         val selected = candidates.maxBy { it.endTangent.dot(target) }
         val anchorHorizontal = kotlin.math.hypot(anchor.tangent.x(), anchor.tangent.z())
         val representedGrade = anchor.tangent.y() / anchorHorizontal * selected.directionSign
-        return circularBranch(
+        val curve = circularBranch(
             anchor.position,
             selected,
             geometry.radiusMeters,
@@ -93,6 +93,12 @@ object StandardTurnoutFactory {
             representedGrade,
             sampleStepMeters
         )
+        return try {
+            CurveEndpointCorrection.correct(curve, anchor.position,
+                curve.getPointAt(curve.totalArcLength).position).curve
+        } catch (_: IllegalArgumentException) {
+            null
+        }
     }
 
     private fun circularBranch(

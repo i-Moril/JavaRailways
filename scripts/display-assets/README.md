@@ -4,7 +4,7 @@ Run `python3 scripts/display-assets/package.py` from any directory (Python stand
 
 - `models/s100.zip`: current train package, including its own front/exterior XML and screen parts.
 - `models/cabin-route-style.zip`: independent 4:1 cabin style. Extract into `plugins/Decorations/styles/`, yielding `styles/cabin-route/displays.yml`. Restart Decorations to capture the installed style source. This does not modify the world or train package.
-- `models/resourcepack-s100-displays-1.21.11-26.2.zip`: complete client resource pack derived from the existing transparency pack, retaining its version overlays and only changing display texture references, adding the black backing texture and display font. Use this client pack for both exterior and cabin templates.
+- `models/resourcepack-s100-displays-1.21.11-26.2.zip`: small standalone overlay containing only the display font, ring/dot textures, black screen backing and three required S100 model overrides (including its26.2 variant). Enable it **above the original S100 resource pack**; it does not include or replace the train pack.
 
 The independent style exports `cabin-route.route`. S100 references it explicitly; missing or invalid styles are reported, rather than silently choosing a different template. Host parts/transforms still load without Decorations/SimpleDisplays. Source is captured once on Decorations enable; editing files does not update active sessions.
 

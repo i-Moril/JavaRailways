@@ -13,3 +13,9 @@ setText 在已销毁后无副作用；未销毁的 Item/Block visual 明确拒�
 验证：真实 Component/metadata 标志与队列快照、native 观众/变换/退休保护、非文字拒绝、Item/Block/ordinary model/构造清理回归；打包并检查 relocated TextDisplayMeta。独立 Paper 创建/更新/移动/删除两种实际 visual，可证明服务端状态与清理；真实客户端画面、网络观众及 Folia runtime 需另验，不能由代理或 descriptor 标志推断。
 
 无玩家的隔离 Paper 探针必须显式加载并持有目标区块，不能仅凭 server started 或延后一 tick 推断新建实体有效；应检查真实 entity validity/位置和删除完成。相关实际证据见任务 text-backends-validation.md。
+
+## 非等比文字缩放与安装旋转
+
+TextModel 的 CompactTransform 表示 `T * R * S`：glyph 在本地平面缩放，再随屏幕/车厢旋转。映射至 Bukkit Transformation 必须将 rotation 放在leftRotation、rightRotation置identity。不能使用 `T * S * R`：当矩形X/Y缩放不等且屏幕有Y=90或倾角时，实际平面法向会随矩形宽高比变化，色块不再共面。统一缩放可交换，容易掩盖此错误。该要求属于扩展文字叶节点，不在本修正中重写普通ItemDisplay路径。
+
+回归需经过真实TextModel→DisplayVisual，重建客户端 `T * L * S * R` 矩阵，验证倾斜屏幕/车体旋转下的glyph四角、法向和边长，并覆盖统一缩放与旧行为等价。只验证未旋转二维框或SDL逻辑坐标不充分。宿主矩阵验证仍不能代替真实客户端画面验收。

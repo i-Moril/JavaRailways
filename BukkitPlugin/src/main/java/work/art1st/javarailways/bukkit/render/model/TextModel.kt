@@ -26,8 +26,10 @@ internal class TextModel(world: World, state: ModelState, private val visual: Di
     override fun updateState(parentRelativeTransform: CompactTransform, rootTransform: CompactTransform, rootVelocity: Vector3dc, transformDirty: Boolean) {
         primitiveState.applyRotation(parentRelativeTransform, rootTransform)
         val relative = primitiveState.rootRelativeTransform
-        val transformation = Transformation(relative.position.get(Vector3f()), Quaternionf(),
-            relative.scale.get(Vector3f()), relative.rotation.get(Quaternionf()))
+        // Text geometry scales in its own glyph plane before the installation/car
+        // rotation. Bukkit composes T * leftRotation * S * rightRotation.
+        val transformation = Transformation(relative.position.get(Vector3f()), relative.rotation.get(Quaternionf()),
+            relative.scale.get(Vector3f()), Quaternionf())
         if (lastTransformation != transformation) {
             visual.setTransformation(transformation)
             lastTransformation = transformation

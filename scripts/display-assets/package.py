@@ -27,11 +27,16 @@ def main():
     generate.main()
     archive(MODELS / 's100.zip', tree(MODELS / 's100', 's100/'))
     archive(MODELS / 'cabin-route-style.zip', tree(MODELS / 'display-styles/cabin-route', 'cabin-route/'))
-    # Retain the existing client-version overlays, item definitions and transparency
-    # fixes. Patch only display texture references in each applicable model variant.
-    with ZipFile(MODELS / 'resourcepack-s100-transparency-1.21.11-26.2.zip') as z:
-        pack = {n: z.read(n) for n in z.namelist() if not n.endswith('/')}
+    # A small overlay, loaded above the original train resource pack. Include only
+    # display changes, retaining the matching client-version model variants.
     model_dir = 'assets/minecraft/models/item/art1st/tc/s100/'
+    overrides = {model_dir + 'body_head.json', model_dir + 'door_display.json',
+                 'overlay_26_2/' + model_dir + 'body_head.json'}
+    with ZipFile(MODELS / 'resourcepack-s100-transparency-1.21.11-26.2.zip') as z:
+        pack = {name: z.read(name) for name in sorted(overrides | {'pack.mcmeta'})}
+    metadata = json.loads(pack['pack.mcmeta'])
+    metadata['pack']['description'] = 'JavaRailways display overlay (load above S100)'
+    pack['pack.mcmeta'] = (json.dumps(metadata, indent=2) + '\n').encode()
     for name, raw in list(pack.items()):
         relative = name.removeprefix('overlay_26_2/')
         if relative not in (model_dir + 'body_head.json', model_dir + 'door_display.json'):

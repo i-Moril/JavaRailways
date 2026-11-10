@@ -492,6 +492,7 @@ class DefaultModelPresentationServiceTest {
             override fun hideFrom(player: Player) { assertTrue(dispatcher.owns(player)); viewers -= player.uniqueId; events += "$name:hide" }
             override fun teleport(location: Location) { owner(); assertEquals(this.location.x, location.x); events += "$name:position" }
             override fun setTransformation(transformation: Transformation) { owner(); events += "$name:transform" }
+            override fun setText(text: net.kyori.adventure.text.Component) { throw IllegalArgumentException("This test visual does not support text") }
             override fun setItemStack(itemStack: ItemStack) { owner(); item = itemStack.clone(); events += "$name:item" }
             override fun setBrightness(blockLight: Int, skyLight: Int) { owner(); events += "$name:brightness" }
             override fun clearBrightness() { owner(); events += "$name:brightness-clear" }

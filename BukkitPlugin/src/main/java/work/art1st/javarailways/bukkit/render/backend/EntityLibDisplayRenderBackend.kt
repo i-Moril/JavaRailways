@@ -15,6 +15,8 @@ import io.github.retrooper.packetevents.util.SpigotConversionUtil
 import me.tofaa.entitylib.meta.display.AbstractDisplayMeta
 import me.tofaa.entitylib.meta.display.BlockDisplayMeta
 import me.tofaa.entitylib.meta.display.ItemDisplayMeta
+import me.tofaa.entitylib.meta.display.TextDisplayMeta
+import net.kyori.adventure.text.Component
 import me.tofaa.entitylib.wrapper.WrapperEntity
 import org.bukkit.Location
 import org.bukkit.World
@@ -42,6 +44,11 @@ class EntityLibDisplayRenderBackend : DisplayRenderBackend {
                 configureCommon(meta, descriptor)
                 meta.setBlockState(SpigotConversionUtil.fromBukkitBlockData(content.blockData))
             }
+            is DisplayVisualContent.Text -> WrapperEntity(EntityTypes.TEXT_DISPLAY).also { entity ->
+                val meta = entity.getEntityMeta(TextDisplayMeta::class.java)
+                configureCommon(meta, descriptor)
+                configureText(meta, content.text)
+            }
         }
 
         try {
@@ -56,6 +63,19 @@ class EntityLibDisplayRenderBackend : DisplayRenderBackend {
             }
             throw failure
         }
+    }
+
+    private fun configureText(meta: TextDisplayMeta, text: Component) {
+        meta.setBillboardConstraints(AbstractDisplayMeta.BillboardConstraints.FIXED)
+        meta.setLineWidth(Int.MAX_VALUE)
+        meta.setBackgroundColor(0)
+        meta.setTextOpacity((-1).toByte())
+        meta.setShadow(false)
+        meta.setSeeThrough(false)
+        meta.setUseDefaultBackground(false)
+        meta.setAlignLeft(false)
+        meta.setAlignRight(false)
+        meta.setText(text)
     }
 
     private fun configureCommon(meta: AbstractDisplayMeta, descriptor: DisplayVisualDescriptor) {
@@ -140,6 +160,14 @@ private class EntityLibDisplayVisual(
         if (destroyed) return
         val meta = entity.entityMeta as? ItemDisplayMeta ?: return
         meta.setItem(SpigotConversionUtil.fromBukkitItemStack(itemStack))
+        queueMetadata(meta)
+    }
+
+    override fun setText(text: Component) {
+        if (destroyed) return
+        val meta = entity.entityMeta as? TextDisplayMeta
+            ?: throw IllegalArgumentException("Text updates require a text display visual")
+        meta.setText(text)
         queueMetadata(meta)
     }
 

@@ -23,6 +23,6 @@
   ],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Foundation committed95935639. Subsequent Decorations template compilation implemented and uncommitted: API-free bridge, exact-source LRU64, compile/close outside locks and race-safe retirement. Decorations28 +host28 focused tests pass;3realPaper combinations pass, including actual valid embeddedJS compile/noexecute, invalidXML/JS reject with baseline retention, valid replacement publish. See research/decorations-template-compilation-validation.md. Current SimpleDisplays410af2e API local publication; no librarysource changes. Fullhost prior ProgramExpressionsTest failure remains recorded, not fixed/repeated. Next runtime mounts/backends/data/PAPI/viewdistance; schema-consistency child remains planning.",
+  "notes": "Foundation95935639 and template compilation84b804fc committed. Current internal native/EntityLib text backend slice implemented/uncommitted: 3productionbackendfiles, Text(Component)/setText, identicalflags and shared lifecycle/metadata. Focused73pass; full764has only known ProgramExpressionsTest failure+1skip; shadowJar/Devcompile and actualPaperbothfactory/state/movement/cleanup pass with loadedtestchunk. See research/text-backends-validation.md. No publicmountAPI/models/schema/Decorationschanges. Next runtime mounts/templateleases/coordinatefitting; data/PAPI/distance later; schema-consistency child remains planning.",
   "meta": {}
 }

@@ -1,5 +1,7 @@
 # Design
 
+> Current continuation: [text backend contract](research/text-backends-contract.md). No extension runtime mounting in this slice.
+
 > Current continuation: [template compilation contract](research/decorations-template-compilation-contract.md). Foundation module boundary is committed at `95935639`.
 
 > 2026-11-10: the approved [Decorations foundation contract](research/decorations-foundation-contract.md) and updated [PRD](prd.md) supersede ownership/format details below. Host provides generic parts/resources; Decorations owns display and optional SimpleDisplays. Missing add-on preserves transforms, animation and children. Current batch has no mounting/runtime rendering API. The earlier design below is historical reference for later stages.

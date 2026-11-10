@@ -267,6 +267,7 @@ class ModelTreeBuilderTest {
         override fun hideFrom(player: Player) = Unit
         override fun teleport(location: Location) = Unit
         override fun setTransformation(transformation: Transformation) = Unit
+        override fun setText(text: net.kyori.adventure.text.Component) { throw IllegalArgumentException("This test visual does not support text") }
         override fun setItemStack(itemStack: ItemStack) = Unit
         override fun setBrightness(blockLight: Int, skyLight: Int) = Unit
         override fun clearBrightness() = Unit

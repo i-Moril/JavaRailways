@@ -295,6 +295,7 @@ class OrdinaryModelTest {
         override fun hideFrom(player: Player) { calls++ }
         override fun teleport(location: Location) { lastLocation = location.clone(); calls++ }
         override fun setTransformation(transformation: Transformation) { this.transformation = transformation; transformationCalls++; calls++ }
+        override fun setText(text: net.kyori.adventure.text.Component) { throw IllegalArgumentException("This test visual does not support text") }
         override fun setItemStack(itemStack: ItemStack) { this.itemStack = itemStack.clone(); calls++ }
         override fun setBrightness(blockLight: Int, skyLight: Int) { brightness = ItemAppearance.Brightness(blockLight, skyLight); calls++ }
         override fun clearBrightness() { brightness = null; clearBrightnessCalls++; calls++ }

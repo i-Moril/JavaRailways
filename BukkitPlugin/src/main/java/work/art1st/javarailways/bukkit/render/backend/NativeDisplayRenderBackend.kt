@@ -6,6 +6,9 @@ import work.art1st.javarailways.core.api.util.Destruction
 import io.papermc.paper.entity.TeleportFlag
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.util.PlatformDispatcher
+import net.kyori.adventure.text.Component
+import org.bukkit.Color
+import org.bukkit.entity.TextDisplay
 import org.bukkit.Location
 import org.bukkit.World
 import org.bukkit.entity.BlockDisplay
@@ -37,8 +40,27 @@ class NativeDisplayRenderBackend(
                 configureCommon(display, descriptor)
                 display.block = content.blockData.clone()
             }
+            is DisplayVisualContent.Text -> world.spawn(
+                descriptor.location,
+                TextDisplay::class.java
+            ) { display ->
+                configureCommon(display, descriptor)
+                configureText(display, content.text)
+            }
         }
         return NativeDisplayVisual(plugin, entity)
+    }
+
+    private fun configureText(display: TextDisplay, text: Component) {
+        display.billboard = Display.Billboard.FIXED
+        display.alignment = TextDisplay.TextAlignment.CENTER
+        display.lineWidth = Int.MAX_VALUE
+        display.textOpacity = (-1).toByte()
+        display.isShadowed = false
+        display.isSeeThrough = false
+        display.isDefaultBackground = false
+        display.backgroundColor = Color.fromARGB(0)
+        display.text(text)
     }
 
     private fun configureCommon(display: Display, descriptor: DisplayVisualDescriptor) {
@@ -86,6 +108,12 @@ internal class NativeDisplayVisual(
 
     override fun setItemStack(itemStack: ItemStack) {
         if (!destroyed) (entity as? ItemDisplay)?.setItemStack(itemStack.clone())
+    }
+
+    override fun setText(text: Component) {
+        if (destroyed) return
+        require(entity is TextDisplay) { "Text updates require a text display visual" }
+        entity.text(text)
     }
 
     override fun setBrightness(blockLight: Int, skyLight: Int) {

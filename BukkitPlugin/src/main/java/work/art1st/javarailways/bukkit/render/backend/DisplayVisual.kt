@@ -1,6 +1,7 @@
 package work.art1st.javarailways.bukkit.render.backend
 
 import java.util.concurrent.CompletionStage
+import net.kyori.adventure.text.Component
 import org.bukkit.Location
 import org.bukkit.World
 import org.bukkit.block.data.BlockData
@@ -21,6 +22,7 @@ data class DisplayVisualDescriptor(
 sealed interface DisplayVisualContent {
     data class Item(val itemStack: ItemStack) : DisplayVisualContent
     data class Block(val blockData: BlockData) : DisplayVisualContent
+    data class Text(val text: Component) : DisplayVisualContent
 }
 
 interface DisplayVisual {
@@ -35,6 +37,8 @@ interface DisplayVisual {
     fun teleport(location: Location)
     fun setTransformation(transformation: Transformation)
     fun setItemStack(itemStack: ItemStack)
+    /** Replace text, including empty text to clear. A live non-text visual rejects this operation. */
+    fun setText(text: Component)
     fun setBrightness(blockLight: Int, skyLight: Int)
     /** Remove the override so the client uses natural world light. */
     fun clearBrightness()

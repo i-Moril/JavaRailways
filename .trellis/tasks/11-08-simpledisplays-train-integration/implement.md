@@ -164,3 +164,14 @@ Replacement committed as SimpleDisplays `410af2e`, directly parented by `21f7686
 - [x] 文档与验证记录；实际挂载另批。
 
 本批已完成，当前未提交。Decorations28项和宿主28项定向回归全部通过；真实Paper三个组合通过，实际编译验证确认坏XML/JS拒绝与旧snapshot保留。见[验证记录](research/decorations-template-compilation-validation.md)。下一阶段为通用列车part运行时挂载与双后端文字渲染。
+
+## 当前实施：双后端文字
+
+模板编译已提交84b804fc。按[文字后端合同](research/text-backends-contract.md)实施。
+
+- [x] Text descriptor/setText与native/packet两种后端。
+- [x] 样式一致、现有变换/观众/清理路径复用与回归测试。
+- [x] 独立审查、串行测试/打包/Dev编译、真实Paper后端状态探针。
+- [x] 同步规范/验证记录并报告；runtime挂载随后单独做。
+
+本批完成、未提交。定向73项全过；全量764项仍有既有表达式失败1项和1skip。shadowJar/Dev编译及实际Paper双后端状态/移动/销毁通过。见[验证记录](research/text-backends-validation.md)。

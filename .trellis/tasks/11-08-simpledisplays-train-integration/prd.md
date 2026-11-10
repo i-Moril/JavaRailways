@@ -1,5 +1,7 @@
 # Train-mounted displays through Decorations
 
+> Current authorized slice: [native/EntityLib text backends](research/text-backends-contract.md). Template compilation committed84b804fc. This adds real internal text visuals only; implementation and [validation](research/text-backends-validation.md) complete, currently uncommitted. Train-part runtime mounting follows separately.
+
 > Current slice: [Decorations template compilation](research/decorations-template-compilation-contract.md). Foundation committed as `95935639`; user approved continuation. This slice is implemented, uncommitted, with [validation](research/decorations-template-compilation-validation.md): actual XML/embedded-JS syntax compilation and bounded cache; runtime mounting follows separately.
 
 ## Confirmed module boundary (2026-11-10)

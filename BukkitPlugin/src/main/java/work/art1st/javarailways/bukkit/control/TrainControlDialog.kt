@@ -16,12 +16,15 @@ import work.art1st.javarailways.basic.timetable.TimetableControlTransferResult
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
 import work.art1st.javarailways.bukkit.extension.train.renderer
+import work.art1st.javarailways.bukkit.ui.dialog.playerDialogCallback
 import work.art1st.javarailways.core.api.physics.train.Train
 
 class TrainControlDialog(
-    private val plugin: BukkitPlugin,
+    plugin: BukkitPlugin,
     private val manager: TrainControlManager
 ) {
+    private val dispatcher = plugin.platformDispatcher
+
     fun show(player: Player, train: Train) {
         val ownerId = manager.ownerOf(train)
         val ownedByPlayer = ownerId == player.uniqueId
@@ -151,13 +154,9 @@ class TrainControlDialog(
 
     private fun actionButton(label: String, color: NamedTextColor, action: (Player) -> Unit): ActionButton {
         val click = DialogAction.customClick(
-            { _, audience ->
-                if (audience is Player) {
-                    plugin.platformDispatcher.runForEntity(audience, action = {
-                        audience.closeInventory()
-                        action(audience)
-                    })
-                }
+            playerDialogCallback(dispatcher, { Unit }) { _, player ->
+                player.closeInventory()
+                action(player)
             },
             ClickCallback.Options.builder()
                 .uses(1)

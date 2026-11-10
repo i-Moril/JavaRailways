@@ -13,11 +13,13 @@ import java.util.concurrent.TimeUnit
 class TimetableWebUiSidecar(private val plugin: BukkitPlugin) {
     private val config = plugin.javaRailwaysConfig.timetableWebUi
     private val token: String? = if (config.mode == TimetableWebUiMode.MANAGED) generateToken() else null
-    private var process: Process? = null
+    private val logger = plugin.logger
+    @Volatile private var process: Process? = null
     @Volatile private var stopping = false
 
     fun managedBridgeToken(): String? = token
 
+    @Synchronized
     fun start() {
         if (config.mode != TimetableWebUiMode.MANAGED) return
         check(process == null) { "Timetable WebUI sidecar is already started" }
@@ -37,15 +39,16 @@ class TimetableWebUiSidecar(private val plugin: BukkitPlugin) {
         val bridgeHost = if (bridge.bindAddress == "::1") "[::1]" else bridge.bindAddress
         val loopbackHosts = setOf("127.0.0.1", "localhost", "::1")
         if (config.bindAddress !in loopbackHosts) {
-            plugin.logger.warning(
+            logger.warning(
                 "Timetable WebUI is listening on non-loopback address '${config.bindAddress}'; " +
                     "login and session traffic may be exposed without HTTPS"
             )
         }
         val publicUri = URI.create(config.publicUrl)
         if (publicUri.scheme == "http" && publicUri.host !in loopbackHosts) {
-            plugin.logger.warning("Timetable WebUI public URL uses plaintext HTTP: ${config.publicUrl}")
+            logger.warning("Timetable WebUI public URL uses plaintext HTTP: ${config.publicUrl}")
         }
+        stopping = false
         val child = ProcessBuilder(javaExecutable, "-jar", jar.toString())
             .directory(runtimeDirectory.toFile())
             .redirectErrorStream(true)
@@ -64,23 +67,43 @@ class TimetableWebUiSidecar(private val plugin: BukkitPlugin) {
         process = child
         child.onExit().thenAccept { exited ->
             if (!stopping && process === exited) {
-                plugin.logger.warning(
+                logger.warning(
                     "Timetable WebUI sidecar exited unexpectedly with code ${exited.exitValue()}; see ${log.absolutePath}"
                 )
             }
         }
-        plugin.logger.info("Timetable WebUI sidecar started at http://${config.bindAddress}:${config.port}")
+        logger.info("Timetable WebUI sidecar started at http://${config.bindAddress}:${config.port}")
     }
 
+    @Synchronized
     fun stop() {
         stopping = true
         val child = process ?: return
-        process = null
-        child.destroy()
-        if (!child.waitFor(config.shutdownTimeoutMillis, TimeUnit.MILLISECONDS)) {
-            plugin.logger.warning("Timetable WebUI did not stop in time; terminating it forcibly")
-            child.destroyForcibly()
-            child.waitFor(config.shutdownTimeoutMillis, TimeUnit.MILLISECONDS)
+        try {
+            if (child.isAlive) {
+                child.destroy()
+                if (!child.waitFor(config.shutdownTimeoutMillis, TimeUnit.MILLISECONDS)) {
+                    logger.warning("Timetable WebUI did not stop in time; terminating PID ${child.pid()} forcibly")
+                    child.destroyForcibly()
+                    if (!child.waitFor(config.shutdownTimeoutMillis, TimeUnit.MILLISECONDS) && child.isAlive) {
+                        error("Timetable WebUI sidecar PID ${child.pid()} did not exit after forced termination")
+                    }
+                }
+            }
+            // Retain ownership on every failure so a live child cannot be mistaken for a stopped one.
+            check(!child.isAlive) { "Timetable WebUI sidecar PID ${child.pid()} is still alive after shutdown" }
+            process = null
+        } catch (interrupted: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw IllegalStateException(
+                "Interrupted while stopping Timetable WebUI sidecar PID ${child.pid()}; exit is unconfirmed",
+                interrupted
+            )
+        } catch (failure: Exception) {
+            throw IllegalStateException(
+                "Failed to stop Timetable WebUI sidecar PID ${child.pid()}: ${failure.message}",
+                failure
+            )
         }
     }
 

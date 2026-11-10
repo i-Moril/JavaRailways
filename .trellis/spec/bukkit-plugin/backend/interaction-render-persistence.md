@@ -36,3 +36,34 @@
 - extension payload 新设计使用 stable `typeId`，不要复制当前 Core class-name reflection legacy。
 
 验证 persistence 时覆盖 missing、corrupt、primary/backup 组合、revision mismatch、atomic recovery、unknown field/version 与不可覆盖恢复点。权威路径：`persistence/WorldPersistence.kt`、`persistence/SplitWorldSnapshot.kt`、`ai_tasks/persistence_schema_evolution_rules.md`。
+
+
+## Dialog 回调的运行代次
+
+### 1. 触发范围
+
+Paper native Dialog 的 callback registry 不随 Bukkit HandlerList 注销。旧界面在主插件禁用或 PlugManX 创建新实例后仍可能被点击，不能直接调用旧 Wand/session/controller。
+
+### 2. 签名
+
+`DialogRenderer(configUI: ConfigUI, dispatcher: PlatformDispatcher)` 必须显式传入创建本轮 UI 的 dispatcher。所有 `DialogAction.customClick` 使用 `playerDialogCallback(dispatcher, capture, action)`；TrainControlDialog 构造时捕获 dispatcher，不在点击时读取 plugin.platformDispatcher。
+
+### 3. 契约
+
+capture 在 Paper callback 内只复制 response primitive，不修改 session、PDC、世界或发送消息；action 交给捕获的 dispatcher.runForEntity，复用已有代次 gate 和 in-flight 计数。配置响应复制 text/boolean/float，VECTOR3D 的 xyz key 沿用 toInputKey。菜单选择、确认、选项重建、控制动作都受相同 gate 保护。
+
+### 4. 校验与错误
+
+非 Player audience 不执行。关闭后的旧 dispatcher 不提交任务，关闭前已排队的 action 在真正执行时再次检查。新 enable 使用新 dispatcher；plugin.isEnabled=true 不能证明旧 callback 属于新运行期。capture 不得把 Paper DialogResponseView 留给异步任务读取。
+
+### 5. 正常、基本和失败场景
+
+正常：有效菜单/配置确认在玩家 owner 上执行。基本：新运行期开的新界面照常工作。失败：打开界面后重载，再点击旧按钮，不能写 PDC、提交旧 session、修改旧 controller 或重新打开界面。
+
+### 6. 必需测试
+
+PlayerDialogCallbackTest 使用生产 adapter 和真实 PaperPlatformDispatcher，覆盖 response 当场复制、正常执行、排队后禁用拒绝、旧 callback 面对新 dispatcher 仍拒绝、新 callback 可用。真实客户端点击与 PlugManX 重载另行验收。
+
+### 7. 错误与正确做法
+
+错误：customClick 直接调用 entry.onSelected，或点击时读取 plugin.platformDispatcher。正确：创建时捕获 dispatcher，复制响应后通过其生命周期 gate 执行动作。

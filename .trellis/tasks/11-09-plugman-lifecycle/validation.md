@@ -66,3 +66,12 @@ JAR 实查：`BukkitPlugin/build/libs/JavaRailways-1.0-SNAPSHOT-all.jar` 的 plu
 额外执行 BukkitPluginDev:compileKotlin 发现既有错误：BukkitPluginDev/src/main/kotlin/work/art1st/javarailways/bukkit/tests/ConfigApiTest.kt:273 的 when 未覆盖 NUMBER_TEXT。该文件及 Basic ConfigValueType.kt 与 HEAD 无差异；没有将无关开发测试修复混入本次提交。业务模块所需检查均通过。没有启动服务器、推送或部署。
 
 用户同时要求只读审查剩余热重载问题；结果单独反馈，未自动修复新发现的生命周期边界。当前任务仍 in_progress，实服验收与剩余问题未完成，不归档为已实现完整兼容。
+
+
+## 2026-11-10：审查项 1 / 3 / 5 验证
+
+基线1718739b。最终命令：`./gradlew :BukkitPlugin:test :BukkitPlugin:shadowJar :TunnelBridgeBuilder:test :TunnelBridgeBuilder:shadowJar --offline --console=plain --no-parallel --max-workers=2`。BUILD SUCCESSFUL；BukkitPlugin261 tests、TBB34 tests，零失败/错误/跳过（TBB测试为UP-TO-DATE）。新增生产 callback adapter/真实 dispatcher 跨代及排队测试1项；实际 Sidecar.stop/Process owner 失败测试6项。独立 trellis-check 未发现功能阻塞；通用异常缺少PID的小契约缺口已补充并完整复验。
+
+另外执行 BukkitPluginDev:compileKotlin 核对新 DialogRenderer 调用，仍仅因基线 ConfigApiTest:274 缺 NUMBER_TEXT 分支失败；没有 renderer 构造签名或 import 错误。没有混修此前错误，不能宣称全仓构建通过。
+
+第1项已作为部署操作约定和硬依赖核对完成，未修改实际服务器的 PlugManX 配置。Cloud 和跨实例关闭失败标记保持原样。无实服、真实子进程、客户端或存档验收；未提交、推送、部署。`git diff --check` 通过。

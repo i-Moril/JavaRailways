@@ -151,3 +151,36 @@ Folia + server.isStopping 才跳过 owner 动作；Paper 关闭、Folia 热禁�
 ### 7. 错误与正确做法
 
 错误：根据 folia=true 对所有禁用跳过清理，或在停服线程直接 remove 任意实体。正确：只有确认真实停服才丢弃 owner 动作，临时实体依靠创建时的 nonpersistent 契约不入档，业务数据仍保存。
+
+
+## PlugManX 操作与 sidecar 退出确认
+
+### 1. 触发范围
+
+当前支持目标限定 PlugManX 3.2.1 Paper/Folia。reload 使用其硬依赖级联；本轮不解决任意管理器的同实例 Cloud 注册，也不增加跨类加载器关闭失败标记。
+
+### 2. 签名
+
+PlugManX 配置 `reloadDependentsMode: REQUIRED_ONLY`（或 ALL），操作 `/plugman reload JavaRailways`。TimetableWebUiSidecar.start/stop 在实例 monitor 上串行，process 为 volatile，退出观察 callback 不清除 owner。
+
+### 3. 契约
+
+TBB/Dev 均声明 depend JavaRailways，不能被 PlugManX 忽略。默认 reload 先卸载附属，再替换主插件，最后加载附属；独立 disable/enable 不级联，不能在旧 API Class 的 consumer 留存时宣称可以恢复服务。本仓库只更新操作指引，不自动改外部配置或重载其他插件。
+
+sidecar stop 依次正常终止/等待、必要时强制终止/等待，并核对实际 isAlive；只有确认退出才清空 process。BukkitPlugin 的 timetableWebUiSidecar owner 也仅在 stop 成功后清空。失败仍走现有 shutdownFailures 汇总，不能据此声称失败保护已跨类加载器生效。
+
+### 4. 校验与错误
+
+强制后仍存活、destroy/wait 异常：保留 Process，错误包含 PID 和 cause。InterruptedException 单独处理并恢复线程中断标志，保留引用。已退出直接释放；重复成功 stop 幂等。onExit 只报告意外退出，不替 stop 判定成功。
+
+### 5. 正常、基本和失败场景
+
+正常：正常退出或强制退出后才能启动下一轮。基本：已退出、重复 stop 不重复终止。失败：第二次等待超时仍活着必须报告失败，保留 handle 以供后续检查/重试；不能把请求 destroyForcibly 当作进程已退出。
+
+### 6. 必需测试
+
+TimetableWebUiSidecarTest 对实际 stop 和 process owner 字段验证正常退出、强制退出、二次超时与后续重试、已退出、重复停止、中断标志与异常 cause、终止方法异常的 PID 上下文。实际子进程端口与服务器重载验收单独记录。
+
+### 7. 错误与正确做法
+
+错误：先 process=null，再 destroyForcibly 并忽略 waitFor 结果。正确：持有 Process 到确认退出；任何失败保留 owner，并让 composition root 收到失败。

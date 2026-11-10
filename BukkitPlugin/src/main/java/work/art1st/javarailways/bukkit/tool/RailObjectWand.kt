@@ -197,7 +197,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     private val particleViewers = ConcurrentHashMap.newKeySet<UUID>()
     @Volatile private var directionParticleFrame: Long = 0L
     private val configUI = ConfigUIRegistry()
-    private val dialogRenderer = DialogRenderer(configUI)
+    private val dialogRenderer = DialogRenderer(configUI, plugin.platformDispatcher)
     private lateinit var editKeys: WayPointEditKeys
 
     override fun createDefaultState(): RailObjectWandState = RailObjectWandState()

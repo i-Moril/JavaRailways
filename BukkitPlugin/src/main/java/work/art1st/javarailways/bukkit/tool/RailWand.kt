@@ -577,7 +577,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     /** ConfigAPI 注册中心 + Dialog 渲染器 */
     private val configUI = ConfigUIRegistry()
-    private val dialogRenderer = DialogRenderer(configUI)
+    private val dialogRenderer = DialogRenderer(configUI, plugin.platformDispatcher)
 
     /** Wand 设置 ConfigKeys (per-setting, 每个玩家独立 session) */
     private lateinit var wandKeys: WandConfigKeys

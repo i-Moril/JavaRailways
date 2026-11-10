@@ -7,6 +7,7 @@ import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.entity.Player
 import work.art1st.javarailways.basic.api.ui.config.*
 import work.art1st.javarailways.basic.impl.config.ConfigUIRegistry
+import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.ui.dialog.DialogRenderer
 
 /**
@@ -25,7 +26,7 @@ class ConfigApiTest : BasicCommand {
     }
 
     private val configUI = ConfigUIRegistry()
-    private val renderer = DialogRenderer(configUI)
+    private val renderer = DialogRenderer(configUI, BukkitPlugin.INSTANCE.platformDispatcher)
     private var initialized = false
 
     /**

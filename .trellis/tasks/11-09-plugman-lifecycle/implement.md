@@ -70,3 +70,14 @@
 - [x] Seat hitbox / Interaction / RailObject marker 的 nonpersistent 在 spawn consumer 内设置，RailWand 同类初始化把 flag 提前。
 - [x] 测试诊断1/多线程/不可用，以及停服清理不访问原生 owner、local cleanup 正常、scope 恢复不污染热禁用。
 - [ ] 真实 Folia 停服/在线玩家/PlugManX 验收仍未执行。
+
+
+## 2026-11-10：仅 PlugManX 的 1 / 3 / 5
+
+- [x] README 明确 REQUIRED_ONLY/ALL 级联配置、reload JavaRailways 操作、忽略列表限制及手工卸载顺序；TBB/Dev 已有硬依赖，未改外部配置或引入重载集成。
+- [x] 全部四处生产 customClick 经 playerDialogCallback 绑定创建时 dispatcher；Wand/Dev 构造点同步，TrainControlDialog 不再动态读取新 dispatcher。
+- [x] 配置 response primitive 在回调当场复制，session/PDC/UI/控制动作仅在 captured owner gate 内执行；旧代和排队回调拒绝，新一轮回调可执行。
+- [x] Sidecar 正常/强制等待均确认退出后释放 owner，超时/终止异常保留 Process 并报告 PID，interrupt 恢复标志；root 仅成功后清空 sidecar。
+- [x] 独立审查后补齐通用 Process 异常 PID 上下文及断言；Bukkit261测试与TBB34测试均通过，两个 shadowJar 打包通过。
+- [ ] Cloud 本轮明确不改；跨类加载器失败标记（第4项）明确暂缓。
+- [ ] 实际 Paper/Folia + PlugManX、客户端旧 Dialog 点击和真实子进程退出验收未执行。

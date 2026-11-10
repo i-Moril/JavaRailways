@@ -63,3 +63,14 @@ services/HTTP/dispatcher 停止失败时不写最终世界快照；physics 静�
 ## 2026-11-10：Folia 单工作线程诊断与停服清理边界
 
 本轮只在 Bukkit 适配层添加诊断和真实停服分支，不更改 Cloud 或线程体系。Folia 启用后首次 global callback 反射读取实际 TickRegions scheduler 的 worker count；只有确认为 1 时警告，无法读取时明确标记未知，不能用 CPU 数或自动配置值代替。BukkitPlugin 根据 Folia + Bukkit.isStopping 区分停服与热禁用。停服仅允许跳过已证明非持久化的原生实体 owner 操作；世界快照、physics 静止、writer、监听器、执行器和本地资源仍必须释放。Wand PDC 属于持久化边界，不能未经论证静默丢弃；等待独立资源审计后确定最小分支。预期涉及 BukkitPlugin、隔离的 Folia runtime 诊断、PlatformCleanup/Dispatcher 和必要的原生 spawn 初始化；相关测试覆盖诊断与清理模式，实服验收仍独立。
+
+
+## 2026-11-10：仅 PlugManX，实施审查项 1 / 3 / 5
+
+用户批准先做：1 依赖级联的操作/配置约定，3 旧 Dialog callback 失效，5 WebUI 子进程退出确认。明确排除 Cloud 重构和跨类加载器失败标记；不自动提交、推送或部署。本轮基线1718739b，工作区干净。
+
+最小行为差异：PlugManX 3.2.1 默认 reload 级联硬依赖，独立 disable/enable 不级联；仓库只提供正确部署指引并核对 TBB/Dev depend，不改服务器中的 PlugManX 配置。所有生产 DialogAction.customClick 回调必须绑定创建时的 enable runtime/dispatcher，关闭后不能执行旧菜单、写旧PDC或把旧 train/controller 派发到新dispatcher；复用现有 dispatcher gate，必要的短 helper 必须覆盖真正生产入口，避免另造生命周期框架。WebUI stop 必须在正常/强制等待后确认退出才清空 process；失败保留引用、抛错并带PID，composition root仅在成功后清空 sidecar owner。
+
+预期文件：BukkitPlugin/README.md（第1项）；DialogRenderer、TrainControlDialog、RailWand/RailObjectWand构造点以及Dev ConfigApiTest构造点（第3项，仅更新调用，NUMBER_TEXT既有编译错误不混修）；TimetableWebUiSidecar与BukkitPlugin停止步骤（第5项）；有必要的生命周期/进程失败测试。保持public业务模型、磁盘schema、Cloud和外部PacketEvents生命周期不变。
+
+验证：生产回调在本轮可执行；关闭后旧回调和排队回调拒绝；新一轮可执行且旧回调不会读取新dispatcher。子进程正常退出、强制后退出、二次超时、已退出、重复停止、interrupt失败均验证退出判断与引用保留。运行Bukkit测试/打包和TBB下游检查；Dev已知错误单独记录，不据此声称全仓构建通过。实服PlugManX矩阵仍未执行。

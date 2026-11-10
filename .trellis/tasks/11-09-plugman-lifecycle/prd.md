@@ -50,3 +50,14 @@ Folia 禁用阶段 owner cleanup、Cloud 命令恢复、PacketEvents 在线玩�
 用户明确要求 JavaRailways 不再内嵌 PacketEvents，改为独立安装。此要求取代 F6 和原网络 runtime 重建方案中 JavaRailways 自建/终止 PacketEvents 的部分：独立 `packetevents` 插件拥有 API 和网络注入生命周期；JavaRailways 只拥有自身监听器与重定位 EntityLib 资源。
 
 新增验收：发布 JAR 不含任何 PacketEvents 类/服务实现；plugin.yml 声明硬依赖 `packetevents`；未初始化、已终止或低于 2.12.1 时 fail-fast；重复启停与部分初始化失败不调用共享 API 的 load/init/terminate/uninject、不注销其他插件 listener。EntityLib 保持内嵌；不更改 Cloud，不部署服务器。
+
+
+## 2026-11-10：仅 PlugManX，实施审查项 1 / 3 / 5
+
+用户批准先做：1 依赖级联的操作/配置约定，3 旧 Dialog callback 失效，5 WebUI 子进程退出确认。明确排除 Cloud 重构和跨类加载器失败标记；不自动提交、推送或部署。本轮基线1718739b，工作区干净。
+
+最小行为差异：PlugManX 3.2.1 默认 reload 级联硬依赖，独立 disable/enable 不级联；仓库只提供正确部署指引并核对 TBB/Dev depend，不改服务器中的 PlugManX 配置。所有生产 DialogAction.customClick 回调必须绑定创建时的 enable runtime/dispatcher，关闭后不能执行旧菜单、写旧PDC或把旧 train/controller 派发到新dispatcher；复用现有 dispatcher gate，必要的短 helper 必须覆盖真正生产入口，避免另造生命周期框架。WebUI stop 必须在正常/强制等待后确认退出才清空 process；失败保留引用、抛错并带PID，composition root仅在成功后清空 sidecar owner。
+
+预期文件：BukkitPlugin/README.md（第1项）；DialogRenderer、TrainControlDialog、RailWand/RailObjectWand构造点以及Dev ConfigApiTest构造点（第3项，仅更新调用，NUMBER_TEXT既有编译错误不混修）；TimetableWebUiSidecar与BukkitPlugin停止步骤（第5项）；有必要的生命周期/进程失败测试。保持public业务模型、磁盘schema、Cloud和外部PacketEvents生命周期不变。
+
+验证：生产回调在本轮可执行；关闭后旧回调和排队回调拒绝；新一轮可执行且旧回调不会读取新dispatcher。子进程正常退出、强制后退出、二次超时、已退出、重复停止、interrupt失败均验证退出判断与引用保留。运行Bukkit测试/打包和TBB下游检查；Dev已知错误单独记录，不据此声称全仓构建通过。实服PlugManX矩阵仍未执行。

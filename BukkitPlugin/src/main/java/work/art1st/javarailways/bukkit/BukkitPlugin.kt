@@ -295,8 +295,10 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             runShutdownStep("player operation service") { playerOperationServiceImpl.close() }
         }
         runShutdownStep("Bukkit event registrations") { HandlerList.unregisterAll(this) }
-        runShutdownStep("Timetable WebUI sidecar") { timetableWebUiSidecar?.stop() }
-        timetableWebUiSidecar = null
+        runShutdownStep("Timetable WebUI sidecar") {
+            timetableWebUiSidecar?.stop()
+            timetableWebUiSidecar = null
+        }
         val httpStopped = runShutdownStep("timetable HTTP bridge") { timetableHttpBridge?.stop() }
         timetableHttpBridge = null
         if (::timetableScriptSandbox.isInitialized) {

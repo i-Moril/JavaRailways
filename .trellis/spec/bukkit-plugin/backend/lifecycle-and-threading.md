@@ -8,6 +8,10 @@
 - `onEnable`：绑定独立 PacketEvents、enable 自有 EntityLib/runtime、创建 render backend，安装 ThreadGuard bridge，注册 world/service/listener/control、模型与 Wand/Cloud，最后启动 WebUI sidecar 与逐世界运行器。
 - 自身 PluginDisableEvent 在 enabled=false 前准备关闭；onDisable 幂等兜底。失效服务/入口，停止 dispatcher/physics，按当前逐世界 owner 恢复控制会话并保存，等待 owner cleanup 后释放自有 packet runtime、registry 与日志。独立 PacketEvents 继续运行；不恢复已经删除的领域 Koin owner。
 
+`BukkitRailTargetService(plugin)` 构造时立即捕获本代 `plugin.worldManager`，因此 `enablePlugin` 必须先完成 `WorldManager(...)` 赋值，再构造 rail target service，最后向 ServicesManager 发布。不得依靠 lambda 形状推断依赖仍是延迟读取，也不得改回点击时解析下一代全局实例。更晚初始化的 TurnoutWand 可消费已发布服务。
+
+实际启用失败会使附属插件随后出现宿主 API ClassNotFound；排查应先找主插件的第一个 enable 异常。2026-11-11 测试服曾复现提前构造的 lateinit worldManager 错误，按上述顺序修正后 Folia26.1.2、PacketEvents2.14.0、PlugManX3.2.1 及所有附属插件正常启动；两项 RailTargetService 回归通过，证据见主任务 research/merged-fixes-deployment-20261111.md。正常启动不等于在线玩家热重载矩阵已通过。
+
 新增 component 必须回答：谁创建、何时可用、谁注册、如何停止、world unload 与 plugin disable 是否都释放。不要依赖 JVM 退出回收 executor/task/registration。
 
 主插件卸载顺序：先卸载依赖 JavaRailways 的附属插件，完成它们提交的显示清理，再卸载 JavaRailways。

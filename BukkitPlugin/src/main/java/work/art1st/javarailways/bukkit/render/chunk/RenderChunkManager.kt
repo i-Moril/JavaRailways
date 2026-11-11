@@ -323,7 +323,9 @@ class RenderChunkManager(
     private fun dispatchRefreshFor(renderable: Renderable, player: Player) {
         when (renderable) {
             is Car -> renderable.renderer.refreshFor(player)
-            is RailArcVisualSegment -> Unit
+            // Static models can be indexed before their client chunks arrive. Reuse their
+            // idempotent send path to retry deferred spawns and observe chunk generations.
+            else -> dispatchSendTo(renderable, player)
         }
     }
 

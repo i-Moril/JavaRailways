@@ -37,6 +37,15 @@ import work.art1st.javarailways.bukkit.render.backend.PacketDisplayChunks
 import io.papermc.paper.event.packet.PlayerChunkLoadEvent
 import io.papermc.paper.event.packet.PlayerChunkUnloadEvent
 import org.bukkit.Chunk
+import org.bukkit.Location
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask
+import work.art1st.javarailways.bukkit.api.model.ModelDefinition
+import work.art1st.javarailways.bukkit.api.model.ModelPose
+import work.art1st.javarailways.bukkit.render.chunk.OrdinaryModelRenderable
+import work.art1st.javarailways.bukkit.render.chunk.RenderChunkManager
+import work.art1st.javarailways.bukkit.render.chunk.ViewDistanceSettings
+import work.art1st.javarailways.bukkit.util.PlatformDispatcher
+import java.util.concurrent.CompletableFuture
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.Rail
 import work.art1st.javarailways.core.api.physics.train.Train
@@ -122,6 +131,99 @@ class TrainVisibilitySimulationTest {
         entityLibField("api").set(null, previousEntityApi)
         entityLibField("platform").set(null, previousPlatform)
         PacketEvents.setAPI(previousPacketApi)
+    }
+
+    @Test
+    fun `static signal model deferred before chunk send is shown by the audience drain`() {
+        val player = player()
+        unsentChunks.getOrPut(player.uniqueId, ::mutableSetOf).add(Chunk.getChunkKey(0, 0))
+        withStaticAudience(player) { manager, drain ->
+            drain()
+            assertEquals(1, manager.audienceMetrics().visibleEntries)
+            assertTrue(spawns(player).isEmpty())
+
+            unsentChunks.getValue(player.uniqueId).clear()
+            val event = PlayerChunkLoadEvent(chunk(0, 0), player)
+            chunks.onChunkLoad(event)
+            manager.onPlayerChunkLoad(event)
+            drain()
+
+            assertEquals(setOf(CHILD, ROOT), client(player).entities,
+                "An already-indexed static signal must retry after the client chunk arrives")
+            assertEquals(listOf(CHILD), client(player).passengers[ROOT])
+        }
+    }
+
+    @Test
+    fun `static signal chunk reload hides and respawns without player movement or a scene update`() {
+        val player = player()
+        withStaticAudience(player) { manager, drain ->
+            drain()
+            assertEquals(setOf(CHILD, ROOT), client(player).entities)
+            unsentChunks.getOrPut(player.uniqueId, ::mutableSetOf).add(Chunk.getChunkKey(0, 0))
+            val unload = PlayerChunkUnloadEvent(chunk(0, 0), player)
+            chunks.onChunkUnload(unload)
+            manager.onPlayerChunkUnload(unload)
+            drain()
+            assertTrue(client(player).entities.isEmpty())
+
+            unsentChunks.getValue(player.uniqueId).clear()
+            val load = PlayerChunkLoadEvent(chunk(0, 0), player)
+            chunks.onChunkLoad(load)
+            manager.onPlayerChunkLoad(load)
+            drain()
+            assertEquals(setOf(CHILD, ROOT), client(player).entities)
+            assertEquals(listOf(CHILD), client(player).passengers[ROOT])
+            assertEquals(4, spawns(player).size)
+        }
+    }
+
+    @Test
+    fun `static signal refreshes for unrelated chunk sends do not recreate packet entities`() {
+        val player = player()
+        withStaticAudience(player) { manager, drain ->
+            drain()
+            repeat(20) { x ->
+                val event = PlayerChunkLoadEvent(chunk(x + 1, 0), player)
+                chunks.onChunkLoad(event)
+                manager.onPlayerChunkLoad(event)
+            }
+            drain()
+            assertEquals(2, spawns(player).size)
+            assertEquals(setOf(CHILD, ROOT), client(player).entities)
+        }
+    }
+
+    private fun withStaticAudience(player: Player, test: (RenderChunkManager, () -> Unit) -> Unit) {
+        val pending = ArrayDeque<() -> Unit>()
+        val dispatcher = proxy<PlatformDispatcher> { name, args ->
+            when (name) {
+                "runForEntity" -> { @Suppress("UNCHECKED_CAST") pending.addLast(args[1] as () -> Unit); true }
+                "runForEntityLater" -> {
+                    @Suppress("UNCHECKED_CAST") pending.addLast(args[2] as () -> Unit)
+                    proxy<ScheduledTask> { method, _ -> error("Unexpected scheduled task call: $method") }
+                }
+                else -> error("Unexpected dispatcher call: $name")
+            }
+        }
+        val train = train()
+        val ordinary = OrdinaryModel(train.model, emptyList(), OrdinarySceneIndex(ModelDefinition(emptyList())), emptyList())
+        val renderable = OrdinaryModelRenderable(UnusedWorld()) { CompletableFuture.completedFuture(null) }
+        renderable.publish(ModelPose(0.0, 64.0, 0.0, 0.0, 0.0, 0.0, 1.0), ordinary)
+        val manager = RenderChunkManager(
+            bukkitWorld, dispatcher = dispatcher, playerLookup = { if (it == player.uniqueId) player else null },
+            settingsFor = { ViewDistanceSettings(64.0, 16.0) }, registerListener = {}, unregisterListener = {},
+            initialPlayers = listOf(player)
+        )
+        fun drain() { while (pending.isNotEmpty()) pending.removeFirst().invoke() }
+        try {
+            drain()
+            manager.update(renderable, null, renderable.position)
+            test(manager, ::drain)
+        } finally {
+            manager.close()
+            drain()
+        }
     }
 
     @Test
@@ -337,6 +439,7 @@ class TrainVisibilitySimulationTest {
             when (name) {
                 "getUniqueId" -> id
                 "getWorld" -> bukkitWorld
+                "getLocation" -> Location(bukkitWorld, 0.0, 64.0, 0.0)
                 "isChunkSent" -> args[0] !in unsentChunks[id].orEmpty()
                 else -> error("Unexpected player call: $name")
             }

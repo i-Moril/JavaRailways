@@ -308,3 +308,5 @@ PlayerDialogCallbackTest 使用生产 adapter 和真实 PaperPlatformDispatcher�
 ## 客户端区块与虚拟列车显示恢复
 
 - packet display 仅在 `Player.isChunkSent` 确认 anchor 区块已发送后加入 viewer；挂载部件使用 live root anchor 生成，不能沿用模型构建位置。`PacketDisplayChunks` 记录每玩家/世界/区块发送 generation，区块重发后按 children-before-root 重建，普通跨区块移动不触发反复 respawn；`TrainVisibilitySimulationTest` 覆盖持续移动、等待区块、重发恢复和观众隔离。generation 是客户端运行态标记，不是存档 schema version。
+- `visibleByPlayer` 只表示空间 audience 成员，不证明客户端已生成实体。静态轨道与 `OrdinaryModelRenderable`（含信号机）首次 show 也可能因客户端区块未发送而延后；后续区块事件、移动或模型位置刷新必须复用幂等 `dispatchSendTo`，禁止对静态对象将 `dispatchRefreshFor` 写成 no-op。列车保留专用 `refreshFor`。
+- 共享 backend 的可见性门禁变更必须通过真实 `RenderChunkManager` 测试静态通用模型的首次延后、区块卸载/重发、玩家站定和无场景更新路径；重复无关区块通知不能重建既有 packet 实体。仅直接调用 `CompositeModel.showTo` 的列车测试无法覆盖调度遗漏。2026-11-11 回归在最新整合基线 `41f7bceb` 上先复现两项失败，再修正静态刷新出口；无持久化格式变更。

@@ -14,6 +14,7 @@
 - Core 发布 immutable `TrainFrameSnapshot`；`WorldManager` 只 drain latest frame，并按目标 location 调度 `CarExtension.applyFrame`。render code 不反向读取正在变化的 Core physics state。
 - `DisplayRenderBackendFactory` 根据 config 选择 `NATIVE`/`ENTITYLIB`，backend-specific entity/packet 细节隐藏在 `render.backend`。
 - composite visual 显示顺序是 children before root passenger packet；隐藏顺序是 root before children。`CompositeModelVisibilityTest` 固定该 contract。
+- packet display 仅在 `Player.isChunkSent` 确认 anchor 区块已发送后加入 viewer；挂载部件使用 live root anchor 生成，不能沿用模型构建位置。`PacketDisplayChunks` 记录每玩家/世界/区块发送 generation，区块重发后按 children-before-root 重建，普通跨区块移动不触发反复 respawn；`TrainVisibilitySimulationTest` 覆盖持续移动、等待区块、重发恢复和观众隔离。generation 是客户端运行态标记，不是存档 schema version。
 - model/audience/revision pipeline 保持 latest-wins、有界队列和 stale revision rejection；不要引入每车遍历全服玩家或每 tick 无界 scheduler submission。
 - destroy/unload 必须幂等并清理 child/root/backend resources。
 

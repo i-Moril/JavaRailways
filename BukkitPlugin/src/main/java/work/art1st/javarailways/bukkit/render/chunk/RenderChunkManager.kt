@@ -1,6 +1,8 @@
 package work.art1st.javarailways.bukkit.render.chunk
 
 import org.bukkit.Bukkit
+import io.papermc.paper.event.packet.PlayerChunkLoadEvent
+import io.papermc.paper.event.packet.PlayerChunkUnloadEvent
 import org.bukkit.World
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
@@ -81,6 +83,27 @@ class RenderChunkManager(
             }
         }
         return selected
+    }
+
+    @EventHandler
+    fun onPlayerChunkLoad(event: PlayerChunkLoadEvent) {
+        if (event.world == world) refreshChunkAudience(event.player, RenderChunk(event.chunk.x, event.chunk.z))
+    }
+
+    @EventHandler
+    fun onPlayerChunkUnload(event: PlayerChunkUnloadEvent) {
+        if (event.world == world) refreshChunkAudience(event.player, RenderChunk(event.chunk.x, event.chunk.z))
+    }
+
+    private fun refreshChunkAudience(player: Player, chunk: RenderChunk) {
+        // Include visible cars whose bogies may occupy this chunk even when the car centre does
+        // not. Existing per-player drains coalesce a burst of chunk sends into one owner task.
+        val affected = LinkedHashSet<Renderable>()
+        renderableObjects[chunk]?.let(affected::addAll)
+        visibleByPlayer[player.uniqueId]?.let(affected::addAll)
+        affected.forEach { renderable ->
+            renderablePositions[renderable]?.let { queueAudienceUpdate(player.uniqueId, renderable, it) }
+        }
     }
 
     @EventHandler

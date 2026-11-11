@@ -70,6 +70,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var timetableScriptSandbox: TimetableScriptSandbox
 
     private var packetEntityRuntime: PacketEntityRuntime? = null
+    internal val packetDisplayChunks get() = checkNotNull(packetEntityRuntime).displayChunks
     private var timetableHttpBridge: TimetableHttpBridge? = null
     private var timetableWebUiSidecar: TimetableWebUiSidecar? = null
     var packetEntityMotion: PacketEntityMotion? = null

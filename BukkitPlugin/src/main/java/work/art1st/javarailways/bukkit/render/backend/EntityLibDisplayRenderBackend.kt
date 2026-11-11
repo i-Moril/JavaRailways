@@ -18,8 +18,12 @@ import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.util.Transformation
 import work.art1st.javarailways.bukkit.BukkitPlugin
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
-class EntityLibDisplayRenderBackend : DisplayRenderBackend {
+class EntityLibDisplayRenderBackend internal constructor(
+    private val chunks: PacketDisplayChunks
+) : DisplayRenderBackend {
     override fun create(world: World, descriptor: DisplayVisualDescriptor): DisplayVisual {
         require(descriptor.location.world == world) {
             "Display visual location must belong to the backend world"
@@ -43,7 +47,7 @@ class EntityLibDisplayRenderBackend : DisplayRenderBackend {
         check(wrapper.spawn(SpigotConversionUtil.fromBukkitLocation(descriptor.location))) {
             "EntityLib refused to spawn a newly-created display visual"
         }
-        return EntityLibDisplayVisual(wrapper)
+        return EntityLibDisplayVisual(wrapper, chunks)
     }
 
     private fun configureCommon(meta: AbstractDisplayMeta, descriptor: DisplayVisualDescriptor) {
@@ -66,21 +70,41 @@ class EntityLibDisplayRenderBackend : DisplayRenderBackend {
     private fun org.joml.Quaternionf.toPacketQuaternion(): Quaternion4f = Quaternion4f(x(), y(), z(), w())
 }
 
-private class EntityLibDisplayVisual(
-    private val entity: WrapperEntity
+internal class EntityLibDisplayVisual(
+    private val entity: WrapperEntity,
+    private val chunks: PacketDisplayChunks
 ) : DisplayVisual {
     private var destroyed = false
+    private var vehicle: EntityLibDisplayVisual? = null
+    private val shownChunks = ConcurrentHashMap<UUID, PacketDisplayChunks.State>()
 
     init {
         entity.entityMeta.setNotifyAboutChanges(false)
     }
 
     override fun showTo(player: Player) {
-        if (!destroyed) entity.addViewer(player.uniqueId)
+        if (destroyed) return
+        // Mounted displays use root-relative metadata. Spawn at the live root anchor, not at
+        // the location where the model tree was originally built (possibly many chunks away).
+        vehicle?.let { entity.setLocation(it.entity.location) }
+        val state = chunks.state(player, entity.location)
+        if (state == null) {
+            hideFrom(player)
+            return
+        }
+        val previous = shownChunks[player.uniqueId]
+        if (previous != null && state != previous && !chunks.isCurrent(player, previous)) {
+            entity.removeViewer(player.uniqueId)
+        }
+        entity.addViewer(player.uniqueId)
+        shownChunks[player.uniqueId] = state
     }
 
     override fun hideFrom(player: Player) {
-        if (!destroyed) entity.removeViewer(player.uniqueId)
+        if (!destroyed) {
+            entity.removeViewer(player.uniqueId)
+            shownChunks.remove(player.uniqueId)
+        }
     }
 
     override fun teleport(location: Location) {
@@ -141,12 +165,15 @@ private class EntityLibDisplayVisual(
         if (!entity.hasPassenger(packetPassenger.entity)) {
             entity.addPassenger(packetPassenger.entity)
         }
+        packetPassenger.vehicle = this
         return true
     }
 
     override fun destroy() {
         if (destroyed) return
         destroyed = true
+        shownChunks.clear()
+        vehicle = null
         entity.remove()
     }
 

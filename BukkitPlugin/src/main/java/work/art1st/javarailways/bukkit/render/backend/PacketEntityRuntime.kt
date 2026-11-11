@@ -7,6 +7,7 @@ import me.tofaa.entitylib.APIConfig
 import me.tofaa.entitylib.EntityLib
 import me.tofaa.entitylib.spigot.SpigotEntityLibPlatform
 import org.bukkit.plugin.java.JavaPlugin
+import org.bukkit.Bukkit
 import work.art1st.javarailways.bukkit.util.PlatformDispatcher
 
 /** Owns the lifecycle of the shaded PacketEvents and EntityLib instances. */
@@ -16,6 +17,7 @@ class PacketEntityRuntime(
     private var loaded = false
     private var enabled = false
     private var packetEntityMotion: PacketEntityMotion? = null
+    internal val displayChunks = PacketDisplayChunks()
 
     /** Must run from JavaPlugin.onLoad, before PacketEvents starts injecting connections. */
     fun load() {
@@ -44,6 +46,7 @@ class PacketEntityRuntime(
                 .usePlatformLogger()
                 .disableBStats()
         )
+        Bukkit.getPluginManager().registerEvents(displayChunks, plugin)
         enabled = true
     }
 
@@ -60,6 +63,7 @@ class PacketEntityRuntime(
     }
 
     override fun close() {
+        displayChunks.close()
         packetEntityMotion?.close()
         packetEntityMotion = null
         if (enabled) {

@@ -31,3 +31,15 @@ The original production code failed all3 new regressions:100 refresh attempts ge
 The completed repair changes only the packet display backend plus focused tests. Final selected renderer run passed56 tests,0 failures/errors/skips, including17 real-wrapper/client-table simulation cases and the existing metadata/outline/construction/extension/ordinary-model checks. Final shadowJar passed in the same run: `/tmp/jr-display-passengers-final-20261111.log`. The added dynamic test enables EntityLib forced bundles and confirms hidden observers receive no empty bundles. A metadata-translation omission identified in independent review was repaired; two viewer locales retain independent translated metadata without mutating the source component. Independent re-review and diff check passed. Previously recorded unrelated full-host failures were not modified or rerun.
 
 The packet-order and count mechanism is verified locally; no actual client entity IDs, FPS trace or live packet capture were obtained. Deployment/health and game-client acceptance must be reported separately.
+
+## Narrow deployment
+
+Source `97fe8de1c5b60e008b289b3d832bf1acb3d790e5` was submitted and deployed as the correction to the preceding authorized display deployment. Only `plugins/JavaRailways.jar` changed: old SHA256 `e7902cd3551e64bb28c7e5a70923af55c2a21b87918c5682a5df49268cf128e9`, new SHA256 `2e26ae0e3c31bb454bfd5c4953ac2021c8049858a3abb8a5e9d38fea93757e23`. Decorations and the other10 JARs retained their exact hashes.85 vehicle/rail package and display config/resource files remained byte-identical; no persisted data conversion, reset or resume command was run.
+
+MCSManager normal-stop17:00:06UTC completed world/player saves and process exit (old PID1056336). A199-file external recovery archive was created and verified before install:
+`/opt/mcsmanager/backups/javarailways/passengers-97fe8de1-20261111-xtxkmt1h/recovery.zip`, SHA256 `4ba31a37b3d856f84297f71652df7357f0b45cf24def34c5ea5544e24e9f6139`.
+The adjacent backup manifest retains original ownership/modes and file hashes; final install plan/helper and health receipt are stored there too. Installer verified the entire stopped-source inventory before replacement and its exact one-file delta afterward. A rollback first normal-stops the instance and restores the saved main JAR; the repair changes no persisted schema. The complete recovery data remains available if separately required.
+
+Folia restarted normally; Done17:01:19UTC, ATO world RUNNING17:01:23, manager status3/new PID1057960. JavaRailways, Decorations/SimpleDisplays connection and SimpleSignals enabled, Bridge8765 and WebUI29002 returned HTTP200, all12 JAR hashes matched the plan. The previously observed Terra Unsafe and TruffleAttach warnings remained; no work was added for those unrelated warnings.
+
+No actual game-client reconnection/FPS or warning absence was observed by the agent. Server health and passing protocol simulation do not replace that acceptance.

@@ -4,13 +4,14 @@ import java.util.logging.Logger
 
 /** Version-specific Folia internals are optional diagnostics, never a scheduling decision. */
 internal object FoliaRuntimeDiagnostics {
-    fun warnIfSingleWorker(logger: Logger, readCount: () -> Int? = ::readTickWorkerCount) {
+    fun warnIfSingleWorker(logger: Logger, gentleUnloadAvailable: Boolean = false, readCount: () -> Int? = ::readTickWorkerCount) {
         val count = runCatching(readCount).getOrNull()
         when {
             count == 1 -> logger.warning(
                 "Folia has only one tick worker thread. Synchronous JavaRailways hot-disable " +
-                    "cleanup may time out while waiting for other regions; configure " +
-                    "threaded-regions.threads above 1 before using plugin hot reload."
+                    "cleanup may time out while waiting for other regions. " +
+                    if (gentleUnloadAvailable) "Use the two-request PlugManX GentleUnload flow; direct disable remains unsafe."
+                    else "Configure threaded-regions.threads above 1 before using plugin hot reload."
             )
             count == null || count < 1 -> logger.warning(
                 "Could not determine Folia's actual tick worker count; " +

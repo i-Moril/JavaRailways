@@ -82,3 +82,16 @@ JAR 实查：`BukkitPlugin/build/libs/JavaRailways-1.0-SNAPSHOT-all.jar` 的 plu
 基线af656dea。仅更改 BukkitPlugin.finishShutdown 已有失败汇总的文案；逐项异常仍记录，成功路径不输出此警告，不增加调度/广播/磁盘标记/跨实例保护。独立 trellis-check 审查通过。
 
 `./gradlew :BukkitPlugin:test :BukkitPlugin:shadowJar --offline --console=plain --no-parallel --max-workers=2` BUILD SUCCESSFUL，261 tests、0 failure/error/skip。文案改动不新增镜像实现测试。git diff --check通过；无实服、提交、推送、部署。
+
+
+## 2026-11-11：Folia PlugManX GentleUnload
+
+按用户授权在独立工作区接入两次请求：首次 veto 后延后 global 准备，非阻塞追踪 owner/嵌套清理；最终保存和 writer 完成后才 ready，第二次请求放行。不自动续接。支持 threads=-1 自动选出一个实际 worker，不修改服务器线程配置。
+
+新增测试覆盖单 worker 排队、重复请求、失败拒绝、禁用前取消、异步超时 fencing、正在执行回调 drain、真实 BukkitPlugin composition 中 writer-before-ready 和幂等复用，以及反射 API 注册与精确注销。独立审查未发现阻塞问题；JUnit XML 汇总 BukkitPlugin 269 tests / 0 failures / 0 errors / 0 skipped。首次组合测试 fixture 缺 Paper pluginMeta 导致失败，已修正 fixture，并在完整重跑中通过；未放宽生产行为。
+
+主会话独立检查 shadow JAR：plugin.yml 硬依赖 packetevents、softdepend PlugManX；包含 GentleUnload production classes，不含任何 PlugManX/PacketEvents class，内嵌 WebUI 保留。git diff --check 通过。
+
+没有启动服务器、修改实服配置、部署、提交或推送。真实 Folia 单 worker 在线玩家的 unload/reload 与 PlugManX 依赖级联仍未执行验收。PlugManX 独立 disable 绕过 GentleUnload，不属于本次兼容路径；直接禁用或停服打断准备会取消排队动作并报告未完整关闭。Cloud 与外部 PacketEvents lifecycle 保持原契约。
+
+最终完整验证命令：`JAVA_HOME=/nix/store/6mwdyvwm1qpzry3z1nkg9777vnmhy9ab-openjdk-25.0.4+1 ./gradlew :BukkitPlugin:test :BukkitPlugin:shadowJar --offline --console=plain --no-parallel --max-workers=2`，BUILD SUCCESSFUL。最终 JAR SHA-256：`7e32be452b3adfb971a34b9eda79add51645071ec689db00bd0f2735e14796b5`。

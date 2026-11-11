@@ -219,6 +219,7 @@ bukkitPluginYaml {
     authors.add("__ART1st__")
 
     depend.add("packetevents")
+    softDepend.add("PlugManX")
 
     permissions.register("javarailways.admin") {
         description.set("允许执行 JavaRailways 管理操作")

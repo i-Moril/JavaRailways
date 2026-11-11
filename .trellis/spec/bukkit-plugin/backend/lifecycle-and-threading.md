@@ -121,7 +121,7 @@ JavaRailways 依赖独立安装的 `packetevents`，EntityLib 仍重定位在主
 
 ### 1. 触发范围
 
-用户接受单 tick worker 的热禁用超时限制。Folia 完整停服不再依赖已停止的区域 tick 删除临时原生实体；普通热禁用保留原有清理行为。
+Folia 完整停服不再依赖已停止的区域 tick 删除临时原生实体。PlugManX 3.2.1 的 unload/reload 使用下述 GentleUnload 非阻塞准备，支持自动配置选出单 tick worker；绕过 GentleUnload 的普通热禁用仍保留同步等待限制。
 
 ### 2. 签名
 
@@ -139,7 +139,7 @@ Folia + server.isStopping 才跳过 owner 动作；Paper 关闭、Folia 热禁�
 
 ### 4. 校验与错误
 
-线程数未知不阻止启用，也不能宣称已通过单线程检查。单线程热禁用仍可能 10 秒超时，不能把警告描述为修复。停服跳过 owner 动作必须不调用 owns/entity scheduler/region scheduler，也不能绕过线程检查直接执行动作。保存/producer 失败沿用原失败保护。
+线程数未知不阻止启用，也不能宣称已通过单线程检查。绕过 GentleUnload 的单线程热禁用仍可能 10 秒超时；注册 GentleUnload 后警告应指向两次请求流程，不能要求用户必须增加线程。停服跳过 owner 动作必须不调用 owns/entity scheduler/region scheduler，也不能绕过线程检查直接执行动作。保存/producer 失败沿用原失败保护。
 
 ### 5. 正常、基本和失败场景
 
@@ -185,3 +185,40 @@ TimetableWebUiSidecarTest 对实际 stop 和 process owner 字段验证正常退
 ### 7. 错误与正确做法
 
 错误：先 process=null，再 destroyForcibly 并忽略 waitFor 结果。正确：持有 Process 到确认退出；任何失败保留 owner，并让 composition root 收到失败。
+
+
+## Folia PlugManX GentleUnload 两次请求
+
+### 1. 触发范围
+
+仅 Folia + PlugManX 3.2.1 的 unload/reload 接入；与线程配置值、实际 worker 数无关，覆盖 threads=-1 选出一个 worker。普通 Paper/Bukkit、不安装 PlugManX、真实停服的原有边界保留。独立 disable 绕过上游 GentleUnload，不在此支持范围。
+
+### 2. 签名
+
+- `GentleUnloadPreparation.request(): Boolean`：IDLE/PREPARING/FAILED 返回 false，仅 READY 返回 true。
+- `PlatformCleanup.start(timeoutMillis, skipOwnerTasks, action): Operation`：在当前正确 owner 上提交清理后立即返回；completion 代表全部真实任务（含嵌套）完成或失败，cancel 返回已进入回调的 drain future。
+- `PlugManXGentleUnload.register(plugin, manager, request)`：运行时可选 API adapter；不打包 PlugManX 类，不新增硬依赖。
+
+### 3. 契约
+
+第一次 request 仅排入后续 global callback 并暂缓卸载，不能 inline 注销服务：PlugManX reload 收到 false 后会同步恢复刚卸载的依赖插件。global 准备仍按 producer 停止、physics 静止、控制释放及 world 保存顺序执行；跨 owner 清理通过非阻塞屏障汇合，不在 tick worker 等待区域任务。成功后回到原生 global scheduler 完成 seat registry 和 snapshot writer 收尾，全部成功才 READY。正常 runtime dispatcher 已停止，因此完成回调不能经过其业务 gate。
+
+准备期间业务入口关闭；不自动卸载、重载、恢复业务或重放原命令。操作员等 ready 消息后再执行原命令。PluginDisableEvent/onDisable 复用已有准备结果，不能再次跑 owner 屏障。
+
+上游 API 返回 boolean，无异步 continuation、operation kind 或公开注销 API；getGentleUnloads 返回副本。版本限定 adapter 注销时仅移除内部 gentleUnloads 中 key 为本插件、value 仍为本 callback 的精确条目，保留其他插件及替换回调。
+
+### 4. 校验与失败
+
+准备异常、任务超时或 snapshot writer 失败均进入 FAILED，记录详细异常并拒绝之后请求。超时立即 fence 尚未进入的 owner 回调，不能把延迟调度成功视为清理完成。仍在运行的 callback 与 completion timeout 分开追踪；未确认其退出时不得释放 packet/DI 等共享 owner。外部直接禁用或停服打断准备时报告不完整关闭、取消排队回调，只等待已经运行的回调；禁止等待本线程队列中的未执行任务。
+
+### 5. 正常、基本和失败场景
+
+正常：首次 request 返回后，同一个线程推进区域和嵌套任务，最终保存成功后第二次卸载获准。基本：无 owner 任务也要求第一次暂缓，重复准备请求不重复关闭。失败：清理失败不 READY，迟到任务不再修改旧 runtime；直接 disable 不因此被描述为安全兼容。
+
+### 6. 必需测试
+
+覆盖单线程队列、首次返回前未启动准备、嵌套任务、重复请求、失败/超时、回调 drain、实际 composition 的保存/关闭接线及注册精确释放。运行 Bukkit test/shadowJar、必要下游检查和 git diff --check；检查 JAR 不含 PlugManX classes，softdepend 仅为可选加载顺序。实际 Folia 单 worker 在线玩家 unload/reload 仍需独立实服验收，单元测试不能替代。
+
+### 7. 错误与正确做法
+
+错误：在 GentleUnload 回调中同步 get 等 owner 清理；或将所有 Bukkit 清理直接搬到 async。正确：首次同步 veto 立即返回，保留每段 owner affinity，由异步完成通知推进到 READY，再由用户发起第二次请求。

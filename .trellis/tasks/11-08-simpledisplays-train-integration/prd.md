@@ -30,7 +30,7 @@ Completed: independent SimpleDisplays XML/document-JS410af2e; generic extension 
 
 Remaining after this slice:
 
-- Project actual operational unit metadata, destination/run-type author values, current/next station and ordered stop occurrences through direct library inputs. Reuse TimetableUnitDisplaySnapshot, preserve unresolved branches and real fixed-unit membership; do not guess from line station order.
+- Project actual operational unit metadata, destination/run-type author values, current/next station and ordered stop occurrences through direct library inputs. Reuse TimetableUnitDisplaySnapshot, preserve unresolved branches and real fixed-unit membership; do not guess from line station order. When no destination is explicitly set, default to the terminal station of the actual current run, preserving available station-name translations; never use a later run’s terminal.
 - Deferred by user2026-11-10: per-viewer mounted output on both backends, alongside PlaceholderAPI. Current acceptance covers shared mounted content; independent SimpleDisplays viewer input remains available.
 - Preserve confirmed visibility policy: exterior screens follow car-body audience; interior screens use configurable per-player distance with config and player command. Occupancy/facing/frustum/occlusion remain outside initial policy.
 - Extend category defaults with point defaults/train overrides as reviewed later. Runtime style switching addressing/commands/persistence remain deferred until target/composition semantics are agreed.

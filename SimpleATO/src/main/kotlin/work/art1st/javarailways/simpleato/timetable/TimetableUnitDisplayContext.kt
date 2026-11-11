@@ -56,16 +56,24 @@ class TimetableRunDisplayContext(
     val runId: String,
     val lineId: String,
     metadata: JsonObject,
+    /** Exact terminal of this entered run, independent of later operational-trip legs. */
+    val terminalStationId: String? = null,
 ) {
     val metadata = JsonMetadata.immutableCopy(metadata)
-    init { require(serviceId.isNotBlank() && runId.isNotBlank() && lineId.isNotBlank()) }
+    init {
+        require(serviceId.isNotBlank() && runId.isNotBlank() && lineId.isNotBlank())
+        require(terminalStationId == null || terminalStationId.isNotBlank())
+    }
 }
 
 internal fun captureTimetableRunDisplayContext(
     serviceId: String, segment: TimetableRunSegment?, stepIndex: Int,
 ): TimetableRunDisplayContext? = segment?.takeIf {
     stepIndex >= it.startStepIndex && stepIndex < it.endStepIndexExclusive
-}?.let { TimetableRunDisplayContext(serviceId, it.runId, it.lineId.value, it.metadata) }
+}?.let { segment ->
+    TimetableRunDisplayContext(serviceId, segment.runId, segment.lineId.value, segment.metadata,
+        segment.calls.lastOrNull()?.takeIf { it.status == TimetableServiceStopStatus.TERMINAL }?.stationId)
+}
 
 private fun freezeDisplayJson(value: JsonElement): JsonElement = when (value) {
     is JsonObject -> JsonObject(Collections.unmodifiableMap(value.mapValues { freezeDisplayJson(it.value) }))

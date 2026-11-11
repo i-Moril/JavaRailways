@@ -31,7 +31,7 @@ Data shape:
 - each remainingStops item: {serviceId,runId,callId,stationId,stationName:string|null,destinationId,status,arrivalTick:string|null,departureTick:string|null,completed:boolean}. Preserve source order, repeated occurrences and PASS; no global station dedup. Planned ticks/cycle are strings to avoid JS safe-integer loss. Do not copy all3 duplicate stop lists into the library input.
 - currentStation: {stationId,stationName:string|null,berthId}, only proven current berth (no fabricated callId).
 - nextStation: first remaining STOP/TERMINAL occurrence only when unresolvedRuns is empty and station differs from proven current station (otherwise unknown); skip ORIGIN/PASS, never use unresolved later segments as certain next. Include the same stop fields, not a guessed route.
-- `destination`, `runType`, `currentStationName`, `nextStationName` top-level XML strings; destination/runType only exact string entries from active values, otherwise empty. Never infer destination from final known stop. Inactive/no context publishes operational=null and empty aliases; domain diagnostics remain in SimpleATO, not copied as stale active display values.
+- `destination`, `runType`, `currentStationName`, `nextStationName` top-level XML strings; runType and authored destination aliases use only exact strings, otherwise empty. Since the 2026-11-11 user decision, an absent destination key defaults from the exact actual currentRun terminalStationId (never the final known combined-trip stop); see current-run-destination-default.md for localization and alias behavior. Inactive/no context publishes operational=null and empty aliases; domain diagnostics remain in SimpleATO, not copied as stale active display values.
 
 Library existing4096-node/character budget remains. Overbudget fails contextually and clears obsolete context rather than truncating stop facts or raising limits speculatively.
 
@@ -48,7 +48,7 @@ Implement `PartExtensionAttachment.invalidateContext()` with private generation 
 ## Verification
 
 - Domain fresh owner capture: actual fixed units D/E, reversed/split/held, different cycles, no registry/no context/inactive/reset, fresh SET late in tick, incomplete membership no false binding; current berth proof disappears with movement; revision wakes on actual display changes.
-- Projection author values and types, null/inactive aliases clear, repeated/PASS/unknown station names, unresolved prevents next, true current separate from planned, ticks exact strings and immutable data. No guessing of destination/run type.
+- Projection author values and types, null/inactive aliases clear, repeated/PASS/unknown station names, unresolved prevents next, true current separate from planned, ticks exact strings and immutable data. No guessing of run type or destination from combined-trip stop lists; exact current-run terminal fallback follows the 2026-11-11 decision.
 - In-flight old-context output rejected, queued replay suppressed, samecontext slowdraw still progresses, clear-old-before-new-failure, same session compile reused, context reset bypasses cadence, old/new cleanup tracked.
 - World source envelope after dispatcher/postTick, stationary revision forced sample, geometry-only envelopes do not restore old data, stream transition clears before new metadata, active-only candidate filtering.
 - Focused SimpleATO+host tests, full affected modules, host known ProgramExpressionsTest failure separate; shadowJar/Devcompile/Decorations thin gates.

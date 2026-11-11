@@ -26,6 +26,21 @@ class TimetableUnitDisplayContextTest {
         assertNull(captureTimetableRunDisplayContext("service", null, 2))
     }
 
+    @Test fun `terminal capture uses only last TERMINAL of the entered run and changes with actual scope`() {
+        fun segment(run: String, station: String, status: TimetableServiceStopStatus = TimetableServiceStopStatus.TERMINAL,
+            start: Int = 2) = TimetableRunSegment(run, work.art1st.javarailways.simpleato.api.line.LineId("line"), start, start + 3,
+                calls = listOf(TimetableRunCall("end", station, "$station@one", status)))
+        val current = segment("current", "B")
+        val future = segment("future", "C", start = 5)
+        assertEquals("B", captureTimetableRunDisplayContext("service", current, 4)!!.terminalStationId)
+        assertNull(captureTimetableRunDisplayContext("service", future, 4))
+        assertNull(captureTimetableRunDisplayContext("service", current, 5))
+        assertEquals("C", captureTimetableRunDisplayContext("service", future, 5)!!.terminalStationId)
+        assertNull(captureTimetableRunDisplayContext("service", segment("missing", "B", TimetableServiceStopStatus.STOP), 2)!!.terminalStationId)
+        assertNull(captureTimetableRunDisplayContext("service", TimetableRunSegment("empty",
+            work.art1st.javarailways.simpleato.api.line.LineId("line"), 2, 5), 2)!!.terminalStationId)
+    }
+
     @Test fun `only complete actual contiguous units map to cars including reversal and ordinary neighbours`() {
         val first = unit("first", "a", "b")
         val second = unit("second", "c", "d")

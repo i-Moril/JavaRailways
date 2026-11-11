@@ -98,7 +98,7 @@ Eviction, service unregister, provider disable and Decorations disable close own
 
 The host opens each mounted extension session on its worker pool, then requests frames every10 source ticks (nominally2Hz), with an immediate refresh when operational context changes. One in-flight draw and one overwritten latest request prevent unbounded backlog. Decorations resolves the effective template from the owning car’s captured source package, lazily compiles that exact XML, and returns immutable text values. Each draw receives an isolated document/JS invocation. The canvas fits physical part dimensions with preserved aspect ratio and centered margins.
 
-Simple XML bindings use top-level strings: `trainId`, `trainName`, `trainType` (empty when unknown), `carId`, `carNumber` (1-based physical car order), `destination`, `runType`, `currentStationName` and `nextStationName`. Operational aliases are empty strings when unknown; destination/runType come only from authored string values. JS additionally receives typed objects:
+Simple XML bindings use top-level strings: `trainId`, `trainName`, `trainType` (empty when unknown), `carId`, `carNumber` (1-based physical car order), `destination`, `runType`, `currentStationName` and `nextStationName`. Operational aliases are empty strings when unknown; runType comes only from authored string values. Destination uses an authored string when present; when the destination key is absent, it defaults to the actual current run’s terminal station name. JS additionally receives typed objects:
 
 - `ctx.data.train`: `id`, `name`, `type` (string or null), `speedMetersPerSecond`, `reversed`, `derailed`, `carCount`.
 - `ctx.data.car`: `id`, `index` (0-based physical frame order), `number` (1-based), `operatingEnd` (`head`/`tail` relative to this installed car, or null when unavailable). Operating end uses the same owner-captured control-end and installed-direction mapping as actual door execution; it is not inferred from car index or train name.
@@ -126,7 +126,7 @@ const cells = visible.map((stop, slot) => ({
 // At arrival, the indexed station is still current, not passed.
 ```
 
-The list may include only the proven parts of a future trip: check `unresolvedRuns` before describing the final known call as the destination. Destinations continue to come from explicit authored values. Unknown/finished cursors are null, not an end index or a guessed first station. This is a template-input change only; the timetable HTTP diagnostic API retains its separate planned/completed/remaining lists.
+The list may include only the proven parts of a future trip; its final known call is not a destination source. `currentRun` is null or `{serviceId, runId, lineId, metadata, terminalStationId}`. When the destination key is absent, `values.destination` defaults to that actual run’s terminal station: valid station `metadata.name` string or `{zh,en}`, then canonical station name. Explicit values, including empty strings and null, suppress this default. This only changes detached render values; domain values are unchanged. An unknown terminal/name remains unset. Unknown/finished cursors are null, not an end index or a guessed first station. This is a template-input change only; the timetable HTTP diagnostic API retains its separate planned/completed/remaining lists.
 
 
 Use `bind` for a simple alias, for example `<span bind="destination">Unknown</span>`. A nonempty binding takes precedence over that span’s fallback/textContent; leave it off a node whose text is computed by JS. For example:

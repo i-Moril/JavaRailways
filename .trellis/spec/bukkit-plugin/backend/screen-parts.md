@@ -25,7 +25,7 @@ closeAsync 先失效身份/清空 pending，再删除生成资源；完成结果
 
 ## 运营输入与上下文切换（CURRENT）
 
-WorldManager 仅将视觉发布移动到 dispatcher/postTick 之后，仍处同一 simulation owner 边界；领域 observation/dispatcher 顺序不变。每10tick bucket 或 SimpleATO display revision 改变时新鲜捕获并投影为 unit/operational 和 destination/runType/currentStationName/nextStationName 字符串别名。固定单元用 actual carIds 映射；车厢索引不代替单元身份。author values 不推断终点，stops为单份完整已知有序序列，保留history/occurrence/PASS；stationIndex和phase由SimpleATO独立进度事实给出，不由completed或stationId反推，tick/cycle 用精确字符串。inactive 无运营对象；未解析后续不能宣称下一站。
+WorldManager 仅将视觉发布移动到 dispatcher/postTick 之后，仍处同一 simulation owner 边界；领域 observation/dispatcher 顺序不变。每10tick bucket 或 SimpleATO display revision 改变时新鲜捕获并投影为 unit/operational 和 destination/runType/currentStationName/nextStationName 字符串别名。固定单元用 actual carIds 映射；车厢索引不代替单元身份。author values 保持原样；仅当 destination key 缺失时，以领域 actual currentRun.terminalStationId 投影默认目的地，不能取完整运营车次／下一运行线的最后一站。stops为单份完整已知有序序列，保留history/occurrence/PASS；stationIndex和phase由SimpleATO独立进度事实给出，不由completed或stationId反推，tick/cycle 用精确字符串。inactive 无运营对象；未解析后续不能宣称下一站。
 
 每个位置 envelope 携带最近一次同 publication stream 的不可变采样引用，避免 latest-only 区域任务合并丢失未消费的 SET/reset。stream 不同则未知并重建，不能复用旧采样；每次新采样释放移除车厢的缓存，unload/stop 清除。静止强制刷新仅对 active extension cars。
 
@@ -56,7 +56,7 @@ projectOperationalPartRender 从simulation owner的StationStore捕获current/nex
 
 simulation owner在每次fresh sample构建一份当前world全部已知线路索引ctx.data.lines，record为{id,displayName,metadata,color?}；train snapshot/sample cache与geometry coalescing一起保留该数据，不跨world或publication stream借用。JS可按actual LineId查询非当前线路（例如换乘），没有record则无条目。全部线路/站点输入仍受SimpleDisplays aggregate limits约束，不静默截断。无需给SimpleDisplays加入铁路API或让JS读取live store。
 
-operational.currentRun为领域捕获的actual scope或null，携带serviceId/runId/lineId/metadata；与同一outer timetable/cycle一起使用，变化进入现有contextKey并清旧帧。line metadata HTTP读写和scriptworker严格参数/镜像run DTO需同时同步，metadata缺失默认{}，显式非object拒绝；权威restore执行共同JSON限额校验。
+operational.currentRun为领域捕获的actual scope或null，携带serviceId/runId/lineId/metadata/terminalStationId；与同一outer timetable/cycle一起使用，变化进入现有contextKey并清旧帧。line metadata HTTP读写和scriptworker严格参数/镜像run DTO需同时同步，metadata缺失默认{}，显式非object拒绝；权威restore执行共同JSON限额校验。
 
 
 ## 站点序列与进度输入
@@ -71,3 +71,11 @@ nextStation在in_transit从index、at_station从index+1查找STOP/TERMINAL；未
 SimpleATO提供当前已证明站停的operational.doorSide（operating LEFT/RIGHT/BOTH/NONE或null），宿主不改领域开门决策。WorldManager在既有simulation owner采样，复用TrainControlManager.operatingControlEndFor及Train.behaviorRelativeTail，与TrainExtension实际车门执行相同；只把逐车head/tail字符串写入car.operatingEnd，经现有sample cache传递。无worker live lookup、新timer或Core物理snapshot字段。
 
 TrainPartRenderSnapshot的contextKey包含已捕获carOperatingEnd及operational.doorSide，端位/开门侧变化失效旧方向结果；默认未知端位为null，不猜train.reversed或车序。屏幕固定安装侧和本/对侧映射由Decorations拥有，详见其backend spec；host不读取decorations配置。
+
+默认目的地只写入 detached `operational.values`，不修改领域 authored values：终点
+metadata.name 的非空字符串或有效 `{zh,en}` 字符串映射优先，空／损坏名称回落到 canonical
+stationName，仍未知则不添加 destination。语言映射只保留有效非空 zh/en，不生成翻译。
+显式存在的 destination（对象、空串、null、其他类型）均阻止默认值；原有 exact-string alias
+行为不变。自动默认时，标量 alias 使用 metadata.name 字符串，否则 canonical stationName，
+再否则已知 zh/en；没有运行线／终点时不猜测，inactive context 清空。终点 ID 和最终值进入
+contextKey，修改终点 metadata 或实际切换运行线会清除旧画面。

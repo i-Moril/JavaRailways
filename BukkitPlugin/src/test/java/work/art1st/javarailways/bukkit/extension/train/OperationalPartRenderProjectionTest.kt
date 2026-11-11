@@ -42,6 +42,61 @@ class OperationalPartRenderProjectionTest {
         assertFalse(result.operational.jsonObject.getValue("values").jsonObject.containsKey("notice"))
     }
 
+    @Test fun `missing destination defaults to actual run terminal with localized metadata without mutating author values`() {
+        val authored = buildJsonObject { put("notice", "retain") }
+        val display = snapshot(values = authored, planned = listOf(
+            stop("current-end", "B", TimetableServiceStopStatus.TERMINAL),
+            stop("future-end", "C", TimetableServiceStopStatus.TERMINAL, run = "future")),
+            unresolved = listOf("later/unknown"))
+        val actual = TimetableUnitDisplayContext("train", "unit", listOf("car"), "table", display, null,
+            TimetableRunDisplayContext("service", "run", "line", JsonObject(emptyMap()), "B"))
+        val names = linkedMapOf<String, JsonElement>("zh" to JsonPrimitive("乙站"), "en" to JsonPrimitive("Beta Station"))
+        fun project() = projectOperationalPartRender(actual,
+            stationMetadata = { id -> if (id == "B") buildJsonObject { put("name", JsonObject(names)) } else JsonObject(emptyMap()) },
+            stationName = this.names::get)
+        val result = project()
+        assertEquals(JsonObject(names), result.operational.jsonObject.getValue("values").jsonObject["destination"])
+        assertEquals("Beta", result.aliases.getValue("destination").jsonPrimitive.content)
+        assertEquals(JsonPrimitive("B"), result.operational.jsonObject.getValue("currentRun").jsonObject["terminalStationId"])
+        assertFalse(authored.containsKey("destination"))
+        assertFalse(actual.display!!.values.containsKey("destination"))
+        names["en"] = JsonPrimitive("New Beta")
+        assertEquals("Beta Station", result.operational.jsonObject.getValue("values").jsonObject.getValue("destination").jsonObject.getValue("en").jsonPrimitive.content)
+        assertNotEquals(result.contextKey, project().contextKey, "terminal metadata changes invalidate the old destination")
+    }
+
+    @Test fun `default destination handles missing terminal and malformed names while retaining explicit overrides`() {
+        fun project(values: JsonObject = JsonObject(emptyMap()), terminal: String? = "B", name: JsonElement? = null,
+            canonical: String? = "Beta", currentRun: Boolean = true, active: Boolean = true): OperationalPartRenderProjection =
+            projectOperationalPartRender(TimetableUnitDisplayContext("train", "unit", listOf("car"), "table",
+                snapshot(values = values, active = active), null,
+                if (currentRun) TimetableRunDisplayContext("service", "run", "line", JsonObject(emptyMap()), terminal) else null),
+                stationMetadata = { buildJsonObject { if (name != null) put("name", name) } }, stationName = { canonical })
+        for (name in listOf<JsonElement?>(null, JsonNull, JsonPrimitive(42), JsonPrimitive(""), JsonArray(emptyList()),
+            buildJsonObject { put("zh", false); put("en", ""); put("foreign", "ignored") })) {
+            assertEquals(JsonPrimitive("Beta"), project(name = name).operational.jsonObject.getValue("values").jsonObject["destination"])
+        }
+        val partial = project(name = buildJsonObject { put("zh", "乙站"); put("en", false) }, canonical = null)
+        assertEquals(buildJsonObject { put("zh", "乙站") }, partial.operational.jsonObject.getValue("values").jsonObject["destination"])
+        assertEquals("乙站", partial.aliases.getValue("destination").jsonPrimitive.content)
+        assertEquals("Metadata Beta", project(name = JsonPrimitive("Metadata Beta")).aliases.getValue("destination").jsonPrimitive.content)
+        for (override in listOf(JsonPrimitive("Branch"), JsonPrimitive(""), JsonNull, JsonPrimitive(false),
+            JsonPrimitive(17), JsonArray(emptyList()), buildJsonObject { put("zh", "自定义") })) {
+            val result = project(buildJsonObject { put("destination", override) })
+            assertEquals(override, result.operational.jsonObject.getValue("values").jsonObject["destination"])
+            assertEquals(if (override is JsonPrimitive && override.isString) override.content else "",
+                result.aliases.getValue("destination").jsonPrimitive.content)
+        }
+        for (result in listOf(project(terminal = null), project(currentRun = false), project(canonical = null))) {
+            assertFalse(result.operational.jsonObject.getValue("values").jsonObject.containsKey("destination"))
+            assertEquals("", result.aliases.getValue("destination").jsonPrimitive.content)
+        }
+        val inactive = project(active = false)
+        assertEquals(JsonNull, inactive.operational)
+        assertEquals("", inactive.aliases.getValue("destination").jsonPrimitive.content)
+        assertNotEquals(project().contextKey, project(currentRun = false).contextKey)
+    }
+
     @Test fun `station metadata reaches history current next and repeated sequence occurrences as detached data`() {
         val mutable = linkedMapOf<String, JsonElement>("nameEn" to JsonPrimitive("Central Station"))
         val metadata = JsonObject(mutable)

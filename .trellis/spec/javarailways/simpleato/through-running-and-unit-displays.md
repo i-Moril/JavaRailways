@@ -84,7 +84,7 @@ U1/U2 同行时可分别设置 `{"destination":"D"}` / `{"destination":"E"}`。U
 
 TimetableRunSegment新增metadata:JsonObject={}，JsonMetadata深度分离并校验；equals/hash包含metadata。SavedTimetableRunSegmentV1默认字段、capture/restore保留，未改变版本或添加旧reader。它属于具体service/run，不与Line.metadata或operational.values隐式合并。WebUI AuthoringRunV1→generated runSegment→scriptworker mirror DTO→authoritative Saved DTO→runtime必须保留字段，边界不只更新一份DTO。
 
-TimetableUnitDisplayContext可携带TimetableRunDisplayContext(serviceId,runId,lineId,metadata)。Dispatcher仅从实际train身份、匹配timetable/cycle、unit membership且非terminal的ActiveRun中取currentSegment，并验证activeStepAddress/next step在其[start,end)内；缺失/段间/歧义null。禁止以remainingStops首项或segmentAtOrBefore声明活动运行线。运行线已进入但终态/其他cycle不能泄漏到当前画面。源上下文和metadata在跨worker前保持immutable。
+TimetableUnitDisplayContext可携带TimetableRunDisplayContext(serviceId,runId,lineId,metadata,terminalStationId)。Dispatcher仅从实际train身份、匹配timetable/cycle、unit membership且非terminal的ActiveRun中取currentSegment，并验证activeStepAddress/next step在其[start,end)内；缺失/段间/歧义null。禁止以remainingStops首项或segmentAtOrBefore声明活动运行线。运行线已进入但终态/其他cycle不能泄漏到当前画面。源上下文和metadata在跨worker前保持immutable。
 
 ## 完整停站序列与实际进度（2026-11-10，源码／测试源码编译阶段）
 
@@ -142,3 +142,12 @@ station execution 相同地交换 LEFT/RIGHT，保留物理站台侧；NONE/BOTH
 已确认静止反向时物理站台侧保持及发车清除；TimetableUnitDisplayContextTest 覆盖 DTO 约束；
 TimetableStationCallDispatcherTest 复用实际 Core/Dispatcher 运行分别覆盖无门、显式 OpenDoors
 覆盖和 origin station-program 覆盖，以及已提交下一 mission 后保留和真正发车后清除。
+
+## 当前运行线的默认目的地（2026-11-11）
+
+`terminalStationId: String?` 是 actual currentRun 的瞬态不可变事实，捕获自该 segment 的最后一个
+call，且仅接受 TERMINAL；空 calls／没有该边界则 null。禁止从运营车次合并后的完整站序、
+remainingStops、下一段或基础设施线路的终点推测。其生命周期与 existing entered currentRun
+一致，不提前进入下一运行线、不延长上一段显示，也不写回 displayRuntime 的 authored values。
+宿主将其解析为显示默认目的地；明确设置的 destination（包括空串、null）优先。此字段不属于
+持久化边界，不改 schema version。

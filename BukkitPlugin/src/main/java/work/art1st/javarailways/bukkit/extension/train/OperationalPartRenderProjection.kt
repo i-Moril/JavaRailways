@@ -74,12 +74,39 @@ internal fun projectOperationalPartRender(
             it.call.status == TimetableServiceStopStatus.STOP || it.call.status == TimetableServiceStopStatus.TERMINAL
         }?.let(::stop)
     }
+    // Presence, rather than value/type/truthiness, defines an authored destination override.
+    // This is a presentation default; the captured operational values remain untouched.
+    val defaultTerminal = context.currentRun?.terminalStationId?.takeIf { "destination" !in display.values }
+    val defaultStationName = defaultTerminal?.let(stationName)?.takeIf { it.isNotBlank() }
+    val defaultDestination = defaultTerminal?.let { id ->
+        when (val name = stationMetadata(id)["name"]) {
+            is JsonPrimitive -> name.takeIf { it.isString && it.content.isNotBlank() }
+            is JsonObject -> buildJsonObject {
+                for (language in listOf("zh", "en")) {
+                    (name[language] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() }
+                        ?.let { put(language, it) }
+                }
+            }.takeIf { it.isNotEmpty() }
+            else -> null
+        } ?: defaultStationName?.let(::JsonPrimitive)
+    }
+    val defaultDestinationAlias = when (defaultDestination) {
+        is JsonPrimitive -> defaultDestination.content
+        is JsonObject -> defaultStationName ?: listOf("zh", "en").firstNotNullOfOrNull {
+            (defaultDestination[it] as? JsonPrimitive)?.content
+        }.orEmpty()
+        else -> ""
+    }
+    val effectiveValues = if (defaultDestination != null) buildJsonObject {
+        display.values.forEach { (key, value) -> put(key, value) }
+        put("destination", defaultDestination)
+    } else display.values
     val operational = buildJsonObject {
         put("timetableId", checkNotNull(context.timetableId))
         put("operationalTripId", display.operationalTripId)
         put("cycleIndex", display.cycleIndex.toString())
         put("doorSide", context.doorSide?.name?.let(::JsonPrimitive) ?: JsonNull)
-        put("values", display.values)
+        put("values", effectiveValues)
         put("stops", JsonArray(display.plannedStops.map(::stop)))
         put("stationIndex", context.progress.stationIndex?.let(::JsonPrimitive) ?: JsonNull)
         put("phase", when (context.progress.phase) {
@@ -97,6 +124,7 @@ internal fun projectOperationalPartRender(
             put("serviceId", run.serviceId)
             put("runId", run.runId)
             put("lineId", run.lineId)
+            put("terminalStationId", run.terminalStationId?.let(::JsonPrimitive) ?: JsonNull)
             put("metadata", run.metadata)
         } } ?: JsonNull)
     }
@@ -105,7 +133,7 @@ internal fun projectOperationalPartRender(
     fun stationString(value: JsonObject?): String = (value?.get("stationName") as? JsonPrimitive)
         ?.takeIf { it.isString }?.content.orEmpty()
     val aliases = buildJsonObject {
-        put("destination", authoredString("destination"))
+        put("destination", if (defaultDestination != null) defaultDestinationAlias else authoredString("destination"))
         put("runType", authoredString("runType"))
         put("currentStationName", stationString(current))
         put("nextStationName", stationString(next))

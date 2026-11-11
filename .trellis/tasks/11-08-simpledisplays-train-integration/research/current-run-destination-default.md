@@ -25,3 +25,9 @@
 metadata 改变 contextKey。统一 JUnit 执行继续按用户约定延后；主会话负责源码编译和部署验证。
 
 源码及回归源码编译、主插件打包通过：`/tmp/jr-destination-default-compile.log`，BUILD SUCCESSFUL37s。首次构建发现 JsonObjectBuilder 不支持 putAll，已改为逐项 put 后复编通过。独立静态审查无阻断；线上16条运行线的末项均为明确TERMINAL（hatchobori/kasaipark/shinkiba），无需修改时刻表。未运行JUnit。
+
+## 已提交与部署
+
+实现提交 `7f03fa3b`，2026-11-11UTC仅更新测试服主插件JavaRailways.jar，SHA256 `c4f0a1ed881b591d66928880101fbb4f92b095efb7c0725738b6d2b91249f668`。其他9个插件JAR、车包、屏幕坐标和客户端资源包均保留。独立样式ZIP仅因README合同更新重新打包，XML未改变，服务器样式不需替换。
+
+正常停服保存后创建187文件恢复备份 `/opt/mcsmanager/backups/javarailways/displays-20261111-c5d6jk3m`，SHA256 `6038754d7403f9815e235214b92cdb46b9f9f96ff10613a51cda735eccd0330e`。安装清单与回执 `/tmp/jr-destination-default-20261111`；安装完成07:33:39UTC，启动Done07:34:13（27.843s），SimpleDisplays与Decorations正常启用。07:34:32资源重载成功1列车包/3轨道包，07:34:35ATOworldRUNNING；Bridge `/health`8765和WebUI29002本机HTTP200，安装/保留JAR哈希全部匹配。启动仍有既有TerraUnsafe错误和TruffleAttach警告；重载后未观察到新增模板失败。未运行延期的JUnit/统一验收，未确认客户端实际像素/可见性，未推送Git。

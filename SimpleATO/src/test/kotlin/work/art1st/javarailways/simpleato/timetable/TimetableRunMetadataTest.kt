@@ -180,7 +180,7 @@ class TimetableRunMetadataTest {
     }
 
     @Test
-    fun `new cycle cleanup preserves independent held unit and unassigned run retires display`() {
+    fun `new cycle cleanup preserves held peer and unassigned run starts a fresh default trip`() {
         val first=segment("first",0,1); val blank=segment("blank",1,2)
         val service=TimetableService("duty",steps=listOf(TimetableStep.Check("C"),TimetableStep.Check("C")),runSegments=listOf(first,blank))
         val trip=TimetableOperationalTrip("trip",values("E"),listOf(TimetableOperationalTripSegment("duty","first",listOf(1,2))))
@@ -193,8 +193,12 @@ class TimetableRunMetadataTest {
         assertTrue(runtime.snapshots(table,0,listOf("U1")).isEmpty())
         assertEquals("U2",runtime.snapshots(table,0,listOf("U2")).single().unitId)
         runtime.enter(nextTable,1,service,blank,listOf("U1"))
-        assertFalse(runtime.snapshots(nextTable,1,listOf("U1")).single().active)
-        assertThrows(IllegalArgumentException::class.java) { runtime.set("table",1,listOf("U1"),values("bad")) }
+        val default = runtime.snapshots(nextTable,1,listOf("U1")).single()
+        assertTrue(default.active)
+        assertNotEquals("trip", default.operationalTripId)
+        assertTrue(default.values.isEmpty())
+        runtime.set("table",1,listOf("U1"),values("updated default"))
+        assertEquals(values("updated default"), runtime.snapshots(nextTable,1,listOf("U1")).single().values)
     }
 
     @Test

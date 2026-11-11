@@ -46,18 +46,52 @@ data class TimetableRunCall(val id: String, val stationId: String, val destinati
     }
 }
 
-class TimetableOperationalTripSegment(val serviceId: String, val runId: String, unitSlots: List<Int>) {
-    val unitSlots = immutableUnitSlots(unitSlots)
+class TimetableOperationalTripSegment(val serviceId: String, val runId: String, unitSlots: List<Int>,
+    val unassignedUnits: Boolean = false) {
+    val unitSlots = if (unassignedUnits) {
+        require(unitSlots.isEmpty()) { "default trip selects unassigned units dynamically, without explicit slots" }
+        emptyList()
+    } else immutableUnitSlots(unitSlots)
     init { require(serviceId.isNotBlank() && runId.isNotBlank()) }
-    override fun equals(other: Any?) = other is TimetableOperationalTripSegment && serviceId == other.serviceId && runId == other.runId && unitSlots == other.unitSlots
-    override fun hashCode() = java.util.Objects.hash(serviceId, runId, unitSlots)
+    override fun equals(other: Any?) = other is TimetableOperationalTripSegment && serviceId == other.serviceId && runId == other.runId && unitSlots == other.unitSlots && unassignedUnits == other.unassignedUnits
+    override fun hashCode() = java.util.Objects.hash(serviceId, runId, unitSlots, unassignedUnits)
 }
 class TimetableOperationalTrip(val id: String, defaults: JsonObject = JsonObject(emptyMap()), segments: List<TimetableOperationalTripSegment>) {
     val defaults = immutableDisplayValues(defaults)
     val segments: List<TimetableOperationalTripSegment> = java.util.List.copyOf(segments)
-    init { require(id.isNotBlank()); require(segments.isNotEmpty()) }
+    init {
+        require(id.isNotBlank()); require(segments.isNotEmpty())
+        require(segments.none { it.unassignedUnits } || (segments.size == 1 && defaults.isEmpty())) {
+            "default trip must contain one RUN and empty defaults"
+        }
+    }
     override fun equals(other: Any?) = other is TimetableOperationalTrip && id == other.id && defaults == other.defaults && segments == other.segments
     override fun hashCode() = java.util.Objects.hash(id, defaults, segments)
+}
+
+/** Rebuild only generated definitions; explicit IDs, defaults and unit selections are never rewritten. */
+internal fun defaultOperationalTrips(services: List<TimetableService>, trips: List<TimetableOperationalTrip>): List<TimetableOperationalTrip> {
+    val authored = trips.filter { trip -> trip.segments.none { it.unassignedUnits } }
+    val ids = authored.mapTo(hashSetOf()) { it.id }
+    val result = authored.toMutableList()
+    for (service in services) for (run in service.runSegments) {
+        val base = "default-run/${service.id.length}:${service.id}/${run.runId.length}:${run.runId}"
+        var id = base
+        var collision = 0
+        while (!ids.add(id)) id = "$base#${++collision}"
+        result += TimetableOperationalTrip(id, segments = listOf(
+            TimetableOperationalTripSegment(service.id, run.runId, emptyList(), unassignedUnits = true)))
+    }
+    return java.util.List.copyOf(result)
+}
+
+/** Default RUN ownership is resolved against actual complete units, after explicit slots take priority. */
+private fun TimetableOperationalTripSegment.selectedSlots(timetable: Timetable, unitCount: Int): List<Int> {
+    if (!unassignedUnits) return unitSlots
+    val claimed = timetable.operationalTrips.flatMap { it.segments }.filter {
+        !it.unassignedUnits && it.serviceId == serviceId && it.runId == runId
+    }.flatMap { it.unitSlots }.toSet()
+    return (1..unitCount).filterNot(claimed::contains)
 }
 internal fun immutableUnitSlots(slots: List<Int>): List<Int> {
     require(slots.isNotEmpty() && slots.size <= 128 && slots.distinct().size == slots.size && slots.all { it > 0 }) { "unitSlots must be distinct positive complete-unit slots (1..128 entries)" }
@@ -134,7 +168,11 @@ internal object TimetableMetadataValidator {
             val trip=timetable.operationalTrips.singleOrNull { it.id==begin.tripId }
             val leg=trip?.segments?.singleOrNull { it.serviceId==service.id && it.runId==begin.runId }
             val run=service.runSegments.singleOrNull { it.runId==begin.runId }
-            if(leg==null || run==null || begin.unitSlots.any { it !in leg.unitSlots }) add("[${service.id}] step#$index BEGIN requires matching declared trip/run/unit slots")
+            val matchingSelection = leg?.let {
+                if (it.unassignedUnits) begin.unitSlots.isEmpty()
+                else begin.unitSlots.isNotEmpty() && begin.unitSlots.all { slot -> slot in it.unitSlots }
+            } == true
+            if(leg==null || run==null || !matchingSelection) add("[${service.id}] step#$index BEGIN requires matching declared trip/run/unit slots")
             else {
                 val gapStart=service.runSegments.filter { it.endStepIndexExclusive<=run.startStepIndex }.maxOfOrNull { it.endStepIndexExclusive } ?: 0
                 if(index !in gapStart until run.startStepIndex || service.steps.subList(minOf(index+1,run.startStepIndex),run.startStepIndex).any { changesMembershipOrOrientation(it) })
@@ -232,7 +270,9 @@ internal object TimetableMetadataValidator {
     }
 
     fun validatePhysical(world: World, timetable: Timetable, structural: StructuralTimetableValidation): List<String> = buildList {
-        if (timetable.operationalTrips.isEmpty()) return@buildList
+        // Dynamic defaults bind actual units on entry. They do not require a frozen depot candidate
+        // during definition validation; explicit cross-RUN/unit assignments retain their proof gate.
+        if (timetable.operationalTrips.none { trip -> trip.segments.none { it.unassignedUnits } }) return@buildList
         val store=world.simpleAtoWorldData.depots
         val proven=linkedMapOf<Pair<String,String>,List<List<String>>>()
         fun units(cars: List<String>,reversed: Boolean): List<String>? = runCatching {
@@ -240,7 +280,7 @@ internal object TimetableMetadataValidator {
         }.getOrNull()
         timetable.services.forEach { service -> service.runSegments.forEach { segment ->
             val key=service.id to segment.runId
-            val assigned = timetable.operationalTrips.any { trip -> trip.segments.any { it.serviceId==service.id && it.runId==segment.runId } }
+            val assigned = timetable.operationalTrips.any { trip -> trip.segments.any { !it.unassignedUnits && it.serviceId==service.id && it.runId==segment.runId } }
             val outputs=structural.routes.filterKeys { it.serviceId==service.id && it.stepIndex in segment.startStepIndex until segment.endStepIndexExclusive }.values
             var candidates=outputs.mapNotNull { units(it.outputCarIds,it.expectedReversed) }.distinct()
             if (assigned && outputs.any { units(it.outputCarIds,it.expectedReversed)==null }) add("[${service.id}/${segment.runId}] output has no complete registered-unit evidence")
@@ -272,7 +312,7 @@ internal object TimetableMetadataValidator {
             if(candidates.any { formation -> leg.unitSlots.any { it>formation.size } }) add("trip ${trip.id} references absent complete-unit slot at ${leg.serviceId}/${leg.runId}")
         } }
         fun selected(leg: TimetableOperationalTripSegment): Set<String> = proven[leg.serviceId to leg.runId].orEmpty()
-            .flatMap { formation -> leg.unitSlots.mapNotNull { formation.getOrNull(it-1) } }.toSet()
+            .flatMap { formation -> leg.selectedSlots(timetable, formation.size).mapNotNull { formation.getOrNull(it-1) } }.toSet()
         timetable.operationalTrips.forEach { trip ->
             trip.segments.forEach { leg ->
                 val predecessors = trip.segments.filter { it !== leg && tripLegPrecedes(timetable,it,leg) }
@@ -438,10 +478,14 @@ internal class TimetableDisplayRuntime {
     fun begin(timetable: Timetable, cycle: Long, service: TimetableService, action: TimetableAction.BeginOperationalTrip, units: List<String>) = mutate {
         val trip=requireNotNull(timetable.operationalTrips.singleOrNull { it.id==action.tripId }) { "operational trip is missing" }
         val leg=requireNotNull(trip.segments.singleOrNull { it.serviceId==service.id && it.runId==action.runId }) { "trip does not own upcoming RUN" }
-        require(action.unitSlots.all { it<=units.size && it in leg.unitSlots }) { "BEGIN references absent or unassigned registered units" }
+        require(if (leg.unassignedUnits) action.unitSlots.isEmpty()
+            else action.unitSlots.isNotEmpty() && action.unitSlots.all { it<=units.size && it in leg.unitSlots }) {
+            "BEGIN references absent or unassigned complete units"
+        }
         val identity=Triple(timetable.id,cycle,service.id to action.runId)
         require(legUnits[identity].let { it==null || it==units }) { "BEGIN physical unit proof changed" }
-        val selected=action.unitSlots.map { units[it-1] }
+        val slots = if (leg.unassignedUnits) leg.selectedSlots(timetable, units.size) else action.unitSlots
+        val selected=slots.map { units[it-1] }
         selected.forEach { id ->
             val key=Key(timetable.id,cycle,id)
             val hasPredecessor=trip.segments.any { it!==leg && tripLegPrecedes(timetable,it,leg) }
@@ -464,19 +508,20 @@ internal class TimetableDisplayRuntime {
     fun finish(timetable: Timetable, cycle: Long, serviceId: String, units: List<String>) = mutate {
         units.forEach { id ->
             val context=contexts[Key(timetable.id,cycle,id)] ?: return@forEach
-            val ownedLegs=context.trip.segments.filter { leg -> legUnits[Triple(timetable.id,cycle,leg.serviceId to leg.runId)]?.let { binding -> leg.unitSlots.any { binding.getOrNull(it-1)==id } }==true }
+            val ownedLegs=context.trip.segments.filter { leg -> legUnits[Triple(timetable.id,cycle,leg.serviceId to leg.runId)]?.let { binding -> leg.selectedSlots(timetable,binding.size).any { binding.getOrNull(it-1)==id } }==true }
             val unresolved=context.trip.segments.any { legUnits[Triple(timetable.id,cycle,it.serviceId to it.runId)]==null }
             if(!unresolved && ownedLegs.lastOrNull()?.serviceId==serviceId && ownedLegs.all { (it.serviceId to it.runId) in context.visitedLegs }) context.active=false
         }
     }
 
     fun enter(timetable: Timetable, cycle: Long, service: TimetableService, segment: TimetableRunSegment, units: List<String>) = mutate {
-        val selections = timetable.operationalTrips.flatMap { trip -> trip.segments.filter { it.serviceId == service.id && it.runId == segment.runId }.map { trip to it } }
-        selections.forEach { (_,leg) -> require(leg.unitSlots.all { it <= units.size }) { "run ${service.id}/${segment.runId} references absent registered unit slot" } }
+        val selections = timetable.operationalTrips.flatMap { trip -> trip.segments.filter { it.serviceId == service.id && it.runId == segment.runId }
+            .map { Triple(trip,it,it.selectedSlots(timetable,units.size)) } }
+        selections.forEach { (_,_,slots) -> require(slots.all { it <= units.size }) { "run ${service.id}/${segment.runId} references absent complete-unit slot" } }
         val identity = Triple(timetable.id,cycle,service.id to segment.runId)
         val previous = legUnits[identity]
         require(previous == null || previous == units) { "physical unit membership changed within a run segment" }
-        selections.forEach { (trip,leg) -> leg.unitSlots.forEach { slot ->
+        selections.forEach { (trip,leg,slots) -> slots.forEach { slot ->
             val key = Key(timetable.id,cycle,units[slot-1])
             val predecessor = trip.segments.any { before -> before !== leg && tripLegPrecedes(timetable,before,leg) }
             require(!predecessor || (contexts[key]?.trip?.id == trip.id && contexts[key]?.active == true)) {
@@ -486,10 +531,10 @@ internal class TimetableDisplayRuntime {
         // Binding is immutable per leg/cycle. Future stop projection uses only these proven physical bindings.
         legUnits[identity] = java.util.List.copyOf(units)
         actualLegs += identity
-        val selected=selections.flatMap { (_,leg)->leg.unitSlots.map { units[it-1] } }.toSet()
+        val selected=selections.flatMap { (_,_,slots)->slots.map { units[it-1] } }.toSet()
         units.forEach { id -> contexts[Key(timetable.id,cycle,id)]?.takeIf { id !in selected }?.active=false }
         selected.forEach { id -> contexts.keys.removeIf { it.unitId==id && (it.timetableId!=timetable.id || it.cycle!=cycle) } }
-        selections.forEach { (trip,leg) -> leg.unitSlots.forEach { slot ->
+        selections.forEach { (trip,_,slots) -> slots.forEach { slot ->
             val key = Key(timetable.id,cycle,units[slot-1])
             val current = contexts[key]
             val next = if (current?.trip?.id == trip.id) current else Context(trip, trip.defaults)
@@ -531,7 +576,7 @@ internal class TimetableDisplayRuntime {
                 if (uncertainFromIndex == null) uncertainFromIndex = stops.size
                 return@forEach
             }
-            if (leg.unitSlots.none { binding.getOrNull(it-1) == id }) { contiguous = false; return@forEach }
+            if (leg.selectedSlots(timetable,binding.size).none { binding.getOrNull(it-1) == id }) { contiguous = false; return@forEach }
             val segment = timetable.services.single { it.id == leg.serviceId }.runSegments.single { it.runId == leg.runId }
             if (segment.calls.isEmpty()) contiguous = false
             segment.calls.forEach { call ->

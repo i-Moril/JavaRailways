@@ -666,9 +666,10 @@ data class SavedTimetableRunSegmentV1(val runId: String, val lineId: String, val
     companion object { fun capture(value: TimetableRunSegment) = SavedTimetableRunSegmentV1(value.runId,value.lineId.value,value.startStepIndex,value.endStepIndexExclusive,value.diagramLineId,value.lineDirection?.let { SavedDiagramDirectionV1.valueOf(it.name) },value.calls.map(SavedTimetableRunCallV1::capture),value.metadata) }
 }
 @Serializable
-data class SavedTimetableOperationalTripSegmentV1(val serviceId: String, val runId: String, val unitSlots: List<Int>) {
-    fun restore() = TimetableOperationalTripSegment(serviceId,runId,unitSlots)
-    companion object { fun capture(value: TimetableOperationalTripSegment) = SavedTimetableOperationalTripSegmentV1(value.serviceId,value.runId,value.unitSlots) }
+data class SavedTimetableOperationalTripSegmentV1(val serviceId: String, val runId: String, val unitSlots: List<Int>,
+    val unassignedUnits: Boolean = false) {
+    fun restore() = TimetableOperationalTripSegment(serviceId,runId,unitSlots,unassignedUnits)
+    companion object { fun capture(value: TimetableOperationalTripSegment) = SavedTimetableOperationalTripSegmentV1(value.serviceId,value.runId,value.unitSlots,value.unassignedUnits) }
 }
 @Serializable
 data class SavedTimetableOperationalTripV1(val id: String, val defaults: JsonObject = JsonObject(emptyMap()), val segments: List<SavedTimetableOperationalTripSegmentV1>) {

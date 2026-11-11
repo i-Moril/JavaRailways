@@ -1,9 +1,12 @@
 package work.art1st.javarailways.decorations.display
 
+import kotlinx.serialization.json.JsonObject
 import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionPackage
 import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderer
 import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderContext
 import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderSession
+import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderInput
+import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionFrame
 import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionAudiencePolicy
 
 /** Validates resources and opens an owned dynamic template session on the host-owned worker. */
@@ -41,16 +44,26 @@ class DisplayPartProvider(
         }
         val displays = DisplayStyleBundles.merge(local, externalStyles, subject)
         val id = selectTemplate(config, displays, subject)
-        if (runtimeStyles != null && displays != null && displays.templates.isNotEmpty()) {
-            return RoutingDisplaySession(runtimeStyles, context, config, displays, id,
-                if (config.interior) interiorAudiencePolicy else PartExtensionAudiencePolicy.UNRESTRICTED,
+        val policy = if (config.interior) interiorAudiencePolicy else PartExtensionAudiencePolicy.UNRESTRICTED
+        val session = if (runtimeStyles != null && displays != null && displays.templates.isNotEmpty()) {
+            RoutingDisplaySession(runtimeStyles, context, config, displays, id, policy,
                 openTemplate)
+        } else {
+            if (id == null) return null
+            checkNotNull(displays)
+            openTemplate(context, config, id, displays.templates.getValue(id)) ?: return null
         }
-        if (id == null) return null
-        checkNotNull(displays)
-        val session = openTemplate(context, config, id, displays.templates.getValue(id)) ?: return null
         return object : PartExtensionRenderSession by session {
-            override val audiencePolicy = if (config.interior) interiorAudiencePolicy else PartExtensionAudiencePolicy.UNRESTRICTED
+            override val audiencePolicy = policy
+            override fun draw(input: PartExtensionRenderInput): PartExtensionFrame {
+                if ((input.data["operational"] as? JsonObject)?.get("currentRun") !is JsonObject) {
+                    // Keep metadata/style bindings current for direct callers too, without
+                    // evaluating XML/JS. Host context invalidation retires the previous output.
+                    session.update(input)
+                    return PartExtensionFrame.EMPTY
+                }
+                return session.draw(input)
+            }
         }
     }
 

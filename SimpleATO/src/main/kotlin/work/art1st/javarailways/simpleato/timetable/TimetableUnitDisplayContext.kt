@@ -50,52 +50,6 @@ class TimetableUnitDisplayContext(
     }
 }
 
-/** Actual physical-train run facts; no operational-trip or registered-unit identity is implied. */
-class TimetableTrainDisplayContext(
-    val trainId: String,
-    carIds: List<String>,
-    val timetableId: String,
-    val cycleIndex: Long,
-    val currentRun: TimetableRunDisplayContext,
-    stops: List<TimetableUnitStopSnapshot>,
-    val currentBerth: StationBerthRef?,
-    val progress: TimetableDisplayProgress = TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN),
-    val doorSide: DoorSide? = null,
-) {
-    val carIds: List<String> = java.util.List.copyOf(carIds)
-    val stops: List<TimetableUnitStopSnapshot> = java.util.List.copyOf(stops.map {
-        it.copy(call = it.call.copy(viaIds = java.util.List.copyOf(it.call.viaIds)))
-    })
-    init {
-        require(trainId.isNotBlank() && timetableId.isNotBlank())
-        require(this.carIds.isNotEmpty() && this.carIds.distinct().size == this.carIds.size)
-        require(this.stops.all { it.serviceId == currentRun.serviceId && it.runId == currentRun.runId })
-        require(doorSide == null || progress.phase == TimetableDisplayPhase.AT_STATION)
-        progress.stationIndex?.let { index ->
-            require(index in this.stops.indices)
-            require(progress.phase != TimetableDisplayPhase.AT_STATION ||
-                this.stops[index].call.status != TimetableServiceStopStatus.PASS)
-        }
-    }
-}
-
-/** Same exact occurrence semantics as unit-trip progress, restricted to this entered run's calls. */
-internal fun captureTimetableTrainDisplayProgress(
-    stops: List<TimetableUnitStopSnapshot>, arrivedCall: Triple<String, String, String>?, inTransit: Boolean,
-): TimetableDisplayProgress {
-    val unknown = TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN)
-    if (arrivedCall != null) {
-        val index = stops.indexOfFirst { Triple(it.serviceId, it.runId, it.call.id) == arrivedCall }
-        if (index < 0 || !stops[index].completed || stops[index].call.status == TimetableServiceStopStatus.PASS) return unknown
-        return TimetableDisplayProgress(TimetableDisplayPhase.AT_STATION, index)
-    }
-    if (!inTransit || stops.isEmpty()) return unknown
-    val next = stops.indexOfFirst { !it.completed }
-    if (next < 0) return TimetableDisplayProgress(TimetableDisplayPhase.FINISHED)
-    if (stops.drop(next).any { it.completed }) return unknown
-    return TimetableDisplayProgress(TimetableDisplayPhase.IN_TRANSIT, next)
-}
-
 /** Only an actually entered physical run scope may supply this owner-captured value. */
 class TimetableRunDisplayContext(
     val serviceId: String,

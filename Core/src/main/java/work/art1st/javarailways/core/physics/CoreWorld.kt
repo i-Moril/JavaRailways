@@ -301,6 +301,20 @@ class CoreWorld(
         require(trains[id] == null) { "duplicate train id in world: $id" }
     }
 
+    /**
+     * Preflight a new ordinary train before allocating its cars. Its default fixed unit uses [id],
+     * which may still belong to another consist after coupling retired the original train.
+     * This read does not reserve the identity; construction performs the final checks again.
+     */
+    @MainThread
+    fun validateDefaultTrainCreationIdentity(id: String, name: String = id) {
+        physicsCoordinator.ensureBetweenFrames("CoreWorld.validateDefaultTrainCreationIdentity")
+        validateNewTrainIdentity(id, name)
+        require(trains.values.none { train -> train.composition.units.any { it.unitId == id } }) {
+            "fixed unit ID is already in use: $id"
+        }
+    }
+
     @MainThread
     /** Unit identities are reserved by staged train registrations as well as committed trains. */
     internal fun validateNewTrainComposition(

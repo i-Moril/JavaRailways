@@ -29,6 +29,7 @@ import work.art1st.javarailways.bukkit.util.HeavyRailQueries
 import work.art1st.javarailways.bukkit.util.PlayerOperationGate
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.World
+import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.train.CoreCar
 import work.art1st.javarailways.core.physics.train.CoreTrain
@@ -285,7 +286,7 @@ object TrainCommand {
             val match = requireNotNull(nearestRail) { "世界中没有可放置的轨道" }
             val rail = requireNotNull(selectedRail) { "世界中没有可放置的轨道" }
             check(coreWorld.getRail(rail.id) === rail) { "轨道已变化，请重新创建" }
-            check(coreWorld.getTrain(trainName) == null) { "当前世界已存在列车名 '$trainName'" }
+            coreWorld.validateDefaultTrainCreationIdentity(trainName)
             val requiredBehindHead = estimateTrainLengthBehindHead(carDefs)
             val railViewAB = rail.getView(work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB)
             val rawHeadAB = RailLocationWithFacing(railViewAB, match.arcLength)
@@ -298,7 +299,7 @@ object TrainCommand {
                 ?: error("无法初始化车头转向架位置")
 
             val cars = mutableListOf<CoreCar>()
-            val trainId = UUID.randomUUID().toString()
+            val trainId = trainName
             CoreTrain.createOwned(coreWorld) {
                 for (i in resourceVersion.composition.indices) {
                     val carDef = carDefs[i]
@@ -326,8 +327,7 @@ object TrainCommand {
 
                 val train = train(
                     id = trainId,
-                    cars = cars,
-                    name = trainName
+                    cars = cars
                 )
                 train.setLocation(headLocation)
                 val trainExtension = TrainExtension()
@@ -342,7 +342,7 @@ object TrainCommand {
                 onFailure { coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.remove(train.id) }
                 publish()
                 val messages = buildList {
-                    add("创建列车成功: ${train.name} [${train.id}] (类型: $trainTypeName)")
+                    add("创建列车成功: ${trainIdentityLabel(train)} (类型: $trainTypeName)")
                     add("手持通用列车钥匙坐在驾驶座上驾驶，可用 /jr train key 获取。")
                     add("车厢数量: ${cars.size}")
                     add("列车头部位置: ${formatVector(train.head.location.position)}")
@@ -780,7 +780,7 @@ object TrainCommand {
         val train = controller?.controlledTrain ?: nearestTrain
         if (train != null) {
             sender.sendMessage("=== 列车状态 ===")
-            sender.sendMessage("列车: ${train.name} [${train.id}]")
+            sender.sendMessage("列车: ${trainIdentityLabel(train)}")
             if (controller != null) {
                 sender.sendMessage("速度: ${"%.2f".format(controller.speed)} m/s")
                 sender.sendMessage("加速度: ${"%.3f".format(controller.acceleration)} m/s²")
@@ -812,7 +812,7 @@ object TrainCommand {
         return work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge.runInSimulationContext(world) {
         sender.sendMessage("=== 列车列表 ===")
         for (train in world.allTrains) {
-            sender.sendMessage("  ${train.name} [${train.id}] - ${train.length} 节车厢")
+            sender.sendMessage("  ${trainIdentityLabel(train)} - ${train.length} 节车厢")
         }
         true
         }
@@ -920,6 +920,9 @@ object TrainCommand {
 }
 
 internal fun carIdForTrain(trainId: String, index: Int): String = "$trainId-car-$index"
+
+internal fun trainIdentityLabel(train: Train): String =
+    if (train.name == train.id) train.name else "${train.name} [${train.id}]"
 
 /** An explicit ID is authoritative: a typo must never target a nearby train. */
 internal fun selectTrainForDeletion(

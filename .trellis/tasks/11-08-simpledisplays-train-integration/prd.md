@@ -1,5 +1,7 @@
 # Train-mounted displays through Decorations
 
+> 2026-11-11 current slice: requirements 2/3 implemented in source. Every declared RUN has a separate default operational trip; explicit cross-run/per-unit definitions retain priority. Ordinary-train display fallback removed. Decorations returns EMPTY outside actual `currentRun`, including static template output. SimpleATO848, host-related127, Decorations71 and SimpleATOBukkit2 tests passed; independent review and Decorations JAR boundary check passed. User authorized committing and deploying this batch2026-11-11; game-client acceptance remains pending. The prior UUID implementation is unchanged and included in this authorized submission.
+
 > Current: [ordered stops and exact display progress](research/stop-sequence-contract.md), approved after cabin/exterior layout discussion. Prior operational inputs, interior distance, style overrides, metadata and schema-consistency changes remain uncommitted. Integrated verification is deferred until all work is complete; no extra culling or PAPI.
 
 > Completed milestones: Decorations foundation `95935639`, template compilation `84b804fc`, native/packet text backends `3aaa3af3`, static mounting `a4604a43`, dynamic sessions/basic train input `09da5fbc`. Independent SimpleDisplays XML/document JS is at `410af2e`. Current module boundaries and contracts supersede historical built-in screen/loading notes below; schema consistency remains a separate child before acceptance.

@@ -32,6 +32,22 @@ close/eviction 逐一尝试释放并聚合报告，不能因一个失败跳过�
 
 宿主当前每10source ticks至多请求一次，ctx.data.train/car为同physics frame的基础值；XML使用trainId/trainName/trainType/carId/carNumber顶层string aliases。精确字段见Decorations/README。运营停站通过宿主只读投影提供。逐观看者挂载内容仍待实现；Bukkit PlaceholderAPI移出本任务。
 
+## 实际运行线外关屏（CURRENT）
+
+`DisplayPartProvider.open` 返回的所有 session 路径统一检查 detached 输入：
+只有 `operational` 与其中 `currentRun` 均为 JSON object，才调用模板 `draw`。
+没有实际运行线时返回 `PartExtensionFrame.EMPTY`，不执行 XML/JS，文字、图标与模板背景都没有生成输出。
+仅有 active 运营车次或预先 BEGIN 的显示字段不足以亮屏；不通过模板自行判空实现这项规则。
+
+关屏保持 session、unit 样式绑定、revision、视距策略及关闭委托；隐藏/off 时仍转交轻量 `update`，
+再次进入 RUN 可复用 session。宿主在接收新的运营上下文采样时通过既有 context invalidation 清除旧生成叶子、
+取消旧 generation 的发布资格；Decoration 不新增取消机制，不修改 SimpleDisplays 库、车身或原始子树。
+清屏沿用现有采样/owner 应用时序，不承诺命令发出瞬间即完成。
+
+回归必须同时覆盖 direct/routing 两条路径、静态和脚本式输出、active trip 保留而 currentRun 消失、
+未知/null 输入、恢复、关屏期间样式修改及绑定保留。缺运行线时 delegate draw 次数不增长，返回帧必须为空；
+不能仅断言字符串别名已清空。没有配置、持久化或版本变化。
+
 
 ## 车内视距（已实现，整体验证待统一执行）
 

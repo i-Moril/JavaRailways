@@ -26,7 +26,7 @@ class ScriptWorkerTest {
         assertEquals(listOf(1,3), service.runSegments.map { it.startStepIndex })
         assertEquals(listOf(3,7), service.runSegments.map { it.endStepIndexExclusive })
         assertEquals("E", service.runSegments.last().calls.last().stationId)
-        assertEquals(listOf(2), result.operationalTrips.single().segments.single().unitSlots)
+        assertEquals(listOf(2), result.operationalTrips.single { !it.segments.single().unassignedUnits }.segments.single().unitSlots)
         assertEquals(SavedTimetableActionTypeV1.SET_DISPLAY, service.steps[3].action!!.type)
         assertEquals(SavedTimetableActionTypeV1.RESET_DISPLAY, service.steps.last().action!!.type)
         assertEquals(1, result.compilationTrace.first().stepIndex)
@@ -61,10 +61,15 @@ class ScriptWorkerTest {
         assertEquals("next", begin.operationalTripId)
         assertEquals("branch", begin.runId)
         assertEquals(listOf(1), begin.unitSlots)
-        assertEquals(SavedTimetableActionTypeV1.SET_DISPLAY, service.steps[3].action!!.type)
-        assertEquals(4, service.runSegments.single().startStepIndex)
-        assertEquals(listOf(3, 2), result.compilationTrace.map { it.stepIndex })
-        assertTrue(result.compilationTrace.last().origin.endsWith("/operational-trip:next"))
+        val defaultBegin = service.steps[3].action!!
+        assertEquals(SavedTimetableActionTypeV1.BEGIN_OPERATIONAL_TRIP, defaultBegin.type)
+        assertEquals("default-run/1:s/6:branch", defaultBegin.operationalTripId)
+        assertTrue(defaultBegin.unitSlots.isEmpty())
+        assertEquals(SavedTimetableActionTypeV1.SET_DISPLAY, service.steps[4].action!!.type)
+        assertEquals(5, service.runSegments.single().startStepIndex)
+        assertEquals(listOf(4, 2, 3), result.compilationTrace.map { it.stepIndex })
+        assertTrue(result.compilationTrace[1].origin.endsWith("/operational-trip:next"))
+        assertTrue(result.compilationTrace[2].origin.endsWith("/operational-trip:default-run/1:s/6:branch"))
     }
 
     @Test fun `valid core DSL produces current snapshot`() {

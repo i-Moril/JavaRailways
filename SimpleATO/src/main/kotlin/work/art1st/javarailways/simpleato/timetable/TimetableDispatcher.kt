@@ -2106,42 +2106,6 @@ class TimetableDispatcher(
         return java.util.List.copyOf(result)
     }
 
-    /** Captures ordinary trains independently of the optional registered-unit/trip display system. */
-    @MainThread
-    fun captureTrainDisplays(world: World): List<TimetableTrainDisplayContext> {
-        ensureOwner(world)
-        check(boundWorld == null || boundWorld === world) { "display runtime belongs to a different world" }
-        val data = world.simpleAtoWorldData
-        val result = arrayListOf<TimetableTrainDisplayContext>()
-        for (train in world.allTrains) {
-            val frame = train.publishedFrame ?: continue
-            // Ambiguous owners must not be resolved by iteration order or guessed latest cycle.
-            val run = runs.values.filter { it.train === train && !it.state.isTerminal() }.singleOrNull() ?: continue
-            if (data.timetables[run.id.timetableId] == null) continue
-            val segment = run.currentSegment ?: continue
-            val currentRun = captureTimetableRunDisplayContext(run.id.serviceId, segment,
-                run.activeStepAddress?.topLevelIndex ?: run.nextStepIndex) ?: continue
-            val stops = segment.calls.map { call ->
-                TimetableUnitStopSnapshot(run.service.id, segment.runId, call, call.id in run.completedCallIds)
-            }
-            val progress = if (run.reverseOperation == null && run.displayCallCursor?.valid == true &&
-                run.controlMode == TimetableControlMode.AUTOMATIC &&
-                run.state != TimetableServiceRunState.SUSPENDED && run.state != TimetableServiceRunState.REPLAN_REQUIRED) {
-                if (run.displayPosition.observe(frame)) displayRuntime.progressChanged()
-                captureTimetableTrainDisplayProgress(stops, run.displayPosition.arrivedCall, run.displayPosition.inTransit)
-            } else TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN)
-            val berth = run.confirmedDoorStop?.takeIf { proof ->
-                frame.speedMetersPerSecond == 0.0 && doorStopPlacementMatches(run, proof) &&
-                    data.stations.berth(proof.berth.berthRef) === proof.berth &&
-                    proof.berth.lifecycleState == work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState.ACTIVE
-            }?.berth?.berthRef
-            val doorSide = if (progress.phase == TimetableDisplayPhase.AT_STATION) run.displayPosition.doorSide else null
-            result += TimetableTrainDisplayContext(train.id, frame.cars.map { it.carId }, run.id.timetableId,
-                run.cycleIndex, currentRun, stops, berth, progress, doorSide)
-        }
-        return java.util.List.copyOf(result)
-    }
-
     /** Runtime wakeup evidence for authored/unit changes, not a persistent schema version. */
     @MainThread
     fun unitDisplayRevision(world: World): Long {
@@ -6752,7 +6716,7 @@ class TimetableDispatcher(
 
     private fun refreshUnitDisplays(world: World, run: ActiveRun) {
         val timetable = checkNotNull(world.simpleAtoWorldData.timetables[run.id.timetableId])
-        if (timetable.operationalTrips.isNotEmpty() && run.currentUnitIds.isNotEmpty()) {
+        if (run.currentUnitIds.isNotEmpty()) {
             run.currentUnitIds = registeredOperatingUnits(world,run)
             run.unitDisplays = displayRuntime.snapshots(timetable,run.cycleIndex,run.currentUnitIds)
         } else run.unitDisplays = emptyList()
@@ -6767,16 +6731,9 @@ class TimetableDispatcher(
             if (run.currentSegment != null) check(run.ato.isStopped(run.ato.publishedState.trainFrame.speedMetersPerSecond)) { "through-running requires a stopped boundary" }
             val timetable = checkNotNull(world.simpleAtoWorldData.timetables[run.id.timetableId])
             applyTimetableLineSpeedLimit(run.ato,timetable,run.service,run.id,stepIndex)
-            val relevant = timetable.operationalTrips.any { trip -> trip.segments.any { it.serviceId == run.service.id && it.runId == segment.runId } }
-            val units = if (relevant) registeredOperatingUnits(world,run) else emptyList()
-            if(!relevant && timetable.operationalTrips.isNotEmpty()) {
-                val cars=run.train.cars.map { it.id }.toSet()
-                displayRuntime.retire(timetable.id,run.cycleIndex,world.simpleAtoWorldData.depots.allFixedUnits().filter { unit->unit.carIds.all { it in cars } }.map { it.id })
-            }
-            if (relevant) {
-                displayRuntime.enter(timetable,run.cycleIndex,run.service,segment,units)
-                proveUnitFuture(world,run,timetable,segment,units)
-            }
+            val units = registeredOperatingUnits(world,run)
+            displayRuntime.enter(timetable,run.cycleIndex,run.service,segment,units)
+            proveUnitFuture(world,run,timetable,segment,units)
             run.currentSegment = segment
             run.displayCallCursor = TimetableRunCallCursor(segment.calls)
             run.currentUnitIds = units

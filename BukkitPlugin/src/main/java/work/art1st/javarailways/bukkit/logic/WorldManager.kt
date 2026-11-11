@@ -33,8 +33,6 @@ import work.art1st.javarailways.bukkit.debug.TrainDebugLog
 import work.art1st.javarailways.bukkit.extension.renderChunkManager
 import work.art1st.javarailways.bukkit.extension.train.OperationalPartRenderProjection
 import work.art1st.javarailways.bukkit.extension.train.projectOperationalPartRender
-import work.art1st.javarailways.bukkit.extension.train.projectTrainOperationalPartRender
-import work.art1st.javarailways.bukkit.extension.train.combineUnitOperationalPartRender
 import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.bukkit.extension.train.TrainPartRenderSnapshot
 import work.art1st.javarailways.bukkit.extension.train.TrainPartRenderSampleCache
@@ -732,18 +730,10 @@ class WorldManager internal constructor(
                 data.stations[StationId(stationId)]?.metadata ?: kotlinx.serialization.json.JsonObject(emptyMap())
             }
             val stationName: (String) -> String? = { stationId -> data.stations[StationId(stationId)]?.displayName }
-            data.dispatcher.captureTrainDisplays(coreWorld).forEach { context ->
-                val projection = projectTrainOperationalPartRender(context, stationMetadata, stationName)
-                context.carIds.forEach { carId ->
-                    check(byCar.put(carId, projection) == null) { "Car '$carId' belongs to overlapping display trains" }
-                }
-            }
-            val unitCars = hashSetOf<String>()
             data.dispatcher.captureUnitDisplays(coreWorld).forEach { context ->
                 val projection = projectOperationalPartRender(context, stationMetadata, stationName)
                 context.carIds.forEach { carId ->
-                    check(unitCars.add(carId)) { "Car '$carId' belongs to overlapping display units" }
-                    byCar[carId] = combineUnitOperationalPartRender(projection, byCar[carId])
+                    check(byCar.put(carId, projection) == null) { "Car '$carId' belongs to overlapping display units" }
                 }
             }
             byCar

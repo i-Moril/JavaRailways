@@ -8,6 +8,27 @@
 - 嵌套配置的唯一有效条目与值快照归[Wand配置UI合同](./wand-config.md)。Dialog显示、触发按钮与回复捕获只消费`BuiltGroup.effectiveItems`，不能拼回原始子组items；初始值来自该构建的snapshot，不临时重读session。CR-041实现状态以该合同及审查记录为准。
 - 玩家文本使用 Adventure `Component` 和资源/locale owner；固定 enum/JSON token 不翻译。
 
+### 列车稳定 ID 与显示名称（CURRENT）
+
+`/jr train create <type> <name>` 以创建时给定的名称作为既有 `train.id`，初始 `train.name` 相同；
+不另分配随机 UUID。车厢 ID 继续为 `carIdForTrain(id,index) = "$id-car-$index"`，默认单元复用该 train ID。
+ID 是稳定引用，用户已明确重命名只改显示名称：创建 `S100-01` 后改名为 `Morning Express`，
+ID、单元和车厢身份仍保持，保存恢复也保留该关系。
+
+命令的帧间创建操作在分配 bogies/cars 前调用
+`CoreWorld.validateDefaultTrainCreationIdentity(id, name = id)`，复用已有 train ID/name 索引，并遍历原始列车注册表
+中的单元 ID。原始表包含尚未公开的 split 结果；重联退休来源列车后，保留的单元 ID 也仍不能被新列车复用。
+预检不预留 ID、不添加注册表或缓存，Core 构造时仍执行最终身份与组成校验；冲突直接拒绝，不生成备用 UUID。
+检查只发生于低频创建，成本随当前列车及单元数增长，不增加 tick 扫描。
+
+创建、列表及详情复用 `trainIdentityLabel(Train)`：名称等于 ID 时显示一次，否则显示 `name [id]`。
+现有命令的输入、控制权、任务归属与 rename 保护保持；失败时不发布部分列车。
+回归覆盖不同创建名的逐车 ID 隔离、保留单元/staged 身份冲突、跳过预检时构造器仍拒绝、
+rename 后 train/unit/car ID 不变及保存恢复。不能以删除随机 UUID 为由改写发布流、世界/玩家/实体/轨道 UUID。
+
+`SavedTrainV1.id/name` 的结构与版本不变，现有 UUID 形态的稳定 ID 原样读取和保存；
+本批没有旧输入迁移、别名 reader 或服务器存档重写。应修改新建列车的 ID 分配，不能在读取已有存档时按当前名称重建身份。
+
 ### Paper 描述文件与命令恢复（CURRENT）
 
 主插件由 `BukkitPlugin/build.gradle` 的 ResourceFactory Paper convention 生成唯一 `paper-plugin.yml`，保留原 JavaPlugin 入口、管理员权限和 Folia 标记。`dependencies.server.packetevents` 必需，`PlugManX` 可选；两者均为 `load: BEFORE`、`join-classpath: true`。SimpleDisplays 集成归 Decorations，宿主不得添加该依赖；附属插件保留各自现有描述文件和运行库归属。此变更不修改世界、配置或扩展 payload 格式。

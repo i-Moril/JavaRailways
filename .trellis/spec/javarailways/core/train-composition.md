@@ -10,6 +10,11 @@ Core 是单元身份及车辆成员的唯一 owner。SimpleATO 可维护单元�
 
 创建列车时若未提供组成，Core 将全部车辆作为一个单元，沿用已有列车 `id`。不生成另一套随机单元 UUID。单元随列车保存，读取时保留原 ID。重联将两个来源的单元一起带入结果，不能用结果列车 ID 重新生成单元。普通折返只改变运行端，单元 ID 和 canonical 车辆顺序保持不变。
 
+Bukkit 新建列车以创建时的列车名作为稳定 train ID，后续显示名称重命名不改变 train/unit/car 身份；
+调用及展示合同见 [列车稳定 ID 与显示名称](../../bukkit-plugin/backend/interaction-render-persistence.md#列车稳定-id-与显示名称current)。
+`CoreWorld.validateDefaultTrainCreationIdentity(id, name = id)` 提供分配车辆前的只读 owner 预检，
+复用已有身份索引并检查原始注册表（含 staged 列车）中保留的单元 ID；不预留身份，构造器的最终校验仍必须执行。
+
 ## 数据与查询
 
 `Train.composition: TrainComposition` 和 `TrainFrameSnapshot.composition` 提供不可变值。

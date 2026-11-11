@@ -144,7 +144,7 @@ class TimetableDisplayProgressTest {
         val (runtime,table,service) = scenario()
         // A separate next trip has not entered any actual leg yet.
         val upcoming = TimetableOperationalTrip("upcoming",segments=listOf(TimetableOperationalTripSegment("service","second",listOf(1))))
-        val next = table.copy(operationalTrips=listOf(table.operationalTrips.single(),upcoming))
+        val next = table.copy(operationalTrips=table.operationalTrips.filter { trip -> trip.segments.none { it.unassignedUnits } } + upcoming)
         runtime.begin(next,0,service,TimetableAction.BeginOperationalTrip("upcoming","second",listOf(1)),listOf("unit"))
         assertEquals(TimetableDisplayPhase.UNKNOWN,runtime.progress(next,moving=true).phase)
         assertEquals(TimetableDisplayPhase.UNKNOWN,runtime.progress(next,Triple("service","second","origin2")).phase)

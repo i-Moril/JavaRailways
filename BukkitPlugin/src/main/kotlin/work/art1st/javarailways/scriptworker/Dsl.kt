@@ -222,10 +222,11 @@ class TimetableBuilder(private val id: String) {
     fun build(): SavedTimetableV1 {
         require(id.isNotBlank()) { "timetable id must not be blank" }
         require(services.map { it.id }.distinct().size == services.size) { "duplicate service id" }
+        val preparedTrips = normalizeOperationalTrips(services, operationalTrips)
         val preparedTrace = compilationTrace.toMutableList()
-        val preparedServices = services.map { service -> prepareDisplayBoundaries(service, operationalTrips, preparedTrace) }
+        val preparedServices = services.map { service -> prepareDisplayBoundaries(service, preparedTrips, preparedTrace) }
         val assignments = mutableSetOf<Triple<String, String, Int>>()
-        operationalTrips.forEach { trip -> trip.segments.forEach { segment ->
+        preparedTrips.forEach { trip -> trip.segments.forEach { segment ->
             val service = services.singleOrNull { it.id == segment.serviceId } ?: error("operational trip references missing service")
             require(service.runSegments.any { it.runId == segment.runId }) { "operational trip references missing run segment" }
             segment.unitSlots.forEach { slot -> require(assignments.add(Triple(segment.serviceId, segment.runId, slot))) {
@@ -241,8 +242,34 @@ class TimetableBuilder(private val id: String) {
             preparedTrace.toList(),
             lineSpeedLimits.toList(),
             formationEvents.toList(),
-            operationalTrips.toList()
+            preparedTrips
         )
+    }
+}
+
+/** Keep authored definitions, then rebuild one deterministic default for each physical RUN. */
+internal fun normalizeOperationalTrips(
+    services: List<SavedTimetableServiceV1>,
+    trips: List<SavedTimetableOperationalTripV1>,
+): List<SavedTimetableOperationalTripV1> {
+    // Mirror the domain shape check before dropping old generated entries during normalization.
+    trips.filter { trip -> trip.segments.any { it.unassignedUnits } }.forEach { trip ->
+        require(trip.segments.size == 1 && trip.defaults.isEmpty() &&
+            trip.segments.single().unitSlots.isEmpty()) { "invalid default operational trip" }
+    }
+    val authored = trips.filter { trip -> trip.segments.none { it.unassignedUnits } }
+    val usedIds = authored.mapTo(hashSetOf()) { it.id }
+    require(usedIds.size == authored.size) { "duplicate operational trip id" }
+    return buildList {
+        addAll(authored)
+        services.forEach { service -> service.runSegments.forEach { run ->
+            val base = "default-run/${service.id.length}:${service.id}/${run.runId.length}:${run.runId}"
+            var id = base
+            var suffix = 1
+            while (!usedIds.add(id)) id = "$base#${suffix++}"
+            add(SavedTimetableOperationalTripV1(id, segments = listOf(
+                SavedTimetableOperationalTripSegmentV1(service.id, run.runId, emptyList(), unassignedUnits = true))))
+        } }
     }
 }
 

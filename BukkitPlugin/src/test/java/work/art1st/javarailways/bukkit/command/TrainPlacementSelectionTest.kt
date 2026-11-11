@@ -15,11 +15,24 @@ import work.art1st.javarailways.core.physics.train.onOwnerForTest
 
 class TrainPlacementSelectionTest {
     @Test
-    fun `separate trains created by one player receive distinct car identities`() {
-        val first = java.util.UUID.randomUUID().toString()
-        val second = java.util.UUID.randomUUID().toString()
+    fun `explicit distinct train names produce distinct car identities`() {
+        val first = "S100-01"
+        val second = "S100-02"
         val ids = listOf(first, second).flatMap { train -> (0 until 5).map { carIdForTrain(train, it) } }
         assertEquals(10, ids.toSet().size)
+        assertEquals("S100-01-car-0", ids.first())
+        assertEquals("S100-02-car-4", ids.last())
+    }
+
+    @Test
+    fun `train label shows identity only when the display name differs`() {
+        TestWorldFixture.create().use { fixture ->
+            val rail = createStraightRailFromSegments(fixture.world, PrimeCurveGenerator.buildStraight(40.0, 1))
+            val train = createTrainWithConfig("S100-01", rail, fixture.world, listOf(8.0))
+            assertEquals("S100-01", trainIdentityLabel(train))
+            fixture.world.onOwnerForTest { fixture.world.renameTrain(train, "Morning Express") }
+            assertEquals("Morning Express [S100-01]", trainIdentityLabel(train))
+        }
     }
 
     @Test

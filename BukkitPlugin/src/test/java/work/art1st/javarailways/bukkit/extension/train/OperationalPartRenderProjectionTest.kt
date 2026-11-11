@@ -29,23 +29,26 @@ class OperationalPartRenderProjectionTest {
         progress: TimetableDisplayProgress = TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN)) =
         projectOperationalPartRender(context(display, berth, progress), stationName = names::get)
 
-    private fun trainContext(terminal: String = "C") = TimetableTrainDisplayContext(
-        "actual-train", listOf("car-a", "car-b"), "basic-table", 2L,
-        TimetableRunDisplayContext("duty", "actual-run", "line", buildJsonObject { put("notice", "actual") }, terminal),
-        listOf(stop("past", "A", TimetableServiceStopStatus.STOP, "actual-run", completed = true),
+    @Test fun `default unit trip supplies the same ordered run facts and real identities as authored trips`() {
+        val stops = listOf(stop("past", "A", TimetableServiceStopStatus.STOP, "actual-run", completed = true),
             stop("pass", "B", TimetableServiceStopStatus.PASS, "actual-run"),
-            stop("terminal", "C", TimetableServiceStopStatus.TERMINAL, "actual-run")),
-        null, TimetableDisplayProgress(TimetableDisplayPhase.IN_TRANSIT, 1))
-
-    @Test fun `basic actual run supplies terminal and ordered stops without unit or trip identity`() {
-        val result = projectTrainOperationalPartRender(trainContext(), stationMetadata = { id ->
+            stop("terminal", "C", TimetableServiceStopStatus.TERMINAL, "actual-run"))
+        val actualRun = TimetableRunDisplayContext("duty", "actual-run", "line",
+            buildJsonObject { put("notice", "actual") }, "C")
+        fun capture(tripId: String) = TimetableUnitDisplayContext(
+            "actual-train", "unit", listOf("car-a", "car-b"), "table",
+            TimetableUnitDisplaySnapshot("unit", tripId, 2L, JsonObject(emptyMap()), stops,
+                stops.filter { it.completed }, stops.filterNot { it.completed }, emptyList(), true),
+            currentBerth = null, currentRun = actualRun, progress = TimetableDisplayProgress(TimetableDisplayPhase.IN_TRANSIT, 1))
+        fun project(tripId: String) = projectOperationalPartRender(capture(tripId), stationMetadata = { id ->
             if (id == "C") buildJsonObject { put("name", buildJsonObject { put("zh", "中央"); put("en", "Central") }) }
             else JsonObject(emptyMap())
         }, stationName = names::get)
-        assertEquals(JsonNull, result.unit)
+        val result = project("default-run/4:duty/10:actual-run")
+        assertEquals(JsonPrimitive("unit"), result.unit.jsonObject["id"])
         val op = result.operational.jsonObject
-        assertEquals(JsonNull, op["operationalTripId"])
-        assertEquals(JsonPrimitive("basic-table"), op["timetableId"])
+        assertEquals(JsonPrimitive("default-run/4:duty/10:actual-run"), op["operationalTripId"])
+        assertEquals(JsonPrimitive("table"), op["timetableId"])
         assertEquals(listOf("past", "pass", "terminal"), op.getValue("stops").jsonArray.map { it.jsonObject.getValue("callId").jsonPrimitive.content })
         assertEquals(JsonPrimitive(1), op["stationIndex"])
         assertEquals(JsonPrimitive("in_transit"), op["phase"])
@@ -54,36 +57,26 @@ class OperationalPartRenderProjectionTest {
         assertEquals(JsonArray(emptyList()), op["unresolvedRuns"])
         assertEquals(JsonPrimitive("C"), op.getValue("nextStation").jsonObject["stationId"])
         assertEquals(buildJsonObject { put("zh", "中央"); put("en", "Central") }, op.getValue("values").jsonObject["destination"])
-        assertFalse(op.getValue("values").jsonObject.containsKey("notice"), "run metadata does not become authored values")
+        assertFalse(op.getValue("values").jsonObject.containsKey("notice"))
+        assertEquals(op - "operationalTripId", project("authored-trip").operational.jsonObject - "operationalTripId")
     }
 
-    @Test fun `active authored trip wins and idle registered unit preserves basic run facts`() {
-        val basic = projectTrainOperationalPartRender(trainContext(), stationName = names::get)
-        val activeUnit = projection(snapshot())
-        assertSame(activeUnit, combineUnitOperationalPartRender(activeUnit, basic))
-        assertEquals(JsonPrimitive("Authored destination"), combineUnitOperationalPartRender(activeUnit, basic)
-            .operational.jsonObject.getValue("values").jsonObject["destination"])
-        val idleUnit = projectOperationalPartRender(context(display = null), stationName = names::get)
-        val combined = combineUnitOperationalPartRender(idleUnit, basic)
-        assertEquals(idleUnit.unit, combined.unit)
-        assertEquals(basic.operational, combined.operational)
-        assertEquals(basic.aliases, combined.aliases)
-        assertNotEquals(basic.contextKey, combined.contextKey, "real unit identity remains visible for styles")
-        val inactiveTrip = projection(snapshot(active = false))
-        assertEquals(basic.operational, combineUnitOperationalPartRender(inactiveTrip, basic).operational)
-    }
-
-    @Test fun `basic terminal changes and context withdrawal invalidate prior display without retaining route`() {
-        val old = projectTrainOperationalPartRender(trainContext("B"), stationName = names::get)
-        val current = projectTrainOperationalPartRender(trainContext("C"), stationName = names::get)
-        assertNotEquals(old.contextKey, current.contextKey)
-        assertEquals(JsonPrimitive("Central"), current.operational.jsonObject.getValue("values").jsonObject["destination"])
-        val idleUnit = projectOperationalPartRender(context(display = null), stationName = names::get)
-        val withdrawn = combineUnitOperationalPartRender(idleUnit, null)
-        assertEquals(JsonNull, withdrawn.operational)
-        assertEquals("", withdrawn.aliases.getValue("destination").jsonPrimitive.content)
-        assertNotEquals(combineUnitOperationalPartRender(idleUnit, old).contextKey, withdrawn.contextKey)
-        assertNotEquals(OperationalPartRenderProjection.EMPTY.contextKey, current.contextKey)
+    @Test fun `withdrawing actual run changes context key and never borrows another train projection`() {
+        val display = snapshot(values = JsonObject(emptyMap()))
+        fun current(terminal: String) = TimetableUnitDisplayContext("train", "unit", listOf("car-a", "car-b"),
+            "table", display, currentBerth = null, currentRun = TimetableRunDisplayContext("duty", "run", "line", JsonObject(emptyMap()), terminal))
+        val old = projectOperationalPartRender(current("B"), stationName = names::get)
+        val updated = projectOperationalPartRender(current("C"), stationName = names::get)
+        val outsideRun = projectOperationalPartRender(context(display), stationName = names::get)
+        val inactive = projection(snapshot(active = false))
+        assertNotEquals(old.contextKey, updated.contextKey)
+        assertEquals(JsonPrimitive("Central"), updated.operational.jsonObject.getValue("values").jsonObject["destination"])
+        assertEquals(JsonNull, outsideRun.operational.jsonObject["currentRun"])
+        assertFalse(outsideRun.operational.jsonObject.getValue("values").jsonObject.containsKey("destination"))
+        assertNotEquals(updated.contextKey, outsideRun.contextKey)
+        assertEquals(JsonNull, inactive.operational)
+        assertEquals("", inactive.aliases.getValue("destination").jsonPrimitive.content)
+        assertEquals(outsideRun.unit, inactive.unit)
     }
 
     @Test fun `actual current run metadata is separate from authored values and missing scope stays null`() {

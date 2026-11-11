@@ -86,6 +86,40 @@ class CoreTrainConstructionTest {
         assertEquals(1, world.allTrains.size)
     }
 
+    @Test
+    fun `ordinary train creation preflight rejects an identity retained by another consist`() = withWorld { world, rail ->
+        val memberIds = listOf("joined-car-0", "joined-car-1")
+        val composition = work.art1st.javarailways.core.api.physics.train.TrainComposition.create(listOf(
+            work.art1st.javarailways.core.api.physics.train.TrainUnitComposition("S100-01", listOf(memberIds[0])),
+            work.art1st.javarailways.core.api.physics.train.TrainUnitComposition("S100-02", listOf(memberIds[1]))
+        ), memberIds)
+        val existing = createTrainWithConfig("Joined", rail, world, listOf(10.0, 10.0),
+            composition = composition, carIdPrefix = "joined-car-")
+        val before = existing.publishedFrame
+        assertNull(world.getTrain("S100-02"))
+        assertThrows(IllegalStateException::class.java) { world.validateDefaultTrainCreationIdentity("New") }
+        world.onOwnerForTest {
+            world.validateDefaultTrainCreationIdentity("New")
+            assertThrows(IllegalArgumentException::class.java) {
+                world.validateDefaultTrainCreationIdentity("S100-02")
+            }
+            // Direct Core creation remains authoritative even when callers skip the preflight.
+            assertThrows(IllegalArgumentException::class.java) {
+                CoreTrain.createOwned(world) {
+                    val location = RailLocationWithFacing(rail.viewAB, 100.0)
+                    val car = car("new-car-0", bogie(location), bogie(location), length = 10.0,
+                        connectorLengthAtA = 0.0, connectorLengthAtB = 0.0)
+                    train("S100-02", listOf(car))
+                }
+            }
+        }
+        assertNull(world.getTrain("S100-02"))
+        assertEquals(listOf(existing), world.allTrains.toList())
+        assertSame(before, existing.publishedFrame)
+        assertSame(composition.units[1], existing.composition.units[1])
+        existing.cars.forEach { assertSame(existing, it.train) }
+    }
+
     @ParameterizedTest
     @CsvSource("false", "true")
     fun `split at permanent unit boundary preserves both identities and preparation failure is atomic`(fail: Boolean) = withWorld { world, rail ->
@@ -177,6 +211,9 @@ class CoreTrainConstructionTest {
                 override fun initialize(host: Train, savedExtensionData: Map<String, SerializableExtensionData>) {
                     assertEquals(listOf(source), world.allTrains.toList())
                     assertEquals(newId, host.composition.units.single().unitId)
+                    assertThrows(IllegalArgumentException::class.java) {
+                        world.validateDefaultTrainCreationIdentity(newId)
+                    }
                     val intruderComposition = work.art1st.javarailways.core.api.physics.train.TrainComposition.single(listOf("intruder-0"), newId)
                     assertThrows(IllegalArgumentException::class.java) {
                         CoreTrain.createOwned(world) {

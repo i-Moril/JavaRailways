@@ -19,7 +19,8 @@ import java.util.UUID
 class RoutingDisplaySessionTest {
     private val world = UUID.randomUUID()
     private fun input(unit: String?) = PartExtensionRenderInput(Json.parseToJsonElement(
-        if (unit == null) """{"unit":null}""" else """{"unit":{"id":"$unit"}}"""
+        if (unit == null) """{"unit":null,"operational":{"currentRun":{"runId":"run"}}}"""
+        else """{"unit":{"id":"$unit"},"operational":{"currentRun":{"runId":"run"}}}"""
     ).jsonObject)
 
     private fun context(defaults: String = "defaults: {cabin: main}", template: String? = null) = PartExtensionRenderContext(

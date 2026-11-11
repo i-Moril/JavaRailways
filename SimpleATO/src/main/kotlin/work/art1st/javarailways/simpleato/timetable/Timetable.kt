@@ -40,15 +40,16 @@ import kotlin.math.abs
  * Kotlin [List] is a read-only view, not a runtime immutability guarantee. These internal models do
  * not defensively copy every collection; [copy] also shares unchanged nested values.
  */
-data class Timetable(
+class Timetable(
     val id: String,
     val periodDays: Long = 1L,
     val services: List<TimetableService> = emptyList(),
     val initialPositions: List<TimetableInitialPosition> = emptyList(),
     val lineSpeedLimits: List<TimetableLineSpeedLimit> = emptyList(),
     val formationEvents: TimetableFormationCatalog = TimetableFormationCatalog(emptyList()),
-    val operationalTrips: List<TimetableOperationalTrip> = emptyList()
+    operationalTrips: List<TimetableOperationalTrip> = emptyList()
 ) {
+    val operationalTrips: List<TimetableOperationalTrip> = defaultOperationalTrips(services, operationalTrips)
     init {
         require(periodDays > 0L) { "Timetable periodDays must be positive" }
         require(lineSpeedLimits.distinctBy(TimetableLineSpeedLimit::lineId).size == lineSpeedLimits.size) {
@@ -58,6 +59,22 @@ data class Timetable(
 
     val periodTicks: Long
         get() = Math.multiplyExact(periodDays, TICKS_PER_GAME_DAY)
+
+    fun copy(id: String = this.id, periodDays: Long = this.periodDays,
+        services: List<TimetableService> = this.services,
+        initialPositions: List<TimetableInitialPosition> = this.initialPositions,
+        lineSpeedLimits: List<TimetableLineSpeedLimit> = this.lineSpeedLimits,
+        formationEvents: TimetableFormationCatalog = this.formationEvents,
+        operationalTrips: List<TimetableOperationalTrip> = this.operationalTrips): Timetable =
+        Timetable(id, periodDays, services, initialPositions, lineSpeedLimits, formationEvents, operationalTrips)
+
+    override fun equals(other: Any?) = other is Timetable && id == other.id && periodDays == other.periodDays &&
+        services == other.services && initialPositions == other.initialPositions && lineSpeedLimits == other.lineSpeedLimits &&
+        formationEvents == other.formationEvents && operationalTrips == other.operationalTrips
+    override fun hashCode(): Int = java.util.Objects.hash(id, periodDays, services, initialPositions,
+        lineSpeedLimits, formationEvents, operationalTrips)
+    override fun toString() = "Timetable(id=$id, periodDays=$periodDays, services=$services, initialPositions=$initialPositions, " +
+        "lineSpeedLimits=$lineSpeedLimits, formationEvents=$formationEvents, operationalTrips=$operationalTrips)"
 
     companion object {
         const val TICKS_PER_GAME_DAY = 24_000L
@@ -159,7 +176,7 @@ sealed class TimetableAction {
 
     data class BeginStationStop(val stopPrograms: StationStopPrograms) : TimetableAction() { init { require(stopPrograms.role == StationStopRole.ORIGIN) { "origin stop requires ORIGIN role" } } }
     class BeginOperationalTrip(val tripId: String, val runId: String, unitSlots: List<Int>) : TimetableAction() {
-        val unitSlots = immutableUnitSlots(unitSlots)
+        val unitSlots = if (unitSlots.isEmpty()) emptyList() else immutableUnitSlots(unitSlots)
         init { require(tripId.isNotBlank() && runId.isNotBlank()) }
         override fun equals(other: Any?) = other is BeginOperationalTrip && tripId == other.tripId && runId == other.runId && unitSlots == other.unitSlots
         override fun hashCode() = java.util.Objects.hash(tripId,runId,unitSlots)

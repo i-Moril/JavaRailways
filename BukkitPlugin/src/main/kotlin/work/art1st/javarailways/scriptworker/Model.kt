@@ -137,6 +137,16 @@ import kotlinx.serialization.json.JsonObject
     val startStepIndex: Int, val endStepIndexExclusive: Int, val diagramLineId: String? = null,
     val lineDirection: SavedLineDirectionV1? = null, val calls: List<SavedTimetableRunCallV1> = emptyList(),
     val metadata: JsonObject = JsonObject(emptyMap()))
-@Serializable data class SavedTimetableOperationalTripSegmentV1(val serviceId: String, val runId: String, val unitSlots: List<Int>)
+@Serializable data class SavedTimetableOperationalTripSegmentV1(val serviceId: String, val runId: String, val unitSlots: List<Int>,
+    val unassignedUnits: Boolean = false) {
+    init { require(!unassignedUnits || unitSlots.isEmpty()) { "default operational trip must not contain unit slots" } }
+}
 @Serializable data class SavedTimetableOperationalTripV1(val id: String, val defaults: JsonObject = JsonObject(emptyMap()),
-    val segments: List<SavedTimetableOperationalTripSegmentV1>)
+    val segments: List<SavedTimetableOperationalTripSegmentV1>) {
+    init {
+        require(segments.none { it.unassignedUnits } ||
+            (segments.size == 1 && segments.single().unassignedUnits && defaults.isEmpty())) {
+            "default operational trip must contain exactly one unassigned-units segment and empty defaults"
+        }
+    }
+}

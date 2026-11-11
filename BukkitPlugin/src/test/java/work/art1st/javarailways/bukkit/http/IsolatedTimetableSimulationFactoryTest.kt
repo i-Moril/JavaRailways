@@ -194,6 +194,9 @@ class IsolatedTimetableSimulationFactoryTest {
             val original = TimetableScriptNormalizer.normalize(
                 work.art1st.javarailways.simpleato.persistence.SavedTimetableV1.capture(timetable), source.simpleAtoWorldData.destinations)
             val measured = prepareLineMeasurement(original, request, reverseOrigin)
+            assertEquals(1, measured.operationalTrips.size)
+            assertTrue(measured.operationalTrips.single().segments.single().unassignedUnits)
+            assertEquals(original.operationalTrips, measured.operationalTrips)
             work.art1st.javarailways.bukkit.render.model.ModelRuntimeTestSupport.bootstrap()
             val feature = work.art1st.javarailways.bukkit.signal.SimpleSignalsSimulationFeatureFactory.fourLightFeature(
                 java.nio.file.Path.of("../SimpleSignals/examples/jr-four-light/signal-packs"), listOf(rail.id), listOf(400.0), 500.0)

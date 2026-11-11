@@ -27,11 +27,18 @@ class WorldPersistenceRoundTripTest {
             val segments = PrimeCurveGenerator.buildStraight(80.0, segmentCount = 1)
             val rail = createStraightRailFromSegments(world, segments)
             val sourceTrain = createTrainWithConfig("persist-t1", rail, world, listOf(8.0), isLoop = false)
+            val originalCarIds = sourceTrain.cars.map { it.id }
+            val originalComposition = sourceTrain.composition
+            assertEquals("persist-t1", sourceTrain.name)
+            assertEquals("persist-t1", originalComposition.units.single().unitId)
             IsolatedSimulationThreadMarker.run {
                 world.physicsCoordinator.processBetweenFrames {
                     world.renameTrain(sourceTrain, "Player Express")
                 }
             }
+            assertEquals("persist-t1", sourceTrain.id)
+            assertEquals(originalCarIds, sourceTrain.cars.map { it.id })
+            assertEquals(originalComposition, sourceTrain.composition)
 
             val infrastructure = world.saveInfrastructure(1L)
             val runtime = world.saveRuntime(1L, 2L)
@@ -65,6 +72,9 @@ class WorldPersistenceRoundTripTest {
                     WorldSnapshotCodec.encodeInfrastructure(roundInfrastructure)
                 )
                 val restoredTrain = restored.getTrain("persist-t1") ?: error("train should load")
+                assertEquals("persist-t1", restoredTrain.id)
+                assertEquals(originalCarIds, restoredTrain.cars.map { it.id })
+                assertEquals("persist-t1", restoredTrain.composition.units.single().unitId)
                 assertEquals(sourceTrain.composition, restoredTrain.composition)
                 assertEquals(sourceTrain.composition, restoredTrain.publishedFrame.composition)
                 assertEquals(18.0, restoredTrain.publishedFrame.head.arcLengthInAbMeters, 1e-9)

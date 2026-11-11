@@ -645,7 +645,10 @@ class TimetableFormationDispatcherTest {
                 val run=f.dispatcher.statuses().single { it.id.serviceId=="unrelated" }
                 assertEquals("unrelated-run",run.currentRunId,run.toString())
                 assertNotEquals(TimetableServiceRunState.MANUAL_INTERVENTION,run.state,run.toString())
-                assertTrue(run.unitDisplays.isEmpty())
+                val display = run.unitDisplays.single()
+                assertEquals(other.composition.units.single().unitId, display.unitId)
+                assertTrue(display.active)
+                assertNotEquals("trip", display.operationalTripId)
             }
         }
     }

@@ -6,7 +6,6 @@ import work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus
 import work.art1st.javarailways.simpleato.timetable.TimetableDisplayPhase
 import work.art1st.javarailways.simpleato.timetable.TimetableUnitDisplayContext
 import work.art1st.javarailways.simpleato.timetable.TimetableUnitStopSnapshot
-import work.art1st.javarailways.simpleato.timetable.TimetableTrainDisplayContext
 import work.art1st.javarailways.simpleato.timetable.TimetableRunDisplayContext
 import work.art1st.javarailways.simpleato.timetable.TimetableDisplayProgress
 import work.art1st.javarailways.simpleato.api.station.StationBerthRef
@@ -54,24 +53,6 @@ internal fun projectOperationalPartRender(
         display.unresolvedRuns, context.currentBerth, context.currentRun, context.progress, context.doorSide,
         stationMetadata, stationName)
 }
-
-/** Basic actual-run facts do not require or invent a registered unit or an authored trip. */
-internal fun projectTrainOperationalPartRender(
-    context: TimetableTrainDisplayContext,
-    stationMetadata: (String) -> JsonObject = { JsonObject(emptyMap()) },
-    stationName: (String) -> String?,
-): OperationalPartRenderProjection = projectOperationalFacts(
-    JsonNull, context.timetableId, null, context.cycleIndex, JsonObject(emptyMap()), context.stops,
-    context.stops.count { it.completed }, emptyList(), context.currentBerth, context.currentRun,
-    context.progress, context.doorSide, stationMetadata, stationName
-)
-
-/** Explicit active trip content wins; a registered idle unit adds identity without hiding the actual run. */
-internal fun combineUnitOperationalPartRender(
-    unit: OperationalPartRenderProjection,
-    train: OperationalPartRenderProjection?,
-): OperationalPartRenderProjection = if (unit.operational != JsonNull || train == null) unit
-    else OperationalPartRenderProjection(unit.unit, train.operational, train.aliases)
 
 private fun projectOperationalFacts(
     unit: JsonElement,

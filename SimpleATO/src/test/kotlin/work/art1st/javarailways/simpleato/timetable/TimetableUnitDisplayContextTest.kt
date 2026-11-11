@@ -41,44 +41,39 @@ class TimetableUnitDisplayContextTest {
             work.art1st.javarailways.simpleato.api.line.LineId("line"), 2, 5), 2)!!.terminalStationId)
     }
 
-    @Test fun `train progress preserves PASS repeated occurrence identity and refuses invented arrival`() {
+    @Test fun `default trip progress preserves PASS repeated occurrence identity and refuses invented arrival`() {
         fun stop(id: String, station: String, status: TimetableServiceStopStatus, completed: Boolean) =
             TimetableUnitStopSnapshot("service", "run", TimetableRunCall(id, station, "$station@one", status), completed)
         val stops = listOf(stop("origin", "A", TimetableServiceStopStatus.ORIGIN, true),
             stop("pass", "B", TimetableServiceStopStatus.PASS, true),
             stop("first", "C", TimetableServiceStopStatus.STOP, true),
             stop("second", "C", TimetableServiceStopStatus.TERMINAL, false))
-        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN),
-            captureTimetableTrainDisplayProgress(stops, null, false), "Completed calls alone are not arrival evidence")
-        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.AT_STATION, 2),
-            captureTimetableTrainDisplayProgress(stops, Triple("service", "run", "first"), false))
-        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.IN_TRANSIT, 3),
-            captureTimetableTrainDisplayProgress(stops, null, true))
-        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN),
-            captureTimetableTrainDisplayProgress(stops, Triple("service", "run", "pass"), false))
-        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN),
-            captureTimetableTrainDisplayProgress(stops, Triple("service", "future", "first"), false))
-        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN),
-            captureTimetableTrainDisplayProgress(stops.mapIndexed { index, value -> if (index == 1) value.copy(completed = false) else value }, null, true))
-        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.FINISHED),
-            captureTimetableTrainDisplayProgress(stops.map { it.copy(completed = true) }, null, true))
-    }
-
-    @Test fun `ordinary train context freezes car stop and via collections without creating unit identity`() {
-        val cars = mutableListOf("car")
-        val vias = mutableListOf("via")
-        val stops = mutableListOf(TimetableUnitStopSnapshot("service", "run",
-            TimetableRunCall("call", "A", "A@one", TimetableServiceStopStatus.STOP, viaIds = vias), false))
-        val context = TimetableTrainDisplayContext("train", cars, "table", 1,
-            TimetableRunDisplayContext("service", "run", "line", JsonObject(emptyMap())), stops, null)
-        cars.clear(); vias.clear(); stops.clear()
-        assertEquals(listOf("car"), context.carIds)
-        assertEquals(listOf("via"), context.stops.single().call.viaIds)
-        assertThrows(UnsupportedOperationException::class.java) { (context.stops as java.util.List<*>).clear() }
-        assertThrows(IllegalArgumentException::class.java) {
-            TimetableTrainDisplayContext("train", listOf("car"), "table", 1, context.currentRun,
-                context.stops, null, doorSide = DoorSide.LEFT)
+        val segment = TimetableRunSegment("run", work.art1st.javarailways.simpleato.api.line.LineId("line"),
+            0, 1, calls = stops.map { it.call })
+        val service = TimetableService("service", steps = listOf(TimetableStep.Check("A@one")), runSegments = listOf(segment))
+        val table = Timetable("table", services = listOf(service))
+        fun reachedRuntime(reached: List<TimetableUnitStopSnapshot>) = TimetableDisplayRuntime().also { runtime ->
+            runtime.enter(table, 0, service, segment, listOf("unit"))
+            reached.filter { it.completed }.forEach { stop ->
+                runtime.reached("table", 0, "service", "run", stop.call.id, listOf("unit"))
+            }
         }
+        val runtime = reachedRuntime(stops)
+        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN),
+            runtime.captureProgress(table, 0, "unit", null, false), "Completed calls alone are not arrival evidence")
+        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.AT_STATION, 2),
+            runtime.captureProgress(table, 0, "unit", Triple("service", "run", "first"), false))
+        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.IN_TRANSIT, 3),
+            runtime.captureProgress(table, 0, "unit", null, true))
+        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN),
+            runtime.captureProgress(table, 0, "unit", Triple("service", "run", "pass"), false))
+        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN),
+            runtime.captureProgress(table, 0, "unit", Triple("service", "future", "first"), false))
+        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN),
+            reachedRuntime(stops.mapIndexed { index, value -> if (index == 1) value.copy(completed = false) else value })
+                .captureProgress(table, 0, "unit", null, true))
+        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.FINISHED),
+            reachedRuntime(stops.map { it.copy(completed = true) }).captureProgress(table, 0, "unit", null, true))
     }
 
     @Test fun `only complete actual contiguous units map to cars including reversal and ordinary neighbours`() {

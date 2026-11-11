@@ -51,7 +51,8 @@ internal data class LineMeasurementRequest(val measurementSource: String, val fi
 /** Retimes only detached measurement input, never the author's document or its global minimum. */
 internal fun prepareLineMeasurement(saved: SavedTimetableV1, request: LineMeasurementRequest,
     reverseOrigin: Boolean = false): SavedTimetableV1 {
-    require(saved.services.size == 1 && saved.formationEvents.isEmpty() && saved.operationalTrips.isEmpty()) {
+    require(saved.services.size == 1 && saved.formationEvents.isEmpty() &&
+        saved.operationalTrips.all { trip -> trip.segments.singleOrNull()?.unassignedUnits == true }) {
         "line measurement requires exactly one independent run"
     }
     val service = saved.services.single()

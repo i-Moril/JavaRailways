@@ -2,7 +2,7 @@
 
 ## 状态、范围与所有权
 
-CURRENT：一份时刻表内的多线路停车跨线、整编组物理运行、按完整登记单元分配的运营车次和受控显示状态。触发：修改运行段、运营车次、显示动作、编译范围或对应 HTTP/编辑器投影时读取本规范。
+CURRENT：一份时刻表内的多线路停车跨线、整编组物理运行、按 Core 完整单元分配的运营车次和受控显示状态。默认每条运行线是一个独立运营车次，显式定义可以跨运行线。触发：修改运行段、运营车次、显示动作、编译范围或对应 HTTP/编辑器投影时读取本规范。
 
 `SimpleATO` 拥有模型、校验和 Dispatcher 状态；ScriptWorker 编译可视化生成的 JS；WebUI 的 `DutyEditor` 是唯一文档、历史和恢复 owner。Core 拥有实际车辆与完整单元组成，Basic 拥有行车资源与尾部释放。LCD 设备/版式、跨文档排图和不停站跨线不在此能力范围。
 
@@ -26,13 +26,17 @@ CURRENT：一份时刻表内的多线路停车跨线、整编组物理运行、�
 
 `TimetableService.runSegments` 缺省空；每段包含 `runId,lineId,startStepIndex,endStepIndexExclusive,diagramLineId?,lineDirection?,calls`。`calls` 为 `{id,stationId,destinationId,status,arrivalTick?,departureTick?}`；status 为 ORIGIN/STOP/PASS/TERMINAL，计划 tick 不代替实际执行。
 
-`Timetable.operationalTrips` 缺省空；每项 `{id,defaults,segments:[{serviceId,runId,unitSlots}]}`。defaults 是受限 JSON object，1..128 个不重复正整数槽位，最多 128 个非空顶层字段，JSON 深度/节点/文本预算分别为 16/4096/65536 UTF-16 单元。嵌套 key/string 遵守共享 JSON 输入预算。
+`Timetable.operationalTrips` 是构造时归一化的完整车次列表；每项 `{id,defaults,segments:[{serviceId,runId,unitSlots,unassignedUnits:false}]}`。显式段选择 1..128 个不重复正整数槽位；defaults 是受限 JSON object，最多 128 个非空顶层字段，JSON 深度/节点/文本预算分别为 16/4096/65536 UTF-16 单元。嵌套 key/string 遵守共享 JSON 输入预算。
 
-原生动作：`SetDisplay(unitSlots,values,removeKeys)` 先删指定键再覆盖值；`ResetDisplay(unitSlots)` 恢复当前车次默认值；`BeginOperationalTrip(tripId,runId,unitSlots)` 提前建立下一段的上下文。wire 类型分别是 SET_DISPLAY、RESET_DISPLAY、BEGIN_OPERATIONAL_TRIP，字段使用 `displayValues/removeDisplayKeys/operationalTripId/runId/unitSlots`。
+每个实际声明的 `service.runSegments` 项自动获得一个独立默认车次，包含一个 `unassignedUnits=true`、`unitSlots=[]` 的段及空 defaults。显式车次优先，默认段只选择当前实际完整单元中未被该 RUN 显式槽位认领的单元；不能把动态取车简化为槽位 1，也不能因为候选编组单元数不同就拒绝普通 RUN。没有 RUN 定义的普通导航不猜造运行段或站序。
 
-JS 支持 `runSegment(options,callback)`、`operationalTrip(id,definition)`，以及 timed/untimed `setDisplay/resetDisplay/beginOperationalTrip`。程序 SET_DISPLAY/RESET_DISPLAY 不带单元选择，统一作用于当前整列车；程序参数不提供单元槽位类型。原生 TimetableAction 的 SetDisplay/ResetDisplay 空选择表示执行时的所有登记单元，显式非空选择仍供连续显示方案使用；BeginOperationalTrip 必须保持非空选择。BEGIN 是编译控制边界，不是可条件化的编组变换。
+默认项的 ID 基础为 `default-run/<serviceId UTF-16长度>:<serviceId>/<runId UTF-16长度>:<runId>`，与显式 ID 冲突时按顺序追加 `#1`、`#2`。归一化先保留显式定义，再按 service/RUN 原序重建默认项；构造、copy、store 和保存恢复必须幂等，删除 RUN 时旧默认项消失。带默认标记的输入必须只有一个动态段、空槽位和空 defaults，不能借过滤生成项静默丢弃作者数据。没有第二个 effective 列表或无车次显示旁路。
 
-如果节点程序在 RUN 前设置显示信息，ScriptWorker 在 gap 内最后一次 acquire/couple/split/reverse 之后、首个显示动作之前插入 BEGIN；同时移动后续段范围及编译 trace。BEGIN 不改变当前 RUN/线路限速。没有前置显示动作时由 RUN 入口初始化。这样站内程序设置的新目的地不会在发车时再次被默认值覆盖。
+原生动作：`SetDisplay(unitSlots,values,removeKeys)` 先删指定键再覆盖值；`ResetDisplay(unitSlots)` 恢复当前车次默认值；`BeginOperationalTrip(tripId,runId,unitSlots)` 提前建立下一段的上下文。wire 类型分别是 SET_DISPLAY、RESET_DISPLAY、BEGIN_OPERATIONAL_TRIP，字段使用 `displayValues/removeDisplayKeys/operationalTripId/runId/unitSlots`。BEGIN 的空选择仅匹配默认车次的动态未认领单元；显式车次仍要求非空槽位。
+
+JS 支持 `runSegment(options,callback)`、`operationalTrip(id,definition)`，以及 timed/untimed `setDisplay/resetDisplay/beginOperationalTrip`。程序 SET_DISPLAY/RESET_DISPLAY 不带单元选择，统一作用于当前整列车；程序参数不提供单元槽位类型。原生 TimetableAction 的 SetDisplay/ResetDisplay 空选择表示执行时的所有完整单元，显式非空选择仍供连续显示方案使用；用户显式调用 beginOperationalTrip 仍要求非空选择。BEGIN 是编译控制边界，不是可条件化的编组变换。
+
+如果节点程序在 RUN 前设置显示信息，ScriptWorker 先按相同规则补齐默认车次，再在 gap 内最后一次 acquire/couple/split/reverse 之后、首个显示动作之前插入 BEGIN；同时移动后续段范围及编译 trace。BEGIN 不改变当前 RUN/线路限速，也不提前亮屏。没有前置显示动作时由 RUN 入口初始化。这样站内程序设置的新目的地不会在发车时再次被默认值覆盖。
 
 `TimetableServiceRunSnapshot` 投影 `currentRunId/currentLineId/unitDisplays`；每单元包括 `unitId,operationalTripId,cycleIndex,active,values,plannedStops,completedStops,remainingStops,unresolvedRuns`。`Dispatcher.unitDisplaysForTrain(world,trainId,timetableId,cycleIndex)` 按真实组成查询，包括没有后续 duty 的 HOLD 输出；调用必须在该 world 的 serialized owner 边界。
 

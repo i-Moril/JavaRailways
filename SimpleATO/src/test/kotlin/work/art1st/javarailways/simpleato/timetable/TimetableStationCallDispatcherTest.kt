@@ -67,7 +67,7 @@ class TimetableStationCallDispatcherTest {
     @Test fun `display progress captures exact origin arrival and departure despite prepared future missions`() =
         assertDisplayProgressDoorSide(DoorSide.NONE,DoorSide.NONE)
 
-    @Test fun `ordinary train run displays capture actual progress without registered units or operational trips`() =
+    @Test fun `ordinary train run displays capture actual progress through its default operational trip`() =
         assertDisplayProgressDoorSide(DoorSide.NONE, DoorSide.NONE, explicitUnitTrip = false)
 
     @Test fun `explicit OPEN_DOORS override is captured instead of inherited berth side`() =
@@ -112,21 +112,18 @@ class TimetableStationCallDispatcherTest {
                 lineSpeedLimits=listOf(TimetableLineSpeedLimit(lineId,8.0)),
                 operationalTrips=if (explicitUnitTrip) listOf(TimetableOperationalTrip("trip",segments=listOf(
                     TimetableOperationalTripSegment("service","run",listOf(1))))) else emptyList()))
-            assertTrue(f.dispatcher.captureTrainDisplays(world).isEmpty(), "No entered run exists before service start")
+            assertNull(f.dispatcher.captureUnitDisplays(world).single().currentRun, "No entered run exists before service start")
             val result = f.dispatcher.startService(world,"tt","service")
             assertTrue(result is TimetableServiceStartResult.Started,result.toString())
-            val origin = f.dispatcher.captureTrainDisplays(world).single()
-            assertEquals("end", origin.currentRun.terminalStationId)
-            assertEquals(listOf("origin-call", "central-call", "end-call"), origin.stops.map { it.call.id })
+            val origin = f.dispatcher.captureUnitDisplays(world).single()
+            assertEquals("end", origin.currentRun!!.terminalStationId)
+            assertEquals(listOf("origin-call", "central-call", "end-call"), origin.display!!.plannedStops.map { it.call.id })
             assertEquals(f.train.publishedFrame.cars.map { it.carId }, origin.carIds)
-            if (explicitUnitTrip) {
-                val unit = f.dispatcher.captureUnitDisplays(world).single()
-                assertEquals(unit.progress, origin.progress)
-                assertEquals(unit.doorSide, origin.doorSide)
-            } else {
+            if (explicitUnitTrip) assertEquals("trip", origin.display.operationalTripId)
+            else {
                 assertEquals(f.train.composition.units.map { it.unitId }, world.simpleAtoWorldData.depots.allFixedUnits().map { it.id })
-                assertTrue(world.simpleAtoWorldData.timetables["tt"]!!.operationalTrips.isEmpty())
-                assertNull(f.dispatcher.captureUnitDisplays(world).single().display)
+                val default = world.simpleAtoWorldData.timetables["tt"]!!.operationalTrips.single { it.segments.single().unassignedUnits }
+                assertEquals(default.id, origin.display.operationalTripId)
             }
             assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.AT_STATION,0),origin.progress)
             assertEquals(expectedOriginSide,origin.doorSide)
@@ -142,12 +139,7 @@ class TimetableStationCallDispatcherTest {
             gateway.tickets.toList().forEach { it.succeed() }
             f.tick()
             world.onOwnerForTest {
-                val context = f.dispatcher.captureTrainDisplays(world).single()
-                if (explicitUnitTrip) {
-                    val unit = f.dispatcher.captureUnitDisplays(world).single()
-                    assertEquals(unit.progress, context.progress)
-                    assertEquals(unit.doorSide, context.doorSide)
-                }
+                val context = f.dispatcher.captureUnitDisplays(world).single()
                 if (context.progress == TimetableDisplayProgress(TimetableDisplayPhase.AT_STATION,0))
                     assertEquals(expectedOriginSide,context.doorSide)
                 if (context.progress == TimetableDisplayProgress(TimetableDisplayPhase.IN_TRANSIT,1)) {
@@ -174,7 +166,7 @@ class TimetableStationCallDispatcherTest {
         }
         world.onOwnerForTest {
             assertEquals(TimetableServiceRunState.STOPPED, f.dispatcher.status(TimetableServiceRunId("tt", "service"))?.state)
-            assertTrue(f.dispatcher.captureTrainDisplays(world).isEmpty(), "Stopped run withdraws ordinary train context")
+            assertNull(f.dispatcher.captureUnitDisplays(world).single().currentRun, "Stopped run withdraws actual RUN context")
         }
     }
 

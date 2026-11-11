@@ -174,7 +174,8 @@ class DisplayPartProviderTest {
             assertEquals(DisplayTemplateSource("main.xml", "pinned source"), source)
             expected
         })
-        assertEquals(Component.text("prepared"), provider.open(context)!!.draw(PartExtensionRenderInput()).texts.single().text)
+        val input = PartExtensionRenderInput(Json.parseToJsonElement("""{"operational":{"currentRun":{"runId":"run"}}}""").jsonObject)
+        assertEquals(Component.text("prepared"), provider.open(context)!!.draw(input).texts.single().text)
         assertEquals(1, calls)
     }
 
@@ -203,7 +204,8 @@ class DisplayPartProviderTest {
         assertEquals(8.0, interior.audiencePolicy.maximumDistanceBlocks(second))
         settings.reset(first)
         assertEquals(32.0, interior.audiencePolicy.maximumDistanceBlocks(first))
-        assertSame(frame, interior.draw(PartExtensionRenderInput()))
+        val input = PartExtensionRenderInput(Json.parseToJsonElement("""{"operational":{"currentRun":{"runId":"run"}}}""").jsonObject)
+        assertSame(frame, interior.draw(input))
         val exteriorPart = PartExtensionPart("outside", 1, Json.parseToJsonElement("""{"category":"cabin","interior":false,"width":1,"height":1}""").jsonObject)
         val exterior = provider.open(PartExtensionRenderContext("fleet", "hash", exteriorPart, resources))!!
         assertNull(exterior.audiencePolicy.maximumDistanceBlocks(second))

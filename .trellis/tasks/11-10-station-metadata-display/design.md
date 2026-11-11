@@ -1,0 +1,13 @@
+# Design contract
+
+StationStore in SimpleATO is the world-local authority. Station gains immutable metadata:JsonObject default{}. Store API updateMetadata(id:StationId, metadata:JsonObject, expectedMetadata:JsonObject):Station compares expected under existing lock, rejects stale via StationMetadataConflict, returns updated aggregate. Missing station fails. Preserve metadata on add/remove berth and same-station OperationalDestinationService.replace (including rollback); deleting a station removes its metadata. Metadata must be recursively detached, bounded depth/size, finite JSON numbers. Reuse existing helpers when ownership fits.
+
+Add stationMetadata:Map<String,JsonObject>=emptyMap() to existing SimpleATOInfrastructureSnapshotV1; capture once per station, restore after destinations create stations, validate all entries before materialization/rollback. No schema version bump: additive field with explicit empty default. No per-berth copies, no sidecar repository or legacy reader. Existing periodic/normal world-save durability path remains authority, same as world line editing.
+
+Wire: authenticated GET /api/v1/worlds/{world}/stations -> {stations:[{id,displayName,metadata}]}; PUT /api/v1/worlds/{world}/stations/{station}/metadata with exact body {metadata:object,expectedMetadata:object} -> {id,displayName,metadata}. Bukkit bridge same world-relative paths. 400 invalid object/fields,404 missing station,409 expected-value mismatch,401 unauthenticated at sidecar. Existing auth/error/encoding conventions. No new public allowlist. Per-station old-value comparison avoids unrelated global conflicts or persisted revision.
+
+Frontend adds stations navigation/page, selects existing station and edits direct JSON text, save only valid root object, format optional. Separate saved baseline from draft; do not replace draft on parse/save/conflict failure; protect world/station switch from stale GET/PUT responses. API client/types own wire; all text zh/en. No local-storage contract added.
+
+Screen projection adds metadata:{} for unresolved/no metadata station to currentStation/nextStation/every remainingStop, via owner-side lookup, detached before worker. Preserve current stationName lookup source; projector adds optional metadata callback before trailing stationName callback so old callers compile. WorldManager supplies both. Existing10tick fresh sample updates changed metadata, context invalidation rejects old output.
+
+Ownership: core agent SimpleATO model/store/persistence/tests; UI agent WebUI sidecar+frontend/tests; root Bukkit bridge+projection+host tests/docs and serial builds. No overlapping edits; no deploy/commit/test suites.

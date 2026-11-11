@@ -67,9 +67,7 @@
     "animation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name"],
       "properties": {
-        "name": {"$ref": "#/$defs/nonEmptyString"},
         "keep-final-state": {"type": "boolean", "default": true},
         "commands": {
           "type": "array",
@@ -126,20 +124,27 @@
         "spacing": {"$ref": "#/$defs/vector"}
       }
     },
-    "partDefinition": {
+    "extensionTypeId": {
+      "type": "string",
+      "pattern": "^[a-z0-9_.-]+:[a-z0-9_./-]+$(?![\\s\\S])"
+    },
+    "partContent": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["config-version", "name", "type"],
+      "required": ["name", "type"],
       "properties": {
-        "config-version": {"const": 1},
         "name": {"$ref": "#/$defs/nonEmptyString"},
         "type": {
           "type": "string",
-          "enum": ["dummy", "item_display", "interact", "seat", "platform"]
+          "oneOf": [
+            {"enum": ["dummy", "item_display", "interact", "seat", "platform"]},
+            {"$ref": "#/$defs/extensionTypeId"}
+          ]
         },
         "item": {"$ref": "#/$defs/item"},
         "interaction": {"$ref": "#/$defs/interaction"},
         "platform": {"$ref": "#/$defs/platform"},
+        "config": {"type": "object", "description": "Opaque extension-owned configuration; its provider validates fields."},
+        "schema-version": {"type": "integer", "minimum": 1, "default": 1},
         "offset": {"$ref": "#/$defs/vector"},
         "rotation": {"$ref": "#/$defs/vector"},
         "parts": {
@@ -147,8 +152,9 @@
           "items": {"$ref": "#/$defs/partReference"}
         },
         "animations": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/animation"}
+          "type": "object",
+          "propertyNames": {"type": "string", "pattern": "\\S"},
+          "additionalProperties": {"$ref": "#/$defs/animation"}
         }
       },
       "allOf": [
@@ -158,8 +164,28 @@
             "properties": {"item": {"$ref": "#/$defs/item"}},
             "required": ["item"]
           }
+        },
+        {
+          "if": {"properties": {"type": {"$ref": "#/$defs/extensionTypeId"}}, "required": ["type"]},
+          "then": {
+            "required": ["config"],
+            "properties": {"item": false, "interaction": false, "platform": false}
+          },
+          "else": {"properties": {"config": false, "schema-version": false}}
         }
       ]
+    },
+    "partDefinition": {
+      "description": "Standalone part document; nested parts inherit this version.",
+      "allOf": [{"$ref": "#/$defs/partContent"}],
+      "required": ["config-version"],
+      "properties": {"config-version": {"const": 1}},
+      "unevaluatedProperties": false
+    },
+    "inlinePartDefinition": {
+      "description": "Inline part content inherits the containing document version.",
+      "allOf": [{"$ref": "#/$defs/partContent"}],
+      "unevaluatedProperties": false
     },
     "importReference": {
       "type": "object",
@@ -174,7 +200,7 @@
     "partReference": {
       "oneOf": [
         {"$ref": "#/$defs/importReference"},
-        {"$ref": "#/$defs/partDefinition"}
+        {"$ref": "#/$defs/inlinePartDefinition"}
       ]
     }
   }

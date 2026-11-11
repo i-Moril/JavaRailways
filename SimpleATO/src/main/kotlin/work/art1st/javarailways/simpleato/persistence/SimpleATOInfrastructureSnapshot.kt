@@ -2,6 +2,7 @@ package work.art1st.javarailways.simpleato.persistence
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.core.api.physics.World
@@ -12,6 +13,7 @@ import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
 import work.art1st.javarailways.simpleato.api.line.Line
 import work.art1st.javarailways.simpleato.api.line.LineId
+import work.art1st.javarailways.simpleato.api.station.StationMetadata
 import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import java.util.UUID
@@ -101,7 +103,8 @@ data class SavedLineV1(
     val upStationIds: List<String>,
     val downStationIds: List<String>,
     val color: String? = null,
-    val maximumSpeedMetersPerSecond: Double? = null
+    val maximumSpeedMetersPerSecond: Double? = null,
+    val metadata: JsonObject = JsonObject(emptyMap())
 ) {
     fun restore(): Line = Line(
         LineId(id),
@@ -109,7 +112,8 @@ data class SavedLineV1(
         upStationIds.map(::StationId),
         downStationIds.map(::StationId),
         color,
-        maximumSpeedMetersPerSecond
+        maximumSpeedMetersPerSecond,
+        metadata
     )
 
     companion object {
@@ -119,7 +123,8 @@ data class SavedLineV1(
             upStationIds = value.upStationIds.map { it.value },
             downStationIds = value.downStationIds.map { it.value },
             color = value.color,
-            maximumSpeedMetersPerSecond = value.maximumSpeedMetersPerSecond
+            maximumSpeedMetersPerSecond = value.maximumSpeedMetersPerSecond,
+            metadata = value.metadata
         )
     }
 }
@@ -131,7 +136,8 @@ data class SimpleATOInfrastructureSnapshotV1(
     val infrastructureRevision: Long,
     val destinations: List<SavedOperationalDestinationV1>,
     val lines: List<SavedLineV1>,
-    val lineRevision: Long
+    val lineRevision: Long,
+    val stationMetadata: Map<String, JsonObject> = emptyMap()
 ) {
     fun restore(world: World) {
         require(formatVersion == CURRENT_FORMAT_VERSION) {
@@ -206,6 +212,11 @@ data class SimpleATOInfrastructureSnapshotV1(
                 depotPointCollisions.joinToString { it.pointRef.toString() }
         }
         val stationIds = stationRoles.mapTo(HashSet()) { it.stationId }
+        val restoredMetadata = stationMetadata.mapKeys { (id, _) -> StationId(id) }
+            .mapValues { (_, metadata) -> StationMetadata.immutableCopy(metadata) }
+        require(restoredMetadata.keys.all { it in stationIds }) {
+            "SimpleATO infrastructure snapshot contains metadata for unknown stations"
+        }
         val missingStations = restoredLines
             .flatMap { it.upStationIds + it.downStationIds }
             .filterNot { it in stationIds }
@@ -220,6 +231,11 @@ data class SimpleATOInfrastructureSnapshotV1(
                 service.register(destination)
                 materialized += destination
             }
+            restoredMetadata.forEach { (id, metadata) ->
+                val station = requireNotNull(data.stations[id])
+                data.stations.updateMetadata(id, metadata, station.metadata)
+            }
+            data.lines.restore(restoredLines, lineRevision)
         } catch (failure: Exception) {
             materialized.asReversed().forEach { destination ->
                 runCatching { service.remove(destination.id) }
@@ -227,7 +243,6 @@ data class SimpleATOInfrastructureSnapshotV1(
             }
             throw failure
         }
-        data.lines.restore(restoredLines, lineRevision)
     }
 
     companion object {
@@ -248,7 +263,8 @@ data class SimpleATOInfrastructureSnapshotV1(
                 infrastructureRevision = infrastructureRevision,
                 destinations = destinations.map(SavedOperationalDestinationV1::capture),
                 lines = lineSnapshot.lines.map(SavedLineV1::capture),
-                lineRevision = lineSnapshot.revision
+                lineRevision = lineSnapshot.revision,
+                stationMetadata = data.stations.all().associate { it.id.value to it.metadata }
             )
         }
     }

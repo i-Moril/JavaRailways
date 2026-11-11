@@ -36,6 +36,10 @@ JS 支持 `runSegment(options,callback)`、`operationalTrip(id,definition)`，�
 
 `TimetableServiceRunSnapshot` 投影 `currentRunId/currentLineId/unitDisplays`；每单元包括 `unitId,operationalTripId,cycleIndex,active,values,plannedStops,completedStops,remainingStops,unresolvedRuns`。`Dispatcher.unitDisplaysForTrain(world,trainId,timetableId,cycleIndex)` 按真实组成查询，包括没有后续 duty 的 HOLD 输出；调用必须在该 world 的 serialized owner 边界。
 
+`Dispatcher.captureUnitDisplays(world)` 从 runtime 自己拥有的精确 timetable/cycle key 新鲜捕获所有实际完整登记单元，包含 HOLD 和无上下文单元，不要求调用方猜测周期。`TimetableUnitDisplayContext` 分离 trainId/unitId/carIds/timetableId/display/currentBerth；JSON、stop lists 和 viaIds 深度分离。无登记、缺车、不连续或顺序错误不能宣称单元绑定；合法逆序允许。缺表/不唯一上下文不能选取任意赢家。`unitDisplayRevision(world)` 仅对真实显示状态或未来组成证明变化递增，唤醒静止显示，不是持久化版本。
+
+`currentBerth` 只来自未终止 run 的 confirmedDoorStop：当前零速、完整位置/方向/car IDs 与原证明一致、泊位仍是同一 ACTIVE 对象。不可由 currentWayPointId、berthHeld 或 last completed 推导，也不能据此捏造 callId。显示 consumer 在 dispatcher/postTick 后捕获，不使用 tick 开头缓存的 run.unitDisplays。
+
 ## 生命周期、线程与版本
 
 定义和快照防御性复制；JSON 状态由 Dispatcher 实例独占，隔离模拟不能共享 live 可变 map。显示动作先验证全部选择及结果，再原子写入。终止/未分配新 RUN 的上下文变为 inactive，后续 setter 拒绝；诊断仍可读取。清理旧周期证明时保留仍有实际上下文的周期。
@@ -74,4 +78,76 @@ U1/U2 同行时可分别设置 `{"destination":"D"}` / `{"destination":"E"}`。U
 
 ## 迁移与后续
 
-本任务不改变 schema 版本或提供任意 JS 反向编辑。LCD 通过只读数据接口另行实现；在接入前明确如何从车厢定位实际单元、如何处理 inactive/unresolved 状态。不停站跨线需要独立的连续路线及范围限速设计，不能把 C 的到发 tick 设成相等就绕过站停 gate。
+本任务不改变 schema 版本或提供任意 JS 反向编辑。Decorations 已通过宿主只读不可变投影消费实际单元显示，inactive 清空运营对象与别名，unresolved 禁止断言下一站。LCD 版式与渲染留在附属插件。不停站跨线需要独立的连续路线及范围限速设计，不能把 C 的到发 tick 设成相等就绕过站停 gate。
+
+## 运行线metadata及actual currentRun（2026-11-10）
+
+TimetableRunSegment新增metadata:JsonObject={}，JsonMetadata深度分离并校验；equals/hash包含metadata。SavedTimetableRunSegmentV1默认字段、capture/restore保留，未改变版本或添加旧reader。它属于具体service/run，不与Line.metadata或operational.values隐式合并。WebUI AuthoringRunV1→generated runSegment→scriptworker mirror DTO→authoritative Saved DTO→runtime必须保留字段，边界不只更新一份DTO。
+
+TimetableUnitDisplayContext可携带TimetableRunDisplayContext(serviceId,runId,lineId,metadata,terminalStationId)。Dispatcher仅从实际train身份、匹配timetable/cycle、unit membership且非terminal的ActiveRun中取currentSegment，并验证activeStepAddress/next step在其[start,end)内；缺失/段间/歧义null。禁止以remainingStops首项或segmentAtOrBefore声明活动运行线。运行线已进入但终态/其他cycle不能泄漏到当前画面。源上下文和metadata在跨worker前保持immutable。
+
+## 完整停站序列与实际进度（2026-11-10，源码／测试源码编译阶段）
+
+`TimetableUnitDisplayContext.progress: TimetableDisplayProgress` 为不可变瞬态值，缺省 UNKNOWN。
+`TimetableDisplayPhase` 为 AT_STATION / IN_TRANSIT / FINISHED / UNKNOWN；前两种必须带非负
+`stationIndex`，后两种 index 必须为 null。index 只指向同一 context 的
+`display.plannedStops`，不能指向基础设施线路站序；Context 拒绝越界、无 active display 或
+AT_STATION 指向 PASS。现有 completedStops 是 reached 诊断，不是“已离站”列表。
+
+Dispatcher 在实际 serialized owner 捕获：要求唯一同 train/timetable/cycle/unit run，且地址实际
+进入 currentSegment 范围；BEGIN 尚未进入 RUN、段间、歧义、手动转移或失效 scope 均 UNKNOWN。
+物理 STOP 到达事件保存精确 `(serviceId,runId,callId)` 及 head/tail/reversed/car IDs 位置证明。
+成功 CHECK 或保留的同一 ACTIVE berth 证明可建立精确 ORIGIN；仅进入计划 ORIGIN 不构成到站。
+该证明独立于 mission，提前提交下一 mission 不清除 AT_STATION；真实位置变化／运动才成为
+IN_TRANSIT，之后零速的信号等待不变回到站。成功的静止换向只重定位同一到站 occurrence；
+未证明的方向／组成变化或脱轨清除到站事实。终止、重置和 inactive context 不保留可见到站断言。
+
+`TimetableRunCallCursor` 消费 validator 已证明的完整移动事件序列：每个 call 的 viaIds 是无
+call 的 Via occurrence，随后 destination 才是 PASS Via 或 STOP。不能按相同 destinationId
+搜索任意未来 call；重复 via 与 PASS 同 ID 时仍分别消费。事件顺序／类型不一致使本 scope
+的显示进度 UNKNOWN，不改变物理运行决策。
+
+投影建立每个原始 call identity 到最终序列 index 的映射。连续合法 TERMINAL/ORIGIN 边界
+共用同一 index，保留旧 TERMINAL 到站证明且不丢失 arrival；未解析、中断或不属于本单元的段
+不能跨越合并。未解析段后的 index 不作确定断言。IN_TRANSIT 使用有序 reached 前缀后的下一
+物理 occurrence（包括 PASS）；有 reached 空洞时 UNKNOWN。全部 reached 且没有未解析未来
+才允许 FINISHED；有终点到站位置证明时仍优先 AT_STATION。完整序列／index／phase 是唯一
+渲染输入，宿主不再复制 completed/remaining 两份停站数组；计数若保留仅用于诊断。
+
+新增 `TimetableDisplayProgressTest` 覆盖停车证明／实际发车／零速区间等待、换向、重复站／PASS、
+合并边界、未解析未来、BEGIN-before-RUN、退役与严格 phase/index；
+`TimetableStationCallDispatcherTest` 新增实际 owner capture 在 origin/中间站、已提交下一 mission
+及真正发车后的集成案例。本轮测试执行仍按用户要求留待统一验收。
+
+## 当前实际停站的门侧显示事实（2026-11-10，源码／测试源码编译阶段）
+
+`TimetableUnitDisplayContext.doorSide: DoorSide? = null` 只表示当前有效停站的 intended/effective
+开门侧，使用实际运营方向的 LEFT/RIGHT 基准；不是车厢模型固定左右、未来站台侧或真实动画开度。
+NONE 是已知无开门，null 是未知。非 null 必须同时具有实际 currentRun 和 AT_STATION；DTO
+拒绝缺少这些证据的非 null 输入。模型／屏幕侧转换由平台现有 actual door operating-end 规则负责，
+SimpleATO 不计算每车左右。
+
+物理到站位置证明同时保留当前有效门侧，独立于 mission 生命周期，预提交下一 mission 不清掉它。
+来源为当前实际 station call 的 resolved side／stop-program override、destination stop 与实际
+handler 相同的有效侧选择，或明确到站的 canonical berth。原生 OpenDoors 的显式 override 以及
+开始停站程序时的 effectiveSide 更新这份显示证据，不修改既有 door-operation 控制路径。
+仅 CloseDoors(BOTH) 不会把 intended opening side 改为 BOTH。成功 committed reversal 与实际
+station execution 相同地交换 LEFT/RIGHT，保留物理站台侧；NONE/BOTH/未知不交换。
+
+实际发车、脱轨、未知组成／方向变化、没有实际 entered automatic scope、scope 歧义、manual
+转移及 inactive context 一律输出 null。有效侧更新与证明失效唤醒 display revision；宿主 key 应
+包含 raw doorSide 及每车真实 operatingEnd，跨 worker 只携带分离值。
+
+延迟测试：TimetableDisplayProgressTest 覆盖已知 NONE/BOTH/未知、停站预提交、显式有效侧更新、
+已确认静止反向时物理站台侧保持及发车清除；TimetableUnitDisplayContextTest 覆盖 DTO 约束；
+TimetableStationCallDispatcherTest 复用实际 Core/Dispatcher 运行分别覆盖无门、显式 OpenDoors
+覆盖和 origin station-program 覆盖，以及已提交下一 mission 后保留和真正发车后清除。
+
+## 当前运行线的默认目的地（2026-11-11）
+
+`terminalStationId: String?` 是 actual currentRun 的瞬态不可变事实，捕获自该 segment 的最后一个
+call，且仅接受 TERMINAL；空 calls／没有该边界则 null。禁止从运营车次合并后的完整站序、
+remainingStops、下一段或基础设施线路的终点推测。其生命周期与 existing entered currentRun
+一致，不提前进入下一运行线、不延长上一段显示，也不写回 displayRuntime 的 authored values。
+宿主将其解析为显示默认目的地；明确设置的 destination（包括空串、null）优先。此字段不属于
+持久化边界，不改 schema version。

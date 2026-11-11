@@ -65,7 +65,9 @@ class ModelTreeBuilder internal constructor(
     private val partRegistry: PartResolver?,
     private val rootVisualFactory: ((Location) -> DisplayVisual)?,
     private val backend: DisplayRenderBackend?,
-    private val viewRange: Float?
+    private val viewRange: Float?,
+    private val sourcePackage: SavedTrainPackageSnapshot? = null,
+    private val extensionService: work.art1st.javarailways.bukkit.api.internal.DefaultPartExtensionService? = null
 ) {
     constructor(world: World, partRegistry: PartResolver) : this(world, partRegistry, null, null, null)
 
@@ -74,6 +76,10 @@ class ModelTreeBuilder internal constructor(
 
     internal constructor(world: World, backend: DisplayRenderBackend, viewRange: Float) :
         this(world, null, null, backend, viewRange)
+
+    internal constructor(world: World, partRegistry: PartResolver, sourcePackage: SavedTrainPackageSnapshot,
+        extensionService: work.art1st.javarailways.bukkit.api.internal.DefaultPartExtensionService) :
+        this(world, partRegistry, null, null, null, sourcePackage, extensionService)
 
     private val bukkitWorld
         get() = world.bukkitWorldData.bukkitWorld
@@ -302,9 +308,24 @@ class ModelTreeBuilder internal constructor(
             PartType.PLATFORM -> {
                 PlatformModel(world = world, state = modelState, attachedModels = children, animation = animations, initialLocation = spawnLoc, platformConfig = def.platform)
             }
-            PartType.DUMMY -> {
-                DummyModel(world = world, state = modelState, attachedModels = children, animation = animations)
+            // Decorative extension definitions remain usable with no provider.
+            // Preserve the transform, animations and children as a grouping node.
+            PartType.EXTENSION -> {
+                val payload = requireNotNull(def.extension)
+                val source = sourcePackage
+                val extensions = extensionService
+                if (source == null || extensions == null) DummyModel(world, modelState, children, animations)
+                else work.art1st.javarailways.bukkit.render.model.ExtensionPartModel(
+                    world, modelState, children, animations, payload.typeId,
+                    work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderContext(
+                        source.packageName, source.hash,
+                        work.art1st.javarailways.bukkit.api.model.extension.PartExtensionPart(def.name, payload.schemaVersion, payload.config),
+                        source.extensions[payload.typeId], spawnLoc.world?.uid),
+                    extensions, backend ?: BukkitPlugin.INSTANCE.displayRenderBackend,
+                    BukkitPlugin.INSTANCE.platformDispatcher, BukkitPlugin.INSTANCE.trainPacketBundles,
+                    viewRange ?: displayViewRangeForDistance(BukkitPlugin.INSTANCE.javaRailwaysConfig.displayRenderer.playerDistance.maxBlocks))
             }
+            PartType.DUMMY -> DummyModel(world, modelState, children, animations)
         }.also { model ->
             construction.own(model, model::destroy)
             children.forEach(construction::transfer)

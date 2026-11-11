@@ -408,11 +408,27 @@ class OperationalDestinationService(private val world: World) {
             }
         }
         requireUnallocatedStationBerth(destination)
+        val oldStationId = (old.role as? DestinationRole.StationBerthRole)?.stationId
+        val oldMetadata = oldStationId?.let { data.stations[it]?.metadata }
+        fun restoreMetadata() {
+            if (oldStationId != null && oldMetadata != null) {
+                val current = requireNotNull(data.stations[oldStationId])
+                data.stations.updateMetadata(oldStationId, oldMetadata, current.metadata)
+            }
+        }
         remove(oldId)
         try {
             register(destination)
+            if ((destination.role as? DestinationRole.StationBerthRole)?.stationId == oldStationId) {
+                restoreMetadata()
+            }
         } catch (failure: Exception) {
-            runCatching { register(old) }.onFailure { rollback -> failure.addSuppressed(rollback) }
+            runCatching {
+                // register itself rolls back partial materialization on failure.
+                if (data.destinations[destination.id] == destination) remove(destination.id)
+                register(old)
+                restoreMetadata()
+            }.onFailure { rollback -> failure.addSuppressed(rollback) }
             throw failure
         }
     }

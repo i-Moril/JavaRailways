@@ -17,12 +17,15 @@
 | 文档 | 用途 |
 | --- | --- |
 | [Lifecycle 与线程归属](./lifecycle-and-threading.md) | composition root、world tick、Folia scheduler、shutdown |
-| [SimpleDisplays 可选服务](./optional-simpledisplays.md) | compile-only API、延迟类加载、服务 owner 和连接退休 |
+| [SimpleDisplays 可选服务](./optional-simpledisplays.md) | 已迁移至 Decorations；宿主只开放通用 extension API |
+| [显示模板包资源](./package-displays.md) | 通用扩展目录、来源包原文、快照hash与失败重载 |
+| [屏幕部件定义](./screen-parts.md) | namespaced 扩展部件、缺失插件保留子树、注册生命周期 |
 | [Wand 配置界面](./wand-config.md) | 配置项、注册、会话、动态显示和提交错误 |
 | [交互、渲染与持久化](./interaction-render-persistence.md) | Cloud/Wand/Dialog、backend/model、add-on API、snapshot/sidecar |
 | [一次性离线开发服迁移](./offline-development-migration.md) | 整目录外部归档、旧split转换、受限曲线修复和真实restore；不进入JAR |
 | [独立道岔操作工具](./turnout-wand.md) | 来向/出口选择、安全手动切换、真实连接反馈 |
 | [铁路编辑标记视觉规范](./editor-markers.md) | 点、方向、区间和警告的共用含义；CURRENT临时文字公开API、玩家隔离及关闭完成；不统一业务模型 |
+| [通用文字 Display 后端](./text-display-backends.md) | native/EntityLib文字、Component/样式一致性、现有metadata/owner/cleanup复用 |
 | [通用模型显示与轨道定位 API](./model-presentation-api.md) | 曲线查询、不可变模型定义、完整场景应用、跨线程显示与清理完成通知 |
 | [每车 JS 行为](./car-behavior.md) | CURRENT：车厢独立脚本状态、逐车调度、延迟效果汇总与来源包快照 |
 | [隔离模拟逐车行为](./simulation-car-behavior.md) | 真实JS/gateway、detached每车捕获、结构配置继承与无显示效果出口 |

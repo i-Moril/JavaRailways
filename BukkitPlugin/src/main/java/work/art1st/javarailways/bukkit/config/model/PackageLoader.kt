@@ -53,7 +53,7 @@ class PackageLoader(
         val subject = "package manifest ${file.path}"
         val map = loadYamlMap(file, subject)
         map.requireOnlyKeys(
-            setOf("config-version", "name", "type", "display-name", "composition", "rail-config"),
+            setOf("config-version", "name", "type", "display-name", "composition", "rail-config", "extensions"),
             subject
         )
         val version = map.requireInt("config-version", subject)
@@ -85,6 +85,7 @@ class PackageLoader(
                 require(railConfigFile == null) { "$subject.rail-config is only valid for rail packages" }
             }
             PackageType.RAIL -> {
+                require("extensions" !in map) { "$subject.extensions is only valid for train packages" }
                 require(railConfigFile != null) { "$subject must declare rail-config for a rail package" }
                 require(composition == null) { "$subject.composition is only valid for train packages" }
             }
@@ -100,7 +101,15 @@ class PackageLoader(
             version = version,
             displayName = displayName,
             composition = composition,
-            railConfigFile = railConfigFile
+            railConfigFile = railConfigFile,
+            extensions = map.optionalMap("extensions", subject).orEmpty().mapValues { (typeId, value) ->
+                work.art1st.javarailways.bukkit.api.model.extension.requirePartExtensionTypeId(typeId)
+                val declaration = (value as? Map<*, *>)?.toStringKeyMap("$subject.extensions.$typeId")
+                    ?: throw IllegalArgumentException("$subject.extensions.$typeId must be an object")
+                declaration.requireOnlyKeys(setOf("directory", "schema-version"), "$subject.extensions.$typeId")
+                PackageExtensionDeclaration(declaration.requireString("directory", "$subject.extensions.$typeId"),
+                    declaration.optionalIntValue("schema-version", "$subject.extensions.$typeId") ?: 1)
+            }
         )
     }
 
@@ -141,7 +150,8 @@ class PackageLoader(
             train = train,
             actions = actions,
             behavior = behavior,
-            control = control
+            control = control,
+            extensions = capturePackageExtensions(packageDir, manifest.extensions)
         )
     }
 

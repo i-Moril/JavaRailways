@@ -5,3 +5,18 @@
 {"file":".trellis/spec/javarailways/simpleato/index.md","reason":"Operational timetable and stopping-pattern state stays owned by SimpleATO."}
 {"file":".trellis/tasks/11-08-simpledisplays-train-integration/design.md","reason":"Approved component boundaries, style precedence, data flow, and lifecycle design."}
 {"file": ".trellis/spec/bukkit-plugin/backend/optional-simpledisplays.md", "reason": "Stage 1 optional API loading, exact service identity, dependency provenance and lifecycle retirement contract."}
+{"file": ".trellis/spec/bukkit-plugin/backend/screen-parts.md", "reason": "Approved narrow screen-part definition slice: schema/parser, inline/import tree copies, transform-only model behavior and canonical hash preservation."}
+{"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/package-display-loading-contract.md", "reason": "用户已批准本批边界：displays.yml加载/路径引用校验及来源包内容快照；不提前做渲染或旧格式一致性调整。"}
+{"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/decorations-foundation-contract.md", "reason": "用户批准Decorations基础/迁移；missing addon保留变换/子树，generic resources，提交前报告且本批不commit。"}
+{"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/decorations-template-compilation-contract.md", "reason": "Approved continuation: actual XML compilation via optional library, bounded per-connection validation cache and lifecycle; no mounting/rendering this slice."}
+{"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/text-backends-contract.md", "reason": "User-approved current slice: native/EntityLib text in existing backend lifecycle only; no mounted model or extension runtime API."}
+{"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/static-extension-mount-contract.md", "reason": "Current authorized static mount slice: worker value preparation, exact snapshots, owner/root/audience/cleanup and real Decorations XML consumer."}
+{"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/dynamic-train-input-contract.md", "reason": "Current authorized dynamic session/basic train values slice; PAPI excluded, operating stops deferred"}
+{"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/operational-display-input-contract.md", "reason": "Current operational unit presentation slice; authoritative identity/ordering/invalidation and module ownership"}
+{"file": ".trellis/spec/javarailways/simpleato/through-running-and-unit-displays.md", "reason": "Actual unit/trip/cycle ownership, occurrence semantics and fresh display capture."}
+{"file": ".trellis/spec/javarailways/simpleato/stations.md", "reason": "Physical berth proof, current placement and canonical station ownership."}
+{"file": ".trellis/spec/decorations/backend/index.md", "reason": "Decorations ownership/config/audience policy and deferred verification."}
+{"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/interior-distance-contract.md", "reason": "Current authorized distance slice; player-to-screen origin, API/command/config and all-test deferral."}
+{"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/interior-display-culling-assessment.md", "reason": "Culling feasibility assessment only; no frustum/backface/occlusion implementation authorized in this slice."}
+{"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/stop-sequence-contract.md", "reason": "Current approved ordered-call/cursor/phase input contract; tests deferred, source compilation only."}
+{"file": ".trellis/tasks/11-08-simpledisplays-train-integration/research/door-side-display-contract.md", "reason": "Current same/opposite-side display mapping, raw operating side and installed car basis; compilation-only validation."}

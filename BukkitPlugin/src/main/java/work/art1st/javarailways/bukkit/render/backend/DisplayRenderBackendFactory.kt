@@ -7,7 +7,7 @@ object DisplayRenderBackendFactory {
     fun create(plugin: BukkitPlugin): DisplayRenderBackend {
         return when (plugin.javaRailwaysConfig.displayRenderer.backend) {
             DisplayRendererBackend.NATIVE -> NativeDisplayRenderBackend(plugin, plugin.renderCleanupDispatcher)
-            DisplayRendererBackend.ENTITYLIB -> EntityLibDisplayRenderBackend()
+            DisplayRendererBackend.ENTITYLIB -> EntityLibDisplayRenderBackend(plugin.packetDisplayChunks)
         }
     }
 }

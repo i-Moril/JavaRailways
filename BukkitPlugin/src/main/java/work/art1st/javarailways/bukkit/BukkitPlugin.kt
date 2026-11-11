@@ -144,9 +144,10 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var timetableScriptSandbox: TimetableScriptSandbox
     lateinit var globalTimetableReloadCoordinator: GlobalTimetableReloadCoordinator
 
-    private var optionalSimpleDisplays: work.art1st.javarailways.bukkit.integration.simpledisplays.OptionalSimpleDisplays? = null
+    private lateinit var partExtensions: work.art1st.javarailways.bukkit.api.internal.DefaultPartExtensionService
 
     internal val renderCleanupDispatcher get() = presentationDispatcher ?: platformDispatcher
+    private var partExtensionCleanup: java.util.concurrent.CompletionStage<Void>? = null
     private var presentationDispatcher: PaperPlatformDispatcher? = null
     private var gentleUnload: GentleUnloadPreparation? = null
     private var gentleUnloadRegistration: PlugManXGentleUnload? = null
@@ -163,6 +164,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         private set
 
     private var packetEntityRuntime: PacketEntityRuntime? = null
+    internal val packetDisplayChunks get() = checkNotNull(packetEntityRuntime).displayChunks
     private var timetableHttpBridge: TimetableHttpBridge? = null
     private var timetableWebUiSidecar: TimetableWebUiSidecar? = null
     var packetEntityMotion: PacketEntityMotion? = null
@@ -253,6 +255,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         unsafeToFinishShutdown = false
         asynchronousCleanup = null
         asynchronousPreparation = null
+        partExtensionCleanup = null
         shutdownCompleted = false
         shutdownFailures.clear()
         isRuntimeActive = false
@@ -280,13 +283,12 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     }
 
     private fun enablePlugin() {
-        optionalSimpleDisplays = work.art1st.javarailways.bukkit.integration.simpledisplays.OptionalSimpleDisplays(this)
-            .also { it.start() }
         BukkitExtensionDataSerializers.register()
         val packetRuntime = packetEntityRuntime ?: PacketEntityRuntime(this).also {
             packetEntityRuntime = it
         }
         packetRuntime.enable()
+        server.pluginManager.registerEvents(packetDisplayChunks, this)
         trainPacketBundles = TrainPacketBundleCoordinator()
         packetEntityMotion = packetRuntime.enablePacketEntityMotion(
             platformDispatcher,
@@ -323,6 +325,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             displayViewRangeForDistance(javaRailwaysConfig.displayRenderer.playerDistance.maxBlocks), logger
         )
         modelPresentationService = modelPresentationServiceImpl
+        partExtensions = work.art1st.javarailways.bukkit.api.internal.DefaultPartExtensionService(reportDiagnostic = { logger.info(it) }) { subject, failure ->
+            logger.log(Level.WARNING, "Part extension validation failed for $subject", failure)
+        }
         editorTextServiceImpl = DefaultEditorTextService(this, presentationOwner, logger)
         editorTextService = editorTextServiceImpl
         worldManager = WorldManager(
@@ -361,6 +366,13 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         server.pluginManager.registerEvents(OperationOwnerLifecycleListener(playerOperationServiceImpl), this)
         server.pluginManager.registerEvents(ObservationOwnerLifecycleListener(railwayObservationServiceImpl), this)
         server.pluginManager.registerEvents(ModelOwnerLifecycleListener(modelPresentationServiceImpl, this), this)
+        server.servicesManager.register(
+            work.art1st.javarailways.bukkit.api.model.extension.PartExtensionService::class.java,
+            partExtensions, this, org.bukkit.plugin.ServicePriority.Normal
+        )
+        server.pluginManager.registerEvents(
+            work.art1st.javarailways.bukkit.api.internal.PartExtensionOwnerLifecycleListener(partExtensions), this
+        )
         server.pluginManager.registerEvents(EditorTextLifecycleListener(editorTextServiceImpl, this), this)
         server.pluginManager.registerEvents(
             InfrastructureOwnerLifecycleListener(infrastructureResourceServiceImpl, this),
@@ -403,7 +415,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         railModelConfig = loadRailModelConfigFromPlugin()
 
         // 加载版本化 trains/ 与 rails/ 模型包。
-        modelManager = ModelManager(dataFolder)
+        modelManager = ModelManager(dataFolder, partExtensions)
         val modelLoad = modelManager.publishReload(modelManager.prepareReload())
         modelLoad.failures.forEach { (type, failure) ->
             logger.log(Level.SEVERE, "Train resources unavailable for type $type", failure)
@@ -485,7 +497,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         return result
     }
 
-    /** PluginDisableEvent runs before enabled=false; owner tasks can still finish in this window. */
+    /** PluginDisableEvent precedes enabled=false, while owner cleanup may still be scheduled. */
     private fun prepareShutdown() {
         gentleUnload?.interrupted()
         if (shutdownPrepared) {
@@ -519,8 +531,6 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     private fun beginShutdown(): () -> Unit {
         shutdownPrepared = true
         isRuntimeActive = false
-        // Notify consumers before taking simulation/physics locks. Their service leases must retire
-        // before world teardown, including when they observe this PluginDisableEvent after us.
         val servicesRetired = runShutdownStep("public services") { server.servicesManager.unregisterAll(this) }
         if (::railTargetService.isInitialized) {
             runShutdownStep("rail target service") { (railTargetService as? BukkitRailTargetService)?.close() }
@@ -565,8 +575,13 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             val worldsStopped = runShutdownStep("world manager stop") {
                 if (::worldManager.isInitialized) worldManager.stop()
             }
-            runShutdownStep("optional SimpleDisplays service") { optionalSimpleDisplays?.close() }
-            optionalSimpleDisplays = null
+            runShutdownStep("part extension registrations") {
+                if (::partExtensions.isInitialized) {
+                    val completion = partExtensions.closeAsync()
+                    if (!PlatformCleanup.skipsOwnerTasks()) partExtensionCleanup = completion
+                    PlatformCleanup.awaitCompletion(completion)
+                }
+            }
             if (::editorTextServiceImpl.isInitialized) {
                 runShutdownStep("editor text service") { PlatformCleanup.awaitCompletion(editorTextServiceImpl.beginHostCleanup()) }
             }
@@ -600,9 +615,14 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             unsafeToFinishShutdown = true
             return
         }
+        presentationDispatcher = null
+        if (partExtensionCleanup?.toCompletableFuture()?.isDone == false) {
+            // Session workers can still use packet resources after the owner-task batch times out.
+            unsafeToFinishShutdown = true
+            return
+        }
         unsafeToFinishShutdown = false
         preparationFinalized = true
-        presentationDispatcher = null
         if (::simulationFeatureServiceImpl.isInitialized) {
             runShutdownStep("simulation feature service") { simulationFeatureServiceImpl.close() }
         }

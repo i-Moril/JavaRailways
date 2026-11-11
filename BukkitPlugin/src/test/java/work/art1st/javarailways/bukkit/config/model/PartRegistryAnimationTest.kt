@@ -17,9 +17,8 @@ class PartRegistryAnimationTest {
                     "type" to "IRON_NUGGET",
                     "item-model" to "art1st/tc/s100/door_a"
                 ),
-                "animations" to listOf(
-                    mapOf(
-                        "name" to "doors_l",
+                "animations" to mapOf(
+                    "doors_l" to mapOf(
                         "keep-final-state" to false,
                         "keyframes" to listOf(
                             mapOf("at" to 1.3, "scene" to "open", "offset" to mapOf("z" to 0.625)),
@@ -78,9 +77,8 @@ class PartRegistryAnimationTest {
                     "type" to "IRON_NUGGET",
                     "item-model" to "art1st/tc/s100/door_light"
                 ),
-                "animations" to listOf(
-                    mapOf(
-                        "name" to "door_light_warn",
+                "animations" to mapOf(
+                    "door_light_warn" to mapOf(
                         "keyframes" to listOf(
                             mapOf(
                                 "at" to 0.0,
@@ -189,9 +187,8 @@ class PartRegistryAnimationTest {
                     "config-version" to 1,
                     "name" to "door_group",
                     "type" to "dummy",
-                    "animations" to listOf(
-                        mapOf(
-                            "name" to "doors_l",
+                    "animations" to mapOf(
+                        "doors_l" to mapOf(
                             "keyframes" to listOf(
                                 mapOf("at" to 0.0, "scene" to "closed"),
                                 mapOf("at" to 1.0, "scene" to "closed")

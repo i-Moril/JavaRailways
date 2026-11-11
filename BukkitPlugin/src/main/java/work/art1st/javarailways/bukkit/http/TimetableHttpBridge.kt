@@ -61,6 +61,12 @@ internal fun timetablePathSegments(uri: java.net.URI): List<String> =
 
 internal class HttpFailure(val status: Int, message: String, val code: String? = null) : RuntimeException(message)
 
+internal fun parseLineMetadata(element: JsonElement?): JsonObject = when (element) {
+    null -> JsonObject(emptyMap())
+    is JsonObject -> work.art1st.javarailways.simpleato.api.metadata.JsonMetadata.immutableCopy(element)
+    else -> throw HttpFailure(400, "line metadata must be an object")
+}
+
 internal fun parseLineMaximumSpeed(element: JsonElement?): Double? {
     if (element == null || element == JsonNull) return null
     val value = (element as? JsonPrimitive)?.takeUnless { it.isString }?.doubleOrNull
@@ -243,6 +249,14 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     }
                 })
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "metadata" -> exchange.respond(200, await { metadataJson(worldName) })
+                exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "stations" ->
+                    exchange.respond(200, await { stationsJson(worldName) })
+                exchange.requestMethod == "PUT" && parts.size == 4 && parts[1] == "stations" && parts[3] == "metadata" -> {
+                    val update = parseStationMetadataUpdate(readBody(exchange))
+                    exchange.respond(200, await { withWorld(worldName) { _, world ->
+                        json.encodeToString(updateStationMetadataJson(world.simpleAtoWorldData.stations, parts[2], update))
+                    } })
+                }
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "extensions" -> exchange.respond(200, await { extensionsJson(worldName) })
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "rail-map" -> {
                     val snapshot = await { withWorld(worldName) { _, world ->
@@ -338,6 +352,12 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 }
             }
         ))
+
+        private fun stationsJson(worldName: String) = withWorld(worldName) { _, world ->
+            json.encodeToString(buildJsonObject {
+                put("stations", JsonArray(world.simpleAtoWorldData.stations.all().map(::stationMetadataJson)))
+            })
+        }
 
         private fun metadataJson(worldName: String) = withWorld(worldName) { bukkit, world ->
             val data = world.basicWorldData
@@ -975,12 +995,14 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             val downIds = down.map { StationId(it.jsonPrimitive.content) }
             val color = value["color"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
             val maximumSpeed = parseLineMaximumSpeed(value["maximumSpeedMetersPerSecond"])
-            return Line(LineId(id), displayName, upIds, downIds, color, maximumSpeed)
+            val metadata = parseLineMetadata(value["metadata"])
+            return Line(LineId(id), displayName, upIds, downIds, color, maximumSpeed, metadata)
         }
 
         private fun lineJson(line: Line) = buildJsonObject {
             put("id", line.id.value)
             put("displayName", line.displayName)
+            put("metadata", line.metadata)
             put("upStationIds", JsonArray(line.upStationIds.map { JsonPrimitive(it.value) }))
             put("downStationIds", JsonArray(line.downStationIds.map { JsonPrimitive(it.value) }))
             line.color?.let { put("color", it) }

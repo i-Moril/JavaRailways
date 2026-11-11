@@ -7,3 +7,12 @@ item:
 parts:
   - import: driver_seat_tail
     offset: {x: 0.5625, y: -0.7125, z: 0.38}
+  # Front exterior LCD: raw model north face, converted through item-display Y=180.
+  - name: exterior_front
+    type: decorations:display
+    offset: {x: 0, y: 0.94375, z: 1.1885}
+    config:
+      category: exterior_front
+      interior: false
+      width: 2.125
+      height: 0.25

@@ -5,7 +5,7 @@ item:
   type: IRON_NUGGET
   item-model: "art1st/tc/s100/head_light"
 animations:
-  - name: front_end_light
+  front_end_light:
     keep-final-state: true
     keyframes:
       - at: 0.0

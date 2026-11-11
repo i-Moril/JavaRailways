@@ -22,6 +22,8 @@ interface PlatformDispatcher {
     fun runForEntity(entity: Entity, action: () -> Unit, retired: () -> Unit = {}): Boolean
     /** Completes only when the entity-owner action has run; retirement/rejection is an explicit failure. */
     fun runForEntityCompletion(entity: Entity, action: () -> Unit): CompletionStage<Void> {
+        // Full Folia shutdown deliberately skips temporary entity-owner mutations.
+        if (PlatformCleanup.skipsOwnerTasks()) return CompletableFuture.completedFuture(null)
         val completion = CompletableFuture<Void>()
         try {
             val accepted = runForEntity(entity, action = {

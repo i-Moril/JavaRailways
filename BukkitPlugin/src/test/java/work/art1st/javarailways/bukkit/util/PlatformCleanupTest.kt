@@ -27,6 +27,9 @@ class PlatformCleanupTest {
             assertFalse(dispatcher.runForEntity(
                 entity, { fail("Entity action ran") }, { fail("Retired callback ran") }
             ))
+            assertTrue(dispatcher.runForEntityCompletion(entity) { fail("Completion owner action ran") }
+                .toCompletableFuture().isDone)
+            assertNull(dispatcher.removeEntityWithPassengers(entity).toCompletableFuture().getNow(null))
             assertNull(dispatcher.runForEntityLater(
                 entity, 1L, { fail("Delayed action ran") }, { fail("Delayed retired callback ran") }
             ))
@@ -38,6 +41,26 @@ class PlatformCleanupTest {
             PlatformCleanup.capture { released = false }!!.run()
         }
         assertFalse(released)
+    }
+
+    @Test
+    fun `barrier waits for asynchronous destruction and reports its failure`() {
+        val observed = CountDownLatch(1)
+        val destruction = CompletableFuture<Void>()
+        val failure = IllegalStateException("asynchronous removal failed")
+        val finished = CompletableFuture.runAsync {
+            PlatformCleanup.runAndAwait {
+                PlatformCleanup.awaitCompletion(destruction)
+                observed.countDown()
+            }
+        }
+        assertTrue(observed.await(5, TimeUnit.SECONDS))
+        assertFalse(finished.isDone)
+        destruction.completeExceptionally(failure)
+        val result = assertThrows(java.util.concurrent.ExecutionException::class.java) {
+            finished.get(5, TimeUnit.SECONDS)
+        }
+        assertSame(failure, result.cause!!.suppressed.single())
     }
 
     @Test

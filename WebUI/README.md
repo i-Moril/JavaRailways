@@ -123,3 +123,7 @@ npm run dev
 ```
 
 The Vite development server expects the same `/api/v1` API. Use a development proxy or run the packaged service for end-to-end testing.
+
+Authenticated users can open **Stations** to edit a station's metadata as JSON. Select an existing station, edit the root object and save. Invalid JSON and failed/conflicting saves retain the draft. Refreshing shows any incoming server JSON without silently changing the draft's original save baseline; adopting that baseline requires explicit confirmation in the editor. Custom nested fields remain intact. Stations belong to the selected world; metadata is shared across a station's berths and is available to train display scripts. Saves update the live world and use the existing periodic/normal shutdown world persistence path.
+
+The existing **Lines** editor and each run's settings also support JSON metadata. Line metadata is saved with the revision-protected world line and its infrastructure snapshot. Run metadata belongs to the timetable authoring document, is included in generated `runSegment` options, and survives compiled snapshot publication. Invalid run JSON remains in the editor and blocks document save, compilation, publication and simulation until corrected. It is independent of station metadata and operating-trip display values. The displayed line ID is the infrastructure identity; diagram display placement does not change lookup identity.

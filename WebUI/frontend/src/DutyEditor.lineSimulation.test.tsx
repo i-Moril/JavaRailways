@@ -135,3 +135,18 @@ describe('mounted DutyEditor line Reset ownership',()=>{
     expect(commands.undo).not.toBe('');expect(commands.redo).toBe('');
   });
 });
+
+
+it('keeps invalid run JSON in the document owner and blocks saving, compiling and publishing until repaired',async()=>{
+ await act(async()=>root.render(<I18nProvider><DutyEditor world="world" recoveryOwner="tester" lines={lines} metadata={metadata} onError={onError} onCommandState={value=>{commands=value;}}/></I18nProvider>));
+ const before=JSON.stringify(currentDocument());
+ await act(async()=>route.onMetadataDraftChange?.('{"notice":'));
+ expect(route.metadataDraft).toBe('{"notice":');expect(commands.save).not.toBe('');expect(commands.compile).not.toBe('');expect(commands.publish).not.toBe('');
+ expect(JSON.stringify(currentDocument())).toBe(before);
+ await act(async()=>route.onChange({...route.run,color:'#123456'}));
+ expect(route.metadataDraft).toBe('{"notice":');expect(commands.save).not.toBe('');
+ await act(async()=>route.onMetadataDraftChange?.('{"notice":"Express","transfers":["branch"]}'));
+ expect(route.run.metadata).toEqual({notice:'Express',transfers:['branch']});expect(commands.save).toBe('');
+ await act(async()=>route.onUndo?.());
+ expect(route.run.metadata).toBeUndefined();expect(JSON.parse(route.metadataDraft!)).toEqual({});
+});

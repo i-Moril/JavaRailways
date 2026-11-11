@@ -576,3 +576,23 @@ it('writes only current call fields while retaining the document minimum',()=>{
  expect(runSegments).toHaveLength(2);
  for(const segment of runSegments)for(const call of JSON.parse(segment).calls)expect(call).not.toHaveProperty('minimumDwellTicks');
 });
+
+
+it('preserves run metadata through save, copy, route resize and generated segment JSON',()=>{
+ const document=valid(),run=document.runs[0];
+ run.metadata={label:'Express',custom:{enabled:true,values:[1,null,'x']}};
+ expect(authoringDocumentForSave(document).runs[0].metadata).toEqual(run.metadata);
+ expect(copyRunShifted(run,'copy',200).metadata).toEqual(run.metadata);
+ expect(resizeRunRoute(run,line,'UP','a','b',metadata).metadata).toEqual(run.metadata);
+ const result=generateTimetableSource(document);expect(result.issues).toEqual([]);
+ const segments=[...result.source.matchAll(/runSegment\(JSON\.parse\(("(?:[^"\\]|\\.)*")\)/g)].map(match=>JSON.parse(JSON.parse(match[1])));
+ expect(segments[0].metadata).toEqual(run.metadata);expect(segments[1].metadata).toEqual({});
+ expect(generateTimetableSource({...document,runs:document.runs.map((value,index)=>index?value:{...value,metadata:{label:'Local'}})}).documentHashInput).not.toBe(result.documentHashInput);
+});
+
+it('rejects nonobject and nonfinite run metadata before generation',()=>{
+ for(const metadata of [null,[],2,'invalid',{bad:Infinity}]){
+   const document=valid();Object.assign(document.runs[0],{metadata});
+   expect(validateAuthoringDocument(document).some(issue=>issue.path==='runs[0].metadata')).toBe(true);
+ }
+});

@@ -5,7 +5,7 @@ import work.art1st.javarailways.bukkit.config.RailModelConfig
 /**
  * A fully loaded train package: manifest + local parts + cars + train definition.
  */
-data class LoadedTrainPackage(
+class LoadedTrainPackage(
     val manifest: PackageManifest,
     /** Local part registry for this package (parts/ subdirectory). */
     val partRegistry: PartRegistry,
@@ -18,8 +18,12 @@ data class LoadedTrainPackage(
     /** Optional JS behavior script for this train package. */
     val behavior: TrainBehaviorScript? = null,
     /** Manual-controller performance and physics configuration. */
-    val control: TrainControlConfig
-)
+    val control: TrainControlConfig,
+    /** Generic captured addon resources, independent of installed providers. */
+    extensions: Map<String, work.art1st.javarailways.bukkit.api.model.extension.PartExtensionResources> = emptyMap()
+) {
+    val extensions = work.art1st.javarailways.bukkit.api.model.extension.immutableExtensionResources(extensions)
+}
 
 /**
  * A fully loaded rail package: manifest + rail model config.

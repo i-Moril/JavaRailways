@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "Default additive fields, retain versions."}
+{"file": ".trellis/spec/javarailways/simpleato/lines.md", "reason": "Line identity/store ownership."}
+{"file": ".trellis/spec/javarailways/simpleato/through-running-and-unit-displays.md", "reason": "Actual run scope and unit display semantics."}
+{"file": ".trellis/spec/webui/frontend/components-state-contracts.md", "reason": "JSON draft/async isolation."}
+{"file": ".trellis/spec/webui/backend/http-repository-packaging.md", "reason": "Authenticated route and authoring validation."}
+{"file": ".trellis/tasks/11-10-line-run-metadata-display/design.md", "reason": "Exact approved data flow and file ownership."}

@@ -27,6 +27,37 @@ import java.nio.file.Path
 
 class ModelTreeBuilderTest {
     @Test
+    fun `unknown extension definitions retain transform animation and children without creating visuals`() = withWorld { world ->
+        val child = PartDefinition("train/child", PartType.DUMMY, offset = Vec3Config(y = 2.0))
+        val screen = PartDefinition("train/lcd", PartType.EXTENSION,
+            offset = Vec3Config(x = 3.0),
+            extension = PartExtensionPayload("decorations:display", config = kotlinx.serialization.json.JsonObject(emptyMap())),
+            parts = listOf(PartRefEntry(child.name, inline = child)),
+            animations = listOf(PartAnimationConfig("position", keyframes = listOf(
+                PartAnimationKeyframeConfig(0.0, "base"),
+                PartAnimationKeyframeConfig(1.0, "raised", offset = Vec3Config(y = 1.0))
+            )))
+        )
+        var roots = 0
+        val model = ModelTreeBuilder(world, SnapshotPartRegistry(emptyMap())) {
+            roots++
+            RecordingRoot()
+        }.buildCarBody(CarDefinition("train/car", bodyParts = listOf(PartRefEntry(screen.name, inline = screen))),
+            Location(null, 0.0, 0.0, 0.0))
+        try {
+            assertEquals(1, roots)
+            val nodes = nodes(model)
+            assertEquals(2, nodes.size)
+            assertTrue(nodes.all { it is DummyModel })
+            assertSame(nodes[1], nodes[0].attachedModels.single())
+            assertEquals(Vector3d(3.0, 0.0, 0.0), nodes[0].state.localTransform.position)
+            assertTrue(model.setAnimationScenes(mapOf("position" to "raised")))
+            nodes[0].updateState(CompactTransform(), CompactTransform(), Vector3d())
+            assertEquals(Vector3d(3.0, 3.0, 0.0), nodes[1].state.position)
+        } finally { model.destroy() }
+    }
+
+    @Test
     fun `loaded YAML applies inline transforms once and preserves import transforms`(@TempDir directory: Path) = withWorld { world ->
         val namespace = directory.resolve("train").toFile().apply { mkdirs() }
         namespace.resolve("body.yml").writeText("""
@@ -36,8 +67,7 @@ class ModelTreeBuilderTest {
             offset: {x: 2.0}
             rotation: {z: 10.0}
             parts:
-              - config-version: 1
-                name: inline
+              - name: inline
                 type: dummy
                 offset: {x: 1.0, y: 3.0}
                 rotation: {z: 30.0}
@@ -236,9 +266,11 @@ class ModelTreeBuilderTest {
         override fun hideFrom(player: Player) = Unit
         override fun teleport(location: Location) = Unit
         override fun setTransformation(transformation: Transformation) = Unit
+        override fun setText(text: net.kyori.adventure.text.Component) { throw IllegalArgumentException("This test visual does not support text") }
         override fun setItemStack(itemStack: ItemStack) = Unit
         override fun setBrightness(blockLight: Int, skyLight: Int) = Unit
         override fun clearBrightness() = Unit
+        override fun refreshPassengersFor(player: Player) = Unit
         override fun addPassenger(passenger: DisplayVisual): Boolean { mountFailure?.let { throw it }; return true }
         override fun destroy(): java.util.concurrent.CompletionStage<Void> { destroyCalls++; return java.util.concurrent.CompletableFuture.completedFuture(null) }
     }

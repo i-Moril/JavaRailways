@@ -64,3 +64,11 @@ Vitest environment 是 `node`。优先测试 pure transformation；无浏览器 
 页面展示来源、关键词查询、刷新、前后游标分页及原始记录详情。`warning`表示来源列表不完整而不是没有错误；`reset`提示刷新；`partial`提示当前片段不完整。关键词只扫描单次有界窗口，空页有nextCursor时仍可继续向前查找。来源切换/查询/刷新立即隐藏旧结果，迟到响应不得覆盖新请求。日志内容按纯文本渲染，禁止HTML插入。堆栈分组由reader负责，UI不自行拆解或恢复世界状态。
 
 `IssuesPage`继续展示当前内容的配置/可用性故障，恢复后移除；不保存计算异常历史，不承担日志搜索。此轮不改现有操作错误提示文案。
+
+## Station JSON metadata editor（2026-11-10）
+
+StationsPage为认证用户展示现有站点，以JSON文本编辑metadata，根必须object。未知自定义key保留；格式化只操作当前草稿。server baseline与编辑draft分离，PUT携带expectedMetadata做按站点冲突检测。解析错误/保存失败/冲突均不清空draft。world/station identity改变必须隔离late response，不能以旧站点资料对新world发写请求；刷新列表不能悄悄将旧draft重基到新baseline后覆盖他人数据。不新增localStorage边界。API/types集中、错误/操作文案双语。
+
+## 线路/运行线 JSON metadata（2026-11-10）
+
+共享metadata.ts parser与MetadataJsonEditor；stationMetadata保留解析入口但委派中立实现。线路以metadataDraft控制原始JSON，非法draft禁用autosave/flush，现有Line revision保护不变；metadata保留在LineV1 wire。运行线raw draft由DutyEditor按run identity持有，切换页面/运行线保留；同步draft-validity ref拦截save/compile/publish/simulation，不能先让旧有效model保存再报告非法。文档切换清理，Undo后显示文档值。复制/resize/reset/模拟等spread paths保留metadata，generated segment必须明确携带run.metadata??{}。Java editor validator同时校验对象/深度/节点/字节，未知metadata内部字段不丢失。

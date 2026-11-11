@@ -1,0 +1,170 @@
+<screen width="800" height="200">
+  <div id="content"/>
+  <script><![CDATA[
+
+    const FONT = "javarailways:display_geometry";
+    const G = { ring:"\uE004", dot:"\uE005" };
+    function object(v) { return v && typeof v === "object" && !Array.isArray(v) ? v : {}; }
+    function localized(v, lang, fallback) {
+        if (typeof v === "string") return v;
+        const m = object(v);
+        return typeof m[lang] === "string" ? m[lang] : typeof m.zh === "string" ? m.zh : typeof m.en === "string" ? m.en : (fallback || "");
+    }
+    function color(v, fallback) { return typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v) ? v : fallback; }
+    function span(parent, text, x, y, size, ink, font) {
+        if (!text) return;
+        const node = document.createElement("span");
+        if (font) node.setAttribute("font", font);
+        // Ring/dot bitmap ink is one native font pixel right of the text origin.
+        if (font === FONT) x -= size / 9;
+        node.setAttribute("style", "left:" + x + ";top:" + y + ";font-size:" + size + ";color:" + ink);
+        node.textContent = String(text);
+        parent.appendChild(node);
+    }
+    function rect(parent, left, top, width, height, ink) {
+        const node = document.createElement("rect");
+        node.setAttribute("style", "left:" + left + ";top:" + top + ";width:" + width + ";height:" + height + ";color:" + ink);
+        parent.appendChild(node);
+    }
+    function textUnits(text) {
+        return Array.from(text).reduce((n, c) => n + (c.codePointAt(0) > 255 ? 1 : 0.7), 0);
+    }
+    function label(parent, text, x, y, maxSize, width, ink) {
+        if (!text) return;
+        // Conservative default-font fit; no browser metrics or implicit clipping.
+        const size = Math.min(maxSize, width / Math.max(1, textUnits(text)));
+        span(parent, text, x, y + (maxSize - size) / 2, size, ink);
+    }
+    function readableLabel(parent, text, x, y, maxSize, minSize, width, ink, ticks) {
+        if (!text) return;
+        const size = Math.max(minSize, Math.min(maxSize, width / Math.max(1, textUnits(text))));
+        const capacity = width / size;
+        const pages = [];
+        let rest = String(text).trim();
+        while (rest) {
+            const chars = Array.from(rest);
+            let count = 0, units = 0;
+            while (count < chars.length && units + textUnits(chars[count]) <= capacity) {
+                units += textUnits(chars[count++]);
+            }
+            count = Math.max(1, count);
+            if (count < chars.length) {
+                // Prefer whole English words; unspaced station names split at a character boundary.
+                const space = chars.slice(0, count + 1).lastIndexOf(" ");
+                if (space > 0) count = space;
+            }
+            pages.push(chars.slice(0, count).join("").trim());
+            rest = chars.slice(count).join("").trim();
+        }
+        if (!pages.length) return;
+        // Five readable 3-second pages per language period; continue long values next cycle.
+        const page = Math.floor(ticks / 600) * 5 + Math.floor((ticks % 300) / 60);
+        span(parent, pages[page % pages.length], x, y + (maxSize - size) / 2, size, ink);
+    }
+    function data(ctx) {
+        const op = object(ctx.data.operational);
+        const run = object(op.currentRun);
+        const rm = object(run.metadata);
+        const line = object(object(ctx.data.lines)[run.lineId]);
+        const lm = object(line.metadata);
+        const lang = Math.floor(ctx.elapsedTicks / 300) % 2 === 0 ? "zh" : "en";
+        return {op:op, run:run, rm:rm, line:line, lm:lm, lang:lang,
+            theme:color(lm.themeColor, color(line.color, "#126EAA")),
+            destination:localized(object(op.values).destination, lang, ""),
+            service:localized(rm.class, lang, "")};
+    }
+
+    function stationName(station, lang) {
+        const s = object(station);
+        return localized(object(s.metadata).name, lang, typeof s.stationName === "string" ? s.stationName : "");
+    }
+    function transferLines(station, d, ctx) {
+        const ids = object(object(station).metadata).transfers;
+        if (!Array.isArray(ids)) return [];
+        const catalog = object(ctx.data.lines);
+        return ids.filter(id => typeof id === "string" && id !== d.run.lineId && catalog[id])
+            .filter((id, i, all) => all.indexOf(id) === i).map(id => object(catalog[id]));
+    }
+    function transferCaption(station, d, ctx) {
+        const explicit = localized(object(object(station).metadata).transfer, d.lang, "");
+        return explicit || transferLines(station, d, ctx).map(line => localized(object(line.metadata).badge, d.lang,
+            localized(object(line.metadata).name, d.lang, line.displayName || line.id || ""))).join(" · ");
+    }
+    function vertical(parent, text, x, y, size, rowsPerColumn, ink) {
+        const chars = Array.from(text), capacity = rowsPerColumn * 2;
+        const shown = chars.slice(0, capacity);
+        if (chars.length > capacity) shown[capacity - 1] = "…";
+        const columns = Math.ceil(shown.length / rowsPerColumn), pitch = size + 4;
+        shown.forEach((char, i) => {
+            const column = Math.floor(i / rowsPerColumn), row = i % rowsPerColumn;
+            // Center the whole block; retain right-to-left column order for vertical names.
+            span(parent, char, x + ((columns - 1) / 2 - column) * pitch,
+                y + row * size, size, ink);
+        });
+    }
+    function render(ctx) {
+        const d = data(ctx), op = d.op;
+        const root = document.getElementById("content");
+        const left = document.createElement("div"), right = document.createElement("div");
+        root.appendChild(left); root.appendChild(right);
+        // Fixed 42/58 split; readable principal text takes priority over excess whitespace.
+        const panelWidth = 336;
+        rect(left, 0, 0, panelWidth, 200, d.theme);
+        rect(right, panelWidth, 0, 800 - panelWidth, 200, "#FFFFFF");
+        const lineName = localized(d.rm.line, d.lang, localized(d.lm.name, d.lang, d.line.displayName || ""));
+        readableLabel(left, lineName, d.service ? 108 : 168, 4, 28, 24,
+            d.service ? 184 : 304, "#FFFFFF", ctx.elapsedTicks);
+        readableLabel(left, d.service, 264, 7, 22, 20, 112, "#FFFFFF", ctx.elapsedTicks);
+        label(left, d.lang === "zh" ? "开往" : "For", 46, 44, 18, 60, "#D6EDFF");
+        readableLabel(left, d.destination, 206, 38, 32, 28, 228, "#FFFFFF", ctx.elapsedTicks);
+        const at = op.phase === "at_station";
+        const station = at ? op.currentStation : op.nextStation;
+        label(left, d.lang === "zh" ? (at ? "本站" : "下一站") : (at ? "This station" : "Next station"),
+            168, 76, 18, 304, "#D6EDFF");
+        readableLabel(left, stationName(station, d.lang), 168, 96, 48, 40, 304, "#FFFFFF", ctx.elapsedTicks);
+        const side = object(ctx.data.display).openingSide;
+        const zh = {this:"本侧开门", opposite:"对侧开门", both:"两侧开门", none:"不开门"};
+        const en = {this:"Doors: this side", opposite:"Doors: other side", both:"Doors: both sides", none:"Doors stay closed"};
+        readableLabel(left, (d.lang === "zh" ? zh : en)[side] || "", 168, 148, 24, 22, 304, "#FFFFFF", ctx.elapsedTicks);
+        readableLabel(left, transferCaption(station, d, ctx), 168, 178, 20, 20, 304, "#FFFFFF", ctx.elapsedTicks);
+        const calls = Array.isArray(op.stops) ? op.stops : [];
+        const index = op.stationIndex;
+        const known = (op.phase === "at_station" || op.phase === "in_transit") &&
+            Number.isInteger(index) && index >= 0 && index < calls.length;
+        if (!known) return;
+        const slots = 8, start = Math.max(0, index - 2), shown = calls.slice(start, start + slots);
+        const railY = 91, routeCenter = panelWidth + (800 - panelWidth) / 2;
+        const spacing = Math.min(48, (800 - panelWidth - 64) / slots);
+        const x0 = routeCenter - (shown.length - 1) * spacing / 2;
+        const routeColor = color(d.line.color, d.theme), gray = "#A6ADB4";
+        let nextStop = -1;
+        const nextStart = at ? index + 1 : index;
+        for (let i = nextStart; i < calls.length; i++) {
+            if (calls[i].status === "STOP" || calls[i].status === "TERMINAL") { nextStop = i; break; }
+        }
+        // Stubs are visible only for genuinely omitted ordered occurrences; unresolved future is explicit too.
+        if (start > 0) rect(right, x0 - 28, railY - 2, 28, 4, gray);
+        if (start + shown.length < calls.length || (Array.isArray(op.unresolvedRuns) && op.unresolvedRuns.length))
+            rect(right, x0 + (shown.length - 1) * spacing, railY - 2, 28, 4, routeColor);
+        shown.forEach((call, slot) => {
+            const absolute = start + slot, x = x0 + slot * spacing, passed = absolute < index;
+            const ink = passed ? gray : routeColor;
+            if (slot + 1 < shown.length) rect(right, x, railY - 2, spacing, 4,
+                absolute < index ? gray : routeColor);
+            const transfers = transferLines(call, d, ctx), maxBadges = 3;
+            transfers.slice(0, maxBadges).forEach((line, n) => {
+                const lm = object(line.metadata), badgeY = railY - 30 - n * 22;
+                rect(right, x - 14, badgeY, 28, 18, color(lm.themeColor, color(line.color, "#555555")));
+                label(right, localized(lm.badge, d.lang, line.displayName || line.id || ""), x, badgeY + 3, 12, 24, "#FFFFFF");
+            });
+            if (transfers.length > maxBadges) span(right, "+", x + 19, railY - 72, 11, "#333333");
+            span(right, G.ring, x, railY - 10, 20, ink, FONT);
+            const stopping = call.status !== "PASS";
+            if (stopping && (absolute !== nextStop || Math.floor(ctx.elapsedTicks / 10) % 2 === 0))
+                span(right, G.dot, x, railY - 4, 8, ink, FONT);
+            vertical(right, stationName(call, d.lang), x, 108, d.lang === "zh" ? 22 : 20,
+                4, passed || !stopping ? gray : "#202830");
+        });
+    }
+  ]]></script>
+</screen>

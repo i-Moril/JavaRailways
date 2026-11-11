@@ -173,6 +173,8 @@ public final class WebUiApplication {
         app.post("/api/v1/worlds/{world}/timetables/simulate", this::simulateTimetable);
         app.post("/api/v1/worlds/{world}/programs/simulate", this::simulateProgram);
         app.get("/api/v1/worlds/{world}/scripts/{script}", this::renderScript);
+        app.get("/api/v1/worlds/{world}/stations", context -> proxyGet(context, worldPath(context) + "/stations"));
+        app.put("/api/v1/worlds/{world}/stations/{station}/metadata", this::putStationMetadata);
         app.get("/api/v1/worlds/{world}/lines", this::lines);
         app.post("/api/v1/worlds/{world}/lines/{line}/simulate", this::simulateLine);
         app.put("/api/v1/worlds/{world}/lines/{line}", this::putLine);
@@ -487,6 +489,19 @@ public final class WebUiApplication {
 
     private String worldPath(Context context) {
         return "worlds/" + segment(context.pathParam("world"));
+    }
+
+    private void putStationMetadata(Context context) throws IOException, InterruptedException {
+        JsonNode request = requestJson(context);
+        requireStationMetadataRequest(request);
+        respond(context, bridge.put(worldPath(context) + "/stations/" + segment(context.pathParam("station")) + "/metadata", request));
+    }
+
+    static void requireStationMetadataRequest(JsonNode request) {
+        if (!request.isObject() || request.size() != 2 ||
+            !request.path("metadata").isObject() || !request.path("expectedMetadata").isObject()) {
+            throw new IllegalArgumentException("expected exactly metadata and expectedMetadata JSON objects");
+        }
     }
 
     private void lines(Context context) throws IOException, InterruptedException {

@@ -1,6 +1,8 @@
 package work.art1st.javarailways.bukkit.render.chunk
 
 import org.bukkit.Bukkit
+import io.papermc.paper.event.packet.PlayerChunkLoadEvent
+import io.papermc.paper.event.packet.PlayerChunkUnloadEvent
 import work.art1st.javarailways.bukkit.util.PlatformCleanup
 import org.bukkit.World
 import org.bukkit.entity.Player
@@ -136,6 +138,27 @@ class RenderChunkManager(
             }
         }
         return selected
+    }
+
+    @EventHandler
+    fun onPlayerChunkLoad(event: PlayerChunkLoadEvent) {
+        if (event.world == world) refreshChunkAudience(event.player, RenderChunk(event.chunk.x, event.chunk.z))
+    }
+
+    @EventHandler
+    fun onPlayerChunkUnload(event: PlayerChunkUnloadEvent) {
+        if (event.world == world) refreshChunkAudience(event.player, RenderChunk(event.chunk.x, event.chunk.z))
+    }
+
+    private fun refreshChunkAudience(player: Player, chunk: RenderChunk) {
+        if (closed) return
+        // Bogies can occupy a sent chunk even while the car centre is in a neighbouring chunk.
+        val affected = LinkedHashSet<Renderable>()
+        renderableObjects[chunk]?.let(affected::addAll)
+        visibleByPlayer[player.uniqueId]?.let(affected::addAll)
+        affected.forEach { renderable ->
+            renderablePositions[renderable]?.let { queueAudienceUpdate(player.uniqueId, renderable, it) }
+        }
     }
 
     @EventHandler

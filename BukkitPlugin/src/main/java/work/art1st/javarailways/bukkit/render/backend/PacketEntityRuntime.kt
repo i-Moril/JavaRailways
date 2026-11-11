@@ -17,6 +17,7 @@ class PacketEntityRuntime internal constructor(
     private val apiProvider: () -> PacketEventsAPI<*> = { PacketEvents.getAPI() },
     private val platformFactory: () -> Platform<*> = { SpigotEntityLibPlatform(plugin) }
 ) : AutoCloseable {
+    internal val displayChunks = PacketDisplayChunks()
     private var enabled = false
     private var entityLibPlatform: Platform<*>? = null
     private var entityLibApi: EntityLibAPI<*>? = null
@@ -54,6 +55,7 @@ class PacketEntityRuntime internal constructor(
         fun cleanup(action: () -> Unit) {
             try { action() } catch (failure: Exception) { failures.add(failure) }
         }
+        cleanup { displayChunks.close() }
         cleanup { packetEntityMotion?.close() }
         packetEntityMotion = null
         val ownedApi = entityLibApi ?: entityLibPlatform?.api

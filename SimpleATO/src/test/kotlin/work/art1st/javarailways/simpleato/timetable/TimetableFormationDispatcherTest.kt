@@ -484,6 +484,16 @@ class TimetableFormationDispatcherTest {
                 assertEquals(if(dynamic) f.train.publishedFrame.trainName else "D express",displays.getValue("unit-0").values["destination"].toString().trim('"'))
                 if(dynamic) assertEquals(kotlinx.serialization.json.JsonPrimitive(2), displays.getValue("unit-0").values["cars"])
                 assertEquals(if (wholeTrain) (if (dynamic) f.train.publishedFrame.trainName else "D express") else "E", displays.getValue("unit-1").values["destination"].toString().trim('"'))
+                val captured = f.dispatcher.captureUnitDisplays(f.world)
+                assertEquals(setOf("unit-0", "unit-1"), captured.map { it.unitId }.toSet())
+                assertEquals(outputs.map { it.id }.toSet(), captured.map { it.trainId }.toSet(), "held output needs no running duty to resolve its own context")
+                captured.forEach { context ->
+                    val actual = checkNotNull(f.world.getTrain(context.trainId)).publishedFrame!!
+                    assertEquals(actual.cars.map { it.carId }.toSet(), context.carIds.toSet())
+                    assertEquals("split", context.timetableId)
+                    assertEquals(displays.getValue(context.unitId).values, context.display!!.values)
+                    assertEquals(displays.getValue(context.unitId).active, context.display.active)
+                }
             }
         }
     }
@@ -493,12 +503,16 @@ class TimetableFormationDispatcherTest {
     fun `station display and reset apply to both units regardless of train orientation`(reversed: Boolean) {
         Fixture(false, sourceReversed = reversed, orientationCase = true, separateDutyCaps = true).use { f ->
             val observed = arrayListOf<Map<String, String>>()
+            val fresh = arrayListOf<List<TimetableUnitDisplayContext>>()
+            val displayRevisions = arrayListOf<Long>()
             f.world.onOwnerForTest {
                 f.world.simpleAtoWorldData.timetableExtensions.registerAction(object : TimetableActionProvider {
                     override val typeId = "test:display-observe"
                     override val version = 1
                     override val descriptor = TimetableExtensionDescriptor("Observe", "Read all unit displays")
                     override fun start(parameters: JsonObject, context: TimetableRuntimeContext): TimetableExtensionActionStartResult {
+                        fresh += f.dispatcher.captureUnitDisplays(f.world)
+                        displayRevisions += f.dispatcher.unitDisplayRevision(f.world)
                         observed += f.dispatcher.unitDisplaysForTrain(f.world, checkNotNull(context.train).trainId, "split", 0)
                             .associate { it.unitId to it.values.getValue("destination").toString().trim('"') }
                         return TimetableExtensionActionStartResult.Accepted(object : TimetableExtensionActionTicket {
@@ -517,7 +531,7 @@ class TimetableFormationDispatcherTest {
                 val steps = listOf(source.steps[0], TimetableStep.At(0, TimetableAction.BeginStationStop(program))) + source.steps.drop(1)
                 val line = checkNotNull(source.lineId)
                 val updated = source.copy(steps = steps, runSegments = listOf(
-                    TimetableRunSegment("before", line, 0, 2), TimetableRunSegment("after", line, 3, 4)))
+                    TimetableRunSegment("before", line, 0, 2, metadata = kotlinx.serialization.json.buildJsonObject { put("notice", kotlinx.serialization.json.JsonPrimitive("current-only")) }), TimetableRunSegment("after", line, 3, 4)))
                 val trips = (1..2).map { slot -> TimetableOperationalTrip("trip-$slot",
                     kotlinx.serialization.json.buildJsonObject { put("destination", kotlinx.serialization.json.JsonPrimitive("default-$slot")) },
                     listOf(TimetableOperationalTripSegment("source", "before", listOf(slot)))) }
@@ -528,6 +542,14 @@ class TimetableFormationDispatcherTest {
             assertEquals(2, observed.size, f.dispatcher.statuses().toString())
             assertEquals(mapOf("unit-0" to "All", "unit-1" to "All"), observed[0])
             assertEquals(setOf("default-1", "default-2"), observed[1].values.toSet())
+            assertTrue(displayRevisions[1] > displayRevisions[0], "station RESET must wake a stationary input sample")
+            fresh.zip(observed).forEach { (captured, expected) ->
+                assertEquals(expected, captured.associate { it.unitId to it.display!!.values.getValue("destination").toString().trim('"') },
+                    "batch capture inside the following station action must see the just-executed SET or RESET")
+                assertTrue(captured.all { it.timetableId == "split" && it.display!!.active })
+                assertTrue(captured.all { it.currentRun?.runId == "before" && it.currentRun.serviceId == "source" })
+                assertTrue(captured.all { it.currentRun?.metadata?.get("notice") == kotlinx.serialization.json.JsonPrimitive("current-only") })
+            }
         }
     }
 

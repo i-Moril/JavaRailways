@@ -113,6 +113,7 @@ worker的record比较、JSON编码、旧文件复制均为`O(render record count
 - `RenderableFrameSnapshot.velocity`是world-space m/s；`CarExtension`只做`/20`转换为Bukkit blocks/tick。body和bogie都从各自同一frame velocity转换，禁止用train标量speed×模型direction重建车体速度，也禁止把bogie的m/s原样传给entity。
 - `DisplayRenderBackendFactory` 根据 config 选择 `NATIVE`/`ENTITYLIB`，backend-specific entity/packet 细节隐藏在 `render.backend`。
 - composite visual 显示顺序是 children before root passenger packet；隐藏顺序是 root before children。`CompositeModelVisibilityTest` 固定该 contract。
+- packet display 仅在 `Player.isChunkSent` 确认 anchor 区块已发送后加入 viewer；挂载部件使用 live root anchor 生成，不能沿用模型构建位置。`PacketDisplayChunks` 记录每玩家/世界/区块发送 generation，区块重发后按 children-before-root 重建，普通跨区块移动不触发反复 respawn；`TrainVisibilitySimulationTest` 覆盖持续移动、等待区块、重发恢复和观众隔离。generation 是客户端运行态标记，不是存档 schema version。
 - model/audience/revision pipeline 保持 latest-wins、有界队列和 stale revision rejection；不要引入每车遍历全服玩家或每 tick 无界 scheduler submission。
 - destroy/unload 必须幂等并清理 child/root/backend resources。所有原生临时实体在 `World.spawn` consumer 内、加入世界前设置 `isPersistent = false`；不能等 spawn 返回后再设置。Folia 真正停服可以跳过 native owner 删除，但本地 teardown、JR 快照和已写入的玩家工具 PDC 仍保留，参见 lifecycle 停服契约。
 
@@ -132,6 +133,8 @@ worker的record比较、JSON编码、旧文件复制均为`O(render record count
 8. **情形**：正常连续帧按revision推进；旧owner高revision后link到低revision survivor立即接受新帧；新帧后迟到的旧owner帧因token不匹配拒绝；显式`CarExtension.commit()`应用live frame但不读写published-stream gate。
 9. **必需测试**：真实Core train/car执行old-high → link → new-low → delayed-old顺序，并断言same-stream equal/stale拒绝、token在构造/link/remove转移；Bukkit focused test不能只分别测试两个无关联helper。Folia实体/客户端呈现仍需游戏内验证。
 10. **迁移与禁例**：无持久化、版本或旧数据迁移。错误做法是把裸per-train revision当per-car全局revision，或region task读取live train集合；正确做法是用opaque runtime UUID先证明当前ownership，再比较该stream内revision。不能靠清零revision解决迟到旧task。
+
+- destroy/unload 必须幂等并清理 child/root/backend resources。所有原生临时实体在 `World.spawn` consumer 内、加入世界前设置 `isPersistent = false`；不能等 spawn 返回后再设置。Folia 真正停服可以跳过 native owner 删除，但本地 teardown、JR 快照和已写入的玩家工具 PDC 仍保留，参见 lifecycle 停服契约。
 
 ## Add-on API 边界
 
@@ -301,3 +304,39 @@ SavedCarModelTree.build在加载/重载准备资源时检查当前活动解析�
 离线`ai_tasks/migrations/migrate_equipment_snapshots.py`使用源/候选真实JAR codec重算包哈希并更新已知渲染引用，
 覆盖current与`.bak`，先dry-run固定输入/JAR哈希，再停服apply并保存外部恢复点。不得放宽运行时hash验证、
 改变默认字段编码或保留旧哈希读取分支。设备运行状态不因这次配置扩展自动成为持久化字段。
+
+
+## Dialog 回调的运行代次
+
+### 1. 触发范围
+
+Paper native Dialog 的 callback registry 不随 Bukkit HandlerList 注销。旧界面在主插件禁用或 PlugManX 创建新实例后仍可能被点击，不能直接调用旧 Wand/session/controller。
+
+### 2. 签名
+
+`DialogRenderer(configUI: ConfigUI, dispatcher: PlatformDispatcher)` 必须显式传入创建本轮 UI 的 dispatcher。所有 `DialogAction.customClick` 使用 `playerDialogCallback(dispatcher, capture, action)`；TrainControlDialog 构造时捕获 dispatcher，不在点击时读取 plugin.platformDispatcher。
+
+### 3. 契约
+
+capture 在 Paper callback 内只复制 response primitive，不修改 session、PDC、世界或发送消息；action 交给捕获的 dispatcher.runForEntity，复用已有代次 gate 和 in-flight 计数。配置响应复制 text/boolean/float，VECTOR3D 的 xyz key 沿用 toInputKey。菜单选择、确认、选项重建、控制动作都受相同 gate 保护。
+
+### 4. 校验与错误
+
+非 Player audience 不执行。关闭后的旧 dispatcher 不提交任务，关闭前已排队的 action 在真正执行时再次检查。新 enable 使用新 dispatcher；plugin.isEnabled=true 不能证明旧 callback 属于新运行期。capture 不得把 Paper DialogResponseView 留给异步任务读取。
+
+### 5. 正常、基本和失败场景
+
+正常：有效菜单/配置确认在玩家 owner 上执行。基本：新运行期开的新界面照常工作。失败：打开界面后重载，再点击旧按钮，不能写 PDC、提交旧 session、修改旧 controller 或重新打开界面。
+
+### 6. 必需测试
+
+PlayerDialogCallbackTest 使用生产 adapter 和真实 PaperPlatformDispatcher，覆盖 response 当场复制、正常执行、排队后禁用拒绝、旧 callback 面对新 dispatcher 仍拒绝、新 callback 可用。真实客户端点击与 PlugManX 重载另行验收。
+
+### 7. 错误与正确做法
+
+错误：customClick 直接调用 entry.onSelected，或点击时读取 plugin.platformDispatcher。正确：创建时捕获 dispatcher，复制响应后通过其生命周期 gate 执行动作。
+
+
+## 客户端区块与虚拟列车显示恢复
+
+- packet display 仅在 `Player.isChunkSent` 确认 anchor 区块已发送后加入 viewer；挂载部件使用 live root anchor 生成，不能沿用模型构建位置。`PacketDisplayChunks` 记录每玩家/世界/区块发送 generation，区块重发后按 children-before-root 重建，普通跨区块移动不触发反复 respawn；`TrainVisibilitySimulationTest` 覆盖持续移动、等待区块、重发恢复和观众隔离。generation 是客户端运行态标记，不是存档 schema version。

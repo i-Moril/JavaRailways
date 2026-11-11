@@ -11,8 +11,9 @@ vi.mock('./api',()=>({api:{saveLine:vi.fn(),deleteLine:vi.fn()}}));
 vi.mock('./CommittedNumberInput',()=>({CommittedNumberInput:()=>null}));
 vi.mock('antd',()=>{
   const Wrapper=({children}:any)=><div>{children}</div>;
-  return {Button:({children,icon:_,type:__,danger:___,...props}:any)=><button {...props}>{children}</button>,Flex:Wrapper,Space:Wrapper,
-    Input:({onChange,...props}:any)=><input {...props} onInput={onChange}/>,
+  const Input=Object.assign(({onChange,...props}:any)=><input {...props} onInput={onChange}/>,{TextArea:({onChange,autoSize:_,...props}:any)=><textarea {...props} onInput={onChange}/>});
+  return {Alert:({title}:any)=><div role="alert">{title}</div>,Button:({children,icon:_,type:__,danger:___,...props}:any)=><button {...props}>{children}</button>,Flex:Wrapper,Space:Wrapper,
+    Input,
     Select:({options,onChange,placeholder}:any)=><select aria-label={placeholder} defaultValue="" onChange={event=>onChange(event.target.value)}><option value=""/>{options.map((option:any)=><option value={option.value} key={option.value}>{option.label}</option>)}</select>,
     Typography:{Title:Wrapper,Text:({children,role,title}:any)=><span role={role} title={title}>{children}</span>}};
 });
@@ -102,4 +103,18 @@ describe('line editor autosave',()=>{
     await act(async()=>request.resolve({revision:5,line:line('alpha')}));await tick(5000);
     expect(collection).toEqual({revision:10,lines:[line('gamma')]});expect(nameInput().value).toBe('gamma');
   });
+});
+
+
+it('retains malformed line metadata across blocked selection and saves custom JSON with the current revision',async()=>{
+  await render();
+  const text=()=>container.querySelector('textarea')!;
+  const edit=async(value:string)=>{await act(async()=>{text().value=value;text().dispatchEvent(new Event('input',{bubbles:true}));});};
+  await edit('{"transfers":');await tick(5000);
+  await act(async()=>container.querySelectorAll<HTMLButtonElement>('.entity-card')[1].click());
+  expect(api.saveLine).not.toHaveBeenCalled();expect(text().value).toBe('{"transfers":');expect(nameInput().value).toBe('alpha');
+  await edit('{"transfers":[{"lineId":"beta"}],"custom":{"enabled":true}}');await tick(1000);
+  expect(api.saveLine).toHaveBeenLastCalledWith('world',expect.objectContaining({metadata:{transfers:[{lineId:'beta'}],custom:{enabled:true}}}),4);
+  await typeName('new name');await tick(1000);
+  expect(api.saveLine).toHaveBeenLastCalledWith('world',expect.objectContaining({metadata:{transfers:[{lineId:'beta'}],custom:{enabled:true}}}),5);
 });

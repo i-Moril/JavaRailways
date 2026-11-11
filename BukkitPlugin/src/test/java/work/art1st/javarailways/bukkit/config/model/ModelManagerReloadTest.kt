@@ -8,6 +8,12 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
+import org.bukkit.plugin.Plugin
+import java.lang.reflect.Proxy
+import kotlinx.serialization.json.jsonPrimitive
+import work.art1st.javarailways.bukkit.api.internal.DefaultPartExtensionService
+import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionProvider
+import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionPackage
 
 class ModelManagerReloadTest {
     @TempDir
@@ -235,8 +241,7 @@ class ModelManagerReloadTest {
             name: a
             type: dummy
             parts:
-              - config-version: 1
-                name: b
+              - name: b
                 type: dummy
                 parts: [{import: a}]
         """.trimIndent())
@@ -251,6 +256,138 @@ class ModelManagerReloadTest {
         manager.publishReload(prepared)
         assertSame(oldVersion, manager.resourceVersion("first"))
         assertThrows<IllegalArgumentException> { ModelManager(dataFolder).loadAll() }
+    }
+
+    @Test
+    fun `generic extension reload publishes captured raw sources while failures retain old catalog independently`() {
+        val first = writePackage("first")
+        val second = writePackage("second")
+        writeExtensions(first, "first old")
+        writeExtensions(second, "second old")
+        val manager = ModelManager(dataFolder)
+        manager.loadAll()
+        val old = manager.resourceVersion("first")
+        first.resolve("addon/display.xml").writeText("first new <script>raw</script>")
+        val prepared = manager.prepareReload()
+        val updated = prepared.versions.getValue("first")
+        assertEquals("first old", old.packageSnapshot.extensions.getValue("unknown:part").files.getValue("display.xml"))
+        assertEquals("first new <script>raw</script>", updated.packageSnapshot.extensions.getValue("unknown:part").files.getValue("display.xml"))
+        assertTrue(old.packageSnapshot.hash != updated.packageSnapshot.hash)
+        assertSame(old, manager.resourceVersion("first"))
+        manager.publishReload(prepared)
+        assertSame(updated, manager.resourceVersion("first"))
+        // A missing declared directory or invalid UTF-8 rejects the candidate and retains the old capture.
+        for (missing in listOf(true, false)) {
+            first.resolve("addon/display.xml").delete()
+            if (!missing) first.resolve("addon/display.xml").writeBytes(byteArrayOf(0xc3.toByte(), 0x28))
+            else first.resolve("addon").deleteRecursively()
+            val secondText = "second update $missing"
+            second.resolve("addon/display.xml").writeText(secondText)
+            val candidate = manager.prepareReload()
+            assertEquals(setOf("first"), candidate.failures.keys)
+            manager.publishReload(candidate)
+            assertSame(updated, manager.resourceVersion("first"))
+            assertEquals(secondText, manager.resourceVersion("second").packageSnapshot.extensions.getValue("unknown:part").files.getValue("display.xml"))
+            assertEquals("first old", old.packageSnapshot.extensions.getValue("unknown:part").files.getValue("display.xml"))
+            first.resolve("addon").mkdirs()
+        }
+    }
+
+    @Test
+    fun `external source cars capture their own package resources rather than composition defaults`() {
+        val first = writePackage("first", composition = listOf("first/head", "second/head"))
+        val second = writePackage("second")
+        writeExtensions(first, "composition XML", "first-category")
+        writeExtensions(second, "source XML", "second-category")
+        val manager = ModelManager(dataFolder)
+        manager.loadAll()
+        val version = manager.resourceVersion("first")
+        val main = version.packageSnapshot.extensions.getValue("unknown:part")
+        val firstCar = version.carPackages.getValue("first/head").extensions.getValue("unknown:part")
+        val secondCar = version.carPackages.getValue("second/head").extensions.getValue("unknown:part")
+        assertEquals("composition XML", main.files.getValue("display.xml"))
+        assertEquals(main, firstCar)
+        assertEquals("source XML", secondCar.files.getValue("display.xml"))
+        assertEquals("second-category", secondCar.files.getValue("category.txt"))
+        assertTrue("first-category" != secondCar.files.getValue("category.txt"))
+        second.resolve("addon/display.xml").writeText("new source XML")
+        manager.publishReload(manager.prepareReload())
+        assertEquals("source XML", secondCar.files.getValue("display.xml"))
+        assertEquals("new source XML", manager.resourceVersion("first").carPackages.getValue("second/head").extensions.getValue("unknown:part").files.getValue("display.xml"))
+    }
+
+    @Test
+    fun `provider rejected source candidate cannot enter another composition model or resource snapshots`() {
+        val first = writePackage("first", composition = listOf("first/head", "second/head"))
+        val second = writePackage("second")
+        writeExtensions(first, "first raw")
+        writeExtensions(second, "baseline B XML")
+        writeExtensionBody(second, "baseline-B")
+        val service = DefaultPartExtensionService()
+        val manager = ModelManager(dataFolder, service)
+        manager.loadAll()
+        val baselineB = manager.resourceVersion("second")
+        val registration = service.register(extensionOwner(), rejectingProvider())
+        second.resolve("addon/display.xml").writeText("reject")
+        writeExtensionBody(second, "unaccepted-B")
+        val prepared = manager.prepareReload()
+        assertEquals(setOf("second"), prepared.failures.keys)
+        val preparedA = prepared.versions.getValue("first")
+        assertEquals(baselineB.packageSnapshot.extensions, preparedA.carPackages.getValue("second/head").extensions)
+        assertEquals("baseline B XML", preparedA.carPackages.getValue("second/head").extensions.getValue("unknown:part").files.getValue("display.xml"))
+        assertEquals("baseline-B", preparedA.models.getValue("second/head").parts.getValue("fleet/body").extension!!.config.getValue("state").jsonPrimitive.content)
+        manager.publishReload(prepared)
+        assertSame(baselineB, manager.resourceVersion("second"))
+        registration.close(); service.close()
+    }
+
+    @Test
+    fun `new source rejected by provider also rejects dependent composition while unrelated package publishes`() {
+        val first = writePackage("first")
+        writeExtensions(first, "first raw")
+        val service = DefaultPartExtensionService()
+        val manager = ModelManager(dataFolder, service)
+        manager.loadAll()
+        val oldA = manager.resourceVersion("first")
+        val registration = service.register(extensionOwner(), rejectingProvider())
+        val second = writePackage("second")
+        writeExtensions(second, "reject")
+        writeExtensionBody(second, "unaccepted-B")
+        writePackage("third")
+        first.resolve("manifest.yml").writeText(first.resolve("manifest.yml").readText().replace("composition: [first/head]", "composition: [first/head, second/head]"))
+        val prepared = manager.prepareReload()
+        assertEquals(setOf("first", "second"), prepared.failures.keys)
+        assertEquals(setOf("third"), prepared.versions.keys)
+        manager.publishReload(prepared)
+        assertSame(oldA, manager.resourceVersion("first"))
+        assertTrue("second" !in manager.trainPackages)
+        assertTrue("third" in manager.trainPackages)
+        registration.close(); service.close()
+    }
+
+    private fun writeExtensionBody(directory: File, value: String) {
+        directory.resolve("parts/fleet").mkdirs()
+        directory.resolve("parts/fleet/body.yml").writeText("config-version: 1\nname: body\ntype: unknown:part\nconfig: {state: $value}\n")
+        val car = directory.resolve("cars/fleet/head.yml")
+        car.writeText(car.readText().replace("body-parts: []", "body-parts: [{import: body}]"))
+    }
+
+    private fun rejectingProvider() = object : PartExtensionProvider {
+        override val typeId = "unknown:part"
+        override fun validate(context: PartExtensionPackage) {
+            require(context.resources?.files?.get("display.xml") != "reject") { "provider rejected source resource" }
+        }
+    }
+
+    private fun extensionOwner(): Plugin = Proxy.newProxyInstance(Plugin::class.java.classLoader, arrayOf(Plugin::class.java)) {
+        _, method, _ -> when (method.name) { "isEnabled" -> true; "getName" -> "TestAddon"; else -> null }
+    } as Plugin
+
+    private fun writeExtensions(directory: File, source: String, category: String = "cabin") {
+        directory.resolve("addon").mkdirs()
+        directory.resolve("addon/display.xml").writeText(source)
+        directory.resolve("addon/category.txt").writeText(category)
+        directory.resolve("manifest.yml").appendText("extensions: {unknown:part: {directory: addon}}\n")
     }
 
     private fun writePackage(name: String, speed: Double = 20.0, directory: String = name,

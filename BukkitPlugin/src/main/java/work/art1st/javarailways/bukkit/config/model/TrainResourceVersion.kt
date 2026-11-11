@@ -14,5 +14,6 @@ internal data class PreparedModelReload(
     val railPackages: Map<String, LoadedRailPackage>,
     val versions: Map<String, TrainResourceVersion>,
     val failures: Map<String, Throwable>,
-    val trainSources: Map<String, String>
+    val trainSources: Map<String, String>,
+    val extensionGeneration: Long = 0
 )

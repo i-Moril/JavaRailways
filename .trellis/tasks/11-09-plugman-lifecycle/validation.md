@@ -108,3 +108,14 @@ JAR 实查：`BukkitPlugin/build/libs/JavaRailways-1.0-SNAPSHOT-all.jar` 的 plu
 Bukkit/TBB shadowJar、BukkitPluginDev compileKotlin、verifySignalModuleBoundaries 均通过。最终完整日志 `/tmp/jr-integrated-build-final.log`。主 JAR SHA256 `db4d18754e9160d5f50f1e6601c19a02a6933b3bff68126a5007e7ef7e5bc7cc`，硬依赖 packetevents、可选依赖 PlugManX/SimpleDisplays，无内嵌 PacketEvents/PlugManX API class。没有部署或实服验收。
 
 主工作区18个原有修改文件已备份至 `/tmp/jr-gentle-main-merge-backup-20261111`；7个重叠文件的三方恢复预检查无冲突。合并时只临时保存这7个文件，完整恢复后保留原工作为未提交状态，不纳入合并提交。
+
+
+## 2026-11-11：重新部署候选（保留实际服务器基线）
+
+用户授权重新部署。只读核对 JavaRailwaysTest 原 JAR SHA256 `840ad44b280d6e47c85f44497189600b9204353179ccdbbe555ba9ca6d7337ba`，对应 0d47741f / 41f7bceb 已部署集成；附属 Decorations/SimpleDisplays 等已安装。主工作区 b14c5737 尚缺其中屏幕、文本、PacketDisplayChunks 与操作部件功能，直接部署将回退。故独立分支 codex/deploy-folia-gentle-unload 合并 41f7bceb 保留现有功能，不修改主工作区或其18个未提交文件。
+
+冲突适配保留所有部署基线公开API及模型/part扩展数据契约。新增等待 DefaultPartExtensionService.closeAsync 的真实 stage，pending 时不能进入 READY 或释放其共享packet owner；不阻塞唯一tick worker。part extension、模型和编辑文字的 actual stage 均在 PlatformCleanup action 内汇合。
+
+宽范围 Bukkit 888项出现2失败、1跳过：已记录的 ProgramExpressions 旧下标断言，以及 ExtensionPartModelTest.style revision 的首次 frame消费超时。相关测试及实现与已部署41f7bceb相同。最终聚焦83项82通过，显示测试仍失败；其余70项Gentle/PlatformCleanup/呈现/编辑文字/part服务生命周期测试全通过，TBB34项通过。源码独立审查无未解决发现。Bukkit/TBB shadowJar、BukkitPluginDev compile、verifySignalModuleBoundaries通过。完整记录 `/tmp/jr-deploy-merged-check.log`、`/tmp/jr-deploy-focused-check.log`；不宣称测试全绿。
+
+最终候选主JAR SHA256 `ee69b8dd616d8b71130d5abf8e8ac7b182e604b95ad226f6275bef1eea822d57`，无内嵌PacketEvents/PlugManX API。TBB JAR仍为远端已安装指纹b6c56122bf4862fe693c3dfc8a7c3688965553903620bbc4b5d6f088646b5fbd，因此只替换主JAR。停服后的恢复备份范围是完整world、plugins、config及根配置，权限受限，且逐文件验证压缩包。部署状态/结果另见临时目录 `/tmp/jr-gentle-deploy-20261111`。

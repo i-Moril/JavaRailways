@@ -21,7 +21,7 @@ export interface TimetableActionV1 { trainInfo?:TrainInfoBindings; type: ActionT
 export interface TimetableStepV1 { type: StepType; tick?: number|null; wayPointId?: string|null; action?: TimetableActionV1|null }
 export type LineDirection = 'UP'|'DOWN';
 export interface TimetableRunCallV1 {id:string;stationId:string;destinationId:string;status:'ORIGIN'|'STOP'|'PASS'|'TERMINAL';viaIds?:string[];arrivalTick?:number|null;departureTick?:number|null}
-export interface TimetableRunSegmentV1 {runId:string;lineId:string;diagramLineId?:string|null;lineDirection?:LineDirection|null;startStepIndex:number;endStepIndexExclusive:number;calls:TimetableRunCallV1[]}
+export interface TimetableRunSegmentV1 {metadata?:MetadataObject;runId:string;lineId:string;diagramLineId?:string|null;lineDirection?:LineDirection|null;startStepIndex:number;endStepIndexExclusive:number;calls:TimetableRunCallV1[]}
 export interface OperationalTripSegment {serviceId:string;runId:string;unitSlots:number[]}
 export interface OperationalTrip {id:string;defaults:ProgramJsonObject;segments:OperationalTripSegment[]}
 export interface TimetableServiceV1 { runSegments?:TimetableRunSegmentV1[]; id: string; lineId?:string|null; diagramLineId?:string|null; lineDirection?:LineDirection|null; selectorType: TrainSelectorType; trainId?: string|null; steps: TimetableStepV1[]; activation: { type: 'SCHEDULED'|'MANUAL'|'CONDITIONAL'; condition?: TimetableConditionV1|null; falseBehavior?: string|null } }
@@ -61,7 +61,7 @@ export interface DraftSummary { id: string; updatedAt?: string; timetable?: Save
 export interface EditorDocumentSummary { id:string; updatedAt?:string }
 export interface ValidationIssue { path?: string; message: string; severity?: string }
 export interface ValidationResult { valid: boolean; errors?: ValidationIssue[]; warnings?: ValidationIssue[] }
-export interface LineV1 { maximumSpeedMetersPerSecond?:number|null; id:string; displayName:string; upStationIds:string[]; downStationIds:string[]; color?:string|null }
+export interface LineV1 { metadata?:MetadataObject; maximumSpeedMetersPerSecond?:number|null; id:string; displayName:string; upStationIds:string[]; downStationIds:string[]; color?:string|null }
 export interface LineCollection { revision:number; lines:LineV1[] }
 export interface SavedLineResult { revision:number; line:LineV1 }
 export interface SimulationProfile {
@@ -171,3 +171,10 @@ export interface StationProgramRecord {
 export interface StationProgramCall {
  id:string;programId:string;tick:number;arguments:Record<string,StationProgramLiteral>;
 }
+
+export type MetadataValue = string | number | boolean | null | MetadataValue[] | MetadataObject;
+export interface MetadataObject { [key:string]:MetadataValue }
+export type StationMetadataValue = MetadataValue;
+export type StationMetadataObject = MetadataObject;
+export interface StationDescriptor { id:string; displayName:string; metadata:StationMetadataObject }
+export interface StationCollection { stations:StationDescriptor[] }

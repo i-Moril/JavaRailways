@@ -506,9 +506,11 @@ class DefaultModelPresentationServiceTest {
             override fun hideFrom(player: Player) { assertTrue(dispatcher.owns(player)); viewers -= player.uniqueId; events += "$name:hide" }
             override fun teleport(location: Location) { owner(); assertEquals(this.location.x, location.x); events += "$name:position" }
             override fun setTransformation(transformation: Transformation) { owner(); events += "$name:transform" }
+            override fun setText(text: net.kyori.adventure.text.Component) { throw IllegalArgumentException("This test visual does not support text") }
             override fun setItemStack(itemStack: ItemStack) { owner(); item = itemStack.clone(); events += "$name:item" }
             override fun setBrightness(blockLight: Int, skyLight: Int) { owner(); events += "$name:brightness" }
             override fun clearBrightness() { owner(); events += "$name:brightness-clear" }
+            override fun refreshPassengersFor(player: Player) = Unit
             override fun addPassenger(passenger: DisplayVisual): Boolean { owner(); return true }
             override fun destroy(): java.util.concurrent.CompletionStage<Void> { owner(); destroyCalls++; events += "$name:destroy"; check(!failDestroy) { "scripted delete failure" }; viewers.clear(); return java.util.concurrent.CompletableFuture.completedFuture(null) }
         }

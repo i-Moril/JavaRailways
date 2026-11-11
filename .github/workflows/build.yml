@@ -45,6 +45,7 @@ jobs:
           :BukkitPlugin:test
           :BukkitPluginDev:test
           :ConfigLib:test
+          :Decorations:check
           :Core:test
           :SimpleSignals:check
           :SimpleATO:test
@@ -64,6 +65,7 @@ jobs:
           path: |
             BukkitPlugin/build/libs/*-all.jar
             SimpleSignals/build/libs/*.jar
+            Decorations/build/libs/*.jar
             WebUI/build/libs/*-all.jar
 
       - name: Upload test reports on failure

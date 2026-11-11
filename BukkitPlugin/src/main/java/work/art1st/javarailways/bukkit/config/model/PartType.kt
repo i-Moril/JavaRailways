@@ -11,7 +11,8 @@ enum class PartType {
     INTERACT,
     DUMMY,
     SEAT,
-    PLATFORM;
+    PLATFORM,
+    EXTENSION;
 
     companion object {
         fun fromString(s: String): PartType = when (s.lowercase()) {
@@ -20,7 +21,10 @@ enum class PartType {
             "dummy" -> DUMMY
             "seat" -> SEAT
             "platform" -> PLATFORM
-            else -> throw IllegalArgumentException("Unknown part type: $s")
+            else -> if (':' in s) {
+                work.art1st.javarailways.bukkit.api.model.extension.requirePartExtensionTypeId(s)
+                EXTENSION
+            } else throw IllegalArgumentException("Unknown part type: $s")
         }
     }
 }

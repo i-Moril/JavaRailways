@@ -1,0 +1,100 @@
+plugins {
+    id 'java'
+    id 'org.jetbrains.kotlin.jvm'
+    id('xyz.jpenilla.resource-factory-bukkit-convention') version '1.3.0'
+}
+
+group = 'work.art1st'
+version = '1.0-SNAPSHOT'
+base { archivesName = 'Decorations' }
+
+repositories {
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'simpleDisplaysApi'
+                url = uri(providers.gradleProperty('simpleDisplaysRepository')
+                    .getOrElse(new File(System.getProperty('user.home'), '.m2/repository').toURI().toString()))
+            }
+        }
+        filter { includeModule('simpledisplays', 'simpledisplays-api') }
+    }
+    mavenCentral()
+    maven { url = 'https://repo.papermc.io/repository/maven-public/' }
+}
+
+dependencies {
+    compileOnly(project(':BukkitPlugin'))
+    compileOnly('io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT')
+    compileOnly('org.jetbrains.kotlin:kotlin-stdlib-jdk8')
+    compileOnly('org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0')
+    compileOnly('org.yaml:snakeyaml:2.2')
+    compileOnly('simpledisplays:simpledisplays-api:0.1.0-SNAPSHOT')
+
+    testImplementation(platform('org.junit:junit-bom:5.10.0'))
+    testImplementation('org.junit.jupiter:junit-jupiter')
+    testImplementation('io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT')
+    testImplementation('org.jetbrains.kotlin:kotlin-stdlib-jdk8')
+    testImplementation('org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0')
+    testImplementation('org.yaml:snakeyaml:2.2')
+    testImplementation('simpledisplays:simpledisplays-api:0.1.0-SNAPSHOT')
+    testImplementation(project(':BukkitPlugin')) { transitive = false }
+    testRuntimeOnly('org.junit.platform:junit-platform-launcher')
+}
+
+java { toolchain.languageVersion = JavaLanguageVersion.of(25) }
+kotlin {
+    jvmToolchain(25)
+    compilerOptions { jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_25 }
+}
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8'; options.release.set(25) }
+tasks.withType(Test).configureEach { useJUnitPlatform() }
+
+bukkitPluginYaml {
+    name = 'Decorations'
+    main = 'work.art1st.javarailways.decorations.DecorationsPlugin'
+    apiVersion = '1.21.11'
+    foliaSupported = true
+    authors.add('__ART1st__')
+    depend.add('JavaRailways')
+    softDepend.add('SimpleDisplays')
+    commands.register('decorations') {
+        description.set('Configure train display viewing distance and fixed-unit styles')
+    }
+    permissions.register('decorations.display-style') {
+        description.set('Allows changing fixed-unit train display styles')
+        getDefault().set(xyz.jpenilla.resourcefactory.bukkit.Permission.Default.OP)
+    }
+    permissions.register('decorations.display-distance') {
+        description.set('Allows changing your interior train display viewing distance')
+        getDefault().set(xyz.jpenilla.resourcefactory.bukkit.Permission.Default.TRUE)
+    }
+}
+
+// Plain JAR: host API, optional provider API and their runtime libraries are supplied by owners.
+def pluginJar = tasks.named('jar', Jar)
+def verifyPluginJar = tasks.register('verifyPluginJar') {
+    dependsOn(pluginJar)
+    inputs.file(pluginJar.flatMap { it.archiveFile })
+    doLast {
+        def jarTree = zipTree(pluginJar.get().archiveFile.get().asFile)
+        def entries = [] as Set
+        jarTree.visit { details -> if (!details.directory) entries.add(details.relativePath.pathString) }
+        if (!entries.contains('plugin.yml')) throw new GradleException('Decorations JAR does not contain plugin.yml')
+        def descriptor = jarTree.matching { include('plugin.yml') }.singleFile.getText('UTF-8')
+        ['name: Decorations', 'main: work.art1st.javarailways.decorations.DecorationsPlugin',
+         'api-version: 1.21.11', 'JavaRailways', 'SimpleDisplays', 'folia-supported: true',
+         'decorations:', 'decorations.display-distance:', 'decorations.display-style:'].each { text ->
+            if (!descriptor.contains(text)) throw new GradleException("Decorations plugin.yml is missing: ${text}")
+        }
+        if (!entries.contains('config.yml')) throw new GradleException('Decorations JAR does not contain config.yml')
+        if (descriptor =~ /org\.jetbrains\.kotlin:|org\.jetbrains\.kotlinx:kotlinx-serialization-/)
+            throw new GradleException('Decorations must inherit Kotlin/serialization through JavaRailways')
+        def forbidden = ['work/art1st/javarailways/bukkit/', 'work/art1st/javarailways/core/',
+            'work/art1st/javarailways/basic/', 'work/art1st/javarailways/simpleato/',
+            'simpledisplays/', 'kotlin/', 'kotlinx/', 'org/yaml/']
+        def copied = entries.findAll { entry -> forbidden.any { prefix -> entry.startsWith(prefix) } }
+        if (!copied.isEmpty()) throw new GradleException("Decorations JAR contains owner/library classes: ${copied.sort()}")
+    }
+}
+tasks.named('check') { dependsOn(verifyPluginJar) }

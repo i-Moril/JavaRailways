@@ -1,10 +1,11 @@
 package work.art1st.javarailways.bukkit.config.model
 
 import org.yaml.snakeyaml.Yaml
+import org.yaml.snakeyaml.LoaderOptions
 import java.io.File
 
-internal fun loadYamlMap(file: File, subject: String): Map<String, Any> {
-    val yaml = Yaml()
+internal fun loadYamlMap(file: File, subject: String, rejectDuplicateKeys: Boolean = true): Map<String, Any> {
+    val yaml = if (rejectDuplicateKeys) Yaml(LoaderOptions().apply { isAllowDuplicateKeys = false }) else Yaml()
     val loaded = file.inputStream().use { yaml.load<Any?>(it) }
         ?: throw IllegalArgumentException("$subject is empty")
     val map = loaded as? Map<*, *>

@@ -4,3 +4,30 @@ type: item_display
 item:
   type: IRON_INGOT
   item-model: "art1st/tc/s100/door_display"
+# Children use physical installed-car HEAD sides, not the raw texture names.
+# This variant is imported only with parent Y=0 degrees.
+parts:
+  - name: interior_door_left
+    type: decorations:display
+    offset: {x: 1.177323006, y: 0.922844514, z: 0}
+    # rotateXYZ Euler form of Y=+/-90 followed by local X=22.5.
+    rotation: {x: 90, y: -67.5, z: 90}
+    config:
+      category: interior_door
+      template: cabin-route.route
+      interior: true
+      door-side: left
+      width: 1
+      height: 0.25
+  - name: interior_door_right
+    type: decorations:display
+    offset: {x: -1.177323006, y: 0.922844514, z: 0}
+    # rotateXYZ Euler form of Y=+/-90 followed by local X=22.5.
+    rotation: {x: 90, y: 67.5, z: -90}
+    config:
+      category: interior_door
+      template: cabin-route.route
+      interior: true
+      door-side: right
+      width: 1
+      height: 0.25

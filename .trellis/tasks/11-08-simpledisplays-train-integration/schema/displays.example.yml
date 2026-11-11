@@ -1,0 +1,13 @@
+# 显示模板配置示例；使用时在包内提供对应XML文件。
+config-version: 1
+
+templates:
+  destination:
+    file: displays/destination.xml
+  cabin_stops:
+    file: displays/cabin_stops.xml
+
+defaults:
+  head_led: destination
+  side_led: destination
+  cabin_side_lcd: cabin_stops

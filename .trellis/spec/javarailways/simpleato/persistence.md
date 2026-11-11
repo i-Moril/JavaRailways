@@ -121,3 +121,7 @@ After ledger restore, SimpleATOWorldData re-establishes separate private Core fo
 run metadata 的 call 增加默认空 `viaIds`；保存、恢复、worker DTO 和前端 wire 保持相同顺序，不按集合排序。`StationStopProgramSnapshotTest` 与 `TimetableRunMetadataTest` 覆盖往返及非法输入；真实浏览器脚本 fixture 的 Graal 编译测试覆盖 writer→worker→snapshot→domain。
 
 编辑文档从 per-call arrivalProgram 改为 stationPrograms，运行引擎不反向猜测不同调用应合并为何种逻辑。一次性编辑文档转换由 `scripts/migrate_station_programs.py` 提供；它不重写 world/runtime snapshot，也不恢复 live checkpoint。旧运行定义应从审核后的当前编辑文档重新编译。完整运行 gate 与 checkpoint 限制见 dispatcher-runtime；迁移操作说明见 tasks/10-24-stop-program-hooks/research/migration.md。
+
+## Station metadata 默认字段（2026-11-10）
+
+SimpleATOInfrastructureSnapshotV1 增加 stationMetadata:Map<String,JsonObject>=emptyMap()，每站只存一份。缺少字段的current fixture按空map读取；capture使用StationStore，restore先校验所有station ID存在于destination角色生成的站点集合、JSON合法与界限，再materialize destinations并恢复metadata。失败沿既有逆序清理；不改runtime/outer边界或formatVersion。新增有默认值字段无需升版，无开发格式兼容reader。沿正常周期/停服世界快照保存，与line编辑一致；HTTP成功指live world已更新，不表示同步落盘。

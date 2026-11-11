@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.simpleato.api.metadata.JsonMetadata
 import work.art1st.javarailways.basic.basicWorldData
 
 import kotlinx.serialization.json.*
@@ -16,7 +17,9 @@ import java.util.Collections
 /** A compiled physical run scope. Address ranges include every nested child of the top-level step. */
 class TimetableRunSegment(val runId: String, val lineId: LineId, val startStepIndex: Int,
     val endStepIndexExclusive: Int, val diagramLineId: String? = null,
-    val lineDirection: LineDirection? = null, calls: List<TimetableRunCall> = emptyList()) {
+    val lineDirection: LineDirection? = null, calls: List<TimetableRunCall> = emptyList(),
+    metadata: JsonObject = JsonObject(emptyMap())) {
+    val metadata: JsonObject = JsonMetadata.immutableCopy(metadata)
     val calls: List<TimetableRunCall> = java.util.List.copyOf(calls)
     init {
         require(runId.isNotBlank() && runId == runId.trim())
@@ -26,8 +29,8 @@ class TimetableRunSegment(val runId: String, val lineId: LineId, val startStepIn
     }
     override fun equals(other: Any?) = other is TimetableRunSegment && runId == other.runId && lineId == other.lineId &&
         startStepIndex == other.startStepIndex && endStepIndexExclusive == other.endStepIndexExclusive &&
-        diagramLineId == other.diagramLineId && lineDirection == other.lineDirection && calls == other.calls
-    override fun hashCode() = java.util.Objects.hash(runId, lineId, startStepIndex, endStepIndexExclusive, diagramLineId, lineDirection, calls)
+        diagramLineId == other.diagramLineId && lineDirection == other.lineDirection && calls == other.calls && metadata == other.metadata
+    override fun hashCode() = java.util.Objects.hash(runId, lineId, startStepIndex, endStepIndexExclusive, diagramLineId, lineDirection, calls, metadata)
 }
 
 data class TimetableRunCall(val id: String, val stationId: String, val destinationId: String,
@@ -333,9 +336,34 @@ internal class TimetableDisplayRuntime {
     private data class Seed(val index: Int, val units: List<String>)
     private val seeds = linkedMapOf<Triple<String,Long,String>, Seed>()
 
+    var revision: Long = 0L
+        private set
+
+    private data class ContextState(val trip: TimetableOperationalTrip, val values: JsonObject, val active: Boolean,
+        val visited: Set<Pair<String,String>>, val completed: Set<Triple<String,String,String>>)
+    private data class State(val contexts: Map<Key,ContextState>,
+        val bindings: Map<Triple<String,Long,Pair<String,String>>,List<String>>,
+        val actual: Set<Triple<String,Long,Pair<String,String>>>, val seeds: Map<Triple<String,Long,String>,Seed>)
+    private fun state() = State(contexts.mapValues { (_, context) -> ContextState(context.trip,context.values,
+        context.active,context.visitedLegs.toSet(),context.completed.toSet()) }, legUnits.toMap(), actualLegs.toSet(),
+        seeds.mapValues { (_, seed) -> seed.copy(units = seed.units.toList()) })
+    private inline fun mutate(action: () -> Unit) {
+        val before = state()
+        try { action() } finally { if (state() != before) revision = Math.incrementExact(revision) }
+    }
+
+    /** Context keys belong to this runtime. Never ask callers to guess a timetable or cycle. */
+    fun currentSnapshot(unitId: String, timetable: (String) -> Timetable?): Pair<String,TimetableUnitDisplaySnapshot>? {
+        val key = contexts.keys.filter { it.unitId == unitId }.singleOrNull() ?: return null
+        val source = timetable(key.timetableId) ?: return null
+        if (source.id != key.timetableId) return null
+        val snapshot = snapshots(source,key.cycle,listOf(unitId)).singleOrNull() ?: return null
+        return key.timetableId to snapshot
+    }
+
     /** Predict only fixed complete-unit operations from actual seed membership, never dynamic branch results. */
     fun proveFuture(timetable: Timetable, cycle: Long, service: TimetableService, segment: TimetableRunSegment, units: List<String>,
-        couplingOrder: (String, Set<String>) -> List<String>?) {
+        couplingOrder: (String, Set<String>) -> List<String>?) = mutate {
         seeds[Triple(timetable.id,cycle,service.id)] = Seed(segment.startStepIndex, units)
         data class Cursor(val service: TimetableService, var index: Int, var units: List<String>?, var done: Boolean = false)
         val cursors = timetable.services.map { duty -> val seed = seeds[Triple(timetable.id,cycle,duty.id)]; Cursor(duty, seed?.index ?: 0, seed?.units) }
@@ -407,7 +435,7 @@ internal class TimetableDisplayRuntime {
     }
 
 
-    fun begin(timetable: Timetable, cycle: Long, service: TimetableService, action: TimetableAction.BeginOperationalTrip, units: List<String>) {
+    fun begin(timetable: Timetable, cycle: Long, service: TimetableService, action: TimetableAction.BeginOperationalTrip, units: List<String>) = mutate {
         val trip=requireNotNull(timetable.operationalTrips.singleOrNull { it.id==action.tripId }) { "operational trip is missing" }
         val leg=requireNotNull(trip.segments.singleOrNull { it.serviceId==service.id && it.runId==action.runId }) { "trip does not own upcoming RUN" }
         require(action.unitSlots.all { it<=units.size && it in leg.unitSlots }) { "BEGIN references absent or unassigned registered units" }
@@ -429,11 +457,11 @@ internal class TimetableDisplayRuntime {
         pruneUnownedCycles()
     }
 
-    fun retire(timetableId: String, cycle: Long, unitIds: List<String>) {
+    fun retire(timetableId: String, cycle: Long, unitIds: List<String>) = mutate {
         unitIds.forEach { contexts[Key(timetableId,cycle,it)]?.active=false }
     }
 
-    fun finish(timetable: Timetable, cycle: Long, serviceId: String, units: List<String>) {
+    fun finish(timetable: Timetable, cycle: Long, serviceId: String, units: List<String>) = mutate {
         units.forEach { id ->
             val context=contexts[Key(timetable.id,cycle,id)] ?: return@forEach
             val ownedLegs=context.trip.segments.filter { leg -> legUnits[Triple(timetable.id,cycle,leg.serviceId to leg.runId)]?.let { binding -> leg.unitSlots.any { binding.getOrNull(it-1)==id } }==true }
@@ -442,7 +470,7 @@ internal class TimetableDisplayRuntime {
         }
     }
 
-    fun enter(timetable: Timetable, cycle: Long, service: TimetableService, segment: TimetableRunSegment, units: List<String>) {
+    fun enter(timetable: Timetable, cycle: Long, service: TimetableService, segment: TimetableRunSegment, units: List<String>) = mutate {
         val selections = timetable.operationalTrips.flatMap { trip -> trip.segments.filter { it.serviceId == service.id && it.runId == segment.runId }.map { trip to it } }
         selections.forEach { (_,leg) -> require(leg.unitSlots.all { it <= units.size }) { "run ${service.id}/${segment.runId} references absent registered unit slot" } }
         val identity = Triple(timetable.id,cycle,service.id to segment.runId)
@@ -477,41 +505,87 @@ internal class TimetableDisplayRuntime {
         actualLegs.removeIf { (it.first to it.second) !in owned }
         seeds.keys.removeIf { (it.first to it.second) !in owned }
     }
-    fun set(timetableId: String, cycle: Long, unitIds: List<String>, values: JsonObject?, remove: List<String> = emptyList()) {
+    fun set(timetableId: String, cycle: Long, unitIds: List<String>, values: JsonObject?, remove: List<String> = emptyList()) = mutate {
         val selected = unitIds.map { id -> requireNotNull(contexts[Key(timetableId,cycle,id)]?.takeIf { it.active }) { "unit $id has no active operational trip" } }
         val updates = selected.map { context -> if (values == null) context.trip.defaults else immutableDisplayValues(JsonObject(context.values.toMutableMap().also { map -> remove.forEach(map::remove); map.putAll(values) })) }
         selected.zip(updates).forEach { (context,value) -> context.values = value }
     }
-    fun reached(timetableId: String, cycle: Long, serviceId: String, runId: String, callId: String, units: List<String>) {
+    fun reached(timetableId: String, cycle: Long, serviceId: String, runId: String, callId: String, units: List<String>) = mutate {
         units.forEach { id -> contexts[Key(timetableId,cycle,id)]?.completed?.add(Triple(serviceId,runId,callId)) }
     }
-    fun snapshots(timetable: Timetable, cycle: Long, units: List<String>): List<TimetableUnitDisplaySnapshot> = java.util.List.copyOf(units.mapNotNull { id ->
-        val context = contexts[Key(timetable.id,cycle,id)] ?: return@mapNotNull null
+    private data class ProjectedStops(
+        val stops: List<TimetableUnitStopSnapshot>, val indices: Map<Triple<String,String,String>,Int>,
+        val unresolved: List<String>, val uncertainFromIndex: Int?,
+    )
+    private fun projectStops(timetable: Timetable, cycle: Long, id: String, context: Context): ProjectedStops {
         val stops = arrayListOf<TimetableUnitStopSnapshot>()
+        val indices = linkedMapOf<Triple<String,String,String>,Int>()
         val unresolved = arrayListOf<String>()
+        var uncertainFromIndex: Int? = null
+        var contiguous = true
         context.trip.segments.forEach { leg ->
             val binding = legUnits[Triple(timetable.id,cycle,leg.serviceId to leg.runId)]
-            // An unresolved future split cannot assert which unit will take which output.
-            if (binding == null) { unresolved += "${leg.serviceId}/${leg.runId}"; return@forEach }
-            if (leg.unitSlots.none { binding.getOrNull(it-1) == id }) return@forEach
+            if (binding == null) {
+                unresolved += "${leg.serviceId}/${leg.runId}"
+                contiguous = false
+                if (uncertainFromIndex == null) uncertainFromIndex = stops.size
+                return@forEach
+            }
+            if (leg.unitSlots.none { binding.getOrNull(it-1) == id }) { contiguous = false; return@forEach }
             val segment = timetable.services.single { it.id == leg.serviceId }.runSegments.single { it.runId == leg.runId }
+            if (segment.calls.isEmpty()) contiguous = false
             segment.calls.forEach { call ->
+                val identity = Triple(leg.serviceId,leg.runId,call.id)
                 val prior = stops.lastOrNull()
-                val joined = call.status == TimetableServiceStopStatus.ORIGIN && prior?.call?.status == TimetableServiceStopStatus.TERMINAL && prior.call.destinationId == call.destinationId
+                val joined = contiguous && call.status == TimetableServiceStopStatus.ORIGIN && prior?.call?.status == TimetableServiceStopStatus.TERMINAL && prior.call.destinationId == call.destinationId
                 if (joined) {
-                    val priorStop=checkNotNull(prior)
-                    stops[stops.lastIndex]=priorStop.copy(call=priorStop.call.copy(status=TimetableServiceStopStatus.STOP,departureTick=call.departureTick))
-                }
-                if (!joined) stops += TimetableUnitStopSnapshot(leg.serviceId,leg.runId,call,Triple(leg.serviceId,leg.runId,call.id) in context.completed)
+                    val priorStop = checkNotNull(prior)
+                    stops[stops.lastIndex] = priorStop.copy(call = priorStop.call.copy(status = TimetableServiceStopStatus.STOP, departureTick = call.departureTick),
+                        completed = priorStop.completed || identity in context.completed)
+                } else stops += TimetableUnitStopSnapshot(leg.serviceId,leg.runId,call,identity in context.completed)
+                // Both exact identities of a joined TERMINAL/ORIGIN address the same occurrence.
+                indices[identity] = stops.lastIndex
+                contiguous = true
             }
         }
-        TimetableUnitDisplaySnapshot(id,context.trip.id,cycle,context.values,java.util.List.copyOf(stops),java.util.List.copyOf(stops.filter { it.completed }),java.util.List.copyOf(stops.filterNot { it.completed }),java.util.List.copyOf(unresolved),context.active)
+        return ProjectedStops(stops,indices,unresolved,uncertainFromIndex)
+    }
+
+    /** Arrival proof and actual movement evidence come only from the serialized Dispatcher owner. */
+    fun captureProgress(timetable: Timetable, cycle: Long, unitId: String,
+        arrived: Triple<String,String,String>?, inTransit: Boolean): TimetableDisplayProgress {
+        val unknown = TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN)
+        val context = contexts[Key(timetable.id,cycle,unitId)]?.takeIf { it.active && it.visitedLegs.isNotEmpty() } ?: return unknown
+        val projected = projectStops(timetable,cycle,unitId,context)
+        fun certain(index: Int) = projected.uncertainFromIndex?.let { index < it } ?: true
+        if (arrived != null) {
+            val index = projected.indices[arrived] ?: return unknown
+            if (!certain(index) || !projected.stops[index].completed ||
+                projected.stops[index].call.status == TimetableServiceStopStatus.PASS) return unknown
+            return TimetableDisplayProgress(TimetableDisplayPhase.AT_STATION,index)
+        }
+        if (!inTransit) return unknown
+        val next = projected.stops.indexOfFirst { !it.completed }
+        if (next == -1) return if (projected.unresolved.isEmpty() && projected.stops.isNotEmpty())
+            TimetableDisplayProgress(TimetableDisplayPhase.FINISHED) else unknown
+        // A hole in reached evidence cannot be repaired by an arbitrary later visit.
+        if (!certain(next) || projected.stops.drop(next).any { it.completed }) return unknown
+        return TimetableDisplayProgress(TimetableDisplayPhase.IN_TRANSIT,next)
+    }
+
+    fun progressChanged() { revision = Math.incrementExact(revision) }
+
+    fun snapshots(timetable: Timetable, cycle: Long, units: List<String>): List<TimetableUnitDisplaySnapshot> = java.util.List.copyOf(units.mapNotNull { id ->
+        val context = contexts[Key(timetable.id,cycle,id)] ?: return@mapNotNull null
+        val projection = projectStops(timetable,cycle,id,context)
+        val stops = projection.stops
+        TimetableUnitDisplaySnapshot(id,context.trip.id,cycle,context.values,java.util.List.copyOf(stops),java.util.List.copyOf(stops.filter { it.completed }),java.util.List.copyOf(stops.filterNot { it.completed }),java.util.List.copyOf(projection.unresolved),context.active)
     })
-    fun retainCycles(active: Set<Pair<String,Long>>) {
+    fun retainCycles(active: Set<Pair<String,Long>>) = mutate {
         contexts.keys.removeIf { (it.timetableId to it.cycle) !in active }
         legUnits.keys.removeIf { (it.first to it.second) !in active }
         actualLegs.removeIf { (it.first to it.second) !in active }
         seeds.keys.removeIf { (it.first to it.second) !in active }
     }
-    fun clear() { contexts.clear(); legUnits.clear(); actualLegs.clear(); seeds.clear() }
+    fun clear() = mutate { contexts.clear(); legUnits.clear(); actualLegs.clear(); seeds.clear() }
 }

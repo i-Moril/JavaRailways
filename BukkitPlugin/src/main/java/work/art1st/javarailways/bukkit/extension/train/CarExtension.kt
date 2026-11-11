@@ -98,6 +98,10 @@ class CarExtension : TrainComponentExtension<Car>() {
     private var forceNextModelUpdate: Boolean = false
     private val publishedFrameGate = CarFramePublicationGate()
     @Volatile private var latestFrame: CarFrameSnapshot? = null
+    private var latestPartRenderSnapshot: TrainPartRenderSnapshot? = null
+    private var latestPartRenderStream: UUID? = null
+    @Volatile internal var hasDynamicExtensionModel: Boolean = false
+        private set
     private var builtModelGeneration: Long = -1L
     private val detailAudience: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
 
@@ -310,25 +314,46 @@ class CarExtension : TrainComponentExtension<Car>() {
     internal fun applyPublishedFrame(
         frame: CarFrameSnapshot,
         publicationStreamId: UUID,
-        revision: Long
+        revision: Long,
+        partRenderSnapshot: TrainPartRenderSnapshot?
     ) {
         require(revision >= 0L) { "published car frame revision must be non-negative" }
         ensureFrameLocationOwned(frame)
         if (!publishedFrameGate.accept(self as CoreCar, publicationStreamId, revision)) return
+        // A pre-publication model has no source identity yet; retire it on its first
+        // accepted source too, so a transfer before that first frame cannot reuse an old session.
+        val streamChanged = latestPartRenderStream != publicationStreamId &&
+            (latestPartRenderStream != null || hasDynamicExtensionModel)
+        val contextChanged = partRenderSnapshot != null &&
+            latestPartRenderSnapshot?.contextKey != partRenderSnapshot.contextKey
+        // A geometry-only envelope carries no new metadata. It may retain the last sample only
+        // within the same train stream; never borrow the old train's values after split/join.
+        if (streamChanged) latestPartRenderSnapshot = null
+        if (partRenderSnapshot != null) latestPartRenderSnapshot = partRenderSnapshot
+        latestPartRenderStream = publicationStreamId
         applyFrameState(
             frame,
-            locationOwnershipChecked = true
+            locationOwnershipChecked = true,
+            rebuildForStreamChange = streamChanged,
+            invalidateExtensionContext = contextChanged && !streamChanged
         )
     }
 
     private fun applyFrameState(
         frame: CarFrameSnapshot,
-        locationOwnershipChecked: Boolean = false
+        locationOwnershipChecked: Boolean = false,
+        rebuildForStreamChange: Boolean = false,
+        invalidateExtensionContext: Boolean = false
     ) {
         if (!locationOwnershipChecked) ensureFrameLocationOwned(frame)
         val oldPosition = latestFrame?.state?.positionVector() ?: self.initialRenderState.position
         latestFrame = frame
+        if (invalidateExtensionContext) {
+            bodyModel?.invalidateExtensionContext()
+            bogieModels.forEach { it.invalidateExtensionContext() }
+        }
         self.world.renderChunkManager.update(self, oldPosition, frame.state.positionVector())
+        if (rebuildForStreamChange) rebuildModelIfBuilt()
         super.commit()
     }
 
@@ -373,10 +398,10 @@ class CarExtension : TrainComponentExtension<Car>() {
     private var animationCapabilities: Map<String, Set<String>> = emptyMap()
 
     /** Same resource policy as display construction, independent of visibility. */
-    private fun resolveModelSnapshot(): SavedCarModelTree {
+    private fun resolveModelSnapshot(policy: TrainModelUpdatePolicy = BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy): SavedCarModelTree {
         val modelName = requireNotNull(carModelName) { "Car model name not set" }
         val modelManager = BukkitPlugin.INSTANCE.modelManager
-        return if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT) {
+        return if (policy == TrainModelUpdatePolicy.SNAPSHOT) {
             savedModelSnapshot ?: requireNotNull(CarModelSnapshotStore.load(requireNotNull(savedModelSnapshotHash) {
                 "Car '${self.id}' has no creation-time model snapshot"
             })) { "Pinned car model snapshot '$savedModelSnapshotHash' is unavailable" }.also { savedModelSnapshot = it }
@@ -389,8 +414,7 @@ class CarExtension : TrainComponentExtension<Car>() {
 
     private var playbackModel: SavedCarModelTree? = null
     private var playbackParts: List<Map<String, work.art1st.javarailways.bukkit.render.Animation>> = emptyList()
-    private fun animationParts(): List<Map<String, work.art1st.javarailways.bukkit.render.Animation>> {
-        val source = resolveModelSnapshot()
+    private fun animationParts(source: SavedCarModelTree = resolveModelSnapshot()): List<Map<String, work.art1st.javarailways.bukkit.render.Animation>> {
         if (playbackModel !== source) {
             if (playbackModel != null) playback.resetForSourceChange()
             playbackParts = source.captureAnimationParts()
@@ -421,12 +445,17 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     private fun buildPreparedModel() {
-        animationParts() // Settle old model-slot playback before publishing another tree's node ordering.
         val modelManager = BukkitPlugin.INSTANCE.modelManager
-        val modelGeneration = modelManager.generation
-        val snapshot = resolveModelSnapshot()
+        val policy = BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy
+        val live = if (policy == TrainModelUpdatePolicy.SNAPSHOT) null else modelManager.captureResourceVersion(requireNotNull(resourceType))
+        val modelGeneration = live?.first ?: modelManager.generation
+        val snapshot = if (live == null) resolveModelSnapshot(policy) else live.second.models.getValue(requireNotNull(carModelName))
+        val sourcePackage = requireNotNull(operationalSnapshot(policy, TrainPackageSnapshotStore::load) { live!!.second }) {
+            "Car '${self.id}' has no source package snapshot"
+        }
+        animationParts(snapshot) // Settle old playback using this exact construction version.
         val carDef = snapshot.car
-        val builder = modelManager.createTreeBuilder(self.world, snapshot.partResolver())
+        val builder = modelManager.createTreeBuilder(self.world, snapshot.partResolver(), sourcePackage)
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
         val rootState = renderFrame().state
         val rootLocation = Location(bukkitWorld, rootState.positionX, rootState.positionY, rootState.positionZ)
@@ -457,6 +486,7 @@ class CarExtension : TrainComponentExtension<Car>() {
             }
             playback.projectCurrentFrames()
         }
+        hasDynamicExtensionModel = bodyModel?.hasExtensionRenderers == true || bogieModels.any { it.hasExtensionRenderers }
         builtModelGeneration = modelGeneration
     }
 
@@ -473,6 +503,11 @@ class CarExtension : TrainComponentExtension<Car>() {
 
     private fun updateModelBundled() {
         val model = bodyModel ?: return
+        hasDynamicExtensionModel = model.hasExtensionRenderers || bogieModels.any { it.hasExtensionRenderers }
+        latestPartRenderSnapshot?.let { input ->
+            model.updateExtensionInput(input.data, input.tick)
+            bogieModels.forEach { it.updateExtensionInput(input.data, input.tick) }
+        }
         val frame = renderFrame()
         val state = frame.state
         val position = state.positionVector()
@@ -557,6 +592,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     override fun destroyModel(): CompletionStage<Void> {
+        hasDynamicExtensionModel = false
         val steps = DestructionSteps()
         steps.action { snapshotHeldScenesForReload() }
         bodyModel?.let { model -> steps.await { model.destroy() } }

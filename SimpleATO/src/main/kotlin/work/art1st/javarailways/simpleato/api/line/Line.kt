@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.api.line
 
+import kotlinx.serialization.json.JsonObject
+import work.art1st.javarailways.simpleato.api.metadata.JsonMetadata
 import work.art1st.javarailways.simpleato.api.station.StationId
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
@@ -23,7 +25,8 @@ data class Line private constructor(
     val upStationIds: List<StationId>,
     val downStationIds: List<StationId>,
     val color: String? = null,
-    val maximumSpeedMetersPerSecond: Double? = null
+    val maximumSpeedMetersPerSecond: Double? = null,
+    val metadata: JsonObject
 ) {
     constructor(
         id: LineId,
@@ -31,8 +34,9 @@ data class Line private constructor(
         upStationIds: Collection<StationId>,
         downStationIds: Collection<StationId>,
         color: String? = null,
-        maximumSpeedMetersPerSecond: Double? = null
-    ) : this(id, displayName, immutable(upStationIds), immutable(downStationIds), color, maximumSpeedMetersPerSecond)
+        maximumSpeedMetersPerSecond: Double? = null,
+        metadata: JsonObject = JsonObject(emptyMap())
+    ) : this(id, displayName, immutable(upStationIds), immutable(downStationIds), color, maximumSpeedMetersPerSecond, JsonMetadata.immutableCopy(metadata))
 
     init {
         require(maximumSpeedMetersPerSecond == null || (maximumSpeedMetersPerSecond.isFinite() && maximumSpeedMetersPerSecond > 0.0)) {

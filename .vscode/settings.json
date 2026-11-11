@@ -21,6 +21,10 @@
         "./schemas/train-model/part-v1.schema.json": [
             "models/*/parts/**/*.yml",
             "models/*/parts/**/*.yaml"
+        ],
+        "./Decorations/schemas/displays-v1.schema.json": [
+            "models/*/decorations/displays.yml",
+            "Decorations/examples/*/decorations/displays.yml"
         ]
     }
 }

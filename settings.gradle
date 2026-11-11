@@ -23,3 +23,5 @@ include 'ConfigLib'
 include 'WebUI'
 
 include 'Diagnostics'
+
+include 'Decorations'

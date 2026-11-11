@@ -22,11 +22,15 @@ class CompositeModel internal constructor(
     private val targetWorld: org.bukkit.World? = null
 ) : Destroyable {
     internal val affinityEntity get() = rootVisual.affinityEntity
+    private val extensionGroups = mutableListOf<ExtensionPartModel>()
     init {
         forEachModelRecursive {
             if (it is DisplayModel) it.mountTo(rootVisual)
+            if (it is ExtensionPartModel) { it.bindRoot(rootVisual); extensionGroups.add(it) }
         }
     }
+
+    val hasExtensionRenderers: Boolean get() = extensionGroups.any { it.hasRenderer }
 
     private var lastRotation: Quaterniond? = null
     private val destruction = Destruction()
@@ -53,11 +57,21 @@ class CompositeModel internal constructor(
         updateRootPosition(rootTransform.position)
     }
 
+    fun invalidateExtensionContext() {
+        extensionGroups.forEach { it.invalidateContext() }
+    }
+
+    /** Value-only input is supplied before the existing full or root-only model commit. */
+    fun updateExtensionInput(data: kotlinx.serialization.json.JsonObject, tick: Long) {
+        extensionGroups.forEach { it.updateInput(data, tick) }
+    }
+
     /** Move the shared root without traversing or recomputing the detailed child model tree. */
     fun updateRootPosition(position: Vector3dc) {
         val bukkitWorld = targetWorld ?: world.bukkitWorldData.bukkitWorld
         val location = Location(bukkitWorld, position.x(), position.y(), position.z())
         rootVisual.teleport(location)
+        extensionGroups.forEach { it.commitPending(location) }
     }
 
     fun applyAnimation(name: String): Boolean {
@@ -93,6 +107,7 @@ class CompositeModel internal constructor(
         // Spawn children before the root sends its passenger packet.
         models.forEach { it.showVisualsTo(player) }
         rootVisual.showTo(player)
+        if (extensionGroups.isNotEmpty()) rootVisual.refreshPassengersFor(player)
     }
 
     @MainThread

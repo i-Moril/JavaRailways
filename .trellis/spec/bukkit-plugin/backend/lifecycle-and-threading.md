@@ -4,9 +4,13 @@
 
 `BukkitPlugin.kt` 的阶段边界：
 
-- `onLoad`：检测 platform capabilities、创建 dispatcher、读取 physics/global config；此阶段不创建或初始化 PacketEvents。
-- `onEnable`：enable packet/runtime、创建 render backend、启动 Basic/plugin registry、安装 `ThreadGuard` bridge、注册 world/service/listener/control、加载模型、初始化 Wand/Cloud、注册 worlds，最后启动 WebUI sidecar 与 `WorldManager`。
-- 自身 `PluginDisableEvent` 在 enabled=false 前调用准备关闭；`onDisable` 幂等兜底准备并完成网络、注册和日志释放。先失效 services/入口，再静止 dispatcher/physics，释放控制会话并保存世界，等待 owner cleanup 后释放自己的 packet runtime 资源；独立 PacketEvents 继续运行。
+- `onLoad`：检测 platform capabilities、创建 dispatcher、读取 physics/global config；不创建或初始化共享 PacketEvents。
+- `onEnable`：绑定独立 PacketEvents、enable 自有 EntityLib/runtime、创建 render backend，安装 ThreadGuard bridge，注册 world/service/listener/control、模型与 Wand/Cloud，最后启动 WebUI sidecar 与逐世界运行器。
+- 自身 PluginDisableEvent 在 enabled=false 前准备关闭；onDisable 幂等兜底。失效服务/入口，停止 dispatcher/physics，按当前逐世界 owner 恢复控制会话并保存，等待 owner cleanup 后释放自有 packet runtime、registry 与日志。独立 PacketEvents 继续运行；不恢复已经删除的领域 Koin owner。
+
+`BukkitRailTargetService(plugin)` 构造时立即捕获本代 `plugin.worldManager`，因此 `enablePlugin` 必须先完成 `WorldManager(...)` 赋值，再构造 rail target service，最后向 ServicesManager 发布。不得依靠 lambda 形状推断依赖仍是延迟读取，也不得改回点击时解析下一代全局实例。更晚初始化的 TurnoutWand 可消费已发布服务。
+
+实际启用失败会使附属插件随后出现宿主 API ClassNotFound；排查应先找主插件的第一个 enable 异常。2026-11-11 测试服曾复现提前构造的 lateinit worldManager 错误，按上述顺序修正后 Folia26.1.2、PacketEvents2.14.0、PlugManX3.2.1 及所有附属插件正常启动；两项 RailTargetService 回归通过，证据见主任务 research/merged-fixes-deployment-20261111.md。正常启动不等于在线玩家热重载矩阵已通过。
 
 新增 component 必须回答：谁创建、何时可用、谁注册、如何停止、world unload 与 plugin disable 是否都释放。不要依赖 JVM 退出回收 executor/task/registration。
 
@@ -243,15 +247,15 @@ SimpleSignals的`SignalReplacementContinuityTest`覆盖；不为同一机制重�
 ### 构造失败资源归还（CURRENT）
 
 1. **范围、触发与owner**：`RailWorldFactory.createForBukkit`拥有尚未返回的world构造；从第一个tick executor创建成功起，到完整world返回前，调用方没有对象可清理，因此factory不能把失败归责给`WorldManager`。
-2. **正常流程**：创建顺序为tick→physics→Core world/DI attach→render listener→共同领域runtime→restore/materialize/render metadata；全部成功后清空构造资源栈并返回world，此刻资源所有权一次性移交给已发布world lifecycle。
+2. **正常流程**：创建顺序为tick→physics→显式 Core world→render listener→共同领域runtime→restore/materialize/render metadata；全部成功后清空构造资源栈并返回world，此刻资源所有权一次性移交给已发布world lifecycle。
 3. **内部机制**：`WorldConstructionResources`只记录本factory已成功取得的close动作，使用LIFO执行，因此共同领域runtime先于render、runtime binding、physics和tick关闭。它不是公共API、通用事务或extension rollback框架。
 4. **构造器边界**：`RenderChunkManager`可能在注册listener后、完成initial-player refresh前抛出，此时factory尚未取得对象；构造器自身调用`close`，最终注销listener。`close`保留首个异常、继续清理其他player并把注销异常记为suppressed。
 5. **接口与数据**：正式factory签名、split snapshot、revision/epoch及world map均不变；未新增schema version、兼容输入、自动重试或空world fallback。
-6. **失败矩阵**：tick创建失败时无资源；physics创建失败只关tick；Core load或DI attach失败关physics/tick；render构造内部失败由其自身撤listener，再由factory关physics/tick；共同领域runtime取得后任一步失败先关闭它，再逐项关render/runtime binding/physics/tick。构造主异常始终保留，清理异常按发生顺序suppressed。
+6. **失败矩阵**：tick创建失败时无资源；physics创建失败只关tick；Core load失败关physics/tick；render构造内部失败由其自身撤listener，再由factory关physics/tick；共同领域runtime取得后任一步失败先关闭它，再逐项关render/runtime binding/physics/tick。构造主异常始终保留，清理异常按发生顺序suppressed。
 7. **线程与发布**：入口仍要求simulation main owner。失败world从未进入`WorldManager`可见map，也不得start/wake physics；清理不发布替代world，不吞掉坏snapshot诊断。
 8. **性能与退化**：构造资源栈只含固定数量的本world资源，为O(1)；正常成功路径为固定次数注册及一次clear。失败不扫描其他world、不重试I/O，也不增加常驻线程或锁。
 9. **必需测试**：验证render→physics→tick逆序、主异常与suppressed顺序、成功移交后不误关；验证render listener已注册后initial refresh失败会注销，且注销失败只作为suppressed。模块完整测试与`shadowJar`仍是最终门禁。
-10. **开放项与错误示例**：world context registration现由Core返回并加入同一构造栈；它只关闭DI binding。错误做法是在调用方包围factory、只关闭最后一个资源、用清理异常覆盖restore异常，或让render构造器注册副作用后抛出而无人持有；正确做法是各owner在对象可见性边界内归还自己已取得的资源。
+10. **开放项与错误示例**：Core world不再拥有DI binding；构造栈只保留当前显式取得的runtime资源。错误做法是在调用方包围factory、只关闭最后一个资源、用清理异常覆盖restore异常，或让render构造器注册副作用后抛出而无人持有；正确做法是各owner在对象可见性边界内归还自己已取得的资源。
 
 ### 卸载失败隔离（CURRENT）
 
@@ -268,6 +272,21 @@ SimpleSignals的`SignalReplacementContinuityTest`覆盖；不为同一机制重�
 
 线程相关权威证据：`WorldManager.kt`、`BukkitThreadGuardBridge.kt`、`PlatformDispatcher.kt`、`docs-site/docs/architecture/threading-model.md`。
 
+### 第二批审查：保存与取消事件（CURRENT）
+
+WorldManager 的 snapshot revision 属于 exact CoreWorld 实例，不再取 serverTickIndex。loadSplitSnapshots 返回成功配对快照及所有可解码 primary/backup 候选的最高 revision；包括未配对的中断写入。注册时 restoreSnapshotRevision 初始化，captureSnapshots 在原 owner 捕获边界用 nextSnapshotRevision 原子递增，之后仍由原串行 writer 写盘。每次捕获 O(1)，加载仍只处理既有常数个候选；不添加扫描历史或兼容 reader。卸载与安装失败删除该实例的序号，未初始化和 Long 溢出明确失败，不能回落到零。它是保存排序号，不是 schema version，也不替代 physics epoch。
+
+例如旧备份 10000、新会话首个保存必须大于 10000；中断写入留下孤立 10001 时下一捕获为 10002。WorldPersistenceRevisionTest 验证真实文件写入/重载、同 tick 捕获唯一性和溢出拒绝。禁止使用重启归零 tick 或只取配对文件的旧 revision 作新保存上限。无格式迁移。
+
+WorldUnloadEvent 的破坏性清理由 MONITOR 且 ignoreCancelled=true 的监听器执行；WorldManager、HTTP 地图缓存、RailObjectWand 与 SimpleSignals runtime 遵循这一边界，EditorText 已采用相同规则。取消事件保留仍活动的 runtime；不在 NORMAL 阶段先关再恢复。SeatModel 的离座回调、位置调整及后续清理同样只对确认接受的下车事件执行。WorldManagerUnloadTest、SeatDismountTest 通过真实 RegisteredListener 验证取消过滤；真实 Paper/Folia 生命周期仍需游戏内验收。
+
+
+### 第三批：时刻表编译与rail visual退休（CURRENT）
+
+时刻表JS与宿主共享JVM，每次单独Graal Context；生产单次预算60秒，同时最多两个执行。sandbox是执行生命周期owner，所有HTTP同步和命令异步入口共用该限制；超时/close调用Context.close(true)实际取消guest，不能只完成等待future。关闭先拒绝新入口，逐项取消已登记执行；finally释放许可，取消的deadline从scheduler队列移除。512KiB源码和8MiB生成结果限制保留，stdout/stderr合计1MiB且只计数丢弃，不积累打印内存；超限即使guest捕获写异常也不能成功。没有独立进程/heap隔离，不宣称限制guest总内存。回归用短内部期限运行真实Graal顶层/main循环，验证取消、输出预算、名额恢复与关闭异步命令。
+
+RailVisualBootstrap索引键为(exact CoreWorld.runtimeId, rail UUID)，不能只按rail UUID定位；复制世界或同持久化world UUID重载仍各有runtime。unregisterRail要求world，RailWorldFactory返回前的构造失败由其资源栈调用retireWorld；WorldManager后续安装失败和卸载均调用retireWorld，按准确条目退休显示owner。清理返回聚合CompletionStage，已有未完成删除仍参与结果；不在world owner等待entity区域操作，失败需观察/报告。移除全局索引仅证明引用退休，不等于后端实体已经删除，Paper/Folia删除需另验。物理轨道及磁盘UUID不改变。
+
 
 ## 热启停资源契约
 
@@ -278,14 +297,14 @@ BukkitPlugin、WorldManager、dispatcher、模型/工具和 add-on 在同实例�
 ### 2. 签名
 
 - `PhysicsCoordinator.stopAndAwait(timeoutMillis = 10_000)` 永久停止新 epoch，成功后允许读最终 ticket。
-- `WorldManager.quiescePhysics()` 在 simulation context 中调用；控制会话必须在 world map 移除前释放。
-- `PlatformCleanup.runAndAwait(timeoutMillis = 10_000, action)` 追踪跨 owner 及其嵌套任务；等待时不得持 simulation lock。
+- `WorldManager.unregisterRailWorld()` 先在仍可进入的物理帧边界恢复控制会话，再 stopAndAwait，成功后捕获最终快照；不得全局先停止 physics 再进入 processBetweenFrames。
+- `PlatformCleanup.runAndAwait(timeoutMillis = 10_000, action)` 追踪跨 owner 及其嵌套任务；等待时不得持 simulation lock。当前 destroy 返回 CompletionStage，通过 awaitCompletion 将完成/失败接入同一 batch，不把提交成功当作删除完成；Folia整服停止跳过临时owner动作时 completion 立即完成且不访问Bukkit。
 - `PaperPlatformDispatcher.stopAndAwait()` 封住旧 enable 的正常回调，新 enable 使用新 dispatcher。
 - `AbstractWand.close()` 保存在线玩家绑定状态、释放预览/会话并停止周期任务；不可读 PDC 不被内存默认值覆盖。
 
 ### 3. 契约
 
-服务在任何 world/physics lock 之前注销，consumer 先失效 lease。最终 snapshot 只从成功静止的 physics 捕获；之后每个 world 的 render/tick/DI owner 独立释放，即使保存失败也不跳过其他 cleanup。Native Display 删除通过 entity owner 调度。Seat 静态 registry 在模型销毁和 cleanup barrier 后关闭。
+服务在任何 world/physics lock 之前注销，consumer 先失效 lease。最终 snapshot 只从成功静止的 physics 捕获；之后每个 world 的 render/tick owner 独立释放，即使保存失败也不跳过其他 cleanup。Native Display 删除通过 entity owner 调度。Seat 静态 registry 在模型销毁和 cleanup barrier 后关闭。
 
 ### 4. 校验与错误
 

@@ -65,6 +65,15 @@ internal class DefaultEditorTextService(
         return CompletableFuture.allOf(*handles.map { it.cleanup }.toTypedArray()).minimalCompletionStage()
     }
 
+    /** Close the host and expose every previously accepted handle's actual destruction result. */
+    fun beginHostCleanup(): CompletionStage<Void> {
+        close()
+        // close() atomically rejects new handles. Successful completed handles have left this
+        // registry; unfinished and failed cleanups remain observable without nesting handle locks.
+        val handles = synchronized(registryLock) { outstanding.toList() }
+        return CompletableFuture.allOf(*handles.map { it.cleanup }.toTypedArray()).minimalCompletionStage()
+    }
+
     override fun close() {
         val handles = synchronized(registryLock) {
             if (closed) return

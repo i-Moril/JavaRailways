@@ -4,6 +4,10 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.AfterEach
+import sun.misc.Unsafe
+import work.art1st.javarailways.bukkit.BukkitPlugin
 import net.kyori.adventure.text.Component
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
@@ -12,6 +16,22 @@ import java.lang.reflect.Proxy
 import java.util.Locale
 
 class CloudCommandRegistrarTest {
+    private var previousInstance: BukkitPlugin? = null
+
+    @BeforeEach
+    fun activateRuntime() {
+        previousInstance = BukkitPlugin.instanceOrNull()
+        val unsafe = Unsafe::class.java.getDeclaredField("theUnsafe").apply { isAccessible = true }.get(null) as Unsafe
+        val plugin = unsafe.allocateInstance(BukkitPlugin::class.java) as BukkitPlugin
+        BukkitPlugin::class.java.getDeclaredField("isRuntimeActive").apply { isAccessible = true }.set(plugin, true)
+        BukkitPlugin.INSTANCE = plugin
+    }
+
+    @AfterEach
+    fun restoreRuntime() {
+        BukkitPlugin::class.java.getDeclaredField("currentInstance").apply { isAccessible = true }.set(null, previousInstance)
+    }
+
     @Test
     fun `tokenizer preserves the empty token required for trailing-space suggestions`() {
         assertEquals(listOf("train", "create", ""), CloudCommandRegistrar.tokenize("train create "))

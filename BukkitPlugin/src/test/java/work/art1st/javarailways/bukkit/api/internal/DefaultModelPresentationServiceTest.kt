@@ -36,6 +36,20 @@ import java.util.logging.Logger
 
 class DefaultModelPresentationServiceTest {
     @Test
+    fun `host cleanup waits for previously queued model reconciliation`() = Fixture().use { f ->
+        val handle = f.create()
+        handle.submit(state(1))
+        f.dispatcher.drain()
+        assertEquals(2, f.backend.visuals.size)
+        handle.submit(state(2))
+        val completion = f.service.beginHostCleanup().toCompletableFuture()
+        assertFalse(completion.isDone)
+        f.dispatcher.drain()
+        completion.join()
+        assertTrue(f.backend.visuals.all { it.destroyCalls == 1 })
+    }
+
+    @Test
     fun `editor highlight sessions are exact owner viewer world scoped and retire on lifecycle`(): Unit = Fixture().use { f ->
         val viewer = player(f.bukkitWorld) {}
         f.dispatcher.entityLocations[viewer] = Location(f.bukkitWorld, 0.0, 64.0, 0.0)

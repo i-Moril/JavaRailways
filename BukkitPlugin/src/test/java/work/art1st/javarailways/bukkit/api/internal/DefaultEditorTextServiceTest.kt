@@ -43,6 +43,20 @@ import java.util.logging.Logger
 
 class DefaultEditorTextServiceTest {
     @Test
+    fun `host cleanup observes earlier queued reconciliation before approving unload`() = Fixture().use { f ->
+        val handle = f.create()
+        handle.submit(0, listOf(label("a")))
+        f.dispatcher.drain()
+        assertEquals(1, f.visuals.size)
+        handle.submit(1, listOf(label("a", text = "queued update")))
+        val completion = f.service.beginHostCleanup().toCompletableFuture()
+        assertFalse(completion.isDone)
+        f.dispatcher.drain()
+        completion.join()
+        assertTrue(f.visuals.all { it.removals == 1 })
+    }
+
+    @Test
     fun `fixed glyph appearance updates on the entity owner and readable style restores completely`() = Fixture().use { f ->
         val handle = f.create()
         val glyph = EditorMarkerLabels.at("a", EditorMarkerGlyph.DIRECTION, Vector3d(0.0, 64.0, 0.0),

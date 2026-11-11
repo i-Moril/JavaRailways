@@ -66,3 +66,14 @@ Folia 禁用阶段 owner cleanup、Cloud 命令恢复、PacketEvents 在线玩�
 ## 2026-11-10：第4项暂缓，仅明确关闭失败警告
 
 用户认为跨实例运行标记暂时不必要，要求发现关闭失败时发送警告。本轮仅增强现有控制台 SEVERE 汇总：列出失败组件，说明 PlugManX 可能继续卸载/加载，提示停止继续热重载、查看详细错误/PID、保留快照及备份、确认遗留 WebUI 子进程退出后重启。保留原来逐项异常日志；成功关闭不打印此警告。不增加磁盘标记、跨实例拦截、在线玩家广播或新的调度行为。本轮不自动提交/推送/部署。
+
+
+## 2026-11-11：Folia PlugManX GentleUnload 两次请求
+
+用户明确要求支持 threaded-regions.threads=-1 自动选择单 tick worker 的情况，并授权先接入 GentleUnload，不自动发起第二次卸载。仅修改本独立工作区，不提交/部署/操作实服。
+
+最小行为差异：Folia 上 PlugManX 3.2.1 第一次 unload 请求通过 GentleUnload 启动异步准备并返回 false，释放 global tick worker；准备期间重复请求仍拒绝。等待真实 owner cleanup、嵌套任务和最终保存完成且全部成功后标记 ready，提示再次执行原命令。第二次请求才返回 true；PluginDisableEvent/onDisable 复用准备结果，避免重复等待。失败保持拒绝并记录原因。普通 Paper/Bukkit、正常停服以及外部 PacketEvents 所有权保持原契约。独立 disable 不经过 PlugManX GentleUnload，不能宣称覆盖。
+
+预期边界：BukkitPlugin composition、PlatformCleanup 非阻塞完成接口、局部 GentleUnload 状态与可选 API adapter、必要的 plugin dependency metadata、生产路径测试和 README。优先不引入硬依赖或内嵌 PlugManX；任何反射适配仅针对已核对的 3.2.1 接口，不能更改 enabled、借用其他插件调度身份或绕过线程 ownership。异步准备不能简单把含 Bukkit 操作的整个 prepareShutdown 丢给异步线程；global/entity/region affinity 必须保留，等待点必须让 tick worker 返回调度器。异步期间正常停服或非 GentleUnload 禁用应有显式安全处理和测试。
+
+验证：单 worker 队列第一次返回后才能执行 cleanup 的生产逻辑测试；重复/ready/failed/超时/嵌套任务/迟到回调/直接禁用及缺失 PlugManX 的场景。执行 Bukkit tests + shadowJar，检查 PlugManX 未内嵌；下游 compile/test 按实际变更边界。实服验证未执行不能声称已通过。

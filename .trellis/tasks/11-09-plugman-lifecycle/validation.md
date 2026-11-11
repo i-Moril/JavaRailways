@@ -82,3 +82,51 @@ JAR 实查：`BukkitPlugin/build/libs/JavaRailways-1.0-SNAPSHOT-all.jar` 的 plu
 基线af656dea。仅更改 BukkitPlugin.finishShutdown 已有失败汇总的文案；逐项异常仍记录，成功路径不输出此警告，不增加调度/广播/磁盘标记/跨实例保护。独立 trellis-check 审查通过。
 
 `./gradlew :BukkitPlugin:test :BukkitPlugin:shadowJar --offline --console=plain --no-parallel --max-workers=2` BUILD SUCCESSFUL，261 tests、0 failure/error/skip。文案改动不新增镜像实现测试。git diff --check通过；无实服、提交、推送、部署。
+
+
+## 2026-11-11：Folia PlugManX GentleUnload
+
+按用户授权在独立工作区接入两次请求：首次 veto 后延后 global 准备，非阻塞追踪 owner/嵌套清理；最终保存和 writer 完成后才 ready，第二次请求放行。不自动续接。支持 threads=-1 自动选出一个实际 worker，不修改服务器线程配置。
+
+新增测试覆盖单 worker 排队、重复请求、失败拒绝、禁用前取消、异步超时 fencing、正在执行回调 drain、真实 BukkitPlugin composition 中 writer-before-ready 和幂等复用，以及反射 API 注册与精确注销。独立审查未发现阻塞问题；JUnit XML 汇总 BukkitPlugin 269 tests / 0 failures / 0 errors / 0 skipped。首次组合测试 fixture 缺 Paper pluginMeta 导致失败，已修正 fixture，并在完整重跑中通过；未放宽生产行为。
+
+主会话独立检查 shadow JAR：plugin.yml 硬依赖 packetevents、softdepend PlugManX；包含 GentleUnload production classes，不含任何 PlugManX/PacketEvents class，内嵌 WebUI 保留。git diff --check 通过。
+
+没有启动服务器、修改实服配置、部署、提交或推送。真实 Folia 单 worker 在线玩家的 unload/reload 与 PlugManX 依赖级联仍未执行验收。PlugManX 独立 disable 绕过 GentleUnload，不属于本次兼容路径；直接禁用或停服打断准备会取消排队动作并报告未完整关闭。Cloud 与外部 PacketEvents lifecycle 保持原契约。
+
+最终完整验证命令：`JAVA_HOME=/nix/store/6mwdyvwm1qpzry3z1nkg9777vnmhy9ab-openjdk-25.0.4+1 ./gradlew :BukkitPlugin:test :BukkitPlugin:shadowJar --offline --console=plain --no-parallel --max-workers=2`，BUILD SUCCESSFUL。最终 JAR SHA-256：`7e32be452b3adfb971a34b9eda79add51645071ec689db00bd0f2735e14796b5`。
+
+
+## 2026-11-11：合并到用户指定主工作区分支
+
+用户明确指定目标为 `/workspace/minecraft/JavaRailways` 当前 `feat/simpledisplays-train-integration`（基线 e5809088），而不是旧本地 main 或远端默认分支。本次 GentleUnload 独立提交为 14a3007b。目标尚未包含此前三个生命周期提交，故在任务工作区合并其基线并适配冲突；不从其他集成分支顺带引入 Decorations 等功能。
+
+集成保留目标显式 world runtime，不恢复已删除 Koin/WorldParentContext 及旧DI测试；保留 SimpleATO/SimpleSignals/可选 SimpleDisplays、新 snapshot revision 与 WorldUnload 事件契约。模型/编辑文字服务增加真实 host cleanup stage，共用独立 presentation dispatcher 并进入非阻塞 owner barrier；其 drain 失败阻止后续共享资源释放。新增测试先创建实际 visual，再排队 update 并验证 host cleanup 等待真实删除。
+
+独立审查完成，无未解决发现。最终 `--continue` 检查：Core 574、Basic 494、BukkitPlugin 796、TunnelBridgeBuilder 34，共 1898 项；1896 passed、1 failed、1 skipped。唯一失败为目标已有 `ProgramExpressionsTest.one string parameter composes into destination station depot and display fields` 第130行的旧动作下标断言；该测试及 `scriptworker` 被测源码与 e5809088 字节一致，未修改断言。不能将本次整体检查报告为全绿。默认测试堆曾 OOM，最后使用 `/tmp/jr-integrated-test-heap.gradle` 临时配置 Bukkit 2g、forkEvery20 重跑；不改变生产内存或曲线逻辑。
+
+Bukkit/TBB shadowJar、BukkitPluginDev compileKotlin、verifySignalModuleBoundaries 均通过。最终完整日志 `/tmp/jr-integrated-build-final.log`。主 JAR SHA256 `db4d18754e9160d5f50f1e6601c19a02a6933b3bff68126a5007e7ef7e5bc7cc`，硬依赖 packetevents、可选依赖 PlugManX/SimpleDisplays，无内嵌 PacketEvents/PlugManX API class。没有部署或实服验收。
+
+主工作区18个原有修改文件已备份至 `/tmp/jr-gentle-main-merge-backup-20261111`；7个重叠文件的三方恢复预检查无冲突。合并时只临时保存这7个文件，完整恢复后保留原工作为未提交状态，不纳入合并提交。
+
+
+## 2026-11-11：重新部署候选（保留实际服务器基线）
+
+用户授权重新部署。只读核对 JavaRailwaysTest 原 JAR SHA256 `840ad44b280d6e47c85f44497189600b9204353179ccdbbe555ba9ca6d7337ba`，对应 0d47741f / 41f7bceb 已部署集成；附属 Decorations/SimpleDisplays 等已安装。主工作区 b14c5737 尚缺其中屏幕、文本、PacketDisplayChunks 与操作部件功能，直接部署将回退。故独立分支 codex/deploy-folia-gentle-unload 合并 41f7bceb 保留现有功能，不修改主工作区或其18个未提交文件。
+
+冲突适配保留所有部署基线公开API及模型/part扩展数据契约。新增等待 DefaultPartExtensionService.closeAsync 的真实 stage，pending 时不能进入 READY 或释放其共享packet owner；不阻塞唯一tick worker。part extension、模型和编辑文字的 actual stage 均在 PlatformCleanup action 内汇合。
+
+宽范围 Bukkit 888项出现2失败、1跳过：已记录的 ProgramExpressions 旧下标断言，以及 ExtensionPartModelTest.style revision 的首次 frame消费超时。相关测试及实现与已部署41f7bceb相同。最终聚焦83项82通过，显示测试仍失败；其余70项Gentle/PlatformCleanup/呈现/编辑文字/part服务生命周期测试全通过，TBB34项通过。源码独立审查无未解决发现。Bukkit/TBB shadowJar、BukkitPluginDev compile、verifySignalModuleBoundaries通过。完整记录 `/tmp/jr-deploy-merged-check.log`、`/tmp/jr-deploy-focused-check.log`；不宣称测试全绿。
+
+最终候选主JAR SHA256 `ee69b8dd616d8b71130d5abf8e8ac7b182e604b95ad226f6275bef1eea822d57`，无内嵌PacketEvents/PlugManX API。TBB JAR仍为远端已安装指纹b6c56122bf4862fe693c3dfc8a7c3688965553903620bbc4b5d6f088646b5fbd，因此只替换主JAR。停服后的恢复备份范围是完整world、plugins、config及根配置，权限受限，且逐文件验证压缩包。部署状态/结果另见临时目录 `/tmp/jr-gentle-deploy-20261111`。
+
+
+### 实服首轮与元数据修正
+
+首轮候选8af6dd23经1915文件完整备份后只替换主JAR。11:00:24实际注册GentleUnload，运行时1个tick worker，Bridge/WebUI health200；但SimpleSignals启用出现Kotlin Function1/JsonKt loader constraint violation，未视为部署成功，立即正常停服保存。
+
+比对真实旧JAR和候选plugin.yml：旧部署仅harddepend packetevents；候选从主工作区旧集成遗留softdepend SimpleDisplays（以及本次新增PlugManX）。SimpleDisplays独立Paper libraries含Kotlin2.3.0，SimpleSignals不内嵌或声明私有Kotlin，宿主则内嵌Kotlin/serialization。当前SimpleDisplays连接已由Decorations拥有，宿主无API导入和初始化；因此删除宿主过时SimpleDisplays软依赖，保留PlugManX，并在根verifySignalModuleBoundaries增加产物回归检查。此修正不删除屏幕功能、不改其他插件。
+
+修正后聚焦18测试全部通过，主shadowJar、Devcompile和边界检查通过（/tmp/jr-deploy-metadata-fix-check.log）。新JAR SHA256 e19b38fc120f5e4f1a7a13b67238462f09dbd83efabe1777a3c1a60c39ad1be3；后续实际重启结果单独记录，不能以静态检查替代SimpleSignals启用验收。首轮恢复点 /opt/mcsmanager/backups/javarailways/gentle-unload-20261111-juslpv0f，archive SHA256 d2ced447d79f9627e4706d105e5441aeb65b75fafc3abd1328d3486337e34267。
+
+显示测试的额外二进制对照已完成：将实际旧部署JAR840ad44作为测试classpath首项，执行同一个ExtensionPartModelTest用例，复现同样首次frame消费失败（/tmp/jr-baseline-binary-test.log）；这是原有行为。

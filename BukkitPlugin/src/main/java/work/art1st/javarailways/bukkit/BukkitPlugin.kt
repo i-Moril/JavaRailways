@@ -14,9 +14,7 @@ import org.bukkit.event.EventPriority
 import org.bukkit.event.HandlerList
 import org.bukkit.event.Listener
 import org.bukkit.event.server.PluginDisableEvent
-import work.art1st.javarailways.bukkit.render.model.SeatModel
-import work.art1st.javarailways.bukkit.util.PlatformCleanup
-import work.art1st.javarailways.bukkit.util.FoliaRuntimeDiagnostics
+import org.bukkit.plugin.ServicePriority
 import work.art1st.javarailways.bukkit.api.internal.BukkitRailTargetService
 import work.art1st.javarailways.bukkit.api.internal.DefaultPlayerOperationService
 import work.art1st.javarailways.bukkit.api.internal.OperationOwnerLifecycleListener
@@ -78,12 +76,19 @@ import work.art1st.javarailways.core.api.event.processor.EventRegistration
 import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
 import work.art1st.javarailways.core.api.util.plugin.Plugin
 import work.art1st.javarailways.core.api.util.plugin.PluginRegistry
+import work.art1st.javarailways.bukkit.render.model.SeatModel
+import work.art1st.javarailways.bukkit.util.PlatformCleanup
+import work.art1st.javarailways.bukkit.util.FoliaRuntimeDiagnostics
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardRegistration
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.bukkit.util.PaperPlatformDispatcher
 import work.art1st.javarailways.bukkit.util.PlatformCapabilities
 import work.art1st.javarailways.bukkit.util.PlatformDispatcher
+import work.art1st.javarailways.bukkit.lifecycle.GentleUnloadPreparation
+import work.art1st.javarailways.bukkit.lifecycle.PlugManXGentleUnload
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 import java.io.File
 import java.util.logging.Level
 
@@ -141,6 +146,15 @@ class BukkitPlugin : Plugin, JavaPlugin() {
 
     private lateinit var partExtensions: work.art1st.javarailways.bukkit.api.internal.DefaultPartExtensionService
 
+    internal val renderCleanupDispatcher get() = presentationDispatcher ?: platformDispatcher
+    private var partExtensionCleanup: java.util.concurrent.CompletionStage<Void>? = null
+    private var presentationDispatcher: PaperPlatformDispatcher? = null
+    private var gentleUnload: GentleUnloadPreparation? = null
+    private var gentleUnloadRegistration: PlugManXGentleUnload? = null
+    private var asynchronousCleanup: PlatformCleanup.Operation? = null
+    private var asynchronousPreparation: CompletableFuture<Unit>? = null
+    private var unsafeToFinishShutdown = false
+    private var preparationFinalized = false
     private var shutdownPrepared = false
     private var shutdownCompleted = false
     private val shutdownFailures = mutableListOf<String>()
@@ -237,6 +251,11 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         }
         INSTANCE = this
         shutdownPrepared = false
+        preparationFinalized = false
+        unsafeToFinishShutdown = false
+        asynchronousCleanup = null
+        asynchronousPreparation = null
+        partExtensionCleanup = null
         shutdownCompleted = false
         shutdownFailures.clear()
         isRuntimeActive = false
@@ -250,8 +269,10 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         try {
             enablePlugin()
             isRuntimeActive = true
+            installGentleUnload()
             if (platformCapabilities.folia) {
-                platformDispatcher.runGlobal { FoliaRuntimeDiagnostics.warnIfSingleWorker(logger) }
+                // The scheduler is not necessarily started during initial plugin enable.
+                platformDispatcher.runGlobal { FoliaRuntimeDiagnostics.warnIfSingleWorker(logger, gentleUnloadAvailable = gentleUnloadRegistration != null) }
             }
         } catch (failure: Throwable) {
             errorLog?.reportFailure("JavaRailways enable failed", failure)
@@ -276,6 +297,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         logger.info(
             "Packet Seat motion is active: bundled train frames, virtual Seats, and ArmorStand authority carriers"
         )
+        val presentationOwner = PaperPlatformDispatcher(this).also { presentationDispatcher = it }
         displayRenderBackend = DisplayRenderBackendFactory.create(this)
         BasicPlugin.INSTANCE = BasicPlugin(0).also { basicPluginForRuntime = it }
         PluginRegistry.register(BasicPlugin.INSTANCE)
@@ -299,14 +321,14 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         infrastructureResourceServiceImpl = DefaultInfrastructureResourceService(signalEpochSourceServiceImpl)
         infrastructureResourceService = infrastructureResourceServiceImpl
         modelPresentationServiceImpl = DefaultModelPresentationService(
-            this, platformDispatcher, displayRenderBackend,
+            this, presentationOwner, displayRenderBackend,
             displayViewRangeForDistance(javaRailwaysConfig.displayRenderer.playerDistance.maxBlocks), logger
         )
         modelPresentationService = modelPresentationServiceImpl
         partExtensions = work.art1st.javarailways.bukkit.api.internal.DefaultPartExtensionService(reportDiagnostic = { logger.info(it) }) { subject, failure ->
             logger.log(Level.WARNING, "Part extension validation failed for $subject", failure)
         }
-        editorTextServiceImpl = DefaultEditorTextService(this, platformDispatcher, logger)
+        editorTextServiceImpl = DefaultEditorTextService(this, presentationOwner, logger)
         editorTextService = editorTextServiceImpl
         worldManager = WorldManager(
             observationService = railwayObservationServiceImpl,
@@ -433,12 +455,80 @@ class BukkitPlugin : Plugin, JavaPlugin() {
 
     override fun onDisable() {
         prepareShutdown()
-        finishShutdown()
+        if (!unsafeToFinishShutdown) finishShutdown()
+    }
+
+    private fun installGentleUnload() {
+        if (!platformCapabilities.folia) return
+        val manager = server.pluginManager.getPlugin("PlugManX") ?: return
+        val preparation = GentleUnloadPreparation(
+            scheduleGlobal = { action -> server.globalRegionScheduler.execute(this, Runnable(action)) },
+            prepare = ::prepareGentleUnload,
+            logger = logger
+        )
+        gentleUnloadRegistration = PlugManXGentleUnload.register(this, manager, preparation::request)
+        gentleUnload = preparation
+        logger.info("Folia PlugManX GentleUnload enabled: first request prepares cleanup, second request unloads.")
+    }
+
+    private fun prepareGentleUnload(): CompletableFuture<Unit> {
+        check(isEnabled && !shutdownPrepared) { "Runtime was disabled before unload preparation started" }
+        val result = CompletableFuture<Unit>()
+        asynchronousPreparation = result
+        val action = beginShutdown()
+        val operation = BukkitThreadGuardBridge.runOutsideSimulationContext {
+            PlatformCleanup.start(action = action)
+        }
+        asynchronousCleanup = operation
+        operation.completion.whenComplete { _, failure ->
+            try {
+                server.globalRegionScheduler.execute(this, Runnable {
+                    if (!isEnabled || result.isDone) return@Runnable
+                    if (failure != null) runShutdownStep("platform cleanup completion") { throw failure }
+                    if (operation.cancel().isDone) finalizePreparation()
+                    else shutdownFailures.add("platform cleanup callbacks still running")
+                    if (shutdownFailures.isEmpty()) result.complete(Unit)
+                    else result.completeExceptionally(IllegalStateException("Incomplete preparation: ${shutdownFailures.joinToString()}"))
+                })
+            } catch (schedulingFailure: Exception) {
+                result.completeExceptionally(schedulingFailure)
+            }
+        }
+        return result
     }
 
     /** PluginDisableEvent precedes enabled=false, while owner cleanup may still be scheduled. */
     private fun prepareShutdown() {
-        if (shutdownPrepared) return
+        gentleUnload?.interrupted()
+        if (shutdownPrepared) {
+            if (asynchronousPreparation != null && !preparationFinalized) {
+                asynchronousPreparation?.completeExceptionally(IllegalStateException("Disabled during unload preparation"))
+                // Only wait for callbacks ALREADY executing on other workers. Pending owner work
+                // is fenced immediately, so a single tick worker never waits for its own queue.
+                val drained = runShutdownStep("interrupted platform cleanup") {
+                    asynchronousCleanup?.cancel()?.get(10, TimeUnit.SECONDS)
+                    error("GentleUnload preparation was bypassed by direct disable or server shutdown")
+                }
+                // cancel().get can fail before callbacks exit. Keep shared runtime owners alive.
+                unsafeToFinishShutdown = asynchronousCleanup?.cancel()?.isDone == false
+                if (!unsafeToFinishShutdown) finalizePreparation()
+                if (!drained) logger.severe("GentleUnload was interrupted; shutdown is incomplete. Do not hot reload again.")
+            }
+            return
+        }
+        val action = beginShutdown()
+        runShutdownStep("platform cleanup completion") {
+            BukkitThreadGuardBridge.runOutsideSimulationContext {
+                PlatformCleanup.runAndAwait(
+                    skipOwnerTasks = platformCapabilities.folia && server.isStopping,
+                    action = action
+                )
+            }
+        }
+        finalizePreparation()
+    }
+
+    private fun beginShutdown(): () -> Unit {
         shutdownPrepared = true
         isRuntimeActive = false
         val servicesRetired = runShutdownStep("public services") { server.servicesManager.unregisterAll(this) }
@@ -466,54 +556,6 @@ class BukkitPlugin : Plugin, JavaPlugin() {
                 (platformDispatcher as? PaperPlatformDispatcher)?.stopAndAwait()
             }
         }
-        if (::trainHandleInputListener.isInitialized) {
-            runShutdownStep("train handle input listener") { trainHandleInputListener.stop() }
-        }
-        runShutdownStep("platform cleanup completion") {
-            BukkitThreadGuardBridge.runOutsideSimulationContext {
-                PlatformCleanup.runAndAwait(
-                    skipOwnerTasks = platformCapabilities.folia && server.isStopping
-                ) {
-                    val worldsStopped = runShutdownStep("world manager stop") {
-                        if (::worldManager.isInitialized) worldManager.stop()
-                    }
-                    runShutdownStep("part extension registrations") {
-                        if (::partExtensions.isInitialized) partExtensions.close()
-                    }
-                    if (::editorTextServiceImpl.isInitialized) {
-                        runShutdownStep("editor text service") { editorTextServiceImpl.close() }
-                    }
-                    if (::modelPresentationServiceImpl.isInitialized) {
-                        runShutdownStep("model presentation service") { modelPresentationServiceImpl.close() }
-                    }
-                    if (::railWand.isInitialized) runShutdownStep("rail wand") { railWand.close() }
-                    if (::railObjectWand.isInitialized) runShutdownStep("rail object wand") { railObjectWand.close() }
-                    BukkitThreadGuardBridge.runInSimulationContext {
-                        if (::worldManager.isInitialized) {
-                            worldManager.railWorlds.keys.toList().forEach { world ->
-                                runShutdownStep("world ${world.uid} save/unregister") {
-                                    worldManager.unregisterRailWorld(
-                                        world, saveSnapshot = runtimeActionsDrained && servicesRetired &&
-                                            httpStopped && worldsStopped
-                                    )
-                                }
-                            }
-                        }
-                        // unregister restores each world's manual controllers before its final capture.
-                        if (::trainControlManager.isInitialized) {
-                            runShutdownStep("train control manager") { trainControlManager.stop() }
-                        }
-                    }
-                }
-            }
-        }
-        runShutdownStep("seat listener registry") { SeatModel.SeatInteractionListener.close() }
-        if (::worldManager.isInitialized) {
-            runShutdownStep("world snapshot writer") { worldManager.finishStopping() }
-        }
-        if (::simulationFeatureServiceImpl.isInitialized) {
-            runShutdownStep("simulation feature service") { simulationFeatureServiceImpl.close() }
-        }
         if (::railwayObservationServiceImpl.isInitialized) {
             runShutdownStep("railway observation service") { railwayObservationServiceImpl.close() }
         }
@@ -526,11 +568,76 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         if (::signalEpochSourceServiceImpl.isInitialized) {
             runShutdownStep("signal epoch source service") { signalEpochSourceServiceImpl.close() }
         }
+        if (::trainHandleInputListener.isInitialized) {
+            runShutdownStep("train handle input listener") { trainHandleInputListener.stop() }
+        }
+        return {
+            val worldsStopped = runShutdownStep("world manager stop") {
+                if (::worldManager.isInitialized) worldManager.stop()
+            }
+            runShutdownStep("part extension registrations") {
+                if (::partExtensions.isInitialized) {
+                    val completion = partExtensions.closeAsync()
+                    if (!PlatformCleanup.skipsOwnerTasks()) partExtensionCleanup = completion
+                    PlatformCleanup.awaitCompletion(completion)
+                }
+            }
+            if (::editorTextServiceImpl.isInitialized) {
+                runShutdownStep("editor text service") { PlatformCleanup.awaitCompletion(editorTextServiceImpl.beginHostCleanup()) }
+            }
+            if (::modelPresentationServiceImpl.isInitialized) {
+                runShutdownStep("model presentation service") { PlatformCleanup.awaitCompletion(modelPresentationServiceImpl.beginHostCleanup()) }
+            }
+            if (::railWand.isInitialized) runShutdownStep("rail wand") { railWand.close() }
+            if (::railObjectWand.isInitialized) runShutdownStep("rail object wand") { railObjectWand.close() }
+            if (::turnoutWand.isInitialized) runShutdownStep("turnout wand") { turnoutWand.close() }
+            BukkitThreadGuardBridge.runInSimulationContext {
+                if (::worldManager.isInitialized) {
+                    worldManager.railWorlds.keys.toList().forEach { world ->
+                        runShutdownStep("world ${world.uid} save/unregister") {
+                            worldManager.unregisterRailWorld(
+                                world, saveSnapshot = runtimeActionsDrained && servicesRetired && httpStopped && worldsStopped
+                            )
+                        }
+                    }
+                }
+                if (::trainControlManager.isInitialized) {
+                    runShutdownStep("train control manager") { trainControlManager.stop() }
+                }
+            }
+        }
+    }
+
+    private fun finalizePreparation() {
+        if (preparationFinalized) return
+        val presentationDrained = runShutdownStep("presentation dispatcher") { presentationDispatcher?.stopAndAwait() }
+        if (!presentationDrained) {
+            unsafeToFinishShutdown = true
+            return
+        }
+        presentationDispatcher = null
+        if (partExtensionCleanup?.toCompletableFuture()?.isDone == false) {
+            // Session workers can still use packet resources after the owner-task batch times out.
+            unsafeToFinishShutdown = true
+            return
+        }
+        unsafeToFinishShutdown = false
+        preparationFinalized = true
+        if (::simulationFeatureServiceImpl.isInitialized) {
+            runShutdownStep("simulation feature service") { simulationFeatureServiceImpl.close() }
+        }
+        runShutdownStep("seat listener registry") { SeatModel.SeatInteractionListener.close() }
+        if (::worldManager.isInitialized) {
+            runShutdownStep("world snapshot writer") { worldManager.finishStopping() }
+        }
     }
 
     private fun finishShutdown() {
         if (shutdownCompleted) return
         shutdownCompleted = true
+        runShutdownStep("PlugManX GentleUnload registration") { gentleUnloadRegistration?.close() }
+        gentleUnloadRegistration = null
+        gentleUnload = null
         if (::playerOperationServiceImpl.isInitialized) {
             runShutdownStep("player operation service") { playerOperationServiceImpl.close() }
         }

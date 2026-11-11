@@ -35,6 +35,32 @@
         const size = Math.min(maxSize, width / Math.max(1, textUnits(text)));
         span(parent, text, x, y + (maxSize - size) / 2, size, ink);
     }
+    function readableLabel(parent, text, x, y, maxSize, minSize, width, ink, ticks) {
+        if (!text) return;
+        const size = Math.max(minSize, Math.min(maxSize, width / Math.max(1, textUnits(text))));
+        const capacity = width / size;
+        const pages = [];
+        let rest = String(text).trim();
+        while (rest) {
+            const chars = Array.from(rest);
+            let count = 0, units = 0;
+            while (count < chars.length && units + textUnits(chars[count]) <= capacity) {
+                units += textUnits(chars[count++]);
+            }
+            count = Math.max(1, count);
+            if (count < chars.length) {
+                // Prefer whole English words; unspaced station names split at a character boundary.
+                const space = chars.slice(0, count + 1).lastIndexOf(" ");
+                if (space > 0) count = space;
+            }
+            pages.push(chars.slice(0, count).join("").trim());
+            rest = chars.slice(count).join("").trim();
+        }
+        if (!pages.length) return;
+        // Five readable 3-second pages per language period; continue long values next cycle.
+        const page = Math.floor(ticks / 600) * 5 + Math.floor((ticks % 300) / 60);
+        span(parent, pages[page % pages.length], x, y + (maxSize - size) / 2, size, ink);
+    }
     function data(ctx) {
         const op = object(ctx.data.operational);
         const run = object(op.currentRun);
@@ -81,26 +107,26 @@
         const root = document.getElementById("content");
         const left = document.createElement("div"), right = document.createElement("div");
         root.appendChild(left); root.appendChild(right);
-        // Keep the approved information hierarchy and shared-language 42/58 split.
-        const panelWidth = 336, titleY = 12, mainSize = 36;
+        // Fixed 42/58 split; readable principal text takes priority over excess whitespace.
+        const panelWidth = 336;
         rect(left, 0, 0, panelWidth, 200, d.theme);
         rect(right, panelWidth, 0, 800 - panelWidth, 200, "#FFFFFF");
         const lineName = localized(d.rm.line, d.lang, localized(d.lm.name, d.lang, d.line.displayName || ""));
-        label(left, lineName, d.service ? 116 : 168, titleY, mainSize * 0.67,
-            d.service ? 200 : 304, "#FFFFFF");
-        label(left, d.service, 276, titleY + 4, mainSize * 0.47, 88, "#FFFFFF");
-        label(left, d.lang === "zh" ? "开往" : "For", 46, 51, mainSize * 0.43, 60, "#D6EDFF");
-        label(left, d.destination, 206, 47, mainSize * 0.70, 228, "#FFFFFF");
+        readableLabel(left, lineName, d.service ? 108 : 168, 4, 28, 24,
+            d.service ? 184 : 304, "#FFFFFF", ctx.elapsedTicks);
+        readableLabel(left, d.service, 264, 7, 22, 20, 112, "#FFFFFF", ctx.elapsedTicks);
+        label(left, d.lang === "zh" ? "开往" : "For", 46, 44, 18, 60, "#D6EDFF");
+        readableLabel(left, d.destination, 206, 38, 32, 28, 228, "#FFFFFF", ctx.elapsedTicks);
         const at = op.phase === "at_station";
         const station = at ? op.currentStation : op.nextStation;
         label(left, d.lang === "zh" ? (at ? "本站" : "下一站") : (at ? "This station" : "Next station"),
-            168, 82, mainSize * 0.43, 304, "#D6EDFF");
-        label(left, stationName(station, d.lang), 168, 104, mainSize, 304, "#FFFFFF");
+            168, 76, 18, 304, "#D6EDFF");
+        readableLabel(left, stationName(station, d.lang), 168, 96, 48, 40, 304, "#FFFFFF", ctx.elapsedTicks);
         const side = object(ctx.data.display).openingSide;
         const zh = {this:"本侧开门", opposite:"对侧开门", both:"两侧开门", none:"不开门"};
-        const en = {this:"Doors on this side", opposite:"Doors on opposite side", both:"Doors on both sides", none:"Doors stay closed"};
-        label(left, (d.lang === "zh" ? zh : en)[side] || "", 168, 153, mainSize * 0.47, 304, "#FFFFFF");
-        label(left, transferCaption(station, d, ctx), 168, 179, mainSize * 0.43, 304, "#FFFFFF");
+        const en = {this:"Doors: this side", opposite:"Doors: other side", both:"Doors: both sides", none:"Doors stay closed"};
+        readableLabel(left, (d.lang === "zh" ? zh : en)[side] || "", 168, 148, 24, 22, 304, "#FFFFFF", ctx.elapsedTicks);
+        readableLabel(left, transferCaption(station, d, ctx), 168, 178, 20, 20, 304, "#FFFFFF", ctx.elapsedTicks);
         const calls = Array.isArray(op.stops) ? op.stops : [];
         const index = op.stationIndex;
         const known = (op.phase === "at_station" || op.phase === "in_transit") &&
@@ -136,8 +162,8 @@
             const stopping = call.status !== "PASS";
             if (stopping && (absolute !== nextStop || Math.floor(ctx.elapsedTicks / 10) % 2 === 0))
                 span(right, G.dot, x, railY - 4, 8, ink, FONT);
-            vertical(right, stationName(call, d.lang), x, 108, d.lang === "zh" ? 18 : 15,
-                d.lang === "zh" ? 5 : 6, passed || !stopping ? gray : "#202830");
+            vertical(right, stationName(call, d.lang), x, 108, d.lang === "zh" ? 22 : 20,
+                4, passed || !stopping ? gray : "#202830");
         });
     }
   ]]></script>

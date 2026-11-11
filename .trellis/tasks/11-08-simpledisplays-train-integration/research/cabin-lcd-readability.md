@@ -1,0 +1,9 @@
+# Cabin LCD readability correction (2026-11-11)
+
+User reports the physical cabin LCD text remains too small. This batch changes only the external 800×200 cabin XML style and its archive/documentation; physical screen size, host transforms, APIs and schema versions remain unchanged.
+
+Main station nominal size 36→48 (minimum40), destination25.2→32 (minimum28), opening side16.92→24 (minimum22), line24.12→28 (minimum24), class16.92→22 (minimum20), transfer15.48→20. Long left fields use bounded word/character pages every60 source ticks rather than shrinking indefinitely. Each language stays300 source ticks; values longer than five pages continue on later periods of that same language. Class column is112units wide so ordinary Express fits whole. Compact translated door labels fit a single row.
+
+The 42/58 split and all existing fields remain. Route labels increase zh18→22 and en15→20, with four rows per column/two columns and existing ellipsis beyond eight characters; maximum two-column width48 matches station pitch48. The station list/window, passed/PASS behavior and transfer badges remain unchanged. English rotation is still deferred.
+
+Validation: actual XmlDisplayService/Graal renders22 short/long Chinese/English frames at page/language boundaries, minimum-font/conservative-width/nominal-bottom bounds and draw budget checked (/tmp/cabin-readable-probe.log). Separate actual renderer rectangle probe verifies both language frames, all rects within canvas, one exact right white panel (/tmp/cabin-readable-rect-probe.log). Generated style archive matches source; S100 archive and9,075-byte client overlay unchanged. Width estimates remain conservative approximations, not actual client-font metrics. Full test suites remain deferred by user; game readability remains a client acceptance item.

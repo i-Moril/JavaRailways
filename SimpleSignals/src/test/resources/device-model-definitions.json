@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "worldId": "00000000-0000-0000-0000-000000000020",
+  "definitionRevision": 7,
+  "protectionRegions": [],
+  "protectionRouteTables": [],
+  "fixedBlockSignals": [
+    {
+      "signalId": "test:fixed-model", "revision": 1, "controlledBlockId": "test:block",
+      "inspectionLeadTimeSeconds": 0.0, "type": "demo:fixed",
+      "placement": {
+        "kind": "rail", "railId": "00000000-0000-0000-0000-0000000000ab",
+        "arcLengthInAbMeters": 12.0, "facing": "AB"
+      }
+    }
+  ],
+  "protectionSignals": [
+    {
+      "signalId": "test:protection-model", "revision": 1, "kind": "FIXED_ROUTE", "bindingId": "test:route",
+      "inspectionLeadTimeSeconds": 0.0, "type": "demo:protection",
+      "placement": {"kind": "ground", "pose": {"x": -10.0, "y": 64.0, "z": 3.0,
+        "rotationX": 0.0, "rotationY": 0.0, "rotationZ": 1.0, "rotationW": 0.0}}
+    }
+  ],
+  "routeIndicators": [
+    {
+      "indicatorId": "test:indicator-model", "revision": 1, "entryBoundaryId": "test:entry",
+      "noRouteModelVariant": "none", "modelVariantsByRouteId": {"test:route": "selected"},
+      "model": {
+        "modelId": "demo:indicator",
+        "placement": {"kind": "rail", "railId": "00000000-0000-0000-0000-0000000000ab",
+          "arcLengthInAbMeters": 4.0, "facing": "BA"}
+      }
+    }
+  ]
+}

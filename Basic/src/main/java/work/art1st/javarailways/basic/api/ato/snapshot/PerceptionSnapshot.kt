@@ -1,7 +1,7 @@
 package work.art1st.javarailways.basic.api.ato.snapshot
 
 import work.art1st.javarailways.core.api.physics.rail.RailObjectSnapshot
-import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
+import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import java.util.Collections
 
 /** Relationship of an observed subject to the previous perception snapshot. */
@@ -32,19 +32,19 @@ data class RailObservationSnapshot(
 /**
  * One immutable ATO perception result.
  *
- * The snapshot captures train and route revisions together so a planner can reject mixed or stale
- * inputs. [observations] is defensively copied and sorted by route distance by the producer.
+ * [train] is the complete Core frame captured for this scan; [epoch] is the independent perception
+ * counter. [observations] is defensively copied and sorted by route distance by the producer.
  */
 @ConsistentCopyVisibility
 data class PerceptionSnapshot private constructor(
     val epoch: Long,
-    val train: TrainSnapshot,
+    val train: TrainFrameSnapshot,
     val route: RouteSnapshot,
     val observations: List<RailObservationSnapshot>
 ) {
     constructor(
         epoch: Long,
-        train: TrainSnapshot,
+        train: TrainFrameSnapshot,
         route: RouteSnapshot,
         observations: Collection<RailObservationSnapshot>
     ) : this(epoch, train, route, immutableCopy(observations))

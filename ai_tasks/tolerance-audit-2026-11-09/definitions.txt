@@ -1,0 +1,382 @@
+JavaRailways 容差盘点 — 2026-11-09 UTC
+基线：本地工作区 feat/simpledisplays-train-integration，HEAD 29e828e3；不是测试服部署产物全量审计。
+范围：settings.gradle 的12个模块，src/main 与 WebUI/frontend/src 下 kt/java/ts/tsx。
+排除：测试、testFixtures、bin/build、node_modules、docs；不把输入框小数位 precision 当数值容差。
+本次未修改产品代码或服务器。
+
+统计口径：
+1. 名称含 TOLERANCE/EPSILON（不区分大小写）的常量声明：48处。
+   39处直接数值定义，9处引用别名；相同数值不等于同一物理量或同一策略。
+2. 命名容差的局部计算：11处。
+3. 另有转发属性、携带容差的字段、配置以及不以 tolerance/epsilon 命名的阈值。
+4. 48不能当作全系统所有容差的语义总数；内联判定和其他命名阈值另列。
+
+按模块的48处常量：
+Basic: 6
+BukkitPlugin: 5
+Core: 7
+SimpleATO: 24
+SimpleSignals: 2
+TunnelBridgeBuilder: 3
+WebUI: 1
+
+全部48处常量（定义或别名；值与源码定位）：
+01. [Core] COUPLER_CONTACT_EPSILON_METERS = 1e-5 — 数值定义
+    /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/physics/train/CollisionEnvelope.kt:17
+02. [Core] AXLE_TOLERANCE = 1e-6 — 数值定义
+    /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/physics/train/CoreCar.kt:806
+03. [Core] COUPLER_TOLERANCE = COUPLER_CONTACT_EPSILON_METERS — 引用别名
+    /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/physics/train/CoreCar.kt:807
+04. [Core] AT_GRADE_CROSSING_TOLERANCE_METERS = 0.2 — 数值定义
+    /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/physics/rail/AtGradeRailCrossingIndex.kt:12
+05. [Core] SEGMENT_EPSILON = 1.0e-12 — 数值定义
+    /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/physics/rail/AtGradeRailCrossingIndex.kt:446
+06. [Core] PARALLEL_EPSILON = 1.0e-12 — 数值定义
+    /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/physics/rail/AtGradeRailCrossingIndex.kt:447
+07. [Core] TOLERANCE : Double = 5e-3 — 数值定义
+    /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/api/physics/curve/Curve.kt:61
+08. [Basic] POSITION_EPSILON = 1e-9 — 数值定义
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/route/TopologyRoutePlanner.kt:850
+09. [Basic] EPSILON = 1.0e-9 — 数值定义
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/VerticalProfileSmoother.kt:62
+10. [Basic] LENGTH_TOLERANCE = 1.0e-4 — 数值定义
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/VerticalCurveRebuilder.kt:11
+11. [Basic] BODY_COORDINATE_EPSILON_METERS = 1e-8 — 数值定义
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/FormationOutputAdmission.kt:12
+12. [Basic] STOPPED_SPEED_EPSILON_METERS_PER_SECOND = 1.0e-6 — 数值定义
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/RouteResourceAdmissionEngine.kt:1434
+13. [Basic] POSITION_TOLERANCE_METERS = 0.3 — 数值定义
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/api/ato/AtoSpatialPolicy.kt:5
+14. [SimpleATO] POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS — 引用别名
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt:6908
+15. [SimpleATO] RELEASE_EPSILON_METERS = 1.0e-6 — 数值定义
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt:6909
+16. [SimpleATO] DEPOT_DEPARTURE_RELEASE_EPSILON_METERS = 1.0e-6 — 数值定义
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt:6910
+17. [SimpleATO] MANUAL_PROTECTION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS — 引用别名
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt:6912
+18. [SimpleATO] POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS — 引用别名
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableInitialPositioner.kt:173
+19. [SimpleATO] TIMETABLE_ORIGIN_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS — 引用别名
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralEventWindow.kt:10
+20. [SimpleATO] ROUTE_POSITION_EPSILON = 1.0e-9 — 数值定义
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/OperationalRoutePlanner.kt:114
+21. [SimpleATO] EPSILON = 1.0e-6 — 数值定义
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/DirectedRouteContinuation.kt:51
+22. [SimpleATO] POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS — 引用别名
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/FrozenMissionRouteAssembler.kt:13
+23. [SimpleATO] EPSILON = 1.0e-6 — 数值定义
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/FrozenMissionRouteAssembler.kt:501
+24. [SimpleATO] EPSILON = 1.0e-6 — 数值定义
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/TerminalRouteMargin.kt:108
+25. [SimpleATO] BRAKE_RATIO_EPSILON = 1.0e-9 — 数值定义
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/ReferenceStrategies.kt:59
+26. [SimpleATO] PRESSURE_EPSILON_KPA = 1.0e-6 — 数值定义
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/ReferenceStrategies.kt:60
+27. [SimpleATO] ROUTE_DISTANCE_EPSILON_METERS = 1.0e-9 — 数值定义
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/InspectionScheduler.kt:288
+28. [SimpleATO] EPSILON_METERS = 1.0e-9 — 数值定义
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/AuthorityRequestFloors.kt:102
+29. [SimpleATO] EPSILON = 1.0e-9 — 数值定义
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/EntryClearance.kt:125
+30. [SimpleATO] GRADE_ARC_EPSILON_METERS = 1.0e-9 — 数值定义
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/controller/SimpleATO.kt:1362
+31. [SimpleATO] POSITION_EPSILON_METERS = 1.0e-3 — 数值定义
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/controller/SimpleATO.kt:1391
+32. [SimpleATO] EPSILON_METERS = 1.0e-6 — 数值定义
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/admission/RollingRouteAuthorityPlanner.kt:53
+33. [SimpleATO] POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS — 引用别名
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/admission/RollingRouteAuthorityPlanner.kt:54
+34. [SimpleATO] COMPLETE_ROUTE_EPSILON_METERS = 1.0e-6 — 数值定义
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/admission/RouteAuthorityAdmissionClient.kt:545
+35. [SimpleATO] RESET_POSITION_EPSILON_METERS = 1.0e-6 — 数值定义
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/depot/DepotReset.kt:23
+36. [SimpleATO] DEFAULT_POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS — 引用别名
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/station/Station.kt:79
+37. [SimpleATO] DEFAULT_POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS — 引用别名
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/destination/OperationalDestination.kt:119
+38. [BukkitPlugin] EPSILON = 1e-9 — 数值定义
+    /workspace/minecraft/JavaRailways/BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/Animation.kt:327
+39. [BukkitPlugin] MAXIMUM_GRADE_DISPLAY_EPSILON = 1.0e-9 — 数值定义
+    /workspace/minecraft/JavaRailways/BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:103
+40. [BukkitPlugin] MOVING_EPSILON_SQUARED = 1.0e-6 — 数值定义
+    /workspace/minecraft/JavaRailways/BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/CarExtension.kt:674
+41. [BukkitPlugin] EPSILON = 1.0e-9 — 数值定义
+    /workspace/minecraft/JavaRailways/BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/rail/RailDecorationLayout.kt:9
+42. [BukkitPlugin] UNIT_LENGTH_TOLERANCE = 1e-9; — 数值定义
+    /workspace/minecraft/JavaRailways/BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/model/ModelPose.java:9
+43. [SimpleSignals] DEVICE_SELECTION_TOLERANCE_METRES = 0.75 — 数值定义
+    /workspace/minecraft/JavaRailways/SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/SignalWandBackend.kt:911
+44. [SimpleSignals] REPLACEMENT_POSITION_EPSILON = 1e-9 — 数值定义
+    /workspace/minecraft/JavaRailways/SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/region/ProtectionRouteTableCatalog.kt:501
+45. [TunnelBridgeBuilder] EPSILON_SQUARED = 1.0e-18 — 数值定义
+    /workspace/minecraft/JavaRailways/TunnelBridgeBuilder/src/main/kotlin/work/art1st/javarailways/tunnelbridgebuilder/algorithm/SampledCenterLine.kt:55
+46. [TunnelBridgeBuilder] EPSILON = 1.0e-12 — 数值定义
+    /workspace/minecraft/JavaRailways/TunnelBridgeBuilder/src/main/kotlin/work/art1st/javarailways/tunnelbridgebuilder/algorithm/Geometry.kt:39
+47. [TunnelBridgeBuilder] END_PLANE_EPSILON = 1.0e-9 — 数值定义
+    /workspace/minecraft/JavaRailways/TunnelBridgeBuilder/src/main/kotlin/work/art1st/javarailways/tunnelbridgebuilder/algorithm/SweepPlanner.kt:76
+48. [WebUI] CONNECTED_ELEVATION_TOLERANCE_METERS =2; — 数值定义
+    /workspace/minecraft/JavaRailways/WebUI/frontend/src/railMap.ts:10
+
+11处局部计算（不是11个独立配置）：
+[Basic] val tolerance = maxOf(0.5, options.radius * 0.005)
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:357
+[Basic] val positionTolerance = Curve.TOLERANCE * 2
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:435
+[Basic] val tangentToleranceDot = cos(Math.toRadians(1.0))
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:447
+[Basic] val tolerance = maxOf(0.25, estimatedSpacing(offsets) * 0.1)
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelCurveBuilder.kt:33
+[Basic] private val tangentToleranceDot = cos(Math.toRadians(1.0))
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelAnchorGeometry.kt:16
+[Basic] val sectionTolerance = max(0.25, expectedSpacing * 0.05)
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelAnchorGeometry.kt:82
+[Basic] val elevationTolerance = max(0.05, expectedSpacing * 0.02)
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelAnchorGeometry.kt:83
+[Basic] val spacingTolerance = max(0.25, expectedSpacing * 0.15)
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelAnchorGeometry.kt:95
+[SimpleATO] val tolerance = minOf(TIMETABLE_ORIGIN_TOLERANCE_METERS, stationPositionToleranceMeters ?: TIMETABLE_ORIGIN_TOLERANCE_METERS)
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralEventWindow.kt:41
+[SimpleATO] val effectivePositionTolerance = resolved.positionToleranceMeters + POSITION_EPSILON_METERS
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/controller/SimpleATO.kt:1054
+[BukkitPlugin] val tolerance = max(EPSILON, Math.ulp(scale) * 4.0)
+    /workspace/minecraft/JavaRailways/BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/rail/RailDecorationLayout.kt:49
+
+其他已核对的相关定义/配置（未混入48处计数）：
+Core Curve.PRECISION = 1e-3m：生产源码仅发现定义；不是车钩求解容差。
+Core PrimeCurveImpl.MIN_ARC_SPACING = 1e-12：采样弧长间距下限。
+Core PrimeCurveImpl.FRAME_MARGIN = 1e-12：曲线标架非退化证明的数值界。
+Core StoppedBodyGeometry.AXLE_RESIDUAL = CoreCar.AXLE_TOLERANCE：轴距残差别名。
+Bukkit RailWandTurnoutGeometryPolicy.TURNOUT_FRAME_DIRECTION_DOT = 1 - 1e-10：道岔边界方向判定。
+Basic/SimpleATO AtoSpatialPolicy.POSITION_TOLERANCE_METERS = 0.3m 被停车、站台、时刻表起点等复用。
+Bukkit physics.yml overspeed.tolerance-kmh = 5.0：超速判定允许偏差；运行值可能由服务器配置覆盖。
+SimpleATO AtoSafetyProfile.STATION_AUTHORITY_MARGIN_METERS 引用0.3m；这是停车授权余量，不另算独立容差。
+SimpleATO EntryClearance.GUARD_METERS = 2 * Curve.TOLERANCE = 0.01m；这是clearance guard。
+Core UNIT_ROUNDOFF = 1.1102230246251565e-16：IEEE double舍入界，非可调业务容差。
+
+本次故障直接相关：
+轨道连接/通用几何：Curve.TOLERANCE = 5e-3m (5mm)。
+曲线生成后端点检查：2 * Curve.TOLERANCE = 1e-2m (10mm)。
+轴距求解：CoreCar.AXLE_TOLERANCE = 1e-6m (0.001mm)。
+车钩求解：CoreCar.COUPLER_TOLERANCE = COUPLER_CONTACT_EPSILON_METERS = 1e-5m (0.01mm)。
+碰撞/联结接触：COUPLER_CONTACT_EPSILON_METERS = 1e-5m (0.01mm)。
+停车体几何证明的车间残差上界也使用COUPLER_CONTACT_EPSILON_METERS。
+因此将求解器改为1mm而保留证明中0.01mm上界，会使两者的假设不一致；修改前需要同步审核消费者。
+
+内联小数扫描附录：这些是候选，不都属于容差（还包含步长、保护距离和其他参数）。
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/rail/RailExtension.kt:148:                includeEnd = segmentEnd >= totalLength - 1.0e-9
+TunnelBridgeBuilder/src/main/kotlin/work/art1st/javarailways/tunnelbridgebuilder/algorithm/SweepPlanner.kt:76:    private const val END_PLANE_EPSILON = 1.0e-9
+Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/RouteResourceAdmissionEngine.kt:1092:                intent.desiredAuthority.distanceFromRouteStartMeters > movementFrom + 1e-8) {
+Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/RouteResourceAdmissionEngine.kt:1130:                kotlin.math.abs(interval.maxArcLengthInAbMeters - contact.arcLengthInAbMeters) <= 1e-8 &&
+Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/RouteResourceAdmissionEngine.kt:1131:                    span.minArcAB >= contact.arcLengthInAbMeters - 1e-8
+Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/RouteResourceAdmissionEngine.kt:1133:                kotlin.math.abs(interval.minArcLengthInAbMeters - contact.arcLengthInAbMeters) <= 1e-8 &&
+Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/RouteResourceAdmissionEngine.kt:1134:                    span.maxArcAB <= contact.arcLengthInAbMeters + 1e-8
+Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/RouteResourceAdmissionEngine.kt:1434:        const val STOPPED_SPEED_EPSILON_METERS_PER_SECOND = 1.0e-6
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/util/HeavyRailQueries.kt:84:        if (normalizedDirection.lengthSquared() < 1e-12) return null
+TunnelBridgeBuilder/src/main/kotlin/work/art1st/javarailways/tunnelbridgebuilder/algorithm/Geometry.kt:39:        private const val EPSILON = 1.0e-12
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/rail/RailDecorationLayout.kt:9:    private const val EPSILON = 1.0e-9
+Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/PreparedFormationAdmission.kt:156:        if (kotlin.math.abs(submitted.desiredAuthority.distanceFromRouteStartMeters - boundary) > 1e-8)
+Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/PreparedFormationAdmission.kt:304:                    kotlin.math.abs(previous.endArcLengthInAbMeters - part.startArcLengthInAbMeters) <= 1e-8) {
+Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/PreparedFormationAdmission.kt:312:            kotlin.math.abs(a[i].startArcLengthInAbMeters - b[i].startArcLengthInAbMeters) <= 1e-8 &&
+Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/PreparedFormationAdmission.kt:313:            kotlin.math.abs(a[i].endArcLengthInAbMeters - b[i].endArcLengthInAbMeters) <= 1e-8 }
+Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/PreparedFormationAdmission.kt:688:                if (slice.startAbMeters > through + 1e-8) return@all false
+Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/PreparedFormationAdmission.kt:690:                if (through >= interval.maxArcLengthInAbMeters - 1e-8) return@all true
+TunnelBridgeBuilder/src/main/kotlin/work/art1st/javarailways/tunnelbridgebuilder/algorithm/SampledCenterLine.kt:55:        const val EPSILON_SQUARED = 1.0e-18
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/CarExtension.kt:674:        private const val MOVING_EPSILON_SQUARED = 1.0e-6
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/atp/GradeBrakeTable.kt:7:    private val step = 0.0025
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/atp/ConservativeAtpModel.kt:168:        val acceleration = if (abs(difference) < 1e-9 || jerk == 0.0) target else
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/behavior/CarBehaviorClock.kt:55:            val due = delayed.filter { elapsed + 1e-9 >= it.at }.sortedBy { it.at }
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/depot/DepotReset.kt:23:private const val RESET_POSITION_EPSILON_METERS = 1.0e-6
+Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/FormationOutputAdmission.kt:12:private const val BODY_COORDINATE_EPSILON_METERS = 1e-8
+SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/block/FixedBlockInspectionSource.kt:74:                kotlin.math.abs(it.exitRouteDistanceMeters - route.totalLengthMeters) <= 1.0e-6
+SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/block/FixedBlockInspectionSource.kt:80:                check(proposedWindows.none { it.exitRouteDistanceMeters > route.totalLengthMeters + 1.0e-6 }) {
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/admission/RouteAuthorityAdmissionClient.kt:545:        const val COMPLETE_ROUTE_EPSILON_METERS = 1.0e-6
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/admission/RollingRouteAuthorityPlanner.kt:53:    private const val EPSILON_METERS = 1.0e-6
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/controller/SimpleATO.kt:840:                kotlin.math.abs(authorityEnd - contact.contactBoundary.distanceFromRouteStartMeters) <= 1.0e-6 &&
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/controller/SimpleATO.kt:843:                    kotlin.math.abs(it - contact.contactBoundary.distanceFromRouteStartMeters) <= 1.0e-6
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/controller/SimpleATO.kt:1002:                        kotlin.math.abs(stopTarget - authorityLimit) <= 1.0e-6)
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/controller/SimpleATO.kt:1233:            val transition = if (observed.distanceMeters <= lastTravelDistanceMeters + 1.0e-9) {
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/controller/SimpleATO.kt:1362:        const val GRADE_ARC_EPSILON_METERS = 1.0e-9
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/controller/SimpleATO.kt:1391:        const val POSITION_EPSILON_METERS = 1.0e-3
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/EntryClearance.kt:125:private const val EPSILON = 1.0e-9
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/AuthorityRequestFloors.kt:102:        private const val EPSILON_METERS = 1.0e-9
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/InspectionScheduler.kt:288:private const val ROUTE_DISTANCE_EPSILON_METERS = 1.0e-9
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:103:private const val MAXIMUM_GRADE_DISPLAY_EPSILON = 1.0e-9
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:161:    if (requested > automaticLimit + 1.0e-6) {
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:178:): Boolean = !automatic && requestedKmH > automaticOperatingLimitKmH + 1.0e-6
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:187:): Boolean = abs(newDesignSpeedKmH - currentDesignSpeedKmH) >= 1.0e-6 ||
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:188:    abs(newRadiusMeters - currentRadiusMeters) >= 1.0e-6 ||
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:237:    if (horizontalTangent.lengthSquared() < 1.0e-12) {
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:251:    if (horizontalChord.lengthSquared() < 1.0e-12) {
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:265:    if (chordHorizontal.lengthSquared() <= 1.0e-12) return null
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:270:    if (current.lengthSquared() <= 1.0e-12) return null
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:273:    if (currentHorizontal.lengthSquared() <= 1.0e-12) return null
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:275:    if (abs(currentHorizontal.dot(chordHorizontal)) < 1.0 - 1.0e-6) return null
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:283:        abs(railWandVerticalGrade(beforeTangent) - railWandVerticalGrade(afterTangent)) > 1.0e-6
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:288:    return if (horizontal <= 1.0e-12) 0.0 else tangent.y() / horizontal
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:1284:        if (horizontal.lengthSquared() < 1e-9) return Vector3d(1.0, 0.0, 0.0)
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:1372:        if (towards.lengthSquared() < 1.0e-6) {
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:3116:                measurements.maximumSuperelevationMeters > 1.0e-9
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:3243:                (!automaticRadius && abs(curveRadius - actual.radiusMeters) >= 1.0e-6) ||
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:3244:                (superelevationEnabled && abs(designSpeedKmH - actual.subgradeSpeedKmH) >= 1.0e-6)
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:3252:                    abs(curveSpeedLimitKmH - actual.curveOperatingSpeedKmH) >= 1.0e-6)
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:3253:            val subgradeChanged = abs(designSpeedKmH - actual.subgradeSpeedKmH) >= 1.0e-6
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:5093:        if (direction.lengthSquared() < 1e-12) {
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:5366:        if (direction.lengthSquared() > 1e-9) {
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWandTurnoutGeometryPolicy.kt:16:private const val TURNOUT_FRAME_DIRECTION_DOT = 1.0 - 1.0e-10
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWandTurnoutGeometryPolicy.kt:131:    if (a.lengthSquared() < 1.0e-12 || b.lengthSquared() < 1.0e-12) return false
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/InspectionRuntime.kt:138:                        kotlin.math.abs(end.endArcLengthMeters - start.startArcLengthMeters) <= 1.0e-6)
+SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/region/ProtectionRouteTableCatalog.kt:501:        const val REPLACEMENT_POSITION_EPSILON = 1e-9
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/ReferenceStrategies.kt:26:        if (releaseTarget != stopTarget.id || stopTarget.distanceMeters > previousDistance + 1e-9) releaseTarget = null
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/ReferenceStrategies.kt:59:private const val BRAKE_RATIO_EPSILON = 1.0e-9
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/ReferenceStrategies.kt:60:private const val PRESSURE_EPSILON_KPA = 1.0e-6
+Basic/src/main/java/work/art1st/javarailways/basic/curve/VerticalCurveRebuilder.kt:11:    private const val LENGTH_TOLERANCE = 1.0e-4
+Basic/src/main/java/work/art1st/javarailways/basic/curve/VerticalCurveRebuilder.kt:64:            abs(point.position.y() - elevation) <= Curve.TOLERANCE && abs(point.tangent.y()) <= 1.0e-6
+Basic/src/main/java/work/art1st/javarailways/basic/curve/VerticalCurveRebuilder.kt:85:        require(abs(horizontalLength - profile.length) <= maxOf(LENGTH_TOLERANCE, profile.length * 1.0e-6)) {
+Basic/src/main/java/work/art1st/javarailways/basic/curve/VerticalCurveRebuilder.kt:106:        return if (horizontal > 1.0e-12) tangent.y() / horizontal else 0.0
+Basic/src/main/java/work/art1st/javarailways/basic/curve/VerticalCurveRebuilder.kt:112:        if (fromTangent.lengthSquared() > 1.0e-12) return fromTangent.normalize()
+Basic/src/main/java/work/art1st/javarailways/basic/curve/VerticalCurveRebuilder.kt:117:        require(fallback.lengthSquared() > 1.0e-12) { "Cannot recover horizontal curve tangent" }
+Basic/src/main/java/work/art1st/javarailways/basic/curve/StandardRailCurve.kt:195:        if (s >= totalLength - 1e-10) return totalTangentAngle()
+Basic/src/main/java/work/art1st/javarailways/basic/curve/StandardRailCurve.kt:267:    fun generatePoints(step: Double = 1e-3): List<CurveRawPoint> {
+Basic/src/main/java/work/art1st/javarailways/basic/curve/StandardRailCurve.kt:295:        while (s < totalLength - 1e-9) {
+Core/src/main/java/work/art1st/javarailways/core/physics/rail/AtGradeRailCrossingIndex.kt:446:        const val SEGMENT_EPSILON = 1.0e-12
+Core/src/main/java/work/art1st/javarailways/core/physics/rail/AtGradeRailCrossingIndex.kt:447:        const val PARALLEL_EPSILON = 1.0e-12
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/MotionReference.kt:106:        return variants[floor((grade - MIN_GRADE) / GRADE_STEP + 1e-10).toInt().coerceIn(variants.indices)]
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/MotionReference.kt:112:        private const val GRADE_STEP = 0.005
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/MotionReference.kt:150:                it.distanceMeters <= previousDistanceMeters + 1e-9 }?.let { return it }
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/MotionReference.kt:163:                if (previousDistanceMeters != null) it.distanceMeters <= previousDistanceMeters + 1e-9
+Basic/src/main/java/work/art1st/javarailways/basic/curve/AnchorGeometry.kt:30:        if (direction.lengthSquared() < 1e-9) return 0.0
+Basic/src/main/java/work/art1st/javarailways/basic/curve/AnchorGeometry.kt:37:        if (direction.lengthSquared() < 1e-9) return 0.0
+Basic/src/main/java/work/art1st/javarailways/basic/curve/AnchorGeometry.kt:56:        if (t.lengthSquared() < 1e-12 || n.lengthSquared() < 1e-12) return 0.0
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailGeometryMeasurements.kt:36:                if (tangent.lengthSquared() > 1.0e-12) {
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailGeometryMeasurements.kt:38:                    if (horizontalLength > 1.0e-12) {
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailGeometryMeasurements.kt:43:                if (tangent.lengthSquared() > 1.0e-12 && normal.lengthSquared() > 1.0e-12) {
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailGeometryMeasurements.kt:59:                if (deltaArc <= 1.0e-9) return@forEach
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailGeometryMeasurements.kt:70:                .takeIf { it >= 1.0e-8 }
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailGeometryMeasurements.kt:79:        if (horizontal.lengthSquared() < 1.0e-12) return null
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ConstraintSolver.kt:34:        if (dp < 1e-10) return ConstraintSolveResult.Failure("切线夹角为 0")
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ConstraintSolver.kt:54:                if (hi - lo < 0.005) break
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ConstraintSolver.kt:69:        if (dp < 1e-10) return ConstraintSolveResult.Failure("切线夹角为 0")
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ConstraintSolver.kt:113:        val gA = if (hLenA > 1e-10) fromTangent.y() / hLenA else 0.0
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ConstraintSolver.kt:114:        val gB = if (hLenB > 1e-10) toTangent.y() / hLenB else 0.0
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ConstraintSolver.kt:124:        val c = if (L > 1e-6) (3.0 * U - V * L) / (L * L) else 0.0
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ConstraintSolver.kt:125:        val d = if (L > 1e-6) (V * L - 2.0 * U) / (L * L * L) else 0.0
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ConstraintSolver.kt:130:            val t = if (totalLen > 1e-9) (arc / totalLen).coerceIn(0.0, 1.0) else 0.0
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ConstraintSolver.kt:211:        if (rawArcAngle < -1e-12) return false
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ConstraintSolver.kt:215:        val sb = if (abs(sd) < 1e-12) 0.0 else (tz - e.z) / sd
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ConstraintSolver.kt:217:        return sa >= -0.001 && sb >= -0.001
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ConstraintSolver.kt:224:        require(rawArcAngle >= -1e-12) { "Circular arc angle is negative: $rawArcAngle" }
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ConstraintSolver.kt:229:        val sb = maxOf(if (abs(sd) < 1e-12) 0.0 else (tz - e.z) / sd, 0.0)
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ConstraintSolver.kt:246:        if (la < 1e-15 || lb < 1e-15) return 0.0
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurvePartitioner.kt:37:                require(ds > 0.0 && abs(dy) <= ds + maxOf(1e-10, ds * 1e-10)) {
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurvePartitioner.kt:55:            require(station.isFinite() && station >= 0.0 && station <= source.last() + 1e-8) { "Curve station is outside its source" }
+Core/src/main/java/work/art1st/javarailways/core/physics/rail/curve/PrimeCurveImpl.kt:122:        private const val MIN_ARC_SPACING = 1e-12
+Core/src/main/java/work/art1st/javarailways/core/physics/rail/curve/PrimeCurveImpl.kt:123:        private const val FRAME_MARGIN = 1e-12
+Core/src/main/java/work/art1st/javarailways/core/physics/rail/curve/PrimeCurveImpl.kt:235:        val exactIndex = pointList.indexOfFirst { kotlin.math.abs(it.arcLength - arcLength) <= 1e-9 }
+Core/src/main/java/work/art1st/javarailways/core/physics/rail/curve/PrimeCurveImpl.kt:291:        require(Vector3d(leftEnd.tangent).normalize().dot(Vector3d(rightStart.tangent).normalize()) >= 1.0 - 1e-6) {
+Core/src/main/java/work/art1st/javarailways/core/physics/rail/curve/PrimeCurveImpl.kt:294:        require(Vector3d(leftEnd.normal).normalize().dot(Vector3d(rightStart.normal).normalize()) >= 1.0 - 1e-6) {
+Core/src/main/java/work/art1st/javarailways/core/physics/rail/curve/PrimeCurveImpl.kt:332:        if (span <= 1e-12) return false
+Core/src/main/java/work/art1st/javarailways/core/physics/rail/curve/PrimeCurveImpl.kt:344:        return probe.position.distance(junction.position) <= 1e-9 &&
+Core/src/main/java/work/art1st/javarailways/core/physics/rail/curve/PrimeCurveImpl.kt:345:            probe.tangent.distance(junction.tangent) <= 1e-9 &&
+Core/src/main/java/work/art1st/javarailways/core/physics/rail/curve/PrimeCurveImpl.kt:346:            probe.normal.distance(junction.normal) <= 1e-9
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/AffineActuatorResponse.kt:29:                    if (abs(first - current) <= rate || abs(first - current) < 1e-9) {
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelAnchorGeometry.kt:15:    private const val MIN_VECTOR_SQUARED = 1.0e-12
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/model/ModelPose.java:9:    public static final double UNIT_LENGTH_TOLERANCE = 1e-9;
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/editor/EditorMarkerLabels.java:39:        if (!(up.lengthSquared() > 1e-12))
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelCurveBuilder.kt:72:        if (referenceTangent.lengthSquared() < 1e-12) return null
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelCurveBuilder.kt:80:            if (candidate.lengthSquared() < 1e-12) return null
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelCurveBuilder.kt:86:        if (tangent.lengthSquared() < 1e-12) return null
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelCurveBuilder.kt:93:        if (horizontal.lengthSquared() < 1e-12) return null
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelCurveBuilder.kt:123:            val ratio = if (totalArc > 1e-12) {
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelCurveBuilder.kt:150:            if (sourceTangent.lengthSquared() > 1e-12 && tangent.dot(sourceTangent.normalize()) < 0.0) {
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelCurveBuilder.kt:156:            if (normal.lengthSquared() < 1e-12) normal.set(0.0, 1.0, 0.0) else normal.normalize()
+Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelCurveBuilder.kt:173:        if (tangent.lengthSquared() < 1e-12) return null
+Basic/src/main/java/work/art1st/javarailways/basic/curve/CurveFrames.kt:29:        if (abs(rollRadians) < 1e-12) return normal
+Basic/src/main/java/work/art1st/javarailways/basic/curve/CurveFrames.kt:40:        return if (horizontal > 1e-10) tangent.y() / horizontal else 0.0
+Basic/src/main/java/work/art1st/javarailways/basic/curve/StandardTurnoutFactory.kt:69:        if (axis.lengthSquared() < 1.0e-12 || target.lengthSquared() < 1.0e-12) return null
+Basic/src/main/java/work/art1st/javarailways/basic/curve/VerticalProfileSmoother.kt:62:    private const val EPSILON = 1.0e-9
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:180:        if (chordHorizontal.lengthSquared() < 1e-12) return null
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:185:        if (fromTan3d.lengthSquared() < 1e-12 || toTan3d.lengthSquared() < 1e-12) return null
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:190:        if (fromTan2d.lengthSquared() < 1e-12 || toTan2d.lengthSquared() < 1e-12) return null
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:210:        return if (prepared.angle < 1e-6) {
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:231:        if (length < 1e-6) {
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:275:        if (prepared.angle < 1e-6) {
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:324:        if (horizontalDistance < 1e-6) {
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:357:            val tolerance = maxOf(0.5, options.radius * 0.005)
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:390:        if (tangentVector.lengthSquared() < 1e-12) return false
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:393:        val dot = if (tangentHorizontal.lengthSquared() > 1e-12 && chordHorizontal.lengthSquared() > 1e-12) {
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:406:        if (chord2d.lengthSquared() < 1e-12) return false
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:408:        if (tangentDir.lengthSquared() < 1e-12) return false
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:417:        if (tangentHorizontal.lengthSquared() < 1e-12) return Double.POSITIVE_INFINITY
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:443:            if (a.lengthSquared() < 1e-12 || e.lengthSquared() < 1e-12) return null
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:456:            if (a.lengthSquared() < 1e-12) return false
+Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:476:        require(horizontalLength > 1.0e-12)
+SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/BoundaryNames.kt:65:            kotlin.math.abs(kotlin.math.abs(it.arcLengthInAbMeters - point.arcLengthInAbMeters) - kotlin.math.abs(first.arcLengthInAbMeters - point.arcLengthInAbMeters)) <= 1e-9 }) { "Several boundaries are equally near; select more precisely" }
+Basic/src/main/java/work/art1st/javarailways/basic/curve/HermiteSCurveBuilder.kt:55:        val totalLength = cumulative.last().coerceAtLeast(1e-9)
+Basic/src/main/java/work/art1st/javarailways/basic/curve/HermiteSCurveBuilder.kt:79:        val peakSuperelevation = if (superelevationConfig != null && peakCurvature > 1.0e-12) {
+Basic/src/main/java/work/art1st/javarailways/basic/curve/HermiteSCurveBuilder.kt:89:            if (peakSuperelevation <= 0.0 || peakCurvature <= 1.0e-12) 0.0
+Basic/src/main/java/work/art1st/javarailways/basic/curve/HermiteSCurveBuilder.kt:138:            value > 1.0e-12 -> 1
+Basic/src/main/java/work/art1st/javarailways/basic/curve/HermiteSCurveBuilder.kt:139:            value < -1.0e-12 -> -1
+Basic/src/main/java/work/art1st/javarailways/basic/curve/HermiteSCurveBuilder.kt:275:        if (speedSq < 1.0e-12) return 0.0
+Basic/src/main/java/work/art1st/javarailways/basic/curve/HermiteSCurveBuilder.kt:344:        return if (maxCurvature < 1e-12) Double.POSITIVE_INFINITY else 1.0 / maxCurvature
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/TrainControlConfig.kt:237:        val ratio = (speed - lower.speed) / (upper.speed - lower.speed).coerceAtLeast(1.0e-9)
+SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/SectionOverlayDrawing.kt:77:                    val overlap = minOf(0.005, length / 100)
+Core/src/main/java/work/art1st/javarailways/core/physics/train/UniqueTrainPlacement.kt:86:        if (requested > length + 1e-9 && !terminal) throw PlacementSupportRequired()
+Core/src/main/java/work/art1st/javarailways/core/physics/train/UniqueTrainPlacement.kt:91:        if (distance > supportedDistance(distance) + 1e-9) throw InsufficientPlacementSupport()
+Core/src/main/java/work/art1st/javarailways/core/physics/train/UniqueTrainPlacement.kt:94:            if (remaining <= segment.totalArcLength + 1e-9 || index == segments.lastIndex) {
+Core/src/main/java/work/art1st/javarailways/core/physics/train/UniqueTrainPlacement.kt:104:        if (from > limit + 1e-9) throw InsufficientPlacementSupport()
+Core/src/main/java/work/art1st/javarailways/core/physics/train/UniqueTrainPlacement.kt:216:    segments.filter { it.totalArcLength > 1e-9 }.forEach { segment ->
+Core/src/main/java/work/art1st/javarailways/core/physics/train/UniqueTrainPlacement.kt:218:        if (previous?.railView === segment.railView && abs(previous.endArcLength - segment.startArcLength) <= 1e-9) {
+Core/src/main/java/work/art1st/javarailways/core/physics/train/CoreCar.kt:806:        internal const val AXLE_TOLERANCE = 1e-6
+SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/SignalDevicePicking.kt:62:            return (distance - 1e-5).coerceAtLeast(0.0)
+Basic/src/main/java/work/art1st/javarailways/basic/controller/ManualController.kt:61:        val deltaS = deltaT * 0.001
+Core/src/main/java/work/art1st/javarailways/core/physics/train/StoppedBodyGeometry.kt:403:            // DISCRETE interval by its Bernstein hull (margin 1e-12). Thus both interpolated
+Core/src/main/java/work/art1st/javarailways/core/physics/train/CollisionEnvelope.kt:17:internal const val COUPLER_CONTACT_EPSILON_METERS = 1e-5
+Core/src/main/java/work/art1st/javarailways/core/physics/train/CollisionEnvelope.kt:56:                    minOf(part.startArcLengthInAbMeters, part.endArcLengthInAbMeters) - 1e-8 &&
+Core/src/main/java/work/art1st/javarailways/core/physics/train/CollisionEnvelope.kt:57:                    target.arcLengthInAbMeters <= maxOf(part.startArcLengthInAbMeters, part.endArcLengthInAbMeters) + 1e-8
+Core/src/main/java/work/art1st/javarailways/core/physics/train/CollisionEnvelope.kt:162:                    kotlin.math.abs(a.endArcLengthInAbMeters - b.startArcLengthInAbMeters) <= 1e-8) null
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/debug/AbnormalTrainMarker.kt:101:            if (carPosition.lengthSquared() > 1e-9) positions.add(Vector3d(carPosition))
+Core/src/main/java/work/art1st/javarailways/core/physics/tick/PhysicsCoordinator.kt:144:    val maximumPhysicsDeltaSeconds: Double = maxPhysicsDeltaMillis * 0.001
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/BukkitRailTargetService.kt:49:        if (direction.lengthSquared() < 1.0e-12) {
+Basic/src/main/java/work/art1st/javarailways/basic/safety/RailSpeedCalculator.kt:62:            if (deltaArc <= 1.0e-9) return@forEach
+Basic/src/main/java/work/art1st/javarailways/basic/safety/RailSpeedCalculator.kt:70:            if (curvature < 1.0e-8) return@forEach
+Basic/src/main/java/work/art1st/javarailways/basic/safety/RailSpeedCalculator.kt:79:            if (denominator <= 1.0e-12) return@forEach
+Basic/src/main/java/work/art1st/javarailways/basic/safety/RailSpeedCalculator.kt:96:        if (horizontal.lengthSquared() < 1.0e-12) return null
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/ato/AbstractATO.kt:119:            val deltaTimeSeconds = deltaT * 0.001
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/ato/AbstractATO.kt:154:            plan(deltaT * 0.001)
+Basic/src/main/java/work/art1st/javarailways/basic/control/TrainDynamics.kt:335:        if (abs(delta) < 1.0e-9) return target
+SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/presentation/ModelPlacementCalculator.kt:64:        require(value.isFinite && lengthSquared.isFinite() && lengthSquared > 1e-12) {
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/Animation.kt:327:        private const val EPSILON = 1e-9
+Basic/src/main/java/work/art1st/javarailways/basic/control/TrainDynamicsExecutor.kt:182:        if (!stopped && kotlin.math.abs(snapshot.state.speed - speed) > 1e-9) return null
+Basic/src/main/java/work/art1st/javarailways/basic/control/WorldTrainDynamicsHistory.kt:43:        latest(train)?.takeIf { abs(it.state.speed - speedMetersPerSecond) <= 1e-9 }
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/TerminalRouteMargin.kt:108:    private const val EPSILON = 1.0e-6
+Basic/src/main/java/work/art1st/javarailways/basic/control/RealisticManualController.kt:148:        val deltaSeconds = deltaT.coerceAtLeast(0.0) * 0.001
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/FrozenMissionRouteAssembler.kt:501:    private const val EPSILON = 1.0e-6
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/MissionRouteProgress.kt:54:                first.railViewRef.direction == origin.position.facing && abs(first.startArcLengthMeters - arc) <= 1e-8) {
+Basic/src/main/java/work/art1st/javarailways/basic/route/TopologyRoutePlanner.kt:850:    private const val POSITION_EPSILON = 1e-9
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/DirectedRouteContinuation.kt:51:    private const val EPSILON = 1.0e-6
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/RouteOperatingDirectionLimit.kt:21:        require(requiredEndRouteDistanceMeters <= endRouteDistanceMeters + 1.0e-6) {
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/RouteOperatingDirectionLimit.kt:42:                require(segment.endArcLengthMeters <= kotlin.math.abs(rail.railEndAbMeters - rail.railStartAbMeters) + 1.0e-6) {
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/OperationalRoutePlanner.kt:114:        private const val ROUTE_POSITION_EPSILON = 1.0e-9
+Core/src/main/java/work/art1st/javarailways/core/api/control/TrainController.kt:131:        moveControlledTrain(currentSpeed * deltaT * 0.001, currentSpeed)
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/logic/RailVisualBootstrap.kt:150:                globalArc >= offset - 1.0e-9 &&
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/logic/RailVisualBootstrap.kt:151:                    (globalArc < offset + totalArcLength - 1.0e-9 || assemblyIndex == assemblyLengths.lastIndex)
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/logic/RailVisualBootstrap.kt:225:                globalArc >= offset - 1.0e-9 &&
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/logic/RailVisualBootstrap.kt:226:                    (globalArc < offset + total - 1.0e-9 || assembly.segmentIndex == assembly.segmentCount - 1)
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/logic/RailVisualBootstrap.kt:254:        require(segment.arcStart >= 0.0 && segment.arcEnd <= rail.curve.totalArcLength + 1.0e-6)
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/RetainedTimetableRoutes.kt:30:        return abs(canonical - point.arcLength) <= 1e-6
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/http/SimulationFormationBlueprint.kt:41:            require(kotlin.math.abs(stock.lengthMeters - profile.cars.sumOf { it.length }) <= 1e-7) {
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt:3975:        if (physical == null || physical > grant.committedAuthority.distanceFromRouteStartMeters + 1.0e-6) {
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt:5910:                abs(target.arcLength - berth.location.arcLengthIn(ViewDirection.AB)) <= 1e-6)
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt:6909:        const val RELEASE_EPSILON_METERS = 1.0e-6
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt:6910:        const val DEPOT_DEPARTURE_RELEASE_EPSILON_METERS = 1.0e-6
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/Timetable.kt:1333:            abs(cumulative - prefixRoute.totalLength) <= 1.0e-6
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/model/CompositeModel.kt:49:        val rotationChanged = lastRotation == null || !lastRotation!!.equals(rootTransform.rotation, 1e-12)
+Core/src/main/java/work/art1st/javarailways/core/api/physics/curve/Curve.kt:62:        const val PRECISION: Double = 1e-3
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralTimetableValidation.kt:418:            it.location.rail.id == finalTarget.railId && abs(it.location.arcLengthIn(ViewDirection.AB) - finalTarget.arcLength) <= 1e-7 }
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralTimetableValidation.kt:493:            abs(it.arcLengthInAbMeters - eligible.forwardBoundary.arcLengthInAbMeters) <= 1e-7 }) { "selected stop bound differs from same-rail eligibility window" }
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralTimetableValidation.kt:498:                require(marker > previousMarker + 1e-7) { "intermediate marker must follow the whole source corridor and preceding marker" }
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralTimetableValidation.kt:581:        return found.firstOrNull()?.takeIf { first -> found.all { abs(it - first) <= 1e-7 } }
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralTimetableValidation.kt:600:                    abs(last.endArcLengthMeters - segment.startArcLengthMeters) <= 1e-7) {
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralTimetableValidation.kt:607:            abs(first.startArcLengthMeters - second.startArcLengthMeters) <= 1e-7 && abs(first.endArcLengthMeters - second.endArcLengthMeters) <= 1e-7 }
+SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralOutputCorridor.kt:292:private const val EPS = 1e-7

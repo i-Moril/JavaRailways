@@ -1,6 +1,11 @@
 package work.art1st.javarailways.bukkit.render.backend
 
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.Destruction
+
 import io.papermc.paper.entity.TeleportFlag
+import work.art1st.javarailways.bukkit.BukkitPlugin
+import work.art1st.javarailways.bukkit.util.PlatformDispatcher
 import org.bukkit.Location
 import org.bukkit.World
 import org.bukkit.entity.BlockDisplay
@@ -10,7 +15,6 @@ import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.plugin.Plugin
 import org.bukkit.util.Transformation
-import work.art1st.javarailways.bukkit.util.PlatformDispatcher
 
 class NativeDisplayRenderBackend(
     private val plugin: Plugin,
@@ -49,17 +53,26 @@ class NativeDisplayRenderBackend(
     }
 }
 
-private class NativeDisplayVisual(
+internal class NativeDisplayVisual(
     private val plugin: Plugin,
     private val entity: Display,
-    private val dispatcher: PlatformDispatcher
+    private val dispatcher: PlatformDispatcher = BukkitPlugin.INSTANCE.platformDispatcher
 ) : DisplayVisual {
+    override val affinityEntity get() = entity
+    override val packetEntityId get() = entity.entityId
+    override val packetGlowBaseline get() = ((if (entity.isVisualFire || entity.fireTicks > 0) 1 else 0) or
+        (if (entity.isSneaking) 2 else 0) or (if (entity.isInvisible) 0x20 else 0) or
+        (if (entity.isGlowing) 0x40 else 0)).toByte() to (entity.glowColorOverride?.asRGB() ?: -1)
+    @Volatile
     private var destroyed = false
+    private val destruction = Destruction()
 
+    @Synchronized
     override fun showTo(player: Player) {
         if (!destroyed) player.showEntity(plugin, entity)
     }
 
+    @Synchronized
     override fun hideFrom(player: Player) {
         if (!destroyed) player.hideEntity(plugin, entity)
     }
@@ -81,6 +94,10 @@ private class NativeDisplayVisual(
         if (!destroyed) entity.brightness = Display.Brightness(blockLight, skyLight)
     }
 
+    override fun clearBrightness() {
+        if (!destroyed) entity.brightness = null
+    }
+
     override fun addPassenger(passenger: DisplayVisual): Boolean {
         if (destroyed) return false
         val nativePassenger = passenger as? NativeDisplayVisual
@@ -91,9 +108,9 @@ private class NativeDisplayVisual(
         return entity.addPassenger(nativePassenger.entity)
     }
 
-    override fun destroy() {
-        if (destroyed) return
+    @Synchronized
+    override fun destroy(): CompletionStage<Void> = destruction.run {
         destroyed = true
-        dispatcher.runForEntity(entity, action = { entity.remove() })
+        dispatcher.runForEntityCompletion(entity) { entity.remove() }
     }
 }

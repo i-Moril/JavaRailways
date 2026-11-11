@@ -1,11 +1,18 @@
 package work.art1st.javarailways.bukkit.extension.train
 
+import java.util.concurrent.CompletionStage
+import java.util.concurrent.CompletableFuture
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
+
+
 import org.bukkit.entity.Player
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.extension.BukkitRenderable
 import work.art1st.javarailways.bukkit.extension.bukkitLocation
 import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.core.api.render.Renderable
+import work.art1st.javarailways.core.api.render.RenderableExtension
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
@@ -17,7 +24,7 @@ import java.util.UUID
 val Car.rendererOrNull: TrainComponentExtension<Car>?
     get() {
         val plugin = BukkitPlugin.instanceOrNull() ?: return null
-        return getExtensionDataOrNull(plugin)
+        return getExtensionDataOrNull<RenderableExtension<Car>>(plugin) as? TrainComponentExtension<Car>
     }
 
 val Car.renderer: TrainComponentExtension<Car>
@@ -72,7 +79,22 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
     /**
      * 主线程：销毁所有可视化实体。
      */
-    protected abstract fun destroyModel()
+    protected abstract fun destroyModel(): CompletionStage<Void>
+
+    private val pendingModelCleanup = mutableListOf<CompletionStage<Void>>()
+
+    @Synchronized
+    private fun retireModel(): CompletionStage<Void> {
+        val completion = try { destroyModel() } catch (failure: Throwable) {
+            CompletableFuture.failedFuture<Void>(failure)
+        }
+        pendingModelCleanup += completion
+        completion.whenComplete { _, failure ->
+            if (failure == null) synchronized(this) { pendingModelCleanup.remove(completion) }
+        }
+        return completion
+    }
+
 
     @MainThread
     override fun sendTo(player: Player) {
@@ -85,12 +107,19 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
     internal fun sendToOwned(player: Player) {
         if (retired) return
         audience.add(player.uniqueId)
+        if (ensureModelBuilt()) refreshFor(player)
+    }
+
+    /** A failed first build can be retried by the next audience refresh after resources recover. */
+    @Synchronized
+    protected fun ensureModelBuilt(): Boolean {
+        if (retired) return false
         if (!modelBuilt) {
             buildModel()
             modelBuilt = true
             updateModel()
         }
-        refreshFor(player)
+        return true
     }
 
     @MainThread
@@ -101,7 +130,7 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
         onAudienceRemoved(player)
         if (audience.isNotEmpty() || !modelBuilt) return
         modelBuilt = false
-        destroyModel()
+        retireModel()
     }
 
     @Synchronized
@@ -110,27 +139,31 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
         if (retired || !modelBuilt) return
         if (audience.isEmpty()) {
             modelBuilt = false
-            destroyModel()
+            retireModel()
             return
         }
         updateModel()
     }
 
+    private val destruction = Destruction()
+
     @MainThread
     @Synchronized
-    override fun destroy() {
-        if (retired) return
+    override fun destroy(): CompletionStage<Void> = destruction.run {
         retired = true
         audience.clear()
         modelBuilt = false
-        destroyModel()
+        retireModel()
+        val steps = DestructionSteps()
+        pendingModelCleanup.toList().forEach { completion -> steps.await { completion } }
+        steps.finish()
     }
 
     /** Rebuild a live model tree while retaining its audience membership. */
     @Synchronized
     protected fun rebuildModelIfBuilt() {
         if (retired || !modelBuilt) return
-        destroyModel()
+        retireModel()
         buildModel()
         updateModel()
     }

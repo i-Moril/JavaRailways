@@ -1,0 +1,10 @@
+// Run from repository root with: ./gradlew :Basic:emuPerformanceClasspath --offline --no-daemon -I ai_tasks/experiments/emu-dynamics-performance/run.gradle
+// Compiles the experiment in the test source set only. Production sources/artifacts are unchanged.
+gradle.projectsEvaluated {
+    def p = rootProject.project(':Basic')
+    p.kotlin.sourceSets.test.kotlin.srcDir(p.file('../ai_tasks/experiments/emu-dynamics-performance'))
+    p.tasks.register('emuPerformanceClasspath') {
+        dependsOn p.tasks.named('testClasses')
+        doLast { new File('/tmp/jr-emu-classpath').text = p.sourceSets.test.runtimeClasspath.asPath }
+    }
+}

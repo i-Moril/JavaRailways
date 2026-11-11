@@ -2,7 +2,7 @@ package work.art1st.javarailways.bukkit.util
 
 import org.bukkit.entity.Entity
 import work.art1st.javarailways.bukkit.BukkitPlugin
-import work.art1st.javarailways.core.util.ThreadGuard
+import work.art1st.javarailways.core.api.threading.ThreadGuard
 import java.util.logging.Level
 
 object BukkitAsyncTasks {

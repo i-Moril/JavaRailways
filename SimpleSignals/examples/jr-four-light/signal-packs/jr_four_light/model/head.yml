@@ -1,0 +1,47 @@
+# Explicit root-local selection volume after the common offset and ItemDisplay rotation.
+# This encloses the housing and visors; it is an interaction box, not mesh-level picking.
+selection-boxes:
+  - min: [-0.625, 0.0, -0.3125]
+    max: [0.625, 2.625, 0.125]
+parts:
+  - type: dummy
+    # Rebasing the client mesh by -16 units preserves its size; restore its base height here.
+    offset: {y: 1.5}
+    # ItemDisplay adds local Y+180 before drawing: source -Z then needs Y-180 to face model -Z.
+    rotation: {y: -180.0}
+    parts:
+      - type: item_display
+        item:
+          type: PAPER
+          item-model: jr:four_light_signal_housing
+      - type: item_display
+        # Only active lamp faces receive full display brightness; dark faces stay in housing.
+        # Their meshes sit 0.05 model units north of the dark faces to avoid coplanar surfaces.
+        item:
+          type: PAPER
+          item-model: jr:four_light_signal_stop
+          brightness: {block: 15, sky: 15}
+        animations:
+          - name: lamp
+            scenes:
+              stop:
+                item: {type: PAPER, item-model: jr:four_light_signal_stop, brightness: {block: 15, sky: 15}}
+              caution:
+                item: {type: PAPER, item-model: jr:four_light_signal_caution, brightness: {block: 15, sky: 15}}
+              slow:
+                item: {type: PAPER, item-model: jr:four_light_signal_slow, brightness: {block: 15, sky: 15}}
+              proceed:
+                item: {type: PAPER, item-model: jr:four_light_signal_proceed, brightness: {block: 15, sky: 15}}
+default: {lamp: stop}
+variants:
+  stop: {lamp: stop}
+  caution: {lamp: caution}
+  slow: {lamp: slow}
+  proceed: {lamp: proceed}
+rail-placement:
+  follow-rail-tilt: false
+  presets:
+    left:
+      offset: {x: 2.0}
+    right:
+      offset: {x: -2.0}

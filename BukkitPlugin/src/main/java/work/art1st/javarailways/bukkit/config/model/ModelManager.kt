@@ -9,40 +9,115 @@ class ModelManager(
 ) {
     val trainPackages: MutableMap<String, LoadedTrainPackage> = mutableMapOf()
     val railPackages: MutableMap<String, LoadedRailPackage> = mutableMapOf()
+    @Volatile
     var generation: Long = 0
         private set
 
-    /** Load into isolated maps first, then publish both registries together. */
-    @Synchronized
+    private val resourceVersions = mutableMapOf<String, TrainResourceVersion>()
+    private val versionOwners = mutableMapOf<String, LoadedTrainPackage>()
+    private var trainSources: Map<String, String> = emptyMap()
+    var lastReloadFailures: Map<String, Throwable> = emptyMap()
+        private set
+
+    /** Strict startup entry point. Reload callers may publish independent valid train types. */
     fun loadAll(): ModelReloadResult {
-        val candidateTrains = loadTrainPackages()
-        val candidateRails = loadRailPackages()
-        wireCrossPackageReferences(candidateTrains)
-        trainPackages.clear()
-        trainPackages.putAll(candidateTrains)
-        railPackages.clear()
-        railPackages.putAll(candidateRails)
-        generation++
-        return ModelReloadResult(candidateTrains.keys.sorted(), candidateRails.keys.sorted(), generation)
+        val prepared = prepareReload()
+        prepared.failures.values.firstOrNull()?.let { throw it }
+        return publishReload(prepared)
     }
 
-    private fun loadTrainPackages(): MutableMap<String, LoadedTrainPackage> {
-        val loaded = linkedMapOf<String, LoadedTrainPackage>()
+    /** No published registry is mutated while files and complete model snapshots are prepared. */
+    internal fun prepareReload(): PreparedModelReload {
+        val baseline = synchronized(this) { Triple(generation, trainPackages.toMap(), trainSources) }
+        val failures = linkedMapOf<String, Throwable>()
+        val sources = linkedMapOf<String, String>()
+        val candidates = linkedMapOf<String, LoadedTrainPackage>()
         val trainsDir = File(dataFolder, "trains")
-        if (!trainsDir.exists() || !trainsDir.isDirectory) return loaded
-
-        for (dir in trainsDir.listFiles()?.sortedBy { it.name } ?: emptyList()) {
-            if (!dir.isDirectory) continue
-            val manifestFile = File(dir, "manifest.yml")
-            if (!manifestFile.exists()) continue
-
-            val loader = PackageLoader(dir)
-            val result = loader.loadTrainPackage() ?: continue
-            require(loaded.putIfAbsent(result.manifest.name, result) == null) {
-                "Duplicate train package name '${result.manifest.name}'"
+        for (dir in trainsDir.listFiles()?.sortedBy { it.name }.orEmpty()) {
+            if (!dir.isDirectory || !File(dir, "manifest.yml").exists()) continue
+            var packageName = baseline.third[dir.absolutePath] ?: dir.name
+            try {
+                val loaded = requireNotNull(PackageLoader(dir).loadTrainPackage()) { "Missing train manifest: $dir" }
+                packageName = loaded.manifest.name
+                sources[dir.absolutePath] = packageName
+                require(packageName !in candidates && packageName !in failures) { "Duplicate train package name '$packageName'" }
+                candidates[packageName] = loaded
+            } catch (failure: Exception) {
+                candidates.remove(packageName)
+                failures[packageName] = failure
             }
         }
-        return loaded
+        baseline.second.keys.filter { it !in candidates && it !in failures }.forEach { name ->
+            failures[name] = IllegalArgumentException("Train package '$name' is no longer available")
+        }
+        // Only fresh registries are wired. Retained packages keep their original reference graph.
+        val available = baseline.second + candidates
+        wireCrossPackageReferences(candidates, available)
+        val versions = linkedMapOf<String, TrainResourceVersion>()
+        for ((name, pkg) in candidates) {
+            try {
+                versions[name] = buildResourceVersion(pkg, available)
+            } catch (failure: Exception) {
+                failures[name] = failure
+            }
+        }
+        failures.keys.forEach { candidates.remove(it); versions.remove(it) }
+        return PreparedModelReload(baseline.first, candidates.toMap(), loadRailPackages(), versions.toMap(),
+            failures.toMap(), sources.toMap())
+    }
+
+    /** Publish only prepared successful types; every failed/rejected type retains its old catalog. */
+    @Synchronized
+    internal fun publishReload(prepared: PreparedModelReload, rejected: Map<String, Throwable> = emptyMap()): ModelReloadResult {
+        check(prepared.baseGeneration == generation) { "Model resources changed while reload was being prepared" }
+        val failures = prepared.failures + rejected
+        val accepted = prepared.trainPackages.filterKeys { it !in failures }
+        accepted.forEach { (name, pkg) ->
+            trainPackages[name] = pkg
+            resourceVersions[name] = prepared.versions.getValue(name)
+            versionOwners[name] = pkg
+        }
+        trainSources = trainSources + prepared.trainSources.filterValues { it in accepted }
+        railPackages.clear()
+        railPackages.putAll(prepared.railPackages)
+        generation++
+        lastReloadFailures = failures.toMap()
+        return ModelReloadResult(trainPackages.keys.sorted(), railPackages.keys.sorted(), generation, lastReloadFailures)
+    }
+
+    @Synchronized
+    fun resourceVersion(packageName: String): TrainResourceVersion {
+        val pkg = trainPackages[packageName] ?: throw IllegalArgumentException("Unknown train package: $packageName")
+        if (versionOwners[packageName] === pkg) return resourceVersions.getValue(packageName)
+        return buildResourceVersion(pkg, trainPackages).also {
+            resourceVersions[packageName] = it
+            versionOwners[packageName] = pkg
+        }
+    }
+
+    private fun buildResourceVersion(pkg: LoadedTrainPackage, available: Map<String, LoadedTrainPackage>): TrainResourceVersion {
+        val models = linkedMapOf<String, SavedCarModelTree>()
+        for (car in pkg.cars.values) {
+            models[car.resourceName] = SavedCarModelTree.build(car, pkg.partRegistry)
+        }
+        val composition = pkg.train.composition.map { name ->
+            val car = getCar(available, name) ?: throw IllegalArgumentException("Train '${pkg.manifest.name}' references missing car '$name'")
+            val owner = available[car.packageName] ?: throw IllegalArgumentException("Car '$name' has no loaded package")
+            val qualifiedName = car.resourceName
+            models.getOrPut(qualifiedName) { SavedCarModelTree.build(car, owner.partRegistry) }
+            qualifiedName
+        }
+        val snapshot = SavedTrainPackageSnapshot.build(pkg.manifest.name, pkg.actions, pkg.behavior,
+            pkg.control, models.mapValues { it.value.car.control })
+        val sourceSnapshots = models.keys.associateWith { name ->
+            val owner = requireNotNull(available[getCar(available, name)?.packageName]) {
+                "Car '$name' has no source package"
+            }
+            SavedTrainPackageSnapshot.build(owner.manifest.name, owner.actions, owner.behavior,
+                owner.control, owner.cars.mapKeys { "${owner.manifest.name}/${it.key}" }.mapValues { it.value.control })
+        }
+        return TrainResourceVersion(snapshot, java.util.Collections.unmodifiableMap(models),
+            java.util.Collections.unmodifiableMap(sourceSnapshots), java.util.List.copyOf(composition))
     }
 
     private fun loadRailPackages(): MutableMap<String, LoadedRailPackage> {
@@ -64,34 +139,30 @@ class ModelManager(
         return loaded
     }
 
-    private fun wireCrossPackageReferences(packages: Map<String, LoadedTrainPackage>) {
-        val allRegistries: Map<String, PartRegistry> = packages.mapValues { it.value.partRegistry }
-
-        for ((_, pkg) in packages) {
-            pkg.partRegistry.fallbackRegistries = allRegistries - pkg.manifest.name
+    private fun wireCrossPackageReferences(fresh: Map<String, LoadedTrainPackage>, available: Map<String, LoadedTrainPackage>) {
+        val allRegistries = available.mapValues { it.value.partRegistry }
+        for ((name, pkg) in fresh) {
+            pkg.partRegistry.fallbackRegistries = allRegistries - name
         }
     }
 
-    fun getCar(name: String): CarDefinition? {
-        // Qualified name: "<pkg>/<car>" → look up in specific package
+    fun getCar(name: String): CarDefinition? = getCar(trainPackages, name)
+
+    private fun getCar(packages: Map<String, LoadedTrainPackage>, name: String): CarDefinition? {
         val slashIdx = name.indexOf('/')
         if (slashIdx > 0) {
             val pkgName = name.substring(0, slashIdx)
             val carName = name.substring(slashIdx + 1)
-            trainPackages[pkgName]?.cars?.get(carName)?.let { return it }
+            packages[pkgName]?.cars?.get(carName)?.let { return it }
         }
-        // Bare name: search all packages
-        for ((_, pkg) in trainPackages) {
-            pkg.cars[name]?.let { return it }
-        }
-        return null
+        return packages.values.firstNotNullOfOrNull { it.cars[name] }
     }
 
     fun getTrain(name: String): TrainDefinition? = trainPackages[name]?.train
 
     fun getTrainAction(packageName: String?, actionName: String): TrainActionConfig? {
         if (packageName != null) {
-            trainPackages[packageName]?.actions?.get(actionName)?.let { return it }
+            return trainPackages[packageName]?.actions?.get(actionName)
         }
         for ((_, pkg) in trainPackages) {
             pkg.actions[actionName]?.let { return it }
@@ -101,14 +172,14 @@ class ModelManager(
 
     fun getTrainActions(packageName: String?): Map<String, TrainActionConfig> {
         if (packageName != null) {
-            trainPackages[packageName]?.actions?.let { return it }
+            return trainPackages[packageName]?.actions ?: emptyMap()
         }
         return trainPackages.values.flatMap { it.actions.entries }.associate { it.key to it.value }
     }
 
     fun getTrainBehavior(packageName: String?): TrainBehaviorScript? {
         if (packageName != null) {
-            trainPackages[packageName]?.behavior?.let { return it }
+            return trainPackages[packageName]?.behavior
         }
         return trainPackages.values.firstNotNullOfOrNull { it.behavior }
     }
@@ -137,14 +208,8 @@ class ModelManager(
             ?: throw IllegalArgumentException("Unknown train package: $packageName")
 
     fun createTrainPackageSnapshot(packageName: String): SavedTrainPackageSnapshot? {
-        val pkg = trainPackages[packageName] ?: return null
-        return SavedTrainPackageSnapshot.build(
-            packageName = packageName,
-            actions = pkg.actions,
-            behavior = pkg.behavior,
-            control = pkg.control,
-            carControls = pkg.cars.mapValues { it.value.control }
-        )
+        if (packageName !in trainPackages) return null
+        return resourceVersion(packageName).packageSnapshot
     }
 
     fun createCarModelSnapshot(carModelName: String): SavedCarModelTree? {
@@ -162,5 +227,6 @@ class ModelManager(
 data class ModelReloadResult(
     val trainPackages: List<String>,
     val railPackages: List<String>,
-    val generation: Long
+    val generation: Long,
+    val failures: Map<String, Throwable> = emptyMap()
 )

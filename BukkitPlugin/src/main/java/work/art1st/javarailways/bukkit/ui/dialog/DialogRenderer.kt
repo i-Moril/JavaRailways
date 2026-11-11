@@ -12,7 +12,7 @@ import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.event.ClickCallback
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.entity.Player
-import work.art1st.javarailways.basic.api.ui.config.*
+import work.art1st.javarailways.bukkit.api.wand.config.*
 import work.art1st.javarailways.bukkit.util.PlatformDispatcher
 
 internal const val DIALOG_NUMBER_TEXT_MAX_LENGTH = 32
@@ -108,11 +108,12 @@ class DialogRenderer(
         context: Map<String, Any> = emptyMap(),
         textResolver: (String) -> String = DEFAULT_TEXT_RESOLVER,
         additionalBody: List<Component> = emptyList(),
+        isCurrent: (Player) -> Boolean = { true },
         onConfirmed: ((Player) -> Unit)? = null
     ) {
         val session = configUI.getPlayerSession(player.uniqueId)
         val builtGroup = configUI.buildGroupForPlayer(groupId, player.uniqueId, context)
-        showNativeDialog(player, builtGroup, session, textResolver, additionalBody, onConfirmed)
+        showNativeDialog(player, builtGroup, session, textResolver, additionalBody, isCurrent, onConfirmed)
     }
 
     /**
@@ -124,12 +125,13 @@ class DialogRenderer(
         session: PlayerConfigSession,
         textResolver: (String) -> String,
         additionalBody: List<Component>,
+        isCurrent: (Player) -> Boolean = { true },
         onConfirmed: ((Player) -> Unit)? = null
     ) {
         val group = builtGroup.group
 
         // 构建 DialogInput 列表
-        val inputs = buildInputs(builtGroup, session, textResolver)
+        val inputs = buildInputs(builtGroup, textResolver)
 
         // 构建 body（描述文本）
         val bodies = mutableListOf<DialogBody>()
@@ -150,7 +152,7 @@ class DialogRenderer(
         // 确认按钮回调
         val confirmAction = DialogAction.customClick(
             playerDialogCallback(dispatcher, { captureResponse(it, builtGroup) }) { inputs, audience ->
-                onConfirm(inputs, builtGroup, session, audience, textResolver, additionalBody, onConfirmed)
+                onConfirm(inputs, builtGroup, session, audience, textResolver, additionalBody, isCurrent, onConfirmed)
             },
             ClickCallback.Options.builder()
                 .uses(1)
@@ -168,6 +170,7 @@ class DialogRenderer(
             session,
             textResolver,
             additionalBody,
+            isCurrent,
             onConfirmed
         ) + confirmButton
 
@@ -192,18 +195,17 @@ class DialogRenderer(
         session: PlayerConfigSession,
         textResolver: (String) -> String,
         additionalBody: List<Component>,
+        isCurrent: (Player) -> Boolean,
         onConfirmed: ((Player) -> Unit)?
     ): List<ActionButton> {
-        val allItems = builtGroup.effectiveItems +
-            builtGroup.effectiveSubGroups.flatMap { it.items }
-        return allItems.flatMap { item ->
+        return builtGroup.effectiveItems.flatMap { item ->
             val key = item.key
             if (key.id !in builtGroup.triggerKeyIds || key.valueType != ConfigValueType.ENUM) {
                 return@flatMap emptyList()
             }
             val constraints = key.constraints as? ConfigConstraints.EnumOptions<*>
                 ?: return@flatMap emptyList()
-            val current = session.getValue(key as ConfigKey<Any?>) ?: key.defaultValue
+            val current = builtGroup.snapshot.get<Any?>(key.id) ?: key.defaultValue
             constraints.options.map { option ->
                 val selected = option == current
                 val label = buildString {
@@ -216,23 +218,26 @@ class DialogRenderer(
                 }
                 val action = DialogAction.customClick(
                     playerDialogCallback(dispatcher, { captureResponse(it, builtGroup) }) { inputs, audience ->
-                        captureInputs(inputs, builtGroup, session, textResolver, setOf(key.id))
-                        @Suppress("UNCHECKED_CAST")
-                        session.setValue(key as ConfigKey<Any?>, option)
-                        session.commit()
-                        val rebuilt = configUI.buildGroupForPlayer(
-                            builtGroup.group.id,
-                            audience.uniqueId,
-                            emptyMap()
-                        )
-                        showNativeDialog(
-                            audience,
-                            rebuilt,
-                            configUI.getPlayerSession(audience.uniqueId),
-                            textResolver,
-                            additionalBody,
-                            onConfirmed
-                        )
+                        if (isCurrent(audience)) {
+                            captureInputs(inputs, builtGroup, session, textResolver, setOf(key.id))
+                            @Suppress("UNCHECKED_CAST")
+                            session.setValue(key as ConfigKey<Any?>, option)
+                            reportCommitFailures(audience, session.commit(), textResolver)
+                            val rebuilt = configUI.buildGroupForPlayer(
+                                builtGroup.group.id,
+                                audience.uniqueId,
+                                emptyMap()
+                            )
+                            showNativeDialog(
+                                audience,
+                                rebuilt,
+                                configUI.getPlayerSession(audience.uniqueId),
+                                textResolver,
+                                additionalBody,
+                                isCurrent,
+                                onConfirmed
+                            )
+                        }
                     },
                     ClickCallback.Options.builder().uses(1).lifetime(DEFAULT_LIFETIME).build()
                 )
@@ -243,6 +248,29 @@ class DialogRenderer(
         }
     }
 
+    /** Distinguishes rejected writes from notification failures after a successful write. */
+    private fun reportCommitFailures(
+        player: Player,
+        result: ConfigCommitResult,
+        textResolver: (String) -> String
+    ): Boolean {
+        if (result.failures.isNotEmpty()) {
+            val detail = result.failures.joinToString { "${it.keyId}: ${it.reason}" }
+            player.sendMessage(Component.text(
+                textResolver("dialog.commit_failed").format(detail),
+                NamedTextColor.RED
+            ))
+        }
+        if (result.notificationFailures.isNotEmpty()) {
+            val detail = result.notificationFailures.joinToString { "${it.keyId}: ${it.reason}" }
+            player.sendMessage(Component.text(
+                textResolver("dialog.commit_notification_failed").format(detail),
+                NamedTextColor.RED
+            ))
+        }
+        return result.succeeded
+    }
+
     /** 处理确认按钮回调：读取所有 Dialog 输入值并写入 session。 */
     private fun onConfirm(
         view: DialogInputValues,
@@ -251,16 +279,22 @@ class DialogRenderer(
         player: Player,
         textResolver: (String) -> String,
         additionalBody: List<Component>,
+        isCurrent: (Player) -> Boolean = { true },
         onConfirmed: ((Player) -> Unit)? = null
     ) {
+        if (!isCurrent(player)) return
         val needsRebuild = try {
             captureInputs(view, builtGroup, session, textResolver)
         } catch (failure: IllegalArgumentException) {
             player.sendMessage(Component.text(failure.message ?: "数值输入无效", NamedTextColor.RED))
-            showNativeDialog(player, builtGroup, session, textResolver, additionalBody, onConfirmed)
+            showNativeDialog(player, builtGroup, session, textResolver, additionalBody, isCurrent, onConfirmed)
             return
         }
-        session.commit()
+        if (!reportCommitFailures(player, session.commit(), textResolver)) {
+            val rebuilt = configUI.buildGroupForPlayer(builtGroup.group.id, player.uniqueId, emptyMap())
+            showNativeDialog(player, rebuilt, session, textResolver, additionalBody, isCurrent, onConfirmed)
+            return
+        }
         if (needsRebuild) {
             val newGroup = configUI.buildGroupForPlayer(
                 builtGroup.group.id, player.uniqueId, emptyMap()
@@ -271,6 +305,7 @@ class DialogRenderer(
                 configUI.getPlayerSession(player.uniqueId),
                 textResolver,
                 additionalBody,
+                isCurrent,
                 onConfirmed
             )
             return
@@ -286,8 +321,7 @@ class DialogRenderer(
         val text = mutableMapOf<String, String>()
         val booleans = mutableMapOf<String, Boolean>()
         val numbers = mutableMapOf<String, Float>()
-        val items = builtGroup.effectiveItems + builtGroup.effectiveSubGroups.flatMap { it.items }
-        items.forEach { item ->
+        builtGroup.effectiveItems.forEach { item ->
             val key = toInputKey(item.key.id)
             when (item.key.valueType) {
                 ConfigValueType.BOOLEAN -> view.getBoolean(key)?.let { booleans[key] = it }
@@ -321,10 +355,8 @@ class DialogRenderer(
         textResolver: (String) -> String,
         ignoredKeyIds: Set<String> = emptySet()
     ): Boolean {
-        val allItems = builtGroup.effectiveItems +
-            builtGroup.effectiveSubGroups.flatMap { it.items }
         var needsRebuild = false
-        allItems.filterNot { it.key.id in ignoredKeyIds }.forEach { item ->
+        builtGroup.effectiveItems.filterNot { it.key.id in ignoredKeyIds }.forEach { item ->
             val key = item.key
             val inputKey = toInputKey(key.id)
             val oldValue = session.getValue(key as ConfigKey<Any?>)
@@ -380,28 +412,24 @@ class DialogRenderer(
      */
     private fun buildInputs(
         builtGroup: BuiltGroup,
-        session: PlayerConfigSession,
         textResolver: (String) -> String
     ): List<DialogInput> {
-        val allItems = builtGroup.effectiveItems +
-            builtGroup.effectiveSubGroups.flatMap { it.items }
-
-        return allItems
+        return builtGroup.effectiveItems
             .filterNot { it.key.id in builtGroup.triggerKeyIds && it.key.valueType == ConfigValueType.ENUM }
-            .mapNotNull { item -> toDialogInput(item, session, textResolver) }
+            .mapNotNull { item -> toDialogInput(item, builtGroup.snapshot, textResolver) }
     }
 
     /**
-     * 将单个 [ConfigItem] 转换为 [DialogInput]。
+     * 将单个 [WandConfigItem] 转换为 [DialogInput]。
      */
     @Suppress("UNCHECKED_CAST")
     private fun toDialogInput(
-        item: ConfigItem,
-        session: PlayerConfigSession,
+        item: WandConfigItem,
+        snapshot: ConfigSnapshot,
         textResolver: (String) -> String
     ): DialogInput? {
         val key = item.key
-        val current = session.getValue(key as ConfigKey<Any?>) ?: key.defaultValue
+        val current = snapshot.get<Any?>(key.id) ?: key.defaultValue
 
         val inputKey = toInputKey(key.id)
 

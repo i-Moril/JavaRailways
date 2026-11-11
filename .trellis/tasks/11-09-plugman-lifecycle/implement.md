@@ -100,3 +100,5 @@
 验证：单 worker 队列第一次返回后才能执行 cleanup 的生产逻辑测试；重复/ready/failed/超时/嵌套任务/迟到回调/直接禁用及缺失 PlugManX 的场景。执行 Bukkit tests + shadowJar，检查 PlugManX 未内嵌；下游 compile/test 按实际变更边界。实服验证未执行不能声称已通过。
 
 本批实施与独立审查完成：GentleUnload / 非阻塞 owner barrier / 精确注册释放 / 文档规范 / 269 项 Bukkit 测试与打包通过。实服验收待后续授权；未提交和部署。
+
+集成到用户明确指定的 feat/simpledisplays-train-integration：保留显式world runtime并接入目标呈现服务cleanup stage。受影响模块与JAR/边界检查完成；记录一个目标已有 ProgramExpressionsTest 下标失败，未扩大范围修改。主工作区原有工作不纳入提交。

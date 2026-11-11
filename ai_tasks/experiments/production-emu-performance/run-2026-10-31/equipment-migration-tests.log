@@ -1,0 +1,18 @@
+test_apply_backups_and_converges_using_candidate_codec (test_migrate_equipment_snapshots.MigrationTest.test_apply_backups_and_converges_using_candidate_codec) ... ok
+test_changed_source_rejected_before_apply (test_migrate_equipment_snapshots.MigrationTest.test_changed_source_rejected_before_apply) ... ok
+test_corrupt_hash_filename_aborts (test_migrate_equipment_snapshots.MigrationTest.test_corrupt_hash_filename_aborts) ... ok
+test_dry_run_pins_sources_and_both_primary_fallback_typed_references (test_migrate_equipment_snapshots.MigrationTest.test_dry_run_pins_sources_and_both_primary_fallback_typed_references) ... ok
+test_failure_after_new_snapshot_publication_rolls_back_owned_file (test_migrate_equipment_snapshots.MigrationTest.test_failure_after_new_snapshot_publication_rolls_back_owned_file) ... ok
+test_failure_after_reference_replacement_rolls_everything_back (test_migrate_equipment_snapshots.MigrationTest.test_failure_after_reference_replacement_rolls_everything_back) ... ok
+test_foreign_file_created_at_snapshot_destination_is_not_deleted_by_rollback (test_migrate_equipment_snapshots.MigrationTest.test_foreign_file_created_at_snapshot_destination_is_not_deleted_by_rollback) ... ok
+test_missing_snapshot_reference_aborts (test_migrate_equipment_snapshots.MigrationTest.test_missing_snapshot_reference_aborts) ... ok
+test_opaque_extension_payloads_are_never_searched (test_migrate_equipment_snapshots.MigrationTest.test_opaque_extension_payloads_are_never_searched) ... ok
+test_render_envelope_validation_does_not_accept_extra_fields_or_boolean_version (test_migrate_equipment_snapshots.MigrationTest.test_render_envelope_validation_does_not_accept_extra_fields_or_boolean_version) ... ok
+test_running_instance_guard_precedes_writes (test_migrate_equipment_snapshots.MigrationTest.test_running_instance_guard_precedes_writes) ... ok
+test_symlink_root_file_and_hardlink_are_rejected (test_migrate_equipment_snapshots.MigrationTest.test_symlink_root_file_and_hardlink_are_rejected) ... ok
+test_real_package_and_model_codecs_rehash_and_preserve_typed_payloads (test_migrate_equipment_snapshots.RealCodecTest.test_real_package_and_model_codecs_rehash_and_preserve_typed_payloads) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 18.486s
+
+OK

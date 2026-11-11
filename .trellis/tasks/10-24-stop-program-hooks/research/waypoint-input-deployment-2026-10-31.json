@@ -1,0 +1,145 @@
+{
+  "target": "JavaRailwaysTest@192.168.1.230",
+  "source": {
+    "sourceCommit": "976f4eacc6f005eca01ddb667dbad56a0f991ef7",
+    "featureCommit": "574975bfc959e3b43ac60f7aa65373ab70846d5d",
+    "retainedSourceCommit": "32d1c413a4bffdb2dda620cee11444dd7ea358f7",
+    "artifacts": {
+      "JavaRailways.jar": {
+        "candidateSha256": "fb928ce1083b07c2c3c3a272587305b0c3815157859f75a39e244b5706675a16",
+        "installedSha256": "8aac93d78523b32e0776161c6898b84b5ddd3ffe589d98eecd91206601a04abd"
+      }
+    },
+    "retainedArtifacts": {
+      "SimpleSignals.jar": "0346443a02bfd0a7a14a11cd6b3893e4c321005e732fc7db5e427a336f35ac39"
+    },
+    "webuiSha256": "da2ac1f085bd9fe5a6433c55663f11d46d2d8eeaf8133e1552e649e6ec0afce2",
+    "integrationCommit": "bc7d6db1195343ae545a79beb7c3b53f78f7c583"
+  },
+  "recovery": {
+    "recovery": "/opt/mcsmanager/backups/javarailways/waypoint-input-20261031-mo6wgx67",
+    "archiveSha256": "bfb682d2cf0429355060fd6f611aff2b69f2c0b869f254d349f8aa2e90cd7de6",
+    "fileCount": 145
+  },
+  "install": {
+    "installedAt": "2026-10-31T07:34:57.289873+00:00",
+    "sourceCommit": "976f4eacc6f005eca01ddb667dbad56a0f991ef7",
+    "pluginDataUnchanged": true,
+    "otherPluginJarsUnchanged": true,
+    "jars": {
+      "Chunky-Bukkit-1.4.40.jar": "2a5477fc80f71012e15ade1ce34dbeb836e17623b28db112492c0f1443c09721",
+      "JavaRailways.jar": "fb928ce1083b07c2c3c3a272587305b0c3815157859f75a39e244b5706675a16",
+      "SimpleSignals.jar": "0346443a02bfd0a7a14a11cd6b3893e4c321005e732fc7db5e427a336f35ac39",
+      "Terra-bukkit-7.0.0-BETA+47d430776-shaded.jar": "91aa93352444fb87105b33cf0ec36ad0ea554cc4b1c272aead4b6ee8b4e41867",
+      "TunnelBridgeBuilder.jar": "831a0c25179c9c98f2a7135256080c9f402713b18215781976ab2eb5fce3d722",
+      "ViaVersion-5.12.0-SNAPSHOT.jar": "cc23a414b2bded80a72646a5fe43cc6b2ba97df516147a3630f402d9695e945b",
+      "voxy-server-side-paper.jar": "696db9a0fb4e24f79383b4093b4212380c69513814e198033abc4f252d067b01",
+      "worldedit-bukkit-7.4.4.jar": "44c97ee6c1df9afa127df3c5a2c6a7108f826fb44ab7b255a7ec4250feb89b9d"
+    }
+  },
+  "running": {
+    "instanceUuid": "836082a48c4f48fcb1fea4e83c57dc96",
+    "status": 3,
+    "processInfo": {
+      "cpu": 0,
+      "memory": 3734794240,
+      "ctime": 169050,
+      "elapsed": 41210,
+      "timestamp": 1793432149694,
+      "pid": 775639,
+      "ppid": 775634
+    }
+  },
+  "runtime": {
+    "runtimeMarkers": [
+      "[07:35:36] [Server thread/INFO]: Done (26.815s)! For help, type \"help\"",
+      "[07:36:12] [Folia Region Scheduler Thread #0/INFO]: ATO world: RUNNING",
+      "[07:36:15] [Folia Region Scheduler Thread #0/INFO]: SimpleSignals 2952ad2c-41ce-40bc-b83b-1b578ae7af12: installed, definitionRevision=117, topologyRevision=1; regions=5, tables=5, blocks=14, fixedBlockSignals=8, protectionSignals=4, routeIndicators=1, attachedSignals=0"
+    ],
+    "signalDefinitionsUnchanged": true,
+    "retainedPluginsUnchanged": true,
+    "pluginStartupErrors": [],
+    "incrementalErrorLogs": {
+      "plugins/JavaRailways/logs/errors.log": {
+        "newBytes": 1109,
+        "errorEntries": 0,
+        "warningEntries": 4
+      },
+      "plugins/JavaRailways/webui/logs/errors.log": {
+        "newBytes": 0,
+        "errorEntries": 0,
+        "warningEntries": 0
+      },
+      "plugins/SimpleSignals/logs/errors.log": {
+        "newBytes": 0,
+        "errorEntries": 0,
+        "warningEntries": 0
+      }
+    },
+    "guestSimulationStatus": 401
+  },
+  "http": {
+    "bridgeHealth": true,
+    "bridgePort": 8765,
+    "webPort": 29002,
+    "matchedSidecar": "/opt/mcsmanager/daemon/data/InstanceData/836082a48c4f48fcb1fea4e83c57dc96/plugins/JavaRailways/webui/JavaRailways-WebUI.jar",
+    "webuiSha256": "da2ac1f085bd9fe5a6433c55663f11d46d2d8eeaf8133e1552e649e6ec0afce2",
+    "servedAssetsMatched": 17,
+    "mainJarSha256": "fb928ce1083b07c2c3c3a272587305b0c3815157859f75a39e244b5706675a16"
+  },
+  "workspacePublicResources": {
+    "matchedPublicAssetsFromWorkspace": 17,
+    "webuiSha256": "da2ac1f085bd9fe5a6433c55663f11d46d2d8eeaf8133e1552e649e6ec0afce2"
+  },
+  "tests": {
+    "Core": {
+      "tests": 538,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "Basic": {
+      "tests": 435,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "SimpleATO": {
+      "tests": 657,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "SimpleATOBukkit": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "SimpleSignals": {
+      "tests": 675,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "BukkitPlugin": {
+      "tests": 673,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "WebUI": {
+      "tests": 49,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "frontendTests": 335,
+  "frontendFiles": 57,
+  "sourceInputsUnchanged": 2067,
+  "shutdown": [
+    "[07:33:38] [Region shutdown thread/INFO]: [RegionShutdownThread] Saved all worlds"
+  ],
+  "notes": "Task stays in_progress. No persistence/schema change or runtime compatibility. Authenticated candidate metadata and in-game/client behavior remain unverified."
+}

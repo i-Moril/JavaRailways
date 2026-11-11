@@ -1,0 +1,1013 @@
+{
+  "aggregation": "Median of three per-run percentiles from repeated scenario/world runs in one JVM per shape/arm; NOT pooled percentile",
+  "rows": [
+    {
+      "shape": "straight",
+      "scenario": "isolated",
+      "trains": 100,
+      "before": {
+        "wallP50Millis": {
+          "median": 3.062341,
+          "min": 2.971336,
+          "max": 3.063541
+        },
+        "wallP95Millis": {
+          "median": 4.236017,
+          "min": 4.129709,
+          "max": 4.354523
+        },
+        "wallP99Millis": {
+          "median": 5.711079,
+          "min": 5.437864,
+          "max": 5.73995
+        },
+        "wallMaxMillis": {
+          "median": 8.481199,
+          "min": 8.266688,
+          "max": 8.975719
+        },
+        "workerMaxP95Millis": {
+          "median": 2.016318,
+          "min": 1.999236,
+          "max": 2.21437
+        },
+        "workerTotalP95Millis": {
+          "median": 6.902391,
+          "min": 6.887086,
+          "max": 7.101066
+        },
+        "coordinatorP95Millis": {
+          "median": 1.480671,
+          "min": 1.479546,
+          "max": 1.494925
+        },
+        "allP95Under50ms": true
+      },
+      "after": {
+        "wallP50Millis": {
+          "median": 1.97294,
+          "min": 1.968718,
+          "max": 1.974133
+        },
+        "wallP95Millis": {
+          "median": 3.265914,
+          "min": 3.069706,
+          "max": 3.318959
+        },
+        "wallP99Millis": {
+          "median": 4.640587,
+          "min": 4.17314,
+          "max": 4.864914
+        },
+        "wallMaxMillis": {
+          "median": 9.070771,
+          "min": 8.22745,
+          "max": 10.415757
+        },
+        "workerMaxP95Millis": {
+          "median": 0.970784,
+          "min": 0.951586,
+          "max": 0.980661
+        },
+        "workerTotalP95Millis": {
+          "median": 3.347888,
+          "min": 3.28795,
+          "max": 3.379359
+        },
+        "coordinatorP95Millis": {
+          "median": 1.484906,
+          "min": 1.450922,
+          "max": 1.521075
+        },
+        "allP95Under50ms": true
+      },
+      "p95DeltaMillis": -0.9701030000000004,
+      "p95ChangePercent": -22.901300915459032,
+      "p95SpeedRatio": 1.2970387462743969
+    },
+    {
+      "shape": "straight",
+      "scenario": "isolated",
+      "trains": 500,
+      "before": {
+        "wallP50Millis": {
+          "median": 22.217442,
+          "min": 21.99109,
+          "max": 22.340423
+        },
+        "wallP95Millis": {
+          "median": 28.320885,
+          "min": 28.132176,
+          "max": 28.759418
+        },
+        "wallP99Millis": {
+          "median": 30.748694,
+          "min": 30.378597,
+          "max": 31.468208
+        },
+        "wallMaxMillis": {
+          "median": 34.642392,
+          "min": 32.95265,
+          "max": 60.903316
+        },
+        "workerMaxP95Millis": {
+          "median": 16.056295,
+          "min": 15.733585,
+          "max": 16.32197
+        },
+        "workerTotalP95Millis": {
+          "median": 62.44768,
+          "min": 61.603609,
+          "max": 63.373215
+        },
+        "coordinatorP95Millis": {
+          "median": 13.401464,
+          "min": 12.884958,
+          "max": 13.553149
+        },
+        "allP95Under50ms": true
+      },
+      "after": {
+        "wallP50Millis": {
+          "median": 18.422275,
+          "min": 18.413505,
+          "max": 18.479874
+        },
+        "wallP95Millis": {
+          "median": 24.13601,
+          "min": 23.807093,
+          "max": 25.158064
+        },
+        "wallP99Millis": {
+          "median": 27.360804,
+          "min": 27.193881,
+          "max": 28.772666
+        },
+        "wallMaxMillis": {
+          "median": 47.324824,
+          "min": 34.00279,
+          "max": 51.276541
+        },
+        "workerMaxP95Millis": {
+          "median": 8.540624,
+          "min": 7.02805,
+          "max": 10.609099
+        },
+        "workerTotalP95Millis": {
+          "median": 27.247182,
+          "min": 25.56372,
+          "max": 39.88376
+        },
+        "coordinatorP95Millis": {
+          "median": 17.213485,
+          "min": 14.495576,
+          "max": 17.45415
+        },
+        "allP95Under50ms": true
+      },
+      "p95DeltaMillis": -4.184875000000002,
+      "p95ChangePercent": -14.776639218724984,
+      "p95SpeedRatio": 1.1733871920006662
+    },
+    {
+      "shape": "straight",
+      "scenario": "mixed",
+      "trains": 100,
+      "before": {
+        "wallP50Millis": {
+          "median": 2.544334,
+          "min": 2.497818,
+          "max": 2.643476
+        },
+        "wallP95Millis": {
+          "median": 3.923309,
+          "min": 3.369002,
+          "max": 3.931688
+        },
+        "wallP99Millis": {
+          "median": 4.972537,
+          "min": 4.501215,
+          "max": 6.701194
+        },
+        "wallMaxMillis": {
+          "median": 7.019917,
+          "min": 5.483163,
+          "max": 13.885948
+        },
+        "workerMaxP95Millis": {
+          "median": 1.620738,
+          "min": 1.51226,
+          "max": 1.780636
+        },
+        "workerTotalP95Millis": {
+          "median": 5.37924,
+          "min": 5.208155,
+          "max": 5.528959
+        },
+        "coordinatorP95Millis": {
+          "median": 1.312227,
+          "min": 1.273467,
+          "max": 1.337563
+        },
+        "allP95Under50ms": true
+      },
+      "after": {
+        "wallP50Millis": {
+          "median": 1.814357,
+          "min": 1.68793,
+          "max": 1.814799
+        },
+        "wallP95Millis": {
+          "median": 2.957988,
+          "min": 2.810741,
+          "max": 2.963424
+        },
+        "wallP99Millis": {
+          "median": 4.162378,
+          "min": 4.029345,
+          "max": 4.534207
+        },
+        "wallMaxMillis": {
+          "median": 8.253288,
+          "min": 5.770566,
+          "max": 10.140659
+        },
+        "workerMaxP95Millis": {
+          "median": 0.859577,
+          "min": 0.834094,
+          "max": 0.873845
+        },
+        "workerTotalP95Millis": {
+          "median": 2.867568,
+          "min": 2.821645,
+          "max": 2.877708
+        },
+        "coordinatorP95Millis": {
+          "median": 1.358277,
+          "min": 1.339597,
+          "max": 1.372359
+        },
+        "allP95Under50ms": true
+      },
+      "p95DeltaMillis": -0.9653210000000003,
+      "p95ChangePercent": -24.60476602786067,
+      "p95SpeedRatio": 1.3263437850322586
+    },
+    {
+      "shape": "straight",
+      "scenario": "mixed",
+      "trains": 500,
+      "before": {
+        "wallP50Millis": {
+          "median": 19.293774,
+          "min": 18.822603,
+          "max": 19.321638
+        },
+        "wallP95Millis": {
+          "median": 24.604918,
+          "min": 24.14759,
+          "max": 24.698819
+        },
+        "wallP99Millis": {
+          "median": 27.301827,
+          "min": 26.993817,
+          "max": 27.766827
+        },
+        "wallMaxMillis": {
+          "median": 31.744272,
+          "min": 29.789368,
+          "max": 34.641605
+        },
+        "workerMaxP95Millis": {
+          "median": 12.829909,
+          "min": 12.666403,
+          "max": 12.918174
+        },
+        "workerTotalP95Millis": {
+          "median": 50.208186,
+          "min": 49.861015,
+          "max": 50.443877
+        },
+        "coordinatorP95Millis": {
+          "median": 12.880316,
+          "min": 12.485381,
+          "max": 13.023986
+        },
+        "allP95Under50ms": true
+      },
+      "after": {
+        "wallP50Millis": {
+          "median": 17.442435,
+          "min": 16.672057,
+          "max": 17.530176
+        },
+        "wallP95Millis": {
+          "median": 22.816087,
+          "min": 20.863078,
+          "max": 23.425754
+        },
+        "wallP99Millis": {
+          "median": 25.630904,
+          "min": 24.382962,
+          "max": 26.048416
+        },
+        "wallMaxMillis": {
+          "median": 28.926412,
+          "min": 26.441203,
+          "max": 32.837317
+        },
+        "workerMaxP95Millis": {
+          "median": 9.244053,
+          "min": 8.188323,
+          "max": 9.366598
+        },
+        "workerTotalP95Millis": {
+          "median": 32.447967,
+          "min": 24.040924,
+          "max": 34.665375
+        },
+        "coordinatorP95Millis": {
+          "median": 14.707235,
+          "min": 13.58154,
+          "max": 16.474233
+        },
+        "allP95Under50ms": true
+      },
+      "p95DeltaMillis": -1.7888310000000018,
+      "p95ChangePercent": -7.27021727932603,
+      "p95SpeedRatio": 1.0784021817588618
+    },
+    {
+      "shape": "straight",
+      "scenario": "shared",
+      "trains": 100,
+      "before": {
+        "wallP50Millis": {
+          "median": 3.223156,
+          "min": 3.190879,
+          "max": 3.32359
+        },
+        "wallP95Millis": {
+          "median": 4.600522,
+          "min": 4.4373,
+          "max": 4.735139
+        },
+        "wallP99Millis": {
+          "median": 5.787495,
+          "min": 5.098123,
+          "max": 5.996054
+        },
+        "wallMaxMillis": {
+          "median": 7.877066,
+          "min": 7.116291,
+          "max": 12.408647
+        },
+        "workerMaxP95Millis": {
+          "median": 3.087632,
+          "min": 2.943785,
+          "max": 3.110581
+        },
+        "workerTotalP95Millis": {
+          "median": 11.183972,
+          "min": 11.039649,
+          "max": 11.224897
+        },
+        "coordinatorP95Millis": {
+          "median": 1.473829,
+          "min": 1.367506,
+          "max": 1.535953
+        },
+        "allP95Under50ms": true
+      },
+      "after": {
+        "wallP50Millis": {
+          "median": 2.101472,
+          "min": 2.03808,
+          "max": 2.24425
+        },
+        "wallP95Millis": {
+          "median": 3.232121,
+          "min": 3.098857,
+          "max": 3.652977
+        },
+        "wallP99Millis": {
+          "median": 4.691416,
+          "min": 4.128758,
+          "max": 4.898974
+        },
+        "wallMaxMillis": {
+          "median": 6.619943,
+          "min": 6.32494,
+          "max": 10.530157
+        },
+        "workerMaxP95Millis": {
+          "median": 1.060835,
+          "min": 1.025274,
+          "max": 1.095402
+        },
+        "workerTotalP95Millis": {
+          "median": 3.706233,
+          "min": 3.561311,
+          "max": 3.878283
+        },
+        "coordinatorP95Millis": {
+          "median": 1.513533,
+          "min": 1.472283,
+          "max": 1.57694
+        },
+        "allP95Under50ms": true
+      },
+      "p95DeltaMillis": -1.368401,
+      "p95ChangePercent": -29.74447247508001,
+      "p95SpeedRatio": 1.4233755481307786
+    },
+    {
+      "shape": "straight",
+      "scenario": "shared",
+      "trains": 500,
+      "before": {
+        "wallP50Millis": {
+          "median": 20.386969,
+          "min": 19.902184,
+          "max": 21.020893
+        },
+        "wallP95Millis": {
+          "median": 25.856225,
+          "min": 25.011359,
+          "max": 26.715883
+        },
+        "wallP99Millis": {
+          "median": 28.615762,
+          "min": 27.134743,
+          "max": 28.722944
+        },
+        "wallMaxMillis": {
+          "median": 31.262069,
+          "min": 31.030654,
+          "max": 57.404597
+        },
+        "workerMaxP95Millis": {
+          "median": 15.131229,
+          "min": 14.823875,
+          "max": 15.399844
+        },
+        "workerTotalP95Millis": {
+          "median": 58.875878,
+          "min": 57.779325,
+          "max": 58.929341
+        },
+        "coordinatorP95Millis": {
+          "median": 11.613316,
+          "min": 11.07173,
+          "max": 11.855848
+        },
+        "allP95Under50ms": true
+      },
+      "after": {
+        "wallP50Millis": {
+          "median": 17.994119,
+          "min": 15.740165,
+          "max": 18.274952
+        },
+        "wallP95Millis": {
+          "median": 24.499044,
+          "min": 20.594959,
+          "max": 24.508277
+        },
+        "wallP99Millis": {
+          "median": 27.084626,
+          "min": 22.782564,
+          "max": 29.730937
+        },
+        "wallMaxMillis": {
+          "median": 30.552023,
+          "min": 30.289011,
+          "max": 50.84396
+        },
+        "workerMaxP95Millis": {
+          "median": 9.820319,
+          "min": 6.867448,
+          "max": 10.945546
+        },
+        "workerTotalP95Millis": {
+          "median": 37.890397,
+          "min": 25.910312,
+          "max": 42.007148
+        },
+        "coordinatorP95Millis": {
+          "median": 14.136064,
+          "min": 12.058122,
+          "max": 17.890007
+        },
+        "allP95Under50ms": true
+      },
+      "p95DeltaMillis": -1.357180999999997,
+      "p95ChangePercent": -5.248952621660729,
+      "p95SpeedRatio": 1.0553973044825748
+    },
+    {
+      "shape": "curved",
+      "scenario": "isolated",
+      "trains": 100,
+      "before": {
+        "wallP50Millis": {
+          "median": 3.228367,
+          "min": 3.180748,
+          "max": 3.309157
+        },
+        "wallP95Millis": {
+          "median": 4.347165,
+          "min": 4.314057,
+          "max": 4.556592
+        },
+        "wallP99Millis": {
+          "median": 5.431436,
+          "min": 5.20582,
+          "max": 5.919212
+        },
+        "wallMaxMillis": {
+          "median": 7.342152,
+          "min": 6.489655,
+          "max": 8.469207
+        },
+        "workerMaxP95Millis": {
+          "median": 2.381217,
+          "min": 2.176116,
+          "max": 2.383863
+        },
+        "workerTotalP95Millis": {
+          "median": 7.366504,
+          "min": 7.317189,
+          "max": 7.402566
+        },
+        "coordinatorP95Millis": {
+          "median": 1.561016,
+          "min": 1.511036,
+          "max": 1.569748
+        },
+        "allP95Under50ms": true
+      },
+      "after": {
+        "wallP50Millis": {
+          "median": 3.213393,
+          "min": 3.153178,
+          "max": 3.38351
+        },
+        "wallP95Millis": {
+          "median": 4.920475,
+          "min": 4.673828,
+          "max": 5.149148
+        },
+        "wallP99Millis": {
+          "median": 6.302486,
+          "min": 5.641911,
+          "max": 8.061152
+        },
+        "wallMaxMillis": {
+          "median": 10.912369,
+          "min": 8.405035,
+          "max": 13.653918
+        },
+        "workerMaxP95Millis": {
+          "median": 2.217332,
+          "min": 2.10025,
+          "max": 2.217368
+        },
+        "workerTotalP95Millis": {
+          "median": 7.554872,
+          "min": 7.341634,
+          "max": 7.760351
+        },
+        "coordinatorP95Millis": {
+          "median": 1.757659,
+          "min": 1.74914,
+          "max": 1.88633
+        },
+        "allP95Under50ms": true
+      },
+      "p95DeltaMillis": 0.5733099999999993,
+      "p95ChangePercent": 13.18813525596565,
+      "p95SpeedRatio": 0.8834848261600762
+    },
+    {
+      "shape": "curved",
+      "scenario": "isolated",
+      "trains": 500,
+      "before": {
+        "wallP50Millis": {
+          "median": 22.955473,
+          "min": 22.581115,
+          "max": 23.587783
+        },
+        "wallP95Millis": {
+          "median": 28.676541,
+          "min": 28.584586,
+          "max": 29.403428
+        },
+        "wallP99Millis": {
+          "median": 31.465228,
+          "min": 30.696483,
+          "max": 31.856638
+        },
+        "wallMaxMillis": {
+          "median": 39.795209,
+          "min": 36.232508,
+          "max": 63.34168
+        },
+        "workerMaxP95Millis": {
+          "median": 15.958286,
+          "min": 15.686143,
+          "max": 16.084712
+        },
+        "workerTotalP95Millis": {
+          "median": 61.513487,
+          "min": 61.00307,
+          "max": 62.611725
+        },
+        "coordinatorP95Millis": {
+          "median": 14.375443,
+          "min": 13.65454,
+          "max": 14.915495
+        },
+        "allP95Under50ms": true
+      },
+      "after": {
+        "wallP50Millis": {
+          "median": 23.996208,
+          "min": 23.231417,
+          "max": 24.075916
+        },
+        "wallP95Millis": {
+          "median": 31.05494,
+          "min": 30.2187,
+          "max": 31.25312
+        },
+        "wallP99Millis": {
+          "median": 34.984588,
+          "min": 32.977729,
+          "max": 35.067512
+        },
+        "wallMaxMillis": {
+          "median": 61.202564,
+          "min": 36.197461,
+          "max": 62.989232
+        },
+        "workerMaxP95Millis": {
+          "median": 16.745807,
+          "min": 16.698152,
+          "max": 17.263374
+        },
+        "workerTotalP95Millis": {
+          "median": 65.236325,
+          "min": 64.887215,
+          "max": 66.387038
+        },
+        "coordinatorP95Millis": {
+          "median": 15.40784,
+          "min": 14.551927,
+          "max": 15.466751
+        },
+        "allP95Under50ms": true
+      },
+      "p95DeltaMillis": 2.378398999999998,
+      "p95ChangePercent": 8.29388384045342,
+      "p95SpeedRatio": 0.9234131832165833
+    },
+    {
+      "shape": "curved",
+      "scenario": "mixed",
+      "trains": 100,
+      "before": {
+        "wallP50Millis": {
+          "median": 2.59169,
+          "min": 2.492293,
+          "max": 2.64252
+        },
+        "wallP95Millis": {
+          "median": 3.574449,
+          "min": 3.532026,
+          "max": 3.611631
+        },
+        "wallP99Millis": {
+          "median": 4.681026,
+          "min": 4.389326,
+          "max": 5.39682
+        },
+        "wallMaxMillis": {
+          "median": 6.821341,
+          "min": 5.400657,
+          "max": 7.000249
+        },
+        "workerMaxP95Millis": {
+          "median": 1.771553,
+          "min": 1.720622,
+          "max": 1.789859
+        },
+        "workerTotalP95Millis": {
+          "median": 5.5931,
+          "min": 5.509681,
+          "max": 5.672818
+        },
+        "coordinatorP95Millis": {
+          "median": 1.357125,
+          "min": 1.31047,
+          "max": 1.357839
+        },
+        "allP95Under50ms": true
+      },
+      "after": {
+        "wallP50Millis": {
+          "median": 2.622932,
+          "min": 2.557941,
+          "max": 2.699639
+        },
+        "wallP95Millis": {
+          "median": 4.118933,
+          "min": 3.888161,
+          "max": 4.308866
+        },
+        "wallP99Millis": {
+          "median": 5.327561,
+          "min": 4.846628,
+          "max": 5.619182
+        },
+        "wallMaxMillis": {
+          "median": 7.066602,
+          "min": 6.877045,
+          "max": 10.906379
+        },
+        "workerMaxP95Millis": {
+          "median": 1.820554,
+          "min": 1.743756,
+          "max": 1.91156
+        },
+        "workerTotalP95Millis": {
+          "median": 5.923239,
+          "min": 5.918452,
+          "max": 6.123313
+        },
+        "coordinatorP95Millis": {
+          "median": 1.565162,
+          "min": 1.507302,
+          "max": 1.582555
+        },
+        "allP95Under50ms": true
+      },
+      "p95DeltaMillis": 0.5444840000000002,
+      "p95ChangePercent": 15.232669426812361,
+      "p95SpeedRatio": 0.8678094545359198
+    },
+    {
+      "shape": "curved",
+      "scenario": "mixed",
+      "trains": 500,
+      "before": {
+        "wallP50Millis": {
+          "median": 20.164026,
+          "min": 19.500152,
+          "max": 20.396575
+        },
+        "wallP95Millis": {
+          "median": 25.926714,
+          "min": 25.219775,
+          "max": 26.320683
+        },
+        "wallP99Millis": {
+          "median": 28.268259,
+          "min": 28.002602,
+          "max": 29.021582
+        },
+        "wallMaxMillis": {
+          "median": 46.916738,
+          "min": 32.833265,
+          "max": 55.028732
+        },
+        "workerMaxP95Millis": {
+          "median": 13.32234,
+          "min": 13.299623,
+          "max": 13.854361
+        },
+        "workerTotalP95Millis": {
+          "median": 51.438364,
+          "min": 51.072835,
+          "max": 53.574677
+        },
+        "coordinatorP95Millis": {
+          "median": 13.20854,
+          "min": 13.181362,
+          "max": 13.223635
+        },
+        "allP95Under50ms": true
+      },
+      "after": {
+        "wallP50Millis": {
+          "median": 21.221033,
+          "min": 20.228974,
+          "max": 21.449671
+        },
+        "wallP95Millis": {
+          "median": 27.222046,
+          "min": 25.970998,
+          "max": 27.55365
+        },
+        "wallP99Millis": {
+          "median": 28.701919,
+          "min": 28.050633,
+          "max": 30.496135
+        },
+        "wallMaxMillis": {
+          "median": 35.427297,
+          "min": 33.117993,
+          "max": 64.850616
+        },
+        "workerMaxP95Millis": {
+          "median": 13.874758,
+          "min": 13.490576,
+          "max": 14.603582
+        },
+        "workerTotalP95Millis": {
+          "median": 53.640659,
+          "min": 52.765292,
+          "max": 55.807817
+        },
+        "coordinatorP95Millis": {
+          "median": 14.477938,
+          "min": 13.680333,
+          "max": 14.500497
+        },
+        "allP95Under50ms": true
+      },
+      "p95DeltaMillis": 1.2953319999999984,
+      "p95ChangePercent": 4.996128703390634,
+      "p95SpeedRatio": 0.9524160674770736
+    },
+    {
+      "shape": "curved",
+      "scenario": "shared",
+      "trains": 100,
+      "before": {
+        "wallP50Millis": {
+          "median": 3.271762,
+          "min": 3.218433,
+          "max": 3.401984
+        },
+        "wallP95Millis": {
+          "median": 4.770113,
+          "min": 4.638772,
+          "max": 5.047655
+        },
+        "wallP99Millis": {
+          "median": 5.615419,
+          "min": 5.399316,
+          "max": 6.272627
+        },
+        "wallMaxMillis": {
+          "median": 7.252754,
+          "min": 6.800501,
+          "max": 8.052081
+        },
+        "workerMaxP95Millis": {
+          "median": 3.137305,
+          "min": 3.106759,
+          "max": 3.172841
+        },
+        "workerTotalP95Millis": {
+          "median": 11.544766,
+          "min": 11.323017,
+          "max": 11.880844
+        },
+        "coordinatorP95Millis": {
+          "median": 1.458309,
+          "min": 1.438181,
+          "max": 1.624691
+        },
+        "allP95Under50ms": true
+      },
+      "after": {
+        "wallP50Millis": {
+          "median": 3.37066,
+          "min": 3.277486,
+          "max": 3.756442
+        },
+        "wallP95Millis": {
+          "median": 5.899535,
+          "min": 4.766513,
+          "max": 6.252316
+        },
+        "wallP99Millis": {
+          "median": 7.752677,
+          "min": 5.74372,
+          "max": 9.098443
+        },
+        "wallMaxMillis": {
+          "median": 11.224278,
+          "min": 7.134585,
+          "max": 19.760058
+        },
+        "workerMaxP95Millis": {
+          "median": 3.325726,
+          "min": 2.934821,
+          "max": 3.451119
+        },
+        "workerTotalP95Millis": {
+          "median": 11.505266,
+          "min": 10.722023,
+          "max": 12.195194
+        },
+        "coordinatorP95Millis": {
+          "median": 1.749381,
+          "min": 1.702625,
+          "max": 1.96906
+        },
+        "allP95Under50ms": true
+      },
+      "p95DeltaMillis": 1.129422,
+      "p95ChangePercent": 23.677049160051332,
+      "p95SpeedRatio": 0.8085574541044337
+    },
+    {
+      "shape": "curved",
+      "scenario": "shared",
+      "trains": 500,
+      "before": {
+        "wallP50Millis": {
+          "median": 23.218105,
+          "min": 22.431255,
+          "max": 24.65663
+        },
+        "wallP95Millis": {
+          "median": 31.85634,
+          "min": 31.492664,
+          "max": 32.253247
+        },
+        "wallP99Millis": {
+          "median": 36.178944,
+          "min": 35.489276,
+          "max": 36.472666
+        },
+        "wallMaxMillis": {
+          "median": 62.059007,
+          "min": 48.028033,
+          "max": 72.916994
+        },
+        "workerMaxP95Millis": {
+          "median": 19.452231,
+          "min": 18.767767,
+          "max": 19.48596
+        },
+        "workerTotalP95Millis": {
+          "median": 73.587005,
+          "min": 72.118035,
+          "max": 74.514626
+        },
+        "coordinatorP95Millis": {
+          "median": 14.003105,
+          "min": 13.742425,
+          "max": 14.102414
+        },
+        "allP95Under50ms": true
+      },
+      "after": {
+        "wallP50Millis": {
+          "median": 23.510265,
+          "min": 22.65612,
+          "max": 23.778205
+        },
+        "wallP95Millis": {
+          "median": 29.261956,
+          "min": 27.817466,
+          "max": 30.7096
+        },
+        "wallP99Millis": {
+          "median": 31.196729,
+          "min": 30.009881,
+          "max": 34.008202
+        },
+        "wallMaxMillis": {
+          "median": 37.171605,
+          "min": 34.376096,
+          "max": 63.094712
+        },
+        "workerMaxP95Millis": {
+          "median": 17.031595,
+          "min": 16.539251,
+          "max": 17.416123
+        },
+        "workerTotalP95Millis": {
+          "median": 64.79078,
+          "min": 63.129748,
+          "max": 66.915459
+        },
+        "coordinatorP95Millis": {
+          "median": 13.70855,
+          "min": 13.261689,
+          "max": 14.292647
+        },
+        "allP95Under50ms": true
+      },
+      "p95DeltaMillis": -2.594383999999998,
+      "p95ChangePercent": -8.144011521725336,
+      "p95SpeedRatio": 1.0886606486593036
+    }
+  ]
+}

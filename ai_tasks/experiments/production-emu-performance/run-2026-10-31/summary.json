@@ -1,0 +1,68 @@
+[
+  {
+    "cars": 4,
+    "mode": "actuation-only",
+    "forks": 3,
+    "median_mean_microseconds": 3.3855202083333333,
+    "median_p95_microseconds": 7.658,
+    "median_p99_microseconds": 8.396,
+    "median_bytes_per_frame": 3283.6866666666665,
+    "minimum_moving_frames": 3336,
+    "maximum_speed": 13.457933704414343
+  },
+  {
+    "cars": 4,
+    "mode": "envelope-and-actuate",
+    "forks": 3,
+    "median_mean_microseconds": 12.005905208333333,
+    "median_p95_microseconds": 20.105,
+    "median_p99_microseconds": 22.056,
+    "median_bytes_per_frame": 7242.153333333334,
+    "minimum_moving_frames": 3308,
+    "maximum_speed": 13.457933704414343
+  },
+  {
+    "cars": 8,
+    "mode": "actuation-only",
+    "forks": 3,
+    "median_mean_microseconds": 4.963844583333334,
+    "median_p95_microseconds": 10.923,
+    "median_p99_microseconds": 12.153,
+    "median_bytes_per_frame": 4010.153333333333,
+    "minimum_moving_frames": 3340,
+    "maximum_speed": 13.44149898596528
+  },
+  {
+    "cars": 8,
+    "mode": "envelope-and-actuate",
+    "forks": 3,
+    "median_mean_microseconds": 17.54737041666667,
+    "median_p95_microseconds": 31.034,
+    "median_p99_microseconds": 33.616,
+    "median_bytes_per_frame": 9196.42,
+    "minimum_moving_frames": 3308,
+    "maximum_speed": 13.44149898596528
+  },
+  {
+    "cars": 16,
+    "mode": "actuation-only",
+    "forks": 3,
+    "median_mean_microseconds": 8.854961458333333,
+    "median_p95_microseconds": 19.146,
+    "median_p99_microseconds": 20.622,
+    "median_bytes_per_frame": 5463.553333333333,
+    "minimum_moving_frames": 3332,
+    "maximum_speed": 13.438287553397627
+  },
+  {
+    "cars": 16,
+    "mode": "envelope-and-actuate",
+    "forks": 3,
+    "median_mean_microseconds": 40.020145625,
+    "median_p95_microseconds": 115.118,
+    "median_p99_microseconds": 125.678,
+    "median_bytes_per_frame": 16570.95,
+    "minimum_moving_frames": 3284,
+    "maximum_speed": 13.438287553397627
+  }
+]

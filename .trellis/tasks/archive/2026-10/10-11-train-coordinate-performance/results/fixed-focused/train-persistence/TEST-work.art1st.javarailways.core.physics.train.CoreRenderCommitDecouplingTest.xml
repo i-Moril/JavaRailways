@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="work.art1st.javarailways.core.physics.train.CoreRenderCommitDecouplingTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-10-11T06:36:27.664Z" hostname="dev" time="0.0">
+  <properties/>
+  <testcase name="cars and bogies cannot enter the generic platform commit mailbox()" classname="work.art1st.javarailways.core.physics.train.CoreRenderCommitDecouplingTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

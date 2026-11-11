@@ -1,0 +1,167 @@
+import {samePreparationLead} from './stationPreparationLead';
+import {operationTypes,programOutputChecks,compatibleProgramType} from './programExpressions';
+import {TrainInfoFields} from './TrainInfoFields';
+import {defaultTrainInfoRows} from './trainInfo';
+import {useEffect,useRef,useState} from 'react';
+import {Alert,Button,Flex,Input,Select,Space,Typography} from 'antd';
+import * as Blockly from 'blockly/core';
+import * as zh from 'blockly/msg/zh-hans';
+import * as en from 'blockly/msg/en';
+import {useI18n} from './i18n';
+import {validateStationProgram} from './stationPrograms';
+import {blocksToPreparationLead,arrivalStepTypes,libraryStepTypes,libraryBlockTypes,blockStepId,blocksToDefinition,defaultProgramBlockStep,definitionToBlocks,expressionFieldsForBlock,programBlockTypes,type ProgramBlockType,type ProgramWorkspaceState} from './programBlocks';
+import type {StationPreparationLead,StationProgramDefinition,StationProgramLiteral,StationProgramOperation,StationProgramParameterType,StationProgramStep,TimetableEventPoint,TimetableExtensionDescriptor,WorldMetadata} from './types';
+import {EditableIdSelect,EditableIdList} from './EditableIdSelect';
+import {waypointOptions} from './idOptions';
+import {readProgramBlockDraft,storeProgramBlockDraft,clearProgramBlockDraft,reconcileProgramEntryLead,type ProgramBlockSnapshot as Snapshot} from './programBlockDrafts';
+export {clearProgramBlockDraft,getProgramBlockDraftValidity} from './programBlockDrafts';
+import './ProgramBlockEditor.css';
+
+const operationOperandLabels:Record<StationProgramOperation,readonly string[]>={
+ ADD:['firstNumber','secondNumber'],SUBTRACT:['minuend','subtrahend'],MULTIPLY:['firstNumber','secondNumber'],DIVIDE:['dividend','divisor'],MODULO:['dividend','divisor'],MIN:['firstNumber','secondNumber'],MAX:['firstNumber','secondNumber'],ROUND:['number'],FLOOR:['number'],CEIL:['number'],CONCAT:['firstText','secondText'],SUBSTRING:['originalText','startIndex','endIndex'],REPLACE:['originalText','searchText','replacementText'],TEXT_LENGTH:['text'],TO_STRING:['number'],TO_NUMBER:['text'],
+ EQUALS:['',''],NOT_EQUALS:['',''],AND:['',''],OR:['',''],NOT:[''],PLAN_RUN_TYPE:[],PLAN_LINE_DIRECTION:[],PLAN_CALL_STATUS:[],PLAN_STATION_ID:[],PLAN_RUN_ID:[],PLAN_LINE_ID:[],PLAN_DUTY_ID:[]
+};
+const workspaceDraftInvalidators=new WeakMap<Blockly.Workspace,()=>void>();
+const workspaceEntries=new WeakMap<Blockly.Workspace,{label:string;leadLabel:string;lead?:StationPreparationLead}>();
+const parameterTypes:StationProgramParameterType[]=['NUMBER','DURATION','STRING','ID_LIST','JSON_OBJECT','BOOLEAN'];
+export interface ProgramBlockEditorProps {metadata?:WorldMetadata;value:StationProgramDefinition;onChange:(value:StationProgramDefinition)=>void;fieldScope:string;draftScope?:string;extensions?:TimetableExtensionDescriptor[];events?:TimetableEventPoint[];onValidityChange?:(valid:boolean)=>void;focusedStep?:string;context?:'library'|'arrival'|'duty';onUndo?:()=>void;onRedo?:()=>void;entryLabel?:string;preparationLead?:StationPreparationLead;onEntryChange?:(value:StationProgramDefinition,preparationLead:StationPreparationLead)=>void}
+const copy=<T,>(value:T):T=>JSON.parse(JSON.stringify(value)) as T;
+const fingerprint=(snapshot:Snapshot)=>JSON.stringify(snapshot,(key,value)=>key==='x'||key==='y'||key==='acceptedPreparationLead'?undefined:value);
+/** Suggestions belong to the destination action slot, not the string value type. */
+export const isProgramDestinationLiteral=(block:Blockly.Block)=>block.type==='rail_literal_STRING'&&block.getParent()?.type==='rail_MOVE'&&block.getParent()?.getInputTargetBlock('destinationId')===block;
+export function defineBlocks(t:ReturnType<typeof useI18n>['t']){
+ const rawField=(value:string)=>new Blockly.FieldTextInput(value,function(this:Blockly.FieldTextInput,next:string){const block=this.getSourceBlock();if(block)workspaceDraftInvalidators.get(block.workspace)?.();return next;});
+ /** Booleans are hexagonal like Scratch's predicate reporters; every other reporter keeps the rounded shape. */
+ const applyOutputShape=(block:Blockly.Block,type:string)=>{if(type!=='BOOLEAN')return;const shapes=((block.workspace as unknown) as {getRenderer?:()=>{getConstants?:()=>{SHAPES?:{HEXAGONAL:number}}}})?.getRenderer?.()?.getConstants?.()?.SHAPES;if(shapes)block.setOutputShape(shapes.HEXAGONAL);};
+ Blockly.Blocks.rail_entry={init(this:Blockly.Block){const entry=workspaceEntries.get(this.workspace);this.appendDummyInput().appendField(entry?.label??t('programs.blockEntry'),'ENTRY_LABEL');if(entry?.lead!==undefined)this.appendValueInput('PREPARATION_LEAD').setCheck(['NUMBER','DURATION']).appendField(entry.leadLabel);this.setNextStatement(true,'RailStep');this.setColour(45);this.setDeletable(false);this.setMovable(false);},saveExtraState(this:Blockly.Block){return this.getInput('PREPARATION_LEAD')?{preparationLead:true}:null;},loadExtraState(this:Blockly.Block,state:{preparationLead?:boolean}){if(state.preparationLead&&!this.getInput('PREPARATION_LEAD'))this.appendValueInput('PREPARATION_LEAD').setCheck(['NUMBER','DURATION']).appendField(t('stationPrograms.lead'));}};
+ Blockly.Blocks.rail_door_close_ticks={init(this:Blockly.Block){this.appendDummyInput().appendField(t('stationPrograms.doorCloseTicks'));this.setOutput(true,programOutputChecks('NUMBER'));this.setColour(40);}};
+ for(const type of programBlockTypes)Blockly.Blocks[`rail_${type}`]={init(this:Blockly.Block){
+  this.appendDummyInput().appendField(t(`programs.step.${type}`));this.setPreviousStatement(true,'RailStep');this.setNextStatement(true,'RailStep');this.setColour(type==='BRANCH'?270:type.startsWith('WAIT')?40:type.includes('DISPLAY')?160:210);
+  if(type==='EXTENSION')this.appendDummyInput().appendField(rawField(''),'TYPE_ID').appendField('@').appendField(rawField('1'),'VERSION');
+  if(type==='SELECT_STOP')this.appendDummyInput().appendField(new Blockly.FieldDropdown([[t('programs.policy.FIXED_PREFERENCE'),'FIXED_PREFERENCE'],[t('programs.policy.AVAILABLE_PRIORITY'),'AVAILABLE_PRIORITY']],function(this:Blockly.FieldDropdown,next:string){const block=this.getSourceBlock();if(block)workspaceDraftInvalidators.get(block.workspace)?.();return next;}),'POLICY');
+  for(const [name,valueType] of Object.entries(expressionFieldsForBlock(type)))this.appendValueInput(name).setCheck(valueType).appendField(t(`programs.${name}` as Parameters<typeof t>[0]));
+  if(type==='WAIT_EVENT')this.appendDummyInput().appendField(t('events.id')).appendField(rawField('event'),'EVENT_ID').appendField(t('programs.offset')).appendField(rawField('0'),'OFFSET');
+  if(type==='ASYNC'||type==='AWAIT')this.appendDummyInput().appendField(t('programs.taskId')).appendField(rawField('task'),'TASK_ID');
+  if(type==='ASYNC')this.appendStatementInput('steps').setCheck('RailStep').appendField(t('programs.taskBody'));
+  if(type==='BRANCH')for(const arm of ['thenSteps','elseSteps'] as const)this.appendStatementInput(arm).setCheck('RailStep').appendField(t(`programs.${arm}` as Parameters<typeof t>[0]));
+  this.setInputsInline(false);
+ }};
+ Blockly.Blocks.rail_train_info={init(this:Blockly.Block){this.appendDummyInput().appendField(t('trainInfo.title')).appendField(rawField(JSON.stringify(defaultTrainInfoRows())),'VALUE');this.getField('VALUE')!.setVisible(false);this.setOutput(true,'JSON_OBJECT');this.setColour(160);this.setTooltip(t('trainInfo.help'));}};
+ for(const [type,spec] of Object.entries(operationTypes))Blockly.Blocks[`rail_operation_${type}`]={init(this:Blockly.Block){this.appendDummyInput().appendField(t(`programs.operation.${type}` as Parameters<typeof t>[0]));const labels=operationOperandLabels[type as StationProgramOperation]??[];spec.inputs.forEach((input,index)=>{const valueInput=this.appendValueInput(`ARG${index}`).setCheck(input);if(labels[index])valueInput.appendField(t(`programs.operand.${labels[index]}` as Parameters<typeof t>[0]));});this.setOutput(true,programOutputChecks(spec.output));applyOutputShape(this,spec.output);this.setColour(spec.output==='NUMBER'?230:spec.output==='BOOLEAN'?270:160);if(type==='SUBSTRING'||type==='REPLACE')this.setTooltip(t(`programs.operationHelp.${type}` as Parameters<typeof t>[0]));}};
+ Blockly.Blocks.rail_object={init(this:Blockly.Block){this.appendDummyInput('HEADER').appendField(t('programs.object'));this.setOutput(true,'JSON_OBJECT');this.setColour(160);this.loadExtraState?.({count:1});},saveExtraState(this:Blockly.Block){return {count:this.inputList.filter(input=>input.name.startsWith('ITEM')).length};},loadExtraState(this:Blockly.Block,state:{count:number}){const count=Number.isInteger(state.count)?Math.max(0,Math.min(128,state.count)):0;const current=this.inputList.filter(input=>input.name.startsWith('ITEM')).length;for(let i=current-1;i>=count;i--)this.removeInput(`ITEM${i}`);for(let i=current;i<count;i++)this.appendValueInput(`ITEM${i}`).appendField(rawField(''),'KEY'+i);}};
+
+ for(const type of parameterTypes){
+  if(type!=='BOOLEAN')Blockly.Blocks[`rail_literal_${type}`]={init(this:Blockly.Block){this.appendDummyInput().appendField(t(`programs.param.${type}`)).appendField(rawField(type==='JSON_OBJECT'?'{}':type==='ID_LIST'?'[]':type==='DURATION'?'1':'0'),'VALUE');this.setOutput(true,programOutputChecks(type));applyOutputShape(this,type);this.setColour(160);}};
+  Blockly.Blocks[`rail_parameter_${type}`]={init(this:Blockly.Block){this.appendDummyInput().appendField(t('programs.parameter')).appendField(t(`programs.param.${type}`)).appendField(rawField(''),'VALUE');this.setOutput(true,programOutputChecks(type));applyOutputShape(this,type);this.setColour(315);}};
+ }
+  Blockly.Blocks.rail_literal_BOOLEAN={init(this:Blockly.Block){this.appendDummyInput().appendField(t('programs.param.BOOLEAN')).appendField(new Blockly.FieldDropdown([[t('programs.booleanTrue'),'true'],[t('programs.booleanFalse'),'false']],function(this:Blockly.FieldDropdown,next:string){const block=this.getSourceBlock();if(block)workspaceDraftInvalidators.get(block.workspace)?.();return next;}),'VALUE');this.setOutput(true,'BOOLEAN');applyOutputShape(this,'BOOLEAN');this.setColour(160);}};
+}
+export function ProgramBlockEditor(props:ProgramBlockEditorProps){
+ const {value,fieldScope,focusedStep,context='library',extensions=[]}=props;
+ const draftScope=props.draftScope??fieldScope;
+ const {t,locale}=useI18n();
+ const host=useRef<HTMLDivElement>(null);const inspector=useRef<HTMLElement>(null);const workspace=useRef<Blockly.WorkspaceSvg|undefined>(undefined);
+ const latest=useRef(props);latest.current=props;
+ const parameters=useRef(copy(value.parameters));const accepted=useRef(JSON.stringify(value));
+ const baseline=useRef(JSON.stringify(value));const acceptedLead=useRef(props.preparationLead);
+ const [selectedId,setSelectedId]=useState<string>();const [revision,setRevision]=useState(0);const [error,setError]=useState('');
+ const past=useRef<Snapshot[]>([]);const future=useRef<Snapshot[]>([]);const lastSnapshot=useRef<Snapshot|undefined>(undefined);const lastFingerprint=useRef('');
+ const validity=useRef(true);const historyAction=useRef<(redo:boolean)=>void>(()=>{});
+ const sync=useRef<()=>void>(()=>{});const restoring=useRef(false);const recoveryBlocked=useRef(false);
+ const capture=():Snapshot=>({workspace:Blockly.serialization.workspaces.save(workspace.current!) as ProgramWorkspaceState,parameters:copy(parameters.current),acceptedPreparationLead:acceptedLead.current});
+ const load=(snapshot:Snapshot,restoreHistory=false)=>{const ws=workspace.current;if(!ws)return;if(!snapshot||!Array.isArray(snapshot.parameters)||!snapshot.workspace?.blocks)throw new Error('Malformed workspace draft');restoring.current=true;Blockly.Events.disable();try{workspaceEntries.set(ws,{label:latest.current.entryLabel??t('programs.blockEntry'),leadLabel:t('stationPrograms.lead'),lead:latest.current.preparationLead});Blockly.serialization.workspaces.load((restoreHistory?snapshot:reconcileProgramEntryLead(snapshot,latest.current.preparationLead)).workspace,ws);parameters.current=copy(snapshot.parameters);const entry=ws.getBlockById('$rail-entry');entry?.setFieldValue(latest.current.entryLabel??t('programs.blockEntry'),'ENTRY_LABEL');}finally{Blockly.Events.enable();restoring.current=false;}setSelectedId(undefined);setRevision((n)=>n+1);};
+ sync.current=()=>{
+  if(!workspace.current||restoring.current||recoveryBlocked.current)return;
+  const snapshot=capture();const signature=fingerprint(snapshot);
+  if(lastSnapshot.current&&signature!==lastFingerprint.current){past.current=[...past.current.slice(-99),lastSnapshot.current];future.current=[];}
+  lastSnapshot.current=snapshot;lastFingerprint.current=signature;
+  let definition:StationProgramDefinition|undefined;let lead:StationPreparationLead|undefined;let failure='';
+  try{definition=blocksToDefinition(snapshot.workspace,snapshot.parameters,latest.current.context,latest.current.preparationLead!==undefined);failure=validateStationProgram(definition).join('; ');if(latest.current.preparationLead!==undefined)lead=blocksToPreparationLead(snapshot.workspace);}catch(problem){failure=String(problem instanceof Error?problem.message:problem);}
+  validity.current=!failure;setError(failure.replaceAll(/Invalid program expression(?: \(incompatible input or invalid value\))?/g,t('programs.expressionError')));latest.current.onValidityChange?.(!failure);
+  // Raw workspace preserves loose blocks and incomplete field text.
+  if(!failure&&definition){const json=JSON.stringify(definition);if(json!==accepted.current||!samePreparationLead(lead,acceptedLead.current)){accepted.current=json;acceptedLead.current=lead;if(lead!==undefined&&latest.current.onEntryChange)latest.current.onEntryChange(definition,lead);else latest.current.onChange(definition);}}
+  snapshot.acceptedPreparationLead=acceptedLead.current;storeProgramBlockDraft(draftScope,baseline.current,accepted.current,snapshot);
+  setRevision((n)=>n+1);
+ };
+ useEffect(()=>{
+  if(!host.current)return;
+  Blockly.setLocale(Object.fromEntries(Object.entries(locale==='zh-CN'?zh:en).filter((entry):entry is [string,string]=>typeof entry[1]==='string')));defineBlocks(t);
+  const toolbox={kind:'categoryToolbox',contents:[{kind:'category',name:t('programs.steps'),colour:'210',contents:(context==='arrival'?arrivalStepTypes:context==='library'?libraryBlockTypes:libraryStepTypes).map((type)=>({kind:'block',...definitionToBlocks({parameters:[],steps:[defaultProgramBlockStep(type,type==='EXTENSION'?extensions[0]:undefined)]}).blocks!.blocks[0].next!.block,id:undefined}))},...parameterTypes.filter((type)=>context!=='arrival'||['NUMBER','STRING','DURATION','ID_LIST','JSON_OBJECT','BOOLEAN'].includes(type)).map((type)=>({kind:'category',name:t(`programs.param.${type}`),colour:'160',contents:[...(type==='NUMBER'&&latest.current.preparationLead!==undefined?[{kind:'block',type:'rail_door_close_ticks'}]:[]),{kind:'block',type:`rail_literal_${type}`},...(type==='JSON_OBJECT'?[{kind:'block',type:'rail_train_info'},{kind:'block',type:'rail_object'}]:[]),...Object.entries(operationTypes).filter(([,spec])=>spec.output===type&&!spec.plan).map(([operation])=>({kind:'block',type:`rail_operation_${operation}`})),...(context!=='library'?[]:[{kind:'block',type:`rail_parameter_${type}`}])]})),{kind:'category',name:t('programs.planFields'),colour:'250',contents:Object.entries(operationTypes).filter(([,spec])=>spec.plan!==undefined).map(([operation])=>({kind:'block',type:`rail_operation_${operation}`}))}]};
+  const dark=document.documentElement.dataset.theme!=='light';
+  const theme=Blockly.Theme.defineTheme(`rail-${dark?'dark':'light'}`,{name:`rail-${dark?'dark':'light'}`,base:Blockly.Themes.Classic,componentStyles:{workspaceBackgroundColour:dark?'#141c28':'#ffffff',toolboxBackgroundColour:dark?'#1e293b':'#f1f5f9',toolboxForegroundColour:dark?'#e5e7eb':'#172033',flyoutBackgroundColour:dark?'#283448':'#e2e8f0',flyoutForegroundColour:dark?'#e5e7eb':'#172033',flyoutOpacity:1,scrollbarColour:dark?'#64748b':'#94a3b8'},fontStyle:{family:'system-ui, sans-serif',weight:'normal',size:12}});
+  const ws=Blockly.inject(host.current,{renderer:'zelos',toolbox,theme,trashcan:false,scrollbars:true,move:{scrollbars:true,drag:true,wheel:true},zoom:{controls:false,wheel:true,startScale:0.8,minScale:0.3,maxScale:1.5},media:'/blockly-media/',sounds:false});workspace.current=ws;workspaceDraftInvalidators.set(ws,()=>{if(!restoring.current)latest.current.onValidityChange?.(false);});ws.undo=(redo)=>historyAction.current(!!redo);
+  workspaceEntries.set(ws,{label:latest.current.entryLabel??t('programs.blockEntry'),leadLabel:t('stationPrograms.lead'),lead:latest.current.preparationLead});acceptedLead.current=latest.current.preparationLead;
+  recoveryBlocked.current=false;parameters.current=copy(latest.current.value.parameters);baseline.current=JSON.stringify(latest.current.value);accepted.current=baseline.current;
+  const saved=readProgramBlockDraft(draftScope,baseline.current);if(saved)baseline.current=saved.baseline;let recoveryError='';
+  try{load(saved?.snapshot??{workspace:definitionToBlocks(latest.current.value),parameters:parameters.current});}catch(problem){recoveryError=String(problem);recoveryBlocked.current=true;validity.current=false;load({workspace:definitionToBlocks(latest.current.value),parameters:parameters.current});}
+  past.current=[];future.current=[];lastSnapshot.current=capture();lastFingerprint.current=fingerprint(lastSnapshot.current);
+  let timer:ReturnType<typeof setTimeout>|undefined;
+  const listener=(event:Blockly.Events.Abstract)=>{
+   if(restoring.current)return;
+   if(event.type===Blockly.Events.SELECTED){const id=(event as Blockly.Events.Selected).newElementId??undefined;if(!id&&inspector.current?.contains(document.activeElement))return;setSelectedId(id);return;}
+   if(event.isUiEvent)return;
+   latest.current.onValidityChange?.(false);
+   if(timer)clearTimeout(timer);
+   timer=setTimeout(()=>{if(!ws.isDragging())sync.current();},0);
+  };
+  ws.addChangeListener(listener);
+  const observer=new ResizeObserver(()=>Blockly.svgResize(ws));observer.observe(host.current);
+  const themeObserver=new MutationObserver(()=>{const isDark=document.documentElement.dataset.theme!=='light';ws.setTheme(Blockly.Theme.defineTheme(`rail-live-${isDark?'dark':'light'}`,{name:`rail-live-${isDark?'dark':'light'}`,base:theme,componentStyles:{workspaceBackgroundColour:isDark?'#141c28':'#fff',toolboxBackgroundColour:isDark?'#1e293b':'#f1f5f9',toolboxForegroundColour:isDark?'#e5e7eb':'#172033',flyoutBackgroundColour:isDark?'#283448':'#e2e8f0',flyoutForegroundColour:isDark?'#e5e7eb':'#172033'}}));});themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+  sync.current();if(recoveryError){setError(`${t('programs.blockRecoveryFailed')} ${recoveryError}`);latest.current.onValidityChange?.(false);}
+  return()=>{if(timer)clearTimeout(timer);if(!recoveryBlocked.current)storeProgramBlockDraft(draftScope,baseline.current,accepted.current,capture());observer.disconnect();themeObserver.disconnect();ws.removeChangeListener(listener);workspaceDraftInvalidators.delete(ws);workspaceEntries.delete(ws);ws.dispose();workspace.current=undefined;};
+ },[fieldScope,locale,context]);
+ useEffect(()=>{
+  const json=JSON.stringify(value);if(!workspace.current||json===accepted.current)return;
+  // Only authoritative external loads/Undo rebuild; accepted edits preserve loose blocks.
+  accepted.current=json;baseline.current=json;acceptedLead.current=props.preparationLead;past.current=[];future.current=[];load({workspace:definitionToBlocks(value),parameters:value.parameters});lastSnapshot.current=capture();lastFingerprint.current=fingerprint(lastSnapshot.current);sync.current();
+ },[value]);
+ useEffect(()=>{const ws=workspace.current;const lead=props.preparationLead;if(!ws||lead===undefined||samePreparationLead(lead,acceptedLead.current))return;const snapshot=capture();load(reconcileProgramEntryLead(snapshot,lead),true);acceptedLead.current=lead;lastSnapshot.current=capture();lastFingerprint.current=fingerprint(lastSnapshot.current);sync.current();},[props.preparationLead]);
+ useEffect(()=>{if(!focusedStep||!workspace.current)return;const block=workspace.current.getAllBlocks(false).find((block)=>block.type.startsWith('rail_')&&blockStepId(block.id)===focusedStep);if(block){block.select();workspace.current.centerOnBlock(block.id);}},[focusedStep]);
+ const history=(redo=false)=>{
+  if((redo?latest.current.onRedo:latest.current.onUndo)&&validity.current&&(!redo||!future.current.length)){past.current=[];future.current=[];(redo?latest.current.onRedo:latest.current.onUndo)?.();return;}
+  const source=redo?future:past;const dest=redo?past:future;const next=source.current.at(-1);if(!next||!workspace.current)return;
+  source.current=source.current.slice(0,-1);dest.current=[...dest.current.slice(-99),capture()];load(next,true);lastSnapshot.current=next;lastFingerprint.current=fingerprint(next);sync.current();
+ };
+ historyAction.current=history;
+ const transaction=(action:()=>void)=>{Blockly.Events.setGroup(true);try{action();}finally{Blockly.Events.setGroup(false);}sync.current();};
+ const ws=workspace.current;const selected=selectedId?ws?.getBlockById(selectedId):null;
+ const selectedType=selected?.type.slice(5) as ProgramBlockType|undefined;
+ const changeField=(block:Blockly.Block,name:string,text:string)=>transaction(()=>block.setFieldValue(text,name));
+ /** Defaults apply when a call omits the argument; complex JSON defaults are not authored here. */
+ const defaultEditor=(parameter:StationProgramDefinition['parameters'][number],index:number)=>{
+  const commit=(next:StationProgramLiteral|undefined)=>{parameters.current=parameters.current.map((item,i)=>i===index?{...item,default:next}:item);sync.current();};
+  const value=parameter.default;const label=t('programs.parameterDefault');
+  if(parameter.type==='BOOLEAN')return <Select key="default" aria-label={label} allowClear placeholder={t('programs.parameterNoDefault')} style={{minWidth:140}} value={typeof value==='boolean'?String(value):undefined} options={[{value:'true',label:t('programs.booleanTrue')},{value:'false',label:t('programs.booleanFalse')}]} onChange={(next)=>commit(next===undefined?undefined:next==='true')}/>;
+  if(parameter.type==='NUMBER'||parameter.type==='DURATION')return <Input key="default" aria-label={label} inputMode="numeric" placeholder={t('programs.parameterNoDefault')} style={{minWidth:140}} value={typeof value==='number'?String(value):''} onChange={(event)=>{const text=event.target.value.trim();if(!text)return commit(undefined);const number=Number(text);commit(Number.isFinite(number)?number:undefined);}}/>;
+  if(parameter.type==='STRING')return <Input key="default" aria-label={label} placeholder={t('programs.parameterNoDefault')} style={{minWidth:140}} value={typeof value==='string'?value:''} onChange={(event)=>commit(event.target.value?event.target.value:undefined)}/>;
+  return <span key="default" className="program-parameter-default-unsupported">{t('programs.parameterNoDefaultEditing')}</span>;
+ };
+ const expressionMode=(parent:Blockly.Block,name:string,type:StationProgramParameterType)=>{
+  const child=parent.getInputTargetBlock(name);const mode=child?(child.type==='rail_train_info'?'trainInfo':child.type.startsWith('rail_parameter_')?'parameter':child.type.startsWith('rail_operation_')||child.type==='rail_object'?'expression':'literal'):undefined;
+  const allowTrainInfo=parent.type==='rail_SET_DISPLAY'&&name==='values'||parent.type==='rail_EXTENSION'&&name==='parameters';
+  return <Select aria-label={`${t('programs.valueMode')} · ${name}`} value={mode} placeholder={t('programs.blockMissingInput')} options={[...(mode==='expression'?[{value:'expression',label:t('programs.expression'),disabled:true}]:[]),{value:'literal',label:t('programs.literal')},...(allowTrainInfo?[{value:'trainInfo',label:t('trainInfo.title')}]:[]),...(context!=='library'?[]:[{value:'parameter',label:t('programs.parameter')}])]} onChange={(nextMode)=>{if(!ws)return;transaction(()=>{child?.dispose(false);const block=ws.newBlock(nextMode==='trainInfo'?'rail_train_info':`rail_${nextMode}_${type}`) as Blockly.BlockSvg;if(nextMode==='literal')block.setShadow(true);block.initSvg();block.render();if(nextMode==='literal'&&parent.type==='rail_OPEN_DOORS_OVERRIDE')block.setFieldValue('LEFT','VALUE');if(nextMode==='parameter')block.setFieldValue(parameters.current.find((p)=>compatibleProgramType(p.type,type))?.id??'','VALUE');parent.getInput(name)!.connection!.connect(block.outputConnection!);});}}/>;
+ };
+ const expressionInput=(block:Blockly.Block)=>{
+  if(block.type==='rail_object'){const count=block.inputList.filter(input=>input.name.startsWith('ITEM')).length;return <div><Typography.Paragraph>{t('programs.objectHelp')}</Typography.Paragraph>{Array.from({length:count},(_,i)=><label key={i}>{t('programs.objectKey')}<Input aria-label={`${t('programs.objectKey')} ${i+1}`} value={String(block.getFieldValue(`KEY${i}`)??'')} onChange={event=>changeField(block,`KEY${i}`,event.target.value)}/></label>)}<Space><Button aria-label={t('programs.objectAdd')} disabled={count>=128} onClick={()=>transaction(()=>{block.loadExtraState?.({count:count+1});(block as Blockly.BlockSvg).render();})}>+</Button><Button aria-label={t('programs.objectRemove')} disabled={!count} onClick={()=>transaction(()=>{block.getInputTargetBlock(`ITEM${count-1}`)?.dispose(false);block.loadExtraState?.({count:count-1});(block as Blockly.BlockSvg).render();})}>−</Button></Space></div>;}
+  if(block.type==='rail_train_info')return <TrainInfoFields key={block.id} raw={String(block.getFieldValue('VALUE')??'')} onChange={raw=>changeField(block,'VALUE',raw)}/>;
+  const type=parameterTypes.find((type)=>block.type===`rail_literal_${type}`||block.type===`rail_parameter_${type}`);if(!type)return null;
+  const raw=String(block.getFieldValue('VALUE')??'');const reference=block.type.startsWith('rail_parameter_');
+  if(!reference&&type==='STRING'&&block.getParent()?.type==='rail_OPEN_DOORS_OVERRIDE')return <label key={block.id}>{t('programs.doorSideOverride')}<Select aria-label={t('programs.doorSideOverride')} value={raw} options={(['LEFT','RIGHT','BOTH'] as const).map(side=>({value:side,label:t(`editor.doorSide.${side}`)}))} onChange={side=>changeField(block,'VALUE',side)}/></label>;
+  if(isProgramDestinationLiteral(block))return <label key={block.id}>{t('programs.destinationId')}<EditableIdSelect fieldKey={`${fieldScope}/${block.id}`} aria-label={t('programs.destinationId')} value={raw} options={waypointOptions(props.metadata??{})} onEditingChange={editing=>{if(editing)latest.current.onValidityChange?.(false);else sync.current();}} onCommit={text=>changeField(block,'VALUE',text)}/></label>;
+  if(!reference&&type==='ID_LIST'){
+   const parent=block.getParent();
+   const options=parent?.type==='rail_MOVE'&&parent.getInputTargetBlock('viaIds')===block?waypointOptions(props.metadata??{}):undefined;
+   let ids:string[]|undefined;try{const value:unknown=JSON.parse(raw);if(Array.isArray(value)&&value.every(id=>typeof id==='string'&&id.trim())&&new Set(value).size===value.length)ids=value;}catch{/* Preserve the raw invalid workspace below. */}
+   if(options&&ids)return <label key={block.id}>{t('programs.param.ID_LIST')}<EditableIdList fieldKey={`${fieldScope}/${block.id}`} aria-label={t('programs.param.ID_LIST')} value={ids} options={options} onChange={ids=>changeField(block,'VALUE',JSON.stringify(ids))}/></label>;
+  }
+  return <label key={block.id}>{t(`programs.param.${type}`)}{reference?<Select aria-label={t('programs.parameter')} value={raw||undefined} options={parameters.current.filter((p)=>compatibleProgramType(p.type,type)).map((p)=>({value:p.id,label:p.id}))} onChange={(id)=>changeField(block,'VALUE',id)} style={{minWidth:180}}/>:type==='JSON_OBJECT'?<Input.TextArea aria-label={t('programs.jsonParameters')} value={raw} rows={5} onChange={(event)=>changeField(block,'VALUE',event.target.value)}/>:type==='ID_LIST'?<Input aria-label={t(`programs.param.${type}`)} value={raw} onChange={(event)=>changeField(block,'VALUE',event.target.value)}/>:type==='NUMBER'||type==='DURATION'?<Input aria-label={t(`programs.param.${type}`)} inputMode="numeric" value={raw} onChange={(event)=>changeField(block,'VALUE',event.target.value)}/>:<Input aria-label={t(`programs.param.${type}`)} value={raw} onChange={(event)=>changeField(block,'VALUE',event.target.value)}/>}</label>;
+ };
+ return <div className="program-block-editor" data-revision={revision} onKeyDownCapture={(event)=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'&&!(event.target instanceof HTMLInputElement)&&!(event.target instanceof HTMLTextAreaElement)){event.preventDefault();event.stopPropagation();history(event.shiftKey);}}}>
+  {context==='library'&&<details className="program-parameters"><summary>{t('programs.parameters')}</summary>{parameters.current.map((parameter,index)=><Flex gap={8} key={index} align="center"><Input aria-label={t('programs.parameterId')} value={parameter.id} onChange={(event)=>{parameters.current=parameters.current.map((p,i)=>i===index?{...p,id:event.target.value}:p);sync.current();}}/><Select aria-label={t('programs.parameterType')} value={parameter.type} style={{minWidth:180}} popupMatchSelectWidth={false} options={parameterTypes.map((type)=>({value:type,label:t(`programs.param.${type}`)}))} onChange={(type)=>{parameters.current=parameters.current.map((p,i)=>i===index?{...p,type,default:undefined}:p);sync.current();}}/>{defaultEditor(parameter,index)}<Button danger aria-label={t('common.delete')} onClick={()=>{parameters.current=parameters.current.filter((_,i)=>i!==index);sync.current();}}>{t('common.delete')}</Button></Flex>)}<Button onClick={()=>{parameters.current=[...parameters.current,{id:`parameter-${parameters.current.length+1}`,type:'STRING'}];sync.current();}}>{t('programs.addParameter')}</Button></details>}
+  <Space className="program-block-toolbar"><Button aria-label={t('programs.blockUndo')} title={t('programs.blockUndo')} onClick={()=>history()} disabled={!props.onUndo&&!past.current.length}>↶</Button><Button aria-label={t('programs.blockRedo')} title={t('programs.blockRedo')} onClick={()=>history(true)} disabled={!props.onRedo&&!future.current.length}>↷</Button></Space>
+  {error&&<Alert type="warning" showIcon title={t('programs.invalidDraft')} description={error}/>}
+  {recoveryBlocked.current&&<Button danger onClick={()=>{clearProgramBlockDraft(draftScope);recoveryBlocked.current=false;sync.current();}}>{t('programs.discardBlockDraft')}</Button>}
+  <div ref={host} className="program-block-canvas" aria-label={t('programs.blockCanvas')}/>
+  {selected&&selected.type!=='rail_entry'&&<section ref={inspector} className="program-block-inspector"><Typography.Title level={5}>{t('programs.blockInspector')}</Typography.Title>{selectedType==='OPEN_DOORS'&&context==='library'&&<Typography.Paragraph type="secondary">{t('programs.doorSideInherited')}</Typography.Paragraph>}{selectedType==='SET_DISPLAY'&&<Typography.Paragraph type="secondary">{t('programs.displayHint')}</Typography.Paragraph>}{selectedType==='WAIT_EVENT'&&<><label>{t('programs.eventWait')}<Select aria-label={t('programs.eventWait')} value={String(selected.getFieldValue('EVENT_ID')??'')} options={(props.events??[]).map((event)=>({value:event.id,label:`${event.label||event.id} · ${event.stationId}`}))} onChange={(id)=>changeField(selected,'EVENT_ID',id)}/></label><label>{t('programs.offset')}<Input aria-label={t('programs.offset')} value={String(selected.getFieldValue('OFFSET')??'0')} onChange={(event)=>changeField(selected,'OFFSET',event.target.value)}/></label></>}{(selectedType==='ASYNC'||selectedType==='AWAIT')&&<label>{t('programs.taskId')}<Input aria-label={t('programs.taskId')} value={String(selected.getFieldValue('TASK_ID')??'')} onChange={(event)=>changeField(selected,'TASK_ID',event.target.value)}/></label>}{selectedType&&programBlockTypes.includes(selectedType)&&<>{selectedType==='EXTENSION'&&<><Select aria-label={t('programs.extension')} value={`${selected.getFieldValue('TYPE_ID')}@${selected.getFieldValue('VERSION')}`} options={extensions.map((provider)=>({value:`${provider.typeId}@${provider.version}`,label:`${provider.title} · ${provider.typeId}@${provider.version}`}))} onChange={(value)=>{const provider=extensions.find((p)=>`${p.typeId}@${p.version}`===value);if(provider)transaction(()=>{selected.setFieldValue(provider.typeId,'TYPE_ID');selected.setFieldValue(String(provider.version),'VERSION');});}}/><Typography.Paragraph type="secondary">{extensions.find((p)=>p.typeId===selected.getFieldValue('TYPE_ID'))?.description??t('programs.providerMissing')}</Typography.Paragraph><details><summary>{t('programs.parameterSchema')}</summary><pre>{JSON.stringify(extensions.find((p)=>p.typeId===selected.getFieldValue('TYPE_ID')&&String(p.version)===String(selected.getFieldValue('VERSION')))?.parameterSchema??{},null,2)}</pre></details></>}{Object.entries(expressionFieldsForBlock(selectedType)).map(([name,type])=>{const child=selected.getInputTargetBlock(name);return <div key={name}><Typography.Text>{t(`programs.${name}` as Parameters<typeof t>[0])}</Typography.Text>{expressionMode(selected,name,type)}{child?expressionInput(child):<Typography.Text type="warning">{t('programs.blockMissingInput')}</Typography.Text>}</div>;})}</>}{expressionInput(selected)}</section>}
+ </div>;
+}

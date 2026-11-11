@@ -17,6 +17,7 @@
 | --- | --- |
 | [复用与 ownership](./reuse-and-ownership.md) | 准备新增 helper/API、看到重复逻辑或跨模块调用时 |
 | [跨层 contract](./cross-layer.md) | 数据跨 Core/Basic/Bukkit/WebUI/docs/persistence boundary 时 |
+| [可执行契约编写](./code-spec-authoring.md) | 新增或修改模块、算法、索引、缓存、并发或跨层契约时 |
 
 ## 质量检查
 

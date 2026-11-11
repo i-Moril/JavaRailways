@@ -1,9 +1,8 @@
 package work.art1st.javarailways.basic.curve
 
 import org.joml.Vector3d
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -11,10 +10,27 @@ import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.util.annotation.Heavy
 import kotlin.math.acos
-import work.art1st.javarailways.core.util.ThreadGuard
-import work.art1st.javarailways.core.util.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.api.threading.ThreadGuard
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 
 class RailCurveFactoryTemplateTest {
+    @Test
+    @OptIn(Heavy::class)
+    fun `sloped S curve arc follows3D samples rather than horizontal station`() {
+        val built = RailCurveFactory.build(
+            Anchor("A", Vector3d(), Vector3d(1.0, 0.5, 0.0).normalize()),
+            Anchor("B", Vector3d(100.0, 50.0, 10.0), Vector3d(1.0, 0.5, 0.0).normalize()),
+            RailCurveBuildOptions(template = RailCurveTemplateType.S_CURVE))
+        val builtSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, built)
+        val curve = builtSuccess.curve
+        val samples = curve.stream().toList()
+        val independentLength = samples.zipWithNext().sumOf { (a, b) -> a.position.distance(b.position) }
+        assertEquals(independentLength, curve.totalArcLength, 1e-9)
+        assertTrue(curve.totalArcLength > 112.0)
+        assertTrue(curve.getPointAt(curve.totalArcLength).position.distance(Vector3d(100.0, 50.0, 10.0)) < 1e-9)
+    }
+
     @Test
     fun `auto selects straight when tangent follows chord`() {
         val from = Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 1.0).normalize())
@@ -22,9 +38,8 @@ class RailCurveFactoryTemplateTest {
 
         val result = RailCurveFactory.build(from, to, RailCurveBuildOptions())
 
-        assertTrue(result.isSuccess, result.error)
+        val resultSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, result)
         assertEquals(RailCurveTemplateType.STRAIGHT, result.selectedTemplate)
-        assertNotNull(result.curve)
     }
 
     @Test
@@ -34,7 +49,7 @@ class RailCurveFactoryTemplateTest {
 
         val result = RailCurveFactory.build(from, to, RailCurveBuildOptions())
 
-        assertTrue(result.isSuccess, result.error)
+        val resultSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, result)
         assertEquals(RailCurveTemplateType.STRAIGHT, result.selectedTemplate)
     }
 
@@ -49,8 +64,8 @@ class RailCurveFactoryTemplateTest {
             RailCurveBuildOptions(geometry = RailGeometryParameters(defaultStepMeters = 2.0))
         )
 
-        assertTrue(result.isSuccess, result.error)
-        assertEquals(6L, result.curve!!.stream().count())
+        val resultSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, result)
+        assertEquals(6L, resultSuccess.curve.stream().count())
     }
 
     @Test
@@ -61,8 +76,8 @@ class RailCurveFactoryTemplateTest {
             RailCurveBuildOptions(template = RailCurveTemplateType.STRAIGHT, radius = 500.0)
         )
 
-        assertFalse(result.isSuccess)
-        assertTrue(result.error!!.contains("精确半径"))
+        val resultFailure = assertInstanceOf(RailCurveBuildResult.Failure::class.java, result)
+        assertTrue(resultFailure.error.contains("精确半径"))
     }
 
     @Test
@@ -72,13 +87,12 @@ class RailCurveFactoryTemplateTest {
 
         val result = RailCurveFactory.build(from, to, RailCurveBuildOptions())
 
-        assertTrue(result.isSuccess, result.error)
+        val resultSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, result)
         assertEquals(RailCurveTemplateType.S_CURVE, result.selectedTemplate)
-        assertNotNull(result.curve)
-        assertTrue(result.curve!!.totalArcLength > 10.0)
-        assertTrue(result.curve!!.getPointAt(0.0).tangent.normalize(Vector3d()).dot(Vector3d(1.0, 0.0, 0.0)) > 0.999)
-        assertTrue(result.curve!!.getPointAt(result.curve!!.totalArcLength).tangent.normalize(Vector3d()).dot(Vector3d(1.0, 0.0, 0.0)) > 0.999)
-        assertTangentContinuity(result.curve!!)
+        assertTrue(resultSuccess.curve.totalArcLength > 10.0)
+        assertTrue(resultSuccess.curve.getPointAt(0.0).tangent.normalize(Vector3d()).dot(Vector3d(1.0, 0.0, 0.0)) > 0.999)
+        assertTrue(resultSuccess.curve.getPointAt(resultSuccess.curve.totalArcLength).tangent.normalize(Vector3d()).dot(Vector3d(1.0, 0.0, 0.0)) > 0.999)
+        assertTangentContinuity(resultSuccess.curve)
     }
 
     @Test
@@ -90,9 +104,9 @@ class RailCurveFactoryTemplateTest {
 
         val result = RailCurveFactory.build(from, to, RailCurveBuildOptions())
 
-        assertTrue(result.isSuccess, "${result.selectedReason}；${result.error}")
+        val resultSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, result)
         assertEquals(RailCurveTemplateType.S_CURVE, result.selectedTemplate)
-        val curve = requireNotNull(result.curve)
+        val curve = resultSuccess.curve
         assertEquals(8.0, curve.getPointAt(curve.totalArcLength).position.y(), 1.0e-9)
         assertTrue(Vector3d(curve.getPointAt(0.0).tangent).dot(fromTangent) > 1.0 - 1.0e-8)
         assertTrue(Vector3d(curve.getPointAt(curve.totalArcLength).tangent).dot(toTangent) > 1.0 - 1.0e-8)
@@ -107,8 +121,8 @@ class RailCurveFactoryTemplateTest {
             RailCurveBuildOptions(template = RailCurveTemplateType.S_CURVE)
         )
 
-        assertTrue(result.isSuccess, result.error)
-        val points = requireNotNull(result.curve).stream().toList()
+        val resultSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, result)
+        val points = resultSuccess.curve.stream().toList()
         val intervalCurvatures = points.zipWithNext { first, second ->
             val firstDirection = Vector3d(first.tangent.x(), 0.0, first.tangent.z()).normalize()
             val secondDirection = Vector3d(second.tangent.x(), 0.0, second.tangent.z()).normalize()
@@ -132,7 +146,7 @@ class RailCurveFactoryTemplateTest {
             RailCurveBuildOptions(template = RailCurveTemplateType.S_CURVE)
         )
         val automaticRadius = requireNotNull(
-            RailGeometryMeasurementService.measure(listOf(automatic.curve!!), 1.435)
+            RailGeometryMeasurementService.measure(listOf(assertInstanceOf(RailCurveBuildResult.Success::class.java, automatic).curve), 1.435)
                 .minimumHorizontalRadiusMeters
         )
         val targetRadius = automaticRadius * 1.1
@@ -143,9 +157,9 @@ class RailCurveFactoryTemplateTest {
             RailCurveBuildOptions(template = RailCurveTemplateType.S_CURVE, radius = targetRadius)
         )
 
-        assertTrue(result.isSuccess, result.error)
+        val resultSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, result)
         val actualRadius = requireNotNull(
-            RailGeometryMeasurementService.measure(listOf(result.curve!!), 1.435)
+            RailGeometryMeasurementService.measure(listOf(resultSuccess.curve), 1.435)
                 .minimumHorizontalRadiusMeters
         )
         assertEquals(targetRadius, actualRadius, maxOf(0.5, targetRadius * 0.01))
@@ -159,8 +173,8 @@ class RailCurveFactoryTemplateTest {
             RailCurveBuildOptions(template = RailCurveTemplateType.S_CURVE, radius = 10000.0)
         )
 
-        assertFalse(result.isSuccess)
-        assertTrue(result.error!!.contains("精确半径"))
+        val resultFailure = assertInstanceOf(RailCurveBuildResult.Failure::class.java, result)
+        assertTrue(resultFailure.error.contains("精确半径"))
     }
 
     @Test
@@ -180,8 +194,8 @@ class RailCurveFactoryTemplateTest {
             )
         )
 
-        assertTrue(result.isSuccess, result.error)
-        val points = result.curve!!.stream().toList()
+        val resultSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, result)
+        val points = resultSuccess.curve.stream().toList()
         val rolls = points.map { AnchorGeometry.rollDegreesFromNormal(it.tangent, it.normal) }
         assertEquals(0.0, rolls.first(), 1.0e-8)
         assertEquals(0.0, rolls.last(), 1.0e-8)
@@ -212,9 +226,9 @@ class RailCurveFactoryTemplateTest {
             RailCurveBuildOptions(template = RailCurveTemplateType.STRAIGHT)
         )
 
-        assertFalse(result.isSuccess)
+        val resultFailure = assertInstanceOf(RailCurveBuildResult.Failure::class.java, result)
         assertEquals(RailCurveTemplateType.STRAIGHT, result.selectedTemplate)
-        assertTrue(result.error!!.contains("水平方向"))
+        assertTrue(resultFailure.error.contains("水平方向"))
     }
 
     @Test
@@ -231,8 +245,8 @@ class RailCurveFactoryTemplateTest {
             RailCurveBuildOptions(template = RailCurveTemplateType.STRAIGHT)
         )
 
-        assertTrue(result.isSuccess, result.error)
-        val curve = result.curve!!
+        val resultSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, result)
+        val curve = resultSuccess.curve
         assertTrue(Vector3d(curve.getPointAt(0.0).tangent).dot(fromTangent) > 1.0 - 1.0e-8)
         assertTrue(Vector3d(curve.getPointAt(curve.totalArcLength).tangent).dot(toTangent) > 1.0 - 1.0e-8)
         assertEquals(8.0, curve.getPointAt(curve.totalArcLength).position.y(), 1.0e-8)
@@ -248,8 +262,8 @@ class RailCurveFactoryTemplateTest {
             RailCurveBuildOptions(template = RailCurveTemplateType.STRAIGHT)
         )
 
-        assertTrue(result.isSuccess, result.error)
-        val curve = result.curve!!
+        val resultSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, result)
+        val curve = resultSuccess.curve
         assertEquals(0.0, curve.getPointAt(0.0).tangent.y(), 1.0e-9)
         assertEquals(0.0, curve.getPointAt(curve.totalArcLength).tangent.y(), 1.0e-9)
         assertTrue(curve.getPointAt(curve.totalArcLength / 2.0).tangent.y() < 0.0)
@@ -267,8 +281,8 @@ class RailCurveFactoryTemplateTest {
             RailCurveBuildOptions(template = RailCurveTemplateType.STRAIGHT)
         )
 
-        assertTrue(result.isSuccess, result.error)
-        val curve = result.curve!!
+        val resultSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, result)
+        val curve = resultSuccess.curve
         assertEquals(20.0, curve.totalArcLength, 1.0e-8)
         assertTrue(Vector3d(curve.getPointAt(0.0).tangent).dot(tangent) > 1.0 - 1.0e-8)
         assertTrue(Vector3d(curve.getPointAt(curve.totalArcLength).tangent).dot(tangent) > 1.0 - 1.0e-8)
@@ -295,20 +309,24 @@ class RailCurveFactoryTemplateTest {
             RailCurveBuildOptions(template = RailCurveTemplateType.FIVE_SEGMENT, radius = 30.0)
         )
 
-        assertTrue(result.isSuccess, result.error)
-        assertEquals(3, result.curves!!.size)
+        val resultSuccess = assertInstanceOf(RailParallelCurveBuildResult.Success::class.java, result)
+        val curves = resultSuccess.curves
+        assertEquals(3, curves.size)
         assertEquals(RailCurveTemplateType.FIVE_SEGMENT, result.selectedTemplate)
-        assertEquals(2, result.logicalBreakFractions.size)
-        assertTrue(result.logicalBreakFractions[0] in 0.0..1.0)
-        assertTrue(result.logicalBreakFractions[1] in 0.0..1.0)
-        assertTrue(result.logicalBreakFractions[0] < result.logicalBreakFractions[1])
-        result.curves.forEachIndexed { index, curve ->
+        assertEquals(3, resultSuccess.logicalBreakFractionsByLane.size)
+        resultSuccess.logicalBreakFractionsByLane.forEach { fractions ->
+            assertEquals(2, fractions.size)
+            assertTrue(fractions[0] in 0.0..1.0)
+            assertTrue(fractions[1] in 0.0..1.0)
+            assertTrue(fractions[0] < fractions[1])
+        }
+        curves.forEachIndexed { index, curve ->
             assertTrue(curve.getPointAt(0.0).position.distance(starts[index].position) < Curve.TOLERANCE)
             assertTrue(curve.getPointAt(curve.totalArcLength).position.distance(ends[index].position) < Curve.TOLERANCE)
         }
-        val mid0 = result.curves[0].getPointAt(result.curves[0].totalArcLength * 0.5).position
-        val mid1 = result.curves[1].getPointAt(result.curves[1].totalArcLength * 0.5).position
-        val mid2 = result.curves[2].getPointAt(result.curves[2].totalArcLength * 0.5).position
+        val mid0 = curves[0].getPointAt(curves[0].totalArcLength * 0.5).position
+        val mid1 = curves[1].getPointAt(curves[1].totalArcLength * 0.5).position
+        val mid2 = curves[2].getPointAt(curves[2].totalArcLength * 0.5).position
         assertTrue(mid0.distance(mid1) > spacing * 0.8)
         assertTrue(mid1.distance(mid2) > spacing * 0.8)
     }
@@ -337,8 +355,9 @@ class RailCurveFactoryTemplateTest {
             RailCurveBuildOptions(template = RailCurveTemplateType.STRAIGHT)
         )
 
-        assertTrue(result.isSuccess, result.error)
-        result.curves!!.forEachIndexed { index, curve ->
+        val resultSuccess = assertInstanceOf(RailParallelCurveBuildResult.Success::class.java, result)
+        val curves = resultSuccess.curves
+        curves.forEachIndexed { index, curve ->
             val expectedTangent = Vector3d(ends[index].position).sub(starts[index].position).normalize()
             assertTrue(Vector3d(curve.getPointAt(0.0).tangent).dot(expectedTangent) > 1.0 - 1.0e-8)
             assertTrue(Vector3d(curve.getPointAt(curve.totalArcLength).tangent).dot(expectedTangent) > 1.0 - 1.0e-8)
@@ -370,9 +389,10 @@ class RailCurveFactoryTemplateTest {
             RailCurveBuildOptions(template = RailCurveTemplateType.STRAIGHT)
         )
 
-        assertTrue(result.isSuccess, result.error)
-        assertEquals(2, result.curves!!.size)
-        result.curves.forEachIndexed { index, curve ->
+        val resultSuccess = assertInstanceOf(RailParallelCurveBuildResult.Success::class.java, result)
+        val curves = resultSuccess.curves
+        assertEquals(2, curves.size)
+        curves.forEachIndexed { index, curve ->
             assertTrue(curve.getPointAt(0.0).position.distance(starts[index].position) < Curve.TOLERANCE)
             assertTrue(curve.getPointAt(curve.totalArcLength).position.distance(ends[index].position) < Curve.TOLERANCE)
             assertTangentContinuity(curve)
@@ -396,8 +416,8 @@ class RailCurveFactoryTemplateTest {
             )
         )
 
-        assertTrue(result.isSuccess, result.error)
-        val curve = result.curve!!
+        val resultSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, result)
+        val curve = resultSuccess.curve
         val middleNormal = curve.getPointAt(curve.totalArcLength * 0.5).normal
         assertTrue(kotlin.math.abs(middleNormal.x()) + kotlin.math.abs(middleNormal.z()) > 0.01)
         assertTrue(curve.getPointAt(0.0).normal.dot(Vector3d(0.0, 1.0, 0.0)) > 0.999)
@@ -422,17 +442,18 @@ class RailCurveFactoryTemplateTest {
             RailCurveBuildOptions(template = RailCurveTemplateType.FIVE_SEGMENT, radius = 30.0)
         )
 
-        assertTrue(result.isSuccess, result.error)
-        assertEquals(2, result.curves!!.size)
+        val resultSuccess = assertInstanceOf(RailParallelCurveBuildResult.Success::class.java, result)
+        val curves = resultSuccess.curves
+        assertEquals(2, curves.size)
         val centerResult = RailCurveFactory.build(
             Anchor("center-start", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0)),
             Anchor("center-end", Vector3d(50.0, 0.0, 50.0), Vector3d(0.0, 0.0, -1.0)),
             RailCurveBuildOptions(template = RailCurveTemplateType.FIVE_SEGMENT, radius = 30.0)
         )
-        assertTrue(centerResult.isSuccess, centerResult.error)
-        assertTangentContinuity(centerResult.curve!!)
-        result.curves.forEach(::assertTangentContinuity)
-        val generatedEnds = result.curves.map { curve -> curve to curve.getPointAt(curve.totalArcLength) }
+        val centerResultSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, centerResult)
+        assertTangentContinuity(centerResultSuccess.curve)
+        curves.forEach(::assertTangentContinuity)
+        val generatedEnds = curves.map { curve -> curve to curve.getPointAt(curve.totalArcLength) }
         ends.forEach { expected ->
             val (curve, generated) = generatedEnds.minBy { (_, point) -> point.position.distance(expected.position) }
             assertTrue(generated.position.distance(expected.position) < Curve.TOLERANCE)
@@ -467,9 +488,10 @@ class RailCurveFactoryTemplateTest {
             RailCurveBuildOptions(template = RailCurveTemplateType.FIVE_SEGMENT, radius = 30.0)
         )
 
-        assertTrue(result.isSuccess, result.error)
-        assertEquals(3, result.curves!!.size)
-        result.curves.forEach(::assertTangentContinuity)
+        val resultSuccess = assertInstanceOf(RailParallelCurveBuildResult.Success::class.java, result)
+        val curves = resultSuccess.curves
+        assertEquals(3, curves.size)
+        curves.forEach(::assertTangentContinuity)
     }
 
     @Test
@@ -488,8 +510,8 @@ class RailCurveFactoryTemplateTest {
                 Anchor("B", toPosition, Vector3d(tangent).mul(toSign)),
                 RailCurveBuildOptions(template = RailCurveTemplateType.STRAIGHT)
             )
-            assertTrue(result.isSuccess, "signs=$fromSign/$toSign: ${result.error}")
-            result.curve!!
+            val resultSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, result)
+            resultSuccess.curve
         }
 
         val reference = curves.first()
@@ -539,7 +561,7 @@ class RailCurveFactoryTemplateTest {
     @Test
     fun `build fails on installed main thread`() {
         val mainThread = Thread.currentThread()
-        ThreadGuard.installPlatformBridge(object : ThreadGuardPlatformBridge {
+        val registration = ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
             override fun isMainThread(): Boolean = Thread.currentThread() === mainThread
         })
         try {
@@ -549,7 +571,7 @@ class RailCurveFactoryTemplateTest {
                 RailCurveFactory.build(from, to, RailCurveBuildOptions())
             }
         } finally {
-            ThreadGuard.clearPlatformBridge()
+            registration.close()
         }
     }
 }

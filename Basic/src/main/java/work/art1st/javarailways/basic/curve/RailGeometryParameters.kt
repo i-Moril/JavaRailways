@@ -1,6 +1,11 @@
 package work.art1st.javarailways.basic.curve
 
-/** Stable engineering inputs for track geometry generation; numerical solver tolerances are intentionally excluded. */
+/**
+ * Stable engineering inputs for track geometry generation; numerical solver tolerances are excluded.
+ *
+ * Publish this value and its fallback radii as read-only inputs. Callers must not mutate a supplied
+ * list after construction; configuration updates create a replacement value instead.
+ */
 data class RailGeometryParameters(
     val gaugeMeters: Double = 1.435,
     val gravityMetersPerSecondSquared: Double = 9.80665,

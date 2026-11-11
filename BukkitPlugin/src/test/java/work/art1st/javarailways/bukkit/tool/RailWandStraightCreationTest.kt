@@ -1,6 +1,8 @@
 package work.art1st.javarailways.bukkit.tool
 
+import work.art1st.javarailways.basic.curve.RailCurveBuildResult
 import org.joml.Vector3d
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -39,8 +41,8 @@ class RailWandStraightCreationTest {
             RailCurveBuildOptions(template = RailCurveTemplateType.STRAIGHT)
         )
 
-        assertTrue(result.isSuccess, result.error)
-        val curve = result.curve!!
+        val resultSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, result)
+        val curve = resultSuccess.curve
         assertEquals(clickedPoint.y, curve.getPointAt(curve.totalArcLength).position.y(), 1.0e-9)
         assertTrue(Vector3d(curve.getPointAt(0.0).tangent).dot(startTangent) > 1.0 - 1.0e-8)
         assertTrue(Vector3d(curve.getPointAt(curve.totalArcLength).tangent).dot(terminalTangent) > 1.0 - 1.0e-8)
@@ -112,11 +114,14 @@ class RailWandStraightCreationTest {
         assertTrue(requiresRailWandVerticalSmoothing(listOf(first, second)))
     }
 
-    private fun straightCurve(from: Vector3d, to: Vector3d) = RailCurveFactory.build(
-        Anchor("from", from, Vector3d(to).sub(from).normalize()),
-        Anchor("to", to, Vector3d(to).sub(from).normalize()),
-        RailCurveBuildOptions(template = RailCurveTemplateType.STRAIGHT)
-    ).curve!!
+    private fun straightCurve(from: Vector3d, to: Vector3d) = assertInstanceOf(
+        RailCurveBuildResult.Success::class.java,
+        RailCurveFactory.build(
+            Anchor("from", from, Vector3d(to).sub(from).normalize()),
+            Anchor("to", to, Vector3d(to).sub(from).normalize()),
+            RailCurveBuildOptions(template = RailCurveTemplateType.STRAIGHT)
+        )
+    ).curve
 
     @Test
     fun `straight terminal anchor defaults to level pitch along the horizontal chord`() {

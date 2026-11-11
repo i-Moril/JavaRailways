@@ -1,0 +1,15 @@
+{
+  "/": {
+    "status": 200,
+    "sha256": "215101f6702c58ac4011529e80650b46bff3ee279fbc5c2d1b550c4c9b63bd1b"
+  },
+  "/assets/index-DA4gS1cv.js": {
+    "status": 200,
+    "sha256": "97bbbfa693d3c56e7a6395813d864030d938471949c009580ecd0f7e38d58021"
+  },
+  "sse": {
+    "status": 200,
+    "contentType": "text/event-stream;charset=utf-8",
+    "receivedFrame": true
+  }
+}

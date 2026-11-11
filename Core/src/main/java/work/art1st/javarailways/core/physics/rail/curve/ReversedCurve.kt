@@ -1,6 +1,7 @@
 package work.art1st.javarailways.core.physics.rail.curve
 
 import org.joml.Vector3d
+import org.joml.Vector3dc
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.util.annotation.Heavy
@@ -18,6 +19,12 @@ class ReversedCurve(
         get() = originalCurve.totalArcLength
     override val reversed: PrimeCurve
         get() = originalCurve
+
+    @Heavy
+    override fun getNearestPoint(position: Vector3dc): Curve.Point {
+        val point = originalCurve.getNearestPoint(position)
+        return getPointAt(totalArcLength - point.arcLength)
+    }
 
     override fun getPointAt(arcLength: Double): Curve.Point {
         val revArc = reverseArcLength(arcLength, originalCurve)
@@ -55,5 +62,12 @@ class ReversedCurve(
         return reversedNext.originalCurve.concatenate(originalCurve).reversed
     }
 
-    override fun save(): PrimeCurve.SavedPrimeCurve = originalCurve.save()
+    internal fun materialize(): PrimeCurveImpl = when (val original = originalCurve) {
+        is PrimeCurveImpl -> original.reversedCopy()
+        is ReversedCurve -> original.materialize().reversedCopy()
+        else -> throw IllegalArgumentException("A rail requires a canonical sampled curve")
+    }
+
+    override fun save(): PrimeCurve.SavedPrimeCurve =
+        throw UnsupportedOperationException("ReversedCurve is a runtime view; materialize the rail's AB curve before saving")
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterTimetableForDiagramLine, graphScreenXToTick, graphServiceColors, layoutGraph, snapTick, zoomGraphViewport } from './graph';
+import { filterTimetableForDiagramLine, graphServiceColor, graphServiceColors, layoutGraph } from './graph';
 import type { SavedTimetableV1 } from './types';
 
 const value: SavedTimetableV1 = {
@@ -13,8 +13,8 @@ const value: SavedTimetableV1 = {
       activation: { type: 'SCHEDULED' },
       steps: [
         { type: 'CHECK', wayPointId: 'alpha@1' },
-        { type: 'AT', tick: 200, action: { type: 'STATION_DESTINATION_OPTIONS', stationId:'beta', berthId:'1', arrivalTick:800, wayPointIds: [], requiredTags: [], requiredCapabilities: [], stablingPointIds: [], thenActions: [], elseActions: [] } },
-        { type: 'AT', tick: 200, action: { type: 'DESTINATION', wayPointIds: ['beta@1'], requiredTags: [], requiredCapabilities: [], stablingPointIds: [], thenActions: [], elseActions: [] } },
+        { type: 'AT', tick: 200, action: { type: 'STATION_DESTINATION_OPTIONS', stationId:'beta', berthId:'1', arrivalTick:800, wayPointIds: [], requiredTags: [], requiredCapabilities: [], stablingPointIds: [], thenSteps: [], elseSteps: [] } },
+        { type: 'AT', tick: 200, action: { type: 'DESTINATION', wayPointIds: ['beta@1'], requiredTags: [], requiredCapabilities: [], stablingPointIds: [], thenSteps: [], elseSteps: [] } },
       ],
     },
   ],
@@ -55,9 +55,9 @@ describe('graph layout', () => {
   it('omits depot and ordinary-destination movements from station graphs', () => {
     const nonStation:SavedTimetableV1={...value,services:[{...value.services[0],steps:[
       {type:'CHECK',wayPointId:'alpha@1'},
-      {type:'AT',tick:100,action:{type:'DESTINATION_OPTIONS',arrivalTick:300,wayPointIds:['siding'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenActions:[],elseActions:[]}},
-      {type:'AT',tick:100,action:{type:'DESTINATION',wayPointIds:['siding'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenActions:[],elseActions:[]}},
-      {type:'AT',tick:400,action:{type:'STORE_AT_DEPOT',depotId:'depot',wayPointIds:[],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenActions:[],elseActions:[]}},
+      {type:'AT',tick:100,action:{type:'DESTINATION_OPTIONS',arrivalTick:300,wayPointIds:['siding'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenSteps:[],elseSteps:[]}},
+      {type:'AT',tick:100,action:{type:'DESTINATION',wayPointIds:['siding'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenSteps:[],elseSteps:[]}},
+      {type:'AT',tick:400,action:{type:'STORE_AT_DEPOT',depotId:'depot',wayPointIds:[],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenSteps:[],elseSteps:[]}},
     ]}]};
     const layout=layoutGraph(nonStation,1000,58,170,{stations:[{stationId:'alpha',berthId:'1',destinationId:'alpha@1'}]});
     expect(layout.paths).toEqual([]);
@@ -78,8 +78,8 @@ describe('graph layout', () => {
       diagramLines:[{id:'line',upStationIds:['alpha','central'],downStationIds:['central','alpha']}],
       services:[{...value.services[0],diagramLineId:'line',steps:[
         {type:'CHECK',wayPointId:'alpha@1'},
-        {type:'AT',tick:200,action:{type:'STATION_DESTINATION_OPTIONS',stationId:'central',berthId:'2',arrivalTick:900,wayPointIds:[],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenActions:[],elseActions:[]}},
-        {type:'AT',tick:200,action:{type:'DESTINATION',wayPointIds:['central@2'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenActions:[],elseActions:[]}},
+        {type:'AT',tick:200,action:{type:'STATION_DESTINATION_OPTIONS',stationId:'central',berthId:'2',arrivalTick:900,wayPointIds:[],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenSteps:[],elseSteps:[]}},
+        {type:'AT',tick:200,action:{type:'DESTINATION',wayPointIds:['central@2'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenSteps:[],elseSteps:[]}},
       ]}],
     };
     const layout=layoutGraph(visual,1000,58,170,{stations:[
@@ -92,24 +92,13 @@ describe('graph layout', () => {
     ]);
   });
 
-  it('zooms each axis independently around its pointer anchor', () => {
-    const initial={scaleX:1,scaleY:1,offsetX:0,offsetY:0};
-    const horizontal=zoomGraphViewport(initial,'x',2,400,150);
-    expect(horizontal).toMatchObject({scaleX:2,scaleY:1,offsetX:-250,offsetY:0});
-    const vertical=zoomGraphViewport(initial,'y',2,300,54);
-    expect(vertical).toMatchObject({scaleX:1,scaleY:2,offsetX:0,offsetY:-246});
-  });
+});
 
-  it('maps dragged points through the inverse horizontal viewport', () => {
-    const layout=layoutGraph(value,1000);
-    const viewport=zoomGraphViewport({scaleX:1,scaleY:1,offsetX:0,offsetY:0},'x',2,layout.left,layout.left);
-    const logical=layout.tickToX(200);
-    const screen=layout.left+(logical-layout.left)*viewport.scaleX+viewport.offsetX;
-    expect(graphScreenXToTick(layout,viewport,screen)).toBeCloseTo(200);
-  });
 
-  it('snaps and clamps ticks', () => {
-    expect(snapTick(31, 20)).toBe(40);
-    expect(snapTick(-9, 20)).toBe(0);
-  });
+it('resolves run, line and automatic colors consistently for both themes and palette indices',()=>{
+  for(const theme of ['light','dark'] as const)for(const index of [0,1,5,6,10]){
+    expect(graphServiceColor(theme,String(index),Array.from({length:11},(_,i)=>String(i)))).toBe(graphServiceColors(theme)[index%graphServiceColors(theme).length]);
+    expect(graphServiceColor(theme,String(index),Array.from({length:11},(_,i)=>String(i)),'#123456')).toBe('#123456');
+    expect(graphServiceColor(theme,String(index),Array.from({length:11},(_,i)=>String(i)),'#123456','#abcdef')).toBe('#abcdef');
+  }
 });

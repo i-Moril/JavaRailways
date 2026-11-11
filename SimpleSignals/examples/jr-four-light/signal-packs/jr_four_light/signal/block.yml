@@ -1,0 +1,3 @@
+display-name: JR 四灯式主信号
+model: jr_four_light:head
+logic: jr_four_light:block

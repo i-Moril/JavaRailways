@@ -40,6 +40,22 @@ class TimetableScriptStorageTest {
     }
 
     @Test
+    fun `snapshots repository names and normalized source in stable order`() {
+        TimetableScriptSandbox(directory).use { scripts ->
+            scripts.saveSource("z-last.js", "last", overwrite = false)
+            scripts.saveSource("A-first.JS", "first\r\nline", overwrite = false)
+
+            assertEquals(
+                listOf(
+                    TimetableScriptSource("A-first.JS", "first\nline\n"),
+                    TimetableScriptSource("z-last.js", "last\n")
+                ),
+                scripts.snapshotSources()
+            )
+        }
+    }
+
+    @Test
     fun `rejects unsafe script names`() {
         TimetableScriptSandbox(directory).use { scripts ->
             assertThrows(IllegalArgumentException::class.java) { scripts.saveSource("../escape.js", "x", false) }

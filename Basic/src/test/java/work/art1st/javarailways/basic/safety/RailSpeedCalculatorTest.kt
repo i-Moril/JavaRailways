@@ -1,6 +1,8 @@
 package work.art1st.javarailways.basic.safety
 
+import work.art1st.javarailways.basic.curve.RailCurveBuildResult
 import org.joml.Vector3d
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -28,7 +30,7 @@ class RailSpeedCalculatorTest {
             Anchor("A", Vector3d(), Vector3d(1.0, 0.0, 0.0)),
             Vector3d(1.0, 0.0, -0.2),
             turnout
-        )).curve
+        ))
 
         val limits = RailSpeedCalculator.calculate(curve, 100.0, 0.075, 3.0)
         val expectedOperating = sqrt(
@@ -49,7 +51,7 @@ class RailSpeedCalculatorTest {
             Anchor("A", Vector3d(), Vector3d(1.0, 0.0, 0.0)),
             Vector3d(1.0, 0.0, -0.2),
             turnout
-        )).curve
+        ))
 
         val limits = RailSpeedCalculator.calculate(
             curve,
@@ -104,8 +106,8 @@ class RailSpeedCalculatorTest {
                     }
                 )
             )
-            assertTrue(result.isSuccess, result.error)
-            return requireNotNull(result.curve)
+            val resultSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, result)
+            return resultSuccess.curve
         }
 
         val uncanted = RailSpeedCalculator.calculate(build(null), 100.0, 0.075, 3.0)

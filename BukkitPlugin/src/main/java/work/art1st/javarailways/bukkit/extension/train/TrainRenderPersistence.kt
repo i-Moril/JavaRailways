@@ -7,7 +7,9 @@ import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
 data class SavedCarRenderState(
     val carModelName: String,
     val heldScenes: Map<String, String> = emptyMap(),
-    val modelSnapshotHash: String? = null
+    val modelSnapshotHash: String? = null,
+    val packageSnapshotHash: String? = null,
+    val resourceType: String? = null
 ) : SerializableExtensionData()
 
 @Serializable

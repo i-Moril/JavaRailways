@@ -1,5 +1,6 @@
 package work.art1st.javarailways.bukkit.config.model
 
+import org.bukkit.Material
 import java.io.File
 
 /**
@@ -170,6 +171,7 @@ class PartRegistry(
             require(itemModel == null || itemModel.isNotBlank()) { "item.item-model must not be blank" }
             val itemType = map.requireString("type", "item")
             require(itemType.isNotBlank()) { "item.type must not be blank" }
+            require(Material.getMaterial(itemType.uppercase()) != null) { "Unknown item.type '$itemType'" }
             return PartItemConfig(
                 type = itemType,
                 itemModel = itemModel,
@@ -256,7 +258,9 @@ class PartRegistry(
                     entryMap.containsKey("type") -> {
                         entryMap.requireOnlyKeys(PART_KEYS, "parts[$index]")
                         val def = parsePartDefinition(entryMap, namespace)
-                        PartRefEntry(name = def.name, offset = offset, rotation = rotation, inline = def)
+                        // Inline transforms already belong to the definition. Only imports
+                        // carry an additional reference-local transform.
+                        PartRefEntry(name = def.name, inline = def)
                     }
                     else -> throw IllegalArgumentException(
                         "parts[$index] must declare either 'import' or an inline 'type'"
@@ -308,7 +312,9 @@ class PartRegistry(
                     rotation = parseVec3(entryMap.optionalMap("rotation", subject)),
                     scale = parseScale(entryMap.optionalMap("scale", subject)),
                     scene = normalizeSceneName(entryMap.optionalStringValue("scene", subject)),
-                    itemType = entryMap.optionalStringValue("item-type", subject),
+                    itemType = entryMap.optionalStringValue("item-type", subject)?.also {
+                        require(Material.getMaterial(it.uppercase()) != null) { "Unknown $subject.item-type '$it'" }
+                    },
                     itemModel = entryMap.optionalStringValue("item-model", subject),
                     customModelData = entryMap.optionalIntValue("custom-model-data", subject),
                     brightness = parseBrightness(entryMap.optionalMap("brightness", subject))
@@ -337,7 +343,9 @@ class PartRegistry(
                     offset = parseVec3(entryMap.optionalMap("offset", subject)),
                     rotation = parseVec3(entryMap.optionalMap("rotation", subject)),
                     scale = parseScale(entryMap.optionalMap("scale", subject)),
-                    itemType = entryMap.optionalStringValue("item-type", subject),
+                    itemType = entryMap.optionalStringValue("item-type", subject)?.also {
+                        require(Material.getMaterial(it.uppercase()) != null) { "Unknown $subject.item-type '$it'" }
+                    },
                     itemModel = entryMap.optionalStringValue("item-model", subject),
                     customModelData = entryMap.optionalIntValue("custom-model-data", subject),
                     brightness = parseBrightness(entryMap.optionalMap("brightness", subject))

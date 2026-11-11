@@ -1,11 +1,16 @@
 package work.art1st.javarailways.bukkit.http
 
+import work.art1st.javarailways.diagnostics.DiskLogReader
+import java.util.logging.Level
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -17,22 +22,21 @@ import org.bukkit.event.EventHandler
 import org.bukkit.event.HandlerList
 import org.bukkit.event.Listener
 import org.bukkit.event.world.WorldUnloadEvent
-import work.art1st.javarailways.basic.api.destination.DestinationRole
-import work.art1st.javarailways.basic.api.line.Line
-import work.art1st.javarailways.basic.api.line.LineCompileResult
-import work.art1st.javarailways.basic.api.line.LineDirection
-import work.art1st.javarailways.basic.api.line.LineId
-import work.art1st.javarailways.basic.api.line.LinePlanner
-import work.art1st.javarailways.basic.api.line.LineRevisionConflict
-import work.art1st.javarailways.basic.api.station.StationId
-import work.art1st.javarailways.basic.api.timetable.TimetableConditionProvider
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.persistence.SavedTimetableV1
-import work.art1st.javarailways.basic.persistence.TimetableSnapshotCodec
-import work.art1st.javarailways.basic.timetable.LineMaximumSpeedResolver
-import work.art1st.javarailways.basic.timetable.TimetableValidator
-import work.art1st.javarailways.basic.timetable.simulation.IsolatedTimetableSimulationRequest
-import work.art1st.javarailways.basic.timetable.simulation.IsolatedTimetableSimulationResult
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
+import work.art1st.javarailways.simpleato.api.line.Line
+import work.art1st.javarailways.simpleato.api.line.LineCompileResult
+import work.art1st.javarailways.simpleato.api.line.LineDirection
+import work.art1st.javarailways.simpleato.api.line.LineId
+import work.art1st.javarailways.simpleato.api.line.LinePlanner
+import work.art1st.javarailways.simpleato.api.line.LineRevisionConflict
+import work.art1st.javarailways.simpleato.api.station.StationId
+import work.art1st.javarailways.basic.basicWorldData
+import work.art1st.javarailways.simpleato.persistence.SavedTimetableV1
+import work.art1st.javarailways.simpleato.persistence.TimetableSnapshotCodec
+import work.art1st.javarailways.simpleato.timetable.TimetableValidator
+import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationRequest
+import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationResult
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -49,17 +53,71 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicReference
 
-internal class HttpFailure(val status: Int, message: String) : RuntimeException(message)
+// Split before decoding so encoded slashes remain within one segment; '+' is literal in paths.
+internal fun timetablePathSegments(uri: java.net.URI): List<String> =
+    uri.rawPath.trim('/').split('/').filter { it.isNotEmpty() }.map {
+        java.net.URLDecoder.decode(it.replace("+", "%2B"), StandardCharsets.UTF_8)
+    }
+
+internal class HttpFailure(val status: Int, message: String, val code: String? = null) : RuntimeException(message)
+
+internal fun parseLineMaximumSpeed(element: JsonElement?): Double? {
+    if (element == null || element == JsonNull) return null
+    val value = (element as? JsonPrimitive)?.takeUnless { it.isString }?.doubleOrNull
+    if (value == null || !value.isFinite() || value <= 0.0) {
+        throw HttpFailure(400, "maximumSpeedMetersPerSecond must be a finite positive number")
+    }
+    return value
+}
+
+internal fun resolveInfrastructureLineMaximumSpeed(configured: Double?, requested: Double?): Double {
+    val maximum = configured ?: throw HttpFailure(422, "No maximum speed is configured for infrastructure line")
+    if (requested != null && requested != maximum) throw HttpFailure(400, "Set maximum speed in line settings")
+    return maximum
+}
+
+internal fun unitDisplayJson(display: work.art1st.javarailways.simpleato.timetable.TimetableUnitDisplaySnapshot): JsonObject = buildJsonObject {
+    put("unitId", display.unitId)
+    put("operationalTripId", display.operationalTripId)
+    put("cycleIndex", display.cycleIndex)
+    put("active", display.active)
+    put("values", display.values)
+    fun stops(values: List<work.art1st.javarailways.simpleato.timetable.TimetableUnitStopSnapshot>) = JsonArray(values.map { stop -> buildJsonObject {
+        put("serviceId", stop.serviceId); put("runId", stop.runId); put("completed", stop.completed)
+        put("call", buildJsonObject {
+            put("id", stop.call.id); put("stationId", stop.call.stationId); put("destinationId", stop.call.destinationId)
+            put("status", stop.call.status.name); put("arrivalTick", stop.call.arrivalTick); put("departureTick", stop.call.departureTick)
+        })
+    } })
+    put("plannedStops", stops(display.plannedStops))
+    put("completedStops", stops(display.completedStops))
+    put("remainingStops", stops(display.remainingStops))
+    put("unresolvedRuns", JsonArray(display.unresolvedRuns.map { JsonPrimitive(it) }))
+}
+
+private data class TimedTimetableSimulation(
+    val result: work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationResult,
+    val wallClockNanos: Long
+)
 
 private data class LineSimulationSnapshot(
     val revision: Long,
-    val profile: SimulationControlProfile,
-    val legs: List<SimulationLeg>,
-    val lineMaximumSpeedMetersPerSecond: Double?
+    val simulation: IsolatedTimetableSimulationSnapshot
 )
 
 class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
     @Volatile private var stopped = false
+    private val logReader = DiskLogReader(linkedMapOf(
+        "host-errors" to DiskLogReader.Location("JavaRailways errors", plugin.dataFolder.toPath().resolve("logs/errors.log")),
+        "simplesignals-errors" to DiskLogReader.Location("SimpleSignals errors", (plugin.server.pluginManager.getPlugin("SimpleSignals")?.dataFolder?.toPath()
+            ?: plugin.dataFolder.toPath().resolveSibling("SimpleSignals")).resolve("logs/errors.log")),
+        "tunnelbridgebuilder-errors" to DiskLogReader.Location("TunnelBridgeBuilder errors", (plugin.server.pluginManager.getPlugin("TunnelBridgeBuilder")?.dataFolder?.toPath()
+            ?: plugin.dataFolder.toPath().resolveSibling("TunnelBridgeBuilder")).resolve("logs/errors.log")),
+        "webui-process" to DiskLogReader.Location("Managed WebUI process output", plugin.dataFolder.toPath().resolve("logs/webui.log")),
+        "host-timetable" to DiskLogReader.Location("Timetable operations", plugin.dataFolder.toPath().resolve("logs/timetable.log")),
+        "host-commands" to DiskLogReader.Location("Command operations", plugin.dataFolder.toPath().resolve("logs/commands.log")),
+        "host-ato" to DiskLogReader.Location("ATO operations", plugin.dataFolder.toPath().resolve("logs/ato.log"))
+    ))
     private val json = Json { encodeDefaults = true; prettyPrint = true; ignoreUnknownKeys = false }
     private var server: HttpServer? = null
     private val executor = Executors.newCachedThreadPool { Thread(it, "JavaRailways-timetable-http").apply { isDaemon = true } }
@@ -89,7 +147,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
         plugin.logger.info("Timetable HTTP bridge listening on ${config.bindAddress}:${config.port}")
     }
 
-    @EventHandler
+    @EventHandler(priority = org.bukkit.event.EventPriority.MONITOR, ignoreCancelled = true)
     fun onWorldUnload(event:WorldUnloadEvent)=railMapPreview.invalidate(event.world.name)
 
     fun stop() {
@@ -117,22 +175,45 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 }
                 route(exchange)
             } catch (e: HttpFailure) {
-                exchange.respond(e.status, error(e.message ?: "request failed"))
+                exchange.respond(e.status, error(e.message ?: "request failed", e.code))
             } catch (e: IllegalArgumentException) {
                 exchange.respond(400, error(e.message ?: "bad request"))
             } catch (e: Exception) {
-                plugin.logger.warning("Timetable HTTP bridge request failed: ${e.message}")
+                plugin.logger.log(Level.SEVERE, "Timetable HTTP bridge request failed method=${exchange.requestMethod} path=${exchange.requestURI.path}", e)
                 exchange.respond(500, error("internal error"))
             }
         }
 
         private fun route(exchange: HttpExchange) {
             if (stopped) throw HttpFailure(503, "JavaRailways is stopping")
-            val parts = exchange.requestURI.path.trim('/').split('/').filter { it.isNotEmpty() }
+            val parts = timetablePathSegments(exchange.requestURI)
             when {
                 exchange.requestMethod == "GET" && parts == listOf("health") -> exchange.respond(200, "{\"ok\":true}")
                 exchange.requestMethod == "POST" && parts == listOf("auth", "exchange") -> {
                     exchange.respond(200, exchangeLoginToken(readBody(exchange)))
+                }
+                exchange.requestMethod == "GET" && parts == listOf("logs", "sources") -> exchange.respond(200, json.encodeToString(buildJsonObject {
+                    put("sources", buildJsonArray { logReader.sources().forEach { source -> add(buildJsonObject {
+                        put("id", source.id()); put("label", source.label()); put("available", source.available())
+                    }) } })
+                }))
+                exchange.requestMethod == "GET" && parts == listOf("logs") -> {
+                    val params = exchange.requestURI.rawQuery.orEmpty().split('&').filter { it.isNotEmpty() }.associate { pair ->
+                        val pieces = pair.split('=', limit = 2)
+                        java.net.URLDecoder.decode(pieces[0], StandardCharsets.UTF_8) to
+                            java.net.URLDecoder.decode(pieces.getOrElse(1) { "" }, StandardCharsets.UTF_8)
+                    }
+                    val page = logReader.read(params["source"] ?: throw IllegalArgumentException("Log source is required"), params["query"], params["cursor"])
+                    exchange.respond(200, json.encodeToString(buildJsonObject {
+                        put("source", page.source()); put("reset", page.reset()); put("scannedBytes", page.scannedBytes()); put("retention", page.retention())
+                        put("nextCursor", page.nextCursor()?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                        put("entries", buildJsonArray { page.entries().forEach { entry -> add(buildJsonObject {
+                            put("text", entry.text()); put("partial", entry.partial())
+                            put("module", entry.module()?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                            put("level", entry.level()?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                            put("time", entry.time()?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                        }) } })
+                    }))
                 }
                 exchange.requestMethod == "GET" && parts == listOf("worlds") -> exchange.respond(200, await { worldsJson() })
                 parts.size >= 2 && parts[0] == "worlds" -> routeWorld(exchange, parts.drop(1))
@@ -141,8 +222,26 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
         }
 
         private fun routeWorld(exchange: HttpExchange, parts: List<String>) {
-            val worldName = decode(parts[0])
+            val worldName = parts[0]
             when {
+                exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "issues" -> exchange.respond(200, await {
+                    withWorld(worldName) { bukkit, _ ->
+                        json.encodeToString(buildJsonArray {
+                            plugin.worldIssues.snapshot(bukkit.uid).forEach { issue ->
+                                add(buildJsonObject {
+                                    put("source", issue.source)
+                                    put("kind", issue.kind.name)
+                                    put("objectId", issue.objectId)
+                                    put("code", issue.code)
+                                    put("message", issue.message)
+                                    put("details", issue.details?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                                    put("firstSeen", issue.firstSeen.toString())
+                                    put("lastSeen", issue.lastSeen.toString())
+                                })
+                            }
+                        })
+                    }
+                })
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "metadata" -> exchange.respond(200, await { metadataJson(worldName) })
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "extensions" -> exchange.respond(200, await { extensionsJson(worldName) })
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "rail-map" -> {
@@ -159,83 +258,63 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     exchange.respond(200, compileSourceJson(worldName, readBody(exchange)))
                 }
                 exchange.requestMethod == "PUT" && parts.size == 3 && parts[1] == "scripts" -> {
-                    exchange.respond(200, saveScriptJson(worldName, decode(parts[2]), readBody(exchange)))
+                    exchange.respond(200, saveScriptJson(worldName, parts[2], readBody(exchange)))
                 }
                 exchange.requestMethod == "POST" && parts.size == 4 && parts[1] == "scripts" && parts[3] == "rename" -> {
-                    exchange.respond(200, renameScriptJson(decode(parts[2]), readBody(exchange)))
+                    exchange.respond(200, renameScriptJson(parts[2], readBody(exchange)))
                 }
                 exchange.requestMethod == "DELETE" && parts.size == 3 && parts[1] == "scripts" -> {
-                    exchange.respond(200, deleteScriptJson(decode(parts[2])))
+                    exchange.respond(200, deleteScriptJson(parts[2]))
                 }
                 exchange.requestMethod == "GET" && parts.size == 3 && parts[1] == "scripts" -> {
-                    val scriptName = decode(parts[2])
+                    val scriptName = parts[2]
                     val timetableId = exchange.requestURI.rawQuery?.split('&')?.mapNotNull { pair ->
                         val pieces = pair.split('=', limit = 2)
-                        if (pieces.firstOrNull() == "id") decode(pieces.getOrElse(1) { "" }) else null
+                        if (pieces.firstOrNull() == "id") java.net.URLDecoder.decode(pieces.getOrElse(1) { "" }, StandardCharsets.UTF_8) else null
                     }?.firstOrNull()?.takeIf { it.isNotBlank() } ?: scriptName.removeSuffix(".js")
                     exchange.respond(200, renderScriptJson(worldName, scriptName, timetableId))
                 }
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "lines" -> exchange.respond(200, await { linesJson(worldName) })
                 exchange.requestMethod == "POST" && parts.size == 4 && parts[1] == "lines" && parts[3] == "simulate" -> {
                     val body = readBody(exchange)
-                    exchange.respond(200, simulateLineJson(worldName, decode(parts[2]), body))
+                    exchange.respond(200, simulateLineJson(worldName, parts[2], body))
                 }
                 exchange.requestMethod == "PUT" && parts.size == 3 && parts[1] == "lines" -> {
                     val body = readBody(exchange)
-                    exchange.respond(200, await { putLineJson(worldName, decode(parts[2]), body) })
+                    exchange.respond(200, await { putLineJson(worldName, parts[2], body) })
                 }
                 exchange.requestMethod == "DELETE" && parts.size == 3 && parts[1] == "lines" -> {
                     val body = readBody(exchange)
-                    exchange.respond(200, await { deleteLineJson(worldName, decode(parts[2]), body) })
+                    exchange.respond(200, await { deleteLineJson(worldName, parts[2], body) })
+                }
+                exchange.requestMethod == "POST" && parts.size == 3 && parts[1] == "programs" && parts[2] == "simulate" -> {
+                    exchange.respond(200, simulateProgramJson(worldName, readBody(exchange)))
                 }
                 exchange.requestMethod == "POST" && parts.size == 3 && parts[1] == "timetables" && parts[2] == "simulate" -> {
                     exchange.respond(200, simulateTimetableJson(worldName, readBody(exchange)))
                 }
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "timetables" -> exchange.respond(200, await { timetablesJson(worldName) })
-                exchange.requestMethod == "GET" && parts.size == 3 && parts[1] == "timetables" -> exchange.respond(200, await { timetableJson(worldName, decode(parts[2])) })
+                exchange.requestMethod == "GET" && parts.size == 3 && parts[1] == "timetables" -> exchange.respond(200, await { timetableJson(worldName, parts[2]) })
                 exchange.requestMethod == "POST" && parts.size == 4 && parts[1] == "timetables" && parts[3] == "validate" -> {
                     val body = readBody(exchange)
-                    exchange.respond(200, await { validateJson(worldName, decode(parts[2]), body) })
+                    exchange.respond(200, await { validateJson(worldName, parts[2], body) })
                 }
                 exchange.requestMethod == "PUT" && parts.size == 4 && parts[1] == "timetables" && parts[3] == "publish" -> {
                     val body = readBody(exchange)
-                    exchange.respond(200, await { publishJson(worldName, decode(parts[2]), body, exchange.requestHeaders.getFirst("If-Match")) })
+                    exchange.respond(200, await { publishJson(worldName, parts[2], body, exchange.requestHeaders.getFirst("If-Match")) })
                 }
                 else -> exchange.respond(404, error("not found"))
             }
         }
 
-        private fun <T> await(action: () -> T): T {
-            val future = CompletableFuture<T>()
-            val state = AtomicReference(RequestState.PENDING)
-            plugin.platformDispatcher.runGlobal {
-                if (!state.compareAndSet(RequestState.PENDING, RequestState.RUNNING)) return@runGlobal
-                try { future.complete(BukkitThreadGuardBridge.runInSimulationContext {
-                    if (stopped) throw HttpFailure(503, "JavaRailways is stopping")
-                    action()
-                }) }
-                catch (t: Throwable) { future.completeExceptionally(t) }
-                finally { state.set(RequestState.COMPLETED) }
+        private fun <T> await(action: () -> T): T = awaitDomainHttpRequest(
+            plugin.platformDispatcher, timeoutMillis,
+            expired = { HttpFailure(504, "request expired before entering the simulation context", "REQUEST_TIMEOUT") },
+            action = {
+                if (stopped) throw HttpFailure(503, "JavaRailways is stopping")
+                action()
             }
-            return try {
-                future.get(timeoutMillis, TimeUnit.MILLISECONDS)
-            } catch (failure: ExecutionException) {
-                val cause = failure.cause ?: failure
-                when (cause) {
-                    is RuntimeException -> throw cause
-                    is Error -> throw cause
-                    else -> throw IllegalStateException(cause)
-                }
-            } catch (_: TimeoutException) {
-                if (state.compareAndSet(RequestState.PENDING, RequestState.CANCELLED)) {
-                    future.cancel(false)
-                    throw HttpFailure(504, "request expired before entering the simulation context")
-                }
-                // Once mutation has entered the serialized simulation context, return its real
-                // outcome rather than reporting a timeout and allowing an apparently failed write.
-                future.get()
-            }
-        }
+        )
 
         private fun exchangeLoginToken(body: String): String {
             val token = json.parseToJsonElement(body).jsonObject["token"]?.jsonPrimitive?.content
@@ -262,19 +341,26 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
 
         private fun metadataJson(worldName: String) = withWorld(worldName) { bukkit, world ->
             val data = world.basicWorldData
-            val destinations = data.destinations.all()
+            val operationalData = world.simpleAtoWorldData
+            val destinations = operationalData.destinations.all()
             val depotIds = buildSet {
                 destinations.mapNotNullTo(this) {
                     (it.role as? DestinationRole.DepotStablingPointRole)?.depotId
                 }
-                data.depots.allDepots().mapTo(this) { it.id.value }
-                data.depots.allRollingStock().mapTo(this) { it.record.homeDepotId.value }
+                operationalData.depots.allDepots().mapTo(this) { it.id.value }
+                operationalData.depots.allRollingStock().mapTo(this) { it.record.homeDepotId.value }
             }.sorted()
             json.encodeToString(buildJsonObject {
                 put("id", bukkit.name)
                 put("name", bukkit.name)
                 put("uuid", bukkit.uid.toString())
                 put("wayPoints", JsonArray(data.wayPoints.all().map { JsonPrimitive(it.id) }))
+                put("programSimulationWayPoints", JsonArray(data.wayPoints.all().mapNotNull { point ->
+                    val rail = world.getRail(point.railId)
+                    if (rail == null || point.arcLength > rail.curve.totalArcLength ||
+                        (operationalData.destinations[point.id]?.approachDirection == null && data.operatingDirections[point.railId] == null)) null
+                    else resolveProgramSimulationWayPoint(world, point.id).json()
+                }))
                 put("stations", JsonArray(destinations.mapNotNull { destination ->
                     val role = destination.role as? DestinationRole.StationBerthRole
                         ?: return@mapNotNull null
@@ -282,14 +368,15 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                         put("stationId", role.stationId.value)
                         put("stationDisplayName", role.stationDisplayName)
                         put("berthId", role.berthId)
+                        role.usableLengthMeters?.let { put("usableLengthMeters", it) }
                         put("destinationId", destination.id)
                     }
                 }))
                 put("depots", JsonArray(depotIds.map(::JsonPrimitive)))
-                put("depotDetails", JsonArray(data.depots.allDepots().map { depot -> buildJsonObject {
+                put("depotDetails", JsonArray(operationalData.depots.allDepots().map { depot -> buildJsonObject {
                     put("id", depot.id.value)
                     put("displayName", depot.displayName)
-                    put("stablingPoints", JsonArray(data.depots.stablingPoints(depot.id).map { point -> buildJsonObject {
+                    put("stablingPoints", JsonArray(operationalData.depots.stablingPoints(depot.id).map { point -> buildJsonObject {
                         put("id", point.point.ref.pointId)
                         put("destinationId", point.point.destinationId)
                     } }))
@@ -306,7 +393,6 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 put("destinations", JsonArray(destinations.map { destination ->
                     buildJsonObject {
                         put("id", destination.id)
-                        put("displayName", destination.displayName)
                         put("railId", destination.railId.toString())
                         put("arcLengthMeters", destination.arcLengthInAbMeters)
                         put("approachDirection", destination.approachDirection?.name ?: "ANY")
@@ -318,11 +404,8 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
 
         private fun extensionsJson(worldName: String) = withWorld(worldName) { _, world ->
             json.encodeToString(buildJsonObject {
-                put("conditions", JsonArray(
-                    world.basicWorldData.timetableExtensions.conditionProviders().map(::conditionDescriptorJson)
-                ))
                 put("actions", JsonArray(
-                    world.basicWorldData.timetableExtensions.actionProviders().map { provider ->
+                    world.simpleAtoWorldData.timetableExtensions.actionProviders().map { provider ->
                         descriptorJson(
                             provider.typeId,
                             provider.version,
@@ -410,11 +493,14 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             worldName: String,
             source: String,
             timetableId: String
-        ): Pair<SavedTimetableV1, work.art1st.javarailways.basic.timetable.TimetableValidationResult> {
+        ): Pair<SavedTimetableV1, work.art1st.javarailways.simpleato.timetable.TimetableValidationResult> {
             val workerSaved = plugin.timetableScriptSandbox.compileSource(source, timetableId)
             return await {
                 withWorld(worldName) { _, world ->
-                    val normalized = TimetableScriptNormalizer.normalize(workerSaved, world)
+                    val normalized = TimetableScriptNormalizer.normalize(
+                        workerSaved,
+                        world.simpleAtoWorldData.destinations
+                    )
                     val timetable = runCatching(normalized::restore).getOrElse {
                         throw HttpFailure(422, "script produced an invalid timetable: ${it.message}")
                     }
@@ -423,14 +509,84 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             }
         }
 
-        private fun validationJson(validation: work.art1st.javarailways.basic.timetable.TimetableValidationResult) =
+        private fun validationJson(validation: work.art1st.javarailways.simpleato.timetable.TimetableValidationResult) =
             buildJsonObject {
                 put("valid", validation.isSuccess)
                 put("errors", JsonArray(validation.errors.map(::JsonPrimitive)))
+                validation.circulation?.let { summary ->
+                    put("circulation", buildJsonObject {
+                        put("inventory", summary.inventory.name)
+                        put("timing", summary.timing.name)
+                        put("capacity", summary.capacity.name)
+                        summary.periodicInventoryCycles?.let { put("periodicInventoryCycles", it) }
+                        put("findings", JsonArray(summary.findings.map { finding -> buildJsonObject {
+                            put("code", finding.code)
+                            put("detail", finding.detail)
+                            put("blocking", finding.blocking)
+                            finding.dutyId?.let { put("dutyId", it) }
+                            finding.stepIndex?.let { put("stepIndex", it) }
+                        } }))
+                    })
+                }
             }
+
+        private fun simulateProgramJson(worldName: String, body: String): String {
+            val request = ProgramSimulationRequest.parse(body)
+            val factory = IsolatedTimetableSimulationFactory(
+                SimulationControlProfileCatalog(plugin),
+                plugin.physicsConfig.track.gravityMetersPerSecondSquared,
+                plugin.javaRailwaysConfig.atoSafetyDistanceMeters,
+                speedSafety = plugin.physicsConfig.overspeed.let {
+                    work.art1st.javarailways.basic.safety.SpeedSafetyMonitor.Config(
+                        it.derailEnabled, it.toleranceKmH / 3.6, it.graceTicks)
+                },
+                requiredDomainFeatures = plugin::requiredSimulationDomainFeatures,
+                prepareDomainFeatures = plugin::prepareSimulationDomainFeatures
+            )
+            val response = runBoundedProgramSimulation(
+                simulationExecutor, request.executionTimeoutMillis
+            ) {
+                val compiled = try { plugin.timetableScriptSandbox.compileSource(request.source(), "function-simulation") }
+                catch (failure: TimetableScriptFailure) { throw HttpFailure(422, failure.message ?: "program compilation failed") }
+                val captured = await {
+                    withWorld(worldName) { _, world ->
+                        val coreWorld = world as? work.art1st.javarailways.core.physics.CoreWorld
+                            ?: throw HttpFailure(422, "world does not support isolated simulation")
+                        try {
+                            val point = resolveProgramSimulationWayPoint(coreWorld, request.wayPointId)
+                            val normalized = TimetableScriptNormalizer.normalize(compiled, coreWorld.simpleAtoWorldData.destinations)
+                            val timetable = normalized.restore()
+                            val snapshot = factory.capture(coreWorld, timetable,
+                                listOf(TimetableProfileSelection(PROGRAM_SIMULATION_SERVICE, request.profileType, request.profileId)),
+                                standaloneProgramServiceIds = setOf(PROGRAM_SIMULATION_SERVICE),
+                                requireRegisteredUnitsForServices = if (programSimulationNeedsRegisteredUnits(normalized)) setOf(PROGRAM_SIMULATION_SERVICE) else emptySet())
+                            Triple(normalized, point, snapshot)
+                        } catch (failure: IllegalArgumentException) {
+                            throw HttpFailure(422, failure.message ?: "could not capture program simulation")
+                        } catch (failure: IllegalStateException) {
+                            throw HttpFailure(422, failure.message ?: "could not capture program simulation")
+                        }
+                    }
+                }
+                try {
+                    factory.create(captured.third, workerThreads = plugin.physicsConfig.workerThreads.coerceIn(1, 4)).use { simulation ->
+                        val result = simulation.simulate(IsolatedTimetableSimulationRequest(captured.third.timetable,
+                            delayThresholdTicks = request.maximumSimulationTicks + 1L,
+                            maximumSimulationTicks = request.maximumSimulationTicks))
+                        programSimulationResultJson(result, captured.first, captured.second, request.reverseTrain)
+                    }
+                } catch (failure: IllegalArgumentException) {
+                    throw HttpFailure(422, failure.message ?: "program simulation setup failed")
+                } catch (failure: IllegalStateException) {
+                    throw HttpFailure(422, failure.message ?: "program simulation setup failed")
+                }
+            }
+            return json.encodeToString(response)
+        }
 
         private fun simulateTimetableJson(worldName: String, body: String): String {
             val root = json.parseToJsonElement(body).jsonObject
+            val executionTimeoutMillis = simulationExecutionTimeoutMillis(root)
             val savedElement = root["timetable"]
                 ?: throw HttpFailure(400, "timetable is required")
             val saved = runCatching { TimetableSnapshotCodec.decode(savedElement.toString()) }
@@ -457,7 +613,17 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     }
                 }.getOrElse { throw HttpFailure(400, "invalid profileAssignments: ${it.message}") }
             } ?: throw HttpFailure(400, "profileAssignments is required")
-            val factory = IsolatedTimetableSimulationFactory(SimulationControlProfileCatalog(plugin))
+            val factory = IsolatedTimetableSimulationFactory(
+                SimulationControlProfileCatalog(plugin),
+                plugin.physicsConfig.track.gravityMetersPerSecondSquared,
+                plugin.javaRailwaysConfig.atoSafetyDistanceMeters,
+                speedSafety = plugin.physicsConfig.overspeed.let {
+                    work.art1st.javarailways.basic.safety.SpeedSafetyMonitor.Config(
+                        it.derailEnabled, it.toleranceKmH / 3.6, it.graceTicks)
+                },
+                requiredDomainFeatures = plugin::requiredSimulationDomainFeatures,
+                prepareDomainFeatures = plugin::prepareSimulationDomainFeatures
+            )
             val snapshot = await {
                 withWorld(worldName) { _, world ->
                     val coreWorld = world as? work.art1st.javarailways.core.physics.CoreWorld
@@ -469,24 +635,24 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 }
             }
             val task = try {
-                simulationExecutor.submit<IsolatedTimetableSimulationResult> {
-                    BukkitThreadGuardBridge.runInSimulationContext {
-                        factory.create(
+                simulationExecutor.submit<TimedTimetableSimulation> {
+                    factory.create(
                             snapshot,
                             workerThreads = plugin.physicsConfig.workerThreads.coerceIn(1, 4)
                         ).use { simulation ->
-                            simulation.simulate(IsolatedTimetableSimulationRequest(
+                            val started = System.nanoTime()
+                            val result = simulation.simulate(IsolatedTimetableSimulationRequest(
                                 timetable,
                                 delayThresholdTicks = delayThreshold
                             ))
+                            TimedTimetableSimulation(result, System.nanoTime() - started)
                         }
-                    }
                 }
             } catch (_: RejectedExecutionException) {
-                throw HttpFailure(429, "timetable simulation queue is full; retry later")
+                throw HttpFailure(429, "timetable simulation queue is full; retry later", "SIMULATION_QUEUE_FULL")
             }
-            val result = try {
-                task.get(60, TimeUnit.SECONDS)
+            val timed = try {
+                task.get(executionTimeoutMillis, TimeUnit.MILLISECONDS)
             } catch (failure: ExecutionException) {
                 val cause = failure.cause ?: failure
                 if (cause is HttpFailure) throw cause
@@ -496,16 +662,19 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 throw cause
             } catch (_: TimeoutException) {
                 task.cancel(true)
-                throw HttpFailure(504, "timetable simulation timed out")
+                throw HttpFailure(504, "timetable simulation timed out", "SIMULATION_TIMEOUT")
             } catch (interrupted: InterruptedException) {
                 task.cancel(true)
                 Thread.currentThread().interrupt()
                 throw interrupted
             }
-            return simulationResultJson(result)
+            return simulationResultJson(timed.result, timed.wallClockNanos)
         }
 
-        private fun simulationResultJson(result: IsolatedTimetableSimulationResult): String =
+        private fun branchPathJson(path: List<work.art1st.javarailways.simpleato.timetable.TimetableBranchEntry>) =
+            JsonArray(path.map { entry -> buildJsonObject { put("arm", entry.arm.name); put("index", entry.index) } })
+
+        private fun simulationResultJson(result: IsolatedTimetableSimulationResult, wallClockNanos: Long): String =
             json.encodeToString(buildJsonObject {
                 put("status", when (result) {
                     is IsolatedTimetableSimulationResult.Completed -> "COMPLETED"
@@ -514,13 +683,31 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     is IsolatedTimetableSimulationResult.PeriodEnded -> "PERIOD_ENDED"
                 })
                 put("simulatedTicks", result.simulatedTicks)
+                put("wallClockMillis", wallClockNanos / 1_000_000.0)
                 if (result is IsolatedTimetableSimulationResult.DelayExceeded) {
                     put("thresholdTicks", result.thresholdTicks)
                     put("observedDelayTicks", result.observedDelayTicks)
                     put("delayedServiceId", result.delayedRun.id.serviceId)
-                    put("delayedStepIndex", result.delayedRun.nextStepIndex)
+                    put("delayedRunId", result.delayedRun.currentRunId)
+                    put("delayedTaskId", result.delayedRun.taskTimings.lastOrNull { timing ->
+                        timing.startTick <= result.simulatedTicks &&
+                            (timing.endTick?.let { it >= result.simulatedTicks } ?: true)
+                    }?.taskId)
+                    put("delayedState", result.delayedRun.state.name)
+                    put("delayedMessage", result.delayedRun.message)
+                    put("delayedStepIndex", result.delayedRun.activeStepIndex ?: result.delayedRun.nextStepIndex)
+                    put("delayedStepBranchPath", branchPathJson(if (result.delayedRun.activeStepIndex != null) result.delayedRun.activeStepBranchPath else result.delayedRun.nextStepBranchPath))
                 }
-                if (result is IsolatedTimetableSimulationResult.Failed) put("reason", result.reason)
+                if (result is IsolatedTimetableSimulationResult.Failed) {
+                    put("reason", result.reason)
+                    result.reasonCode?.let { put("reasonCode", it) }
+                }
+                put("tasks", JsonArray(result.runs.flatMap { run -> run.taskTimings.map { timing -> buildJsonObject {
+                    put("serviceId", run.id.serviceId)
+                    put("taskId", timing.taskId)
+                    put("startTick", timing.startTick)
+                    timing.endTick?.let { put("endTick", it) }
+                } } }))
                 put("runs", JsonArray(result.runs.map { run -> buildJsonObject {
                     put("timetableId", run.id.timetableId)
                     put("serviceId", run.id.serviceId)
@@ -531,7 +718,18 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     put("nextScheduledTick", run.nextScheduledTick)
                     put("lastLatenessTicks", run.lastLatenessTicks)
                     put("currentWayPointId", run.currentWayPointId)
+                    put("currentRunId", run.currentRunId)
+                    put("currentLineId", run.currentLineId?.value)
+                    put("unitDisplays", JsonArray(run.unitDisplays.map(::unitDisplayJson)))
                     put("nextStepIndex", run.nextStepIndex)
+                    put("nextStepBranchPath", branchPathJson(run.nextStepBranchPath))
+                    put("activeStepIndex", run.activeStepIndex)
+                    put("activeStepBranchPath", branchPathJson(run.activeStepBranchPath))
+                    run.selectedBerthRef?.let { berth -> put("selectedBerthRef", buildJsonObject {
+                        put("stationId", berth.stationId.value)
+                        put("berthId", berth.berthId)
+                    }) }
+                    put("selectedBerthCommitted", run.selectedBerthCommitted)
                     put("trainHeadRailId", run.trainHeadRailId)
                     put("trainHeadArcLengthInAbMeters", run.trainHeadArcLengthInAbMeters)
                     put("headProgressMeters", run.headProgressMeters)
@@ -540,7 +738,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             })
 
         private fun linesJson(worldName: String) = withWorld(worldName) { _, world ->
-            val snapshot = world.basicWorldData.lines.snapshot()
+            val snapshot = world.simpleAtoWorldData.lines.snapshot()
             json.encodeToString(buildJsonObject {
                 put("revision", snapshot.revision)
                 put("lines", JsonArray(snapshot.lines.map(::lineJson)))
@@ -554,7 +752,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             val expected = root["expectedRevision"]?.jsonPrimitive?.content?.toLongOrNull()
                 ?: throw HttpFailure(400, "expectedRevision is required")
             val revision = try {
-                world.basicWorldData.lines.put(line, expected)
+                world.simpleAtoWorldData.lines.put(line, expected)
             } catch (conflict: LineRevisionConflict) {
                 throw HttpFailure(409, conflict.message ?: "line revision conflict")
             }
@@ -566,26 +764,27 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
 
         private fun simulateLineJson(worldName: String, lineId: String, body: String): String {
             val request = json.parseToJsonElement(body).jsonObject
+            val measurement = try { LineMeasurementRequest.parse(request) }
+                catch (failure: LineDwellInsufficientException) {
+                    throw HttpFailure(422, failure.message.orEmpty(), "LINE_DWELL_INSUFFICIENT")
+                }
+            val compiledSource = plugin.timetableScriptSandbox.compileSource(measurement.measurementSource, "line-simulation")
+            val factory = IsolatedTimetableSimulationFactory(
+                SimulationControlProfileCatalog(plugin), plugin.physicsConfig.track.gravityMetersPerSecondSquared,
+                plugin.javaRailwaysConfig.atoSafetyDistanceMeters,
+                speedSafety = plugin.physicsConfig.overspeed.let {
+                    work.art1st.javarailways.basic.safety.SpeedSafetyMonitor.Config(it.derailEnabled, it.toleranceKmH / 3.6, it.graceTicks)
+                }, requiredDomainFeatures = plugin::requiredSimulationDomainFeatures,
+                prepareDomainFeatures = plugin::prepareSimulationDomainFeatures
+            )
+            val executionTimeoutMillis = simulationExecutionTimeoutMillis(request)
             val snapshot = await {
                 withWorld(worldName) { _, world ->
                     val data = world.basicWorldData
-                    val line = data.lines[LineId(lineId)] ?: throw HttpFailure(404, "line not found: $lineId")
-                    val timetableId = request["timetableId"]?.jsonPrimitive?.content
-                    val serviceId = request["serviceId"]?.jsonPrimitive?.content
-                    if ((timetableId == null) != (serviceId == null)) {
-                        throw HttpFailure(400, "timetableId and serviceId must be provided together")
-                    }
-                    val lineMaximumSpeed = timetableId?.let { requestedTimetableId ->
-                        val timetable = data.timetables[requestedTimetableId]
-                            ?: throw HttpFailure(404, "timetable not found: $requestedTimetableId")
-                        val service = timetable.services.firstOrNull { it.id == serviceId }
-                            ?: throw HttpFailure(404, "service not found: $requestedTimetableId/$serviceId")
-                        if (service.lineId != line.id) {
-                            throw HttpFailure(400, "service infrastructure line does not match requested line: $lineId")
-                        }
-                        LineMaximumSpeedResolver(timetable).resolve(service)
-                            ?: throw HttpFailure(422, "service has no configured line maximum speed: $requestedTimetableId/$serviceId")
-                    }
+                    val line = world.simpleAtoWorldData.lines[LineId(lineId)]
+                        ?: throw HttpFailure(404, "line not found: $lineId")
+                    val lineMaximumSpeed = resolveInfrastructureLineMaximumSpeed(line.maximumSpeedMetersPerSecond,
+                        parseLineMaximumSpeed(request["maximumSpeedMetersPerSecond"]))
                     val direction = request["direction"]?.jsonPrimitive?.content?.let {
                         runCatching { LineDirection.valueOf(it.uppercase()) }.getOrElse { throw HttpFailure(400, "direction must be UP or DOWN") }
                     } ?: LineDirection.UP
@@ -607,6 +806,20 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     if (selectedDestinationIds != null && selectedDestinationIds.size != selectedStations.size) {
                         throw HttpFailure(400, "destinationIds must match the selected route station count")
                     }
+                    val viaIds = request["viaIds"]?.let { value ->
+                        val rows = value as? JsonArray ?: throw HttpFailure(400, "viaIds must be an array of waypoint arrays")
+                        rows.map { row ->
+                            val ids = row as? JsonArray ?: throw HttpFailure(400, "viaIds must be an array of waypoint arrays")
+                            ids.map { id -> (id as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() }?.content
+                                ?: throw HttpFailure(400, "viaIds must contain nonblank waypoint IDs") }
+                        }
+                    } ?: List(selectedStations.size) { emptyList() }
+                    if (viaIds.size != selectedStations.size || viaIds.firstOrNull().orEmpty().isNotEmpty()) {
+                        throw HttpFailure(400, "viaIds must match station count and the origin must have no incoming via points")
+                    }
+                    if (selectedDestinationIds == null && viaIds.any { it.isNotEmpty() }) {
+                        throw HttpFailure(400, "viaIds requires exact destinationIds")
+                    }
                     val compilation = if (selectedDestinationIds == null) {
                         when (val compiled = LinePlanner(world).compileStations(line, selectedStations)) {
                             is LineCompileResult.Success -> compiled
@@ -614,7 +827,8 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                         }
                     } else {
                         val originMode = request["originDepartureMode"]?.jsonPrimitive?.content?.uppercase() ?: "AUTO"
-                        val originApproachDirection = data.destinations[selectedDestinationIds.first()]?.approachDirection
+                        val originApproachDirection = world.simpleAtoWorldData
+                            .destinations[selectedDestinationIds.first()]?.approachDirection
                         val originDirections = when (originMode) {
                             "AUTO" -> ViewDirection.entries
                             "CONTINUE" -> listOf(originApproachDirection
@@ -631,7 +845,10 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                                 line,
                                 selectedStations,
                                 selectedDestinationIds,
-                                originDirections
+                                originDirections,
+                                viaIds = viaIds,
+                                requireUniquePath = true,
+                                pruneNonTargetWaypoints = true
                             )
                         }.getOrElse { throw HttpFailure(422, it.message ?: "could not compile selected berth route") }
                         if (candidates.isEmpty()) {
@@ -652,7 +869,12 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                         throw HttpFailure(400, "stopStationIds must belong to the selected route section")
                     }
                     val stopStationIds = requestedStopStationIds ?: selectedStationIds.drop(1).toSet()
-                    val selectedLegs = compilation.legs
+                    require(measurement.calls.map { it.stationId } == selectedStationIds &&
+                        measurement.calls.map { it.destinationId } == selectedDestinationIds &&
+                        measurement.calls.map { it.viaIds } == viaIds) { "measurement calls do not match selected route" }
+                    require(measurement.calls.filter { it.kind == "STOP" || it.kind == "TERMINAL" }.map { it.stationId }.toSet() == stopStationIds) {
+                        "measurement STOP/PASS calls do not match requested stops"
+                    }
                     val profileType = request["profileType"]?.jsonPrimitive?.content?.let { value ->
                         runCatching { SimulationProfileType.valueOf(value) }.getOrElse {
                             throw HttpFailure(400, "unknown simulation profileType: $value")
@@ -660,60 +882,49 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     } ?: throw HttpFailure(400, "profileType is required")
                     val profileId = request["profileId"]?.jsonPrimitive?.content
                         ?: throw HttpFailure(400, "profileId is required")
-                    val profile = runCatching {
-                        SimulationControlProfileCatalog(plugin).resolve(world, profileType, profileId)
-                    }.getOrElse { throw HttpFailure(422, it.message ?: "simulation profile is unavailable") }
+                    val initialDirection = resolveProgramSimulationWayPoint(world, measurement.calls.first().destinationId).direction
+                    val selectedDirection = compilation.legs.first().route.segments.first().railViewRef.direction
+                    val normalized = TimetableScriptNormalizer.normalize(compiledSource, world.simpleAtoWorldData.destinations)
+                    val prepared = prepareLineMeasurement(normalized, measurement, selectedDirection != initialDirection)
+                    require(prepared.services.single().runSegments.single().lineId == lineId) { "measurement source line does not match requested line" }
+                    require(prepared.lineSpeedLimits.single { it.lineId == lineId }.maximumSpeedMetersPerSecond == lineMaximumSpeed) {
+                        "measurement source maximum speed differs from selected line"
+                    }
+                    val timetable = prepared.restore()
                     LineSimulationSnapshot(
-                        revision = data.lines.snapshot().revision,
-                        profile = profile,
-                        legs = selectedLegs.mapIndexed { index, leg ->
-                            val weightedGrade = leg.route.segments.sumOf { segment ->
-                                val rail = world.getRail(segment.railViewRef.railId)
-                                    ?: throw HttpFailure(409, "route rail disappeared: ${segment.railViewRef.railId}")
-                                val view = rail.getView(segment.railViewRef.direction)
-                                val midpoint = (segment.startArcLength + segment.endArcLength) * 0.5
-                                view.curve.getPointAt(midpoint).tangent.y() * segment.length
-                            } / leg.route.totalLength
-                            SimulationLeg(
-                                leg.fromStationId,
-                                leg.toStationId,
-                                leg.route.totalLength,
-                                weightedGrade,
-                                stopAtEnd = leg.toStationId in stopStationIds || index == selectedLegs.lastIndex
-                            )
-                        },
-                        lineMaximumSpeedMetersPerSecond = lineMaximumSpeed
+                        revision = world.simpleAtoWorldData.lines.snapshot().revision,
+                        simulation = factory.capture(world as work.art1st.javarailways.core.physics.CoreWorld, timetable,
+                            listOf(TimetableProfileSelection(timetable.services.single().id, profileType, profileId)))
                     )
                 }
             }
             val task = try {
                 simulationExecutor.submit<IsolatedLineSimulationResult> {
                     IsolatedLineSimulator.simulate(
-                        snapshot.legs,
-                        snapshot.profile,
-                        snapshot.lineMaximumSpeedMetersPerSecond
+                        factory, snapshot.simulation, measurement, plugin.physicsConfig.workerThreads.coerceIn(1, 4)
                     )
                 }
             } catch (_: RejectedExecutionException) {
-                throw HttpFailure(429, "line simulation queue is full; retry later")
+                throw HttpFailure(429, "line simulation queue is full; retry later", "SIMULATION_QUEUE_FULL")
             }
             val result = try {
-                task.get(60, TimeUnit.SECONDS)
+                task.get(executionTimeoutMillis, TimeUnit.MILLISECONDS)
             } catch (failure: ExecutionException) {
                 val cause = failure.cause ?: failure
+                if (cause is LineDwellInsufficientException) throw HttpFailure(422, cause.message.orEmpty(), "LINE_DWELL_INSUFFICIENT")
                 if (cause is IllegalArgumentException) throw HttpFailure(400, cause.message ?: "invalid simulation profile")
-                if (cause is SimulationComputationLimitException) throw HttpFailure(422, cause.message ?: "simulation limit reached")
+                if (cause is IllegalStateException) throw HttpFailure(422, cause.message ?: "line simulation failed")
                 throw cause
             } catch (_: TimeoutException) {
                 task.cancel(true)
-                throw HttpFailure(504, "line simulation timed out")
+                throw HttpFailure(504, "line simulation timed out", "SIMULATION_TIMEOUT")
             } catch (interrupted: InterruptedException) {
                 task.cancel(true)
                 Thread.currentThread().interrupt()
                 throw interrupted
             }
             val currentRevision = await {
-                withWorld(worldName) { _, world -> world.basicWorldData.lines.snapshot().revision }
+                withWorld(worldName) { _, world -> world.simpleAtoWorldData.lines.snapshot().revision }
             }
             if (currentRevision != snapshot.revision) {
                 throw HttpFailure(409, "lines changed while simulation was running; retry")
@@ -721,13 +932,18 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             return json.encodeToString(buildJsonObject {
                 put("lineRevision", currentRevision)
                 put("totalTravelSeconds", result.totalTravelSeconds)
+                put("calls", JsonArray(result.calls.map { call -> buildJsonObject {
+                    put("callId", call.callId); put("stationId", call.stationId); put("kind", call.kind)
+                    call.arrivalTick?.let { put("arrivalTick", it) }
+                    call.departureTick?.let { put("departureTick", it) }
+                } }))
                 put("legs", JsonArray(result.legs.map { leg -> buildJsonObject {
                     put("fromStationId", leg.fromStationId)
                     put("toStationId", leg.toStationId)
                     put("lengthMeters", leg.lengthMeters)
                     put("travelSeconds", leg.travelSeconds)
                     put("peakSpeedKmh", leg.peakSpeedMetersPerSecond * 3.6)
-                    put("stoppingErrorMeters", leg.stoppingErrorMeters)
+                    leg.stoppingErrorMeters?.let { put("stoppingErrorMeters", it) }
                 } }))
             })
         }
@@ -736,9 +952,8 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             val root = json.parseToJsonElement(body).jsonObject
             val expected = root["expectedRevision"]?.jsonPrimitive?.content?.toLongOrNull()
                 ?: throw HttpFailure(400, "expectedRevision is required")
-            val data = world.basicWorldData
             val result = try {
-                data.lines.remove(LineId(pathId), expected)
+                world.simpleAtoWorldData.lines.remove(LineId(pathId), expected)
             } catch (conflict: LineRevisionConflict) {
                 throw HttpFailure(409, conflict.message ?: "line revision conflict")
             }
@@ -759,7 +974,8 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             val upIds = up.map { StationId(it.jsonPrimitive.content) }
             val downIds = down.map { StationId(it.jsonPrimitive.content) }
             val color = value["color"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-            return Line(LineId(id), displayName, upIds, downIds, color)
+            val maximumSpeed = parseLineMaximumSpeed(value["maximumSpeedMetersPerSecond"])
+            return Line(LineId(id), displayName, upIds, downIds, color, maximumSpeed)
         }
 
         private fun lineJson(line: Line) = buildJsonObject {
@@ -768,13 +984,14 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             put("upStationIds", JsonArray(line.upStationIds.map { JsonPrimitive(it.value) }))
             put("downStationIds", JsonArray(line.downStationIds.map { JsonPrimitive(it.value) }))
             line.color?.let { put("color", it) }
+            line.maximumSpeedMetersPerSecond?.let { put("maximumSpeedMetersPerSecond", it) }
         }
 
         private fun timetablesJson(worldName: String) = withWorld(worldName) { _, world ->
-            json.encodeToString(JsonArray(world.basicWorldData.timetables.all().map { JsonPrimitive(it.id) }))
+            json.encodeToString(JsonArray(world.simpleAtoWorldData.timetables.all().map { JsonPrimitive(it.id) }))
         }
         private fun timetableJson(worldName: String, id: String) = withWorld(worldName) { _, world ->
-            val tt = world.basicWorldData.timetables[id] ?: throw IllegalArgumentException("timetable not found: $id")
+            val tt = world.simpleAtoWorldData.timetables[id] ?: throw IllegalArgumentException("timetable not found: $id")
             TimetableSnapshotCodec.encode(SavedTimetableV1.capture(tt))
         }
         private fun validateJson(worldName: String, id: String, body: String) = withWorld(worldName) { _, world ->
@@ -792,26 +1009,36 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             })
         }
         private fun publishJson(worldName: String, id: String, body: String, ifMatch: String?) = withWorld(worldName) { _, world ->
+            require(!plugin.globalTimetableReloadCoordinator.isReloading) {
+                "global timetable reload is in progress"
+            }
             val data = world.basicWorldData
             val saved = TimetableSnapshotCodec.decode(body); val tt = saved.restore()
             require(tt.id == id && saved.id == id) { "path timetable id does not match body id" }
-            val current = data.timetables[id]
+            val current = world.simpleAtoWorldData.timetables[id]
             val currentEtag = current?.let { etag(TimetableSnapshotCodec.encode(SavedTimetableV1.capture(it))) }
             require(ifMatch == null || ifMatch == currentEtag) { "If-Match does not match current timetable" }
-            val checkpoint = data.dispatcher.saveCheckpoint()
+            val checkpoint = world.simpleAtoWorldData.dispatcher.saveCheckpoint()
             require(checkpoint.clocks.none { it.timetableId == id } && checkpoint.runs.none { it.timetableId == id }) {
                 "timetable owns an active or future dispatcher schedule: $id"
             }
             val validation = TimetableValidator(world).validate(tt)
             require(validation.isSuccess) { validation.errors.joinToString("; ") }
-            data.timetables.add(tt)
+            world.simpleAtoWorldData.timetables.add(tt)
             json.encodeToString(buildJsonObject { put("published", true); put("etag", etag(TimetableSnapshotCodec.encode(saved))) })
         }
 
         private fun <T> withWorld(name: String, action: (BukkitWorld, work.art1st.javarailways.core.api.physics.World) -> T): T {
             val entry = plugin.worldManager.railWorlds.entries.firstOrNull { it.key.name == name }
                 ?: throw IllegalArgumentException("world not found: $name")
-            return action(entry.key, entry.value)
+            return BukkitThreadGuardBridge.runInSimulationContext(entry.value) {
+                val coreWorld = entry.value as? work.art1st.javarailways.core.physics.CoreWorld
+                val apply = {
+                    check(plugin.worldManager.railWorlds[entry.key] === entry.value) { "world changed: $name" }
+                    action(entry.key, entry.value)
+                }
+                if (coreWorld == null) apply() else coreWorld.physicsCoordinator.withStructuralMutation(apply)
+            }
         }
         private fun descriptorJson(
             typeId: String,
@@ -827,15 +1054,6 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             put("parameterSchema", parameterSchema)
         }
 
-        private fun conditionDescriptorJson(provider: TimetableConditionProvider) = buildJsonObject {
-            val descriptor = provider.descriptor
-            put("typeId", provider.typeId)
-            put("version", provider.version)
-            put("title", descriptor.title)
-            put("description", descriptor.description)
-            put("parameterSchema", descriptor.parameterSchema)
-            put("supportedScopes", JsonArray(provider.supportedScopes.map { JsonPrimitive(it.name) }))
-        }
         private fun authorized(exchange: HttpExchange): Boolean {
             val value = exchange.requestHeaders.getFirst("Authorization") ?: return false
             val prefix = "Bearer "
@@ -849,7 +1067,6 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
         }
     }
 
-    private enum class RequestState { PENDING, RUNNING, COMPLETED, CANCELLED }
 
     private fun HttpExchange.respond(status: Int, body: String) {
         val bytes = body.toByteArray(StandardCharsets.UTF_8)
@@ -857,7 +1074,46 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
         sendResponseHeaders(status, bytes.size.toLong())
         responseBody.use { it.write(bytes) }
     }
-    private fun error(message: String) = json.encodeToString(buildJsonObject { put("error", message) })
-    private fun decode(value: String) = java.net.URLDecoder.decode(value, StandardCharsets.UTF_8)
+    private fun error(message: String, code: String? = null) = json.encodeToString(buildJsonObject {
+        put("error", message)
+        code?.let { put("code", it) }
+    })
     private fun etag(body: String): String = '"' + MessageDigest.getInstance("SHA-256").digest(body.toByteArray(StandardCharsets.UTF_8)).joinToString("") { "%02x".format(it) } + '"'
+}
+
+private enum class RequestState { PENDING, RUNNING, COMPLETED, CANCELLED }
+
+/** Domain waits run off the global scheduler so one busy World cannot stop other wakeups. */
+internal fun <T> awaitDomainHttpRequest(
+    dispatcher: work.art1st.javarailways.bukkit.util.PlatformDispatcher,
+    timeoutMillis: Long,
+    expired: () -> RuntimeException,
+    action: () -> T
+): T {
+    val future = CompletableFuture<T>()
+    val state = AtomicReference(RequestState.PENDING)
+    dispatcher.runAsync {
+        if (!state.compareAndSet(RequestState.PENDING, RequestState.RUNNING)) return@runAsync
+        try { future.complete(BukkitThreadGuardBridge.runInSimulationContext(action)) }
+        catch (t: Throwable) { future.completeExceptionally(t) }
+        finally { state.set(RequestState.COMPLETED) }
+    }
+    return try {
+        future.get(timeoutMillis, TimeUnit.MILLISECONDS)
+    } catch (failure: ExecutionException) {
+        val cause = failure.cause ?: failure
+        when (cause) {
+            is RuntimeException -> throw cause
+            is Error -> throw cause
+            else -> throw IllegalStateException(cause)
+        }
+    } catch (_: TimeoutException) {
+        if (state.compareAndSet(RequestState.PENDING, RequestState.CANCELLED)) {
+            future.cancel(false)
+            throw expired()
+        }
+        // Once mutation has entered the serialized simulation context, return its real
+        // outcome rather than reporting a timeout and allowing an apparently failed write.
+        future.get()
+    }
 }

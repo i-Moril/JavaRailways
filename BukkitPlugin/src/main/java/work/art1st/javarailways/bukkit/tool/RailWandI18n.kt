@@ -39,6 +39,14 @@ internal object RailWandI18n {
     fun format(player: Player, key: String, vararg arguments: Any?): String =
         format(player.locale(), key, *arguments)
 
+    fun anchorName(player: Player, id: String): String = anchorName(player.locale(), id)
+
+    internal fun anchorName(locale: Locale, id: String): String = when {
+        id.startsWith("rail:") -> format(locale, "display.rail_endpoint", id.substringAfterLast(':'))
+        id.startsWith("split:") -> translate(locale, "display.split_anchor")
+        else -> id
+    }
+
     internal fun format(locale: Locale, key: String, vararg arguments: Any?): String {
         val template = translate(locale, key)
         if (arguments.isEmpty()) return template

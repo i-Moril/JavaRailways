@@ -1,5 +1,9 @@
 # Development Workflow
 
+## Repository Versioning Gate
+
+涉及持久化格式、配置、extension payload 或版本常量时，必须先阅读[版本号：先确认发布基线，再判断是否升版](spec/javarailways/shared/versioning.md)。未发布开发格式直接修正当前模型，不按 commit 次数升版；没有可核实的发布/冻结基线，不得仅凭 breaking change 修改版本号。此门槛适用于规划、实现、规范更新和提交审查。
+
 ---
 
 ## Core Principles

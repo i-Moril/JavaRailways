@@ -114,3 +114,22 @@ export function railSegmentVisualLayers(map:RailMapFile,tolerance=CONNECTED_ELEV
   }
   return layers;
 }
+
+export const TRAIN_FRAME_STALE_MILLIS=3_000;
+export function trainFrameIsStale(lastReceivedAt:number|null,now:number):boolean {
+  return lastReceivedAt===null||now-lastReceivedAt>=TRAIN_FRAME_STALE_MILLIS;
+}
+/** Validate the complete wire frame before replacing the last known positions. */
+export function parseTrainFrame(payload:string):RailMapTrain[] {
+  const value:unknown=JSON.parse(payload);
+  const object=(item:unknown):item is Record<string,unknown>=>typeof item==='object'&&item!==null;
+  const finite=(item:unknown)=>typeof item==='number'&&Number.isFinite(item);
+  const valid=Array.isArray(value)&&value.every((train:unknown)=>object(train)&&
+    typeof train.id==='string'&&typeof train.name==='string'&&finite(train.revision)&&
+    finite(train.speedMetersPerSecond)&&typeof train.derailed==='boolean'&&typeof train.reversed==='boolean'&&
+    typeof train.railId==='string'&&finite(train.arcLengthMeters)&&(train.facing==='AB'||train.facing==='BA')&&
+    Array.isArray(train.cars)&&train.cars.every((car:unknown)=>object(car)&&typeof car.id==='string'&&
+      finite(car.lengthMeters)&&(car.lengthMeters as number)>0&&['x','y','z','directionX','directionZ'].every((key)=>finite(car[key]))));
+  if(!valid)throw new Error('Invalid train frame');
+  return value as RailMapTrain[];
+}

@@ -1,5 +1,9 @@
 package work.art1st.javarailways.bukkit.render.backend
 
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
+
 import com.github.retrooper.packetevents.protocol.entity.EntityPositionData
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes
 import com.github.retrooper.packetevents.util.Quaternion4f
@@ -40,10 +44,18 @@ class EntityLibDisplayRenderBackend : DisplayRenderBackend {
             }
         }
 
-        check(wrapper.spawn(SpigotConversionUtil.fromBukkitLocation(descriptor.location))) {
-            "EntityLib refused to spawn a newly-created display visual"
+        try {
+            check(wrapper.spawn(SpigotConversionUtil.fromBukkitLocation(descriptor.location))) {
+                "EntityLib refused to spawn a newly-created display visual"
+            }
+            return EntityLibDisplayVisual(wrapper)
+        } catch (failure: Throwable) {
+            try { wrapper.remove() } catch (cleanup: Throwable) {
+                failure.addSuppressed(cleanup)
+                throw DisplayCleanupException(failure)
+            }
+            throw failure
         }
-        return EntityLibDisplayVisual(wrapper)
     }
 
     private fun configureCommon(meta: AbstractDisplayMeta, descriptor: DisplayVisualDescriptor) {
@@ -69,16 +81,23 @@ class EntityLibDisplayRenderBackend : DisplayRenderBackend {
 private class EntityLibDisplayVisual(
     private val entity: WrapperEntity
 ) : DisplayVisual {
+    override val packetEntityId = entity.entityId
+    override val packetGlowBaseline = entity.entityMeta.getMask(me.tofaa.entitylib.meta.EntityMeta.OFFSET) to
+        (entity.entityMeta as AbstractDisplayMeta).glowColorOverride
+    @Volatile
     private var destroyed = false
+    private val destruction = Destruction()
 
     init {
         entity.entityMeta.setNotifyAboutChanges(false)
     }
 
+    @Synchronized
     override fun showTo(player: Player) {
         if (!destroyed) entity.addViewer(player.uniqueId)
     }
 
+    @Synchronized
     override fun hideFrom(player: Player) {
         if (!destroyed) entity.removeViewer(player.uniqueId)
     }
@@ -133,6 +152,15 @@ private class EntityLibDisplayVisual(
         }
     }
 
+    override fun clearBrightness() {
+        if (!destroyed) {
+            val meta = entity.entityMeta as AbstractDisplayMeta
+            // EntityLib's AbstractDisplayMeta uses -1 for the absent protocol override.
+            meta.setBrightnessOverride(-1)
+            queueMetadata(meta)
+        }
+    }
+
     override fun addPassenger(passenger: DisplayVisual): Boolean {
         if (destroyed) return false
         val packetPassenger = passenger as? EntityLibDisplayVisual
@@ -144,10 +172,12 @@ private class EntityLibDisplayVisual(
         return true
     }
 
-    override fun destroy() {
-        if (destroyed) return
+    @Synchronized
+    override fun destroy(): CompletionStage<Void> = destruction.run {
         destroyed = true
-        entity.remove()
+        val steps = DestructionSteps()
+        steps.action { entity.remove() }
+        steps.finish()
     }
 
     private fun queueMetadata(meta: AbstractDisplayMeta) {

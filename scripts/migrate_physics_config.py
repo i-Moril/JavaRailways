@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-time config.yml -> physics.yml migration. Dry-run by default; --apply writes .bak restore points."""
+"""One-time physics config migration. Dry-run by default; --apply writes .bak restore points."""
 
 from __future__ import annotations
 
@@ -38,6 +38,30 @@ def replace_physics_value(text: str, key: str, value: str) -> str:
     return updated
 
 
+def upgrade_physics_schema(text: str) -> str:
+    version = scalar_value(text, "schema-version")
+    gravity = scalar_value(text, "gravity", "  ")
+    legacy_gravity = scalar_value(text, "gravity-mps2", "  ")
+    if version == "2":
+        if gravity is None or legacy_gravity is not None:
+            raise ValueError("physics.yml schema 2 requires 'track.gravity' and forbids 'track.gravity-mps2'")
+        return text
+    if version != "1":
+        raise ValueError(f"unsupported physics.yml schema-version '{version}'")
+    if legacy_gravity is None or gravity is not None:
+        raise ValueError("physics.yml schema 1 must contain only 'track.gravity-mps2'")
+    upgraded = replace_physics_value(text, "schema-version", "2")
+    updated, count = re.subn(
+        r"(?m)^(\s*)gravity-mps2:(\s*)",
+        r"\1gravity:\2",
+        upgraded,
+        count=1,
+    )
+    if count != 1:
+        raise ValueError("physics.yml legacy gravity key missing or ambiguous")
+    return updated
+
+
 def migrate(config_text: str, physics_text: str) -> tuple[str, str]:
     values: dict[str, str] = {}
     for old_key, new_key in SCALARS.items():
@@ -53,10 +77,7 @@ def migrate(config_text: str, physics_text: str) -> tuple[str, str]:
             if value is not None:
                 values[key] = value
 
-    if not values:
-        raise ValueError("no retired physics keys found in config.yml")
-
-    migrated_physics = physics_text
+    migrated_physics = upgrade_physics_schema(physics_text)
     for key, value in values.items():
         migrated_physics = replace_physics_value(migrated_physics, key, value)
 
@@ -64,6 +85,8 @@ def migrate(config_text: str, physics_text: str) -> tuple[str, str]:
     for key in SCALARS:
         migrated_config = re.sub(rf"(?m)^{re.escape(key)}:.*\n?", "", migrated_config)
     migrated_config = re.sub(r"(?m)^turnout:[ \t]*\n(?:^[ \t]+[^\n]*(?:\n|$))*", "", migrated_config)
+    if migrated_config == config_text and migrated_physics == physics_text:
+        raise ValueError("no retired physics config or schema found")
     return migrated_config, migrated_physics
 
 

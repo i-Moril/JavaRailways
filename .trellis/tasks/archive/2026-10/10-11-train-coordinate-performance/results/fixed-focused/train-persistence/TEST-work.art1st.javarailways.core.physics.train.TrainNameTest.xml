@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="work.art1st.javarailways.core.physics.train.TrainNameTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-10-11T06:36:30.691Z" hostname="dev" time="0.05">
+  <properties/>
+  <testcase name="train names are unique per world and lookup uses the player name()" classname="work.art1st.javarailways.core.physics.train.TrainNameTest" time="0.05"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

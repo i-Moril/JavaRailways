@@ -24,11 +24,14 @@ dependencies {
     implementation(kotlin("stdlib-jdk8"))
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("org.jetbrains.kotlin:kotlin-reflect:2.3.0")
+    compileOnly("org.jetbrains:annotations:26.0.2")
     compileOnly("org.joml:joml:1.10.8")
     testImplementation("org.joml:joml:1.10.8")
+    testFixturesImplementation("org.joml:joml:1.10.8")
+    testFixturesApi(platform("org.junit:junit-bom:5.10.0"))
+    testFixturesApi("org.junit.jupiter:junit-jupiter-api")
+    testFixturesImplementation("org.junit.platform:junit-platform-launcher")
     implementation("net.jcip:jcip-annotations:1.0")
-    implementation(platform("io.insert-koin:koin-bom:4.1.1"))
-    implementation("io.insert-koin:koin-core:4.1.1")
     //implementation(project(":Annotation"))
     //ksp(project(":Annotation"))
 }
@@ -36,6 +39,13 @@ dependencies {
 tasks.test {
     useJUnitPlatform {
         excludeTags("physics-stress")
+    }
+}
+
+// Only explicitly marked terminal-fault invocations launch a child JVM.
+tasks.withType<Test>().configureEach {
+    doFirst {
+        systemProperty("javarailways.haltTest.classpath", classpath.asPath)
     }
 }
 

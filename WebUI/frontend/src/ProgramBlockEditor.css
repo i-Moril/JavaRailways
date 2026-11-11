@@ -1,0 +1,21 @@
+.program-block-editor { min-width: 0; width: 100%; }
+.program-block-canvas { height: 520px; width: 100%; min-width: 300px; border: 1px solid var(--border-color, #64748b); border-radius: 8px; overflow: hidden; }
+.program-block-toolbar { margin: 12px 0; }
+.program-block-inspector { padding: 12px 0; display: flex; flex-direction: column; gap: 10px; }
+.program-block-inspector label { display: flex; flex-direction: column; gap: 6px; }
+.program-parameters > .ant-flex { margin: 8px 0; }
+.program-block-editor .blocklyToolbox { font-family: inherit; }
+@media(max-width: 600px) { .program-block-canvas { height: 430px; min-width: 0; } }
+.station-stop-program-editor { padding: 4px 0; }
+.station-stop-program-editor .ant-tabs-content-holder { padding-top: 4px; }
+.program-block-toolbar .ant-btn { width: 36px; font-size: 22px; line-height: 1; }
+.program-block-editor > .ant-alert { margin-bottom: 12px; }
+.program-parameters { margin: 8px 0 12px; }
+.program-block-inspector > .ant-typography { margin: 0; }
+.program-block-inspector > div { display: flex; flex-direction: column; gap: 8px; }
+.program-block-inspector details { margin-bottom: 8px; }
+
+.program-block-inspector .train-info-fields { display:flex; flex-direction:column; gap:12px; margin:12px 0; }
+.train-info-fields .ant-typography { margin-bottom:0; }
+.train-info-row { display:grid; grid-template-columns:minmax(100px,1fr) minmax(150px,1fr) auto; gap:8px; align-items:center; }
+@media(max-width:600px) { .train-info-row { grid-template-columns:minmax(0,1fr) auto; } .train-info-row > .ant-select { grid-column:1; grid-row:2; } .train-info-row > button { grid-column:2; grid-row:1 / 3; } }

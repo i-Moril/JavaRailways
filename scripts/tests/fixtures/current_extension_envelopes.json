@@ -1,0 +1,15 @@
+{
+  "train": {
+    "typeId": "javarailways:train_render_state",
+    "schemaVersion": 1,
+    "payload": {"version": 1, "packageName": "example", "packageSnapshotHash": "train-package-hash"}
+  },
+  "car": {
+    "typeId": "javarailways:car_render_state",
+    "schemaVersion": 1,
+    "payload": {
+      "carModelName": "example/car", "heldScenes": {"door": "open"},
+      "modelSnapshotHash": "model-hash", "packageSnapshotHash": "car-package-hash"
+    }
+  }
+}

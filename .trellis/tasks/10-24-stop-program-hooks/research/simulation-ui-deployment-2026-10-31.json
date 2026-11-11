@@ -1,0 +1,69 @@
+{
+  "sourceCommit": "0cadbe8fc84555e289280ca71c1e74417d6c7feb",
+  "mainJarSha256": "2dc9b48b9e1cf62b8619ffc638762cee811d6e011db70c9089578c64c7e3e01f",
+  "webuiSha256": "1f2d8347d4a53d9a0dac8b4516305cdeccfd272ad20b9a2824475586e0516777",
+  "replacementCount": 3,
+  "preservedInstallFiles": 151,
+  "checkedLocalAndPublicAssets": 17,
+  "assets": [
+    "/",
+    "/assets/index-CdCGfk_W.css",
+    "/assets/index-ki5t5GHk.js",
+    "/blockly-media/1x1.gif",
+    "/blockly-media/LICENSE",
+    "/blockly-media/README.txt",
+    "/blockly-media/delete-icon.svg",
+    "/blockly-media/dropdown-arrow.svg",
+    "/blockly-media/foldout-icon.svg",
+    "/blockly-media/handclosed.cur",
+    "/blockly-media/handdelete.cur",
+    "/blockly-media/handopen.cur",
+    "/blockly-media/pilcrow.png",
+    "/blockly-media/quote0.png",
+    "/blockly-media/quote1.png",
+    "/blockly-media/resize-handle.svg",
+    "/blockly-media/sprites.svg"
+  ],
+  "publicUrl": "http://mc.art1st.work:29002",
+  "uiTimeoutContractInDeployedBundle": true,
+  "preservedDraftSignalAndOtherJarFiles": 23,
+  "mapMarkers": 31,
+  "guestSimulationStatus": 401,
+  "guestErrorStructured": true,
+  "runtimeMarkers": [
+    "[10:37:02] [Server thread/INFO]: Done (26.915s)! For help, type \"help\"",
+    "[10:37:19] [Folia Region Scheduler Thread #0/INFO]: ATO world: RUNNING",
+    "[10:37:19] [Folia Region Scheduler Thread #0/INFO]: SimpleSignals 2952ad2c-41ce-40bc-b83b-1b578ae7af12: installed, definitionRevision=117, topologyRevision=1; regions=5, tables=5, blocks=14, fixedBlockSignals=8, protectionSignals=4, routeIndicators=1, attachedSignals=0"
+  ],
+  "incrementalErrors": {
+    "plugins/JavaRailways/logs/errors.log": {
+      "preInstallShutdownErrors": 13,
+      "postInstallErrors": 0,
+      "newWarnings": 4
+    },
+    "plugins/JavaRailways/webui/logs/errors.log": {
+      "preInstallShutdownErrors": 0,
+      "postInstallErrors": 0,
+      "newWarnings": 0
+    },
+    "plugins/SimpleSignals/logs/errors.log": {
+      "preInstallShutdownErrors": 1,
+      "postInstallErrors": 0,
+      "newWarnings": 0
+    }
+  },
+  "knownTerraTheUnsafeStartupErrorCount": 1,
+  "recoveryDirectory": "/opt/mcsmanager/backups/javarailways/simulation-ui-20261031-w5rzf65s",
+  "archiveSha256": "e9bfe6299a56e627a68e0ae697f603a961c96d3be85146309018d657409b7cb0",
+  "workspacePublicVerification": {
+    "matchedPublicAssetsFromWorkspace": 17,
+    "publicTrainStream": {
+      "event": "trains",
+      "trainCount": 1,
+      "httpStatus": 200
+    }
+  },
+  "deploymentToolSha256": "45191b305f0f57fe9b44d0d9ef9495920ed3539a48aa646c60441ba0978f1bc0",
+  "deploymentToolFaultTests": 4,
+  "taskKeptInProgress": true
+}

@@ -7,41 +7,43 @@ import org.bukkit.Bukkit
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.depot.DepotId
-import work.art1st.javarailways.basic.api.depot.DepotResetCoordinator
-import work.art1st.javarailways.basic.api.depot.DepotResetResult
-import work.art1st.javarailways.basic.api.depot.RollingStockRecord
-import work.art1st.javarailways.basic.api.depot.StablingPointRef
-import work.art1st.javarailways.basic.api.destination.DestinationRole
-import work.art1st.javarailways.basic.api.destination.OperationalDestination
-import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.route.RouteBuildResult
-import work.art1st.javarailways.basic.route.RoutePlanner
-import work.art1st.javarailways.basic.timetable.ManualNavigationParser
-import work.art1st.javarailways.basic.timetable.ManualNavigationTimetableFactory
-import work.art1st.javarailways.basic.timetable.TimetableDumper
-import work.art1st.javarailways.basic.timetable.TimetableEpochStartResult
-import work.art1st.javarailways.basic.timetable.TimetableReplanResult
-import work.art1st.javarailways.basic.timetable.TimetableServiceRunId
-import work.art1st.javarailways.basic.timetable.TimetableServiceStartResult
-import work.art1st.javarailways.basic.timetable.TimetableValidator
-import work.art1st.javarailways.basic.timetable.TimetableWaypointProgressListener
+import work.art1st.javarailways.simpleato.api.depot.DepotId
+import work.art1st.javarailways.simpleato.api.depot.RollingStockRecord
+import work.art1st.javarailways.simpleato.api.depot.StablingPointRef
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
+import work.art1st.javarailways.simpleato.depot.DepotResetCoordinator
+import work.art1st.javarailways.simpleato.depot.DepotResetResult
+import work.art1st.javarailways.basic.basicWorldData
+import work.art1st.javarailways.simpleato.routing.RouteBuildResult
+import work.art1st.javarailways.simpleato.timetable.ManualNavigationParser
+import work.art1st.javarailways.simpleato.timetable.ManualNavigationTimetableFactory
+import work.art1st.javarailways.simpleato.timetable.TimetableDumper
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
+import work.art1st.javarailways.simpleato.routing.OperationalRoutePlanner
+import work.art1st.javarailways.simpleato.timetable.TimetableEpochStartResult
+import work.art1st.javarailways.simpleato.timetable.TimetableReplanResult
+import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunId
+import work.art1st.javarailways.simpleato.timetable.TimetableServiceStartResult
+import work.art1st.javarailways.simpleato.timetable.TimetableValidator
+import work.art1st.javarailways.simpleato.timetable.TimetableWaypointProgressListener
+import work.art1st.javarailways.bukkit.logic.TrainResourceReloader
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.diagnostics.PluginDiagnosticLog
 import work.art1st.javarailways.bukkit.config.TimetableWebUiMode
-import work.art1st.javarailways.bukkit.config.TrainModelUpdatePolicy
 import work.art1st.javarailways.bukkit.http.TimetableScriptNormalizer
-import work.art1st.javarailways.bukkit.debug.AtoStallDiagnostics
-import work.art1st.javarailways.bukkit.debug.DepotResetDiagnostics
+import work.art1st.javarailways.simpleatobukkit.diagnostics.AtoStallDiagnostics
+import work.art1st.javarailways.simpleatobukkit.diagnostics.DepotResetDiagnostics
 import work.art1st.javarailways.bukkit.extension.renderChunkManager
 import work.art1st.javarailways.bukkit.control.TrainKeyItem
-import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
 import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
 import work.art1st.javarailways.bukkit.render.backend.PacketPlatformDiagnostics
-import work.art1st.javarailways.bukkit.persistence.RailInfrastructureMetadataMigrationFiles
-import work.art1st.javarailways.bukkit.persistence.WorldPersistence
 import work.art1st.javarailways.bukkit.render.model.SeatModel
+import work.art1st.javarailways.bukkit.tool.RailWandEditPermitAcquisition
+import work.art1st.javarailways.bukkit.tool.RailWandTopologyEditPlan
+import work.art1st.javarailways.bukkit.tool.TurnoutWandI18n
+import work.art1st.javarailways.bukkit.tool.giveTurnoutWand
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.core.api.physics.World as RailWorld
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -49,10 +51,13 @@ import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
 class JavaRailwaysCommand {
     private val navigationCounter = AtomicLong()
+    private val WORLD_COMMANDS = setOf("train", "waypoint", "wp", "stop", "route", "navigate", "nav",
+        "timetable", "tt", "depot", "undo", "redo")
 
     fun execute(sender: CommandSender, label: String, args: Array<out String>): Boolean =
         BukkitThreadGuardBridge.runInSimulationContext {
@@ -61,7 +66,10 @@ class JavaRailwaysCommand {
             return@runInSimulationContext true
         }
         try {
-            executeCommand(sender, args)
+            if (sender is Player && args.firstOrNull()?.lowercase() in WORLD_COMMANDS &&
+                !(args.firstOrNull().equals("train", true) && args.getOrNull(1).equals("list", true))) {
+                BukkitThreadGuardBridge.runInPlayerWorldContext(sender) { executeCommand(sender, args) }
+            } else executeCommand(sender, args)
         } catch (failure: Throwable) {
             val path = PluginDiagnosticLog.command(
                 "COMMAND_FAILED",
@@ -83,6 +91,7 @@ class JavaRailwaysCommand {
 
         when (args[0].lowercase()) {
             "train" -> return TrainCommand.onCommand(sender, args.drop(1))
+            "issues" -> { WorldIssueCommand(BukkitPlugin.INSTANCE).execute(sender, args.drop(1)); return true }
             "wand" -> return handleWand(sender, args.drop(1))
             "waypoint", "wp", "stop" -> return handleWayPoint(sender, args.drop(1))
             "route" -> return handleRoute(sender, args.drop(1))
@@ -92,7 +101,6 @@ class JavaRailwaysCommand {
             "ato" -> return handleAto(sender, args.drop(1))
             "perf", "performance" -> return handlePerf(sender, args.drop(1))
             "resources", "resource" -> return handleResources(sender, args.drop(1))
-            "migrate" -> return handleMigrate(sender, args.drop(1))
             "undo" -> return handleUndo(sender)
             "redo" -> return handleRedo(sender)
             "help" -> sendHelp(sender)
@@ -103,11 +111,13 @@ class JavaRailwaysCommand {
 
     fun suggest(sender: CommandSender, args: Array<out String>): List<String> =
         BukkitThreadGuardBridge.runInSimulationContext {
-            completeCommand(sender, args)
+            if (sender is Player) BukkitThreadGuardBridge.runInPlayerWorldContext(sender) {
+                completeCommand(sender, args)
+            } else completeCommand(sender, args)
         }
 
     private fun completeCommand(sender: CommandSender, args: Array<out String>): List<String> {
-        val plugin = BukkitPlugin.INSTANCE
+        val plugin by lazy { BukkitPlugin.INSTANCE }
         val prefix = args.lastOrNull().orEmpty()
         fun filtered(values: Iterable<String>): List<String> = values.distinct()
             .filter { it.startsWith(prefix, ignoreCase = true) }
@@ -119,11 +129,6 @@ class JavaRailwaysCommand {
         if (args.size <= 1) return filtered(ROOT_COMMANDS)
         return when (args[0].lowercase()) {
             "resources", "resource" -> if (args.size == 2) filtered(listOf("reload")) else emptyList()
-            "migrate" -> when (args.size) {
-                2 -> filtered(listOf("rail-infrastructure-metadata"))
-                3 -> filtered(listOf("--dry-run", "--apply"))
-                else -> emptyList()
-            }
             "train" -> when (args.size) {
                 2 -> filtered(listOf("create", "rename", "key", "anim", "action", "behavior", "info", "list", "delete", "sit", "stand"))
                 3 -> when (args[1].lowercase()) {
@@ -134,7 +139,7 @@ class JavaRailwaysCommand {
                 }
                 else -> emptyList()
             }
-            "wand" -> if (args.size == 2) filtered(listOf("rail", "railobject")) else emptyList()
+            "wand" -> if (args.size == 2) filtered(listOf("rail", "railobject", "turnout")) else emptyList()
             "waypoint", "wp", "stop" -> when (args.size) {
                 2 -> filtered(listOf("list", "info", "remove"))
                 3 -> if (args[1].lowercase() in setOf("info", "remove")) filtered(waypoints()) else emptyList()
@@ -151,8 +156,8 @@ class JavaRailwaysCommand {
                 filtered(values)
             }
             "depot" -> when (args.size) {
-                2 -> filtered(listOf("assign", "list", "reset", "reset-all"))
-                3 -> if (args[1].equals("assign", true)) filtered(trains()) else emptyList()
+                2 -> filtered(listOf("assign", "register-unit", "list", "reset", "reset-all"))
+                3 -> if (args[1].lowercase() in setOf("assign", "register-unit")) filtered(trains()) else emptyList()
                 else -> emptyList()
             }
             "ato" -> when (args.size) {
@@ -161,10 +166,10 @@ class JavaRailwaysCommand {
                 else -> emptyList()
             }
             "timetable", "tt" -> when (args.size) {
-                2 -> filtered(listOf("edit", "load", "dump", "list", "start", "reset", "status", "stop", "replan"))
+                2 -> filtered(listOf("edit", "load", "reload-all", "dump", "list", "start", "reset", "status", "stop", "replan"))
                 3 -> if (args[1].lowercase() in setOf("edit", "load")) {
                     filtered(plugin.timetableScriptSandbox.listScripts().map { it.name })
-                } else emptyList()
+                } else if (args[1].equals("reload-all", true)) filtered(listOf("confirm")) else emptyList()
                 else -> emptyList()
             }
             "perf", "performance" -> if (args.size == 2) {
@@ -177,51 +182,47 @@ class JavaRailwaysCommand {
     private companion object {
         val ROOT_COMMANDS = listOf(
             "train", "wand", "waypoint", "route", "navigate", "timetable", "depot",
-            "ato", "stop", "perf", "resources", "migrate", "undo", "redo", "help"
+            "ato", "stop", "perf", "resources", "issues", "undo", "redo", "help"
         )
     }
 
-    private fun handleMigrate(sender: CommandSender, args: List<String>): Boolean {
-        if (!sender.hasPermission("javarailways.admin")) {
-            sender.sendMessage("你没有权限迁移 JavaRailways 数据")
-            return true
+    private fun submitWorldOperation(
+        sender: CommandSender,
+        world: RailWorld,
+        worldId: UUID,
+        operation: String,
+        action: () -> List<String>
+    ) {
+        val plugin = BukkitPlugin.INSTANCE
+        val coreWorld = world as? CoreWorld ?: run {
+            sender.sendMessage("错误: 无法获取 JavaRailways CoreWorld")
+            return
         }
-        if (args.firstOrNull() != "rail-infrastructure-metadata" ||
-            args.getOrNull(1) !in setOf("--dry-run", "--apply")
-        ) {
-            sender.sendMessage("用法: /jr migrate rail-infrastructure-metadata <--dry-run|--apply>")
-            return true
-        }
-        val apply = args[1] == "--apply"
-        val files = WorldPersistence.infrastructureFiles()
-        if (files.isEmpty()) {
-            sender.sendMessage("没有可迁移的世界 infrastructure 文件")
-            return true
-        }
-        var migratedFiles = 0
-        var migratedRails = 0
-        files.forEach { file ->
-            runCatching {
-                RailInfrastructureMetadataMigrationFiles.migrate(file.toPath(), apply)
-            }.onSuccess { report ->
-                if (report.migratedRailCount > 0) {
-                    migratedFiles++
-                    migratedRails += report.migratedRailCount
-                    sender.sendMessage(
-                        "${file.name}: ${report.migratedRailCount} 条 Rail" +
-                            if (apply) "，恢复点 ${report.recoveryPoint.fileName}" else "（dry-run）"
-                    )
-                }
-            }.onFailure { failure ->
-                throw IllegalStateException("迁移 ${file.name} 失败", failure)
+        val senderName = sender.name
+        coreWorld.physicsCoordinator.submitBetweenFrames {
+            check(plugin.worldManager.loadedRailWorld(worldId) === coreWorld) {
+                "目标世界已卸载或被替换"
+            }
+            action()
+        }.whenComplete { messages, failure ->
+            val response = if (failure == null) {
+                messages
+            } else {
+                val cause = generateSequence(failure) { it.cause }.last()
+                val path = PluginDiagnosticLog.command(
+                    "COMMAND_FAILED",
+                    "sender=$senderName\ncommand=$operation\nworld=$worldId",
+                    cause
+                )
+                listOf("JavaRailways 命令执行失败；诊断已写入 ${path?.toString() ?: "服务器日志"}")
+            }
+            val send = { response.forEach { sender.sendMessage(it) } }
+            if (sender is Player) {
+                plugin.platformDispatcher.runForEntity(sender, send)
+            } else {
+                plugin.platformDispatcher.runGlobal(send)
             }
         }
-        sender.sendMessage(
-            "Rail metadata 迁移${if (apply) "完成" else "检查完成"}：" +
-                "$migratedFiles 个文件，$migratedRails 条 Rail" +
-                if (apply) "；请重启服务器后加载迁移后的世界" else ""
-        )
-        return true
     }
 
     private fun handleResources(sender: CommandSender, args: List<String>): Boolean {
@@ -234,23 +235,29 @@ class JavaRailwaysCommand {
             return true
         }
         val plugin = BukkitPlugin.INSTANCE
-        if (plugin.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT) {
-            plugin.worldManager.railWorlds.values.flatMap { it.allTrains }.forEach { train ->
-                train.rendererOrNull?.pinCurrentPackageSnapshot()
-                train.cars.forEach { it.carRendererOrNull?.pinCurrentModelSnapshot() }
+        sender.sendMessage("正在准备资源更新…")
+        TrainResourceReloader(plugin).reload().whenComplete { result, failure ->
+            val send = {
+                if (failure != null) {
+                    val cause = generateSequence(failure) { it.cause }.last()
+                    val path = PluginDiagnosticLog.command("RESOURCE_RELOAD_FAILED", "sender=${sender.name}", cause)
+                    sender.sendMessage("资源重载失败：${cause.message}；诊断：${path ?: "服务器日志"}")
+                } else {
+                    sender.sendMessage("资源重载完成：${result.trainPackages.size} 个列车包，${result.railPackages.size} 个轨道包" +
+                        if (result.failures.isEmpty()) "" else "；${result.failures.size} 个列车类型更新失败，保留原版本。使用 /jr issues 查看")
+                }
             }
+            if (sender is Player) plugin.platformDispatcher.runForEntity(sender, send)
+            else plugin.platformDispatcher.runGlobal(send)
         }
-        val result = plugin.modelManager.loadAll()
-        plugin.worldManager.railWorlds.values.filterIsInstance<CoreWorld>()
-            .forEach(plugin.worldManager::refreshTrainSpeedProfiles)
-        sender.sendMessage(
-            "资源重载完成：${result.trainPackages.size} 个列车包，" +
-                "${result.railPackages.size} 个轨道包（generation=${result.generation}）"
-        )
         return true
     }
 
     private fun handleWand(sender: CommandSender, args: List<String>): Boolean {
+        if (args.firstOrNull().equals("turnout", ignoreCase = true)) {
+            giveTurnoutWand(sender) { BukkitPlugin.INSTANCE.turnoutWand.giveWand(it) }
+            return true
+        }
         if (sender !is Player) { sender.sendMessage("Player only"); return true }
         when (args.firstOrNull()?.lowercase()) {
             "rail", "give" -> {
@@ -261,14 +268,14 @@ class JavaRailwaysCommand {
                 BukkitPlugin.INSTANCE.railObjectWand.giveWand(sender)
                 sender.sendMessage("RailObjectWand 已给予")
             }
-            else -> sender.sendMessage("用法: /jr wand <rail|railobject> (设置请 Shift+右键打开 Dialog)")
+            else -> sender.sendMessage("用法: /jr wand <rail|railobject|turnout> (设置请 Shift+右键)")
         }
         return true
     }
 
     private fun handleWayPoint(sender: CommandSender, args: List<String>): Boolean {
         if (sender !is Player) { sender.sendMessage("Player only"); return true }
-        val world = BukkitPlugin.INSTANCE.worldManager.railWorlds[sender.world] ?: run {
+        val world = BukkitPlugin.INSTANCE.worldManager.railWorlds[sender.world] as? CoreWorld ?: run {
             sender.sendMessage("错误: 无法获取 JavaRailways 世界")
             return true
         }
@@ -281,9 +288,9 @@ class JavaRailwaysCommand {
                 } else {
                     sender.sendMessage("=== 路径点列表 ===")
                     wayPoints.forEach { wayPoint ->
-                        val destination = world.basicWorldData.destinations[wayPoint.id]
+                        val destination = world.simpleAtoWorldData.destinations[wayPoint.id]
                         sender.sendMessage(
-                            "${wayPoint.id} (${wayPoint.displayName}) rail=${wayPoint.railId} " +
+                            "${wayPoint.id} rail=${wayPoint.railId} " +
                                 "s=${"%.2f".format(wayPoint.arcLength)} " +
                                 "role=${destination?.role?.type ?: "WAYPOINT"} " +
                                 "direction=${destination?.approachDirection ?: "any"}"
@@ -301,10 +308,9 @@ class JavaRailwaysCommand {
                         sender.sendMessage("路径点不存在: $id")
                     } else {
                         sender.sendMessage("=== 路径点 ${wayPoint.id} ===")
-                        sender.sendMessage("显示名: ${wayPoint.displayName}")
                         sender.sendMessage("轨道: ${wayPoint.railId}")
                         sender.sendMessage("弧长: ${"%.2f".format(wayPoint.arcLength)}")
-                        val destination = world.basicWorldData.destinations[wayPoint.id]
+                        val destination = world.simpleAtoWorldData.destinations[wayPoint.id]
                         sender.sendMessage("角色: ${destination?.role?.type ?: "WAYPOINT"}")
                         sender.sendMessage("接近方向: ${destination?.approachDirection ?: "any"}")
                     }
@@ -315,16 +321,31 @@ class JavaRailwaysCommand {
                 if (id == null) {
                     sender.sendMessage("用法: /jr waypoint remove <id>")
                 } else {
-                    val removed = if (world.basicWorldData.destinations[id] != null) {
-                        OperationalDestinationService(world).remove(id)?.toWayPoint()
-                    } else {
-                        store.remove(id)
-                    }
-                    if (removed == null) {
+                    val target = store[id]
+                    if (target == null) {
                         sender.sendMessage("路径点不存在: $id")
                     } else {
-                        BukkitPlugin.INSTANCE.railObjectWand.removeMarker(sender.world.uid, id)
-                        sender.sendMessage("已删除路径点: $id")
+                        val plugin = BukkitPlugin.INSTANCE
+                        val plan = RailWandTopologyEditPlan.captureRailScopedMutation(
+                            world,
+                            setOf(target.railId)
+                        )
+                        when (val acquired = plan.acquire(plugin, sender.world.uid)) {
+                            is RailWandEditPermitAcquisition.Denied -> sender.sendMessage(
+                                "基础设施编辑被拒绝: ${acquired.decision.status.name} ${acquired.decision.detail}"
+                            )
+                            is RailWandEditPermitAcquisition.Granted -> acquired.use {
+                                plan.requireCurrent(world)
+                                val removed = if (world.simpleAtoWorldData.destinations[id] != null) {
+                                    OperationalDestinationService(world).remove(id)?.toWayPoint()
+                                } else {
+                                    store.remove(id)
+                                }
+                                checkNotNull(removed) { "waypoint changed during guarded removal: $id" }
+                                plugin.railObjectWand.removeMarker(sender.world.uid, id)
+                                sender.sendMessage("已删除路径点: $id")
+                            }
+                        }
                     }
                 }
             }
@@ -347,7 +368,7 @@ class JavaRailwaysCommand {
                     sender.sendMessage("用法: /jr route validate <fromWaypoint> <toWaypoint>")
                     return true
                 }
-                when (val result = RoutePlanner(world).buildRoute(from, to)) {
+                when (val result = OperationalRoutePlanner(world).buildRoute(from, to)) {
                     is RouteBuildResult.Success -> {
                         val route = result.route
                         sender.sendMessage("=== 经路验证成功 ===")
@@ -399,156 +420,144 @@ class JavaRailwaysCommand {
             sender.sendMessage("导航失败：需要持有当前列车钥匙")
             return true
         }
-        val head = train.headLocation as? RailLocationWithFacing ?: run {
-            sender.sendMessage("导航失败：无法确定列车当前方向")
-            return true
-        }
-        val data = world.basicWorldData
-        if (data.atoCoordinator.isStalled) {
-            sender.sendMessage("导航失败：当前世界 ATO 已 Stall，请先检查诊断并执行 ato reset")
-            return true
-        }
-        var sequence: Long
-        var originId: String
-        var timetableId: String
-        do {
-            sequence = navigationCounter.incrementAndGet()
-            originId = "__navigate_origin_$sequence"
-            timetableId = "manual-navigate-$sequence"
-        } while (data.wayPoints[originId] != null || data.destinations[originId] != null ||
-            data.timetables[timetableId] != null)
-        val serviceId = "navigate"
-        data.wayPoints.add(
-            WayPoint(
-                id = originId,
-                displayName = originId,
-                railId = head.rail.id,
-                arcLength = head.arcLengthIn(ViewDirection.AB)
-            )
-        )
-        data.destinations.add(
-            OperationalDestination(
-                id = originId,
-                displayName = originId,
-                railId = head.rail.id,
-                arcLengthInAbMeters = head.arcLengthIn(ViewDirection.AB),
-                approachDirection = head.facing,
-                role = DestinationRole.Regular
-            )
-        )
-        val timetable = try {
-            ManualNavigationTimetableFactory.create(
-                world = world,
-                timetableId = timetableId,
-                serviceId = serviceId,
-                trainId = train.id,
-                originWayPointId = originId,
-                points = points
-            )
-        } catch (failure: Exception) {
-            data.destinations.remove(originId)
-            data.wayPoints.remove(originId)
-            sender.sendMessage("导航构建失败: ${failure.message}")
-            return true
-        }
-        val validation = TimetableValidator(world).validate(timetable)
-        if (!validation.isSuccess) {
-            data.destinations.remove(originId)
-            data.wayPoints.remove(originId)
-            sender.sendMessage("导航验证失败:")
-            validation.errors.forEach { sender.sendMessage("- $it") }
-            return true
-        }
+        val playerId = sender.uniqueId
+        val worldId = sender.world.uid
         val trainControlManager = BukkitPlugin.INSTANCE.trainControlManager
-        val managedSession = trainControlManager.sessionFor(train)
-        if (managedSession != null && managedSession.playerId != sender.uniqueId) {
-            data.destinations.remove(originId)
-            data.wayPoints.remove(originId)
-            sender.sendMessage("导航失败：列车正由另一名驾驶员控制")
-            return true
-        }
-        if (managedSession != null) trainControlManager.releaseTrain(train)
-        data.dispatcher.discardReleasedManualNavigation(world, train.id)
-        val controlPreparation = TrainCommand.prepareForAtoNavigation(sender, train)
-        controlPreparation.failureReason?.let { reason ->
-            data.destinations.remove(originId)
-            data.wayPoints.remove(originId)
-            sender.sendMessage("导航失败: $reason")
-            return true
-        }
-        fun restorePreviousManualControl() {
-            TrainCommand.restoreAfterFailedAtoNavigation(
-                sender,
-                train,
-                controlPreparation.releasedController
-            )
-            if (managedSession != null && train.controller == null) {
-                train.setController(managedSession.controller)
-                trainControlManager.registerManualControl(
-                    sender,
-                    train,
-                    managedSession.controller,
-                    managedSession.controlEnd,
-                    managedSession.timetableMode
-                )
+        val expectedController = train.controller
+        val expectedSession = trainControlManager.sessionFor(train)
+        submitWorldOperation(sender, world, worldId, "/jr navigate") navigation@{
+            check(world.getTrain(train.id) === train && train.world === world) { "导航列车已被移除或替换" }
+            check(train.controller === expectedController && trainControlManager.sessionFor(train) === expectedSession) {
+                "导航列车的控制权已改变，请重试"
             }
-        }
-        data.timetables.add(timetable)
-        val startAttempt = runCatching {
-            data.dispatcher.startService(world, timetableId, serviceId)
-        }
-        data.dispatcher.stopFutureCycles(timetableId)
-        data.timetables.remove(timetableId)
-        data.destinations.remove(originId)
-        data.wayPoints.remove(originId)
-        val start = startAttempt.getOrElse { failure ->
-            restorePreviousManualControl()
-            sender.sendMessage("导航启动异常: ${failure.message ?: failure::class.java.simpleName}")
-            return true
-        }
-        if (start !is TimetableServiceStartResult.Started) {
-            restorePreviousManualControl()
-            sender.sendMessage(
-                "导航启动失败: ${(start as TimetableServiceStartResult.Failure).reason}"
+            val head = train.headLocation as? RailLocationWithFacing
+                ?: return@navigation listOf("导航失败：无法确定列车当前方向")
+            val data = world.basicWorldData
+            val destinations = world.simpleAtoWorldData.destinations
+            val destinationService = OperationalDestinationService(world)
+            val dispatcher = world.simpleAtoWorldData.dispatcher
+            if (world.simpleAtoWorldData.atoCoordinator.isStalled) {
+                return@navigation listOf("导航失败：当前世界 ATO 已 Stall，请先检查诊断并执行 ato reset")
+            }
+            var sequence: Long
+            var originId: String
+            var timetableId: String
+            do {
+                sequence = navigationCounter.incrementAndGet()
+                originId = "__navigate_origin_$sequence"
+                timetableId = "manual-navigate-$sequence"
+            } while (data.wayPoints[originId] != null || destinations[originId] != null ||
+                world.simpleAtoWorldData.timetables[timetableId] != null)
+            val serviceId = "navigate"
+            destinationService.register(
+                OperationalDestination(
+                    id = originId,
+                    railId = head.rail.id,
+                    arcLengthInAbMeters = head.arcLengthIn(ViewDirection.AB),
+                    approachDirection = head.facing,
+                    role = DestinationRole.Regular
+                )
             )
-            return true
-        }
-        val runId = start.run.id
-        if (measure) {
-            val labels = points.map { if (it.pass) "+${it.id}" else it.id }
-            val segments = ArrayList<String>()
-            var previousLabel = "current"
-            var previousTick = 0L
-            var reachedCount = 0
-            var subscription: AutoCloseable? = null
-            subscription = data.dispatcher.observeWaypointProgress(
-                runId,
-                start.run.cycleIndex,
-                TimetableWaypointProgressListener { progress ->
-                    if (reachedCount >= labels.size) return@TimetableWaypointProgressListener
-                    val label = labels[reachedCount]
-                    val duration = (progress.timetableElapsedTicks - previousTick).coerceAtLeast(0L)
-                    segments += "$previousLabel -> $label: $duration ticks (" +
-                        "${String.format(Locale.ROOT, "%.2f", duration / 20.0)} s)"
-                    previousLabel = label
-                    previousTick = progress.timetableElapsedTicks
-                    reachedCount++
-                    if (reachedCount == labels.size) {
-                        subscription?.close()
-                        BukkitPlugin.INSTANCE.platformDispatcher.runGlobal {
-                            if (sender.isOnline) {
+            val timetable = try {
+                ManualNavigationTimetableFactory.create(
+                    world = world,
+                    timetableId = timetableId,
+                    serviceId = serviceId,
+                    trainId = train.id,
+                    originWayPointId = originId,
+                    points = points
+                )
+            } catch (failure: Exception) {
+                destinationService.remove(originId)
+                return@navigation listOf("导航构建失败: ${failure.message}")
+            }
+            val validation = TimetableValidator(world).validate(timetable)
+            if (!validation.isSuccess) {
+                destinationService.remove(originId)
+                return@navigation listOf("导航验证失败:") + validation.errors.map { "- $it" }
+            }
+            val managedSession = trainControlManager.sessionFor(train)
+            if (managedSession != null && managedSession.playerId != playerId) {
+                destinationService.remove(originId)
+                return@navigation listOf("导航失败：列车正由另一名驾驶员控制")
+            }
+            val controlPreparation = TrainCommand.prepareForAtoNavigation(playerId, train)
+            controlPreparation.failureReason?.let { reason ->
+                destinationService.remove(originId)
+                return@navigation listOf("导航失败: $reason")
+            }
+            if (managedSession != null) trainControlManager.releaseTrain(train)
+            dispatcher.discardReleasedManualNavigation(world, train.id)
+            fun restorePreviousManualControl() {
+                TrainCommand.restoreAfterFailedAtoNavigation(
+                    playerId,
+                    train,
+                    controlPreparation.releasedController
+                )
+                if (managedSession != null &&
+                    (train.controller == null || train.controller === managedSession.controller)
+                ) {
+                    if (train.controller == null) train.setController(managedSession.controller)
+                    trainControlManager.registerManualControl(
+                        playerId,
+                        train,
+                        managedSession.controller,
+                        managedSession.controlEnd,
+                        managedSession.timetableMode
+                    )
+                }
+            }
+            world.simpleAtoWorldData.timetables.add(timetable)
+            val startAttempt = runCatching {
+                dispatcher.startService(world, timetableId, serviceId)
+            }
+            dispatcher.stopFutureCycles(timetableId)
+            world.simpleAtoWorldData.timetables.remove(timetableId)
+            destinationService.remove(originId)
+            val start = startAttempt.getOrElse { failure ->
+                restorePreviousManualControl()
+                return@navigation listOf("导航启动异常: ${failure.message ?: failure::class.java.simpleName}")
+            }
+            if (start !is TimetableServiceStartResult.Started) {
+                restorePreviousManualControl()
+                return@navigation listOf("导航启动失败: ${(start as TimetableServiceStartResult.Failure).reason}")
+            }
+            val runId = start.run.id
+            if (measure) {
+                val labels = points.map { if (it.pass) "+${it.id}" else it.id }
+                val segments = ArrayList<String>()
+                var previousLabel = "current"
+                var previousTick = 0L
+                var reachedCount = 0
+                var subscription: AutoCloseable? = null
+                subscription = dispatcher.observeWaypointProgress(
+                    runId,
+                    start.run.cycleIndex,
+                    TimetableWaypointProgressListener { progress ->
+                        if (reachedCount >= labels.size) return@TimetableWaypointProgressListener
+                        val label = labels[reachedCount]
+                        val duration = (progress.timetableElapsedTicks - previousTick).coerceAtLeast(0L)
+                        segments += "$previousLabel -> $label: $duration ticks (" +
+                            "${String.format(Locale.ROOT, "%.2f", duration / 20.0)} s)"
+                        previousLabel = label
+                        previousTick = progress.timetableElapsedTicks
+                        reachedCount++
+                        if (reachedCount == labels.size) {
+                            subscription?.close()
+                            val report = segments.joinToString("; ")
+                            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, {
                                 sender.sendMessage("导航实测耗时（可复制）:")
-                                sender.sendMessage(segments.joinToString("; "))
-                            }
+                                sender.sendMessage(report)
+                            })
                         }
                     }
-                }
+                )
+            }
+            listOf(
+                "已启动 ATO 导航: ${points.joinToString(" ") { if (it.pass) "+${it.id}" else it.id }}" +
+                    if (measure) "（正在实测分段耗时）" else ""
             )
         }
-        sender.sendMessage(
-            "已启动 ATO 导航: ${points.joinToString(" ") { if (it.pass) "+${it.id}" else it.id }}" +
-                if (measure) "（正在实测分段耗时）" else ""
-        )
         return true
     }
 
@@ -562,8 +571,49 @@ class JavaRailwaysCommand {
             sender.sendMessage("错误: 无法获取 JavaRailways 世界")
             return true
         }
-        val store = world.basicWorldData.depots
+        val store = world.simpleAtoWorldData.depots
         when (args.firstOrNull()?.lowercase()) {
+            "register-unit" -> {
+                val trainId = args.getOrNull(1)
+                val unitId = args.getOrNull(2)
+                if (trainId == null || unitId == null || args.size !in 3..4) {
+                    sender.sendMessage("用法: /jr depot register-unit <train> <unitId> [controlFamily]（将整列登记为一个固定动车组单元）")
+                    return true
+                }
+                submitWorldOperation(sender, world, sender.world.uid, "/jr depot register-unit") registerUnit@{
+                    val train = world.getTrain(trainId) as? CoreTrain
+                    val stock = train?.let { store.rollingStock(it.id) }
+                    if (train == null || stock == null) {
+                        return@registerUnit listOf("列车必须先登记到车辆段: $trainId")
+                    }
+                    val frame = train.publishedFrame
+                    val stationary = frame.speedMetersPerSecond == 0.0 && frame.cars.all { car ->
+                        (listOf(car.state) + car.bogies).all {
+                            it.velocityX == 0.0 && it.velocityY == 0.0 && it.velocityZ == 0.0
+                        }
+                    }
+                    if (!stationary || train.controller != null || train.isDerailed || train.movementHeld ||
+                        stock.state != work.art1st.javarailways.simpleato.api.depot.RollingStockState.AVAILABLE ||
+                        stock.assignmentId != null
+                    ) {
+                        return@registerUnit listOf("只能登记配置有效、已停止、未分配任务且无控制器的在库列车")
+                    }
+                    val controlFamily = args.getOrNull(3) ?: stock.record.modelPackageId
+                        ?: return@registerUnit listOf("混合车型不能自动推断控制族，请显式指定 controlFamily")
+                    val carIds = train.cars.map { it.id }
+                    val result = runCatching {
+                        store.registerFixedUnit(
+                            work.art1st.javarailways.simpleato.api.depot.FixedEmuUnit(
+                                unitId, stock.record.homeDepotId, carIds, controlFamily
+                            ), carIds
+                        )
+                    }
+                    listOf(result.fold(
+                        { "已登记固定动车组单元 $unitId，包含 ${carIds.size} 节车厢；归属 ${stock.record.homeDepotId}" },
+                        { "动车组单元登记失败: ${it.message}" }
+                    ))
+                }
+            }
             "assign" -> {
                 val trainId = args.getOrNull(1)
                 val depotValue = args.getOrNull(2)
@@ -594,7 +644,7 @@ class JavaRailwaysCommand {
                     sender.sendMessage("车辆段停车点不存在: $pointRef")
                     return true
                 }
-                val destination = world.basicWorldData.destinations[point.point.destinationId] ?: run {
+                val destination = world.simpleAtoWorldData.destinations[point.point.destinationId] ?: run {
                     sender.sendMessage("停车点 Destination 不存在: ${point.point.destinationId}")
                     return true
                 }
@@ -620,8 +670,8 @@ class JavaRailwaysCommand {
                 }
                 val explicitTags = parseCsv(args.getOrNull(4))
                 val explicitCapabilities = parseCsv(args.getOrNull(5))
-                val inferredCapabilities = train.rendererOrNull?.behaviorActions().orEmpty()
-                    .map { it.name }
+                val inferredCapabilities = train.rendererOrNull?.resolveActions().orEmpty()
+                    .keys
                     .filter { it.startsWith("door-") }
                     .takeIf { it.isNotEmpty() }
                     ?.let { setOf("doors") }
@@ -681,7 +731,7 @@ class JavaRailwaysCommand {
                     )
                 }
             }
-            else -> sender.sendMessage("用法: /jr depot <assign|list|reset|reset-all>")
+            else -> sender.sendMessage("用法: /jr depot <assign|register-unit|list|reset|reset-all>")
         }
         return true
     }
@@ -691,34 +741,32 @@ class JavaRailwaysCommand {
         world: RailWorld,
         depotIds: Set<DepotId>?
     ) {
-        if (!world.basicWorldData.atoCoordinator.isStalled) {
-            sender.sendMessage("Depot Reset 只允许在当前 World 已 Stall 时执行")
-            return
+        submitWorldOperation(sender, world, sender.world.uid, "/jr depot reset") reset@{
+            if (!world.simpleAtoWorldData.atoCoordinator.isStalled) {
+                return@reset listOf("Depot Reset 只允许在当前 World 已 Stall 时执行")
+            }
+            val result = DepotResetCoordinator(world, world.simpleAtoWorldData.dispatcher).reset(depotIds)
+            buildList {
+                val reportFile = runCatching {
+                    DepotResetDiagnostics.write(BukkitPlugin.INSTANCE.dataFolder, result.report)
+                }.onFailure { failure ->
+                    add("Reset 报告写入失败: ${failure.message}")
+                }.getOrNull()
+                add(when (result) {
+                    is DepotResetResult.Succeeded ->
+                        "Depot Reset 成功: trains=${result.report.assignments.size} " +
+                            "runs=${result.report.removedRunCount} " +
+                            "berths=${result.report.releasedBerthCount}；World 仍保持 Stall"
+                    is DepotResetResult.Failed ->
+                        "Depot Reset 失败: stage=${result.report.failureStage} " +
+                            "message=${result.report.message}"
+                    is DepotResetResult.PartiallyCommitted ->
+                        "Depot Reset 部分提交: stage=${result.report.failureStage} " +
+                            "message=${result.report.message}；World 保持 Stall，请检查报告后重试 Reset"
+                })
+                if (reportFile != null) add("报告: ${reportFile.absolutePath}")
+            }
         }
-        (world as? CoreWorld)?.physicsCoordinator?.captureCurrentTicket()?.await()
-        val result = DepotResetCoordinator(world).reset(depotIds)
-        val reportFile = runCatching {
-            DepotResetDiagnostics.write(BukkitPlugin.INSTANCE.dataFolder, result.report)
-        }.onFailure { failure ->
-            sender.sendMessage("Reset 报告写入失败: ${failure.message}")
-        }.getOrNull()
-        when (result) {
-            is DepotResetResult.Succeeded -> sender.sendMessage(
-                "Depot Reset 成功: trains=${result.report.assignments.size} " +
-                    "runs=${result.report.removedRunCount} " +
-                    "routes=${result.report.releasedRouteSectionCount} " +
-                    "berths=${result.report.releasedBerthCount}；World 仍保持 Stall"
-            )
-            is DepotResetResult.Failed -> sender.sendMessage(
-                "Depot Reset 失败: stage=${result.report.failureStage} " +
-                    "message=${result.report.message}"
-            )
-            is DepotResetResult.PartiallyCommitted -> sender.sendMessage(
-                "Depot Reset 部分提交: stage=${result.report.failureStage} " +
-                    "message=${result.report.message}；World 保持 Stall，请检查报告后重试 Reset"
-            )
-        }
-        if (reportFile != null) sender.sendMessage("报告: ${reportFile.absolutePath}")
     }
 
     private fun parseCsv(value: String?): Set<String> = value
@@ -729,12 +777,69 @@ class JavaRailwaysCommand {
         .orEmpty()
 
     private fun handleTimetable(sender: CommandSender, args: List<String>): Boolean {
+        if (args.firstOrNull()?.equals("reload-all", true) == true) {
+            if (!sender.hasPermission("javarailways.admin")) {
+                sender.sendMessage(Component.text("没有权限全局重载时刻表", NamedTextColor.RED))
+                return true
+            }
+            if (!args.getOrNull(1).equals("confirm", true)) {
+                sender.sendMessage("用法: /jr timetable reload-all confirm")
+                return true
+            }
+            val senderName = sender.name
+            PluginDiagnosticLog.timetable("GLOBAL_RELOAD_REQUESTED", "sender=$senderName")
+            try {
+                BukkitPlugin.INSTANCE.globalTimetableReloadCoordinator.reload { message ->
+                    sendTimetableMessage(sender, Component.text(message, NamedTextColor.GRAY))
+                }.whenComplete { report, failure ->
+                    if (failure == null) {
+                        PluginDiagnosticLog.timetable(
+                            "GLOBAL_RELOAD_SUCCEEDED",
+                            "sender=$senderName\nscripts=${report.scriptCount}\nworlds=${report.worldCount}\n" +
+                                "discardedRuns=${report.discardedRuns}\nplacements=${report.resetPlacements}\n" +
+                                "epoch=${report.epochTick}"
+                        )
+                        sendTimetableMessage(sender, Component.text(
+                            "全局时刻表重载完成: scripts=${report.scriptCount}, worlds=${report.worldCount}, " +
+                                "discardedRuns=${report.discardedRuns}, placements=${report.resetPlacements}, " +
+                                "epoch=${report.epochTick}",
+                            NamedTextColor.GREEN
+                        ))
+                    } else {
+                        val cause = generateSequence(failure) { it.cause }.last()
+                        val path = PluginDiagnosticLog.timetable(
+                            "GLOBAL_RELOAD_FAILED",
+                            "sender=$senderName",
+                            cause
+                        )
+                        sendTimetableMessage(sender, Component.text(
+                            "全局时刻表重载失败: ${cause.message ?: cause.javaClass.simpleName}；详见 " +
+                                (path?.toString() ?: "服务器日志"),
+                            NamedTextColor.RED
+                        ))
+                    }
+                }
+            } catch (failure: Exception) {
+                sendTimetableMessage(sender, Component.text(
+                    failure.message ?: "无法启动全局时刻表重载",
+                    NamedTextColor.RED
+                ))
+            }
+            return true
+        }
         if (sender !is Player) { sender.sendMessage("Player only"); return true }
         val world = BukkitPlugin.INSTANCE.worldManager.railWorlds[sender.world] ?: run {
             sender.sendMessage("错误: 无法获取 JavaRailways 世界")
             return true
         }
-        when (args.firstOrNull()?.lowercase()) {
+        val action = args.firstOrNull()?.lowercase()
+        if (BukkitPlugin.INSTANCE.globalTimetableReloadCoordinator.isReloading &&
+            action in setOf("load", "start", "reset", "stop", "replan")
+        ) {
+            sender.sendMessage(Component.text("全局时刻表重载进行中，暂不能修改运行状态", NamedTextColor.RED))
+            return true
+        }
+        when (action) {
             "load" -> {
                 if (!sender.hasPermission("javarailways.admin")) {
                     sender.sendMessage(Component.text("没有权限加载 JS 时刻表", NamedTextColor.RED))
@@ -755,85 +860,78 @@ class JavaRailwaysCommand {
                 BukkitPlugin.INSTANCE.timetableScriptSandbox.compileScriptAsync(scriptName, timetableId)
                     .whenComplete { saved, failure ->
                         val plugin = BukkitPlugin.INSTANCE
-                        plugin.platformDispatcher.runGlobal {
-                            BukkitThreadGuardBridge.runInSimulationContext {
-                                val player = Bukkit.getPlayer(playerId)
-                                val messageTarget: (Component) -> Unit = { message ->
-                                    if (player != null) player.sendMessage(message) else plugin.logger.info(message.toString())
+                        plugin.platformDispatcher.runGlobal completeLoad@ {
+                            val player = Bukkit.getPlayer(playerId)
+                            val messageTarget: (Component) -> Unit = { message ->
+                                if (player != null) plugin.platformDispatcher.runForEntity(player, action = {
+                                    player.sendMessage(message)
+                                }) else plugin.logger.info(message.toString())
+                            }
+                            if (failure != null) {
+                                val cause = generateSequence(failure) { it.cause }.last()
+                                val path = PluginDiagnosticLog.timetable(
+                                    "LOAD_COMPILE_FAILED",
+                                    "player=${player?.name ?: playerId}\nworld=$sourceWorldId\n" +
+                                        "script=$scriptName\ntimetable=$timetableId",
+                                    cause
+                                )
+                                messageTarget(Component.text(
+                                    "JS 时刻表编译失败；详见 ${path?.toString() ?: "服务器日志"}", NamedTextColor.RED))
+                                return@completeLoad
+                            }
+                            if (player == null) {
+                                PluginDiagnosticLog.timetable("LOAD_DISCARDED",
+                                    "player=$playerId disconnected\nworld=$sourceWorldId\nscript=$scriptName\ntimetable=$timetableId")
+                                return@completeLoad
+                            }
+                            val world = plugin.worldManager.loadedRailWorld(sourceWorldId) as? CoreWorld
+                            if (world == null) {
+                                messageTarget(Component.text("发起加载的世界已卸载或尚未初始化 JavaRailways", NamedTextColor.RED))
+                                return@completeLoad
+                            }
+                            val playerName = player.name
+                            world.physicsCoordinator.submitBetweenFrames worldLoad@ {
+                                if (plugin.worldManager.loadedRailWorld(sourceWorldId) !== world) {
+                                    messageTarget(Component.text("发起加载的世界已卸载或替换", NamedTextColor.RED))
+                                    return@worldLoad
                                 }
-                                if (failure != null) {
-                                    val cause = generateSequence(failure) { it.cause }.last()
-                                    val path = PluginDiagnosticLog.timetable(
-                                        "LOAD_COMPILE_FAILED",
-                                        "player=${player?.name ?: playerId}\nworld=$sourceWorldId\n" +
-                                            "script=$scriptName\ntimetable=$timetableId",
-                                        cause
-                                    )
-                                    messageTarget(Component.text(
-                                        "JS 时刻表编译失败；详见 ${path?.toString() ?: "服务器日志"}",
-                                        NamedTextColor.RED
-                                    ))
-                                    return@runInSimulationContext
-                                }
-                                if (player == null) {
-                                    PluginDiagnosticLog.timetable(
-                                        "LOAD_DISCARDED",
-                                        "player=$playerId disconnected\nworld=$sourceWorldId\n" +
-                                            "script=$scriptName\ntimetable=$timetableId"
-                                    )
-                                    return@runInSimulationContext
-                                }
-                                val sourceWorld = Bukkit.getWorld(sourceWorldId)
-                                val world = sourceWorld?.let(plugin.worldManager.railWorlds::get) ?: run {
-                                    messageTarget(Component.text("发起加载的世界已卸载或尚未初始化 JavaRailways", NamedTextColor.RED))
-                                    return@runInSimulationContext
-                                }
-                                val normalized = TimetableScriptNormalizer.normalize(saved, world)
+                                val normalized = TimetableScriptNormalizer.normalize(saved, world.simpleAtoWorldData.destinations)
                                 val timetable = runCatching(normalized::restore).getOrElse { invalid ->
-                                    val path = PluginDiagnosticLog.timetable(
-                                        "LOAD_RESTORE_FAILED",
-                                        "player=${player.name}\nworld=$sourceWorldId\n" +
-                                            "script=$scriptName\ntimetable=$timetableId",
-                                        invalid
-                                    )
-                                    messageTarget(Component.text(
-                                        "JS 输出无效；详见 ${path?.toString() ?: "服务器日志"}",
-                                        NamedTextColor.RED
-                                    ))
-                                    return@runInSimulationContext
+                                    val path = PluginDiagnosticLog.timetable("LOAD_RESTORE_FAILED",
+                                        "player=$playerName\nworld=$sourceWorldId\nscript=$scriptName\ntimetable=$timetableId", invalid)
+                                    messageTarget(Component.text("JS 输出无效；详见 ${path?.toString() ?: "服务器日志"}", NamedTextColor.RED))
+                                    return@worldLoad
                                 }
                                 val validation = TimetableValidator(world).validate(timetable)
                                 if (!validation.isSuccess) {
-                                    val path = PluginDiagnosticLog.timetable(
-                                        "LOAD_VALIDATION_FAILED",
-                                        buildString {
-                                            append("player=${player.name}\nworld=$sourceWorldId\n")
-                                            append("script=$scriptName\ntimetable=$timetableId\n")
-                                            append("errors=${validation.errors.size}\n")
-                                            validation.errors.forEachIndexed { index, error ->
-                                                append(index + 1).append(". ").append(error).append('\n')
-                                            }
+                                    val path = PluginDiagnosticLog.timetable("LOAD_VALIDATION_FAILED", buildString {
+                                        append("player=$playerName\nworld=$sourceWorldId\nscript=$scriptName\ntimetable=$timetableId\n")
+                                        append("errors=${validation.errors.size}\n")
+                                        validation.errors.forEachIndexed { index, error ->
+                                            append(index + 1).append(". ").append(error).append('\n')
                                         }
-                                    )
-                                    messageTarget(Component.text(
-                                        "JS 时刻表验证失败（${validation.errors.size} 项）；详见 " +
-                                            (path?.toString() ?: "服务器日志"),
-                                        NamedTextColor.RED
-                                    ))
-                                    return@runInSimulationContext
+                                    })
+                                    messageTarget(Component.text("JS 时刻表验证失败（${validation.errors.size} 项）；详见 " +
+                                        (path?.toString() ?: "服务器日志"), NamedTextColor.RED))
+                                    return@worldLoad
                                 }
-                                world.basicWorldData.timetables.add(timetable)
-                                PluginDiagnosticLog.timetable(
-                                    "LOAD_SUCCEEDED",
-                                    "player=${player.name}\nworld=$sourceWorldId\nscript=$scriptName\n" +
+                                world.simpleAtoWorldData.timetables.add(timetable)
+                                PluginDiagnosticLog.timetable("LOAD_SUCCEEDED",
+                                    "player=$playerName\nworld=$sourceWorldId\nscript=$scriptName\n" +
                                         "timetable=${timetable.id}\nservices=${timetable.services.size}\n" +
-                                        "initialPositions=${timetable.initialPositions.size}"
-                                )
+                                        "initialPositions=${timetable.initialPositions.size}")
                                 messageTarget(Component.text("已加载 JS 时刻表 ${timetable.id}", NamedTextColor.GREEN))
+                            }.whenComplete { _, loadFailure ->
+                                if (loadFailure != null) {
+                                    val path = PluginDiagnosticLog.timetable("LOAD_FAILED",
+                                        "player=$playerName\nworld=$sourceWorldId\nscript=$scriptName\ntimetable=$timetableId", loadFailure)
+                                    messageTarget(Component.text("JS 时刻表加载失败；详见 ${path?.toString() ?: "服务器日志"}", NamedTextColor.RED))
+                                }
                             }
                         }
                     }
             }
+
             "edit" -> {
                 if (!sender.hasPermission("javarailways.admin")) {
                     sender.sendMessage(Component.text("没有权限编辑时刻表", NamedTextColor.RED))
@@ -873,7 +971,7 @@ class JavaRailwaysCommand {
                     sender.sendMessage("用法: /jr timetable dump <id>")
                     return true
                 }
-                val timetable = world.basicWorldData.timetables[id]
+                val timetable = world.simpleAtoWorldData.timetables[id]
                 if (timetable == null) {
                     sender.sendMessage("时刻表不存在: $id")
                     return true
@@ -882,7 +980,7 @@ class JavaRailwaysCommand {
                 TimetableDumper.dumpToJson(timetable).lines().forEach { sender.sendMessage(it) }
             }
             "list" -> {
-                val timetables = world.basicWorldData.timetables.all()
+                val timetables = world.simpleAtoWorldData.timetables.all()
                 if (timetables.isEmpty()) {
                     sender.sendMessage("当前没有已加载时刻表")
                 } else {
@@ -902,36 +1000,30 @@ class JavaRailwaysCommand {
                     sender.sendMessage("用法: /jr timetable start <id> [service]")
                     return true
                 }
-                val timetable = world.basicWorldData.timetables[timetableId]
-                if (timetable == null) {
-                    sender.sendMessage("时刻表不存在: $timetableId")
-                    return true
-                }
-                (world as? CoreWorld)?.physicsCoordinator?.captureCurrentTicket()?.await()
-                if (requestedService == null) {
-                    when (val epoch = world.basicWorldData.dispatcher.beginTimetable(world, timetableId)) {
-                        is TimetableEpochStartResult.Started -> {
-                            check(world.basicWorldData.dispatcher.scheduleInitialCycle(timetableId))
-                            sender.sendMessage(
-                                "已建立 timetable epoch=${epoch.epoch.epochDispatcherTick} " +
-                                    "period=${epoch.epoch.periodTicks} ticks；自动 service 将按启动条件调度"
-                            )
-                        }
-                        is TimetableEpochStartResult.Failure -> {
-                            sender.sendMessage("启动 timetable $timetableId 失败: ${epoch.reason}")
-                            return true
+                submitWorldOperation(sender, world, sender.world.uid, "/jr timetable start") start@{
+                    if (world.simpleAtoWorldData.timetables[timetableId] == null) {
+                        return@start listOf("时刻表不存在: $timetableId")
+                    }
+                    val dispatcher = world.simpleAtoWorldData.dispatcher
+                    if (requestedService == null) {
+                        return@start when (val epoch = dispatcher.beginTimetable(world, timetableId)) {
+                            is TimetableEpochStartResult.Started -> {
+                                check(dispatcher.scheduleInitialCycle(timetableId))
+                                listOf(
+                                    "已建立 timetable epoch=${epoch.epoch.epochDispatcherTick} " +
+                                        "period=${epoch.epoch.periodTicks} ticks；自动 service 将按启动条件调度"
+                                )
+                            }
+                            is TimetableEpochStartResult.Failure ->
+                                listOf("启动 timetable $timetableId 失败: ${epoch.reason}")
                         }
                     }
-                    return true
-                }
-                val serviceIds = listOf(requestedService)
-                serviceIds.forEach { serviceId ->
-                    when (val result = world.basicWorldData.dispatcher.startService(world, timetableId, serviceId)) {
-                        is TimetableServiceStartResult.Started -> sender.sendMessage(
+                    when (val result = dispatcher.startService(world, timetableId, requestedService)) {
+                        is TimetableServiceStartResult.Started -> listOf(
                             "已启动 ${result.run.id}: train=${result.run.trainId} revision=${result.run.missionRevision}"
                         )
-                        is TimetableServiceStartResult.Failure -> sender.sendMessage(
-                            "启动 $timetableId/$serviceId 失败: ${result.reason}"
+                        is TimetableServiceStartResult.Failure -> listOf(
+                            "启动 $timetableId/$requestedService 失败: ${result.reason}"
                         )
                     }
                 }
@@ -951,71 +1043,72 @@ class JavaRailwaysCommand {
                     )
                     return true
                 }
-                val timetable = world.basicWorldData.timetables[timetableId]
-                if (timetable == null) {
-                    sender.sendMessage("时刻表不存在: $timetableId")
-                    return true
-                }
+                val playerName = sender.name
+                val worldId = sender.world.uid
                 PluginDiagnosticLog.timetable(
                     "RESET_REQUESTED",
-                    "player=${sender.name}\nworld=${sender.world.uid}\ntimetable=$timetableId\nforce=$force"
+                    "player=$playerName\nworld=$worldId\ntimetable=$timetableId\nforce=$force"
                 )
-                (world as? CoreWorld)?.physicsCoordinator?.captureCurrentTicket()?.await()
-                val dispatcher = world.basicWorldData.dispatcher
-                val coordinator = world.basicWorldData.atoCoordinator
-                val discarded = if (force) {
-                    val selectedTrainIds = dispatcher.statuses().asSequence()
-                        .filter { it.id.timetableId == timetableId }
-                        .map { it.trainId }
-                        .toMutableSet()
-                    world.allTrains.filterIsInstance<CoreTrain>()
-                        .filter { train ->
-                            timetable.initialPositions.any { it.trainSelector.matches(train.name) }
-                        }
-                        .forEach { selectedTrainIds += it.id }
-                    selectedTrainIds.forEach { trainId ->
-                        world.getTrain(trainId)?.let { train ->
-                            BukkitPlugin.INSTANCE.trainControlManager.releaseTrain(train)
-                            (train as? CoreTrain)?.setController(null)
-                        }
-                    }
-                    dispatcher.forceDiscardTimetable(world, timetableId).also {
-                        if (coordinator.isStalled) coordinator.reset()
-                    }
-                } else if (coordinator.isStalled) {
-                    dispatcher.discardFailedRunsForAtoReset(world).also { coordinator.reset() }
-                } else {
-                    0
-                }
-                when (val result = dispatcher.beginTimetable(world, timetableId)) {
-                    is TimetableEpochStartResult.Started -> {
-                        check(dispatcher.scheduleInitialCycle(timetableId))
-                        PluginDiagnosticLog.timetable(
-                            "RESET_SUCCEEDED",
-                            "player=${sender.name}\nworld=${sender.world.uid}\ntimetable=$timetableId\n" +
-                                "force=$force\ndiscardedRuns=$discarded\n" +
-                                "epoch=${result.epoch.epochDispatcherTick}"
-                        )
-                        sender.sendMessage(
-                            if (force) {
-                                "时刻表 $timetableId 已强制释放控制器/运行资源，丢弃 $discarded 个 run，" +
-                                    "并原子重置初始位置、建立新 epoch"
-                            } else {
-                                "时刻表 $timetableId 已原子重置初始位置并建立新 epoch；" +
-                                    "清理 $discarded 个失败 run"
+                submitWorldOperation(sender, world, worldId, "/jr timetable reset") reset@{
+                    val timetable = world.simpleAtoWorldData.timetables[timetableId]
+                        ?: return@reset listOf("时刻表不存在: $timetableId")
+                    val dispatcher = world.simpleAtoWorldData.dispatcher
+                    val coordinator = world.simpleAtoWorldData.atoCoordinator
+                    val discarded = if (force) {
+                        val selectedTrainIds = dispatcher.statuses().asSequence()
+                            .filter { it.id.timetableId == timetableId }
+                            .map { it.trainId }
+                            .toMutableSet()
+                        world.allTrains.filterIsInstance<CoreTrain>()
+                            .filter { train ->
+                                timetable.initialPositions.any { it.trainSelector.matches(train.name) }
                             }
-                        )
+                            .forEach { selectedTrainIds += it.id }
+                        val discardedRuns = dispatcher.forceDiscardTimetable(world, timetableId)
+                        selectedTrainIds.forEach { trainId ->
+                            world.getTrain(trainId)?.let { train ->
+                                BukkitPlugin.INSTANCE.trainControlManager.releaseTrain(train)
+                                (train as? CoreTrain)?.setController(null)
+                            }
+                        }
+                        discardedRuns.also {
+                            if (coordinator.isStalled) coordinator.reset()
+                        }
+                    } else if (coordinator.isStalled) {
+                        dispatcher.discardFailedRunsForAtoReset(world).also { coordinator.reset() }
+                    } else {
+                        0
                     }
-                    is TimetableEpochStartResult.Failure -> {
-                        val path = PluginDiagnosticLog.timetable(
-                            "RESET_FAILED",
-                            "player=${sender.name}\nworld=${sender.world.uid}\ntimetable=$timetableId\n" +
-                                "force=$force\ndiscardedRuns=$discarded\nreason=${result.reason}"
-                        )
-                        sender.sendMessage(
-                            "重置时刻表 $timetableId 失败；详见 " +
-                                (path?.toString() ?: "服务器日志")
-                        )
+                    when (val result = dispatcher.beginTimetable(world, timetableId)) {
+                        is TimetableEpochStartResult.Started -> {
+                            check(dispatcher.scheduleInitialCycle(timetableId))
+                            PluginDiagnosticLog.timetable(
+                                "RESET_SUCCEEDED",
+                                "player=$playerName\nworld=$worldId\ntimetable=$timetableId\n" +
+                                    "force=$force\ndiscardedRuns=$discarded\n" +
+                                    "epoch=${result.epoch.epochDispatcherTick}"
+                            )
+                            listOf(
+                                if (force) {
+                                    "时刻表 $timetableId 已强制释放控制器/运行资源，丢弃 $discarded 个 run，" +
+                                        "并原子重置初始位置、建立新 epoch"
+                                } else {
+                                    "时刻表 $timetableId 已原子重置初始位置并建立新 epoch；" +
+                                        "清理 $discarded 个失败 run"
+                                }
+                            )
+                        }
+                        is TimetableEpochStartResult.Failure -> {
+                            val path = PluginDiagnosticLog.timetable(
+                                "RESET_FAILED",
+                                "player=$playerName\nworld=$worldId\ntimetable=$timetableId\n" +
+                                    "force=$force\ndiscardedRuns=$discarded\nreason=${result.reason}"
+                            )
+                            listOf(
+                                "重置时刻表 $timetableId 失败；详见 " +
+                                    (path?.toString() ?: "服务器日志")
+                            )
+                        }
                     }
                 }
             }
@@ -1026,11 +1119,11 @@ class JavaRailwaysCommand {
                     sender.sendMessage("用法: /jr timetable status <id> [service]")
                     return true
                 }
-                val runs = world.basicWorldData.dispatcher.statuses().filter {
+                val runs = world.simpleAtoWorldData.dispatcher.statuses().filter {
                     it.id.timetableId == timetableId &&
                         (requestedService == null || it.id.serviceId == requestedService)
                 }
-                val recovery = world.basicWorldData.dispatcher.recoveryRequiredRuns().filter {
+                val recovery = world.simpleAtoWorldData.dispatcher.recoveryRequiredRuns().filter {
                     it.timetableId == timetableId &&
                         (requestedService == null || it.serviceId == requestedService)
                 }
@@ -1049,7 +1142,7 @@ class JavaRailwaysCommand {
                     runs.forEach { run ->
                         sender.sendMessage(
                             "${run.id}: state=${run.state} mode=${run.controlMode} train=${run.trainId} " +
-                                "revision=${run.missionRevision} confirmed=${run.confirmedSectionCount} " +
+                                "revision=${run.missionRevision} routeGrant=${run.routeGrantActive} " +
                                 "cycle=${run.cycleIndex} elapsed=${run.timetableElapsedTicks} " +
                                 "scheduled=${run.scheduledActionTick ?: "-"} late=${run.lastLatenessTicks} " +
                                 "head=${run.headProgressMeters ?: "-"} tail=${run.tailProgressMeters ?: "-"} " +
@@ -1083,30 +1176,29 @@ class JavaRailwaysCommand {
                     return true
                 }
                 val id = TimetableServiceRunId(timetableId, serviceId)
-                val status = world.basicWorldData.dispatcher.status(id, cycleIndex)
-                if (status == null) {
-                    sender.sendMessage("service 不存在: $id")
-                    return true
-                }
-                val train = world.getTrain(status.trainId)
-                if (train != null && BukkitPlugin.INSTANCE.trainControlManager.sessionFor(train) != null) {
-                    sender.sendMessage("列车仍由人工控制；请先释放驾驶权")
-                    return true
-                }
-                (world as? CoreWorld)?.physicsCoordinator?.captureCurrentTicket()?.await()
-                when (val result = world.basicWorldData.dispatcher.replanService(
-                    world,
-                    id,
-                    originWayPointId,
-                    cycleIndex
-                )) {
-                    is TimetableReplanResult.Resumed -> sender.sendMessage(
-                        "已从 $originWayPointId 重新规划 ${result.run.id}: " +
-                            "revision=${result.run.missionRevision} state=${result.run.state}"
-                    )
-                    is TimetableReplanResult.Failure -> sender.sendMessage(
-                        "重新规划 $id 失败: ${result.reason}"
-                    )
+                submitWorldOperation(sender, world, sender.world.uid, "/jr timetable replan") replan@{
+                    val status = world.simpleAtoWorldData.dispatcher.status(id, cycleIndex)
+                    if (status == null) {
+                        return@replan listOf("service 不存在: $id")
+                    }
+                    val train = world.getTrain(status.trainId)
+                    if (train != null && BukkitPlugin.INSTANCE.trainControlManager.sessionFor(train) != null) {
+                        return@replan listOf("列车仍由人工控制；请先释放驾驶权")
+                    }
+                    when (val result = world.simpleAtoWorldData.dispatcher.replanService(
+                        world,
+                        id,
+                        originWayPointId,
+                        cycleIndex
+                    )) {
+                        is TimetableReplanResult.Resumed -> listOf(
+                            "已从 $originWayPointId 重新规划 ${result.run.id}: " +
+                                "revision=${result.run.missionRevision} state=${result.run.state}"
+                        )
+                        is TimetableReplanResult.Failure -> listOf(
+                            "重新规划 $id 失败: ${result.reason}"
+                        )
+                    }
                 }
             }
             "stop" -> {
@@ -1116,34 +1208,39 @@ class JavaRailwaysCommand {
                     sender.sendMessage("用法: /jr timetable stop <id> [service]")
                     return true
                 }
-                (world as? CoreWorld)?.physicsCoordinator?.captureCurrentTicket()?.await()
-                world.basicWorldData.dispatcher.stopFutureCycles(timetableId, requestedService)
-                val targets = world.basicWorldData.dispatcher.statuses().filter {
-                    it.id.timetableId == timetableId &&
-                        (requestedService == null || it.id.serviceId == requestedService)
-                }
-                if (targets.isEmpty()) sender.sendMessage("没有匹配的 service")
-                targets.forEach { target ->
-                    if (world.basicWorldData.dispatcher.stopService(
-                            world,
-                            target.id,
-                            target.cycleIndex
-                        )
-                    ) {
-                        sender.sendMessage(
+                submitWorldOperation(sender, world, sender.world.uid, "/jr timetable stop") {
+                    world.simpleAtoWorldData.dispatcher.stopFutureCycles(timetableId, requestedService)
+                    val targets = world.simpleAtoWorldData.dispatcher.statuses().filter {
+                        it.id.timetableId == timetableId &&
+                            (requestedService == null || it.id.serviceId == requestedService)
+                    }
+                    if (targets.isEmpty()) listOf("没有匹配的 service") else targets.map { target ->
+                        if (world.simpleAtoWorldData.dispatcher.stopService(
+                                world,
+                                target.id,
+                                target.cycleIndex
+                            )
+                        ) {
                             "已请求受控停车 ${target.id}@cycle-${target.cycleIndex}；" +
                                 "经路将在车尾通过释放点后释放"
-                        )
-                    } else {
-                        sender.sendMessage(
+                        } else {
                             "service 不存在: ${target.id}@cycle-${target.cycleIndex}"
-                        )
+                        }
                     }
                 }
             }
-            else -> sender.sendMessage("用法: /jr timetable <edit|load|dump|list|start|status|stop|replan>")
+            else -> sender.sendMessage("用法: /jr timetable <edit|load|reload-all|dump|list|start|reset|status|stop|replan>")
         }
         return true
+    }
+
+    private fun sendTimetableMessage(sender: CommandSender, message: Component) {
+        val plugin = BukkitPlugin.INSTANCE
+        if (sender is Player) {
+            plugin.platformDispatcher.runForEntity(sender, action = { sender.sendMessage(message) })
+        } else {
+            plugin.platformDispatcher.runGlobal { sender.sendMessage(message) }
+        }
     }
 
     private fun handleAto(sender: CommandSender, args: List<String>): Boolean {
@@ -1165,7 +1262,7 @@ class JavaRailwaysCommand {
                     return true
                 }
                 worlds.forEach { (bukkitWorld, railWorld) ->
-                    val coordinator = railWorld.basicWorldData.atoCoordinator
+                    val coordinator = railWorld.simpleAtoWorldData.atoCoordinator
                     val stall = coordinator.lastStall
                     sender.sendMessage("ATO ${bukkitWorld.name}: ${coordinator.state}")
                     if (stall != null) {
@@ -1187,7 +1284,7 @@ class JavaRailwaysCommand {
                     sender.sendMessage("JavaRailways 世界不存在: $requestedWorld")
                     return true
                 }
-                val report = selection.value.basicWorldData.atoCoordinator.lastStall
+                val report = selection.value.simpleAtoWorldData.atoCoordinator.lastStall
                 if (report == null) {
                     sender.sendMessage("世界 ${selection.key.name} 没有 ATO Stall 报告")
                     return true
@@ -1207,19 +1304,21 @@ class JavaRailwaysCommand {
                     sender.sendMessage("JavaRailways 世界不存在: $requestedWorld")
                     return true
                 }
-                val coordinator = selection.value.basicWorldData.atoCoordinator
-                if (!coordinator.isStalled) {
-                    sender.sendMessage("世界 ${selection.key.name} 的 ATO 已处于 RUNNING")
-                    return true
+                val world = selection.value
+                val worldId = selection.key.uid
+                val worldName = selection.key.name
+                submitWorldOperation(sender, world, worldId, "/jr ato reset") reset@{
+                    val coordinator = world.simpleAtoWorldData.atoCoordinator
+                    if (!coordinator.isStalled) {
+                        return@reset listOf("世界 $worldName 的 ATO 已处于 RUNNING")
+                    }
+                    val discardedRuns = world.simpleAtoWorldData.dispatcher.discardFailedRunsForAtoReset(world)
+                    coordinator.reset()
+                    listOf(
+                        "已解除世界 $worldName 的 ATO Stall；" +
+                            "已清理 $discardedRuns 个失败 service，列车位置不会自动恢复"
+                    )
                 }
-                (selection.value as? CoreWorld)?.physicsCoordinator?.captureCurrentTicket()?.await()
-                val discardedRuns = selection.value.basicWorldData.dispatcher
-                    .discardFailedRunsForAtoReset(selection.value)
-                coordinator.reset()
-                sender.sendMessage(
-                    "已解除世界 ${selection.key.name} 的 ATO Stall；" +
-                        "已清理 $discardedRuns 个失败 service，列车位置不会自动恢复"
-                )
             }
             else -> sender.sendMessage("用法: /jr ato <status [world]|dump <world>|reset <world>>")
         }
@@ -1382,11 +1481,14 @@ class JavaRailwaysCommand {
     ) {
         val plugin = BukkitPlugin.INSTANCE
         stage.whenComplete { result, failure ->
+            if (failure != null) {
+                plugin.logger.log(java.util.logging.Level.WARNING,
+                    "Player operation failed player=${player.uniqueId}", failure)
+            }
             plugin.platformDispatcher.runForEntity(
                 player,
                 action = {
                     if (failure != null) {
-                        plugin.logger.warning("Player operation failed: ${failure.message}")
                         player.sendActionBar(Component.text("撤销或重做执行失败", NamedTextColor.RED))
                     } else {
                         player.sendActionBar(result.message())
@@ -1406,14 +1508,16 @@ class JavaRailwaysCommand {
         sender.sendMessage("/jr train action <name> - 触发列车动作（动画/声音等）")
         sender.sendMessage("/jr wand rail - 获取 RailWand")
         sender.sendMessage("/jr wand railobject - 获取 RailObjectWand")
+        sender.sendMessage(TurnoutWandI18n.component(sender, "command.help"))
         sender.sendMessage("/jr waypoint list|info|remove - 管理路径点")
         sender.sendMessage("/jr route validate <from> <to> - 验证路径点之间的展开经路")
         sender.sendMessage("/jr navigate [--measure|-m] <waypoints...> - 为驾驶中的列车提交临时 ATO 导航")
-        sender.sendMessage("/jr depot assign|list ... - 登记和查看车辆段列车")
+        sender.sendMessage("/jr depot assign|register-unit|list ... - 登记和查看车辆段列车及固定动车组单元")
         sender.sendMessage("/jr depot reset <depot> confirm | reset-all confirm - Stall 中原子重置")
         sender.sendMessage("/jr timetable replan <id> <service> <current-waypoint> [cycle] - 人工接管后显式重新规划")
         sender.sendMessage("/jr timetable edit - 获取短期有效的 WebUI 登录链接")
         sender.sendMessage("/jr timetable load <file.js> [id] - 在隔离 Worker 中编译并加载 JS 时刻表")
+        sender.sendMessage("/jr timetable reload-all confirm - 全局替换时刻表并复位列车")
         sender.sendMessage("/jr timetable dump <id> - 输出时刻表内部结构")
         sender.sendMessage("/jr timetable reset <id> confirm | reset <id> force confirm - 安全/强制重置")
         sender.sendMessage("/jr timetable start|status|stop <id> [service] - 管理显式列车 service")
@@ -1421,6 +1525,7 @@ class JavaRailwaysCommand {
         sender.sendMessage("/jr ato dump <world> - 写出最近一次 ATO Stall 报告")
         sender.sendMessage("/jr ato reset <world> - 手动解除 ATO Stall（不恢复列车位置）")
         sender.sendMessage("/jr perf [world] - 查看 Tick、物理和渲染耗时")
+        sender.sendMessage("/jr issues [世界] [编号] - 当前世界问题与详情")
         sender.sendMessage("/jr resources reload - 事务式重载外部列车与轨道资源")
         sender.sendMessage("/jr undo - 撤销操作")
         sender.sendMessage("/jr redo - 重做操作")

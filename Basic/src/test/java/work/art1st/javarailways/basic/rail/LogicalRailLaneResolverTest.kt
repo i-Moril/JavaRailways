@@ -14,7 +14,7 @@ class LogicalRailLaneResolverTest {
             val laneIndex = flatIndex / 3
             val segmentIndex = flatIndex % 3
             id to RailInfrastructureMetadata(
-                assembly = RailAssemblyMetadata(
+                authoring = RailAuthoringMetadata(assembly = RailAssemblyMetadata(
                     groupId = groupId,
                     kind = RailAssemblyKind.FIVE_SEGMENT_CURVE,
                     laneIndex = laneIndex,
@@ -26,7 +26,7 @@ class LogicalRailLaneResolverTest {
                         2 -> RailAssemblyRole.TRAILING_TANGENT
                         else -> RailAssemblyRole.CURVE
                     }
-                )
+                ))
             )
         }
 
@@ -48,7 +48,7 @@ class LogicalRailLaneResolverTest {
         val selected = UUID.randomUUID()
         val metadata = mapOf(
             selected to RailInfrastructureMetadata(
-                assembly = RailAssemblyMetadata(
+                authoring = RailAuthoringMetadata(assembly = RailAssemblyMetadata(
                     groupId = "incomplete",
                     kind = RailAssemblyKind.FIVE_SEGMENT_CURVE,
                     laneIndex = 0,
@@ -56,7 +56,7 @@ class LogicalRailLaneResolverTest {
                     segmentIndex = 0,
                     segmentCount = 2,
                     role = RailAssemblyRole.LEADING_TANGENT
-                )
+                ))
             )
         )
 

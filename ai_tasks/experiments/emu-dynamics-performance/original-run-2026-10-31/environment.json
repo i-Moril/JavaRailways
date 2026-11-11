@@ -1,0 +1,13 @@
+{
+  "date_utc": "2026-10-31",
+  "platform": "Linux-6.18.58-x86_64-with-glibc2.44",
+  "cpu": "Intel(R) Core(TM) Ultra 9 275HX",
+  "java": "openjdk version \"21.0.12.1\" 2026-08-18\nOpenJDK Runtime Environment (build 21.0.12.1+1-nixos)\nOpenJDK 64-Bit Server VM (build 21.0.12.1+1-nixos, mixed mode, sharing)\n",
+  "head": "a3b8b872fadf451f6394676ee44b31af2badd5f9",
+  "working_tree_note": "Existing uncommitted door changes preserved; benchmark baseline uses current production TrainDynamics.",
+  "sha256": {
+    "ai_tasks/experiments/emu-dynamics-performance/EmuPerformance.kt": "685da8cf199dcadc3cff176f10fa2edcecc0a728f5c9ffb52c31fa140383cf52",
+    "Basic/src/main/java/work/art1st/javarailways/basic/control/TrainDynamics.kt": "3780d9ab65f57af9c7693aacc8799fb021733573de4a315ca37518ca94aa0c57",
+    "Basic/src/main/java/work/art1st/javarailways/basic/control/HandleTrainActuator.kt": "91f68f9aa25a0cc1a45f5ccb7c9a18c220e25be0edc78d0b056f867d1737a8e4"
+  }
+}

@@ -1,5 +1,13 @@
 package work.art1st.javarailways.bukkit
 
+import work.art1st.javarailways.bukkit.api.station.StationCallResolverService
+
+import work.art1st.javarailways.bukkit.api.internal.StationCallResolverOwnerLifecycleListener
+
+import work.art1st.javarailways.bukkit.api.internal.DefaultStationCallResolverService
+
+import work.art1st.javarailways.diagnostics.PluginErrorLog
+
 import org.bukkit.plugin.java.JavaPlugin
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
@@ -10,8 +18,29 @@ import org.bukkit.plugin.ServicePriority
 import work.art1st.javarailways.bukkit.api.internal.BukkitRailTargetService
 import work.art1st.javarailways.bukkit.api.internal.DefaultPlayerOperationService
 import work.art1st.javarailways.bukkit.api.internal.OperationOwnerLifecycleListener
+import work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationService
+import work.art1st.javarailways.bukkit.api.internal.ObservationOwnerLifecycleListener
+import work.art1st.javarailways.bukkit.api.simulation.SimulationFeatureService
+import work.art1st.javarailways.bukkit.api.internal.DefaultSimulationFeatureService
+import work.art1st.javarailways.bukkit.api.internal.SimulationFeatureOwnerLifecycleListener
+import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceService
+import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureResourceService
+import work.art1st.javarailways.bukkit.api.internal.InfrastructureOwnerLifecycleListener
+import work.art1st.javarailways.bukkit.api.internal.DefaultSignalEpochSourceService
+import work.art1st.javarailways.bukkit.api.internal.registerJavaRailwaysServices
+import work.art1st.javarailways.bukkit.api.internal.DefaultModelPresentationService
+import work.art1st.javarailways.bukkit.api.internal.ModelOwnerLifecycleListener
+import work.art1st.javarailways.bukkit.api.model.ModelPresentationService
+import work.art1st.javarailways.bukkit.api.editor.EditorTextService
+import work.art1st.javarailways.bukkit.api.internal.DefaultEditorTextService
+import work.art1st.javarailways.bukkit.api.internal.EditorTextLifecycleListener
+import work.art1st.javarailways.bukkit.render.backend.displayViewRangeForDistance
+import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
+import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService
+import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService
+import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService
 import work.art1st.javarailways.bukkit.behavior.TrainReverseBehaviorListener
 import work.art1st.javarailways.bukkit.command.CloudCommandRegistrar
 import work.art1st.javarailways.bukkit.config.DisplayRendererBackend
@@ -30,6 +59,8 @@ import work.art1st.javarailways.bukkit.http.TimetableScriptSandbox
 import work.art1st.javarailways.bukkit.http.TimetableWebUiSidecar
 import work.art1st.javarailways.bukkit.http.WebUiLoginTokens
 import work.art1st.javarailways.bukkit.logic.WorldManager
+import work.art1st.javarailways.bukkit.timetable.GlobalTimetableReloadCoordinator
+import work.art1st.javarailways.bukkit.extension.train.BukkitExtensionDataSerializers
 import work.art1st.javarailways.bukkit.render.backend.DisplayRenderBackend
 import work.art1st.javarailways.bukkit.render.backend.DisplayRenderBackendFactory
 import work.art1st.javarailways.bukkit.render.backend.PacketEntityMotion
@@ -38,17 +69,18 @@ import work.art1st.javarailways.bukkit.render.backend.TrainPacketBundleCoordinat
 import work.art1st.javarailways.bukkit.render.chunk.ViewDistanceManager
 import work.art1st.javarailways.bukkit.tool.RailObjectWand
 import work.art1st.javarailways.bukkit.tool.RailWand
+import work.art1st.javarailways.bukkit.tool.TurnoutWand
 import work.art1st.javarailways.basic.BasicPlugin
+import work.art1st.javarailways.simpleatobukkit.SimpleATOBukkitModule
 import work.art1st.javarailways.core.api.event.processor.EventRegistration
 import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
 import work.art1st.javarailways.core.api.util.plugin.Plugin
 import work.art1st.javarailways.core.api.util.plugin.PluginRegistry
-import work.art1st.javarailways.core.di.ensureJavaRailwaysKoinStarted
-import work.art1st.javarailways.core.di.releaseJavaRailwaysKoinRuntime
 import work.art1st.javarailways.bukkit.render.model.SeatModel
 import work.art1st.javarailways.bukkit.util.PlatformCleanup
 import work.art1st.javarailways.bukkit.util.FoliaRuntimeDiagnostics
-import work.art1st.javarailways.core.util.ThreadGuard
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardRegistration
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.bukkit.util.PaperPlatformDispatcher
 import work.art1st.javarailways.bukkit.util.PlatformCapabilities
@@ -82,9 +114,40 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var playerOperationService: PlayerOperationService
         private set
     private lateinit var playerOperationServiceImpl: DefaultPlayerOperationService
+    lateinit var railwayObservationService: RailwayObservationService
+        private set
+    private lateinit var railwayObservationServiceImpl: DefaultRailwayObservationService
+    lateinit var infrastructureResourceService: InfrastructureResourceService
+        private set
+    private lateinit var infrastructureResourceServiceImpl: DefaultInfrastructureResourceService
+    private lateinit var stationCallResolverServiceImpl: DefaultStationCallResolverService
+    lateinit var stationCallResolverService: StationCallResolverService
+        private set
+    lateinit var simulationFeatureService: SimulationFeatureService
+        private set
+    private lateinit var simulationFeatureServiceImpl: DefaultSimulationFeatureService
+    lateinit var signalEpochSourceService: SignalEpochSourceService
+        private set
+    lateinit var inspectionSourceService: InspectionSourceService
+        private set
+    lateinit var routePlanningRestrictionSourceService: RoutePlanningRestrictionSourceService
+        private set
+    private lateinit var signalEpochSourceServiceImpl: DefaultSignalEpochSourceService
+    lateinit var modelPresentationService: ModelPresentationService
+        private set
+    private lateinit var modelPresentationServiceImpl: DefaultModelPresentationService
+    lateinit var editorTextService: EditorTextService
+        private set
+    private lateinit var editorTextServiceImpl: DefaultEditorTextService
+    val worldIssues = work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService()
     val webUiLoginTokens: WebUiLoginTokens = WebUiLoginTokens()
     lateinit var timetableScriptSandbox: TimetableScriptSandbox
+    lateinit var globalTimetableReloadCoordinator: GlobalTimetableReloadCoordinator
 
+    private var optionalSimpleDisplays: work.art1st.javarailways.bukkit.integration.simpledisplays.OptionalSimpleDisplays? = null
+
+    internal val renderCleanupDispatcher get() = presentationDispatcher ?: platformDispatcher
+    private var presentationDispatcher: PaperPlatformDispatcher? = null
     private var gentleUnload: GentleUnloadPreparation? = null
     private var gentleUnloadRegistration: PlugManXGentleUnload? = null
     private var asynchronousCleanup: PlatformCleanup.Operation? = null
@@ -123,6 +186,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     /** RailWand 工具 */
     lateinit var railWand: RailWand
 
+    lateinit var turnoutWand: TurnoutWand
+
     /** 列车控制权与钥匙绑定管理 */
     lateinit var trainControlManager: TrainControlManager
 
@@ -137,18 +202,45 @@ class BukkitPlugin : Plugin, JavaPlugin() {
 
     private var trainReverseEventRegistration: EventRegistration? = null
     private var trainDebugMainEventRegistration: EventRegistration? = null
+    private var threadGuardRegistration: ThreadGuardRegistration? = null
+    private var errorLog: PluginErrorLog? = null
 
     /** 运营对象工具（停车点、限速、方向限制、信号等） */
     lateinit var railObjectWand: RailObjectWand
 
     override fun onLoad() {
         INSTANCE = this
-        platformCapabilities = PlatformCapabilities.detect(javaClass.classLoader)
-        platformDispatcher = PaperPlatformDispatcher(this)
-        physicsConfig = PhysicsConfig.load(this)
-        javaRailwaysConfig = JavaRailwaysConfig.load(this)
-
+        errorLog = PluginErrorLog(
+            dataFolder.toPath().resolve("logs/errors.log"), logger, "Bukkit",
+            mapOf(
+                java.util.logging.Logger.getLogger("work.art1st.javarailways.bukkit") to "Bukkit",
+                java.util.logging.Logger.getLogger("work.art1st.javarailways.core") to "Core",
+                java.util.logging.Logger.getLogger("work.art1st.javarailways.basic") to "Basic",
+                java.util.logging.Logger.getLogger("work.art1st.javarailways.simpleato") to "SimpleATO",
+                java.util.logging.Logger.getLogger("work.art1st.javarailways.simpleatobukkit") to "SimpleATOBukkit"
+            )
+        )
+        try {
+            platformCapabilities = PlatformCapabilities.detect(javaClass.classLoader)
+            platformDispatcher = PaperPlatformDispatcher(this)
+            physicsConfig = PhysicsConfig.load(this)
+            javaRailwaysConfig = JavaRailwaysConfig.load(this)
+        } catch (failure: Throwable) {
+            errorLog?.reportFailure("JavaRailways load failed", failure)
+            errorLog?.close()
+            errorLog = null
+            throw failure
+        }
     }
+
+    internal fun requiredSimulationDomainFeatures(world: work.art1st.javarailways.core.physics.CoreWorld): Set<String> {
+        val worldId = worldManager.railWorlds.entries.single { it.value === world }.key.uid
+        return infrastructureResourceServiceImpl.requiredDomainFeatures(worldId) +
+            signalEpochSourceServiceImpl.requiredDomainFeatures(worldId)
+    }
+
+    internal fun prepareSimulationDomainFeatures(world: work.art1st.javarailways.core.physics.CoreWorld) =
+        simulationFeatureServiceImpl.prepare(worldManager.railWorlds.entries.single { it.value === world }.key.uid)
 
     override fun onEnable() {
         check(shutdownFailures.isEmpty()) {
@@ -172,7 +264,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             }
         }, this)
         try {
-            enableRuntime()
+            enablePlugin()
             isRuntimeActive = true
             installGentleUnload()
             if (platformCapabilities.folia) {
@@ -180,14 +272,17 @@ class BukkitPlugin : Plugin, JavaPlugin() {
                 platformDispatcher.runGlobal { FoliaRuntimeDiagnostics.warnIfSingleWorker(logger, gentleUnloadAvailable = gentleUnloadRegistration != null) }
             }
         } catch (failure: Throwable) {
-            // Also runs while enabled when startup fails before Paper invokes onDisable.
+            errorLog?.reportFailure("JavaRailways enable failed", failure)
             prepareShutdown()
             finishShutdown()
             throw failure
         }
     }
 
-    private fun enableRuntime() {
+    private fun enablePlugin() {
+        optionalSimpleDisplays = work.art1st.javarailways.bukkit.integration.simpledisplays.OptionalSimpleDisplays(this)
+            .also { it.start() }
+        BukkitExtensionDataSerializers.register()
         val packetRuntime = packetEntityRuntime ?: PacketEntityRuntime(this).also {
             packetEntityRuntime = it
         }
@@ -200,27 +295,77 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         logger.info(
             "Packet Seat motion is active: bundled train frames, virtual Seats, and ArmorStand authority carriers"
         )
+        val presentationOwner = PaperPlatformDispatcher(this).also { presentationDispatcher = it }
         displayRenderBackend = DisplayRenderBackendFactory.create(this)
-        ensureJavaRailwaysKoinStarted()
         BasicPlugin.INSTANCE = BasicPlugin(0).also { basicPluginForRuntime = it }
         PluginRegistry.register(BasicPlugin.INSTANCE)
+        SimpleATOBukkitModule.install()
         PluginRegistry.register(this)
         INSTANCE = this
-        ThreadGuard.installPlatformBridge(BukkitThreadGuardBridge)
+        threadGuardRegistration = ThreadGuardHost.registerPlatformBridge(BukkitThreadGuardBridge)
         viewDistanceManager = ViewDistanceManager(javaRailwaysConfig.displayRenderer.playerDistance.maxBlocks)
-        worldManager = WorldManager()
-        server.pluginManager.registerEvents(worldManager, this)
-        railTargetService = BukkitRailTargetService(this)
         playerOperationServiceImpl = DefaultPlayerOperationService(logger)
         playerOperationService = playerOperationServiceImpl
-        server.servicesManager.register(RailTargetService::class.java, railTargetService, this, ServicePriority.Normal)
-        server.servicesManager.register(
-            PlayerOperationService::class.java,
-            playerOperationService,
-            this,
-            ServicePriority.Normal
+        railwayObservationServiceImpl = DefaultRailwayObservationService(logger)
+        railwayObservationService = railwayObservationServiceImpl
+        stationCallResolverServiceImpl = DefaultStationCallResolverService()
+        stationCallResolverService = stationCallResolverServiceImpl
+        simulationFeatureServiceImpl = DefaultSimulationFeatureService()
+        simulationFeatureService = simulationFeatureServiceImpl
+        signalEpochSourceServiceImpl = DefaultSignalEpochSourceService()
+        signalEpochSourceService = signalEpochSourceServiceImpl
+        inspectionSourceService = signalEpochSourceServiceImpl
+        routePlanningRestrictionSourceService = signalEpochSourceServiceImpl
+        infrastructureResourceServiceImpl = DefaultInfrastructureResourceService(signalEpochSourceServiceImpl)
+        infrastructureResourceService = infrastructureResourceServiceImpl
+        modelPresentationServiceImpl = DefaultModelPresentationService(
+            this, presentationOwner, displayRenderBackend,
+            displayViewRangeForDistance(javaRailwaysConfig.displayRenderer.playerDistance.maxBlocks), logger
         )
+        modelPresentationService = modelPresentationServiceImpl
+        editorTextServiceImpl = DefaultEditorTextService(this, presentationOwner, logger)
+        editorTextService = editorTextServiceImpl
+        worldManager = WorldManager(
+            observationService = railwayObservationServiceImpl,
+            infrastructureResourceService = infrastructureResourceServiceImpl,
+            signalEpochSourceService = signalEpochSourceServiceImpl,
+            stationCallResolverService = stationCallResolverServiceImpl,
+            modelPresentationService = modelPresentationServiceImpl,
+            releaseManualControl = { world ->
+                if (::trainControlManager.isInitialized) trainControlManager.releaseWorldOnOwner(world)
+            },
+            retireManualControl = { world ->
+                if (::trainControlManager.isInitialized) trainControlManager.retireWorld(world)
+            }
+        )
+        railTargetService = BukkitRailTargetService(this)
+        server.pluginManager.registerEvents(worldManager, this)
+        server.servicesManager.register(work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService::class.java,
+            worldIssues, this, org.bukkit.plugin.ServicePriority.Normal)
+        server.servicesManager.registerJavaRailwaysServices(
+            owner = this,
+            railTargets = railTargetService,
+            playerOperations = playerOperationService,
+            observations = railwayObservationService,
+            infrastructure = infrastructureResourceService,
+            signalSources = signalEpochSourceService,
+            inspectionSources = inspectionSourceService,
+            routePlanningSources = routePlanningRestrictionSourceService,
+            modelPresentations = modelPresentationService,
+            editorTexts = editorTextService,
+            simulationFeatures = simulationFeatureService,
+            stationCallResolvers = stationCallResolverService
+        )
+        server.pluginManager.registerEvents(StationCallResolverOwnerLifecycleListener(stationCallResolverServiceImpl), this)
+        server.pluginManager.registerEvents(SimulationFeatureOwnerLifecycleListener(simulationFeatureServiceImpl), this)
         server.pluginManager.registerEvents(OperationOwnerLifecycleListener(playerOperationServiceImpl), this)
+        server.pluginManager.registerEvents(ObservationOwnerLifecycleListener(railwayObservationServiceImpl), this)
+        server.pluginManager.registerEvents(ModelOwnerLifecycleListener(modelPresentationServiceImpl, this), this)
+        server.pluginManager.registerEvents(EditorTextLifecycleListener(editorTextServiceImpl, this), this)
+        server.pluginManager.registerEvents(
+            InfrastructureOwnerLifecycleListener(infrastructureResourceServiceImpl, this),
+            this
+        )
         trainControlManager = TrainControlManager(this)
         trainControlManager.start()
         trainHandleInputListener = TrainHandleInputListener(trainControlManager)
@@ -259,19 +404,25 @@ class BukkitPlugin : Plugin, JavaPlugin() {
 
         // 加载版本化 trains/ 与 rails/ 模型包。
         modelManager = ModelManager(dataFolder)
-        modelManager.loadAll()
+        val modelLoad = modelManager.publishReload(modelManager.prepareReload())
+        modelLoad.failures.forEach { (type, failure) ->
+            logger.log(Level.SEVERE, "Train resources unavailable for type $type", failure)
+        }
         logger.info(
             "Model packages loaded: ${modelManager.trainPackages.size} train, " +
                 "${modelManager.railPackages.size} rail"
         )
 
         timetableScriptSandbox = TimetableScriptSandbox(this)
+        globalTimetableReloadCoordinator = GlobalTimetableReloadCoordinator(this)
 
         // 初始化 Wand 工具
         railWand = RailWand(this)
         railWand.init()
         railObjectWand = RailObjectWand(this)
         railObjectWand.init()
+        turnoutWand = TurnoutWand(this)
+        turnoutWand.init()
 
         // Cloud 通过 Paper Brigadier 注册完整命令树与动态补全。
         cloudCommands = CloudCommandRegistrar(this)
@@ -384,6 +535,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         }
         val httpStopped = runShutdownStep("timetable HTTP bridge") { timetableHttpBridge?.stop() }
         timetableHttpBridge = null
+        if (::globalTimetableReloadCoordinator.isInitialized) {
+            runShutdownStep("global timetable reload coordinator") { globalTimetableReloadCoordinator.close() }
+        }
         if (::timetableScriptSandbox.isInitialized) {
             runShutdownStep("timetable script sandbox") { timetableScriptSandbox.close() }
         }
@@ -392,32 +546,48 @@ class BukkitPlugin : Plugin, JavaPlugin() {
                 (platformDispatcher as? PaperPlatformDispatcher)?.stopAndAwait()
             }
         }
-        if (::worldManager.isInitialized) {
-            runShutdownStep("world manager stop") {
-                BukkitThreadGuardBridge.runInSimulationContext { worldManager.stop() }
-            }
-            runShutdownStep("world physics quiescence") {
-                BukkitThreadGuardBridge.runInSimulationContext { worldManager.quiescePhysics() }
-            }
+        if (::railwayObservationServiceImpl.isInitialized) {
+            runShutdownStep("railway observation service") { railwayObservationServiceImpl.close() }
+        }
+        if (::infrastructureResourceServiceImpl.isInitialized) {
+            runShutdownStep("infrastructure resource service") { infrastructureResourceServiceImpl.close() }
+        }
+        if (::stationCallResolverServiceImpl.isInitialized) {
+            runShutdownStep("station call resolver service") { stationCallResolverServiceImpl.close() }
+        }
+        if (::signalEpochSourceServiceImpl.isInitialized) {
+            runShutdownStep("signal epoch source service") { signalEpochSourceServiceImpl.close() }
         }
         if (::trainHandleInputListener.isInitialized) {
             runShutdownStep("train handle input listener") { trainHandleInputListener.stop() }
         }
         return {
+            val worldsStopped = runShutdownStep("world manager stop") {
+                if (::worldManager.isInitialized) worldManager.stop()
+            }
+            runShutdownStep("optional SimpleDisplays service") { optionalSimpleDisplays?.close() }
+            optionalSimpleDisplays = null
+            if (::editorTextServiceImpl.isInitialized) {
+                runShutdownStep("editor text service") { PlatformCleanup.awaitCompletion(editorTextServiceImpl.beginHostCleanup()) }
+            }
+            if (::modelPresentationServiceImpl.isInitialized) {
+                runShutdownStep("model presentation service") { PlatformCleanup.awaitCompletion(modelPresentationServiceImpl.beginHostCleanup()) }
+            }
             if (::railWand.isInitialized) runShutdownStep("rail wand") { railWand.close() }
             if (::railObjectWand.isInitialized) runShutdownStep("rail object wand") { railObjectWand.close() }
+            if (::turnoutWand.isInitialized) runShutdownStep("turnout wand") { turnoutWand.close() }
             BukkitThreadGuardBridge.runInSimulationContext {
-                if (::trainControlManager.isInitialized) {
-                    runShutdownStep("train control manager") { trainControlManager.stop() }
-                }
                 if (::worldManager.isInitialized) {
                     worldManager.railWorlds.keys.toList().forEach { world ->
                         runShutdownStep("world ${world.uid} save/unregister") {
                             worldManager.unregisterRailWorld(
-                                world, saveSnapshot = runtimeActionsDrained && servicesRetired && httpStopped
+                                world, saveSnapshot = runtimeActionsDrained && servicesRetired && httpStopped && worldsStopped
                             )
                         }
                     }
+                }
+                if (::trainControlManager.isInitialized) {
+                    runShutdownStep("train control manager") { trainControlManager.stop() }
                 }
             }
         }
@@ -425,7 +595,17 @@ class BukkitPlugin : Plugin, JavaPlugin() {
 
     private fun finalizePreparation() {
         if (preparationFinalized) return
+        val presentationDrained = runShutdownStep("presentation dispatcher") { presentationDispatcher?.stopAndAwait() }
+        if (!presentationDrained) {
+            unsafeToFinishShutdown = true
+            return
+        }
+        unsafeToFinishShutdown = false
         preparationFinalized = true
+        presentationDispatcher = null
+        if (::simulationFeatureServiceImpl.isInitialized) {
+            runShutdownStep("simulation feature service") { simulationFeatureServiceImpl.close() }
+        }
         runShutdownStep("seat listener registry") { SeatModel.SeatInteractionListener.close() }
         if (::worldManager.isInitialized) {
             runShutdownStep("world snapshot writer") { worldManager.finishStopping() }
@@ -449,14 +629,14 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         runShutdownStep("packet entity runtime") { packetEntityRuntime?.close() }
         packetEntityMotion = null
         packetEntityRuntime = null
-        runShutdownStep("JavaRailways DI scopes") { releaseJavaRailwaysKoinRuntime() }
         runShutdownStep("extension plugin registry") {
             basicPluginForRuntime?.let(PluginRegistry::unregister)
             basicPluginForRuntime = null
             PluginRegistry.unregister(this)
         }
         runShutdownStep("WebUI login tokens") { webUiLoginTokens.clear() }
-        runShutdownStep("thread guard bridge") { ThreadGuard.clearPlatformBridge() }
+        runShutdownStep("thread guard bridge") { threadGuardRegistration?.close() }
+        threadGuardRegistration = null
         if (currentInstance === this) currentInstance = null
         if (shutdownFailures.isNotEmpty()) {
             logger.severe(
@@ -467,6 +647,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
                     "then restart the server."
             )
         }
+        errorLog?.close()
+        errorLog = null
     }
 
     private inline fun runShutdownStep(component: String, action: () -> Unit): Boolean {

@@ -1,0 +1,2 @@
+# Maximum shortest along-track distance from a newly placed protection boundary to its farthest interior point.
+protection-region-max-distance-meters: 1000.0

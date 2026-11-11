@@ -1,0 +1,1445 @@
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.11' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+
+> Configure project :WebUI
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.12' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+
+> Task :ConfigLib:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :ConfigLib:compileKotlin UP-TO-DATE
+> Task :ConfigLib:compileJava NO-SOURCE
+> Task :ConfigLib:processResources NO-SOURCE
+> Task :ConfigLib:classes UP-TO-DATE
+> Task :ConfigLib:jar UP-TO-DATE
+> Task :Core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :Core:compileKotlin UP-TO-DATE
+> Task :Core:compileJava NO-SOURCE
+> Task :Core:processResources NO-SOURCE
+> Task :Core:classes UP-TO-DATE
+> Task :Core:jar UP-TO-DATE
+> Task :Core:compileTestFixturesKotlin UP-TO-DATE
+> Task :Core:compileTestFixturesJava NO-SOURCE
+> Task :Core:processTestFixturesResources NO-SOURCE
+> Task :Core:testFixturesClasses UP-TO-DATE
+> Task :Core:testFixturesJar UP-TO-DATE
+> Task :Core:compileTestKotlin UP-TO-DATE
+> Task :Core:compileTestJava NO-SOURCE
+> Task :Core:processTestResources UP-TO-DATE
+> Task :Core:testClasses UP-TO-DATE
+> Task :Core:test UP-TO-DATE
+> Task :Basic:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :Basic:compileKotlin UP-TO-DATE
+> Task :Basic:compileJava NO-SOURCE
+> Task :Basic:processResources NO-SOURCE
+> Task :Basic:classes UP-TO-DATE
+> Task :Basic:jar UP-TO-DATE
+> Task :Basic:compileTestFixturesKotlin UP-TO-DATE
+> Task :Basic:compileTestFixturesJava NO-SOURCE
+> Task :Basic:processTestFixturesResources NO-SOURCE
+> Task :Basic:testFixturesClasses UP-TO-DATE
+> Task :Basic:testFixturesJar UP-TO-DATE
+> Task :Basic:compileTestKotlin UP-TO-DATE
+> Task :Basic:compileTestJava NO-SOURCE
+> Task :Basic:processTestResources NO-SOURCE
+> Task :Basic:testClasses UP-TO-DATE
+> Task :Basic:test UP-TO-DATE
+> Task :SimpleATO:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :SimpleATO:compileKotlin UP-TO-DATE
+> Task :SimpleATO:compileJava NO-SOURCE
+> Task :SimpleATO:processResources NO-SOURCE
+> Task :SimpleATO:classes UP-TO-DATE
+> Task :SimpleATO:jar UP-TO-DATE
+> Task :SimpleATO:compileTestKotlin UP-TO-DATE
+> Task :SimpleATO:compileTestJava NO-SOURCE
+> Task :SimpleATO:processTestResources NO-SOURCE
+> Task :SimpleATO:testClasses UP-TO-DATE
+
+> Task :SimpleATO:test
+
+SimpleATOWorldDataTest > world data rejects a coordinator with a different Basic safety interlock() STARTED
+
+AdmittedCouplingPhysicalIntegrationTest > real contact grant obeys independent zero cap then physically couples(boolean) > [1] false STARTED
+
+AdmittedCouplingPhysicalIntegrationTest > real contact grant obeys independent zero cap then physically couples(boolean) > [2] true STARTED
+
+AdmittedCouplingPhysicalIntegrationTest > changed peer invalidates contact exemption before actual movement() STARTED
+
+AdmittedSpeedPhysicalIntegrationTest > pending authority holds actual body and full route grant speed is bounded by independent signal speed() STARTED
+
+RollingRouteAuthorityPlannerTest > route end caps the requested boundary() STARTED
+
+RollingRouteAuthorityPlannerTest > suspended reversal never starts a rolling extension() STARTED
+
+RollingRouteAuthorityPlannerTest > first request covers one perception horizon from the train head() STARTED
+
+RollingRouteAuthorityPlannerTest > pending device preparation never starts another request() STARTED
+
+RollingRouteAuthorityPlannerTest > fully committed route does not submit an empty extension() STARTED
+
+RollingRouteAuthorityPlannerTest > healthy remaining authority does not request another extension() STARTED
+
+RollingRouteAuthorityPlannerTest > low remaining authority extends by one horizon without requesting the whole route() STARTED
+
+RouteAuthorityAdmissionClientTest > admitted contact speed reaches the constraint adapter even with full route authority() STARTED
+
+RouteAuthorityAdmissionClientTest > safe abort before first grant leaves stop in place and permits explicit end() STARTED
+
+RouteAuthorityAdmissionClientTest > committed authority joins the existing most restrictive constraint manager() STARTED
+
+RouteAuthorityAdmissionClientTest > complete route grant retains its truthful physical authority boundary() STARTED
+
+RouteAuthorityAdmissionClientTest > explicit end waits for Basic and only then withdraws committed authority() STARTED
+
+RouteAuthorityAdmissionClientTest > world stall keeps the zero authority hold and refuses lifecycle end() STARTED
+
+RouteAuthorityAdmissionClientTest > pending extension retains the earlier committed authority() STARTED
+
+RouteAuthorityAdmissionClientTest > changed frozen route is rejected until the old route is explicitly ended() STARTED
+
+RouteAuthorityAdmissionClientTest > protection grant remains truthful while direction restriction limits actual movement() STARTED
+
+RouteAuthorityAdmissionClientTest > permissive plugin output cannot widen authority before grant or after its route becomes stale() STARTED
+
+RouteAuthorityAdmissionClientTest > denied continuation retains the earlier authority and route binding() STARTED
+
+RouteAuthorityAdmissionClientTest > missing or mismatched direction proof cannot reach Basic or adopt a grant() STARTED
+
+RouteAuthorityAdmissionClientTest > reversal keeps grant identity while rebasing route and authority at the new head() STARTED
+
+RouteAuthorityAdmissionClientTest > direction boundary survives pending denied continuation and formation adoption() STARTED
+
+RouteAuthorityAdmissionClientTest > prepared continuation republishes only existing prefix and leaves Basic grant unchanged() STARTED
+
+RouteAuthorityAdmissionClientTest > pending admission and prepared continuation retain the committed speed ceiling() STARTED
+
+RouteAuthorityAdmissionClientTest > first immediate grant replaces initial zero authority with committed boundary() STARTED
+
+RouteAuthorityAdmissionClientTest > Basic stale observation rejection is propagated with the exact coherent input() STARTED
+
+RouteAuthorityAdmissionClientTest > explicit formation grant adoption changes the binding without releasing source resources() STARTED
+
+RouteAuthorityAdmissionClientTest > restriction publication failure after Basic end retries withdrawal without ending grant twice() STARTED
+
+RouteAuthorityAdmissionClientTest > Basic remains the owner of exact traversal matching() STARTED
+
+RouteAuthorityAdmissionClientTest > wrong train selection is rejected before Basic under a zero authority hold() STARTED
+
+RouteAuthorityAdmissionClientTest > first pending request retains zero authority until progress commits a grant() STARTED
+
+RouteAuthorityAdmissionClientTest > pending route continuation keeps old binding and ready switches the same grant() STARTED
+
+AbstractATOConsistTest > configuration reload installs new dynamics and derived safety without replacing controller history() STARTED
+
+AbstractATOConsistTest > split updates actuator and safety together only after all preparation succeeds(boolean) > [1] false STARTED
+
+AbstractATOConsistTest > split updates actuator and safety together only after all preparation succeeds(boolean) > [2] true STARTED
+
+AbstractATOMotionPublicationTest > actuation publishes frame velocity and stall freeze clears it() STARTED
+
+AtoPolicyTest > world coordinators stall independently() STARTED
+
+AtoPolicyTest > owner replacement is atomic and minimum constraint wins() STARTED
+
+AtoPolicyTest > stall report JSON contains machine-readable failure details() STARTED
+
+AtoPolicyTest > stop constraint can override the profile stopping margin for precise berthing() STARTED
+
+AtoPolicyTest > distance constraints forward current speed and reaction once to the shared envelope() STARTED
+
+AtoPolicyTest > route speed constraint creates a braking curve before the lower limit() STARTED
+
+AtoPolicyTest > stop constraint creates a braking curve instead of an immediate zero limit() STARTED
+
+FormationHeldAtoPreparationTest > real mission prepares and publishes perception while held without actuation including failure(boolean) > [1] false STARTED
+
+FormationHeldAtoPreparationTest > real mission prepares and publishes perception while held without actuation including failure(boolean) > [2] true STARTED
+
+CrossDepotStoreTest > reset follows physical B storage and ignores in service A home without a storage association() STARTED
+
+CrossDepotStoreTest > A to B storage and B acquisition retain home and exact assignment ownership() STARTED
+
+CrossDepotStoreTest > existing current snapshot without physical depot field defaults to its home() STARTED
+
+CrossDepotStoreTest > rejected and cancelled foreign storage do not alter departure ownership() STARTED
+
+CrossDepotStoreTest > foreign storage snapshot round trips and restores without home reassignment() STARTED
+
+CrossDepotStoreTest > reset of reserved B storage clears selected train exact leases at A too() STARTED
+
+DepotStoreTest > failed reset preflight leaves every runtime untouched() STARTED
+
+DepotStoreTest > no compatible available train reports a strict miss() STARTED
+
+DepotStoreTest > storage reservation atomically restores occupancy and availability() STARTED
+
+DepotStoreTest > reset planning finds a full deterministic matching and commits atomically() STARTED
+
+DepotStoreTest > allocation is atomic filtered and deterministic() STARTED
+
+DepotStoreTest > wrong allocation cancellation preserves the valid reservation() STARTED
+
+DepotStoreTest > in service cancellation preserves assignment for departure and storage() STARTED
+
+DepotStoreTest > storage selection fails without partial reservation() STARTED
+
+DepotStoreTest > reservation cancellation restores the exact train and point() STARTED
+
+DepotStoreTest > duplicate restored assignment leaves the complete ledger untouched() STARTED
+
+DepotStoreTest > invalid restored lifecycle leaves the complete ledger untouched() STARTED
+
+DepotStoreTest > wrong storage cancellation preserves the valid reservation() STARTED
+
+DepotStoreTest > orphan restored home depot leaves the complete ledger untouched() STARTED
+
+FixedEmuUnitLedgerTest > restore preserves whole formation claims and rejects missing or partially assigned Core membership() STARTED
+
+FixedEmuUnitLedgerTest > real depot reservation and storage own registered unit claims atomically() STARTED
+
+FixedEmuUnitLedgerTest > all unit assignment claims succeed or fail together and reject duplicate asset use() STARTED
+
+FixedEmuUnitLedgerTest > declared incompatible control families cannot claim a formation() STARTED
+
+FixedEmuUnitLedgerTest > operational restore validates rolling stock and units before either ledger is published() STARTED
+
+FixedEmuUnitLedgerTest > fixed unit identity and home survive reordered whole reversed units() STARTED
+
+FixedEmuUnitLedgerTest > registration rejects overlapping or noncontiguous permanent car memberships before mutation() STARTED
+
+FixedEmuUnitLedgerTest > registered metadata and unit claims cannot be omitted on recovery or reused before reset() STARTED
+
+FixedEmuUnitLedgerTest > separation only accepts boundaries between complete fixed units() STARTED
+
+FixedEmuUnitLedgerTest > caller and Java list mutations cannot alter fixed unit membership() STARTED
+
+FixedFormationChangeTest > internal car partitions and unrelated output identities are rejected without mutation() STARTED
+
+FixedFormationChangeTest > finished held output survives continuing peer storage independently and rejects malformed held evidence() STARTED
+
+FixedFormationChangeTest > HOLD disposition cannot be mistaken for a pending continuation() STARTED
+
+FixedFormationChangeTest > pending reversal preserves exact assignment and persists new direction without releasing peer() STARTED
+
+FixedFormationChangeTest > restore and commit reject unchanged car IDs with the wrong operating direction() STARTED
+
+FixedFormationChangeTest > pending continuations release independently and restored pending owners never replay() STARTED
+
+FixedFormationChangeTest > prepared and committed output assignment cannot acquire unrelated unregistered stock() STARTED
+
+FixedFormationChangeTest > invalid interrupted compositions and overlapping events fail before publishing any ledger() STARTED
+
+FixedFormationChangeTest > coupling retains source claims until all observed outputs are reconciled atomically() STARTED
+
+FixedFormationChangeTest > split keeps the held output assigned and conserves permanent units() STARTED
+
+FixedFormationChangeTest > committed phase restores only output ownership and rejects missing or source claims atomically() STARTED
+
+FixedFormationChangeTest > recovery infers before or after publication solely from actual Core membership without replay() STARTED
+
+OperationalDestinationTest > destinations default to no approach restriction() STARTED
+
+OperationalDestinationTest > role-owned destination IDs use canonical owner at point format() STARTED
+
+OperationalDestinationTest > rail replacement migrates destination position direction and derived records() STARTED
+
+OperationalDestinationTest > regular destinations adapt to directed mission waypoints() STARTED
+
+OperationalDestinationTest > rail deletion removes destinations and derived station and waypoint records() STARTED
+
+OperationalDestinationTest > destination replacement rolls role and legacy waypoint together() STARTED
+
+OperationalDestinationTest > depot destination registers one passive stabling point() STARTED
+
+OperationalDestinationTest > split and merge migration preserve destination arc coordinates() STARTED
+
+OperationalDestinationTest > station destinations atomically aggregate directed passive berths() STARTED
+
+OperationalDestinationTest > station destination may register a berth without door operations() STARTED
+
+LinePlannerTest > strict Reset follows ordered incoming via points without adding station calls() STARTED
+
+LinePlannerTest > chooses a directed berth route for each ordered station pair() STARTED
+
+LinePlannerTest > Reset candidates traverse fractional multi rail endpoints in automatic origin mode() STARTED
+
+LinePlannerTest > uses the exact selected berth sequence when requested() STARTED
+
+LineStoreTest > line maximum speed is optional and otherwise finite positive() STARTED
+
+LineStoreTest > mutations require current revision() STARTED
+
+LineStoreTest > line requires unique ordered stations() STARTED
+
+LineStoreTest > line keeps independent directional station patterns() STARTED
+
+AtoMissionTest > carries each leg end direction into the next leg() STARTED
+
+AtoMissionTest > reports unavailable route before mission reaches the ATO() STARTED
+
+AtoMissionTest > resolves immutable mission legs through stable waypoint references() STARTED
+
+AtoMissionTest > reports the first unresolved mission target() STARTED
+
+AtoMissionTest > mission planning uses the SimpleATO operating direction store() STARTED
+
+StationBerthAllocatorTest > berth allocation is non-preemptive idempotent and explicit release() STARTED
+
+StationBerthAllocatorTest > markers share area capacity and release uses the acquired area() STARTED
+
+StationCallResolverTest > physical output origin uses exact retained geometry without registering or searching a waypoint() STARTED
+
+StationCallResolverTest > marker eligibility differs from platform length and includes boundaries() STARTED
+
+StationCallResolverTest > rejects a removed berth retained by an active station record() STARTED
+
+StationCallResolverTest > resolves explicit berth direction offset and route revision() STARTED
+
+StationCallResolverTest > rejects a train longer than the explicit berth() STARTED
+
+StationCallResolverTest > retained station route avoids search while checking physical length endpoint and direction() STARTED
+
+StationCallResolverTest > reports missing origin station and berth before route compilation() STARTED
+
+StationCallResolverTest > distinguishes wrong approach direction from unreachable route() STARTED
+
+StationModelTest > same station identity remains isolated between worlds() STARTED
+
+StationModelTest > station defensively copies berth refs and dwell plan resolves departure() STARTED
+
+StationModelTest > station store atomically owns passive berth rail objects() STARTED
+
+StationModelTest > station values reject invalid identities distances and times() STARTED
+
+StationStopSelectionTest > actual physical length and route direction filter candidates before priority() STARTED
+
+StationStopSelectionTest > all busy differs from no eligible candidates and neither creates reservations() STARTED
+
+StationStopSelectionTest > wrong call resolution is rejected before any logical allocation() STARTED
+
+StationStopSelectionTest > retry keeps selected owner and stale revision cannot reserve another candidate() STARTED
+
+StationStopSelectionTest > fixed preference waits while available priority chooses one unoccupied area() STARTED
+
+StationStopSelectionTest > simultaneous retries cannot allocate two alternatives to one call owner() STARTED
+
+StationStopSelectionTest > candidate snapshot is immutable and equal priorities use stable identity() STARTED
+
+TimetableExtensionRegistryTest > registers versions independently and rejects duplicate providers() STARTED
+
+TimetableExtensionRegistryTest > built-in train model condition uses assigned train context() STARTED
+
+TimetableExtensionRegistryTest > evaluates composable conditions with short circuit behavior() STARTED
+
+TimetableExtensionRegistryTest > simulation preparation creates distinct providers per target and rejects unsupported providers() STARTED
+
+TimetableExtensionRegistryTest > passes parameters and immutable runtime context to provider() STARTED
+
+TimetableExtensionRegistryTest > reports missing and failing providers without throwing into dispatcher() STARTED
+
+SimpleATOTest > ATO without a Mission remains stopped on an unconstrained rail() STARTED
+
+SimpleATOTest > stopAt brakes to the observed RailObject() STARTED
+
+SimpleATOTest > observed stop target disappearance stalls its world() STARTED
+
+SimpleATOTest > resource admission reuses the controller forward perception horizon() STARTED
+
+SimpleATOTest > same reference switching to a different live object across ticks stalls() STARTED
+
+SimpleATOTest > distinct observed objects with the same world reference stall instead of shadowing() STARTED
+
+SimpleATOTest > rolling admission extends before a slow train stops at the global safety margin() STARTED
+
+SimpleATOTest > formation mission activates only at its exact physical head before any movement(boolean, boolean) > [1] false, false STARTED
+
+SimpleATOTest > formation mission activates only at its exact physical head before any movement(boolean, boolean) > [2] false, true STARTED
+
+SimpleATOTest > formation mission activates only at its exact physical head before any movement(boolean, boolean) > [3] true, false STARTED
+
+SimpleATOTest > formation mission activates only at its exact physical head before any movement(boolean, boolean) > [4] true, true STARTED
+
+SimpleATOTest > unavailable mission route is rejected before activation() STARTED
+
+SimpleATOTest > formation retirement clears only consumed mission and preserves later submission(boolean) > [1] false STARTED
+
+SimpleATOTest > formation retirement clears only consumed mission and preserves later submission(boolean) > [2] true STARTED
+
+SimpleATOTest > mission revisions replace atomically at a physics tick boundary() STARTED
+
+SimpleATOTest > physics scan reads the published inspection maximum() STARTED
+
+SimpleATOTest > following constraint holds behind a nearby stopped train() STARTED
+
+SimpleATOTest > route end is treated as a stop target() STARTED
+
+SimpleATOTest > configured rail limit overrides actuator maximum speed() STARTED
+
+SimpleATOTest > removing curve limit restores subgrade then timetable line maximum speed() STARTED
+
+SimpleATOTest > resource authority restrictions use the controller constraint manager() STARTED
+
+SimpleATOTest > upcoming speed signal creates a route braking constraint() STARTED
+
+SimpleATOTest > unresolved mission is rejected without changing active mission() STARTED
+
+DepotResetCoordinatorTest > successful reset relocates trains rebuilds ledgers and keeps world stalled() STARTED
+
+DepotResetCoordinatorTest > failed placement restores every train including the train that threw mid-move() STARTED
+
+DepotResetCoordinatorTest > reset rejects placement into a train outside the reset plan without publication() STARTED
+
+DepotResetCoordinatorTest > failed train preflight changes neither train nor depot ledger() STARTED
+
+DepotResetCoordinatorTest > reset rejects actual train envelopes that overlap across connected rails() STARTED
+
+AuthorityRequestFloorsTest > overlapping windows chain forward but adjacent entry does not() STARTED
+
+AuthorityRequestFloorsTest > request at or after exit remains unchanged() STARTED
+
+AuthorityRequestFloorsTest > request before or exactly at entry remains unchanged() STARTED
+
+AuthorityRequestFloorsTest > retry ceiling retreats before whole overlapping windows but not adjacent ones() STARTED
+
+AuthorityRequestFloorsTest > stale route and out of range floor are rejected() STARTED
+
+AuthorityRequestFloorsTest > request inside a window is raised to its exit() STARTED
+
+EntryClearanceRuntimeTest > geometry and stopping profile refresh only this train floor without compiling bindings again() STARTED
+
+EntryClearanceRuntimeTest > readiness changes alone wake watching sources coalesce and unchanged ticks stay idle() STARTED
+
+EntryClearanceRuntimeTest > real straight moving coupler geometry retains floors and unchanged signal epoch stays idle() STARTED
+
+EntryClearanceRuntimeTest > neutral values defensively copy and reject inconsistent proof identities and bounds() STARTED
+
+EntryClearanceTest > grant margin and operation stop must leave the full tail clear() STARTED
+
+EntryClearanceTest > length envelope absorbs solver jitter grows immediately and shrinks with hysteresis() STARTED
+
+EntryClearanceTest > exclude only named self red at exact occurrence not foreign same-position or own later red() STARTED
+
+EntryClearanceTest > scan expands monotonically through newly encountered clearance entrance() STARTED
+
+EntryClearanceTest > following uses conservative current space not predicted leading train motion() STARTED
+
+EntryClearanceTest > preceding stop is not downstream proof blocker but exact entrance is() STARTED
+
+EntryClearanceTest > current physical geometry rejects wrong train stale frame derail and absent frame() STARTED
+
+EntryClearanceTest > missing geometry and overflow fail closed and repeated BA spans retain length() STARTED
+
+InspectionRuntimeTest > all callback results validate before the first publication() STARTED
+
+InspectionRuntimeTest > invalid provider binding leaves no partial session() STARTED
+
+InspectionRuntimeTest > active set changes and source invalidation dispatch complete snapshots without unchanged callbacks() STARTED
+
+InspectionRuntimeTest > empty binding publishes one route baseline then remains idle() STARTED
+
+InspectionRuntimeTest > train and source removal discard scheduler state() STARTED
+
+InspectionRuntimeTest > empty source replacement keeps an active route without a compiled floor() STARTED
+
+InspectionRuntimeTest > selected route dependencies use current sources without train bindings or publications() STARTED
+
+InspectionRuntimeTest > source provider receives the exact host route and publishes its maximum() STARTED
+
+InspectionRuntimeTest > new source binding on an active route fails closed before changing the live set() STARTED
+
+InspectionRuntimeTest > captured route survives binding publication then replacement reversal and reset establish baselines() STARTED
+
+InspectionRuntimeTest > terminal geometry combines compatible sources once against the original route and rejects divergence() STARTED
+
+InspectionRuntimeTest > production train retention removes ended route sessions and cached maximum() STARTED
+
+InspectionRuntimeTest > transaction invalidates only routes using changed rails and preserves frozen binding identity() STARTED
+
+InspectionRuntimeTest > callback failure marks the source unavailable and preserves dirty work() STARTED
+
+InspectionRuntimeTest > stale route fails closed before invoking the callback() STARTED
+
+InspectionRuntimeTest > invalid source union leaves the previous complete set active() STARTED
+
+InspectionRuntimeTest > selected route dependency failure includes source and route without changing bindings() STARTED
+
+InspectionRuntimeTest > unhandled terminal uses proposed margin while explicit empty owns boundary and conflicts fail closed() STARTED
+
+InspectionRuntimeTest > cached ranges baseline without entries survive passage and respond to stable range invalidation() STARTED
+
+InspectionRuntimeTest > publisher rejection preserves the update for a later dispatch() STARTED
+
+InspectionRuntimeTest > inspection rejects a newer topology without the transaction handoff() STARTED
+
+InspectionRuntimeTest > two physics workers project concurrently and consume dirty sets independently() STARTED
+
+InspectionRuntimeTest > source removal on an active route fails closed without dropping the binding() STARTED
+
+InspectionSchedulerTest > stable identity invalidation wakes all active visits and passing nearer visit changes active set() STARTED
+
+InspectionSchedulerTest > unchanged active declaration stays idle until explicitly dirtied() STARTED
+
+InspectionSchedulerTest > binding copies declarations and validates stable identities() STARTED
+
+InspectionSchedulerTest > dynamic braking lookahead can activate beyond the plugin lead time() STARTED
+
+InspectionSchedulerTest > scheduler distinguishes a repeated rail by absolute route position() STARTED
+
+InspectionSchedulerTest > dirty declaration outside the range waits until activation() STARTED
+
+InspectionSchedulerTest > leaving and reentering the range activates again() STARTED
+
+InspectionSchedulerTest > lead time converts current motion into a train specific activation distance() STARTED
+
+InspectionSchedulerTest > stopped train activates before acceleration can reach the trigger() STARTED
+
+InspectionSchedulerTest > replacement by later visit updates even when stable active identity stays the same() STARTED
+
+InspectionSchedulerTest > an append split on one continuous rail remains one declaration occurrence() STARTED
+
+InspectionSchedulerTest > compiler validates exact route and occurrence while caching maximum lead time() STARTED
+
+InspectionSchedulerTest > binding replacement resets activation while unrelated source invalidations are ignored() STARTED
+
+InspectionSchedulerTest > scheduler uses a binary trigger window and each declaration threshold() STARTED
+
+DispatcherSnapshotTest > restored active runs become recovery required checkpoints() STARTED
+
+DispatcherSnapshotTest > SimpleATO runtime codec round trips the dispatcher checkpoint and rejects other versions() STARTED
+
+DispatcherSnapshotTest > SimpleATO runtime owns and atomically restores rolling stock() STARTED
+
+DispatcherSnapshotTest > restore publishes no clocks when an applied timetable cannot be reinstalled() STARTED
+
+DispatcherSnapshotTest > invalid SimpleATO rolling stock snapshot leaves ledger untouched() STARTED
+
+DispatcherSnapshotTest > SimpleATO runtime restores timetables before dispatcher clocks() STARTED
+
+FormationRecoverySnapshotTest > real Core snapshot across publication commit and finished HOLD restores exact independent fences(int) > [1] 0 STARTED
+
+FormationRecoverySnapshotTest > real Core snapshot across publication commit and finished HOLD restores exact independent fences(int) > [2] 1 STARTED
+
+FormationRecoverySnapshotTest > real Core snapshot across publication commit and finished HOLD restores exact independent fences(int) > [3] 2 STARTED
+
+FormationRecoverySnapshotTest > real Core snapshot across publication commit and finished HOLD restores exact independent fences(int) > [4] 3 STARTED
+
+FormationRecoverySnapshotTest > real Core snapshot across publication commit and finished HOLD restores exact independent fences(int) > [5] 4 STARTED
+
+FormationRecoverySnapshotTest > real Core snapshot across publication commit and finished HOLD restores exact independent fences(int) > [6] 5 STARTED
+
+SavedLineMaximumSpeedTest > invalid stored caps fail before materializing a line() STARTED
+
+SavedLineMaximumSpeedTest > existing lines have an explicit unset cap and saved caps survive restore() STARTED
+
+SimpleATOInfrastructureSnapshotTest > line snapshot requires explicit up and down patterns() STARTED
+
+SimpleATOInfrastructureSnapshotTest > missing station fails before any line is materialized() STARTED
+
+SimpleATOInfrastructureSnapshotTest > round trips canonical destinations stations and lines() STARTED
+
+SimpleATOInfrastructureSnapshotTest > restore rejects a non-fresh depot store before materializing destinations() STARTED
+
+SimpleATOInfrastructureSnapshotTest > fixed marker fixture defaults to independent area and preserves explicit grouping() STARTED
+
+StationStopProgramSnapshotTest > invalid task graphs and termination cannot enter current model() STARTED
+
+StationStopProgramSnapshotTest > shared stationary trees round trip on origin and incoming destination() STARTED
+
+TimetableSnapshotTest > round trips runtime timetable actions() STARTED
+
+TimetableSnapshotTest > presentation metadata survives JSON but is not restored into runtime() STARTED
+
+TimetableSnapshotTest > selected stop snapshot preserves finite candidates policy and actual station options() STARTED
+
+TimetableSnapshotTest > lineId is restored as infrastructure identity instead of diagram metadata() STARTED
+
+TimetableSnapshotTest > timed conditional snapshot preserves child tick and rejects a check child() STARTED
+
+TrainRestrictionConstraintAdapterTest > closing adapter removes only the signalling owners it installed() STARTED
+
+TrainRestrictionConstraintAdapterTest > newer snapshots replace one source and stale revisions cannot restore old limits() STARTED
+
+TrainRestrictionConstraintAdapterTest > withdrawn empty stream stays clear across routes but unavailable source still holds() STARTED
+
+TrainRestrictionConstraintAdapterTest > repeated ranges end independently and reversal consumes its own complete replacement() STARTED
+
+TrainRestrictionConstraintAdapterTest > snapshot copies input and rejects duplicate or out of route restrictions() STARTED
+
+TrainRestrictionConstraintAdapterTest > different signalling sources reduce through the existing minimum constraint pipeline() STARTED
+
+TrainRestrictionConstraintAdapterTest > route targets are converted from absolute route metres using current progress() STARTED
+
+TrainRestrictionConstraintAdapterTest > route mismatch and forced source loss fail closed instead of removing the source() STARTED
+
+TrainRestrictionConstraintAdapterTest > bounded cap brakes toward entry remains through head exit then expires without publication() STARTED
+
+TrainRestrictionConstraintAdapterTest > explicit newer empty snapshot clears while stale nonempty snapshot stays rejected() STARTED
+
+TrainRestrictionSnapshotStoreTest > only explicit empty replacement makes a source removable() STARTED
+
+TrainRestrictionSnapshotStoreTest > stale publication keeps the latest immutable value() STARTED
+
+TrainRestrictionSnapshotStoreTest > successful epoch train retention removes departed train streams() STARTED
+
+TrainRestrictionSnapshotStoreTest > publication from another world is rejected without mutation() STARTED
+
+TrainRestrictionSnapshotStoreTest > publication replaces one source and leaves previously read snapshot immutable() STARTED
+
+FrozenMissionRouteAssemblerTest > continuation preserves repeated rail occurrence and rejects changed geometry inside its suffix() STARTED
+
+FrozenMissionRouteAssemblerTest > reversed continuation removes the mission prefix already covered by the train body() STARTED
+
+FrozenMissionRouteAssemblerTest > BA continuation on multiple rails preserves physical prefix and operational end independently() STARTED
+
+FrozenMissionRouteAssemblerTest > published body is prepended to the mission without another route search() STARTED
+
+FrozenMissionRouteAssemblerTest > existing mission progress trims the selected BA route without reprojecting an occurrence() STARTED
+
+FrozenMissionRouteAssemblerTest > next mission reuses an exact frozen terminal suffix both within and beyond it() STARTED
+
+FrozenMissionRouteAssemblerTest > mission must continue from the physical body endpoint() STARTED
+
+FrozenMissionRouteAssemblerTest > body spanning rails remains ordered and joins the mission at the head() STARTED
+
+FrozenMissionRouteAssemblerTest > physical continuation preserves stop error without changing committed overlap() STARTED
+
+FrozenMissionRouteAssemblerTest > ordinary stop appends a separately revisioned mission without changing the route prefix() STARTED
+
+FrozenRouteSelectorTest > unreachable and invalid target preserve planner rejection() STARTED
+
+FrozenRouteSelectorTest > route cannot begin opposite to the authoritative tail facing() STARTED
+
+FrozenRouteSelectorTest > registered restrictions are compiled once before planning() STARTED
+
+FrozenRouteSelectorTest > selected route starts at the authoritative observed tail with its facing() STARTED
+
+FrozenRouteSelectorTest > missing and derailed trains return train-specific rejection() STARTED
+
+FrozenRouteSelectorTest > older topology observations and directions are revalidated() STARTED
+
+MissionRouteProgressTest > formation origin projects actual AB and BA anchors without a waypoint and rejects shifted starts(ViewDirection) > [1] AB STARTED
+
+MissionRouteProgressTest > formation origin projects actual AB and BA anchors without a waypoint and rejects shifted starts(ViewDirection) > [2] BA STARTED
+
+MissionRouteProgressTest > projects BA positions onto cumulative mission distance() STARTED
+
+OperationalRoutePlannerTest > waypoint pruning is opt in and ordered mission via points restore the route() STARTED
+
+OperationalRoutePlannerTest > registered restrictions are compiled once before an operational query() STARTED
+
+OperationalRoutePlannerTest > same station alternative berths do not prune but unrelated directed destinations do() STARTED
+
+OperationalRoutePlannerTest > adapts topology markers to positive expanded segments and preserves endpoint directions() STARTED
+
+ProductionRoutePlanningRestrictionTest > mission station line and timetable all obey the installed planning sources() STARTED
+
+RouteAllocationTimingTest > allocation trigger includes braking setup reaction and margin distances() STARTED
+
+RouteOperatingDirectionLimitTest > a reversed body already on a forbidden rail rejects even if the head and target are legal() STARTED
+
+RouteOperatingDirectionLimitTest > missing subset entries rails and stale topology are rejected instead of allowing both directions() STARTED
+
+RouteOperatingDirectionLimitTest > mixed rail reverse keeps the full protection path and stops at the first illegal rail() STARTED
+
+RouteOperatingDirectionLimitTest > forward mixed AB and BA geometry uses each physical rail direction() STARTED
+
+RouteOperatingDirectionLimitTest > unrelated topology revision preserves a reused frozen route with current exact direction read() STARTED
+
+RoutePlanningRestrictionRuntimeTest > invalid replacement preserves prior snapshot and source failure is identified() STARTED
+
+RoutePlanningRestrictionRuntimeTest > compile invokes each captured source once in stable order and includes operating direction() STARTED
+
+TerminalRouteMarginTest > margin does not invent selection of a replacement path() STARTED
+
+TerminalRouteMarginTest > provider protection suffix cannot mask a failed direction margin and reused suffix is checked() STARTED
+
+TerminalRouteMarginTest > five meter margin appends real same rail geometry without rewriting frozen prefix() STARTED
+
+TerminalRouteMarginTest > physical terminus retains available partial geometry but reports insufficient margin() STARTED
+
+TerminalRouteMarginTest > turnout is not an ordinary continuation even when branches have enough track() STARTED
+
+TerminalRouteMarginTest > ordinary physical continuation supplies remaining margin in AB and BA views() STARTED
+
+TerminalRouteMarginTest > forbidden directed geometry rejects margin including BA canonical interval conversion() STARTED
+
+TerminalRouteMarginTest > already frozen margin and zero extra distance retain exact route instance() STARTED
+
+SignalEpochRuntimeTest > replacement resets occupancy baseline for the next epoch() STARTED
+
+SignalEpochRuntimeTest > direction changes invalidate only related ATO routes even without any signal source() STARTED
+
+SignalEpochRuntimeTest > publisher rejection fails the epoch callback() STARTED
+
+SignalEpochRuntimeTest > continuation revision wakes only sources watching an actually changed entry() STARTED
+
+SignalEpochRuntimeTest > empty runtime stays idle until sources are installed() STARTED
+
+SignalEpochRuntimeTest > inspection invalidations publish in stable source order after validation() STARTED
+
+SignalEpochRuntimeTest > duplicate train output is rejected before publication() STARTED
+
+SignalEpochRuntimeTest > unrelated topology transaction preserves occupancy crossings and leaves untouched sources idle() STARTED
+
+SignalEpochRuntimeTest > admission only source receives baseline latest owner change and old route removal() STARTED
+
+SignalEpochRuntimeTest > all handler output is validated before first publication() STARTED
+
+SignalEpochRuntimeTest > public source result and callback collections are defensive() STARTED
+
+SignalEpochRuntimeTest > live train retention runs only after a successful epoch() STARTED
+
+SignalEpochRuntimeTest > invalid replacement leaves the installed source state unchanged() STARTED
+
+SignalEpochRuntimeTest > transaction during prepared source commit also invalidates the candidate() STARTED
+
+SignalEpochRuntimeTest > empty source state still completes the observation boundary() STARTED
+
+SignalEpochRuntimeTest > wrong observation and missing train are rejected before publication() STARTED
+
+SignalEpochRuntimeTest > handler exception escapes for Core to stall fail closed() STARTED
+
+SignalEpochRuntimeTest > publications use stable source order() STARTED
+
+SignalEpochRuntimeTest > publisher exception escapes for Core to stall fail closed() STARTED
+
+SignalEpochRuntimeTest > direction changes coalesce and wake only sources watching actually changed rails() STARTED
+
+SignalEpochRuntimeTest > in progress epoch keeps one source snapshot while replacement affects the next epoch() STARTED
+
+SignalEpochRuntimeTest > a route prepared after a direction edit is not invalidated by its queued signal notification() STARTED
+
+SignalEpochRuntimeTest > atomic replacement validates before callback and callback failure retains old state() STARTED
+
+SignalEpochRuntimeTest > replacement baseline retains first watched route for coalesced change and removal() STARTED
+
+SignalEpochRuntimeTest > affected area is unavailable without resetting occupancy and a missing transaction fails closed() STARTED
+
+SignalEpochRuntimeTest > baseline invokes source once and unchanged area leaves handler idle() STARTED
+
+SignalEpochRuntimeTest > only source owning changed area runs after baseline() STARTED
+
+SignalEpochRuntimeTest > same epoch ENTER and LEFT reach owning source together once() STARTED
+
+SignalEpochRuntimeTest > replacement baseline includes unchanged area crossings and full new area baseline then idles() STARTED
+
+StationCallRuntimeTest > station call without an accepted mission is rejected() STARTED
+
+StationCallRuntimeTest > station call revision must match the latest accepted mission() STARTED
+
+StationCallRuntimeTest > berth detector requires position and speed together() STARTED
+
+StationCallRuntimeTest > station call reports each transition once and holds until departure grant() STARTED
+
+StationCallRuntimeTest > removing an active observed berth stalls only its world() STARTED
+
+KinematicTrainActuatorTest > braking capability requires a nonempty route() STARTED
+
+KinematicTrainActuatorTest > kinematic actuator respects train maximum speed and freezes() STARTED
+
+CurrentUnitCirculationTest > actual physical publication and atomic depot ledger feed analysis without phantom source assets() STARTED
+
+FixedFormationOperationTest > output owners commit while departure waits and HOLD remains independently fenced after finish() STARTED
+
+FixedFormationOperationTest > single real split publication retains ledger and original resource claims until observed outputs are held() STARTED
+
+FixedFormationOperationTest > ledger preflight failure aborts unsealed Basic preparation without changing source or claims() STARTED
+
+FixedFormationOperationTest > failed output installation retains source ledger and every physical fence() STARTED
+
+FixedUnitCouplePlanTest > host contact preserves whole units and binds authored end to operating direction(boolean) > [1] false STARTED
+
+FixedUnitCouplePlanTest > host contact preserves whole units and binds authored end to operating direction(boolean) > [2] true STARTED
+
+FixedUnitSplitPlanTest > HEAD partition keeps whole unequal units and maps logical FIRST independently of retained train(boolean) > [1] false STARTED
+
+FixedUnitSplitPlanTest > HEAD partition keeps whole unequal units and maps logical FIRST independently of retained train(boolean) > [2] true STARTED
+
+FormationEventTest > structural actions forbidden in runtime branches and conditional participant activation() STARTED
+
+FormationEventTest > valid catalog does not invent retained onward routes from pre-split origin() STARTED
+
+FormationEventTest > split rejects nonpositive partial selector duplicate output and duplicate owner() STARTED
+
+FormationEventTest > coupling requires both distinct participant occurrences and ends consumed duty() STARTED
+
+FormationEventTest > crossed participant event order rejects deadlock and consistent coupling chain is valid() STARTED
+
+FormationEventTest > same-cycle output dependency cycle and action kind mismatch reject() STARTED
+
+FormationEventTest > fixed split reciprocal new duty acquisition and continuing source are valid() STARTED
+
+FormationEventTest > missing duplicate wrong output and duplicate claims reject before runtime() STARTED
+
+FormationEventTest > catalog copies collection has value equality and snapshot default remains empty() STARTED
+
+FormationEventTest > new catalog and actions survive current snapshot and diagnostic dump() STARTED
+
+FormationOutputMetadataTest > storage compatibility uses exact capacity and declared tag intersection() STARTED
+
+FormationOutputMetadataTest > mixed coupling retains only shared declared classification and conserves actual cars() STARTED
+
+FormationOutputMetadataTest > split classification rejects stale source geometry noncontiguous members and invalid lengths() STARTED
+
+FormationOutputMetadataTest > split classification inherits declared metadata and uses exact member lengths without inventing an identity() STARTED
+
+FrozenRouteEditProtectionTest > reversal retry retains the atomic union until Basic grants the new route() STARTED
+
+LineMaximumSpeedResolverTest > service without infrastructure line has no timetable speed cap() STARTED
+
+LineMaximumSpeedResolverTest > resolves one all-train maximum speed from the service infrastructure line() STARTED
+
+ManualNavigationTest > factory groups pass points into missions ending at each stop() STARTED
+
+ManualNavigationTest > factory navigation runs from current origin through via to stopping endpoint() STARTED
+
+ManualNavigationTest > parser requires a stopping endpoint and rejects options on pass points() STARTED
+
+ManualNavigationTest > parser accepts pass points and strict stop JSON() STARTED
+
+StationStopProgramRuntimeTest > late absolute waits complete immediately while relative wait starts when reached() STARTED
+
+StationStopProgramRuntimeTest > explicit await joins descendants even after named task main body ended() STARTED
+
+StationStopProgramRuntimeTest > physical-operation conflicts fail and cancel all outstanding tickets() STARTED
+
+StationStopProgramRuntimeTest > failure cancellation timeout and thrown callback never release final gate() STARTED
+
+StationStopProgramRuntimeTest > default blocking door tickets and minimum dwell anchor use actual successful opening() STARTED
+
+StationStopProgramRuntimeTest > preparation waits arrival main but overlaps descendants and final joins every descendant() STARTED
+
+StationStopProgramRuntimeTest > doorless defaults require no invented door tickets() STARTED
+
+StationStopProgramRuntimeTest > origin runs preparation only and terminal runs arrival only even with a time gate() STARTED
+
+StationStopProgramRuntimeTest > nested detached tasks and named waits have independent duration clocks() STARTED
+
+StationStopProgramRuntimeTest > reverse preserves the evidence of successfully closed doors() STARTED
+
+StationStopProgramRuntimeTest > shared definition never shares invocation task state() STARTED
+
+StructuralOnwardRoutingTest > split output cannot skip a waypoint but explicit via retains the physical proof() STARTED
+
+StructuralOutputCorridorTest > rejects duplicated traversal and forbidden direction() STARTED
+
+StructuralOutputCorridorTest > atomic replacement must be complete and must not contain uncertain origins() STARTED
+
+StructuralOutputCorridorTest > certified child envelope preserves ancestry full rear and reorientation without invented frames() STARTED
+
+StructuralOutputCorridorTest > real straight and curved splits resolve both physical halves in either direction(boolean, boolean, boolean) > [1] false, false, false STARTED
+
+StructuralOutputCorridorTest > real straight and curved splits resolve both physical halves in either direction(boolean, boolean, boolean) > [2] false, false, true STARTED
+
+StructuralOutputCorridorTest > real straight and curved splits resolve both physical halves in either direction(boolean, boolean, boolean) > [3] false, true, false STARTED
+
+StructuralOutputCorridorTest > real straight and curved splits resolve both physical halves in either direction(boolean, boolean, boolean) > [4] false, true, true STARTED
+
+StructuralOutputCorridorTest > real straight and curved splits resolve both physical halves in either direction(boolean, boolean, boolean) > [5] true, false, false STARTED
+
+StructuralOutputCorridorTest > real straight and curved splits resolve both physical halves in either direction(boolean, boolean, boolean) > [6] true, false, true STARTED
+
+StructuralOutputCorridorTest > real straight and curved splits resolve both physical halves in either direction(boolean, boolean, boolean) > [7] true, true, false STARTED
+
+StructuralOutputCorridorTest > real straight and curved splits resolve both physical halves in either direction(boolean, boolean, boolean) > [8] true, true, true STARTED
+
+StructuralOutputCorridorTest > rejects absent prefix target inside uncertainty and changed mandatory path() STARTED
+
+StructuralTimetableValidationTest > one unsafe compatible storage alternative rejects the entire finite candidate set() STARTED
+
+StructuralTimetableValidationTest > storage rejects missing declared point or source classification rather than physical-only fallback() STARTED
+
+StructuralTimetableValidationTest > operating direction and structural marker window remain binding() STARTED
+
+StructuralTimetableValidationTest > named source selector resolves the actual container frame() STARTED
+
+StructuralTimetableValidationTest > common outbound and return route uses certified stopped body instead of historical origin() STARTED
+
+StructuralTimetableValidationTest > initial coupling certifies both bodies and rejects changed contact geometry(boolean) > [1] false STARTED
+
+StructuralTimetableValidationTest > initial coupling certifies both bodies and rejects changed contact geometry(boolean) > [2] true STARTED
+
+StructuralTimetableValidationTest > new output duty retains reversed storage proof with exact inherited classification() STARTED
+
+StructuralTimetableValidationTest > runtime conditional structural sources require planned branch compilation(boolean) > [1] false STARTED
+
+StructuralTimetableValidationTest > runtime conditional structural sources require planned branch compilation(boolean) > [2] true STARTED
+
+StructuralTimetableValidationTest > entire retained incoming route reaches full eligibility bound before split() STARTED
+
+StructuralTimetableValidationTest > producer output proof propagates through new duty movement and a later split() STARTED
+
+StructuralTimetableValidationTest > selected berth history qualifies structural source and output continuation(boolean) > [1] false STARTED
+
+StructuralTimetableValidationTest > selected berth history qualifies structural source and output continuation(boolean) > [2] true STARTED
+
+StructuralTimetableValidationTest > every finite acquisition origin must have a full body witness() STARTED
+
+StructuralTimetableValidationTest > initial checked split retains both output routes and resolves actual Core halves in opposite directions(boolean) > [1] false STARTED
+
+StructuralTimetableValidationTest > initial checked split retains both output routes and resolves actual Core halves in opposite directions(boolean) > [2] true STARTED
+
+StructuralTimetableValidationTest > output storage proves every compatible finite target including currently occupied alternatives() STARTED
+
+StructuralTimetableValidationTest > missing finite origin witness and target inside uncertainty reject explicitly() STARTED
+
+StructuralTimetableValidationTest > structural via markers preserve ordered occurrences on one resolved physical route() STARTED
+
+StructuralTimetableValidationTest > retained structural endpoint and station bindings reject metadata drift without topology changes() STARTED
+
+StructuralTimetableValidationTest > output storage filters actual output length and classification before proving all admissible points() STARTED
+
+StructuralTimetableValidationTest > interior structural station call proves its own stop without changing the final destination offset() STARTED
+
+TimetableBranchValidationTest > selected stop rejects all candidates when no complete onward continuation exists() STARTED
+
+TimetableBranchValidationTest > runtime branch endpoints are rejected before route continuation proof() STARTED
+
+TimetableBranchValidationTest > selected stop cannot implicitly cross unlisted waypoints() STARTED
+
+TimetableBranchValidationTest > selected stop requires both future conditional arms and supports addressed selection() STARTED
+
+TimetableBranchValidationTest > many unsupported runtime branches reject before costly route expansion() STARTED
+
+TimetableBranchValidationTest > task scopes are balanced unique and cannot be conditional() STARTED
+
+TimetableBranchValidationTest > proof budget charges each via leg before expensive route expansion() STARTED
+
+TimetableBranchValidationTest > one invalid reversed successor rejects the whole branch program() STARTED
+
+TimetableBranchValidationTest > rejected selection probes consume the same finite proof budget() STARTED
+
+TimetableBranchValidationTest > pending stopping options remain distinct across a shared movement() STARTED
+
+TimetableCirculationSummaryTest > public projection preserves separate conclusions context and blocking without search internals() STARTED
+
+TimetableCirculationSummaryTest > inventory witness projects its recurrence without upgrading unknown timing or capacity() STARTED
+
+TimetableDispatcherSharedAdmissionTest > pending admission progresses its handle without resubmitting() STARTED
+
+TimetableDispatcherSharedAdmissionTest > full manual starts no new admission but lets an existing handle reach terminal state() STARTED
+
+TimetableDispatcherSharedAdmissionTest > sequential services reuse the restriction stream of an externally owned ATO() STARTED
+
+TimetableDispatcherSharedAdmissionTest > inspection floor expands the Basic request without granting it directly() STARTED
+
+TimetableDispatcherSharedAdmissionTest > unrelated live topology edit preserves the admitted frozen route and continues running() STARTED
+
+TimetableDispatcherSharedAdmissionTest > manual routed keeps explicit route assistance without treating the detached ATO as driver() STARTED
+
+TimetableDispatcherSharedAdmissionTest > force discard validates every run before removing an earlier idle run() STARTED
+
+TimetableDispatcherSharedAdmissionTest > ordinary stop appends the next mission to the same grant and owner() STARTED
+
+TimetableDispatcherSharedAdmissionTest > transient rejection retries with a newly observed epoch instead of a cached stamp() STARTED
+
+TimetableDispatcherSharedAdmissionTest > topology mismatch requires explicit replan and does not retry the failed route() STARTED
+
+TimetableDispatcherSharedAdmissionTest > draining preserves plan edits through pending and terminal tail-held admission until end succeeds() STARTED
+
+TimetableDispatcherSharedAdmissionTest > drain dependency removal denial retains protection and stalls without retrying operational work() STARTED
+
+TimetableDispatcherSharedAdmissionTest > stored train transfers its tail held grant to the next forward service() STARTED
+
+TimetableDispatcherSharedAdmissionTest > unusable request ceiling waits without resubmitting or granting authority() STARTED
+
+TimetableDispatcherSharedAdmissionTest > controller consumes latest signal snapshot without another dispatcher tick() STARTED
+
+TimetableDispatcherSharedAdmissionTest > pending shortened extension retains prior authority without granting its hint() STARTED
+
+TimetableDispatcherSharedAdmissionTest > dependency failure preserves fail closed route progression() STARTED
+
+TimetableDispatcherSharedAdmissionTest > inspection widens the existing controller scan before route admission() STARTED
+
+TimetableDispatcherSharedAdmissionTest > overlong request retreats before atomic region and retries exactly once() STARTED
+
+TimetableDispatcherSharedAdmissionTest > denied extension retains the prior grant and waits before another request() STARTED
+
+TimetableDispatcherSharedAdmissionTest > stopped recovered clock retains exact plan until explicit recovery discard without recreating admission() STARTED
+
+TimetableDispatcherSharedAdmissionTest > second overlong rejection does not start a third local retry() STARTED
+
+TimetableDispatcherSharedAdmissionTest > pending shortened first request keeps zero authority and progresses only its handle() STARTED
+
+TimetableDispatcherSharedAdmissionTest > automatic run extends the same frozen route with the current observation epoch() STARTED
+
+TimetableDispatcherSharedAdmissionTest > complete frozen route is edit protected before Basic admission() STARTED
+
+TimetableDispatcherTest > depot reset progress preserves completed mutation counts for partial reports() STARTED
+
+TimetableDispatcherTest > takeFromDepot miss stalls only its world() STARTED
+
+TimetableDispatcherTest > short claims let physically separated conflicting services proceed() STARTED
+
+TimetableDispatcherTest > leading reverse enters the normal reversing state before the first Mission() STARTED
+
+TimetableDispatcherTest > illegal controller replacement stalls the owning world() STARTED
+
+TimetableDispatcherTest > takeFromDepot deterministically assigns a compatible available train() STARTED
+
+TimetableDispatcherTest > physical depot acquisition passes exact Core car membership to fixed unit ledger() STARTED
+
+TimetableDispatcherTest > stop requires cancellation confirmation for pending extension tickets() STARTED
+
+TimetableDispatcherTest > takeFromWaypoint failure stalls the world() STARTED
+
+TimetableDispatcherTest > stopping before selected route admission releases only tentative berth() STARTED
+
+TimetableDispatcherTest > full manual requests no new route and release still requires replan() STARTED
+
+TimetableDispatcherTest > available selected stop retries a physically occupied preferred marker before granting movement() STARTED
+
+TimetableDispatcherTest > live and isolated services never turn a train to face a destination without an explicit reverse() STARTED
+
+TimetableDispatcherTest > extension after stopped acquisition starts once without a first mission and holds until ticket success() STARTED
+
+TimetableDispatcherTest > manual routed driver keeps dispatcher route assistance without automatic speed() STARTED
+
+TimetableDispatcherTest > compile-selected action starts once and waits for registered extension ticket() STARTED
+
+TimetableDispatcherTest > compile-selected movement preserves successor and actual onward origin(boolean) > [1] false STARTED
+
+TimetableDispatcherTest > compile-selected movement preserves successor and actual onward origin(boolean) > [2] true STARTED
+
+TimetableDispatcherTest > storeAtDepot without a compatible empty point stalls without partial occupancy() STARTED
+
+TimetableDispatcherTest > stopping selected stop with real pending admission retains reservation until safe settlement() STARTED
+
+TimetableDispatcherTest > takeFromDepot selects an unregistered train physically stopped at a stabling point() STARTED
+
+TimetableDispatcherTest > stop accepts terminal extension tickets before the next dispatcher poll() STARTED
+
+TimetableDispatcherTest > maintenance query reports rails referenced by a live mission() STARTED
+
+TimetableDispatcherTest > timetable without known routes applies without creating an empty dependency() STARTED
+
+TimetableDispatcherTest > starts explicit train only after the first Basic route grant() STARTED
+
+TimetableDispatcherTest > guarded apply failures restore prior dependencies or clear first apply and retain failed rollback protection() STARTED
+
+TimetableDispatcherTest > straight route creates no synthetic resource claims across multiple legs() STARTED
+
+TimetableDispatcherTest > shared timetable epoch prevents an early first departure and records lateness() STARTED
+
+TimetableDispatcherTest > short turnout claim releases for a later conflicting service() STARTED
+
+TimetableDispatcherTest > period boundary automatically creates the next dynamic service cycle() STARTED
+
+TimetableDispatcherTest > manual routed straight route receives Basic route assistance() STARTED
+
+TimetableDispatcherTest > runtime activation rejects before evaluating provider or installing controller() STARTED
+
+TimetableDispatcherTest > compile-selected timed children preserve waits and extension scheduled ticks() STARTED
+
+TimetableDispatcherTest > unconfirmed later section stops at its protection point without stalling() STARTED
+
+TimetableDispatcherTest > manual control transfer suspends ATO and requires explicit released replan() STARTED
+
+TimetableDispatcherTest > delayed movement consumes retained validation route and refuses rebound endpoint without searching() STARTED
+
+TimetableDispatcherTest > advances through dwell and a later movement mission() STARTED
+
+TimetableDispatcherTest > stopped train immediately requests a turnout inside protection distance() STARTED
+
+TimetableDispatcherTest > released ad hoc navigation can be discarded before replacement() STARTED
+
+TimetableDispatcherTest > train information unit failures and extension validation fail before provider start() STARTED
+
+TimetableDispatcherTest > repeated in-place reversals across mixed rail directions keep the original route anchor basis() STARTED
+
+TimetableDispatcherTest > suspension preserves active Basic route grant() STARTED
+
+TimetableDispatcherTest > next cycle never preempts a train still active in the previous cycle() STARTED
+
+TimetableDispatcherTest > waitUntil holds stopped train then continues immediately without completing the service() STARTED
+
+TimetableDispatcherTest > terminal completion upgrades selected rail guard before resource collection and rolls back on upgrade failure() STARTED
+
+TimetableDispatcherTest > stopping recurrence retains dependencies while a run is active() STARTED
+
+TimetableDispatcherTest > undirected input retains only facing that avoids unspecified loop waypoints() STARTED
+
+TimetableDispatcherTest > selected stop resolves real length commits one berth and continues from selected marker() STARTED
+
+TimetableDispatcherTest > storeAtDepot releases departure occupancy and completes availability handoff() STARTED
+
+TimetableDispatcherTest > timetable apply publishes no clock when dependency installation fails() STARTED
+
+TimetableDispatcherTest > takeFromWaypoint acquires a stopped unassigned train at the scheduled tick() STARTED
+
+TimetableDispatcherTest > timetable apply installs exact physical dependencies and releases them after drain() STARTED
+
+TimetableDispatcherTest > apply merges plugin resources and failed replacement keeps old dependencies and clock() STARTED
+
+TimetableDispatcherTest > relative wait after physical acquisition starts at actual entry even when acquisition is late() STARTED
+
+TimetableDispatcherTest > service infrastructure line maximum speed is installed in ATO() STARTED
+
+TimetableDispatcherTest > world stall aborts remaining route allocations in the same dispatcher tick() STARTED
+
+TimetableFormationDispatcherTest > compile-selected output route observes published child and retains body admission(boolean) > [1] false STARTED
+
+TimetableFormationDispatcherTest > compile-selected output route observes published child and retains body admission(boolean) > [2] true STARTED
+
+TimetableFormationDispatcherTest > new duty takes exact published output and waits for its own scheduled departure() STARTED
+
+TimetableFormationDispatcherTest > absent registered unit slot fails validation before installing controller() STARTED
+
+TimetableFormationDispatcherTest > split output follows certified intermediate marker and final stopping suffix() STARTED
+
+TimetableFormationDispatcherTest > scheduled coupling joins actual units then holds or continues(boolean) > [1] false STARTED
+
+TimetableFormationDispatcherTest > scheduled coupling joins actual units then holds or continues(boolean) > [2] true STARTED
+
+TimetableFormationDispatcherTest > operating HEAD output retains exact whole unit and authored departure orientation(boolean, boolean) > [1] false, false STARTED
+
+TimetableFormationDispatcherTest > operating HEAD output retains exact whole unit and authored departure orientation(boolean, boolean) > [2] false, true STARTED
+
+TimetableFormationDispatcherTest > operating HEAD output retains exact whole unit and authored departure orientation(boolean, boolean) > [3] true, false STARTED
+
+TimetableFormationDispatcherTest > operating HEAD output retains exact whole unit and authored departure orientation(boolean, boolean) > [4] true, true STARTED
+
+TimetableFormationDispatcherTest > applied formation output protects the extra rail required only by its stopping margin() STARTED
+
+TimetableFormationDispatcherTest > operator stop after coupling seal preserves recovery evidence() STARTED
+
+TimetableFormationDispatcherTest > retained ATO receives the new duty line cap and preserves independent restrictions() STARTED
+
+TimetableFormationDispatcherTest > compile-selected output may reverse the actual held child before its route() STARTED
+
+TimetableFormationDispatcherTest > train information follows published split outputs and a receiving duty() STARTED
+
+TimetableFormationDispatcherTest > trip cannot jump from the held rear unit to the continuing front unit() STARTED
+
+TimetableFormationDispatcherTest > compile-selected display update follows actual unit through split and held sibling stays separate(boolean) > [1] false STARTED
+
+TimetableFormationDispatcherTest > compile-selected display update follows actual unit through split and held sibling stays separate(boolean) > [2] true STARTED
+
+TimetableFormationDispatcherTest > scheduled split continues FIRST and keeps REST physically held(double) > [1] 0.5 STARTED
+
+TimetableFormationDispatcherTest > scheduled split continues FIRST and keeps REST physically held(double) > [2] 5.0 STARTED
+
+TimetableFormationDispatcherTest > an unrelated run without trip metadata does not require registered units() STARTED
+
+TimetableFormationDispatcherTest > post split real snapshot restores diagnostic definitions without historical composition or live replay(boolean) > [1] false STARTED
+
+TimetableFormationDispatcherTest > post split real snapshot restores diagnostic definitions without historical composition or live replay(boolean) > [2] true STARTED
+
+TimetableFormationDispatcherTest > operator can cancel unsealed coupling preparation without losing source claims() STARTED
+
+TimetableInitialPositionerTest > matches player train name and relocates atomically using rail direction() STARTED
+
+TimetableInitialPositionerTest > overlapping staged placements retain original train world and mailbox frames() STARTED
+
+TimetableInitialPositionerTest > controlled exact-match train reports an explicit reset error() STARTED
+
+TimetableInitialPositionerTest > missing operating direction permits both and defaults initial placement to AB() STARTED
+
+TimetableInitialPositionerTest > depot id selector expands to distinct physical stabling points() STARTED
+
+TimetableProgramCursorTest > fixed root events allowed but conditional activation rejects their bypass() STARTED
+
+TimetableProgramCursorTest > nested arms retain exact timed leaf and resume enclosing suffix once() STARTED
+
+TimetableProgramCursorTest > fixed obligations and acquisition cannot hide in either nested branch() STARTED
+
+TimetableProgramCursorTest > production traversal keeps child ticks immutable and supports consumed acquisition start() STARTED
+
+TimetableProgramCursorTest > empty nested arms pop to next enclosing child without evaluating another arm() STARTED
+
+TimetableProgramCursorTest > schedule validates both arms and requires suffix no earlier than either authored branch() STARTED
+
+TimetableProgramCursorTest > empty programs complete and leaf cannot be entered as conditional() STARTED
+
+TimetableProgramCursorTest > addresses defensively copy path and distinguish branches() STARTED
+
+TimetableProgramCursorTest > depth and node ceilings reject rather than silently truncate() STARTED
+
+TimetableProgramCursorTest > movement waits and reversal are legal guards while nested checks are rejected() STARTED
+
+TimetableRunMetadataTest > separate registered units preserve display state through slot change and reset only next trip() STARTED
+
+TimetableRunMetadataTest > fixed split projects each units own onward stations before physical separation() STARTED
+
+TimetableRunMetadataTest > native display values obey the same finite JSON limits as authoring() STARTED
+
+TimetableRunMetadataTest > explicit trip boundary preserves station program changes and resets only selected unit() STARTED
+
+TimetableRunMetadataTest > new cycle cleanup preserves independent held unit and unassigned run retires display() STARTED
+
+TimetableRunMetadataTest > current segment cap survives station program gap and only changes at next scope() STARTED
+
+TimetableRunMetadataTest > merged interchange retains arrival and next departure without removing later visits() STARTED
+
+TimetableRunMetadataTest > segments trips and native display actions round trip without aliasing caller JSON() STARTED
+
+TimetableRunMetadataTest > future stops only follow proven selected unit and preserve repeated station occurrences() STARTED
+
+TimetableRunMetadataTest > planned calls must match canonical ownership actual pass movements and trip order() STARTED
+
+TimetableRunMetadataTest > trip cannot silently migrate to unrelated physical unit in later leg() STARTED
+
+TimetableStationCallDispatcherTest > interior station stop does not replace final operating anchor stopping margin() STARTED
+
+TimetableStationCallDispatcherTest > door tickets gate station dwell and departure hold release() STARTED
+
+TimetableStationCallDispatcherTest > canonical marker edits and aliases cannot bypass a held stopping area() STARTED
+
+TimetableStationCallDispatcherTest > waypoint progress observer reports actual stop time() STARTED
+
+TimetableStationCallDispatcherTest > shared terminal absolute wait gates completion without a second execution cursor() STARTED
+
+TimetableStationCallDispatcherTest > terminal station navigation starts the following queued movement after dwell() STARTED
+
+TimetableStationCallDispatcherTest > origin station program honors its containing scheduled action tick() STARTED
+
+TimetableStationCallDispatcherTest > terminal station reverse awaits physical publication and retained body rebase() STARTED
+
+TimetableStationCallDispatcherTest > conflicting explicit berth keeps the later service held without stalling() STARTED
+
+TimetableStationCallDispatcherTest > timetable station action schedules the call with its following movement() STARTED
+
+TimetableStationCallDispatcherTest > origin program runs preparation without waiting for a phantom arrival() STARTED
+
+TimetableStationCallDispatcherTest > manual transfer may abandon a failed door operation before dispatcher poll() STARTED
+
+TimetableStationCallDispatcherTest > dwell may depart after the conflicting turnout resource tail releases() STARTED
+
+TimetableStationCallDispatcherTest > failed close ticket never grants departure() STARTED
+
+TimetableStationCallDispatcherTest > operation shutdown cancels pending station task door tickets() STARTED
+
+TimetableStationCallDispatcherTest > shared destination program opens on actual arrival prepares early and awaits planned release() STARTED
+
+TimetableStationCallDispatcherTest > actual authority breach prevents queued station arrival and ordinary destination door operations() STARTED
+
+TimetableStationCallDispatcherTest > berth ownership survives mission replacement until the old tail clears() STARTED
+
+TimetableStationCallDispatcherTest > manual transfer cancels door ticket but preserves berth ownership() STARTED
+
+TimetableStationCallDispatcherTest > door operation timeout stalls world and keeps departure hold() STARTED
+
+TimetableStationCallDispatcherTest > halt closes doors before executing model power off action() STARTED
+
+TimetableStationCallDispatcherTest > destination keeps doors open until minimum dwell and next at() STARTED
+
+TimetableStationCallDispatcherTest > dispatcher dwells grants departure and releases berth behind the tail() STARTED
+
+TimetableStationCallDispatcherTest > station program failure leaves departure hold and cancels every live operation() STARTED
+
+TimetableStationCallDispatcherTest > unexpected door ticket cancellation stalls the world() STARTED
+
+TimetableStationCallDispatcherTest > terminal station reverse rebases the retained route grant before completing() STARTED
+
+TimetableStationCallDispatcherTest > ordinary waypoint destination options run doors and minimum dwell() STARTED
+
+TimetableStationCallDispatcherTest > station train information reads each published direction and validates before start() STARTED
+
+TimetableStationCallDispatcherTest > ato reset refuses to discard a failed run while Basic resources remain active() STARTED
+
+TimetableStationCallDispatcherTest > door operation timeout reports cancellation failure() STARTED
+
+TimetableStationCallDispatcherTest > manual transfer is rejected when a pending door operation cannot be cancelled() STARTED
+
+TimetableStationCallDispatcherTest > manual transfer rejects cancellation confirmation with a changed ticket identity() STARTED
+
+TimetableStationCallDispatcherTest > destination tick is the route departure time() STARTED
+
+TimetableStationCallDispatcherTest > terminal station navigation completes while remaining berthed() STARTED
+
+TimetableStationCallDispatcherTest > missing shared station provider is rejected before runtime installation() STARTED
+
+TimetableStationCallDispatcherTest > manual transfer is rejected when the operation ticket cannot be inspected() STARTED
+
+TimetableStationCallDispatcherTest > terminal open doors cannot be bypassed by a store at depot suffix() STARTED
+
+TimetableStationCallDispatcherTest > operation gateway failure logs original cause while preserving failed run state() STARTED
+
+TimetableStationCallDispatcherTest > shared terminal program has no preparation and optional departure only delays duty handoff() STARTED
+
+TimetableStationCallDispatcherTest > reverse closes open doors then rebases the retained route grant() STARTED
+
+TimetableUnitCirculationTest > spare initial formations cannot cure recurring physical depot deficit() STARTED
+
+TimetableUnitCirculationTest > finite state ceiling explicitly leaves inventory unproven() STARTED
+
+TimetableUnitCirculationTest > balanced depot totals cannot hide forced recurring class loss() STARTED
+
+TimetableUnitCirculationTest > deep finite action graph reaches explicit ceiling without overflowing recursion() STARTED
+
+TimetableUnitCirculationTest > earlier next take and cross boundary completion remain timing unproven not fake deadlines() STARTED
+
+TimetableUnitCirculationTest > one parked coupled formation cannot satisfy separate single unit acquisitions() STARTED
+
+TimetableUnitCirculationTest > fixed split and join conserve both whole units through repeated storage() STARTED
+
+TimetableUnitCirculationTest > unmodeled physical point occupant is not a free point or absent supply proof() STARTED
+
+TimetableUnitCirculationTest > registered permanent cars cannot overlap or split internally in source evidence() STARTED
+
+TimetableUnitCirculationTest > balanced flow cannot invent an eligible model formation() STARTED
+
+TimetableUnitCirculationTest > captured physical membership is immutable against caller list changes() STARTED
+
+TimetableUnitCirculationTest > unclassified physical permanent unit is missing evidence rather than imaginary available stock() STARTED
+
+TimetableUnitCirculationTest > cross depot return preserves permanent home and proves inventory only() STARTED
+
+TimetableUnitCirculationTest > physically undersized return point is an independent capacity contradiction() STARTED
+
+TimetableUnitCirculationTest > coupled group occupies one real point and may circulate intact() STARTED
+
+TimetableUnitCirculationTest > metadata absent from physical publication cannot prove inventory impossible() STARTED
+
+TimetableUnitCirculationTest > held pending or active cross cycle owners are never fabricated into available supply() STARTED
+
+TimetableUnitCirculationTest > interrupted owner may name retired source without becoming an impossible ledger() STARTED
+
+TimetableValidatorTest > cross depot storage retains target routes and terminal acquisition restrictions() STARTED
+
+TimetableValidatorTest > extension validates nested JSON against registered provider and rejects missing provider() STARTED
+
+TimetableValidatorTest > endpoint anchor retains existing track when actual destination stop has enough margin() STARTED
+
+TimetableValidatorTest > validator rejects unknown infrastructure lines and missing line maximum speeds() STARTED
+
+TimetableValidatorTest > dynamic selector validates only compatible depot origins() STARTED
+
+TimetableValidatorTest > relative wait before first movement requires acquisition and cannot interrupt destination options() STARTED
+
+TimetableValidatorTest > invalid station approach is rejected before a service run is installed() STARTED
+
+TimetableValidatorTest > validator expands route between checked origin and goto target() STARTED
+
+TimetableValidatorTest > validator rejects actions outside the declared logical game days() STARTED
+
+TimetableValidatorTest > validation distinguishes pass through legs and preserves station effective stopping offset() STARTED
+
+TimetableValidatorTest > validator rejects selectors and origins the dispatcher cannot execute() STARTED
+
+TimetableValidatorTest > retains every dynamic origin leg with explicit pass offset and stable association() STARTED
+
+TimetableValidatorTest > validation route offsets are aligned immutable and retained on invalid timetable() STARTED
+
+TimetableValidatorTest > validator reports missing waypoint() STARTED
+
+TimetableValidatorTest > waitUntil requires positioned acquisition and cannot interrupt destination options() STARTED
+
+TrainInfoTest > all action contexts preserve explicit bindings through persisted JSON() STARTED
+
+TrainInfoTest > bindings freeze caller maps and cannot mix literals() STARTED
+
+TrainInfoTest > binding keys and action ownership reject malformed snapshots() STARTED
+
+DetailedTrainTravelSimulatorTest > pure detailed simulator is deterministic and uses fixed logical steps() STARTED
+
+IsolatedTimetableSimulationTest > target feature receives real admission updates only from its local runtime() STARTED
+
+IsolatedTimetableSimulationTest > stops at the first configured significant delay() STARTED
+
+IsolatedTimetableSimulationTest > last movement completion is measured and a subsequent late task starts after completion() STARTED
+
+IsolatedTimetableSimulationTest > partial feature install failure releases prior targets in reverse order and suppresses cleanup failure() STARTED
+
+IsolatedTimetableSimulationTest > owner phase discards an overspeed request from an older physical frame() STARTED
+
+IsolatedTimetableSimulationTest > disabled captured safety never consumes another target's train with the same id() STARTED
+
+IsolatedTimetableSimulationTest > construction failure closes owned operation resource after features and preserves cleanup failures() STARTED
+
+IsolatedTimetableSimulationTest > feature retirement removes active inspection bindings without unloading another feature() STARTED
+
+IsolatedTimetableSimulationTest > clones static infrastructure without live trains and advances an isolated timetable() STARTED
+
+IsolatedTimetableSimulationTest > failed physical epoch never publishes an admission observation or runs post tick() STARTED
+
+IsolatedTimetableSimulationTest > reversal retains its grant and completes the return journey() STARTED
+
+IsolatedTimetableSimulationTest > detached formation needs contributor opt-in and exact provider clearance() STARTED
+
+IsolatedTimetableSimulationTest > isolated world installs its replaceable signal processor before physics starts() STARTED
+
+IsolatedTimetableSimulationTest > cancellation waits for physical and generic callbacks before closing feature state() STARTED
+
+IsolatedTimetableSimulationTest > task measurement counts final dwell and wait-until but excludes scheduled idle() STARTED
+
+IsolatedTimetableSimulationTest > unfinished task has no fabricated completion time() STARTED
+
+IsolatedTimetableSimulationTest > final extension duration ends at ticket success and rejection leaves task unfinished() STARTED
+
+IsolatedTimetableSimulationTest > same static inputs produce identical reports with parallel physics() STARTED
+
+IsolatedTimetableSimulationTest > simulation restores speed transitions and applies exact epoch overspeed through common owner phase() STARTED
+
+> Task :SimpleATOBukkit:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :SimpleATOBukkit:compileKotlin UP-TO-DATE
+> Task :SimpleATOBukkit:compileJava NO-SOURCE
+> Task :SimpleATOBukkit:processResources NO-SOURCE
+> Task :SimpleATOBukkit:classes UP-TO-DATE
+> Task :SimpleATOBukkit:jar UP-TO-DATE
+> Task :SimpleATOBukkit:compileTestKotlin UP-TO-DATE
+> Task :SimpleATOBukkit:compileTestJava NO-SOURCE
+> Task :SimpleATOBukkit:processTestResources NO-SOURCE
+> Task :SimpleATOBukkit:testClasses UP-TO-DATE
+> Task :SimpleATOBukkit:test UP-TO-DATE
+> Task :BukkitPlugin:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :BukkitPlugin:paperweightUserdevSetup UP-TO-DATE
+> Task :Diagnostics:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :Diagnostics:compileKotlin UP-TO-DATE
+> Task :Diagnostics:compileJava UP-TO-DATE
+> Task :BukkitPlugin:compileKotlin UP-TO-DATE
+> Task :BukkitPlugin:compileJava UP-TO-DATE
+> Task :BukkitPlugin:mainResourceFactory UP-TO-DATE
+> Task :Diagnostics:processResources NO-SOURCE
+> Task :Diagnostics:classes UP-TO-DATE
+> Task :Diagnostics:jar UP-TO-DATE
+> Task :WebUI:compileJava UP-TO-DATE
+> Task :WebUI:buildFrontend UP-TO-DATE
+> Task :WebUI:processResources UP-TO-DATE
+> Task :WebUI:classes UP-TO-DATE
+> Task :WebUI:shadowJar UP-TO-DATE
+> Task :BukkitPlugin:processResources UP-TO-DATE
+> Task :BukkitPlugin:classes UP-TO-DATE
+> Task :BukkitPlugin:jar UP-TO-DATE
+> Task :SimpleSignals:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :SimpleSignals:compileKotlin UP-TO-DATE
+> Task :SimpleSignals:compileJava UP-TO-DATE
+> Task :SimpleSignals:mainResourceFactory UP-TO-DATE
+> Task :SimpleSignals:processResources UP-TO-DATE
+> Task :SimpleSignals:classes UP-TO-DATE
+> Task :SimpleSignals:jar UP-TO-DATE
+> Task :SimpleSignals:compileTestKotlin UP-TO-DATE
+> Task :SimpleSignals:compileTestJava UP-TO-DATE
+> Task :SimpleSignals:testResourceFactory UP-TO-DATE
+> Task :SimpleSignals:processTestResources UP-TO-DATE
+> Task :SimpleSignals:testClasses UP-TO-DATE
+> Task :SimpleSignals:test UP-TO-DATE
+> Task :SimpleSignals:verifyPluginJar
+> Task :SimpleSignals:check
+> Task :BukkitPlugin:shadowJar UP-TO-DATE
+> Task :BukkitPlugin:compileOfflineMigrationKotlin UP-TO-DATE
+> Task :BukkitPlugin:compileOfflineMigrationJava NO-SOURCE
+> Task :BukkitPlugin:offlineMigrationResourceFactory UP-TO-DATE
+> Task :BukkitPlugin:processOfflineMigrationResources NO-SOURCE
+> Task :BukkitPlugin:offlineMigrationClasses UP-TO-DATE
+> Task :BukkitPlugin:compileTestKotlin UP-TO-DATE
+> Task :BukkitPlugin:compileTestJava UP-TO-DATE
+> Task :BukkitPlugin:testResourceFactory UP-TO-DATE
+> Task :BukkitPlugin:processTestResources UP-TO-DATE
+> Task :BukkitPlugin:testClasses UP-TO-DATE
+> Task :BukkitPlugin:test UP-TO-DATE
+> Task :WebUI:compileTestJava UP-TO-DATE
+> Task :WebUI:processTestResources NO-SOURCE
+> Task :WebUI:testClasses UP-TO-DATE
+> Task :WebUI:test UP-TO-DATE
+> Task :BukkitPlugin:compileSignalApiConsumerKotlin NO-SOURCE
+> Task :BukkitPlugin:compileSignalApiConsumerJava UP-TO-DATE
+> Task :verifySignalModuleBoundaries
+
+[Incubating] Problems report is available at: file:///workspace/minecraft/JavaRailways/.worktree/fixed-block-direction-deploy/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.0.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 1m 54s
+59 actionable tasks: 3 executed, 56 up-to-date

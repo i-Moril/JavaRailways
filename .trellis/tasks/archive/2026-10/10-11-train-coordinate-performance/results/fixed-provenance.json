@@ -1,0 +1,8 @@
+{
+  "head": "00a44abd16c284a2ec7f908a650637f70aeeebd3",
+  "sources": {
+    "Core/src/main/java/work/art1st/javarailways/core/physics/train/CoreCar.kt": "c46656db823595572afe2ef3913ccda876c14b9512265dba9005ba387c1b4fb2",
+    "Core/src/main/java/work/art1st/javarailways/core/physics/train/CoreTrain.kt": "c412296f8fb31906080b1ddda59c6ec7912657bfc4f1f51e601e63ca2a07caa2",
+    "Core/src/test/java/work/art1st/javarailways/core/physics/tick/PhysicsCapacityStressTest.kt": "3405343cc0ec4b1077ff8629c539861bf7862ad686fef7c3f378ab61e38ef5ef"
+  }
+}

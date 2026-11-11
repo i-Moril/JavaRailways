@@ -1,3 +1,3 @@
-{"file": ".trellis/spec/core/backend/index.md", "reason": "Core quality gate and concurrency coverage"}
+{"file": ".trellis/spec/javarailways/core/index.md", "reason": "Core quality gate and concurrency coverage"}
 {"file": ".trellis/spec/javarailways/shared/quality.md", "reason": "Focused test and diff validation requirements"}
 {"file": "ai_tasks/parallel_physics_swept_occupancy_plan.md", "reason": "Pressure test target and invariants"}

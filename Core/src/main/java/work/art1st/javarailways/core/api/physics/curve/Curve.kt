@@ -49,7 +49,7 @@ interface Curve {
     fun getPointAt(position: Vector3dc): Point {
         val point = getNearestPoint(position)
         if (point.position.distance(position) < TOLERANCE) return point
-        throw CurveException(this, point, "Point not in curve.")
+        throw CurveException("Point not in curve.")
     }
 
     @Heavy

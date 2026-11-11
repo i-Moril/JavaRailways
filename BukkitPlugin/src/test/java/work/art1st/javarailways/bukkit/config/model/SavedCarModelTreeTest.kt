@@ -3,6 +3,7 @@ package work.art1st.javarailways.bukkit.config.model
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 
 class SavedCarModelTreeTest {
     @Test
@@ -36,6 +37,38 @@ class SavedCarModelTreeTest {
         assertEquals(first.hash, second.hash)
         assertEquals(setOf("s100/body", "s100/floor_platform"), first.parts.keys)
         assertTrue(first.hash.matches(Regex("[0-9a-f]{64}")))
+    }
+
+    @Test
+    fun `rejects direct and indirect reference cycles with reference path`() {
+        for (indirect in listOf(false, true)) {
+            val a = PartDefinition(name = "test/a", type = PartType.DUMMY,
+                parts = listOf(PartRefEntry.import(if (indirect) "b" else "a")))
+            val b = PartDefinition(name = "test/b", type = PartType.DUMMY,
+                parts = listOf(PartRefEntry.import("a")))
+            val failure = assertThrows<IllegalArgumentException> {
+                SavedCarModelTree.build(CarDefinition(name = "test/car", length = 10.0,
+                    bodyParts = listOf(PartRefEntry.import("a"))),
+                    SnapshotPartRegistry(mapOf(a.name to a, b.name to b)))
+            }
+            assertTrue(failure.message.orEmpty().contains(
+                if (indirect) "test/a -> test/b -> test/a" else "test/a -> test/a"))
+        }
+    }
+
+    @Test
+    fun `allows diamond reuse and repeated roots`() {
+        val leaf = PartDefinition(name = "test/leaf", type = PartType.DUMMY)
+        val left = PartDefinition(name = "test/left", type = PartType.DUMMY,
+            parts = listOf(PartRefEntry.import("leaf")))
+        val right = PartDefinition(name = "test/right", type = PartType.DUMMY,
+            parts = listOf(PartRefEntry.import("leaf")))
+        val registry = SnapshotPartRegistry(listOf(left, right, leaf).associateBy { it.name })
+        val car = CarDefinition(name = "test/car", length = 10.0,
+            bodyParts = listOf("left", "right", "leaf").map { PartRefEntry.import(it) })
+        val snapshot = SavedCarModelTree.build(car, registry)
+        assertEquals(setOf(left.name, right.name, leaf.name), snapshot.parts.keys)
+        assertEquals(SavedCarModelTree.computeHash(car, snapshot.parts), snapshot.hash)
     }
 
     @Test

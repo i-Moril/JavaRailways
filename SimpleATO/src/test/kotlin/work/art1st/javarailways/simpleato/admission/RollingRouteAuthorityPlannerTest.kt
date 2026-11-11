@@ -1,0 +1,154 @@
+package work.art1st.javarailways.simpleato.admission
+
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Test
+import work.art1st.javarailways.basic.api.route.RouteBoundary
+
+class RollingRouteAuthorityPlannerTest {
+    @Test
+    fun `first request covers the resource window from the train head`() {
+        val boundary = next(
+            headProgressMeters = 20.0,
+            admissionState = RouteAuthorityAdmissionState.EMPTY
+        )
+
+        assertEquals(RouteBoundary(100.0), boundary)
+    }
+
+    @Test
+    fun `healthy remaining authority does not request another extension`() {
+        val boundary = next(
+            headProgressMeters = 40.0,
+            admissionState = committed(75.0)
+        )
+
+        assertNull(boundary)
+    }
+
+    @Test
+    fun `low remaining authority extends by one horizon without requesting the whole route`() {
+        val boundary = next(
+            headProgressMeters = 55.0,
+            admissionState = committed(75.0)
+        )
+
+        assertEquals(RouteBoundary(135.0), boundary)
+    }
+
+    @Test
+    fun `route end caps the requested boundary`() {
+        val boundary = next(
+            routeLengthMeters = 120.0,
+            headProgressMeters = 55.0,
+            admissionState = committed(75.0)
+        )
+
+        assertEquals(RouteBoundary(120.0), boundary)
+    }
+
+    @Test
+    fun `pending device preparation never starts another request`() {
+        val boundary = next(
+            headProgressMeters = 55.0,
+            admissionState = RouteAuthorityAdmissionState(
+                RouteBoundary(75.0),
+                pending = true,
+                reversalPending = false
+            )
+        )
+
+        assertNull(boundary)
+    }
+
+    @Test
+    fun `suspended reversal never starts a rolling extension`() {
+        val boundary = next(
+            headProgressMeters = 55.0,
+            admissionState = RouteAuthorityAdmissionState(
+                RouteBoundary(75.0),
+                pending = false,
+                reversalPending = true
+            )
+        )
+
+        assertNull(boundary)
+    }
+
+    @Test
+    fun `fully committed route does not submit an empty extension`() {
+        val boundary = next(
+            routeLengthMeters = 120.0,
+            headProgressMeters = 110.0,
+            admissionState = committed(120.0)
+        )
+
+        assertNull(boundary)
+    }
+
+    @Test
+    fun `unchanged stopped train does not grow its committed window`() {
+        val initial = next(headProgressMeters = 90.0, requestHorizonMeters = 25.0,
+            extensionTriggerMeters = 700.0, admissionState = RouteAuthorityAdmissionState.EMPTY)
+        assertEquals(RouteBoundary(115.0), initial)
+        repeat(10) {
+            assertNull(next(headProgressMeters = 90.0, requestHorizonMeters = 25.0,
+                extensionTriggerMeters = 700.0, admissionState = committed(115.0)))
+        }
+    }
+
+    @Test
+    fun `current window growth is batched rather than requesting every small movement`() {
+        assertNull(next(headProgressMeters = 91.0, requestHorizonMeters = 25.0,
+            extensionTriggerMeters = 700.0, admissionState = committed(115.0)))
+        assertEquals(RouteBoundary(120.0), next(headProgressMeters = 95.0,
+            requestHorizonMeters = 25.0, extensionTriggerMeters = 700.0,
+            admissionState = committed(115.0)))
+    }
+
+    @Test
+    fun `stopped after denied extension can retry without restoring the fast window`() {
+        // The old high-speed request was denied. The train has stopped conservatively 8m
+        // before the grant end (5m safety plus 3m early-stop slack), not at the grant itself.
+        val stopped = next(headProgressMeters = 92.0, requestHorizonMeters = 25.0,
+            extensionTriggerMeters = 700.0, admissionState = committed(100.0))
+        assertEquals(RouteBoundary(117.0), stopped)
+        assertEquals(stopped, next(headProgressMeters = 92.0, requestHorizonMeters = 25.0,
+            extensionTriggerMeters = 700.0, admissionState = committed(100.0)),
+            "a denial does not mutate the committed frontier or suppress a later retry")
+    }
+
+    @Test
+    fun `short final suffix is not lost to extension batching`() {
+        assertEquals(RouteBoundary(120.3), next(routeLengthMeters = 120.3,
+            headProgressMeters = 96.0, requestHorizonMeters = 25.0,
+            extensionTriggerMeters = 700.0, admissionState = committed(120.0)))
+    }
+
+    @Test
+    fun `reversal body-only grant gets ordinary forward startup window`() {
+        assertEquals(RouteBoundary(115.0), next(headProgressMeters = 90.0,
+            requestHorizonMeters = 25.0, extensionTriggerMeters = 700.0,
+            admissionState = committed(90.0)))
+    }
+
+    private fun next(
+        routeLengthMeters: Double = 300.0,
+        headProgressMeters: Double,
+        requestHorizonMeters: Double = 80.0,
+        extensionTriggerMeters: Double = 20.0,
+        admissionState: RouteAuthorityAdmissionState
+    ): RouteBoundary? = RollingRouteAuthorityPlanner.nextBoundary(
+        routeLengthMeters = routeLengthMeters,
+        headProgressMeters = headProgressMeters,
+        requestHorizonMeters = requestHorizonMeters,
+        extensionTriggerMeters = extensionTriggerMeters,
+        admissionState = admissionState
+    )
+
+    private fun committed(boundaryMeters: Double) = RouteAuthorityAdmissionState(
+        RouteBoundary(boundaryMeters),
+        pending = false,
+        reversalPending = false
+    )
+}

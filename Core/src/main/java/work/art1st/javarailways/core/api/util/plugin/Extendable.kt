@@ -16,8 +16,7 @@ interface Extendable<ExtensionDataBase> {
     fun <T : ExtensionDataBase> registerExtensionData(plugin: Plugin, data: T)
 
     /**
-     * Only apply on non-null extension data
+     * Invokes [action] once for every registered, non-null extension slot in identifier order.
      */
     fun forEachExtensionData(action: (ExtensionDataBase) -> Unit)
-    fun <T> forEachExtensionData(action: (ExtensionDataBase) -> T) : List<T>
 }

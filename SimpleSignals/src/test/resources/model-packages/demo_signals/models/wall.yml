@@ -1,0 +1,7 @@
+parts:
+  - import: head
+default:
+  lamp: dark
+variants:
+  stop: {lamp: red}
+  proceed: {lamp: green}

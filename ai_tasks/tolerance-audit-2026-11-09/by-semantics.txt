@@ -1,0 +1,241 @@
+JavaRailways 容差语义归类 — 2026-11-09 UTC
+上轮48处命名常量+11处局部公式+1处超速配置；不宣称覆盖全仓全部内联阈值。
+按用途归为37项实际使用的职责组，另1项未使用定义。组的粒度按本报告列明的职责确定，并非37个互不相关的可调参数。
+同值不同语义分开；同一语义中的别名不重复算数值源。数量字段为该组对应的声明/局部公式/配置项数，不能当使用点数。
+未修改产品代码或服务器。
+
+01. 通用轨道几何位置验收
+    值：5 mm
+    声明/公式/配置项：1；状态：使用中
+    说明：连接、恢复摆位、轨道区间等多处消费；不是车钩求解精度。
+    TOLERANCE : Double = 5e-3 — /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/api/physics/curve/Curve.kt:61
+
+02. 生成曲线端点贴合锚点
+    值：10 mm = 2 × Curve.TOLERANCE
+    声明/公式/配置项：1；状态：使用中
+    positionTolerance = Curve.TOLERANCE * 2 — /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:435
+
+03. 车内轴距刚体求解残差
+    值：0.001 mm = 1e-6 m
+    声明/公式/配置项：1；状态：使用中
+    说明：StoppedBodyGeometry 的 AXLE_RESIDUAL 也是此值的别名，未重复计数。
+    AXLE_TOLERANCE = 1e-6 — /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/physics/train/CoreCar.kt:806
+
+04. 车间车钩刚体求解残差
+    值：0.01 mm = 1e-5 m
+    声明/公式/配置项：1；状态：使用中
+    说明：目前引用碰撞接触常量，但求解与接触是不同职责。
+    COUPLER_TOLERANCE = COUPLER_CONTACT_EPSILON_METERS — /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/physics/train/CoreCar.kt:807
+
+05. 车钩碰撞/联结接触及车体证明的间隙界
+    值：0.01 mm = 1e-5 m
+    声明/公式/配置项：1；状态：使用中
+    说明：同时被停车车体几何证明用作车间刚体残差上界；这里只计一次定义。
+    COUPLER_CONTACT_EPSILON_METERS = 1e-5 — /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/physics/train/CollisionEnvelope.kt:17
+
+06. 平面交叉轨道的空间邻近判定
+    值：0.2 m
+    声明/公式/配置项：1；状态：使用中
+    AT_GRADE_CROSSING_TOLERANCE_METERS = 0.2 — /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/physics/rail/AtGradeRailCrossingIndex.kt:12
+
+07. 交叉线段算法的退化/近零判断
+    值：1e-12（使用表达式含长度平方等多种量）
+    声明/公式/配置项：1；状态：使用中
+    说明：不是统一以米计的容差。
+    SEGMENT_EPSILON = 1.0e-12 — /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/physics/rail/AtGradeRailCrossingIndex.kt:446
+
+08. 交叉线段的平行/共线判断
+    值：相对阈值 1e-12
+    声明/公式/配置项：1；状态：使用中
+    PARALLEL_EPSILON = 1.0e-12 — /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/physics/rail/AtGradeRailCrossingIndex.kt:447
+
+09. 路线位置、区间拼接与授权边界的数值比较
+    值：1e-9 m：5处；1e-6 m：5处
+    声明/公式/配置项：10；状态：使用中
+    说明：这是同一职责大类的10个模块内定义，不宣称它们可无条件合并。
+    POSITION_EPSILON = 1e-9 — /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/route/TopologyRoutePlanner.kt:850
+    ROUTE_POSITION_EPSILON = 1.0e-9 — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/OperationalRoutePlanner.kt:114
+    EPSILON = 1.0e-6 — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/DirectedRouteContinuation.kt:51
+    EPSILON = 1.0e-6 — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/FrozenMissionRouteAssembler.kt:501
+    EPSILON = 1.0e-6 — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/TerminalRouteMargin.kt:108
+    ROUTE_DISTANCE_EPSILON_METERS = 1.0e-9 — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/InspectionScheduler.kt:288
+    EPSILON_METERS = 1.0e-9 — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/AuthorityRequestFloors.kt:102
+    EPSILON = 1.0e-9 — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/EntryClearance.kt:125
+    EPSILON_METERS = 1.0e-6 — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/admission/RollingRouteAuthorityPlanner.kt:53
+    COMPLETE_ROUTE_EPSILON_METERS = 1.0e-6 — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/admission/RouteAuthorityAdmissionClient.kt:545
+
+10. 编组输出车体轨道坐标一致性
+    值：1e-8 m
+    声明/公式/配置项：1；状态：使用中
+    BODY_COORDINATE_EPSILON_METERS = 1e-8 — /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/FormationOutputAdmission.kt:12
+
+11. 运营位置验收：停车、站台、起点、路线投影、手动保护等
+    值：共享基准 0.3 m；结构窗口 min(0.3 m, stationTolerance)
+    声明/公式/配置项：10；状态：使用中
+    说明：9处常量声明（1个数值源+8个别名）和1处局部收紧公式；转发getter不重复计数。
+    POSITION_TOLERANCE_METERS = 0.3 — /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/api/ato/AtoSpatialPolicy.kt:5
+    POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt:6908
+    MANUAL_PROTECTION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt:6912
+    POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableInitialPositioner.kt:173
+    TIMETABLE_ORIGIN_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralEventWindow.kt:10
+    POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/FrozenMissionRouteAssembler.kt:13
+    POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/admission/RollingRouteAuthorityPlanner.kt:54
+    DEFAULT_POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/station/Station.kt:79
+    DEFAULT_POSITION_TOLERANCE_METERS = work.art1st.javarailways.basic.api.ato.AtoSpatialPolicy.POSITION_TOLERANCE_METERS — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/destination/OperationalDestination.kt:119
+    tolerance = minOf(TIMETABLE_ORIGIN_TOLERANCE_METERS, — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralEventWindow.kt:41
+
+12. 站台越过停车点判断的附加数值余量
+    值：附加 1 mm；与0.3 m基准相加后为0.301 m
+    声明/公式/配置项：2；状态：使用中
+    POSITION_EPSILON_METERS = 1.0e-3 — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/controller/SimpleATO.kt:1391
+    effectivePositionTolerance = resolved.positionToleranceMeters + POSITION_EPSILON_METERS — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/controller/SimpleATO.kt:1054
+
+13. 资源准入时判定列车已停稳
+    值：1e-6 m/s
+    声明/公式/配置项：1；状态：使用中
+    STOPPED_SPEED_EPSILON_METERS_PER_SECOND = 1.0e-6 — /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/RouteResourceAdmissionEngine.kt:1434
+
+14. 车辆段Reset的长度/包络重叠比较
+    值：1e-6 m
+    声明/公式/配置项：1；状态：使用中
+    RESET_POSITION_EPSILON_METERS = 1.0e-6 — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/depot/DepotReset.kt:23
+
+15. 车辆段出发后车尾释放判定
+    值：1e-6 m
+    声明/公式/配置项：1；状态：使用中
+    DEPOT_DEPARTURE_RELEASE_EPSILON_METERS = 1.0e-6 — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt:6910
+
+16. 竖曲线约束解算的近零/一致性判断
+    值：1e-9（高程、坡度与线性方程系数混用）
+    声明/公式/配置项：1；状态：使用中
+    说明：此常量自身存在跨单位复用，不能统一解释成1e-9 m。
+    EPSILON = 1.0e-9 — /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/VerticalProfileSmoother.kt:62
+
+17. 竖曲线重建的长度匹配
+    值：max(0.1 mm, profile.length × 1e-6)
+    声明/公式/配置项：1；状态：使用中
+    说明：同一个常量也用于拒绝水平长度<=0.1 mm的曲线。
+    LENGTH_TOLERANCE = 1.0e-4 — /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/VerticalCurveRebuilder.kt:11
+
+18. 曲线端点/并行锚点切线和法线方向验收
+    值：1°（点积下限 cos(1°)）
+    声明/公式/配置项：2；状态：使用中
+    tangentToleranceDot = cos(Math.toRadians(1.0)) — /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:447
+    tangentToleranceDot = cos(Math.toRadians(1.0)) — /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelAnchorGeometry.kt:16
+
+19. S弯目标半径拟合验收
+    值：max(0.5 m, 目标半径 × 0.5%)
+    声明/公式/配置项：1；状态：使用中
+    tolerance = maxOf(0.5, options.radius * 0.005) — /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt:357
+
+20. 并行偏移曲线端点修正前的最大允许偏离
+    值：max(0.25 m, 估计轨间距 × 10%)
+    声明/公式/配置项：1；状态：使用中
+    说明：这是修正前的偏移准入，最终端点仍按Curve.TOLERANCE检查。
+    tolerance = maxOf(0.25, estimatedSpacing(offsets) * 0.1) — /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelCurveBuilder.kt:33
+
+21. 并行锚点横断面纵向偏离
+    值：max(0.25 m, 目标轨间距 × 5%)
+    声明/公式/配置项：1；状态：使用中
+    sectionTolerance = max(0.25, expectedSpacing * 0.05) — /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelAnchorGeometry.kt:82
+
+22. 并行锚点高程偏离
+    值：max(0.05 m, 目标轨间距 × 2%)
+    声明/公式/配置项：1；状态：使用中
+    elevationTolerance = max(0.05, expectedSpacing * 0.02) — /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelAnchorGeometry.kt:83
+
+23. 并行锚点实际轨间距偏离
+    值：max(0.25 m, 目标轨间距 × 15%)
+    声明/公式/配置项：1；状态：使用中
+    spacingTolerance = max(0.25, expectedSpacing * 0.15) — /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/ParallelAnchorGeometry.kt:95
+
+24. 保持制动是否已建立：制动比例比较
+    值：1e-9，无量纲
+    声明/公式/配置项：1；状态：使用中
+    BRAKE_RATIO_EPSILON = 1.0e-9 — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/ReferenceStrategies.kt:59
+
+25. 保持制动是否已建立：空气压力比较
+    值：1e-6 kPa
+    声明/公式/配置项：1；状态：使用中
+    PRESSURE_EPSILON_KPA = 1.0e-6 — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/ReferenceStrategies.kt:60
+
+26. 坡度扫描循环的弧长边界比较
+    值：1e-9 m
+    声明/公式/配置项：1；状态：使用中
+    GRADE_ARC_EPSILON_METERS = 1.0e-9 — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/controller/SimpleATO.kt:1362
+
+27. 动画关键帧时间/插值区间近零判断
+    值：1e-9 s
+    声明/公式/配置项：1；状态：使用中
+    EPSILON = 1e-9 — /workspace/minecraft/JavaRailways/BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/Animation.kt:327
+
+28. 坡度显示的零值过滤
+    值：1e-9，坡比，无量纲
+    声明/公式/配置项：1；状态：使用中
+    MAXIMUM_GRADE_DISPLAY_EPSILON = 1.0e-9 — /workspace/minecraft/JavaRailways/BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:103
+
+29. 渲染LOD的移动状态判定
+    值：速度平方 > 1e-6 (m/s)²，即速度 > 0.001 m/s
+    声明/公式/配置项：1；状态：使用中
+    MOVING_EPSILON_SQUARED = 1.0e-6 — /workspace/minecraft/JavaRailways/BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/CarExtension.kt:674
+
+30. 轨道装饰采样弧长边界与ULP消差
+    值：基准1e-9 m；sanitize使用max(1e-9, 4×ulp(scale))
+    声明/公式/配置项：2；状态：使用中
+    EPSILON = 1.0e-9 — /workspace/minecraft/JavaRailways/BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/rail/RailDecorationLayout.kt:9
+    tolerance = max(EPSILON, Math.ulp(scale) * 4.0) — /workspace/minecraft/JavaRailways/BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/rail/RailDecorationLayout.kt:49
+
+31. 模型朝向单位向量验收
+    值：|lengthSquared - 1| <= 1e-9，无量纲
+    声明/公式/配置项：1；状态：使用中
+    UNIT_LENGTH_TOLERANCE = 1e-9; — /workspace/minecraft/JavaRailways/BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/model/ModelPose.java:9
+
+32. 信号设备编辑选择的沿轨距离窗口
+    值：0.75 m
+    声明/公式/配置项：1；状态：使用中
+    DEVICE_SELECTION_TOLERANCE_METRES = 0.75 — /workspace/minecraft/JavaRailways/SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/SignalWandBackend.kt:911
+
+33. 保护进路替换后的边界坐标匹配
+    值：1e-9 m
+    声明/公式/配置项：1；状态：使用中
+    REPLACEMENT_POSITION_EPSILON = 1e-9 — /workspace/minecraft/JavaRailways/SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/region/ProtectionRouteTableCatalog.kt:501
+
+34. 隧道扫掠几何退化向量/重合采样点判断
+    值：向量长度1e-12；采样/插值长度平方1e-18
+    声明/公式/配置项：2；状态：使用中
+    说明：有位置差与方向向量两种输入，平方阈值不可直接当长度。
+    EPSILON_SQUARED = 1.0e-18 — /workspace/minecraft/JavaRailways/TunnelBridgeBuilder/src/main/kotlin/work/art1st/javarailways/tunnelbridgebuilder/algorithm/SampledCenterLine.kt:55
+    EPSILON = 1.0e-12 — /workspace/minecraft/JavaRailways/TunnelBridgeBuilder/src/main/kotlin/work/art1st/javarailways/tunnelbridgebuilder/algorithm/Geometry.kt:39
+
+35. 隧道扫掠体端面内外判断
+    值：1e-9 m
+    声明/公式/配置项：1；状态：使用中
+    END_PLANE_EPSILON = 1.0e-9 — /workspace/minecraft/JavaRailways/TunnelBridgeBuilder/src/main/kotlin/work/art1st/javarailways/tunnelbridgebuilder/algorithm/SweepPlanner.kt:76
+
+36. WebUI轨道地图按高程分层
+    值：2 m
+    声明/公式/配置项：1；状态：使用中
+    说明：显示分层阈值，不是轨道物理连接容差。
+    CONNECTED_ELEVATION_TOLERANCE_METERS =2; — /workspace/minecraft/JavaRailways/WebUI/frontend/src/railMap.ts:10
+
+37. 超速脱轨监测允许偏差
+    值：默认5 km/h = 1.388888… m/s
+    声明/公式/配置项：1；状态：使用中
+    说明：配置值来自physics.yml；不是ATP或正常运营限速的统一超速许可。
+    overspeed.tolerance-kmh = 5.0 — /workspace/minecraft/JavaRailways/BukkitPlugin/src/main/resources/physics.yml:66
+
+38. 仅定义、未发现消费的释放epsilon
+    值：1e-6 m
+    声明/公式/配置项：1；状态：未发现使用
+    说明：生产源码只找到定义，不能计作实际执行中的用途。
+    RELEASE_EPSILON_METERS = 1.0e-6 — /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt:6909
+
+不纳入上述数量的补充项：
+Curve.PRECISION=1e-3m：生产源码只找到定义。
+PrimeCurveImpl.MIN_ARC_SPACING=1e-12m：最小采样弧长间隔。
+PrimeCurveImpl.FRAME_MARGIN=1e-12：标架非退化证明。
+ParallelAnchorGeometry.MIN_VECTOR_SQUARED=1e-12：水平向量近零判定。
+RailWandTurnoutGeometryPolicy.TURNOUT_FRAME_DIRECTION_DOT=1-1e-10：道岔边界方向一致性。
+StoppedBodyGeometry.AXLE_RESIDUAL：轴距求解容差别名。
+IEEE UNIT_ROUNDOFF 与 Math.ulp/nextUp/nextDown 是算术误差界机制，不算可调业务容差。
+另外仍有内联比较阈值；上轮的小数候选扫描不能直接等同于语义容差数。

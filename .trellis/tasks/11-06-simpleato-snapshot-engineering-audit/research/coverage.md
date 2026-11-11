@@ -1,0 +1,220 @@
+# SimpleATO 逐文件覆盖清单
+
+2026-11-06，基线 `b89b0d5d`。`rg --files SimpleATO` 共 199 个文件：107 个生产 Kotlin 文件、89 个测试/fixture、2 个 Dokka 文档、1 个构建文件。全部生产文件已完整阅读；不等于全部测试逐行审查，更不等于全场景动态验收。跨模块仅追踪相关调用链。
+
+审查方法由 `javarailways-code-review` 要求的来源→发布→消费→生命周期核对组织，不能靠模式搜索或已有测试通过推导无缺陷。
+
+## 生产源文件（全部完整阅读）
+
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/SimpleATOPlugin.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/SimpleATOWorldData.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/admission/RollingRouteAuthorityPlanner.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/admission/RouteAuthorityAdmissionClient.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/SimpleAtoApiValidation.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/ato/AbstractATO.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/ato/AtoPlanner.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/ato/AtoSafetyProfile.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/ato/AtoStallReportJson.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/ato/AtoWorldCoordinator.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/atp/AtpModel.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/constraint/AtoConstraint.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/constraint/ConstraintManager.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/depot/Depot.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/depot/DepotOperationalSnapshot.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/depot/FixedEmuUnit.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/depot/FixedFormationChange.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/destination/OperationalDestination.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/inspection/InspectionDeclaration.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/inspection/InspectionEntryClearance.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/inspection/InspectionSource.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/inspection/InspectionUpdate.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/line/Line.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/line/LinePlanner.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/mission/AtoMission.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/restriction/TrainRestriction.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/route/FrozenRouteBinding.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/route/RoutePlanningRestrictionBinding.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/signal/SignalEpochSource.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/simulation/PreparedSimulationFeature.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/station/Station.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/station/StationCallRegistry.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/station/StationCallResolutionProvider.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/station/StationCallResolver.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/station/StationCallRuntime.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/station/StationStopSelection.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/timetable/TimetableCirculationSummary.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/timetable/TimetableExtension.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/atp/ConservativeAtpModel.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/atp/GradeBrakeTable.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/AffineActuatorResponse.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/ManualProtectionFrame.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/MotionReference.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/NominalServiceBrakeModel.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/RailwayControlRuntime.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/ReferenceStrategies.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/RouteGradeBounds.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/TrainControlFrame.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/control/VehicleControlExecutor.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/controller/SimpleATO.kt` — 完整；报告 `control-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/depot/DepotReset.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/AuthorityRequestFloors.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/EntryClearance.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/InspectionRuntime.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/InspectionScheduler.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/persistence/DispatcherSnapshot.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/persistence/SimpleATOInfrastructureSnapshot.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/persistence/SimpleATORuntimeSnapshot.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/persistence/StationStopProgramSnapshot.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/persistence/TimetableSnapshot.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/persistence/TrainInfoSnapshot.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/restriction/TrainRestrictionConstraintAdapter.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/restriction/TrainRestrictionSnapshotStore.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/DirectedRouteContinuation.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/FrozenMissionRouteAssembler.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/FrozenRouteSelector.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/MissionRouteProgress.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/OperationalRoutePlanner.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/RouteAllocationTiming.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/RouteBuildResult.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/RouteOperatingDirectionLimit.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/RoutePlanningRestrictionRuntime.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/routing/TerminalRouteMargin.kt` — 完整；报告 `inspection-routing-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/runtime/OperationalWorldRuntime.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/signal/SignalEpochRuntime.kt` — 完整；报告 `domain-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/CurrentUnitCirculation.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/FixedFormationOperation.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/FixedFormationOutputHandoff.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/FixedUnitCouplePlan.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/FixedUnitSplitPlan.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/FormationEvent.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/FormationOutputMetadata.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/FrozenRouteEditProtection.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/InfrastructureDependencyService.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/InitialPosition.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/ManualNavigation.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/RetainedTimetableRoutes.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StationPreparationLead.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StationStopProgramRuntime.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StationStopPrograms.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralBranchTrace.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralCouplingContact.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralEventWindow.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralOutputCorridor.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralRouteBindings.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralTimetableValidation.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/Timetable.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableBranchGuard.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDumper.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableInitialPositioner.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableProgramCursor.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableRunMetadata.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableUnitCirculation.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TrainInfo.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/DefaultSimulationDomainTarget.kt` — 完整；报告 `timetable-audit.md`。
+- `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/IsolatedTimetableSimulation.kt` — 完整；报告 `timetable-audit.md`。
+
+## 测试/fixture（全部盘点和执行，源码阅读深度见负责报告）
+
+“执行”指完整测试集通过，fixture 本身不是独立测试。control 报告列出的13个测试全文阅读；domain/timetable/main 分区有选择性阅读，报告明确给出未读或仅搜索部分。下面逐文件不冒充全文已读。
+
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/SimpleATOWorldDataTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/admission/AdmittedCouplingPhysicalIntegrationTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/admission/AdmittedSpeedPhysicalIntegrationTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/admission/RollingRouteAuthorityPlannerTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/admission/RouteAuthorityAdmissionClientTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/ato/AbstractATOConsistTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/ato/AbstractATOMotionPublicationTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/ato/AtoPolicyTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/ato/FormationHeldAtoPreparationTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/constraint/BrakingConstraintProjectionTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/depot/CrossDepotStoreTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/depot/DepotStoreTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/depot/FixedEmuUnitLedgerTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/depot/FixedFormationChangeTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/destination/OperationalDestinationTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/line/LinePlannerTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/line/LineStoreTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/mission/AtoMissionTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/station/StationCallRegistryTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/station/StationCallResolverRegistryTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/station/StationCallResolverTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/station/StationModelTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/station/StationStopSelectionTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/timetable/TimetableExtensionRegistryTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/atp/ConservativeAtpModelTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/control/ManualProtectionFrameTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/control/ReferenceProtectionIntegrationTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/control/ReferenceStrategyTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/control/TrainControlFrameTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/control/VehicleControlExecutorTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/controller/SimpleATOTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/depot/DepotResetCoordinatorTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/inspection/AuthorityRequestFloorsTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/inspection/EntryClearanceRuntimeTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/inspection/EntryClearanceTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/inspection/InspectionRuntimeTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/inspection/InspectionSchedulerTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/persistence/DispatcherSnapshotTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/persistence/FormationRecoverySnapshotTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/persistence/SavedLineMaximumSpeedTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/persistence/SimpleATOInfrastructureSnapshotTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/persistence/StationStopProgramSnapshotTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/persistence/TimetableSnapshotTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/restriction/EmptyTrainRestrictionSnapshotProvider.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/restriction/TrainRestrictionConstraintAdapterTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/restriction/TrainRestrictionSnapshotStoreTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/routing/FrozenMissionRouteAssemblerTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/routing/FrozenRouteSelectorTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/routing/MissionRouteProgressTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/routing/OperationalRoutePlannerTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/routing/ProductionRoutePlanningRestrictionTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/routing/RouteAllocationTimingTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/routing/RouteOperatingDirectionLimitTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/routing/RoutePlanningRestrictionRuntimeTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/routing/TerminalRouteMarginTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/signal/SignalEpochRuntimeTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/station/StationCallRuntimeTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/testing/KinematicTrainActuator.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/testing/KinematicTrainActuatorTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/testing/TestSimpleATOWorldDataRegistry.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/CurrentUnitCirculationTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/FixedFormationOperationTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/FixedUnitCouplePlanTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/FixedUnitSplitPlanTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/FormationEventTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/FormationOutputMetadataTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/FrozenRouteEditProtectionTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/GrantingRouteAdmissionTestContext.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/LineMaximumSpeedResolverTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/ManualNavigationTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/RollingStationAdmissionTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/StationPreparationLeadTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/StationStopProgramRuntimeTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralOnwardRoutingTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralOutputCorridorTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/StructuralTimetableValidationTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableBranchValidationTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableCirculationSummaryTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcherSharedAdmissionTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcherTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableFormationDispatcherTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableInitialPositionerTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableProgramCursorTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableRunMetadataTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableStationCallDispatcherTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableUnitCirculationTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableValidatorTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/TrainInfoTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+- `SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/IsolatedTimetableSimulationTest.kt` — 已盘点；完整 suite 已运行；源码全文/部分阅读以分区报告为准。
+
+## 构建和模块文档（全部完整阅读）
+
+- `SimpleATO/build.gradle.kts` — 完整；`domain-audit.md`。
+- `SimpleATO/src/main/dokka/Module.md` — 完整；`domain-audit.md`。
+- `SimpleATO/src/main/dokka/SimpleATOPackages.md` — 完整；`domain-audit.md`。
+
+## 验证边界
+
+现有测试 788 项通过（临时测试堆 3GB；默认堆首先 OOM）。新增审查探针、真实回放证据和执行命令单独记在 `validation.md`；本轮无测试服务器运行，无修复后的反事实模拟。数学控制算法阅读和已有数值回归不等于形式证明。未逐行审查其余模块或全部测试源码。
+

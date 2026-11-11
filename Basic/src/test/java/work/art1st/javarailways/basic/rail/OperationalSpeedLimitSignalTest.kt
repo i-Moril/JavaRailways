@@ -3,20 +3,38 @@ package work.art1st.javarailways.basic.rail
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.safety.TrainSpeedProfile
+import work.art1st.javarailways.basic.testing.TestBasicWorldDataRegistry
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
-import work.art1st.javarailways.core.physics.train.createTrainWithConfig
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 
 class OperationalSpeedLimitSignalTest {
+    private val fixtures = mutableListOf<TestWorldFixture>()
+
+    private fun newTestWorld() = TestWorldFixture.create().also { fixtures += it }.world
+
+    @AfterEach
+    fun closeTestWorlds() {
+        var firstFailure: Throwable? = null
+        fixtures.asReversed().forEach { fixture ->
+            try {
+                fixture.close()
+            } catch (failure: Throwable) {
+                val primary = firstFailure
+                if (primary == null) firstFailure = failure else primary.addSuppressed(failure)
+            }
+        }
+        fixtures.clear()
+        firstFailure?.let { throw it }
+    }
+
     @Test
     fun `materializes one direction-filtered entry signal per RailView`() {
-        val world = createTestWorld()
+        val world = newTestWorld()
         TestBasicWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
@@ -30,9 +48,6 @@ class OperationalSpeedLimitSignalTest {
                 )
             )
         )
-        val train = createTrainWithConfig("signal-test", rail, world, listOf(8.0))
-        world.basicWorldData.trainSpeedProfiles.put(train.id, TrainSpeedProfile(10.0))
-
         OperationalSpeedLimitSignalMaterializer.materialize(world)
 
         val ab = rail.viewAB.staticRailObjects.single() as OperationalSpeedLimitSignal
@@ -41,15 +56,15 @@ class OperationalSpeedLimitSignalTest {
         assertEquals(ViewDirection.BA, ba.appliesTo)
         assertEquals(0.0, ab.location.arcLengthIn(ViewDirection.AB))
         assertEquals(0.0, ba.location.arcLengthIn(ViewDirection.BA))
-        assertEquals(20.0, ab.getSpeedLimit(train))
-        assertEquals(20.0, ba.getSpeedLimit(train))
+        assertEquals(20.0, ab.speedLimitMetersPerSecond)
+        assertEquals(20.0, ba.speedLimitMetersPerSecond)
         assertTrue(ab !in rail.viewBA.staticRailObjects)
         assertTrue(ba !in rail.viewAB.staticRailObjects)
     }
 
     @Test
     fun `empty metadata creates release transitions`() {
-        val world = createTestWorld()
+        val world = newTestWorld()
         TestBasicWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
@@ -59,6 +74,6 @@ class OperationalSpeedLimitSignalTest {
         OperationalSpeedLimitSignalMaterializer.materialize(world)
 
         val signal = rail.viewAB.staticRailObjects.single() as OperationalSpeedLimitSignal
-        assertNull(signal.getSpeedLimit(createTrainWithConfig("release-test", rail, world, listOf(8.0))))
+        assertNull(signal.speedLimitMetersPerSecond)
     }
 }

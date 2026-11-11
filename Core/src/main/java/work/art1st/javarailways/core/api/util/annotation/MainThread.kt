@@ -4,7 +4,8 @@ package work.art1st.javarailways.core.api.util.annotation
  * Declares that a platform main thread must own the annotated operation.
  *
  * This annotation is documentation only; callers must arrange scheduling themselves. Selected
- * implementations additionally enforce the contract with ThreadGuard.
+ * implementations additionally enforce the contract with
+ * [work.art1st.javarailways.core.api.threading.ThreadGuard].
  */
 @Target(
     AnnotationTarget.CLASS,

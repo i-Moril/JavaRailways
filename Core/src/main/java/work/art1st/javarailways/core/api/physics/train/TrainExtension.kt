@@ -1,8 +1,39 @@
 package work.art1st.javarailways.core.api.physics.train
 
+import org.jetbrains.annotations.ApiStatus
 import work.art1st.javarailways.core.api.util.plugin.Extension
 
 interface TrainExtension : Extension<Train> {
-    fun splitFrom(carNum: Int, newId: String) : TrainExtension
-    fun linkWith(otherTrain: Train)
+    /**
+     * Prepare the extension instance for the train beginning at [carId] in stable consist order.
+     *
+     * This method runs before Core publishes either half of the split. It must not mutate this
+     * extension or perform externally visible work: a later extension or new-host initialization
+     * can still fail, and Core has no generic protocol for rolling such effects back. The returned
+     * dedicated instance is installed in the same extension slot and initialized against the new
+     * train; returning this host's existing extension instance is invalid. That first initialize
+     * call is still inside split preparation and may initialize only the returned extension's own
+     * state—it must not mutate the shared cars or publish platform effects before it returns.
+     * The preparing host still uses the original operating direction; the selected result
+     * direction and complete final frame are installed only after initialization succeeds.
+     * This supported hook is experimental: signatures and semantics may change without source or
+     * binary compatibility guarantees, including for Java callers.
+     */
+    @ApiStatus.Experimental
+    fun splitBefore(carId: String, newId: String): TrainExtension
+
+    /**
+     * Prepare a dedicated replacement for the union of both source extension slots.
+     *
+     * Core calls the master's extension when present, otherwise the removed side's extension;
+     * [counterpart] is the other source's same-slot extension or null. Neither this method nor
+     * replacement initialization may mutate source hosts, shared cars or external state.
+     * Initialization receives the unchanged master host, before result geometry is committed.
+     * Return a new instance, never either source instance. All slots prepare successfully before
+     * Core attaches any replacement. Failure preserves both original containers. This supported
+     * experimental hook can change source/binary contract; it is main-owner, blocking only for
+     * bounded local preparation and must not perform I/O or wait for platform work.
+     */
+    @ApiStatus.Experimental
+    fun prepareLink(masterTrain: Train, removedTrain: Train, counterpart: TrainExtension?): TrainExtension
 }

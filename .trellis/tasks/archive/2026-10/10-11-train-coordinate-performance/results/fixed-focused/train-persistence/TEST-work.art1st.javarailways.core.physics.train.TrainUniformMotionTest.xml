@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="work.art1st.javarailways.core.physics.train.TrainUniformMotionTest" tests="10" skipped="6" failures="0" errors="0" timestamp="2026-10-11T06:36:30.755Z" hostname="dev" time="0.272">
+  <properties/>
+  <testcase name="straight track - constant speed and distance()" classname="work.art1st.javarailways.core.physics.train.TrainUniformMotionTest" time="0.168"/>
+  <testcase name="circle R=30 - several loops, speed and position()" classname="work.art1st.javarailways.core.physics.train.TrainUniformMotionTest" time="0.001">
+    <skipped/>
+  </testcase>
+  <testcase name="circle R=200 - several loops()" classname="work.art1st.javarailways.core.physics.train.TrainUniformMotionTest" time="0.0">
+    <skipped/>
+  </testcase>
+  <testcase name="circle R=100 - 5 cars 20m each, several loops()" classname="work.art1st.javarailways.core.physics.train.TrainUniformMotionTest" time="0.0">
+    <skipped/>
+  </testcase>
+  <testcase name="circle R=100 - several loops()" classname="work.art1st.javarailways.core.physics.train.TrainUniformMotionTest" time="0.0">
+    <skipped/>
+  </testcase>
+  <testcase name="curved frame velocity follows bogie tangents and rigid body rotation()" classname="work.art1st.javarailways.core.physics.train.TrainUniformMotionTest" time="0.004"/>
+  <testcase name="circle R=500 - several loops()" classname="work.art1st.javarailways.core.physics.train.TrainUniformMotionTest" time="0.0">
+    <skipped/>
+  </testcase>
+  <testcase name="published velocity follows reversal and clears when stopped()" classname="work.art1st.javarailways.core.physics.train.TrainUniformMotionTest" time="0.066"/>
+  <testcase name="circle R=60 - several loops()" classname="work.art1st.javarailways.core.physics.train.TrainUniformMotionTest" time="0.0">
+    <skipped/>
+  </testcase>
+  <testcase name="explicit placement clears velocity from the previous controller epoch()" classname="work.art1st.javarailways.core.physics.train.TrainUniformMotionTest" time="0.03"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

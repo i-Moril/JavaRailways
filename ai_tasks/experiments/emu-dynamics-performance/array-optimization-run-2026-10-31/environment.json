@@ -1,0 +1,64 @@
+{
+  "date_utc": "2026-10-31",
+  "platform": "Linux-6.18.58-x86_64-with-glibc2.44",
+  "cpu": "Intel(R) Core(TM) Ultra 9 275HX",
+  "java": "openjdk version \"21.0.12.1\" 2026-08-18\nOpenJDK Runtime Environment (build 21.0.12.1+1-nixos)\nOpenJDK 64-Bit Server VM (build 21.0.12.1+1-nixos, mixed mode, sharing)\n",
+  "head": "0dbab292fe7493a7d0a317094888ad8fa47fa80d",
+  "working_tree_note": "Production dynamics unchanged; four-way array ablation is isolated to experiment source.",
+  "commands": [
+    [
+      "java",
+      "-Xms512m",
+      "-Xmx512m",
+      "-XX:+UseG1GC",
+      "-Xlog:gc:file=/tmp/javarailways-blockly-deploy/ai_tasks/experiments/emu-dynamics-performance/array-optimization-run-2026-10-31/gc-11.log",
+      "-cp",
+      "<test-runtime-classpath>",
+      "experiment.EmuPerformance",
+      "11"
+    ],
+    [
+      "java",
+      "-Xms512m",
+      "-Xmx512m",
+      "-XX:+UseG1GC",
+      "-Xlog:gc:file=/tmp/javarailways-blockly-deploy/ai_tasks/experiments/emu-dynamics-performance/array-optimization-run-2026-10-31/gc-29.log",
+      "-cp",
+      "<test-runtime-classpath>",
+      "experiment.EmuPerformance",
+      "29"
+    ],
+    [
+      "java",
+      "-Xms512m",
+      "-Xmx512m",
+      "-XX:+UseG1GC",
+      "-Xlog:gc:file=/tmp/javarailways-blockly-deploy/ai_tasks/experiments/emu-dynamics-performance/array-optimization-run-2026-10-31/gc-47.log",
+      "-cp",
+      "<test-runtime-classpath>",
+      "experiment.EmuPerformance",
+      "47"
+    ]
+  ],
+  "sha256": {
+    "ai_tasks/experiments/emu-dynamics-performance/EmuPerformance.kt": "fe83ff714ee5166846779a2670248f6292db84bcf428801cf776c4296ef1ffc6",
+    "Basic/src/main/java/work/art1st/javarailways/basic/control/TrainDynamics.kt": "3780d9ab65f57af9c7693aacc8799fb021733573de4a315ca37518ca94aa0c57",
+    "Basic/src/main/java/work/art1st/javarailways/basic/control/HandleTrainActuator.kt": "91f68f9aa25a0cc1a45f5ccb7c9a18c220e25be0edc78d0b056f867d1737a8e4"
+  },
+  "compiled_class_sha256": {
+    "Basic/build/classes/kotlin/test/experiment/EmuPerformance$Arrays.class": "29934ae89d06d5fed4926b01f513231e037605fdcd84af725c46d7f99dd7ee1b",
+    "Basic/build/classes/kotlin/test/experiment/EmuPerformance$Car.class": "9e9133db6906130e3ec7aff5a1641ea1d2f4f63c6bc8a4c45ba460e8be6781a9",
+    "Basic/build/classes/kotlin/test/experiment/EmuPerformance$Engine$WhenMappings.class": "42b13573bef5a2fd3c6d29055afb978ca4fab81411756e6b2f0263066aa10078",
+    "Basic/build/classes/kotlin/test/experiment/EmuPerformance$Engine.class": "f4e2f561202bb636d1363e6a1e8488b2badd2d875c6c733cbe40d457a985847f",
+    "Basic/build/classes/kotlin/test/experiment/EmuPerformance$Model.class": "cc29cec06081b68605542967587d642df0a57e3c885113244c265dbfecb11533",
+    "Basic/build/classes/kotlin/test/experiment/EmuPerformance$Profile.class": "e11119cffe39fba4636d1d2b3d6e9136f814e36625c18feafb5554e082047579",
+    "Basic/build/classes/kotlin/test/experiment/EmuPerformance$Result.class": "67869dc4f9674f782dff7c5a6d3cd0ca9b1920c99b915ea21f6357d6291244f5",
+    "Basic/build/classes/kotlin/test/experiment/EmuPerformance$State.class": "cce2cf45216961bfdeb6ece9668970b002058034d9ca4fb5ebbe81650245b8c1",
+    "Basic/build/classes/kotlin/test/experiment/EmuPerformance.class": "87c7725608431dd698d7fcf14680e19da6e723e4fd397af850a9dd4e298b0f94"
+  },
+  "raw_csv_sha256": {
+    "fork-29.csv": "03e86ced54648c62738618a8a592e9a5d35a6cb6517ace570cf6f09b474a8aff",
+    "fork-47.csv": "163dbd0526448da9aa0a54636cec756b77f98c0bb5732ae71f338fc0eb94e05c",
+    "fork-11.csv": "1282bebbbc393cdc1cd993eacb8a60bfb23d8fb3c5e0e2df065558b1bf52a421"
+  }
+}

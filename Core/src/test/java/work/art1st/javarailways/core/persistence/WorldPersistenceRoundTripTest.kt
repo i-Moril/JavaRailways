@@ -6,13 +6,11 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.core.di.KoinWorldParentContext
-import work.art1st.javarailways.core.di.WorldParentContext
-import work.art1st.javarailways.core.di.ensureJavaRailwaysKoinStarted
-import work.art1st.javarailways.core.di.javaRailwaysParentScope
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import work.art1st.javarailways.core.physics.train.SavedTrainV1
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
@@ -23,56 +21,56 @@ class WorldPersistenceRoundTripTest {
 
     @Test
     fun worldSnapshotJsonRoundTrip() {
-        ensureJavaRailwaysKoinStarted()
-        val scheduler = Executors.newSingleThreadScheduledExecutor()
-        val tickManager = TickManagerImpl(scheduler, System.currentTimeMillis())
-        val worldParent = KoinWorldParentContext(javaRailwaysParentScope())
-        val world = CoreWorld.createEmpty(tickManager, worldParent)
-        val segments = PrimeCurveGenerator.buildStraight(80.0, segmentCount = 1)
-        val rail = createStraightRailFromSegments(world, segments)
-        val sourceTrain = createTrainWithConfig("persist-t1", rail, world, listOf(8.0), isLoop = false)
-        world.renameTrain(sourceTrain, "Player Express")
+        withWorld(load = { tick, physics ->
+            CoreWorld.createEmpty(tick, physics)
+        }) { world ->
+            val segments = PrimeCurveGenerator.buildStraight(80.0, segmentCount = 1)
+            val rail = createStraightRailFromSegments(world, segments)
+            val sourceTrain = createTrainWithConfig("persist-t1", rail, world, listOf(8.0), isLoop = false)
+            IsolatedSimulationThreadMarker.run {
+                world.physicsCoordinator.processBetweenFrames {
+                    world.renameTrain(sourceTrain, "Player Express")
+                }
+            }
 
-        val infrastructure = world.saveInfrastructure(1L)
-        val runtime = world.saveRuntime(1L, 2L)
-        val decodedInfrastructure = WorldSnapshotCodec.decodeInfrastructure(
-            WorldSnapshotCodec.encodeInfrastructure(infrastructure)
-        )
-        val decodedRuntime = WorldSnapshotCodec.decodeRuntime(
-            WorldSnapshotCodec.encodeRuntime(runtime)
-        )
-
-        val scheduler2 = Executors.newSingleThreadScheduledExecutor()
-        val tickManager2 = TickManagerImpl(scheduler2, System.currentTimeMillis())
-        val loaded = CoreWorld.load(
-            decodedInfrastructure,
-            decodedRuntime,
-            CoreWorld.SnapshotDependency(
-                tickManager2,
-                KoinWorldParentContext(javaRailwaysParentScope())
+            val infrastructure = world.saveInfrastructure(1L)
+            val runtime = world.saveRuntime(1L, 2L)
+            val decodedInfrastructure = WorldSnapshotCodec.decodeInfrastructure(
+                WorldSnapshotCodec.encodeInfrastructure(infrastructure)
             )
-        )
-
-        try {
-            assertEquals("Player Express", loaded.getTrain("persist-t1")?.name)
-            assertEquals("persist-t1", loaded.getTrain("Player Express")?.id)
-            assertNotNull(loaded.getRail(rail.id))
-            assertTrue(!WorldSnapshotCodec.encodeInfrastructure(infrastructure).contains("\"metadata\""))
-            val roundInfrastructure = loaded.saveInfrastructure(1L)
-            val roundRuntime = loaded.saveRuntime(1L, 2L)
-            assertEquals(infrastructure.rails.size, roundInfrastructure.rails.size)
-            assertEquals(runtime.trains.size, roundRuntime.trains.size)
-            assertEquals(
-                WorldSnapshotCodec.encodeInfrastructure(infrastructure),
-                WorldSnapshotCodec.encodeInfrastructure(roundInfrastructure)
+            val decodedRuntime = WorldSnapshotCodec.decodeRuntime(
+                WorldSnapshotCodec.encodeRuntime(runtime)
             )
-        } finally {
-            loaded.releaseRuntimeContext()
-            world.releaseRuntimeContext()
-            loaded.physicsCoordinator.close()
-            world.physicsCoordinator.close()
-            tickManager2.close()
-            tickManager.close()
+
+            withWorld(load = { tick, physics ->
+                IsolatedSimulationThreadMarker.run { CoreWorld.load(
+                    decodedInfrastructure,
+                    decodedRuntime,
+                    CoreWorld.SnapshotDependency(
+                        tick,
+                        physics
+                    )
+                ) }
+            }) { restored ->
+                assertEquals("Player Express", restored.getTrain("persist-t1")?.name)
+                assertEquals("persist-t1", restored.getTrain("Player Express")?.id)
+                assertNotNull(restored.getRail(rail.id))
+                assertTrue(!WorldSnapshotCodec.encodeInfrastructure(infrastructure).contains("\"metadata\""))
+                val roundInfrastructure = restored.saveInfrastructure(1L)
+                val roundRuntime = restored.saveRuntime(1L, 2L)
+                assertEquals(infrastructure.rails.size, roundInfrastructure.rails.size)
+                assertEquals(runtime.trains.size, roundRuntime.trains.size)
+                assertEquals(
+                    WorldSnapshotCodec.encodeInfrastructure(infrastructure),
+                    WorldSnapshotCodec.encodeInfrastructure(roundInfrastructure)
+                )
+                val restoredTrain = restored.getTrain("persist-t1") ?: error("train should load")
+                assertEquals(18.0, restoredTrain.publishedFrame.head.arcLengthInAbMeters, 1e-9)
+                assertEquals(10.0, restoredTrain.publishedFrame.tail.arcLengthInAbMeters, 1e-9)
+                assertEquals(14.0, restoredTrain.cars.single().position.x(), 1e-9)
+                assertEquals(ViewDirection.AB, restoredTrain.publishedFrame.head.facing)
+                assertEquals(false, restoredTrain.isReversed)
+            }
         }
     }
 
@@ -103,31 +101,18 @@ class WorldPersistenceRoundTripTest {
                 )
             )
         )
-        val scheduler = Executors.newSingleThreadScheduledExecutor()
-        var attachedWorld: CoreWorld? = null
-        var detachedWorld: CoreWorld? = null
-        val context = object : WorldParentContext {
-            override fun attachWorld(world: CoreWorld) { attachedWorld = world }
-            override fun detachWorld(world: CoreWorld) { detachedWorld = world }
-        }
-        try {
-            val failure = assertThrows(IllegalStateException::class.java) {
-                CoreWorld.load(
-                    infrastructure,
-                    runtime,
-                    CoreWorld.SnapshotDependency(
-                        TickManagerImpl(scheduler, System.currentTimeMillis()),
-                        context
-                    )
-                )
+        TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), 0L).use { tick ->
+            PhysicsCoordinator(1, automaticFallback = false).use { physics ->
+                val failure = assertThrows(IllegalStateException::class.java) {
+                    IsolatedSimulationThreadMarker.run { CoreWorld.load(
+                        infrastructure,
+                        runtime,
+                        CoreWorld.SnapshotDependency(tick, physics)
+                    ) }
+                }
+                assertTrue(failure.message!!.contains("broken-train"))
+                assertNotNull(failure.cause)
             }
-            assertTrue(failure.message!!.contains("broken-train"))
-            assertNotNull(failure.cause)
-            assertNotNull(attachedWorld)
-            assertEquals(attachedWorld, detachedWorld)
-        } finally {
-            attachedWorld?.physicsCoordinator?.close()
-            scheduler.shutdownNow()
         }
     }
 
@@ -149,6 +134,32 @@ class WorldPersistenceRoundTripTest {
     fun decodeInvalidJsonThrows() {
         assertThrows(SerializationException::class.java) {
             WorldSnapshotCodec.decodeInfrastructure("{")
+        }
+    }
+
+    @Test
+    fun `future root versions reject before malformed nested values`() {
+        val runtime = assertThrows(IllegalArgumentException::class.java) {
+            WorldSnapshotCodec.decodeRuntime("""{"formatVersion":99,"trains":[{"extension":{"TEST":{"typeId":"unknown:payload","schemaVersion":1,"payload":{}}}}]}""")
+        }
+        assertTrue(runtime.message!!.contains("Unsupported core runtime snapshot version"))
+        val infrastructure = assertThrows(IllegalArgumentException::class.java) {
+            WorldSnapshotCodec.decodeInfrastructure("""{"formatVersion":99,"rails":["malformed"]}""")
+        }
+        assertTrue(infrastructure.message!!.contains("Unsupported core infrastructure snapshot version"))
+    }
+
+    private fun withWorld(
+        load: (TickManagerImpl, PhysicsCoordinator) -> CoreWorld,
+        block: (CoreWorld) -> Unit
+    ) {
+        TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), 0L).use { tick ->
+            run {
+                PhysicsCoordinator(1, automaticFallback = false).use { physics ->
+                    val created = load(tick, physics)
+                    block(created)
+                }
+            }
         }
     }
 }

@@ -13,6 +13,21 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 class RailGeometryMeasurementServiceTest {
+    @Test
+    @OptIn(Heavy::class)
+    fun `horizontal radius stays90 across constant grades turn sides and reversed curves`() {
+        for (grade in listOf(0.0, 0.5, -0.5)) for (side in listOf(-1.0, 1.0)) {
+            val curve = requireNotNull(StandardTurnoutFactory.build(
+                Anchor("A", Vector3d(), Vector3d(1.0, grade, 0.0).normalize()),
+                Vector3d(1.0, 0.0, side * 0.2), StandardTurnoutGeometry(9, 90.0, 25.0)))
+            for (oriented in listOf(curve, curve.reversed)) {
+                val measured = RailGeometryMeasurementService.measure(listOf(oriented), 1.435)
+                assertEquals(90.0, requireNotNull(measured.minimumHorizontalRadiusMeters), 1e-7)
+                assertEquals(kotlin.math.abs(grade), measured.maximumAbsoluteGrade, 1e-9)
+            }
+        }
+    }
+
     @OptIn(Heavy::class)
     @Test
     fun `measures actual horizontal radius and superelevation from final curve`() {

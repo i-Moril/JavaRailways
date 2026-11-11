@@ -1,0 +1,232 @@
+{
+  "target": "JavaRailwaysTest@192.168.1.230",
+  "sourceCommit": "daabfa4e4517af0d5071bacd8418548d528e73cf",
+  "previousSourceCommit": "6563e4f989a6e0a01f06cbd0432d443ac7183089",
+  "normalSaveCompletedAt": "2026-10-31T09:15:39Z",
+  "artifacts": {
+    "JavaRailways.jar": {
+      "installedSha256": "73f95e3b6dd4c4cf1aff8db54d0c0ab137026b9306d47f71e9f9183a86990eb8",
+      "candidateSha256": "9ddb673eb444d7a55f9334939fb25512eec6a30075c448d837a000fe6746cb16"
+    }
+  },
+  "webuiSha256": "410a87220a53744d29a007afc1f872ee09eca702843485a8bd4aab93f19e71ab",
+  "validationRuntime": {
+    "launcherSha256": "c016a4236aa19796698660c6d61296c20b7972b1580b4c27635c073e20f529d9",
+    "validatorClassSha256": "89837da71fdd4a6d8fed9545ad0e28168732a879507ef44bfe668065bf2a8d1b",
+    "validatorSourceSha256": "5b03af57282516f77903f867e7b6d3259596fc2f3598d637084b11a60dcd66c0",
+    "javaPath": "/opt/mcsmanager/daemon/data/JavaData/temurin_25/bin/java",
+    "compiledRelease": 21
+  },
+  "recovery": {
+    "recovery": "/opt/mcsmanager/backups/javarailways/waypoint-identity-20261031-5_dkk06_",
+    "archiveSha256": "fd1dfc44d53131a29efd3ee637a7c7d5b66396e286879055eb16649dbbf0e7ee",
+    "fileCount": 146
+  },
+  "install": {
+    "installedAt": "2026-10-31T09:18:49.327252+00:00",
+    "sourceCommit": "daabfa4e4517af0d5071bacd8418548d528e73cf",
+    "recovery": "/opt/mcsmanager/backups/javarailways/waypoint-identity-20261031-5_dkk06_",
+    "archiveSha256": "fd1dfc44d53131a29efd3ee637a7c7d5b66396e286879055eb16649dbbf0e7ee",
+    "changedFiles": [
+      {
+        "path": "plugins/JavaRailways/worlds/2952ad2c-41ce-40bc-b83b-1b578ae7af12-infrastructure.json",
+        "sourceSha256": "80e6500533f16c4a3b20a98c47906191e17ae22c953e475f11231c0973f6a277",
+        "candidateSha256": "c08a15a73fa8fe4c9c7637c6630b8754ca419849db4c6ff96d9fd6c2f79f2295",
+        "verified": true
+      },
+      {
+        "path": "plugins/JavaRailways/worlds/2952ad2c-41ce-40bc-b83b-1b578ae7af12-infrastructure.json.bak",
+        "sourceSha256": "4b4c9e92d331385cbcfbb68fa41f6713bd34ab90b8f8f479312230a1dc1310c9",
+        "candidateSha256": "3d037f62a69c5105386cef03f6c1dafdb212ac399429b3b1079a23626be0e7c5",
+        "verified": true
+      },
+      {
+        "path": "plugins/JavaRailways.jar",
+        "sourceSha256": "73f95e3b6dd4c4cf1aff8db54d0c0ab137026b9306d47f71e9f9183a86990eb8",
+        "candidateSha256": "9ddb673eb444d7a55f9334939fb25512eec6a30075c448d837a000fe6746cb16",
+        "verified": true
+      }
+    ],
+    "removedFields": 62,
+    "unchangedOtherPluginData": true,
+    "otherPluginJarsUnchanged": true,
+    "currentCodec": {
+      "result": "CURRENT_INFRASTRUCTURE_OK files=12",
+      "classpathSha256": {
+        "/tmp/jr-deploy-20261031-waypoint-identity/JavaRailways.jar": "9ddb673eb444d7a55f9334939fb25512eec6a30075c448d837a000fe6746cb16"
+      },
+      "helperSha256": "5b03af57282516f77903f867e7b6d3259596fc2f3598d637084b11a60dcd66c0"
+    },
+    "migrationToolSha256": {
+      "migrate.py": "b70832f318563c9b4496e1ac4115b929a0df3150dd557c74e735a90b8c7b6a15",
+      "ValidateInfrastructure.java": "5b03af57282516f77903f867e7b6d3259596fc2f3598d637084b11a60dcd66c0",
+      "java25-validation": "c016a4236aa19796698660c6d61296c20b7972b1580b4c27635c073e20f529d9",
+      "compiled/ValidateInfrastructure.class": "89837da71fdd4a6d8fed9545ad0e28168732a879507ef44bfe668065bf2a8d1b"
+    },
+    "validationRuntime": {
+      "launcherSha256": "c016a4236aa19796698660c6d61296c20b7972b1580b4c27635c073e20f529d9",
+      "validatorClassSha256": "89837da71fdd4a6d8fed9545ad0e28168732a879507ef44bfe668065bf2a8d1b",
+      "validatorSourceSha256": "5b03af57282516f77903f867e7b6d3259596fc2f3598d637084b11a60dcd66c0",
+      "javaPath": "/opt/mcsmanager/daemon/data/JavaData/temurin_25/bin/java",
+      "compiledRelease": 21
+    },
+    "migrationReportSha256": "d134ae262534cabc8fe9f691e23b041fcc2edcf942b8d072e882b7c86ae7e52d",
+    "dryRunSha256": "2d1ff3ae8bc72101161a8852dba5ccfc5a809c1d906dc048c9b16fbe6a6a8754",
+    "jars": {
+      "Chunky-Bukkit-1.4.40.jar": "2a5477fc80f71012e15ade1ce34dbeb836e17623b28db112492c0f1443c09721",
+      "JavaRailways.jar": "9ddb673eb444d7a55f9334939fb25512eec6a30075c448d837a000fe6746cb16",
+      "SimpleSignals.jar": "0346443a02bfd0a7a14a11cd6b3893e4c321005e732fc7db5e427a336f35ac39",
+      "Terra-bukkit-7.0.0-BETA+47d430776-shaded.jar": "91aa93352444fb87105b33cf0ec36ad0ea554cc4b1c272aead4b6ee8b4e41867",
+      "TunnelBridgeBuilder.jar": "831a0c25179c9c98f2a7135256080c9f402713b18215781976ab2eb5fce3d722",
+      "ViaVersion-5.12.0-SNAPSHOT.jar": "cc23a414b2bded80a72646a5fe43cc6b2ba97df516147a3630f402d9695e945b",
+      "voxy-server-side-paper.jar": "696db9a0fb4e24f79383b4093b4212380c69513814e198033abc4f252d067b01",
+      "worldedit-bukkit-7.4.4.jar": "44c97ee6c1df9afa127df3c5a2c6a7108f826fb44ab7b255a7ec4250feb89b9d"
+    },
+    "processProof": {
+      "preStopTargetPid": 777019,
+      "targetPidAbsent": true,
+      "unreadableUnrelatedProcesses": 0
+    },
+    "rollback": "Keep server stopped; restore matching old JARs and complete data from external recovery archive. Never start mixed models."
+  },
+  "running": {
+    "instanceUuid": "836082a48c4f48fcb1fea4e83c57dc96",
+    "status": 3,
+    "processInfo": {
+      "cpu": 0,
+      "memory": 3974864896,
+      "ctime": 355490,
+      "elapsed": 445660,
+      "timestamp": 1793438797736,
+      "pid": 779750,
+      "ppid": 779745
+    }
+  },
+  "runtime": {
+    "mainJarSha256": "9ddb673eb444d7a55f9334939fb25512eec6a30075c448d837a000fe6746cb16",
+    "webuiSha256": "410a87220a53744d29a007afc1f872ee09eca702843485a8bd4aab93f19e71ab",
+    "servedAssetsMatched": 17,
+    "assets": [
+      "index.html",
+      "assets/index-CZpHHYPb.js",
+      "assets/index-CdCGfk_W.css",
+      "blockly-media/1x1.gif",
+      "blockly-media/LICENSE",
+      "blockly-media/README.txt",
+      "blockly-media/delete-icon.svg",
+      "blockly-media/dropdown-arrow.svg",
+      "blockly-media/foldout-icon.svg",
+      "blockly-media/handclosed.cur",
+      "blockly-media/handdelete.cur",
+      "blockly-media/handopen.cur",
+      "blockly-media/pilcrow.png",
+      "blockly-media/quote0.png",
+      "blockly-media/quote1.png",
+      "blockly-media/resize-handle.svg",
+      "blockly-media/sprites.svg"
+    ],
+    "scripts": [
+      "/assets/index-CZpHHYPb.js"
+    ],
+    "bridgeHealth": true,
+    "runtimeMarkers": [
+      "[09:19:41] [Server thread/INFO]: Done (27.996s)! For help, type \"help\"",
+      "[09:21:00] [Folia Region Scheduler Thread #0/INFO]: ATO world: RUNNING",
+      "[09:22:08] [Folia Region Scheduler Thread #0/INFO]: SimpleSignals 2952ad2c-41ce-40bc-b83b-1b578ae7af12: installed, definitionRevision=117, topologyRevision=1; regions=5, tables=5, blocks=14, fixedBlockSignals=8, protectionSignals=4, routeIndicators=1, attachedSignals=0"
+    ],
+    "savedInfrastructureFiles": 12,
+    "savedPointRecords": 62,
+    "pointDisplayNamesRemaining": 0,
+    "liveMapMarkers": 31,
+    "mapUsesOnlyIds": true,
+    "preservedEditorFiles": 14,
+    "signalDefinitionFilesUnchanged": 2,
+    "otherPluginJarsUnchanged": true,
+    "pluginErrors": [],
+    "incrementalLogs": {
+      "plugins/JavaRailways/logs/errors.log": {
+        "newBytes": 21382,
+        "errorEntries": 13,
+        "preInstallShutdownErrors": 13,
+        "postInstallErrors": 0,
+        "warningEntries": 4,
+        "errorTimes": [
+          "2026-10-31T09:15:38.580676+00:00",
+          "2026-10-31T09:15:38.581191+00:00",
+          "2026-10-31T09:15:38.581405+00:00",
+          "2026-10-31T09:15:38.581596+00:00",
+          "2026-10-31T09:15:38.581728+00:00",
+          "2026-10-31T09:15:38.581868+00:00",
+          "2026-10-31T09:15:38.581997+00:00",
+          "2026-10-31T09:15:38.582128+00:00",
+          "2026-10-31T09:15:38.582268+00:00",
+          "2026-10-31T09:15:38.582396+00:00",
+          "2026-10-31T09:15:38.582532+00:00",
+          "2026-10-31T09:15:38.582676+00:00",
+          "2026-10-31T09:15:38.582926+00:00"
+        ]
+      },
+      "plugins/JavaRailways/webui/logs/errors.log": {
+        "newBytes": 0,
+        "errorEntries": 0,
+        "preInstallShutdownErrors": 0,
+        "postInstallErrors": 0,
+        "warningEntries": 0,
+        "errorTimes": []
+      },
+      "plugins/SimpleSignals/logs/errors.log": {
+        "newBytes": 3579,
+        "errorEntries": 1,
+        "preInstallShutdownErrors": 1,
+        "postInstallErrors": 0,
+        "warningEntries": 0,
+        "errorTimes": [
+          "2026-10-31T09:15:38.583113+00:00"
+        ]
+      }
+    },
+    "guestSimulationStatus": 401,
+    "existingTerraStartupError": {
+      "currentCount": 1,
+      "priorLogs": [
+        {
+          "log": "2026-10-31-3.log.gz",
+          "sameStartupErrorCount": 1
+        },
+        {
+          "log": "2026-10-31-2.log.gz",
+          "sameStartupErrorCount": 1
+        }
+      ]
+    }
+  },
+  "workspacePublic": {
+    "matchedPublicAssetsFromWorkspace": 17,
+    "publicTrainStream": {
+      "event": "trains",
+      "trainCount": 1,
+      "httpStatus": 200
+    }
+  },
+  "tests": {
+    "backend": 3061,
+    "frontend": 335,
+    "migration": 12,
+    "deploymentHelper": 9,
+    "frontendBuild": "passed before commit, unchanged source"
+  },
+  "serverPreflight": {
+    "files": 12,
+    "removedFields": 62,
+    "codec": "CURRENT_INFRASTRUCTURE_OK files=12",
+    "documents": 8,
+    "programs": 6
+  },
+  "taskStatus": "in_progress",
+  "archive": false,
+  "limitations": [
+    "No authenticated WebUI editor or game-client acceptance claimed",
+    "Old-instance shutdown produced 13 JavaRailways and 1 SimpleSignals model-cleanup errors before installation; post-install plugin errors=0",
+    "Terra theUnsafe startup error reproduced in previous two archived logs; unrelated artifact unchanged"
+  ]
+}

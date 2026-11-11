@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.bukkit.render.Animation
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.Rail
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
 import work.art1st.javarailways.core.api.util.plugin.Plugin
@@ -101,17 +102,20 @@ class AbstractModelAnimationTest {
 
     @OptIn(ExtensionData::class)
     private class FakeWorld : World {
+        override val executionMode = work.art1st.javarailways.core.api.physics.WorldExecutionMode.LIVE
+        override val maximumPhysicsDeltaSeconds: Double = 0.2
         override val tickManager: FakeTickManager = FakeTickManager()
+        override val topologyState: TopologyState
+            get() = error("Topology is not used by this render test")
         override val allTrains: Collection<Train> = emptyList()
         override fun getTrain(name: String): Train? = null
-        override fun removeTrain(train: Train) = Unit
         override fun getRail(id: UUID): Rail? = null
-        override fun removeRail(rail: Rail) = Unit
+        override fun removeRail(rail: Rail): java.util.concurrent.CompletionStage<Void> =
+            java.util.concurrent.CompletableFuture.completedFuture(null)
         override fun <T : Any> getExtensionDataOrNull(plugin: Plugin): T? = null
         override fun <T : Any> requireExtensionData(plugin: Plugin): T = error("No extensions")
         override fun <T : Any> registerExtensionData(plugin: Plugin, data: T) = Unit
         override fun forEachExtensionData(action: (Any) -> Unit) = Unit
-        override fun <T> forEachExtensionData(action: (Any) -> T): List<T> = emptyList()
     }
 
     private class FakeTickManager : TickManager {
@@ -127,7 +131,6 @@ class AbstractModelAnimationTest {
         fun commitAll() {
             registered.filterIsInstance<Synchronizable>().forEach { it.commit() }
         }
-        override fun <T> scheduleMainThreadAfterCommitTask(task: Callable<T>): Future<T> = runTask(task)
         override fun <T> scheduleMainThreadPostTickTask(task: Callable<T>): Future<T> = runTask(task)
         private fun <T> runTask(task: Callable<T>): Future<T> {
             return FutureTask(task).also { it.run() }

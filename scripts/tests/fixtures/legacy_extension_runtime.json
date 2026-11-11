@@ -1,0 +1,29 @@
+{
+  "formatVersion": 1,
+  "infrastructureRevision": 42,
+  "physicsEpoch": 43,
+  "trains": [{
+    "id": "train-1", "name": "Example", "reversed": false,
+    "extension": {"BUKKIT": {
+      "type": "work.art1st.javarailways.bukkit.extension.train.SavedTrainRenderState",
+      "version": 1, "packageName": "example", "packageSnapshotHash": "train-package-hash"
+    }},
+    "headLocation": {"railId": "00000000-0000-0000-0000-000000000001", "arcLengthInCurveAB": 20.0, "direction": "AB"},
+    "tailLocation": {"railId": "00000000-0000-0000-0000-000000000001", "arcLengthInCurveAB": 0.0, "direction": "AB"},
+    "cars": [{
+      "id": "car-1", "installedReversed": false,
+      "bogieA": {"location": {"railId": "00000000-0000-0000-0000-000000000001", "arcLengthInCurveAB": 17.0, "direction": "AB"}, "isSameDirectionAsFacing": true, "extension": {}},
+      "bogieB": {"location": {"railId": "00000000-0000-0000-0000-000000000001", "arcLengthInCurveAB": 3.0, "direction": "AB"}, "isSameDirectionAsFacing": true, "extension": {}},
+      "config": {
+        "length": 20.0, "floorHeight": 1.0,
+        "bogieAType": null, "bogieAOffset": 7.0, "bogieBType": null, "bogieBOffset": -7.0,
+        "connectorLengthAtA": 0.3, "connectorLengthAtB": 0.3,
+        "extension": {"BUKKIT": {
+          "type": "work.art1st.javarailways.bukkit.extension.train.SavedCarRenderState",
+          "carModelName": "example/car", "heldScenes": {"door": "open"},
+          "modelSnapshotHash": "model-hash", "packageSnapshotHash": "car-package-hash"
+        }}
+      }
+    }]
+  }]
+}

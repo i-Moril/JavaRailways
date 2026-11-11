@@ -67,7 +67,7 @@ class StandardRailCurveTest {
         @Test
         fun `起点弧长为0`() {
             val curve = StandardRailCurve(30.0, 5.0, 10.0)
-            val (pos, theta, _) = curve.pointAt(0.0)
+            val (pos, theta, _) = curve.pointAtAccurate(0.0)
             assertEquals(0.0, pos.x, 1e-9)
             assertEquals(0.0, pos.y, 1e-9)
             assertEquals(0.0, theta, 1e-9)
@@ -76,7 +76,7 @@ class StandardRailCurveTest {
         @Test
         fun `回旋线起点切向角为0`() {
             val curve = StandardRailCurve(30.0, 5.0, 10.0)
-            val (_, theta, _) = curve.pointAt(1e-4)
+            val (_, theta, _) = curve.pointAtAccurate(1e-4)
             assertTrue(abs(theta) < 1e-6, "起点切向角应接近0")
         }
 
@@ -84,7 +84,7 @@ class StandardRailCurveTest {
         fun `终点切向角等于曲线总转角`() {
             val curve = StandardRailCurve(30.0, 5.0, 10.0)
             val total = curve.totalLength
-            val (_, theta, _) = curve.pointAt(total)
+            val (_, theta, _) = curve.pointAtAccurate(total)
             // 总转角 = 入口回旋线 L²/(2A²) + 圆弧 Lc/R + 出口回旋线 L/(2R)
             val L = 5.0; val R = 30.0; val Lc = 10.0
             val A = sqrt(R * L)
@@ -182,23 +182,24 @@ class StandardRailCurveTest {
     inner class Builder {
         @Test
         fun `build 方法正常`() {
-            val curve = StandardRailCurveBuilder.build(30.0, 5.0, 10.0)
+            val curve = StandardRailCurve(30.0, 5.0, 10.0)
             assertNotNull(curve)
             // 2*L（两端缓和曲线） + Lc（圆弧）
             assertEquals(20.0, curve.totalLength)
         }
 
         @Test
-        fun `buildAndGenerate 返回非空`() {
-            val points = StandardRailCurveBuilder.buildAndGenerate(30.0, 5.0, 10.0, 0.5)
+        fun `generatePoints 返回非空`() {
+            val points = StandardRailCurve(30.0, 5.0, 10.0).generatePoints(0.5)
             assertTrue(points.isNotEmpty())
         }
 
         @Test
-        fun `buildAndGenerateGlobal 返回非空`() {
+        fun `toGlobal 保持起点弧长`() {
             val origin = Vector3d(0.0, 0.0, 0.0)
             val startDir = Vector3d(1.0, 0.0, 0.0)
-            val points = StandardRailCurveBuilder.buildAndGenerateGlobal(origin, startDir, 30.0, 5.0, 10.0, 0.5)
+            val curve = StandardRailCurve(30.0, 5.0, 10.0)
+            val points = curve.generatePoints(0.5).map { curve.toGlobal(it, origin, startDir) }
             assertTrue(points.isNotEmpty())
             assertEquals(0.0, points.first().arcLength, 1e-9)
         }

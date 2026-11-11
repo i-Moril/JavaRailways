@@ -35,6 +35,27 @@ class RailWandI18nTest {
     }
 
     @Test
+    fun `rail selection text contains geometry but not storage identity`() {
+        assertEquals("已选择轨道，SUBGRADE 80 km/h，CURVE 65 km/h，脱轨 100 km/h，半径 300 m，单线",
+            RailWandI18n.format(Locale.SIMPLIFIED_CHINESE, "message.rail_selected",
+                "80 km/h", "65 km/h", "100 km/h", "300 m", "单线"))
+        assertEquals("Selected rail, SUBGRADE 80 km/h, CURVE 65 km/h, derail 100 km/h, radius 300 m, single",
+            RailWandI18n.format(Locale.US, "message.rail_selected",
+                "80 km/h", "65 km/h", "100 km/h", "300 m", "single"))
+        assertEquals("Selected rail; left-click again to clear all decorations",
+            RailWandI18n.format(Locale.US, "message.decorate_delete_selected"))
+    }
+
+    @Test
+    fun `derived anchor names hide rail and split UUIDs without changing authored names`() {
+        val id = "12345678-1234-1234-1234-123456789abc"
+        assertEquals("轨道端点 A", RailWandI18n.anchorName(Locale.SIMPLIFIED_CHINESE, "rail:$id:A"))
+        assertEquals("Rail endpoint B", RailWandI18n.anchorName(Locale.US, "rail:$id:B"))
+        assertEquals("Split point", RailWandI18n.anchorName(Locale.US, "split:$id"))
+        assertEquals("Station throat", RailWandI18n.anchorName(Locale.US, "Station throat"))
+    }
+
+    @Test
     fun `Chinese and English catalogs contain the same keys`() {
         assertEquals(RailWandI18n.englishKeys(), RailWandI18n.simplifiedChineseKeys())
         assertTrue(RailWandI18n.englishKeys().isNotEmpty())

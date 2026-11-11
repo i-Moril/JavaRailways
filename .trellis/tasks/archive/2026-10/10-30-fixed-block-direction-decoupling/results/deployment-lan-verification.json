@@ -1,0 +1,10 @@
+{
+  "http200": true,
+  "assetHashesMatch": true,
+  "assets": {
+    "index.html": "410055827d0f602feea8f1b58d862c63b2cf352a349fc898504d134f2f6e0395",
+    "assets/index-DLbd-GXK.js": "dabb101a8011aa3a2967fc0126c7bc01d346810534dbffd6352bb37f8e6ad559",
+    "assets/index-CdCGfk_W.css": "6f855e9ed9e96f061a701c2decaadfa5f302951f2799bbf899e3815f715383dd"
+  },
+  "processId": 758259
+}

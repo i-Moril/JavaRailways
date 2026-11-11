@@ -162,16 +162,18 @@ channel:
 packages:
   javarailways:
     path: .
-  core:
-    path: Core
+  diagnostics:
+    path: Diagnostics
   config-lib:
     path: ConfigLib
-  basic:
-    path: Basic
   annotation:
     path: Annotation
   bukkit-plugin:
     path: BukkitPlugin
+  simpleato-bukkit:
+    path: SimpleATOBukkit
+  simple-signals:
+    path: SimpleSignals
   bukkit-plugin-dev:
     path: BukkitPluginDev
   tunnel-bridge-builder:

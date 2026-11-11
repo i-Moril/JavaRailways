@@ -1,0 +1,22 @@
+{
+  "taskValidation": {
+    "10-18-isolated-simulation-runtime": {
+      "passed": true,
+      "contextSizeWarning": true
+    },
+    "10-18-simulation-behavior-features": {
+      "passed": true,
+      "contextSizeWarning": true
+    },
+    "10-18-simulation-signal-features": {
+      "passed": true,
+      "contextSizeWarning": true
+    }
+  },
+  "fullCandidateWhitespace": "pass (temporary index, including untracked)",
+  "fullCandidatePaths": 121,
+  "patch": "/workspace/minecraft/JavaRailways/.worktree/simulation-parent-acceptance-baseline-20261020/parent-candidate.patch",
+  "actualIndexEmpty": true,
+  "conflicts": 0,
+  "recoveryManifest": "../simulation-parent-acceptance-baseline-20261020/recovery.json"
+}

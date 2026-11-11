@@ -1,0 +1,22 @@
+{"file":".trellis/spec/javarailways/core/render-publication.md","reason":"Frame fields and immutable publication contract"}
+{"file":".trellis/spec/javarailways/core/runtime-publication.md","reason":"Close/stall gates and hook locking; current flip-before-frame hook order is explicitly superseded by this task"}
+{"file":".trellis/spec/javarailways/basic/ato-missions-and-perception.md","reason":"Perception input and frame sampling boundaries"}
+{"file":".trellis/spec/javarailways/basic/speed-and-derail-safety.md","reason":"Native whole-body limits versus derail monitor"}
+{"file":".trellis/spec/javarailways/simpleato/controller-runtime.md","reason":"Controller state and production control execution"}
+{"file":".trellis/spec/javarailways/simpleato/entry-clearance.md","reason":"Body length and clearance; unknown-length whole-route fallback is a confirmed defect to remove"}
+{"file":".trellis/spec/javarailways/shared/versioning.md","reason":"No speculative schema bump or compatibility layer"}
+{"file":".trellis/tasks/11-06-simpleato-snapshot-engineering-audit/research/train-snapshot-role.md","reason":"All producers consumers and counters"}
+{"file":".trellis/tasks/11-06-simpleato-snapshot-engineering-audit/research/known-14219-issues.md","reason":"Known fault chain and actual local replay facts"}
+{"file":".trellis/tasks/11-06-simpleato-snapshot-engineering-audit/research/control-audit.md","reason":"C01 only in scope; other findings deferred"}
+{"file":".trellis/tasks/11-06-simpleato-snapshot-engineering-audit/research/validation.md","reason":"Baseline tests and isolated target omission counterexample"}
+{"file":".trellis/tasks/11-06-simpleato-snapshot-engineering-audit/research/timetable-audit.md","reason":"T01 manual position only; T02-T05 deferred"}
+{"file":".agents/skills/javarailways-code-review/references/missed-findings.md","reason":"Review publication lifecycle and full producer-consumer chain"}
+{"file": ".trellis/spec/javarailways/core/train-controller.md", "reason": "Frame-before-hook and explicit commit regression"}
+{"file": ".trellis/spec/javarailways/core/testing.md", "reason": "Real epochs and required Core Basic rerun"}
+{"file":".trellis/tasks/11-06-simpleato-snapshot-engineering-audit/research/authority-handoff-repair.md","reason":"Approved F6-F8 handoff and exact boundary repair with replay evidence"}
+{"file":".trellis/spec/javarailways/simpleato/terminal-route-completion.md","reason":"Retained physical authority is distinct from operating stops and Mission lifecycle"}
+{"file":".trellis/spec/simple-signals/backend/protection-region-authority-transition.md","reason":"Signal floor ownership and shared route-local boundaries"}
+{"file":".trellis/spec/javarailways/simpleato/timetable-model-and-validation.md","reason":"Review contextual F9 validation without duplicating runtime or WebUI logic"}
+{"file":".trellis/spec/javarailways/simpleato/dispatcher-runtime.md","reason":"Verify terminal departure preparation and runtime door gates are not changed"}
+{"file":".trellis/spec/javarailways/simpleato/stations.md","reason":"Verify DoorSide.NONE remains no-operation rather than implicit closed state"}
+{"file":".trellis/tasks/11-06-simpleato-snapshot-engineering-audit/research/door-state-static-validation.md","reason":"F9 acceptance, real reproduction and scope guard"}

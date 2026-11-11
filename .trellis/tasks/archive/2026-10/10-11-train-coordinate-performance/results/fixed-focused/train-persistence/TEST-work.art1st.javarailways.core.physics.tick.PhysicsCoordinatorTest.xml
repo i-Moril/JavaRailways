@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" tests="28" skipped="0" failures="0" errors="0" timestamp="2026-10-11T06:36:25.336Z" hostname="dev" time="2.178">
+  <properties/>
+  <testcase name="explicit simulation delta above one tick limit is rejected()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.002"/>
+  <testcase name="railway epoch processor failure stalls without publishing candidate frame()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.001"/>
+  <testcase name="isolated simulation advances with caller supplied logical delta()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.127"/>
+  <testcase name="published frame processors run on physics workers before epoch completion()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.135"/>
+  <testcase name="railway epoch processor membership is static after start()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.001"/>
+  <testcase name="begin shutdown waits for the exact running epoch and prevents later wakes()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.109"/>
+  <testcase name="railway epoch processor time contributes to epoch metrics()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.002"/>
+  <testcase name="active train detects static overlap once and both derail next epoch()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.292"/>
+  <testcase name="stationary active train does not publish visual frames()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.109"/>
+  <testcase name="physics keeps publishing while visual frames are not consumed()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.142"/>
+  <testcase name="candidate occupancy is revalidated after railway epoch processing()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.002"/>
+  <testcase name="wall clock delta is clamped to two hundred milliseconds without catch up debt()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.137"/>
+  <testcase name="close remains terminal after an in flight worker returns late()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.114"/>
+  <testcase name="moving train publishes one terminal frame when speed reaches zero()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.123"/>
+  <testcase name="exact ticket waits for synchronous railway epoch processor()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.012"/>
+  <testcase name="tick end capture returns the currently running ticket()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.135"/>
+  <testcase name="configured workers execute controller batches concurrently()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.133"/>
+  <testcase name="[1] false" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.017"/>
+  <testcase name="[2] true" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.006"/>
+  <testcase name="physics publishes one immutable versioned frame per active train()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.137"/>
+  <testcase name="[1] false" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.001"/>
+  <testcase name="[2] true" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.001"/>
+  <testcase name="publishes controller movement before ticket completes()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.104"/>
+  <testcase name="repeated overloads stall without returning an old successful epoch()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.002"/>
+  <testcase name="ticket completes only after an exact coherent world frame is published()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.143"/>
+  <testcase name="closed coordinator rejects new railway epoch processor()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.001"/>
+  <testcase name="measures delta between adjacent physics epoch starts()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.012"/>
+  <testcase name="failed shutdown ticket never falls back to the previous successful epoch()" classname="work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest" time="0.141"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[[JavaRailways] Physics delta clamped in epoch 2: raw=500.0ms applied=200.0ms
+[JavaRailways] Physics epoch overload: 2.0ms (1/1 in 10000ms)
+[JavaRailways] Physics epoch overload: 90.0ms (1/3 in 1000000ms)
+[JavaRailways] Physics epoch overload: 90.0ms (2/3 in 1000000ms)
+[JavaRailways] Physics epoch overload: 90.0ms (3/3 in 1000000ms)
+]]></system-err>
+</testsuite>

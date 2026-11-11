@@ -1,5 +1,6 @@
 package work.art1st.javarailways.tunnelbridgebuilder
 
+import work.art1st.javarailways.diagnostics.PluginErrorLog
 import org.bukkit.plugin.java.JavaPlugin
 import work.art1st.javarailways.tunnelbridgebuilder.rail.JavaRailwaysServices
 import work.art1st.javarailways.tunnelbridgebuilder.rail.RailSweepService
@@ -15,14 +16,34 @@ class TunnelBridgeBuilderPlugin : JavaPlugin() {
     lateinit var railSweepService: RailSweepService
         private set
 
+    private var errorLog: PluginErrorLog? = null
     private var serviceBinding: JavaRailwaysServices? = null
 
+    override fun onLoad() {
+        errorLog = PluginErrorLog(dataFolder.toPath().resolve("logs/errors.log"), logger, "TunnelBridgeBuilder")
+    }
+
     override fun onDisable() {
-        serviceBinding?.close()
-        serviceBinding = null
+        try { serviceBinding?.close() }
+        finally {
+            serviceBinding = null
+            errorLog?.close()
+            errorLog = null
+        }
     }
 
     override fun onEnable() {
+        if (errorLog == null) onLoad()
+        try { enable() }
+        catch (failure: Throwable) {
+            serviceBinding?.close()
+            serviceBinding = null
+            errorLog?.reportFailure("TunnelBridgeBuilder enable failed", failure)
+            throw failure
+        }
+    }
+
+    private fun enable() {
         val services = JavaRailwaysServices(this)
         serviceBinding = services
         requireNotNull(services.acquire()) { "JavaRailways did not register its required services" }

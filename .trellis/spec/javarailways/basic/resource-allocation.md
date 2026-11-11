@@ -1,0 +1,251 @@
+# Basic resource allocation 契约
+
+## 适用场景与用途
+
+触发：修改route-resource admission、berth ownership、movement authority、tail release、infrastructure dependency、live claim、edit permit或manual control resource semantics。
+
+用途：一个world的共享registry与admission runtime先验证完整resource set再原子提交；conflict不preempt，失败不留下partial ownership，release由authoritative tail observation驱动而非run状态或head位置。
+
+## 唯一运行时资源路径
+
+`RouteResourceAdmissionRuntime`是列车进路资源的唯一owner。`TimetableDispatcher`必须通过非空
+`TimetableRouteAdmissionContextProvider`取得同一Tick的`RailwayObservation`与认证
+`RouteResourceAdmissionService`；没有coherent observation时保持零authority，不得退回另一套allocator。
+
+Basic从冻结route自行编译rail intervals、turnout与diamond物理底线，插件贡献只能增加资源。registry原子
+claim，设备准备完成后才发布grant；同一route的更远authority使用同一grant与tail cursor。`MANUAL_ROUTED`
+仍使用该服务，`FULL_MANUAL`不申请新资源但保留并推进已有grant。资源只按authoritative tail observation
+收紧；terminal、stop、failure或插件调用方消失都不能越权释放。
+
+旧`RouteSectionAllocator`、Confirmed Route Window、Dispatcher section状态及专用RailWand allocation guard已删除。
+自动道岔切换和显式手动切换共用Basic的唯一双向live-selection原语。自动切换只发生在完整route claim建立之后；
+手动切换先以独立短生命周期owner临时claim该turnout resource，因而与active route claim和edit permit互斥，
+但不生成grant、movement authority、release queue或ATO状态。手动操作等待当前physics epoch完成，再检查turnout每个port
+在 canonical AB 上的零长度闭区间与已发布列车车体占用；任一端口被占用即拒绝。
+车体跨过接点时必覆盖至少一个结构端口，头尾恰好接触端口也算占用；与列车朝向、是否持有进路 claim 无关。
+不使用任意附近距离，也不把远离接点的整段岔腿都当作互斥区。成功、物理占用拒绝和stale返回都在方法结束前
+释放临时claim。已经双向对齐的选择为`UNCHANGED`且不写live state。
+
+## Infrastructure dependency、live claim 与 edit guard
+
+`CoreWorld.infrastructureCoordination`拥有唯一world-local `InfrastructureCoordinationRegistry`，实现位于Core；Basic和宿主不得另建运行时仲裁实例。运行时claim、编辑许可和基础设施依赖共用这份状态。它区分三类持有：
+
+- infrastructure dependency：共享、长生命周期，分别保存persistent rail ID、`StableTopologyNodeKey`和
+  `StableInfrastructureResource`三类引用；可彼此重叠，只用于阻止相关结构编辑，不参与列车资源仲裁；
+- live runtime claim：同一resource上互斥；受保护进路runtime使用acquire、append、shrink/release，不提供整份claim replace；add-on service只暴露read-only diagnostics；
+- edit permit：独占并跨完整mutation transaction持有，以`TopologyEditImpact`的rail/node/resource三类精确影响
+  与infrastructure dependency逐字段求交；对live claim则以rail ID及runtime resource identity求交。
+
+`InfrastructureOwner(ownerId, revision)`稳定标识logical owner与其revision；platform plugin token只用于lifecycle ownership，不进入持久化identity或公开diagnostic。claim acquire/append/shrink/release必须匹配platform owner与expected logical owner；内部footprint变化不伪造新的caller plan revision。正常plugin disable前必须显式删除该plugin拥有的infrastructure dependencies；仍有dependency时owner unregister失败。强制disable保留dependency并Stall受影响world，不能静默解除编辑保护。路线资源准入产生的live claim由host token持有，requester disable后按[route resource admission](./route-resource-admission.md)转入fail-closed recovery，不能在列车清除前释放。world unload与service close必须先由composition layer处理相同的recovery/restore语义。
+
+`StableTopologyNodeKey`由结构节点的persistent `RailEndpointRef` ports去重排序得到；不得用revision-local
+`TopologyNodeId`作为长期依赖。`StableInfrastructureResource`只表示真实运行/运营资源，不得把rail或结构节点包装成
+resource。计划apply/replace时，registry对三类引用调用各自无副作用的validator；校验、依赖安装及edit permit
+冲突检查共用registry锁，因此正常编辑不能穿过依赖安装窗口。全局revision不是这些稳定引用的有效性证明；
+成功后依赖不会仅因不相交编辑使全局revision增加而自动失效。编辑申请在同一把锁内验证实际稳定引用，再检查依赖、live claim及其他permit冲突并安装permit；不因来源revision不同拒绝。Core每个结构修改入口强制持有覆盖实际影响的permit。外部许可通过认证的lexical scope复用，设备扳动可通过真实claim owner scope授权；scope期间pin所有权，release/shrink/rollback不能撤销保护，callback不持registry monitor以避免与Core world锁逆序。owner cleanup在活跃scope期间登记延迟清理，最后scope退出自动释放普通claim/permit，不要求plugin disable重试；原有pending admission reservation仍按fail-closed恢复合同保留。
+
+Infrastructure dependency mutation与edit decision使用独立typed result。Claim的`InfrastructureMutationResult`仍只描述运行
+资源冲突，不能塞入nullable rail/node diagnostics。编辑冲突返回每个owner的`TopologyEditOverlap`，明确指出三类集合
+各自的交集。设当前dependency数为`D`、live claim数为`C`、permit数为`E`，编辑检查为`O(D+C+E)`次持有者扫描，集合相交
+为hash lookup；该低频路径不进入physics tick。未来若规模证明需要索引，再按三类identity建立倒排索引。
+
+`PhysicalRouteDependencyCompiler`只编译调用方已经验证、已经选定的`RouteSnapshot`，不寻路也不选择替代支路。
+它复用同一`TopologyRouteProjector`验证每段连续性，从投影直接收集persistent rail ID、实际跨越的structural node key
+和turnout identity；diamond通过`TopologyState.atGradeCrossingsOn(railId)`反向索引按route实际覆盖的canonical AB范围命中。
+因此apply-time工作量与已知route occurrence/transition以及这些rail上的crossing数量有关，不扫描世界空间、全图resource
+或第二份registry。没有已知route的合法计划编译为“无物理依赖”，不伪造空dependency owner，也不因此拒绝应用。
+这个编译结果只表达Basic拥有的物理依赖；具体signal plugin的静态配置依赖仍由其自身后续声明，不能
+伪装成Basic物理依赖。
+
+编辑器必须在mutation前生成精确`TopologyEditImpact`。不得从空间broad-phase候选、整图incident扫描或完整rail
+interval猜测影响范围。Rail replacement/removal调用方只提交实际被替换的source rail ID；Basic通过同一
+`TopologyState`root的endpoint/node、ordinary continuation及rail/crossing反向索引，加入这些source rail实际连接处
+会被改写connection list的既有rail、source endpoint上的旧node/turnout identity，以及只涉及source rail的旧diamond
+identity。Turnout处只加入source port的实际legal continuations，不能把不与该支路相连的sibling branch扩成rail影响；
+邻接rail另一端的node/diamond也不得因邻接关系被扩大纳入。计划绑定该root及最终impact中每个既有rail实例，
+pure degree-2 loop内任一source还必须加入其所在edge的旧deterministic loop-anchor key，因为replace后该anchor可能移位或
+消失；这不扩张邻接rail另一端的普通node/diamond。Permit获取前后及Core write transaction内都复核；查询只做source、
+命中node/edge及source crossing的定点访问，不扫描图。
+
+当前RailWand的split、merge和delete使用exact replacement plan；turnout create、selected-anchor connect、endpoint rebuild、
+grade smoothing和geometry rebuild使用Core的prepared explicit-connection plan。Basic不选择连接对象，只把调用方明确声明且
+由Core计划最终改变的
+既有connection component endpoint与exact prospective crossing rail映射为旧root中的rail ID、stable node key和既有turnout resource，再与
+replacement/removal impact取union。改变pure degree-2 loop中的endpoint时还包含该edge的旧deterministic loop anchor。
+附近但未选择的rail、spatial candidate和整图incident resource都不进入impact。
+Permit在安装前取得，并持有到Core topology、Basic metadata、render persistence、player state及undo record side effect完成；
+这些步骤位于一个外层Core topology transaction。whole-world snapshot restore使用Core单独验证的prospective plan。
+Basic只把当前root中可验证、也可能已被dependency/claim/permit持有的身份加入impact：旧source replacement/removal、
+真实changed surviving endpoints、removed old crossing resource，以及introduced target crossing中仍存在于当前root的参与rail。
+target-only rail/node/turnout/diamond尚不可能被当前持有者引用，也不能提交给只接受current identity的registry validator；
+两条全新rail之间的prospective crossing因此不凭空制造edit identity。只被空间broad phase命中、但未形成target crossing的rail
+同样不进入impact。该映射不重新检测geometry，也不扫描整图incident resource。
+
+## 跨轨道 infrastructure footprint
+
+`RailIntervalResource(railId,startAbMeters,endAbMeters)`表示恰好一根rail上的canonical AB闭区间，单位米且`0 <= start <= end`。它不存在跨rail的全局里程。沿route跨越多根rail时，必须在同一个`InfrastructureFootprint`中放入每根rail各自的interval；live claim申请与释放以该footprint为原子单位。编辑影响使用独立的rail ID集合，不复用footprint。
+
+如果路径经过turnout、diamond或其他共享conflict node，还必须加入对应`StableInfrastructureResource(typeId,resourceId)`。两侧相邻rail intervals不会隐式表达共享节点冲突。例：
+
+```kotlin
+InfrastructureFootprint(listOf(
+    RailIntervalResource(railA, 80.0, lengthA),
+    StableInfrastructureResource("javarailways:turnout", turnoutId),
+    RailIntervalResource(railB, 0.0, 35.0)
+))
+```
+
+同rail闭区间端点相交即overlap，例如`[0,20]`与`[20,40]`冲突；不同rail interval永不因数值相同而overlap。BA行进范围必须先转换成每根rail的canonical AB坐标。
+
+turnout的方向无关资源身份由[路线资源准入](./route-resource-admission.md)唯一规定；这里仅要求
+footprint使用其`StableInfrastructureResource`，不得改用revision-local `TopologyNodeId`。diamond资源
+由独立binding提供。
+
+## 路线资源准入
+
+目标物理资源底线、附加资源、transaction和release/lifecycle合同见[route resource admission](./route-resource-admission.md)。保护区域领域已经迁出 Basic；本节只保留与通用registry直接相关的约束。
+
+`RouteResourceIntent`只描述一个自身携带topology revision的冻结route plan、列车身份、同一观察stamp与期望authority boundary；request本身既不复制第二个topology revision，也不携带附加资源。SimpleATO提供有序traversal；宿主在同一准入流程中认证并调用具体信号插件的contributor，收集只能增加最终union的资源和保持边界。Basic从authoritative observation读取列车实际占用，并从请求范围自行推导不可删除的物理资源底线。Basic不执行保护区域/固定闭塞的递归contributor closure。
+
+request不携带可替代Basic推导的raw `InfrastructureFootprint`或可信列车长度。SimpleATO提交按稳定rail ID、方向和AB位置记录的冻结路线；Basic在当前`TopologyState`上检查真实连续性、方向和合法连接，再通过绑定该root的route-bound resource catalog，把rail intervals、turnouts、fixed crossings与其他shared conflicts加入物理底线。不得把旧root的node/edge ID直接用于新图。经过验证的插件addition只可增加资源。physical occupancy geometry只用于检查，不形成第二个footprint。非法或断裂traversal返回`INVALID_ROUTE`；保护区域覆盖不足由具体信号插件处理。校验期间若事务影响本路线，申请拒绝；无关编辑不使路线过期。任何失败都不新增registry资源。
+
+运行中route state按rail ID建立反向索引，消费Core的`RailTopologyChange`。只有与事务影响相交的状态才标记不可用；
+已持有资源保留，不因编辑强制释放。未命中的grant、设备准备、后续申请和车尾游标继续工作。
+编辑候选提交局部delta并复核实际依赖，不以旧root生成的整图覆盖当前状态；这类局部失效不得传播成全世界列车的授权失效。
+
+`RouteResourceAdmissionRuntime`消费Basic内部route validation得到的唯一资源集合，在registry mutation前用同一观测的occupancy index查询已编译geometry，然后原子claim并启动同一admission中的完整有序`InfrastructurePreparationRequirement`批次。claim只建立逻辑排他性，不等于设备已经物理就绪；通用main-thread batch ticket报告`PREPARING/READY/ABORTED_SAFE/UNSAFE`，pending admission handle持有claim mutation，只有`READY`才完成claim，只有资源handler确认`ABORTED_SAFE`才删除本次新claim。`abort()`不规定恢复旧状态或默认状态。当前live actuator处理turnout requirement：它在任何side effect前解析并验证完整的双向selection批次，然后即时写入并返回`READY`；当前内存选择没有虚构的运行时失败或旧selection恢复路径。执行未完成时不会返回成功claim结果，也不存在grant；任一snapshot/actuator异常或`UNSAFE`均保留当前claim reservation并Stall world。
+
+同一个`CompiledRouteAdmission`还携带validation同期生成的有序tail-release entries：唯一footprint中的每个resource恰好出现一次，entry只附加已经完整编译的车尾清除路线阈值，不复制occupancy geometry。释放控制器从当前队首扫描连续eligible prefix，但不先出队；必须先完成registry原子shrink，再推进队首索引。Basic只执行物理clear boundary和插件显式提供的更严格保持边界，不隐式推导额外overlap/margin。production world runtime在每次成功observation publication后同步驱动该service的车尾释放入口。
+
+Registry现已提供internal同步、只减不增的live-claim shrink primitive。调用方提交platform owner、完全匹配的
+`InfrastructureOwner`以及非空、无重复的**准确资源身份**集合；它不是重建一份remaining footprint。registry在
+同一把锁内拒绝closed、missing claim、owner不匹配和pending admission，证明每个待释放身份当前确实被该
+claim持有，然后从内部保序身份集合中删除这些身份。若仍有资源，同一claim继续持有相同platform owner和
+logical owner revision并返回`REPLACED`；若为空则删除claim并返回`RELEASED`。所有待释放身份须在首个删除前
+验证完毕；任一失败都不产生partial mutation。对外
+`claimSnapshots()`只在显式读取时构造新的不可变`InfrastructureFootprint`，不能把内部可变集合泄露给调用方。
+
+初次申请等待设备准备时，registry另外保留不可变的原始footprint作为完成/安全回滚的核对依据，并要求当前claim
+仍是最初取得的对象、owner和有序资源内容均未变。待处理的同路线append保存已验证的delta身份集合；旧prefix
+仍可逐项shrink，但delta本身不能提前释放。由于delta与原资源互斥且始终保留，shrink后仅剩delta可由剩余
+数量等于delta数量证明，不需要复制全部剩余资源。rollback append只删除该delta，不恢复已经释放的prefix。
+
+Shrink不读取topology revision、不调用resource provider、不做overlap blocker查询，也不修改infrastructure
+preparation；删除既有身份不可能产生新冲突。它按`InfrastructureResource.equals`匹配身份，而不是按
+`overlaps`匹配范围，所以同一rail上两个不同但重叠的`RailIntervalResource`可以共存：释放其中一个后，
+另一个仍留在claim中继续保护其覆盖范围。
+
+令`K`为本次释放的身份数、`P`为当前pending mutation/append记录数、`H`为该claim尚持有的身份数。
+内部保序集合使shrink的平均成本为`O(K+P)`，不再随`H`重建footprint；`P`固定时，`H`个资源逐项释放的
+累计平均成本为`O(H)`。显式诊断快照仍需`O(H)`复制。当前按owner查找pending记录仍线性扫描`P`，这是
+单独的索引优化点，不能把整个registry的所有操作都称为常数时间。哈希集合依赖资源身份稳定的`equals/hashCode`；
+物理冲突检测仍按`overlaps`扫描持有者资源，未在本次改变。
+
+内部`LiveClaimTailRelease`只拥有当前已提交资源队列的释放状态。它保留registry、platform owner identity、
+完全匹配的`InfrastructureOwner`、一次校验的有序queue及其head index、已接受的最大authoritative tail route
+progress。每次advance从当前head只检查连续eligible prefix；非空prefix先提交给`shrinkClaim`，只有remaining非空得到
+`REPLACED`、remaining为空得到`RELEASED`后，才同时推进最大进度与head index，不重新复制/校验remaining queue。仅进度有效但队首未
+清除时可以单独推进最大进度。非有限/负数、相对已接受值倒退，或任何非预期registry结果都会锁存同一个
+fail-closed结果，本地queue/progress保持原值，后续调用不重试shrink。正常failure result保证claim未变；若
+registry违反预期返回另一种successful status，则可能已经只减了claim，owner仍必须保留本地状态并Stall，不能
+把这一invariant mismatch当作成功；`FailedClosed.claimMayHaveChanged`会明确标记这种已返回successful
+status的诊断情况，而普通failure为false。全部释放后进入幂等completed状态，后续调用不再访问registry。
+它仍接受并保存后续调用方已投影好的authoritative route progress，供已清空队列之后的安全suffix安装判断；
+它不拥有live grant、cursor或pending extension。
+
+live-grant owner可在registry delta已经finalize且全部设备已经READY后，向同一个
+`LiveClaimTailRelease`安装一组committed suffix entries。安装只做本地immutable queue校验：suffix自身非空、
+无重复且有序；首项必须严格位于历史已安装队尾之后；每个tail-clear boundary必须严格晚于当前已接受的最大
+tail progress。全部校验在修改本地状态前完成。原队列仍有资源时只合并尚未通过head的旧队尾与新suffix；原队列已空时重新
+建立queue。两种情况均不重置最大progress或外层frozen-route cursor。该方法不访问registry、不保存reservation
+handle，也不执行preparation、finalize或rollback。
+
+通用准入的后续请求还可能要求把**已经持有**的附加资源保持到更远的车尾位置；这种身份不能再作为registry delta重复申请，也不能套用上面的“新suffix全在旧队尾之后”检查。`RouteResourceAdmissionEngine`只在申请更远authority时对尚在队列中的同一identity暂缓释放，并在同一队列内重排剩余项；其他旧资源仍按队首释放。设备`READY`且最新观测复核成功后，服务先提交新增delta，再把旧identity的新保持边界与新增entries一起安装，最后扩大原grant。`ABORTED_SAFE`先撤销delta，再恢复旧边界并按已接受的车尾进度释放到期项。只有这几个申请生命周期边界复制/排序剩余队列；普通车尾推进仍从当前head扫描，不重建队列。若旧队列已空，route state继续保留cursor，同一grant的下一段用新claim acquire，而不是对不存在的claim执行append。
+
+`CompiledRouteAdmission`现保留一次性从已验证冻结路线编译的`CompiledRouteProgressPath`。它只按路线
+顺序保存cursor所需的rail、facing、canonical AB边界和累计route distance，不建立按rail反向查询的第二份
+索引。每次初次准入的冻结路线必须从同epoch observation的物理车尾开始；Basic只验证首个occurrence
+的route start并把cursor初始化为`0`，caller不提供初始route coordinate或occurrence index。之后cursor先匹配
+当前occurrence，只在不匹配时向后顺序扫描并
+选择第一个匹配项，从不回退。匹配结果低于已接受route distance或未匹配到当前位置都会锁存fail closed并
+保留原state。
+
+`RouteResourceAdmissionEngine`按logical owner ID持有live-grant record，包含精确platform/logical owner、train与
+`RouteGrantTailRelease`。成功acquire在READY后安装并保留原grant identity。runtime显式消费后续
+`RailwayObservation`，一次建立train ID lookup并按owner稳定顺序驱动控制器；controller仍校验stamp/train identity，
+把tail投影为候选进度，registry shrink成功后才提交cursor。Completed只表示当前资源队列为空：record继续消费后续
+observation并推进cursor但不访问registry。只有精确owner的显式release/end删除record；registry已无资源时必须由该
+record证明queue为空才把`NOT_FOUND`解释为`RELEASED`。错误owner或active queue下的`NOT_FOUND`不能被掩盖。
+
+当前仍没有持久化/reload恢复、provider-disable takeover或clearance margin。内部same-route suffix extension
+已经沿同一冻结路线验证并原子追加。route plan变化
+在安全运营边界结束旧claim后重新准入，不通过whole-claim replace实现。
+
+目标registry为同一冻结路线的rolling extension提供internal append-only mutation，而不是复用通用replace。调用方提交
+完全匹配的platform owner、logical owner、现有grant identity以及由Basic compiler生成的非空、无重复delta identities；
+不得提交whole remaining footprint。registry原子验证claim存在、owner精确匹配、没有另一个pending extension，且delta
+资源有效、未被本claim按exact identity持有、与其他claim不冲突。全部通过才建立只属于当前grant的delta reservation；
+任一失败都不改变existing held set。
+
+pending handle属于resource-acquisition/live-grant owner，只允许提交或撤销自己的delta reservation，不能删除、替换或恢复existing resources。prefix shrink仍可同时
+删除旧claim中的准确身份；它不会触碰delta reservation。准备成功后finalize把delta提交到同一claim并保持logical owner
+revision；安全失败只撤销delta。若无法证明设备已安全中止，或handle无法只撤销自己的delta，则保留最安全reservation并
+由上层Stall。如果pending期间旧prefix已经全部清除，grant record仍由delta reservation保活，不构造空footprint；安全失败
+撤销最后一份reservation后grant进入resource-idle但仍保留route cursor，直到显式end。pending delta不进入
+`LiveClaimTailRelease`；finalize后live-grant owner才安装对应的已提交release entries。整个过程不增加caller plan revision，也不使用generic claim replace伪造一次新owner。
+
+registry的内部shrink结果会额外证明“mutation后仅剩当前owner的pending append delta”。因此旧committed queue
+释放最后一个资源时，即使通用mutation status因delta仍在而为`REPLACED`，`LiveClaimTailRelease`也只在该证据为真时
+把自己的旧队列标记为空；普通`REPLACED`仍是fail-closed invariant mismatch。pending期间release不暂停，delta也不进入
+release queue。设备`READY`后，live-grant owner先重新校验suffix仍晚于当前tail progress，再finalize reservation并安装
+release entries；`ABORTED_SAFE`只rollback该delta。
+
+| append条件 | registry结果 | existing claim / delta |
+| --- | --- | --- |
+| owner/grant不匹配、已有pending extension、空或重复delta | typed invalid/busy | existing不变；无delta |
+| delta与其他claim冲突或provider/topology失效 | typed conflict/stale/provider failure | existing不变；无delta |
+| reserve delta成功 | pending handle | existing继续持有；delta reservation不可授权 |
+| pending期间prefix shrink | normal shrink；最后一个旧资源以pending-delta-only证据完成旧队列 | 只删除已清除existing identities；delta不变 |
+| finalize成功 | appended | 同一owner/revision持有existing + delta |
+| preparation安全失败并撤销成功 | aborted | 只删除delta；existing保留当时尚未由车尾释放的部分 |
+| unsafe abort或撤销invariant失败 | stalled/retained | 保留能证明安全的existing + delta reservation |
+
+具体internal方法名和result类名尚未冻结；上述原子性、同owner revision、只处理delta以及prefix release不暂停是实现合同。
+
+## 项目内正确示例
+
+Dispatcher只提交冻结route与目标authority；Basic编译完整物理底线、原子claim并准备设备。Dispatcher不枚举或
+切换道岔，也不维护另一份资源集合。隔离仿真同样组合`RouteResourceAdmissionRuntime`，每个物理步先向它提交
+本epoch的`RailwayObservation`，再执行Dispatcher Tick。
+
+## 禁止实现
+
+- 边查边切、失败留partial；
+- preempt已有resource；
+- 用一个虚构的rail interval表达跨rail范围，或遗漏共享conflict node；
+- add-on直接申请raw live claim绕过route validation和mandatory physical footprint；
+- caller提交可替代物理底线的raw footprint/列车长度，或Basic替caller选择路径/执行保护区域策略；
+- 用全世界revision变化废弃无关路线，或遗漏校验期间实际影响本路线的structural edit；
+- release时复位branch；
+- 只看head或direction；
+- worker直接修改registry或设备；
+- conflict直接Stall；
+- manual takeover立即清locks或FULL_MANUAL自动恢复ATO。
+
+## 必需测试与验证
+
+- `RouteResourceAdmissionEngineTest.kt`：完整batch在首个写入前检查conflict/physical lock、idempotent、tail release；不构造同步内存selection的虚构apply failure。
+- `TimetableDispatcherTest.kt`与`TimetableDispatcherSharedAdmissionTest.kt`：authority/retry、stable conflict、tail release、sameTick Stall、manual modes。
+- `TimetableStationCallDispatcherTest.kt`：berth/old mission tail release。
+- `InfrastructureCoordinationRegistryTest.kt`：重叠infrastructure dependencies、exclusive claims、held edit permit、owner revision、编辑候选的双重topology check、稳定引用不因无关revision变化过期、provider failure和无partial mutation。
+- `InfrastructureCoordinationRegistryTest.kt`：claim shrink按准确身份原子删除、保留剩余顺序与owner revision，支持重叠interval，并在missing/wrong owner/pending/closed时保持不变。
+- `LiveClaimTailReleaseTest.kt`：先shrink后出队、单调进度、重叠identity独立释放、unexpected result锁存
+  fail closed、全部释放后的幂等completed、active queue追加、empty queue恢复和非法suffix原子拒绝。
+- registry append tests：只保留delta、与其他claim冲突时existing不变、owner/grant/pending校验、finalize保持logical
+  owner revision、安全失败只撤销delta、pending期间prefix shrink继续释放旧资源、unsafe abort保留reservation。
+- public consumer fixture：能声明rail/node/resource三类infrastructure dependencies并申请edit permit，但不能导入raw `InfrastructureClaimRequest`。
+
+```bash
+./gradlew :Basic:test --tests '*RouteResourceAdmissionEngineTest'
+./gradlew :SimpleATO:test --tests '*TimetableDispatcher*'
+```

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="work.art1st.javarailways.core.physics.rail.RailLocationPersistTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-11T06:36:25.332Z" hostname="dev" time="0.003">
+  <properties/>
+  <testcase name="BA direction round-trip preserves position()" classname="work.art1st.javarailways.core.physics.rail.RailLocationPersistTest" time="0.002"/>
+  <testcase name="AB start location round-trip()" classname="work.art1st.javarailways.core.physics.rail.RailLocationPersistTest" time="0.0"/>
+  <testcase name="BA end location round-trip()" classname="work.art1st.javarailways.core.physics.rail.RailLocationPersistTest" time="0.001"/>
+  <testcase name="AB direction round-trip preserves position()" classname="work.art1st.javarailways.core.physics.rail.RailLocationPersistTest" time="0.0"/>
+  <testcase name="BA mid location tangent is negated AB tangent()" classname="work.art1st.javarailways.core.physics.rail.RailLocationPersistTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,31 @@
+{
+  "id": "isolated-simulation-runtime",
+  "name": "isolated-simulation-runtime",
+  "title": "完整领域功能的隔离模拟与物理 epoch 事件",
+  "description": "按 World 隔离运行状态，复用完整运营、信号和碰撞逻辑，统一事件来源并接入逐物理 epoch 的 Pre/Post 通知。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "javarailways",
+  "priority": "P2",
+  "creator": "ARTI5T",
+  "assignee": "ARTI5T",
+  "createdAt": "2026-10-18",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "dev/signal-system",
+  "worktree_path": null,
+  "commit": "207807ebcd974f37d921a93937f76aef9fa65393",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-18-world-epoch-events",
+    "10-18-world-runtime-isolation",
+    "10-18-simulation-signal-features",
+    "10-18-simulation-behavior-features"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "2026-10-19: children1/2 completed and merged (runtime1423116d, Core5d8cdabe, docs-sitecb9263b). O1/O2 observation isolation and lifecycle verified in2395-test complete gate. Child3 S1-S3 all LIVE/SIM signal isolation and child4 behavior remain planning. Parent AC4/AC5/AC7 await full-feature joint validation. 2026-10-20父最终验收：53源c1d805b9（与P2候选相比仅两测试变化）通过当前8模块2507项/364 suites，0失败/错误/跳过；frontend108和生产构建通过，API消费/模块边界/JAR/三模块Dokka通过。补齐真实fromCore的LIVE-LIVE/LIVE-SIM/SIM-SIM模式矩阵，并以非空真实LIVE claim/Dispatcher/正式信号验证同源两SIM运行关闭不改源状态。父AC4/AC6/AC7代码及自动化验收通过，现场Paper/Folia/client/browser未执行；保留上游fatal host故障全进程停机政策。提交/合并/归档暂缓。最终索引见行为research/parent-acceptance.md，机器证据parent-final-evidence.json及独立parent-acceptance-check.md。 2026-10-20用户明确授权提交：实现/测试/规范与docs gitlink已本地提交207807ebcd974f37d921a93937f76aef9fa65393，docs独立提交3bdd5626d35e7706a3fa7a7e167b4d35b104d9d5；53源c1d805b9与2507/108已测候选字节一致并经独立staged复核。验收记录另提交；不合并、不推送、不部署。",
+  "meta": {}
+}

@@ -1,5 +1,6 @@
 package work.art1st.javarailways.bukkit.render.backend
 
+import java.util.concurrent.CompletionStage
 import org.bukkit.Location
 import org.bukkit.World
 import org.bukkit.block.data.BlockData
@@ -23,14 +24,23 @@ sealed interface DisplayVisualContent {
 }
 
 interface DisplayVisual {
+    /** Actual client entity identity, captured on its owner; absent only for non-packet test visuals. */
+    val packetEntityId: Int? get() = null
+    /** Owner-captured initial shared entity flags and display glow color. */
+    val packetGlowBaseline: Pair<Byte, Int> get() = 0.toByte() to -1
+    /** Internal renderer affinity; packet visuals have no server entity. */
+    val affinityEntity: org.bukkit.entity.Entity? get() = null
     fun showTo(player: Player)
     fun hideFrom(player: Player)
     fun teleport(location: Location)
     fun setTransformation(transformation: Transformation)
     fun setItemStack(itemStack: ItemStack)
     fun setBrightness(blockLight: Int, skyLight: Int)
+    /** Remove the override so the client uses natural world light. */
+    fun clearBrightness()
     fun addPassenger(passenger: DisplayVisual): Boolean
-    fun destroy()
+    /** Completes when backend removal finishes; repeated calls retain the same outcome. */
+    fun destroy(): CompletionStage<Void>
 }
 
 interface DisplayRenderBackend {

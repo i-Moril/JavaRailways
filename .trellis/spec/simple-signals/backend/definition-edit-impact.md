@@ -1,0 +1,132 @@
+# 定义编辑影响合同
+
+## 1. 状态、范围与所有权
+
+CURRENT；owner 为 SimpleSignals。解决在线编辑许可误包含同世界全部信号定义的问题。
+只改变编辑影响范围的计算，不新增锁定系统，不改变 Basic 的静态运营依赖、列车动态占用或编辑许可语义。
+完整候选编译仍是异步低频操作；本合同不要求增量编译 catalog。
+
+## 2. 模块工作方式
+
+`applyDefinitionPatch` 在 worker 上校验 patch/revision，完整编译候选 publication，计算旧、新状态的编辑影响，
+再向现有 `InfrastructureResourceService.acquireEditPermit` 提交 rail IDs 和变更涉及的已发布闭塞资源身份。
+Basic 判断这些轨道是否涉及已应用时刻表、列车占用或其他编辑。拒绝则不写盘、不替换 source。
+通过后沿用 staged save 和原子 source/publication 提交流程。
+
+## 3. 内部机制
+
+按稳定 ID 比较各类旧、新定义，取得实际改变的 region、table、block、signal、indicator、attached signal。
+待补全保护边界也按 boundary ID 比较，只把实际新增、删除或移动边界的旧、新轨道加入影响；
+不能因整个 pending 列表被替换，就保护所有未改变的边界轨道。
+分别在旧 publication 和候选 publication 收集影响，最后取并集，覆盖删除、移动和依赖改绑。
+如果 topology root 已更新，还比较已有的区域内部、标准化 block traversal/长度、进路所需道岔连接和信号依赖路径。
+只把实际改变的派生值加入起点；排除 revision-local 标识与 callback 对象身份。
+无关在建轨道导致 root 换代，不等于所有信号定义都被编辑。
+
+- block 改变：包含完整 block traversal，并以其 section 作为依赖传播起点。
+  同时提交旧 publication 中存在的 `StableInfrastructureResource("simplesignals:fixed-block", blockId)`，
+  覆盖更新、删除和拓扑派生变化。
+  新建 block 尚未被provider注册为可用身份，因此只提交旧、新轨道影响；不能把不存在的资源交给许可校验。
+- region/table 改变：包含相关区域边界、内部和进路；进路 section 与入口选择作为传播起点。
+  区域有未完成边界编辑时，同时包含原完整边界与当前 `boundaryDraft` 的轨道；旧区域范围继续用于禁行和修复。
+- region 与直接后继 block 互相影响准入 floor；变更 block 时不能遗漏前驱 region，变更 region/table 时不能遗漏直接后继 block。
+  所有 block 将两个已归一化的真实入口按轨道建表；反向入口也按位置和朝向匹配 region cut，
+  路径／边界变化在旧、新 publication 分别收集，不存在单双向权限开关。具体语义见[闭塞两端入口](bidirectional-fixed-block.md)。
+- signal 改变：包含其受控 section 和所有结构上可受影响的消费者。
+- indicator 改变：包含旧、新放置轨道和绑定入口的进路，不把仅显示模型的设备当作限速提供者。
+- attached signal 改变：包含旧、新放置轨道及各自主信号绑定的区间或进路；改绑时同时保护两个主信号的逻辑范围。
+  主信号受到编辑影响时，也包含其附属设备的放置轨道。仅编辑附属显示不把主信号或其上游消费者加入规则传播起点。
+
+主信号、进路显示器和附属信号机的 rail 模型摆放都通过同一影响收集加入附着轨道；ground 或未配置模型不增加显示轨道。
+从 A 移到 B 必须在旧、新 publication 分别取得 A 与 B；改成地面摆放仍包含旧附着轨道及原逻辑绑定。
+受影响的结构消费者也收集自己的 rail 摆放，不按当前灯色或是否已经创建实体剪枝。
+模型字段不产生新的运行资源身份；完整序列化规则归[模型显示合同](model-presentation.md)。
+
+依赖检查复用 publication 的 `topologyIndex.signalConsumers` 邻接表，使用结构可达遍历，每个节点访问一次。
+这个索引来自已编译的 JS observation graph；影响收集不执行 JS、不因灯色未变而停止，也不按当前道岔开放方向
+排除路径。被影响的信号还包含它已编译的观察路径，不能只保护信号所在轨道。
+
+## 4. 接口与单位
+
+内部入口：`SimpleSignalsDefinitionEditImpact.impact(previous, candidate): TopologyEditImpact?`。
+没有任何旧/新逻辑、观察依赖、轨道摆放或资源影响时返回null，例如删除已解绑且摆在地面的信号。此时不构造Core明确禁止的空TopologyEditImpact，不伪造GRANTED或轨道锚点；继续执行同一完整候选校验、基线检查及原子保存/source替换事务。非空影响仍必须取得真实host编辑许可；仅railIds为空不能替代完整impact是否为空的判定。
+`SimpleSignalsPreparedDefinitions.editImpact`保存现有host影响值，`affectedRailIds`只投影其中轨道集合供诊断。
+`SimpleSignalsDefinitionEditImpact` 从改变的 signal、section 与保护入口取得起点，再沿
+`SimpleSignalsTopologyIndex.signalConsumers` 收集所有结构可达消费者；观察路径轨道来自同一 index 的
+`railsByObject[TopologySection(SIGNAL, signalId)]`。
+轨道身份使用 Core rail UUID；不把 rail/node 改成新的 SimpleSignals 资源。
+
+## 5. 不变量、线程与版本
+
+影响收集只读取已编译 publication，不修改共享信号状态、不调用 Bukkit、不申请列车资源。
+旧、新结果都必须检查；删除后的对象不能因候选中不存在而失去保护。
+删除保护信号时，旧 publication 中的 signal binding 仍是影响收集起点，必须包含其受控进路轨道。
+正常 Dispatcher 路径先 `FrozenRouteEditProtection.protect` 再绑定 inspection；结束时先
+`InspectionRuntime.removeTrain` 再解除路线编辑保护。因此相关检查仍有效时，删除必须返回 `EDIT_BLOCKED`，
+不能依赖删除后识别旧 declaration 的兼容分支。物理 worker 对已捕获 binding 仍核对当前 source 身份，
+`removeTrain` 后的下一次检查更新过滤掉已移除的检查。此结论限于上述正常生命周期与统一编辑许可，
+不代替其他调用方的生命周期合同，也不是已在执行回调的取消机制。
+完整候选仍绑定 exact topology root；许可后 root 变化须在保存前拒绝。
+计算在异步 authoring 路径，不进入物理 tick 或逐列车信号计算。
+本机制不新增存档边界或兼容分支；可选模型/摆放字段属于原设备定义和原 sidecar。
+
+## 6. 校验与失败行为
+
+- 无变化、非法 revision、非法引用或依赖环：候选校验拒绝，尚未取得许可。
+- 有影响但被静态运营依赖、动态 claim 或其他编辑阻挡：透传现有 host decision/blocker。
+- 许可后 topology/base publication 改变：typed stale，保留旧状态。
+- staged save 或 source validation 失败：保留旧磁盘 primary、旧 source 和旧 publication。
+- 成功：沿用原子 commit point；若实际取得许可则关闭，无基础设施影响时editDecision为空，不新增rollback状态机。
+
+## 7. 性能、复杂度与退化
+
+设定义比较规模为 D、block 数为 B、route 数为 Q、边界与同轨道 block 入口的候选比较数为 H。
+受影响图节点/边为 A/Ea，收集的几何、依赖路径和显示器绑定引用数为 G。
+普通影响收集为 O(D+B+Q+H+A+Ea+G)。block 按入口轨道、route 按入口分组一次，避免全轨道对比和每个显示器重复扫描全部进路。
+可达节点只访问一次；几何收集与去重按访问引用线性。
+topology 换代另增加已编译派生值比较规模 C 的线性成本，不会为每个对象重新寻路。
+这不是每 tick 成本。完整候选编译和存档编码的原有规模成本仍存在且仍在 worker 上执行。
+区域内部暂采用整个区域的保守范围，不尝试证明某条未改进路与另一条进路完全无关。
+
+## 8. Good / Base / Bad
+
+Good：运营线路 A 与在建线路 B 无结构依赖，修改 B 的信号不因 A 的时刻表或列车 claim 被拒绝。
+Base：移动或删除 B 的信号，同时检查旧、新影响；不能只检查目标位置。
+Bad：B 是 A 的下游依赖，或 B 是 A 保护区域出口后的直接闭塞；不能因轨道不同、当前灯色不变而允许编辑。
+
+## 9. 必需测试
+
+- 实际 runtime manager 配合 Basic registry：无关静态运营依赖和动态 claim 不阻挡编辑。
+- 被编辑轨道或间接受影响的上游轨道受保护：拒绝且磁盘、publication、source 不变。
+- 旧、新路径、删除和位置移动均覆盖；block、region、table、signal、indicator、attached signal 均有断言。
+- 附属设备改绑同时覆盖旧、新主信号区间；只改附属显示不保护无关上游规则。
+  主信号变更仍保护相关附属摆放轨道，不因它们位于另一条轨道而遗漏。
+- 固定进路信号和当前信号分别删除：使用实际 Basic registry 的静态依赖、动态 claim 阻挡；
+  拒绝不改变磁盘、publication、source，解除阻挡后同一删除成功。
+- 仅声明某个已存在block资源的静态依赖时，实际manager更新/删除该block也必须被拒绝；
+  不相关block仍可编辑，新建block不因尚不存在的资源身份被许可误拒绝。
+- 无关在建轨道替换 topology root 后，局部编辑仍不被另一条运营线路阻挡。
+- 当前输出不变、当前支路未开放仍收集结构依赖。
+- 保留 revision、非法候选、许可后 root 变化、保存失败和阻塞提交的既有原子性测试。
+
+## 10. 迁移、未决事项与 Wrong / Correct
+
+无需存档迁移、公共服务升级或 runtime compatibility adapter。
+管理员命令与闭塞/保护区域 Wand 已复用共同事务入口；其他交互仍按各自合同推进。
+
+Wrong：把整份 old/new publication 的所有轨道作为许可范围；或者只保护编辑对象所在轨道。
+Correct：从实际改变的对象出发，在旧、新编译状态中沿结构依赖收集影响，再复用现有许可。
+
+## 边界名称元数据的编辑影响
+
+[边界名称](boundary-names.md)在原世界定义内单独保存，不通过伪造 region/block/table 变化取得编辑许可。纯名称编辑把实际改变的旧、新名称锚点轨道加入影响，沿用现有许可与原子提交流程；不因为仅改名而传播全部进路或无关设备。它仍受当前轨道编辑许可约束，不提供运行中绕过。
+
+## 局部选择校验与原子提交
+
+作者选择保留原 definition revision 与拓扑基线，只比较实际编辑依赖的轨道实例、端点连接和平交关系。
+选择校验不把其他对象因拓扑重编译产生的变化当作原选择依赖；编辑许可仍覆盖候选 publication 的全部实际变化。
+远处编辑使准备的完整 graph/root 过期时，在 worker 重新走完整 prepare，原子提交仍要求 graph 与 root 同源。
+只允许一次此类自动重准备，继续竞争返回 `RETRY_REQUIRED`，不把竞争次数当作所选对象失效。
+定义 revision 冲突或原选择的真实依赖变化直接拒绝，不重写用户意图。
+
+未绑定地面固定/保护信号、表示器及附属设备的编辑/删除，必须回归存盘重载和零伪造许可；轨道附着或仍有受控/观察范围的设备继续受真实静态/动态claim保护。无影响路径也须覆盖无变化、revision错误、source拒绝、保存失败、取消及拓扑换代保留旧publication与磁盘。

@@ -1,0 +1,9 @@
+{"file":".trellis/spec/javarailways/simpleato/simulation.md","reason":"真实隔离世界、唯一tick循环、取消清理；旧估算段按PRD纠正"}
+{"file":".trellis/spec/javarailways/simpleato/dispatcher-runtime.md","reason":"站点任务和安全门禁；与用户新合同冲突的计时段须修正，完整读取"}
+{"file":".trellis/spec/webui/frontend/studio-authoring.md","reason":"fixedDwell与minimum独立，Reset事务及跨RUN旧规则修正"}
+{"file":".trellis/spec/bukkit-plugin/backend/simulation-car-behavior.md","reason":"LIVE/SIM真实逐车行为与门动作完成"}
+{"file":".trellis/spec/javarailways/shared/versioning.md","reason":"不为开发期语义修复递增格式版本或增加旧路径"}
+{"file":".trellis/tasks/11-06-line-simulation-dwell-semantics/design.md","reason":"最终设计边界和单一时间依据"}
+{"file":".trellis/tasks/11-06-line-simulation-dwell-semantics/research/runtime-dwell-contract.md","reason":"真实到站和当前门动作时长边界，后续用户确认覆盖早期待定项"}
+{"file":".trellis/tasks/11-06-line-simulation-dwell-semantics/research/editor-dwell-contract.md","reason":"首尾注入、跨RUN隐式minimum、错误测试及默认值回落"}
+{"file":".trellis/tasks/11-06-line-simulation-dwell-semantics/research/line-simulation-reuse.md","reason":"现有factory/观察接口复用和精确测时，选择以design为准"}

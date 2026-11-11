@@ -1,44 +1,42 @@
 package work.art1st.javarailways.basic.rail
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.basic.testing.TestBasicWorldDataRegistry
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.physics.rail.CoreRail
-import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.physics.rail.configureTurnoutForTest
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import kotlin.math.cos
 import kotlin.math.sin
 
 class TurnoutTopologyTest {
-    @Test
-    fun `split rejects a short replacement leg next to an existing turnout`() {
-        val (stem, _, _) = turnout()
+    private val fixtures = mutableListOf<TestWorldFixture>()
 
-        assertNotNull(TurnoutTopology.splitLockingClearanceError(stem, 8.0, 5.0))
-        assertNull(TurnoutTopology.splitLockingClearanceError(stem, 5.0, 5.0))
-    }
+    private fun newTestWorld() = TestWorldFixture.create().also { fixtures += it }.world
 
-    @Test
-    fun `ordinary two-leg node does not impose turnout locking clearance`() {
-        val world = createTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
-        val first = rail(world, Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
-        val second = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
-        RailAutoConnector.connectIfAllowed(first, second)
-
-        assertNull(TurnoutTopology.splitLockingClearanceError(first, 9.5, 5.0))
-    }
-
-    @Test
-    fun `every turnout leg is recognized regardless of stem direction`() {
-        val (stem, straight, branch) = turnout()
-
-        assertNotNull(TurnoutTopology.splitLockingClearanceError(stem, 8.0, 5.0))
-        assertNotNull(TurnoutTopology.splitLockingClearanceError(straight, 2.0, 5.0))
-        assertNotNull(TurnoutTopology.splitLockingClearanceError(branch, 2.0, 5.0))
+    @AfterEach
+    fun closeTestWorlds() {
+        var firstFailure: Throwable? = null
+        fixtures.asReversed().forEach { fixture ->
+            try {
+                fixture.close()
+            } catch (failure: Throwable) {
+                val primary = firstFailure
+                if (primary == null) firstFailure = failure else primary.addSuppressed(failure)
+            }
+        }
+        fixtures.clear()
+        firstFailure?.let { throw it }
     }
 
     @Test
@@ -51,18 +49,53 @@ class TurnoutTopologyTest {
         assertEquals(expected, TurnoutTopology.turnoutRailsTouching(listOf(branch)).mapTo(hashSetOf()) { it.id })
     }
 
+    @Test
+    fun `incomplete same-side pair retains full authored maintenance closure`() {
+        val world = newTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
+        val straight = rail(world, Vector3d(), Vector3d(10.0, 0.0, 0.0))
+        val branch = rail(world, Vector3d(), Vector3d(10.0, 0.0, 3.0))
+        val unrelated = rail(world, Vector3d(), Vector3d(0.0, 0.0, 10.0))
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(straight, branch) }
+
+        assertTrue(straight.viewBA.nextRails.isEmpty())
+        assertTrue(branch.viewBA.nextRails.isEmpty())
+        assertTrue(TurnoutTopology.isTurnoutEndpoint(straight.viewBA))
+        assertTrue(TurnoutTopology.hasTurnoutEndpoint(branch))
+        assertFalse(TurnoutTopology.hasTurnoutEndpoint(unrelated))
+        assertEquals(setOf(straight, branch), TurnoutTopology.turnoutRailsTouching(listOf(straight)))
+        assertEquals(setOf(straight, branch), TurnoutTopology.turnoutRailsTouching(listOf(branch)))
+
+        val stem = rail(world, Vector3d(-10.0, 0.0, 0.0), Vector3d())
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, branch) }
+        assertEquals(setOf(straight, branch, stem), TurnoutTopology.turnoutRailsTouching(listOf(straight)))
+        IsolatedSimulationThreadMarker.run { world.removeRail(stem) }
+        assertTrue(straight.viewBA.nextRails.isEmpty())
+        assertEquals(setOf(straight, branch), TurnoutTopology.turnoutRailsTouching(listOf(straight)))
+    }
+
+    @Test
+    fun `ordinary two-leg continuation remains available for normal geometry editing`() {
+        val world = newTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
+        val before = rail(world, Vector3d(-10.0, 0.0, 0.0), Vector3d())
+        val after = rail(world, Vector3d(), Vector3d(10.0, 0.0, 0.0))
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(before, after) }
+
+        assertFalse(TurnoutTopology.hasTurnoutEndpoint(before))
+        assertFalse(TurnoutTopology.hasTurnoutEndpoint(after))
+        assertTrue(TurnoutTopology.turnoutRailsTouching(listOf(before, after)).isEmpty())
+    }
+
     private fun turnout(): Triple<CoreRail, CoreRail, CoreRail> {
-        val world = createTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
+        val world = newTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
         val stem = rail(world, Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
         val straight = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
-        RailAutoConnector.connectIfAllowed(stem, straight)
         val radians = Math.toRadians(20.0)
         val branch = rail(
             world,
             Vector3d(0.0, 0.0, 0.0),
             Vector3d(cos(radians) * 10.0, 0.0, sin(radians) * 10.0)
         )
-        RailAutoConnector.connectIfAllowed(stem, branch)
+        configureTurnoutForTest(stem, listOf(straight, branch))
         return Triple(stem, straight, branch)
     }
 
@@ -73,6 +106,6 @@ class TurnoutTopologyTest {
             Curve.RawPoint(Vector3d(from), Vector3d(tangent), Vector3d(0.0, 1.0, 0.0), 0.0),
             Curve.RawPoint(Vector3d(to), Vector3d(tangent), Vector3d(0.0, 1.0, 0.0), length)
         ))
-        return CoreRail(world, curve, mutableListOf(), mutableListOf())
+        return world.createRailForTest(curve)
     }
 }

@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/javarailways/core/train-physics.md", "reason": "consist geometry, path and publication invariants"}
+{"file": ".trellis/spec/javarailways/core/curve-geometry.md", "reason": "arc distance and coordinate semantics"}
+{"file": ".trellis/spec/javarailways/core/testing.md", "reason": "real epochs and resource cleanup"}
+{"file": ".trellis/spec/javarailways/core/persistence.md", "reason": "restore validation and strict current model"}
+{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "no speculative schema bump"}
+{"file": ".trellis/tasks/archive/2026-10/10-11-train-coordinate-performance/design.md", "reason": "approved geometry and measurement design after planning gate"}

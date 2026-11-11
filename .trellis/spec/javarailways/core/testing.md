@@ -1,0 +1,140 @@
+# Core testing 契约
+
+## 适用场景与用途
+
+触发：新增Core test、跨模块fixture、thread/topology/physics/persistence regression，或修改`java-test-fixtures`。
+
+用途：测试必须观察真实publication/barrier与cleanup，不用sleep、reflection或same-helper自洽掩盖错误。
+
+## 进程终态故障的测试隔离
+
+`RailwaySimulationHalt` 没有生产 reset，关闭所有 coordinator 也不清除首个故障。
+Core 中故意触发全局 halt 的测试方法使用 test-only `@IsolateGlobalHalt`：
+扩展按 JUnit invocation unique ID 在子 JVM 中执行该用例，普通测试仍在原测试 JVM 执行。
+参数化方法可用 `@IsolateGlobalHalt("stall", "epoch-failure")` 仅隔离指定字符串参数；
+不能用 Gradle `forkEvery` 的类级隔离代替 invocation 隔离。
+子 JVM 必须恰好成功执行一个测试，失败和日志返回父测试，超时终止子进程。
+Gradle 为 launcher 提供真实 test runtime classpath，代码只在 `src/testFixtures`，不进入 Core runtime。
+fixture 的 JUnit API 经 `testFixturesApi` 暴露（注解与 extension 的公开签名需要），
+launcher 仅为 fixture implementation 依赖；consumer 仍显式拥有自己的 JUnit engine。
+SimpleATO 的真实失败 epoch 模拟测试复用这一标记与其自身 test classpath；不按模块泛化隔离。
+
+带标记的方法必须在方法体内建立和释放 fixture，不在实例构造器或 class/lifecycle hooks 中建立故障状态。
+每个 invocation 只测试一个终态；需要在故障后观察新 world 被拒绝时可以在同 invocation 创建，
+但不能要求新 world 自动恢复。如果要测试另一次独立故障，应拆成新的 invocation。
+普通参数拒绝、准备前失败、事件 listener 隔离、独立 world overload 不属于全局 halt，
+不要泛化标记所有异常测试。
+
+`RailwaySimulationHaltTest` 的两个参数 invocation 分别验证 fresh-process 准入、
+多 coordinator pending work 失败以及关闭全部 coordinator 后终态仍保留。
+联结未知 controller 准备异常的生产链回归验证全局 halt 并保留原编组；
+内部准备方法直接抛错的单元用例不因此改成全局失败。
+本批仅静态检查测试源码与启动配置，未执行测试、编译或构建。
+
+## Fixture owner 与签名
+
+Core `java-test-fixtures`导出：
+
+- `Core/src/testFixtures/kotlin/work/art1st/javarailways/core/physics/train/TrainTestUtils.kt`：world/rail/train、AB/BA/loop builders；
+- `Core/src/testFixtures/kotlin/work/art1st/javarailways/core/physics/rail/curve/PrimeCurveGenerator.kt`：测试直线/圆弧分段生成器，保留原包名供现有consumer复用；只随test-fixtures产物发布，不进入Core runtime JAR；
+- `Core/src/testFixtures/kotlin/work/art1st/javarailways/core/util/AsyncTickTestSupport.kt`：安装与production worker相同marker。
+
+真实worker helper：
+
+```kotlin
+object AsyncTickTestSupport {
+    fun <T> run(block: () -> T): T =
+        AsyncTickThreadMarker.runInAsyncTickContext(block)
+}
+```
+
+consumer test通过`testFixtures(project(":Core"))`复用；production不得依赖fixture。`createTestWorld(physicsCoordinator: PhysicsCoordinator? = null)`在受保护的setup中创建TickManager和默认PhysicsCoordinator；不初始化任何global DI。创建失败只释放helper拥有的coordinator及tick/scheduler，保留原异常并附suppressed；显式传入的coordinator仍由caller拥有。成功返回后caller负责按physics→tick关闭并清world/global registrations。nullable默认值使默认coordinator不会在进入函数前分配，Kotlin无参/具名及JVM一参调用保持可用。
+
+需要scope化清理时使用`TestWorldFixture.create(...)`：fixture拥有world、tick manager及（未显式传入时）coordinator；`close()`逐项尝试并保留首个失败/追加suppressed，可重复close。新增测试优先用该fixture而不是复制`@AfterEach`/`withWorld`清理代码；场景与断言仍由测试自己组织。
+
+`TrainTestUtils`另提供`CoreWorld.onOwnerForTest(action: () -> T): T`和`CoreTrain.setControllerForTest(controller)`。
+前者只在一次操作的词法作用域中进入测试simulation owner，再调用真实`processBetweenFrames`；后者仅包住控制器安装/移除。
+Dispatcher的start/begin/reset/tick等同步测试调用按单次操作进入该作用域，不能把整项physics测试包住而阻止所有后续epoch。
+构造时extension会安装controller的测试，要包住整个构造及初始化；已经在该作用域内的callback保留直接setter，避免嵌套process。
+验证错误阶段拒绝的测试必须保留原始生产入口，不能机械替换为helper。这些辅助只存在于test-fixtures，不提供runtime guard绕过或平台访问权限。
+
+fixture使用JOML构造测试几何时，Core以`testFixturesImplementation`声明同版本依赖；生产`compileOnly`和普通`testImplementation`都不能代替fixture自己的编译依赖。生成器的公开方法不直接暴露JOML类型，不因此扩大为`testFixturesApi`。
+
+用于正常运动或运营成功用例的轨道fixture必须允许刚体列车通过接缝；拓扑连通不等于几何可行。例如，把两条完全重合、方向相反的直线首尾相接会形成零半径180°折返，保持轴距可能要求尾转向架倒退，不能据此要求Core放宽前向定位。需要环线时复用圆弧生成器形成平滑连接；两个半圆共享两个端点时，用`RailView.connect(outbound.viewAB, returning.viewBA)`和`RailView.connect(returning.viewAB, outbound.viewBA)`显式连接两处接头，不依赖最近端点推断。专门测试非法几何的用例则明确断言失败，不将其混入正常入库或时刻表成功场景。
+
+## 测试矩阵与 assertion points
+
+`TrainSlopeJointMotionTest`的两项水平线接坡道场景使用真实50ms exact ticket，不手动调用controller.tick再以live位置冒充完整发布。保留原编组、60/90步与终态跨缝要求，逐步按独立水平长度和坡比解析期望rail、弧长及三维位置，并核对同epoch和未脱轨。物理step在owner作用域外；只为连接操作进入owner。既有完整刚体几何测试另行覆盖轴距和车钩，不把本接缝回归写成完整物理性能测试。
+
+| 主题 | 必需断言 |
+| --- | --- |
+| physics | exact ticket epoch、before/after publication、delta单位/clamp、failure→Stall、finally close |
+| thread | wrong thread fail-fast；annotation本身不调度；marker lexical cleanup |
+| curve/topology | AB/BA、endpoint/frame、turnout、body occupancy、transaction reader、rollback |
+| train | head/tail/bogie/car spacing、reverse owner boundary、collision next epoch、destroy全cleanup |
+| render | value-only、defensive copy、revision stale、coalesce/capacity、无live补读 |
+| event/global registry | handler顺序/failure、token close、test后无registration、slot不依赖order |
+| persistence | hand-written fixed JSON、strict unknown/future、orphan/duplicate、failure无partial state |
+
+## 结果/资源矩阵
+
+| 测试动作 | 正确结束状态 | failure时仍必须 |
+| --- | --- | --- |
+| coordinator test | awaited ticket或明确exception | `close()` |
+| process-wide bus registration | token closed | `finally close` |
+| ThreadGuard host registration | exact token在finally关闭且可重复close | 不用全局clear，不污染后续test |
+| world materialization失败 | 无partial registered train | close created resources |
+| concurrent barrier | latch/future确定时序；锁阻塞测试证明具体线程已进入对应锁队列 | 不用固定sleep或仅凭task started猜测 |
+
+实际行为回归由`TrainUniformMotionTest`等待真实`stepSimulation`的exact ticket后验证head/tail/每车published frame的位移和速度；50 ms用例必须把m/s换算成实际位移并检查每个car/bogie frame，而不只检查controller/train标量speed。停止/解除controller的下一epoch必须证明上一epoch非零速度已清除；换向用例先验证帧间操作完成后的空traversal/零车体速度，再验证紧随的移动epoch按新rail facing tangent发布反号速度，不插入仅换向的物理epoch；曲线用例检查bogie切线、刚体chord与角速度，distance-only placement检查不会继承旧速度。不能以local累加值或live field充当frame actual。`CoreTrainDerailEventTest`从真实尽头行驶失败触发coordinator发布/排队，先检查physics完成但main尚未drain时无事件，再检查重复drain及下一idle epoch仍只一次。listener内记录值、断言放在listener外，避免总线异常隔离吞掉assertion。`ImmutableSnapshotTest`捕获后实际改变live对象位置/lifecycle和列车摆位，再验证旧值不变。
+
+`CoreTrainAsymmetricTurnoutTest`的移动回归必须等待真实coordinator ticket，再从同一已发布epoch检查车头、车尾、body traversal和脱轨状态；不能在`moveTrainForward`之后、`commit`之前读取旧公开值。重复移动还要在每个已发布epoch验证车尾端与已解算转向架重新锚定，并在最终epoch检查累计实际位移。`CoreTrainMultiCarDiagnosticTest`只使用公开列车/car/frame状态：command-style relocation先证明commit前不可见、maintenance publication后出现固定fixture位置，再通过真实50 ms epoch验证两车都前移且固定编组间距保持。默认offset用fixture的明确数值断言，不以被测公式生成expected，也不反射`CommitBuffer`。
+
+`CoreTrainPublicationBoundaryTest`的reverse回归观察请求排队时live方向及immutable frame均不变，owner执行后新revision、同一已完成epoch及方向一起发布，同时保留旧frame验证不变；不再调用已删除的worker换向原语。derail回归仍观察pending mutation、`publishPhysicsState`翻转live buffer和`publishFrame`替换atomic frame三步。`commit`必须同时推进buffer与frame且保持最近physics epoch。运营换向交换车头/车尾及rail facing，但保留车厢稳定物理渲染方向；脱轨frame同时携带`derailed`和`derailReason`，二者从同一个DerailState捕获；物理consumer直接持有这一帧，不再经TrainSnapshot摘取。`BetweenFramesOperationsTest`另用真实coordinator检查换向事件在owner线程看到一致train/world/occupancy、下一epoch直接运动、偶数抵消、取消一个Future副本不影响其他请求，以及旧controller和shutdown拒绝。
+
+`TrainUniformMotionTest`六组环线参数化用例保留R30/60/100/200/500的两节10m编组和R100的五节20m编组，使用0.1m采样的四段顺切圆轨。每个50ms真实epoch后，用固定fixture起点及速度积分独立计算解析圆周车头位置，实际值从同epoch发布位置读取；另累计发布的`headTraversal`验证跨接缝里程及完成两圈，不以本地累加量同时作为expected/actual。各车轴距和零长车钩约束按fixture固定几何检查，不能把曲线车体中心速度误当作领转向架沿轨速度。0.1m采样在最小R30上的弦插值径向误差约0.042mm，小于既有5mm位置容差；此步长只属于测试，不修改生产默认精度。测试正常和异常退出均按physics→tick释放，setup失败也关闭已创建的coordinator。
+
+这些用例不替代其他未覆盖场景：其余persistence fixture及RailWand完整split/merge事务集成继续跟踪；Basic observation集合复制与有序bodyTraversal已由[Basic测试契约](../basic/testing.md)所列回归覆盖，Basic整模块审查仍未完成。不能因为补了资源关闭就宣称全部publication断言已充分。清理失败必须在没有主失败时暴露，有主失败时作为suppressed附着，不能覆盖原始断言。拓扑锁阻塞回归捕获具体reader线程，并通过内部只读诊断确认该线程已进入`ReentrantReadWriteLock`等待队列后再检查future未完成；单纯在read调用前countDown仍可能在线程被抢占时产生假阳性。
+
+`TrainSlopeMotionTest`保留四节10m车在水平200m、爬升20m直坡上的100个50ms步进，等待关闭fallback的真实coordinator exact ticket后检查同epoch frame。10m/s沿坡速度应发布为`(100, 10, 0) / sqrt(101)`；每节车及两转向架的位移从初始immutable frame出发，与独立坡度解析值比较，不能只断言爬升超过某个下界。车头另按固定初始弧长50m验证每步前进0.5m。本用例验证运动增量，不替代绝对初始摆位测试；setup失败也须关闭caller-owned coordinator，成功后按physics→tick释放并保留主异常。连接坡道接缝由`TrainSlopeJointMotionTest`另行覆盖，不以直坡测试代替。
+
+`CoreTrainPersistenceStateTest`的零距离回归必须用关闭timer fallback的真实coordinator，逐次有界等待exact ticket，并记录controller实际执行次数、frame epoch/revision递增、固定摆位和car/bogie零速度；generic TickManager的pre/postTick不能证明physics controller被执行。恢复用例保留source/restored比较，同时检查fixture独立给定的head/tail/car位置。
+
+`WorldPersistenceRoundTripTest`保留source→JSON→load集成；`SplitWorldSnapshotTest`、`CoreTrainPersistenceStateTest`、`CoreTrainReversedPersistenceTest`与`SavedRailConnectionsTest`使用显式`SnapshotDependency`，不读取global service registry。各测试在创建world以前就拥有tick/coordinator，并覆盖source设置、loaded world构造及断言失败；按physics→tick顺序释放。`use`/fixture负责保留主异常和suppressed清理异常；load失败不关闭caller-owned tick/coordinator，fixture必须关闭这些显式dependency。
+
+换向恢复同时保留source/restored bogie精确比较及独立固定位置/BA方向断言；数值容差遵循`Curve.TOLERANCE`的摆位求解合同。失败恢复验证train ID/name索引、rail车端及mailbox无失败列车，并完成下一真实epoch检查world frame/occupancy为空；此单列车fixture不证明多列车world load整体回滚。endpoint恢复的8类拒绝输入、4种端部组合和2种active选择均保留。
+
+`RailConnectTest`与`CoreTrainTailBogieTest`的原7项用例使用局部`withWorld`组合显式dependency的`use`：在创建world前纳入tick/physics owner，成功返回后按physics→tick释放，setup或断言失败同样保留主异常和suppressed。helper返回`Unit`以保证表达式体仍被JUnit发现；原连接、尾架、支路、换向及间距断言保持。`TrainSlopeJointMotionTest`两项沿用共享helper，在成功返回后以局部`use`关闭上述三类资源，setup失败由共享helper负责；原坡道运动断言保留。这些局部清理不代表全部fixture已经审计，RailWand完整事务集成继续单独跟踪。
+
+## 项目内正确示例
+
+`Phase`类并发测试应采用exact future/ticket；Core fixture的marker只包lexical block：
+
+```kotlin
+AsyncTickTestSupport.run {
+    controller.tick(50.0)
+}
+```
+
+来源：`Core/src/testFixtures/kotlin/work/art1st/javarailways/core/util/AsyncTickTestSupport.kt`及SimpleATO `SimpleATOTest.kt`。它验证runtime guard而不把测试线程永久标记为worker。
+
+## 禁止实现
+
+- `Thread.sleep`证明锁/epoch完成；
+- 只累加local distance、不断言train published location；
+- disabled test算绿色coverage；
+- reflection写private registry作为新fixture contract；
+- 同一serializer/helper同时生成expected token与actual；
+- 忘记关闭world/coordinator/executor/event token。
+
+## 必需验证
+
+```bash
+./gradlew :Core:test :Core:testFixturesClasses
+./gradlew :Core:dokkaGeneratePublicationHtml
+# Core contract consumers
+./gradlew :Core:test :Basic:test :BukkitPlugin:test :TunnelBridgeBuilder:test
+git diff --check
+```
+
+修改单主题时可先跑focused tests，但交付前必须运行`./gradlew :Core:test :Basic:test --rerun-tasks`。

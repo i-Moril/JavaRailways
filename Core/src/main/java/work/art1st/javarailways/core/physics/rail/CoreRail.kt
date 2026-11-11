@@ -1,17 +1,21 @@
 package work.art1st.javarailways.core.physics.rail
 
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import kotlinx.serialization.Serializable
 import org.joml.Vector3dc
 import work.art1st.javarailways.core.control.signal.Signal
 import work.art1st.javarailways.core.physics.CoreWorld
-import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.physics.train.TrainEnd
 import work.art1st.javarailways.core.api.physics.curve.Curve.Companion.TOLERANCE
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.exception.CannotConnectRailException
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveImpl
 import work.art1st.javarailways.core.api.physics.rail.Rail
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.render.RenderableExtension
 import work.art1st.javarailways.core.api.util.annotation.Concurrent
 import work.art1st.javarailways.core.api.util.annotation.MainThread
@@ -33,13 +37,14 @@ class CoreRail @MainThread private constructor(
     curveAB: PrimeCurve,
     nextRailsA: Collection<RailView>,
     nextRailsB: Collection<RailView>,
-    activeTrackAtA: RailView? = null,
-    activeTrackAtB: RailView? = null,
-    val signals: MutableCollection<Signal> = CopyOnWriteArraySet(),
+    activeTrackAtA: RailView?,
+    activeTrackAtB: RailView?,
+    val signals: MutableCollection<Signal>,
     // trains is maintained only on runtime
-    val trains: ConcurrentLinkedQueue<TrainEnd> = ConcurrentLinkedQueue(),
-    val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Rail>> = ExtensionDataContainer()
+    val trains: ConcurrentLinkedQueue<TrainEnd>,
+    val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Rail>>
 ) : Rail, Extendable<RenderableExtension<Rail>> by extensionDataContainer, PersistentBy<CoreRail.SavedRailV1> {
+    internal val topologyIdentity: UUID = UUID.randomUUID()
     override val curve: PrimeCurve = curveAB
     val viewAB: RailView = RailView(
         this,
@@ -55,17 +60,6 @@ class CoreRail @MainThread private constructor(
         nextRailsA.toMutableList(),
         activeTrackAtA
     )
-
-    init {
-        world.addRail(this)
-    }
-
-    constructor(
-        world: CoreWorld,
-        curveAB: PrimeCurve,
-        nextRailsA: MutableList<RailView>,
-        nextRailsB: MutableList<RailView>
-    ) : this(UUID.randomUUID(), world, curveAB, nextRailsA, nextRailsB)
 
     override fun getView(direction: ViewDirection): RailView {
         return when (direction) {
@@ -95,10 +89,17 @@ class CoreRail @MainThread private constructor(
         trains.add(x)
     }
 
-    override fun canDestroy(): Boolean = trains.isEmpty()
+    private val destruction = Destruction()
 
-    override fun destroy() {
-        signals.forEach { s -> s.destroy() }
+    override fun destroy(): CompletionStage<Void> = world.removeRail(this)
+
+    internal fun destroyResources(): CompletionStage<Void> = destruction.run {
+        val steps = DestructionSteps()
+        signals.toList().forEach { signal -> steps.await { signal.destroy() } }
+        forEachExtensionData { extension -> steps.await { extension.destroy() } }
+        steps.finish().whenComplete { _, failure ->
+            if (failure != null) world.physicsCoordinator.stall("Rail cleanup failed: rail=$id", failure)
+        }
     }
 
     override fun save(): SavedRailV1 {
@@ -106,10 +107,12 @@ class CoreRail @MainThread private constructor(
         return SavedRailV1(
             id.toString(),
             curveSnapshot,
-            viewBA.nextRails.map { it.rail.id.toString() },
-            viewAB.nextRails.map { it.rail.id.toString() },
-            viewBA.nextActiveRail?.rail?.id?.toString(),
-            viewAB.nextActiveRail?.rail?.id?.toString()
+            viewBA.nextRails.map(SavedRailEndpointRef::fromAwayView),
+            viewAB.nextRails.map(SavedRailEndpointRef::fromAwayView),
+            viewBA.nextActiveRail?.let(SavedRailEndpointRef::fromAwayView),
+            viewAB.nextActiveRail?.let(SavedRailEndpointRef::fromAwayView),
+            viewBA.joinedEndpoints.sorted().map(SavedRailEndpointRef::fromEndpoint),
+            viewAB.joinedEndpoints.sorted().map(SavedRailEndpointRef::fromEndpoint)
         )
     }
 
@@ -117,65 +120,76 @@ class CoreRail @MainThread private constructor(
     data class SavedRailV1(
         val id: String,
         val curveAB: PrimeCurveImpl.SavedPrimeCurveV1,
-        val nextRailAtA: List<String>,
-        val nextRailAtB: List<String>,
-        val activeTrackAtA: String?,
-        val activeTrackAtB: String?
+        val connectionsAtA: List<SavedRailEndpointRef>,
+        val connectionsAtB: List<SavedRailEndpointRef>,
+        val activeConnectionAtA: SavedRailEndpointRef?,
+        val activeConnectionAtB: SavedRailEndpointRef?,
+        val joinedEndpointsAtA: List<SavedRailEndpointRef>,
+        val joinedEndpointsAtB: List<SavedRailEndpointRef>
     ) : Loads<CoreRail, SavedRailV1.Dependency> {
-        override fun load(dependency: Dependency): CoreRail {
-            val rail = loadDisconnected(dependency)
-            restoreConnections(rail, dependency)
-            return rail
-        }
+        override fun load(dependency: Dependency): CoreRail =
+            dependency.world.railTopologyTransaction {
+                val rail = loadDisconnected(dependency)
+                restoreConnections(rail, dependency)
+                rail
+            }
 
         fun loadDisconnected(dependency: Dependency): CoreRail {
-            val curve = curveAB.load(Unit)
-            return CoreRail(
-                UUID.fromString(id),
-                dependency.world,
-                curve,
-                emptyList(),
-                emptyList(),
-                null,
-                null
-            )
+            return loadDisconnected(dependency, curveAB.load(Unit))
         }
 
+        internal fun loadDisconnected(dependency: Dependency, curve: PrimeCurve): CoreRail =
+            dependency.world.createRailInTransaction(UUID.fromString(id), curve)
+
         fun restoreConnections(rail: CoreRail, dependency: Dependency) {
-            val pointA = rail.curve.getPointAt(0.0)
-            val pointB = rail.curve.getPointAt(rail.curve.totalArcLength)
-            val nextAtA = nextRailAtA.mapNotNull { resolveRailView(pointA, it, dependency) }
-            val nextAtB = nextRailAtB.mapNotNull { resolveRailView(pointB, it, dependency) }
+            require(rail.world === dependency.world) { "rail belongs to a different world" }
+            dependency.world.railTopologyTransaction {
+                restoreConnectionsInTransaction(rail, dependency)
+            }
+        }
+
+        private fun restoreConnectionsInTransaction(rail: CoreRail, dependency: Dependency) {
+            val curveById = { railId: UUID -> dependency.world.getRail(railId)?.curve }
+            val stateA = decodeSavedRailEndpoint(
+                RailEndpointRef(rail.id, RailEndpoint.A), connectionsAtA, activeConnectionAtA, curveById, joinedEndpointsAtA
+            )
+            val stateB = decodeSavedRailEndpoint(
+                RailEndpointRef(rail.id, RailEndpoint.B), connectionsAtB, activeConnectionAtB, curveById, joinedEndpointsAtB
+            )
+            restoreValidatedConnections(rail, dependency, stateA, stateB)
+        }
+
+        internal fun restoreValidatedConnections(
+            rail: CoreRail, dependency: Dependency, stateA: SnapshotEndpointState, stateB: SnapshotEndpointState
+        ) {
+            fun awayView(endpoint: RailEndpointRef): RailView {
+                val target = requireNotNull(dependency.world.getRail(endpoint.railId))
+                return if (endpoint.endpoint == RailEndpoint.A) target.viewAB else target.viewBA
+            }
+            // Validate and resolve both ends before changing either live endpoint.
+            val nextAtA = stateA.connectedEndpoints.map(::awayView)
+            val nextAtB = stateB.connectedEndpoints.map(::awayView)
+            val activeAtA = stateA.activeEndpoint?.let(::awayView)
+            val activeAtB = stateB.activeEndpoint?.let(::awayView)
+            val affected = (listOf(rail.id) + rail.viewBA.joinedEndpoints.map { it.railId } +
+                rail.viewAB.joinedEndpoints.map { it.railId } + stateA.joinedEndpoints.map { it.railId } +
+                stateB.joinedEndpoints.map { it.railId }).toSet()
+            dependency.world.ensureRailEditProtected(affected)
+            require(dependency.world.occupyingTrainIds(affected).isEmpty()) { "Cannot restore occupied rail connections" }
             rail.viewBA.activeRail = null
             rail.viewBA.mutableNextRails.clear()
             rail.viewBA.mutableNextRails.addAll(nextAtA)
-            rail.viewBA.activeRail = activeTrackAtA
-                ?.takeIf { nextRailAtA.contains(it) }
-                ?.let { resolveRailView(pointA, it, dependency) }
-                ?.takeIf { nextAtA.contains(it) }
-                ?: nextAtA.firstOrNull()
+            rail.viewBA.mutableJoinedEndpoints.clear()
+            rail.viewBA.mutableJoinedEndpoints.addAll(stateA.joinedEndpoints)
+            rail.viewBA.activeRail = activeAtA
             rail.viewAB.activeRail = null
             rail.viewAB.mutableNextRails.clear()
             rail.viewAB.mutableNextRails.addAll(nextAtB)
-            rail.viewAB.activeRail = activeTrackAtB
-                ?.takeIf { nextRailAtB.contains(it) }
-                ?.let { resolveRailView(pointB, it, dependency) }
-                ?.takeIf { nextAtB.contains(it) }
-                ?: nextAtB.firstOrNull()
-        }
-
-        private fun resolveRailView(point: Curve.Point, railId: String, dependency: Dependency): RailView? {
-            val uuid = runCatching { UUID.fromString(railId) }.getOrNull() ?: return null
-            val rail = dependency.world.getRail(uuid) ?: return null
-            return getDirection(point, rail)
-        }
-
-        // 获取在端点处连接的RailView
-        fun getDirection(point: Curve.Point, nextRail: CoreRail) : RailView {
-            val distA = nextRail.viewAB.startPoint.position.distance(point.position)
-            val distB = nextRail.viewAB.endPoint.position.distance(point.position)
-            if (distA < distB) return nextRail.viewAB
-            return nextRail.viewBA
+            rail.viewAB.mutableJoinedEndpoints.clear()
+            rail.viewAB.mutableJoinedEndpoints.addAll(stateB.joinedEndpoints)
+            rail.viewAB.activeRail = activeAtB
+            if (nextAtA.isEmpty()) rail.viewBA.selectDefaultConnection()
+            if (nextAtB.isEmpty()) rail.viewAB.selectDefaultConnection()
         }
 
         data class Dependency(
@@ -184,6 +198,31 @@ class CoreRail @MainThread private constructor(
     }
 
     companion object {
+        /**
+         * Constructs an unregistered rail for [CoreWorld]'s topology transaction owner.
+         *
+         * Kotlin module visibility and [JvmSynthetic] keep this out of add-on source APIs; registration
+         * remains exclusively owned by `CoreWorld.createRailInTransaction`.
+         */
+        @JvmSynthetic
+        @MainThread
+        internal fun createUnregistered(
+            id: UUID,
+            world: CoreWorld,
+            curveAB: PrimeCurve
+        ): CoreRail = CoreRail(
+            id = id,
+            world = world,
+            curveAB = curveAB,
+            nextRailsA = emptyList(),
+            nextRailsB = emptyList(),
+            activeTrackAtA = null,
+            activeTrackAtB = null,
+            signals = CopyOnWriteArraySet(),
+            trains = ConcurrentLinkedQueue(),
+            extensionDataContainer = ExtensionDataContainer()
+        )
+
         fun isSamePoint(pointA: Vector3dc, pointB: Vector3dc): Boolean {
             return pointA.distance(pointB) < TOLERANCE
         }

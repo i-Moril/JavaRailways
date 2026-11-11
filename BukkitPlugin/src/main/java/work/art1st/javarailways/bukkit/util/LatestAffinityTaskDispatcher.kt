@@ -4,8 +4,11 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Bounds scheduler pressure to one in-flight task plus one latest pending value per key.
- * The scheduler must invoke the supplied completion callback exactly once.
+ * Bounds platform scheduler pressure to one in-flight task plus one latest pending value per key.
+ *
+ * The caller supplies the target-aware scheduler. An accepted task must invoke [complete] exactly
+ * once after the target-owned action finishes or is retired. A synchronous scheduler rejection is
+ * cleaned up by this dispatcher before the exception is propagated.
  */
 internal class LatestAffinityTaskDispatcher<K : Any, V : Any>(
     private val scheduler: (value: V, complete: () -> Unit) -> Unit

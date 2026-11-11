@@ -1,5 +1,9 @@
 package work.art1st.javarailways.bukkit.render
 
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
+
 import org.bukkit.Location
 import work.art1st.javarailways.bukkit.render.model.CompactTransform
 import work.art1st.javarailways.bukkit.util.PlatformCommitAffinity
@@ -70,6 +74,9 @@ class Animation(
         )
     }
 
+    /** Existing runnable scene keys, detached from animation playback state. */
+    internal fun sceneNames(): Set<String> = sceneTimes.keys.toSet()
+
     fun hasScene(sceneName: String): Boolean = sceneTimes.containsKey(normalizeSceneName(sceneName))
 
     fun stateAtScene(sceneName: String): Pair<CompactTransform, AnimationDisplayState?>? {
@@ -113,6 +120,12 @@ class Animation(
             targetScene = targetScene
         )
     }
+
+    /** Real converted timeline duration; scene transitions share activateToScene's source rules. */
+    internal fun durationSeconds(scene: String? = null, currentScene: String? = null): Double =
+        if (scene == null) lastTime - firstTime else kotlin.math.abs(
+            requireNotNull(sceneTimes[normalizeSceneName(scene)]) { "Animation scene not found: $scene" } -
+                (sceneTimes[normalizeSceneName(currentScene)] ?: firstTime))
 
     private val firstTime: Double get() = timeline.first().timeSeconds
     private val lastTime: Double get() = timeline.last().timeSeconds
@@ -181,6 +194,9 @@ class Animation(
         val keepFinalState: Boolean,
         val targetScene: String?
     ) : TickingObject, Synchronizable, Destroyable, PlatformCommitAffinity {
+        val completion = java.util.concurrent.CompletableFuture<Unit>()
+        val completedNormally: Boolean get() = committedFinal
+        private var committedFinal = false
         private var elapsedSeconds: Double = 0.0
         private var destroyed: Boolean = false
         private var finished: Boolean = false
@@ -221,13 +237,23 @@ class Animation(
         @Synchronized
         override fun commit() {
             if (destroyed) return
-            onCommit.invoke(this)
-            if (finished) {
-                destroy()
+            try {
+                onCommit.invoke(this)
+                if (finished) {
+                    committedFinal = true
+                    // Success requires the final frame's owner commit, never only elapsed time.
+                    destroy().toCompletableFuture().getNow(null)
+                }
+            } catch (failure: Throwable) {
+                completion.completeExceptionally(failure)
+                try { destroy().toCompletableFuture().getNow(null) } catch (cleanup: Throwable) {
+                    if (cleanup !== failure) failure.addSuppressed(cleanup)
+                }
+                throw failure
             }
         }
 
-        private val durationSeconds: Double
+        internal val durationSeconds: Double
             get() = frames.lastOrNull()?.timeSeconds ?: 0.0
 
         private fun updateTransform() {
@@ -254,14 +280,33 @@ class Animation(
             } else {
                 previous.transform.lerp(next.transform, (t - previous.timeSeconds) / span)
             }
-            displayState = frames.take(nextIndex + 1).lastOrNull { it.displayState != null }?.displayState
+            displayState = frames.lastOrNull {
+                it.timeSeconds <= t + EPSILON && it.displayState != null
+            }?.displayState
+        }
+
+        private val destruction = Destruction()
+
+        /** Visibility unload may project the target immediately; semantic playback keeps its clock. */
+        @Synchronized
+        internal fun finishForUnload(): CompletionStage<Void> {
+            finished = true
+            committedFinal = true
+            animationTransform = finalTransform
+            displayState = finalDisplayState
+            return destroy()
         }
 
         @Synchronized
-        override fun destroy() {
-            if (destroyed) return
+        override fun destroy(): CompletionStage<Void> = destruction.run {
             destroyed = true
-            onDestroy.invoke(this)
+            val steps = DestructionSteps()
+            steps.action { onDestroy.invoke(this) }
+            steps.finish().whenComplete { _, failure ->
+                if (failure != null) completion.completeExceptionally(failure)
+                else if (committedFinal) completion.complete(Unit)
+                else completion.completeExceptionally(java.util.concurrent.CancellationException("animation replaced or destroyed"))
+            }
         }
     }
 

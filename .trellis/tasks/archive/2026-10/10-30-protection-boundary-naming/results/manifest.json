@@ -1,0 +1,9 @@
+{
+  "sourceCommit": "5bd003879625630fcd95c31dc34a2c74aa9deea0",
+  "artifacts": {
+    "SimpleSignals.jar": {
+      "installedSha256": "4951ea121c979b42213b108de2d9d1df4d810ffa43e2d6f78a234ebe1903ef99",
+      "candidateSha256": "4a9c795b996116397a61315c5e31260a21fddabf33ca4785b106b19214e1fb90"
+    }
+  }
+}

@@ -23,7 +23,8 @@ object OperationalSpeedLimitSignalMaterializer {
 
     fun removeFromRail(rail: CoreRail) {
         rail.signals.filterIsInstance<OperationalSpeedLimitSignal>().forEach { signal ->
-            signal.destroy()
+            // This concrete signal owns only synchronous state; getNow never waits on an owner.
+            signal.destroy().toCompletableFuture().getNow(null)
             rail.signals.remove(signal)
         }
     }

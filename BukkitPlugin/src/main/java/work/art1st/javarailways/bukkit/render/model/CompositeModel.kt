@@ -1,5 +1,9 @@
 package work.art1st.javarailways.bukkit.render.model
 
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
+
 import org.bukkit.Location
 import org.bukkit.entity.Player
 import org.joml.Quaterniond
@@ -14,8 +18,10 @@ import work.art1st.javarailways.core.api.util.annotation.MainThread
 class CompositeModel internal constructor(
     private val world: World,
     private val models: List<AbstractModel>,
-    private val rootVisual: DisplayVisual
+    private val rootVisual: DisplayVisual,
+    private val targetWorld: org.bukkit.World? = null
 ) : Destroyable {
+    internal val affinityEntity get() = rootVisual.affinityEntity
     init {
         forEachModelRecursive {
             if (it is DisplayModel) it.mountTo(rootVisual)
@@ -23,37 +29,33 @@ class CompositeModel internal constructor(
     }
 
     private var lastRotation: Quaterniond? = null
-    private var destroyed: Boolean = false
+    private val destruction = Destruction()
 
-    override fun destroy() {
-        if (destroyed) return
-        destroyed = true
-        destroyNow()
-    }
-
-    private fun destroyNow() {
-        models.forEach { it.destroy() }
-        rootVisual.destroy()
+    override fun destroy(): CompletionStage<Void> = destruction.run {
+        val steps = DestructionSteps()
+        models.forEach { model -> steps.await { model.destroy() } }
+        steps.await { rootVisual.destroy() }
+        steps.finish()
     }
 
     fun prepareForUnload() {
         models.forEach { it.prepareForUnload() }
     }
 
-    fun updateState(rootTransform: CompactTransform, rootVelocity: Vector3dc = Vector3d()) {
+    fun updateState(rootTransform: CompactTransform, rootVelocity: Vector3dc = Vector3d(), forceTransformUpdate: Boolean = false) {
         val rotatedTransform = CompactTransform(Vector3d(), rootTransform.rotation)
         val worldRoot = CompactTransform(rootTransform.position, Quaterniond())
 
         val rotationChanged = lastRotation == null || !lastRotation!!.equals(rootTransform.rotation, 1e-12)
         if (rotationChanged) lastRotation = Quaterniond(rootTransform.rotation)
-        models.forEach { it.updateState(rotatedTransform, worldRoot, rootVelocity, rotationChanged) }
+        models.forEach { it.updateState(rotatedTransform, worldRoot, rootVelocity, rotationChanged || forceTransformUpdate) }
 
         updateRootPosition(rootTransform.position)
     }
 
     /** Move the shared root without traversing or recomputing the detailed child model tree. */
     fun updateRootPosition(position: Vector3dc) {
-        val bukkitWorld = world.bukkitWorldData.bukkitWorld
+        val bukkitWorld = targetWorld ?: world.bukkitWorldData.bukkitWorld
         val location = Location(bukkitWorld, position.x(), position.y(), position.z())
         rootVisual.teleport(location)
     }

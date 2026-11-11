@@ -1,0 +1,11 @@
+{
+  "command": "npm run check",
+  "exitCode": 0,
+  "files": {
+    "docs/architecture/threading-model.md": "a6af31da14ff631bfb469f8825de2b7cc163842b1991b4f1e1345cceb065391e"
+  },
+  "log": "/tmp/simulation-behavior-docs-check.log",
+  "logSha256": "bb9318abb6d0413e52e7289225f74c2b2d7407f95527231612d4bb934bab099c",
+  "indexedPages": 27,
+  "note": "Current source narrative including batch3+4, not a final all-code test claim"
+}

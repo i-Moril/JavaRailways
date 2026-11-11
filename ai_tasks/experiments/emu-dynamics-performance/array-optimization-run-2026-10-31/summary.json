@@ -1,0 +1,1514 @@
+[
+  {
+    "cars": 4,
+    "workload": "step",
+    "scenario": "accelerate",
+    "baseline": {
+      "median_us": 0.07056206130981445,
+      "fork_median_range_us": [
+        0.07033975982666016,
+        0.07300005722045898
+      ],
+      "bytes_per_op": 352.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "prototype": {
+      "median_us": 0.07029058456420899,
+      "fork_median_range_us": [
+        0.07001855087280273,
+        0.0709242172241211
+      ],
+      "bytes_per_op": 480.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 0.07064254379272461,
+      "fork_median_range_us": [
+        0.06789430618286132,
+        0.07226491546630859
+      ],
+      "bytes_per_op": 480.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 0.059822193145751955,
+      "fork_median_range_us": [
+        0.058924468994140625,
+        0.06143234252929688
+      ],
+      "bytes_per_op": 216.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "ratio_reused_to_prototype": 0.8510697914470412,
+    "ratio_reused_to_baseline": 0.8477954305089342,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.8434663854902106,
+      "fork-29": 0.8382981783330362,
+      "fork-47": 0.8773723786557114
+    }
+  },
+  {
+    "cars": 4,
+    "workload": "step",
+    "scenario": "cruise",
+    "baseline": {
+      "median_us": 0.06761709213256836,
+      "fork_median_range_us": [
+        0.0674176025390625,
+        0.06879318618774415
+      ],
+      "bytes_per_op": 352.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "prototype": {
+      "median_us": 0.07051981735229493,
+      "fork_median_range_us": [
+        0.07019533920288086,
+        0.07095340728759765
+      ],
+      "bytes_per_op": 480.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 0.07076342391967773,
+      "fork_median_range_us": [
+        0.06822223663330078,
+        0.07201078414916992
+      ],
+      "bytes_per_op": 480.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 0.06203397750854492,
+      "fork_median_range_us": [
+        0.059585517883300784,
+        0.06611861419677735
+      ],
+      "bytes_per_op": 216.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "ratio_reused_to_prototype": 0.8796673025774101,
+    "ratio_reused_to_baseline": 0.9174304240549516,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.9375891299671049,
+      "fork-29": 0.8488529090383733,
+      "fork-47": 0.8742917342517558
+    }
+  },
+  {
+    "cars": 4,
+    "workload": "step",
+    "scenario": "brake",
+    "baseline": {
+      "median_us": 0.06854261779785156,
+      "fork_median_range_us": [
+        0.06810164642333984,
+        0.07215897750854493
+      ],
+      "bytes_per_op": 352.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "prototype": {
+      "median_us": 0.06899506378173828,
+      "fork_median_range_us": [
+        0.06694950103759766,
+        0.07174918746948242
+      ],
+      "bytes_per_op": 480.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 0.0675512924194336,
+      "fork_median_range_us": [
+        0.06711481094360351,
+        0.07947761917114257
+      ],
+      "bytes_per_op": 480.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 0.0570704231262207,
+      "fork_median_range_us": [
+        0.05497710990905762,
+        0.06892761993408203
+      ],
+      "bytes_per_op": 216.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "ratio_reused_to_prototype": 0.8271667565488386,
+    "ratio_reused_to_baseline": 0.8326268380139042,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.7662401742520277,
+      "fork-29": 0.8271667565488386,
+      "fork-47": 1.0295464322485914
+    }
+  },
+  {
+    "cars": 4,
+    "workload": "step",
+    "scenario": "release",
+    "baseline": {
+      "median_us": 0.06876763534545899,
+      "fork_median_range_us": [
+        0.06876547241210937,
+        0.08344444274902343
+      ],
+      "bytes_per_op": 352.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "prototype": {
+      "median_us": 0.07317063522338867,
+      "fork_median_range_us": [
+        0.07281409454345703,
+        0.07564520263671876
+      ],
+      "bytes_per_op": 480.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 0.0723299446105957,
+      "fork_median_range_us": [
+        0.0711225471496582,
+        0.07475182342529296
+      ],
+      "bytes_per_op": 480.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 0.06328015899658203,
+      "fork_median_range_us": [
+        0.06218424224853516,
+        0.0655123291015625
+      ],
+      "bytes_per_op": 216.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "ratio_reused_to_prototype": 0.864829979996604,
+    "ratio_reused_to_baseline": 0.9202026313496132,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.8220513671854514,
+      "fork-29": 0.8690646967918424,
+      "fork-47": 0.8953363449907809
+    }
+  },
+  {
+    "cars": 4,
+    "workload": "selection",
+    "scenario": "accelerate",
+    "baseline": {
+      "median_us": 1.48890771484375,
+      "fork_median_range_us": [
+        1.4741027221679688,
+        1.4918085327148438
+      ],
+      "bytes_per_op": 5672.0,
+      "recovery_steps": [
+        10
+      ]
+    },
+    "prototype": {
+      "median_us": 1.9122265625,
+      "fork_median_range_us": [
+        1.87427978515625,
+        2.24263916015625
+      ],
+      "bytes_per_op": 7616.0,
+      "recovery_steps": [
+        10
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 1.7864517211914062,
+      "fork_median_range_us": [
+        1.6252568969726562,
+        1.809240478515625
+      ],
+      "bytes_per_op": 7616.0,
+      "recovery_steps": [
+        10
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 1.0794871215820312,
+      "fork_median_range_us": [
+        1.0688482666015624,
+        1.0957886352539064
+      ],
+      "bytes_per_op": 3776.0,
+      "recovery_steps": [
+        10
+      ]
+    },
+    "ratio_reused_to_prototype": 0.5645184220068229,
+    "ratio_reused_to_baseline": 0.7250194963865276,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.5645184220068229,
+      "fork-29": 0.5846451762070066,
+      "fork-47": 0.47660287289690123
+    }
+  },
+  {
+    "cars": 4,
+    "workload": "selection",
+    "scenario": "cruise",
+    "baseline": {
+      "median_us": 1.8094778442382813,
+      "fork_median_range_us": [
+        1.756660888671875,
+        1.8490843505859376
+      ],
+      "bytes_per_op": 6976.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "prototype": {
+      "median_us": 2.5134498291015626,
+      "fork_median_range_us": [
+        2.48061865234375,
+        2.6058056640625
+      ],
+      "bytes_per_op": 9664.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 2.3109830322265625,
+      "fork_median_range_us": [
+        2.1886129150390623,
+        2.3697703857421875
+      ],
+      "bytes_per_op": 9664.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 1.5008368530273437,
+      "fork_median_range_us": [
+        1.4148943481445313,
+        1.5270089721679687
+      ],
+      "bytes_per_op": 4624.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "ratio_reused_to_prototype": 0.597122264248187,
+    "ratio_reused_to_baseline": 0.8294309089256281,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.5629292185435378,
+      "fork-29": 0.6050252228851524,
+      "fork-47": 0.5860026299073021
+    }
+  },
+  {
+    "cars": 4,
+    "workload": "selection",
+    "scenario": "brake",
+    "baseline": {
+      "median_us": 0.7908153686523437,
+      "fork_median_range_us": [
+        0.7902335205078125,
+        0.8822488708496093
+      ],
+      "bytes_per_op": 3120.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "prototype": {
+      "median_us": 1.0549368896484375,
+      "fork_median_range_us": [
+        1.0092258911132812,
+        1.094473388671875
+      ],
+      "bytes_per_op": 4272.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 0.9574005126953125,
+      "fork_median_range_us": [
+        0.9182340087890625,
+        0.9627656860351562
+      ],
+      "bytes_per_op": 4272.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 0.6550106506347656,
+      "fork_median_range_us": [
+        0.6386968994140625,
+        0.660466796875
+      ],
+      "bytes_per_op": 2112.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "ratio_reused_to_prototype": 0.6209003183622206,
+    "ratio_reused_to_baseline": 0.8282725356627708,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.6054361219910616,
+      "fork-29": 0.6490228366141307,
+      "fork-47": 0.6034562408835407
+    }
+  },
+  {
+    "cars": 4,
+    "workload": "selection",
+    "scenario": "release",
+    "baseline": {
+      "median_us": 1.2429761352539062,
+      "fork_median_range_us": [
+        1.2401116333007813,
+        1.2679556274414063
+      ],
+      "bytes_per_op": 4912.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "prototype": {
+      "median_us": 1.6419337158203124,
+      "fork_median_range_us": [
+        1.6298216552734375,
+        1.7308223266601563
+      ],
+      "bytes_per_op": 6704.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 1.5630397338867188,
+      "fork_median_range_us": [
+        1.43292041015625,
+        1.5776152954101563
+      ],
+      "bytes_per_op": 6704.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 1.0686217651367187,
+      "fork_median_range_us": [
+        1.019145263671875,
+        1.07805126953125
+      ],
+      "bytes_per_op": 3344.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "ratio_reused_to_prototype": 0.6508312454031274,
+    "ratio_reused_to_baseline": 0.8597283043720131,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.5888214220337951,
+      "fork-29": 0.655667914142075,
+      "fork-47": 0.6565741717488601
+    }
+  },
+  {
+    "cars": 4,
+    "workload": "recovery256",
+    "scenario": "accelerate",
+    "baseline": {
+      "median_us": 15.932166015625,
+      "fork_median_range_us": [
+        15.4221171875,
+        16.3864482421875
+      ],
+      "bytes_per_op": 83992.0,
+      "recovery_steps": [
+        256
+      ]
+    },
+    "prototype": {
+      "median_us": 18.177099609375,
+      "fork_median_range_us": [
+        18.0634111328125,
+        23.1756015625
+      ],
+      "bytes_per_op": 116760.0,
+      "recovery_steps": [
+        256
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 18.5464609375,
+      "fork_median_range_us": [
+        18.29754296875,
+        18.711626953125
+      ],
+      "bytes_per_op": 116760.0,
+      "recovery_steps": [
+        256
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 16.360037109375,
+      "fork_median_range_us": [
+        15.5867998046875,
+        19.8249189453125
+      ],
+      "bytes_per_op": 55320.0,
+      "recovery_steps": [
+        256
+      ]
+    },
+    "ratio_reused_to_prototype": 0.9000356195956128,
+    "ratio_reused_to_baseline": 1.0268558018621183,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.8554219786635797,
+      "fork-29": 0.8574965280296132,
+      "fork-47": 0.9057003125869569
+    }
+  },
+  {
+    "cars": 8,
+    "workload": "step",
+    "scenario": "accelerate",
+    "baseline": {
+      "median_us": 0.10354888534545899,
+      "fork_median_range_us": [
+        0.09664081573486329,
+        0.1304661865234375
+      ],
+      "bytes_per_op": 368.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "prototype": {
+      "median_us": 0.10304784393310547,
+      "fork_median_range_us": [
+        0.10080679321289063,
+        0.10811445617675781
+      ],
+      "bytes_per_op": 640.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 0.10507741928100586,
+      "fork_median_range_us": [
+        0.10446905517578126,
+        0.10518827819824218
+      ],
+      "bytes_per_op": 640.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 0.08732424926757812,
+      "fork_median_range_us": [
+        0.08721209335327149,
+        0.09202139282226562
+      ],
+      "bytes_per_op": 240.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "ratio_reused_to_prototype": 0.8474146176630879,
+    "ratio_reused_to_baseline": 0.843314237292344,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.8511479045116648,
+      "fork-29": 0.8662536172851055,
+      "fork-47": 0.8463262308514293
+    }
+  },
+  {
+    "cars": 8,
+    "workload": "step",
+    "scenario": "cruise",
+    "baseline": {
+      "median_us": 0.10133128356933593,
+      "fork_median_range_us": [
+        0.09959172058105469,
+        0.10377027130126953
+      ],
+      "bytes_per_op": 368.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "prototype": {
+      "median_us": 0.11349642181396484,
+      "fork_median_range_us": [
+        0.11084203338623047,
+        0.11505584716796875
+      ],
+      "bytes_per_op": 640.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 0.1154647216796875,
+      "fork_median_range_us": [
+        0.1152573013305664,
+        0.15386725616455077
+      ],
+      "bytes_per_op": 640.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 0.10059098434448242,
+      "fork_median_range_us": [
+        0.0946806526184082,
+        0.10954372406005859
+      ],
+      "bytes_per_op": 240.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "ratio_reused_to_prototype": 0.8862921203750715,
+    "ratio_reused_to_baseline": 0.9926942677643379,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.8229103948118776,
+      "fork-29": 0.9882868503354869,
+      "fork-47": 0.8862921203750715
+    }
+  },
+  {
+    "cars": 8,
+    "workload": "step",
+    "scenario": "brake",
+    "baseline": {
+      "median_us": 0.0988830680847168,
+      "fork_median_range_us": [
+        0.09547463989257812,
+        0.10125090026855468
+      ],
+      "bytes_per_op": 368.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "prototype": {
+      "median_us": 0.10273063659667969,
+      "fork_median_range_us": [
+        0.10117997741699218,
+        0.10589067077636719
+      ],
+      "bytes_per_op": 640.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 0.1014165267944336,
+      "fork_median_range_us": [
+        0.09926003265380859,
+        0.11564948272705078
+      ],
+      "bytes_per_op": 640.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 0.0810002899169922,
+      "fork_median_range_us": [
+        0.08082728576660156,
+        0.08190369033813477
+      ],
+      "bytes_per_op": 240.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "ratio_reused_to_prototype": 0.7884725783896307,
+    "ratio_reused_to_baseline": 0.8191522723343924,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.7633088465111574,
+      "fork-29": 0.7884725783896307,
+      "fork-47": 0.8094851612842903
+    }
+  },
+  {
+    "cars": 8,
+    "workload": "step",
+    "scenario": "release",
+    "baseline": {
+      "median_us": 0.09863845443725586,
+      "fork_median_range_us": [
+        0.09507980346679687,
+        0.09898300170898437
+      ],
+      "bytes_per_op": 368.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "prototype": {
+      "median_us": 0.10588602066040038,
+      "fork_median_range_us": [
+        0.10439389419555664,
+        0.1087501564025879
+      ],
+      "bytes_per_op": 640.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 0.10399544143676757,
+      "fork_median_range_us": [
+        0.10334575653076172,
+        0.1051253547668457
+      ],
+      "bytes_per_op": 640.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 0.09032566833496093,
+      "fork_median_range_us": [
+        0.08330274581909179,
+        0.10952651596069336
+      ],
+      "bytes_per_op": 240.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "ratio_reused_to_prototype": 0.8530462073426586,
+    "ratio_reused_to_baseline": 0.9157246922640834,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.7660011587542827,
+      "fork-29": 1.0491659191822273,
+      "fork-47": 0.8530462073426586
+    }
+  },
+  {
+    "cars": 8,
+    "workload": "selection",
+    "scenario": "accelerate",
+    "baseline": {
+      "median_us": 1.82722314453125,
+      "fork_median_range_us": [
+        1.8193887329101563,
+        1.893750732421875
+      ],
+      "bytes_per_op": 5928.0,
+      "recovery_steps": [
+        10
+      ]
+    },
+    "prototype": {
+      "median_us": 2.6405606689453127,
+      "fork_median_range_us": [
+        2.6313876953125,
+        2.703460205078125
+      ],
+      "bytes_per_op": 10176.0,
+      "recovery_steps": [
+        10
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 2.289730712890625,
+      "fork_median_range_us": [
+        2.2566917724609374,
+        2.308674072265625
+      ],
+      "bytes_per_op": 10176.0,
+      "recovery_steps": [
+        10
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 1.3045703735351561,
+      "fork_median_range_us": [
+        1.29066552734375,
+        1.3313192138671874
+      ],
+      "bytes_per_op": 3776.0,
+      "recovery_steps": [
+        10
+      ]
+    },
+    "ratio_reused_to_prototype": 0.4940505207389251,
+    "ratio_reused_to_baseline": 0.7139633587937212,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.47741243792654686,
+      "fork-29": 0.5059380707140845,
+      "fork-47": 0.4940505207389252
+    }
+  },
+  {
+    "cars": 8,
+    "workload": "selection",
+    "scenario": "cruise",
+    "baseline": {
+      "median_us": 2.2670040283203123,
+      "fork_median_range_us": [
+        2.232281494140625,
+        2.330588134765625
+      ],
+      "bytes_per_op": 7312.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "prototype": {
+      "median_us": 3.061189697265625,
+      "fork_median_range_us": [
+        2.9499420166015624,
+        3.3626837158203124
+      ],
+      "bytes_per_op": 13024.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 3.0017515869140623,
+      "fork_median_range_us": [
+        2.84389501953125,
+        3.0516685791015625
+      ],
+      "bytes_per_op": 13024.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 1.79487646484375,
+      "fork_median_range_us": [
+        1.7332252197265625,
+        1.7999467163085938
+      ],
+      "bytes_per_op": 4624.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "ratio_reused_to_prototype": 0.5863329758515143,
+    "ratio_reused_to_baseline": 0.7917394245539233,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.5154291530816033,
+      "fork-29": 0.5863329758515142,
+      "fork-47": 0.610163422256752
+    }
+  },
+  {
+    "cars": 8,
+    "workload": "selection",
+    "scenario": "brake",
+    "baseline": {
+      "median_us": 0.9709832153320312,
+      "fork_median_range_us": [
+        0.9049634399414063,
+        1.0818153076171875
+      ],
+      "bytes_per_op": 3264.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "prototype": {
+      "median_us": 1.4455275268554688,
+      "fork_median_range_us": [
+        1.4129091796875,
+        1.4724435424804687
+      ],
+      "bytes_per_op": 5712.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 1.2694562377929688,
+      "fork_median_range_us": [
+        1.2293248291015626,
+        1.29007666015625
+      ],
+      "bytes_per_op": 5712.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 0.75293115234375,
+      "fork_median_range_us": [
+        0.7435493469238281,
+        0.7764131164550782
+      ],
+      "bytes_per_op": 2112.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "ratio_reused_to_prototype": 0.5208694669285477,
+    "ratio_reused_to_baseline": 0.7754316866190961,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.5143792374132852,
+      "fork-29": 0.5113480623341029,
+      "fork-47": 0.5495138170358559
+    }
+  },
+  {
+    "cars": 8,
+    "workload": "selection",
+    "scenario": "release",
+    "baseline": {
+      "median_us": 1.5250305786132812,
+      "fork_median_range_us": [
+        1.5028396606445313,
+        1.5314605712890625
+      ],
+      "bytes_per_op": 5136.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "prototype": {
+      "median_us": 2.3844012451171874,
+      "fork_median_range_us": [
+        2.3298392333984377,
+        2.444766845703125
+      ],
+      "bytes_per_op": 8944.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 2.0162047119140625,
+      "fork_median_range_us": [
+        1.986563720703125,
+        2.05369384765625
+      ],
+      "bytes_per_op": 8944.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 1.2571321411132812,
+      "fork_median_range_us": [
+        1.2329232177734375,
+        1.3016788940429687
+      ],
+      "bytes_per_op": 3344.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "ratio_reused_to_prototype": 0.527231791917428,
+    "ratio_reused_to_baseline": 0.8243324158499159,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.5043111656804409,
+      "fork-29": 0.527231791917428,
+      "fork-47": 0.5586990189637527
+    }
+  },
+  {
+    "cars": 8,
+    "workload": "recovery256",
+    "scenario": "accelerate",
+    "baseline": {
+      "median_us": 21.2769501953125,
+      "fork_median_range_us": [
+        21.1150986328125,
+        21.9840341796875
+      ],
+      "bytes_per_op": 88088.0,
+      "recovery_steps": [
+        256
+      ]
+    },
+    "prototype": {
+      "median_us": 26.0095625,
+      "fork_median_range_us": [
+        24.1920029296875,
+        26.861779296875
+      ],
+      "bytes_per_op": 157720.0,
+      "recovery_steps": [
+        256
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 25.575400390625,
+      "fork_median_range_us": [
+        25.2497880859375,
+        26.5018515625
+      ],
+      "bytes_per_op": 157720.0,
+      "recovery_steps": [
+        256
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 21.7001298828125,
+      "fork_median_range_us": [
+        21.5655693359375,
+        21.8156650390625
+      ],
+      "bytes_per_op": 55320.0,
+      "recovery_steps": [
+        256
+      ]
+    },
+    "ratio_reused_to_prototype": 0.834313529218821,
+    "ratio_reused_to_baseline": 1.0198891139761763,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.8078440985976314,
+      "fork-29": 0.8914338097021747,
+      "fork-47": 0.8387555553486338
+    }
+  },
+  {
+    "cars": 16,
+    "workload": "step",
+    "scenario": "accelerate",
+    "baseline": {
+      "median_us": 0.1600739517211914,
+      "fork_median_range_us": [
+        0.15946298217773439,
+        0.16128502655029298
+      ],
+      "bytes_per_op": 400.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "prototype": {
+      "median_us": 0.19483815002441407,
+      "fork_median_range_us": [
+        0.1694325637817383,
+        0.2051204605102539
+      ],
+      "bytes_per_op": 960.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 0.1698617172241211,
+      "fork_median_range_us": [
+        0.1653773880004883,
+        0.16991381072998046
+      ],
+      "bytes_per_op": 960.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 0.1568556365966797,
+      "fork_median_range_us": [
+        0.14987193298339843,
+        0.16159611511230468
+      ],
+      "bytes_per_op": 240.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "ratio_reused_to_prototype": 0.8050560764256127,
+    "ratio_reused_to_baseline": 0.979894823049554,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.7692124615462569,
+      "fork-29": 0.7647000996706447,
+      "fork-47": 0.9537488632968545
+    }
+  },
+  {
+    "cars": 16,
+    "workload": "step",
+    "scenario": "cruise",
+    "baseline": {
+      "median_us": 0.1620562286376953,
+      "fork_median_range_us": [
+        0.15767013549804687,
+        0.1919900588989258
+      ],
+      "bytes_per_op": 400.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "prototype": {
+      "median_us": 0.1848755111694336,
+      "fork_median_range_us": [
+        0.17762130737304688,
+        0.19270986175537108
+      ],
+      "bytes_per_op": 960.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 0.17878925323486328,
+      "fork_median_range_us": [
+        0.1755579833984375,
+        0.17976779174804688
+      ],
+      "bytes_per_op": 960.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 0.1610986862182617,
+      "fork_median_range_us": [
+        0.15385550689697267,
+        0.16260288238525392
+      ],
+      "bytes_per_op": 216.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "ratio_reused_to_prototype": 0.8713900786492969,
+    "ratio_reused_to_baseline": 0.9940912951789446,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.8437704272325437,
+      "fork-29": 0.8322113941633302,
+      "fork-47": 0.9069783833980923
+    }
+  },
+  {
+    "cars": 16,
+    "workload": "step",
+    "scenario": "brake",
+    "baseline": {
+      "median_us": 0.15986845397949218,
+      "fork_median_range_us": [
+        0.15907201385498046,
+        0.16175422668457032
+      ],
+      "bytes_per_op": 400.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "prototype": {
+      "median_us": 0.17562881469726563,
+      "fork_median_range_us": [
+        0.16623187255859376,
+        0.18670332336425782
+      ],
+      "bytes_per_op": 960.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 0.1584638442993164,
+      "fork_median_range_us": [
+        0.15699721527099608,
+        0.16092750549316406
+      ],
+      "bytes_per_op": 960.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 0.13394948577880858,
+      "fork_median_range_us": [
+        0.1309528579711914,
+        0.136676513671875
+      ],
+      "bytes_per_op": 216.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "ratio_reused_to_prototype": 0.762685132332639,
+    "ratio_reused_to_baseline": 0.8378731541120147,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.7782123560274926,
+      "fork-29": 0.701395431058839,
+      "fork-47": 0.8057990547606555
+    }
+  },
+  {
+    "cars": 16,
+    "workload": "step",
+    "scenario": "release",
+    "baseline": {
+      "median_us": 0.16258788299560548,
+      "fork_median_range_us": [
+        0.15675434112548828,
+        0.16513248443603515
+      ],
+      "bytes_per_op": 400.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "prototype": {
+      "median_us": 0.16668846130371093,
+      "fork_median_range_us": [
+        0.16293606567382812,
+        0.17518041229248046
+      ],
+      "bytes_per_op": 960.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 0.1594555892944336,
+      "fork_median_range_us": [
+        0.15694445037841798,
+        0.1606198959350586
+      ],
+      "bytes_per_op": 960.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 0.13272679901123047,
+      "fork_median_range_us": [
+        0.1289247817993164,
+        0.13360675048828125
+      ],
+      "bytes_per_op": 216.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "ratio_reused_to_prototype": 0.7962566693167719,
+    "ratio_reused_to_baseline": 0.8163388105300435,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.7576577613576475,
+      "fork-29": 0.7912599415368428,
+      "fork-47": 0.8015356878533187
+    }
+  },
+  {
+    "cars": 16,
+    "workload": "selection",
+    "scenario": "accelerate",
+    "baseline": {
+      "median_us": 2.4820928955078125,
+      "fork_median_range_us": [
+        2.3721754150390626,
+        2.5114847412109373
+      ],
+      "bytes_per_op": 6440.0,
+      "recovery_steps": [
+        10
+      ]
+    },
+    "prototype": {
+      "median_us": 3.5530758056640623,
+      "fork_median_range_us": [
+        3.4756832275390623,
+        3.665879638671875
+      ],
+      "bytes_per_op": 15296.0,
+      "recovery_steps": [
+        10
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 3.2024659423828123,
+      "fork_median_range_us": [
+        3.13759033203125,
+        3.2526375732421875
+      ],
+      "bytes_per_op": 15296.0,
+      "recovery_steps": [
+        10
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 1.7548045654296875,
+      "fork_median_range_us": [
+        1.6932156372070313,
+        1.7989069213867188
+      ],
+      "bytes_per_op": 3776.0,
+      "recovery_steps": [
+        10
+      ]
+    },
+    "ratio_reused_to_prototype": 0.4938832328407691,
+    "ratio_reused_to_baseline": 0.7069858539966818,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.47868581033539936,
+      "fork-29": 0.5062956772605381,
+      "fork-47": 0.48716051675569494
+    }
+  },
+  {
+    "cars": 16,
+    "workload": "selection",
+    "scenario": "cruise",
+    "baseline": {
+      "median_us": 3.165255126953125,
+      "fork_median_range_us": [
+        3.010034423828125,
+        3.1826536865234374
+      ],
+      "bytes_per_op": 7984.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "prototype": {
+      "median_us": 4.524927490234375,
+      "fork_median_range_us": [
+        4.49739501953125,
+        4.693105224609375
+      ],
+      "bytes_per_op": 19744.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 3.92363232421875,
+      "fork_median_range_us": [
+        3.86425341796875,
+        4.33634765625
+      ],
+      "bytes_per_op": 19744.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 2.3164168701171874,
+      "fork_median_range_us": [
+        2.2505048828125,
+        2.3387462158203123
+      ],
+      "bytes_per_op": 4624.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "ratio_reused_to_prototype": 0.5119235336072104,
+    "ratio_reused_to_baseline": 0.7318262753584007,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.47953429022035576,
+      "fork-29": 0.5168582747166129,
+      "fork-47": 0.5150574632776244
+    }
+  },
+  {
+    "cars": 16,
+    "workload": "selection",
+    "scenario": "brake",
+    "baseline": {
+      "median_us": 1.3160932006835937,
+      "fork_median_range_us": [
+        1.2806593627929688,
+        1.3521776123046876
+      ],
+      "bytes_per_op": 3552.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "prototype": {
+      "median_us": 1.8982322998046874,
+      "fork_median_range_us": [
+        1.8677591552734376,
+        1.993521728515625
+      ],
+      "bytes_per_op": 8592.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 1.639264892578125,
+      "fork_median_range_us": [
+        1.620517578125,
+        1.6535885009765625
+      ],
+      "bytes_per_op": 8592.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 0.9968469848632813,
+      "fork_median_range_us": [
+        0.9838483276367187,
+        1.0090681762695313
+      ],
+      "bytes_per_op": 2112.0,
+      "recovery_steps": [
+        0
+      ]
+    },
+    "ratio_reused_to_prototype": 0.5251448860952628,
+    "ratio_reused_to_baseline": 0.7574288692818317,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.49352275100070847,
+      "fork-29": 0.5315830819933662,
+      "fork-47": 0.5337128087680791
+    }
+  },
+  {
+    "cars": 16,
+    "workload": "selection",
+    "scenario": "release",
+    "baseline": {
+      "median_us": 2.1432554931640624,
+      "fork_median_range_us": [
+        2.081513671875,
+        2.1874400634765623
+      ],
+      "bytes_per_op": 5584.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "prototype": {
+      "median_us": 3.02140673828125,
+      "fork_median_range_us": [
+        3.0190439453125,
+        3.1811920166015626
+      ],
+      "bytes_per_op": 13424.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 2.7688177490234374,
+      "fork_median_range_us": [
+        2.7370736083984375,
+        2.839634033203125
+      ],
+      "bytes_per_op": 13424.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 1.6323128051757811,
+      "fork_median_range_us": [
+        1.6112208251953124,
+        1.6391133422851563
+      ],
+      "bytes_per_op": 3344.0,
+      "recovery_steps": [
+        8
+      ]
+    },
+    "ratio_reused_to_prototype": 0.5402492767671309,
+    "ratio_reused_to_baseline": 0.7616043959210935,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.5131135739865101,
+      "fork-29": 0.5429246383876312,
+      "fork-47": 0.5332684291661663
+    }
+  },
+  {
+    "cars": 16,
+    "workload": "recovery256",
+    "scenario": "accelerate",
+    "baseline": {
+      "median_us": 33.10005078125,
+      "fork_median_range_us": [
+        32.109296875,
+        35.03194921875
+      ],
+      "bytes_per_op": 96280.0,
+      "recovery_steps": [
+        256
+      ]
+    },
+    "prototype": {
+      "median_us": 41.896953125,
+      "fork_median_range_us": [
+        39.55630078125,
+        46.27140625
+      ],
+      "bytes_per_op": 239640.0,
+      "recovery_steps": [
+        256
+      ]
+    },
+    "fresh-arrays": {
+      "median_us": 39.812470703125,
+      "fork_median_range_us": [
+        39.36412890625,
+        52.011435546875
+      ],
+      "bytes_per_op": 239640.0,
+      "recovery_steps": [
+        256
+      ]
+    },
+    "reused-arrays": {
+      "median_us": 33.071814453125,
+      "fork_median_range_us": [
+        33.069693359375,
+        33.140236328125
+      ],
+      "bytes_per_op": 55320.0,
+      "recovery_steps": [
+        256
+      ]
+    },
+    "ratio_reused_to_prototype": 0.7893608481374503,
+    "ratio_reused_to_baseline": 0.9991469400360863,
+    "paired_fork_ratios_reused_to_prototype": {
+      "fork-11": 0.7146896115649176,
+      "fork-29": 0.8360694453208654,
+      "fork-47": 0.7909939472030522
+    }
+  }
+]

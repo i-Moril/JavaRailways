@@ -84,7 +84,9 @@ data class JavaRailwaysConfig(
     val trainDebugLog: Boolean,
     val displayRenderer: DisplayRendererConfig,
     val timetableHttpBridge: TimetableHttpBridgeConfig,
-    val timetableWebUi: TimetableWebUiConfig
+    val timetableWebUi: TimetableWebUiConfig,
+    val atoSafetyDistanceMeters: Double = 5.0,
+    val atoAdmissionRetryTicks: Int = 5
 ) {
     companion object {
         fun load(plugin: BukkitPlugin): JavaRailwaysConfig {
@@ -105,6 +107,24 @@ data class JavaRailwaysConfig(
             val policy = TrainModelUpdatePolicy.fromConfig(requireString(yaml, "train-model-update-policy"))
             val bindDistance = requireDouble(yaml, "train-key-bind-distance")
             require(bindDistance >= 0.0) { "train-key-bind-distance must be >= 0.0" }
+            require(!yaml.contains("ato", true) || yaml.isConfigurationSection("ato")) {
+                "Config key 'ato' must be a section"
+            }
+            // Bukkit removes YAML null values; they follow the same default as an absent key.
+            val atoSafetyDistance = if (yaml.contains("ato.safety-distance-meters", true)) {
+                requireDouble(yaml, "ato.safety-distance-meters")
+            } else {
+                5.0
+            }
+            require(atoSafetyDistance.isFinite() && atoSafetyDistance >= 0.0) {
+                "ato.safety-distance-meters must be finite and >= 0.0"
+            }
+            val atoAdmissionRetryTicks = if (yaml.contains("ato.admission-retry-ticks", true)) {
+                requireInt(yaml, "ato.admission-retry-ticks")
+            } else {
+                5
+            }
+            require(atoAdmissionRetryTicks > 0) { "ato.admission-retry-ticks must be > 0" }
             val displayRendererBackend = DisplayRendererBackend.fromConfig(
                 requireString(yaml, "display-renderer.backend")
             )
@@ -177,6 +197,8 @@ data class JavaRailwaysConfig(
                     bodyLimitBytes = bridgeBodyLimit,
                     timeoutMillis = bridgeTimeoutMillis
                 ),
+                atoSafetyDistanceMeters = atoSafetyDistance,
+                atoAdmissionRetryTicks = atoAdmissionRetryTicks,
                 timetableWebUi = TimetableWebUiConfig(
                     mode = webUiMode,
                     bindAddress = webUiBindAddress,

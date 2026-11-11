@@ -8,7 +8,7 @@ import work.art1st.javarailways.core.api.render.RenderableExtension
 import work.art1st.javarailways.core.api.util.plugin.Extendable
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 
-interface Bogie : WorldElement, DynamicRenderable, Extendable<RenderableExtension<Bogie>> {
+interface Bogie : work.art1st.javarailways.core.api.util.Destroyable, WorldElement, DynamicRenderable, Extendable<RenderableExtension<Bogie>> {
     val location: RailLocationWithFacing
 
     fun peekCurve(distance: Double) = location.peekCurve(distance)

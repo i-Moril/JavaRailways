@@ -1,0 +1,201 @@
+package work.art1st.javarailways.core.physics
+
+import work.art1st.javarailways.core.testing.IsolateGlobalHalt
+
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
+import org.joml.Vector3d
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotSame
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import work.art1st.javarailways.core.api.physics.curve.Curve
+import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyNode
+import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.rail.RailView
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus
+import work.art1st.javarailways.core.physics.train.createTestWorld
+import java.util.UUID
+
+class CoreWorldTopologyStatePublicationTest {
+    @Test
+    fun `empty world starts with one revision zero topology root`() = withWorld { world ->
+        val state = world.topologyState
+
+        assertEquals(0L, world.topologyRevision)
+        assertEquals(0L, state.revision)
+        assertTrue(state.nodes.isEmpty())
+        assertTrue(state.edges.isEmpty())
+        assertTrue(state.railProjection.isEmpty())
+        assertSame(state, world.topologyState)
+    }
+
+    @Test
+    fun `changed transaction publishes aligned normalized topology`() =
+        withWorld { world ->
+            lateinit var first: CoreRail
+            lateinit var second: CoreRail
+
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
+                first = world.createRailInTransaction(UUID.randomUUID(), straightCurve(0.0, 10.0))
+                second = world.createRailInTransaction(UUID.randomUUID(), straightCurve(10.0, 30.0))
+                RailView.connect(first.viewAB, second.viewBA)
+            } }
+
+            val state = world.topologyState
+            assertEquals(1L, world.topologyRevision)
+            assertEquals(world.topologyRevision, state.revision)
+            assertEquals(2, state.nodes.values.count { it is TopologyNode.Terminus })
+            val edge = state.edges.values.single()
+            assertEquals(setOf(first.id, second.id), edge.railSlices.map { it.railId }.toSet())
+            assertEquals(30.0, edge.lengthMeters, 1e-12)
+            assertEquals(1, state.railProjection.getValue(first.id).size)
+            assertEquals(1, state.railProjection.getValue(second.id).size)
+        }
+
+    @Test
+    @IsolateGlobalHalt
+    fun `asymmetric adjacency is rejected instead of being repaired in the published topology`() =
+        withWorld { world ->
+            val first = world.createRailForTest(straightCurve(0.0, 10.0))
+            val second = world.createRailForTest(straightCurve(10.0, 30.0))
+            val before = world.topologyState
+
+            val failure = assertThrows(IllegalArgumentException::class.java) {
+                IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
+                    first.viewAB.mutableNextRails.add(second.viewAB)
+                } }
+            }
+
+            assertTrue(failure.message.orEmpty().contains("not symmetric"))
+            assertSame(before, world.topologyState)
+            assertEquals(before.revision, world.topologyRevision)
+            assertEquals(PhysicsCoordinatorStatus.STALLED, world.physicsCoordinator.status)
+        }
+
+    @Test
+    fun `later publication does not mutate a previously observed topology root`() = withWorld { world ->
+        val first = world.createRailForTest(straightCurve(0.0, 10.0))
+        val previous = world.topologyState
+        val previousProjection = previous.railProjection
+
+        val second = world.createRailForTest(straightCurve(20.0, 30.0))
+        val current = world.topologyState
+
+        assertNotSame(previous, current)
+        assertEquals(1L, previous.revision)
+        assertEquals(setOf(first.id), previous.railProjection.keys)
+        assertSame(previousProjection, previous.railProjection)
+        assertEquals(setOf(first.id, second.id), current.railProjection.keys)
+        assertEquals(2L, current.revision)
+    }
+
+    @Test
+    fun `runtime branch selection and successful no-op preserve topology root identity`() = withWorld { world ->
+        lateinit var source: CoreRail
+        lateinit var first: CoreRail
+        lateinit var second: CoreRail
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
+            source = world.createRailInTransaction(UUID.randomUUID(), straightCurve(0.0, 10.0))
+            first = world.createRailInTransaction(UUID.randomUUID(), straightCurve(10.0, 20.0))
+            second = world.createRailInTransaction(UUID.randomUUID(), straightCurve(10.0, 25.0))
+            RailView.connect(source.viewAB, first.viewBA)
+            RailView.connect(source.viewAB, second.viewBA)
+            IsolatedSimulationThreadMarker.run { source.viewAB.activeRail = first.viewAB }
+        } }
+        val before = world.topologyState
+
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
+            IsolatedSimulationThreadMarker.run { source.viewAB.activeRail = second.viewAB }
+        } }
+        assertSame(before, world.topologyState)
+
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction { } }
+        assertSame(before, world.topologyState)
+    }
+
+    @Test
+    fun `failure before mutation preserves topology root and keeps world healthy`() = withWorld { world ->
+        val before = world.topologyState
+
+        assertThrows(IllegalStateException::class.java) {
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction<Unit> { error("prepare failed") } }
+        }
+
+        assertSame(before, world.topologyState)
+        assertEquals(PhysicsCoordinatorStatus.RUNNING, world.physicsCoordinator.status)
+    }
+
+    @Test
+    @IsolateGlobalHalt
+    fun `failure after mutation preserves topology root and faults world`() = withWorld { world ->
+        val before = world.topologyState
+
+        assertThrows(IllegalStateException::class.java) {
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
+                world.createRailInTransaction(UUID.randomUUID(), straightCurve(0.0, 10.0))
+                error("commit failed")
+            } }
+        }
+
+        assertSame(before, world.topologyState)
+        assertEquals(before.revision, world.topologyRevision)
+        assertEquals(PhysicsCoordinatorStatus.STALLED, world.physicsCoordinator.status)
+    }
+
+    @Test
+    @IsolateGlobalHalt
+    fun `normalization failure after mutation preserves topology root and faults world`() {
+        val world = createTestWorld()
+        val otherWorld = try { createTestWorld() } catch (failure: Throwable) {
+            runCatching { world.physicsCoordinator.close() }.exceptionOrNull()?.let(failure::addSuppressed)
+            runCatching { (world.tickManager as AutoCloseable).close() }.exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
+        try {
+            val source = world.createRailForTest(straightCurve(0.0, 10.0))
+            val outside = otherWorld.createRailForTest(straightCurve(10.0, 20.0))
+            val before = world.topologyState
+
+            val failure = assertThrows(IllegalArgumentException::class.java) {
+                IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
+                    source.viewAB.mutableNextRails.add(outside.viewAB)
+                } }
+            }
+
+            assertTrue(failure.message.orEmpty().contains("outside the captured world"))
+            assertSame(before, world.topologyState)
+            assertEquals(before.revision, world.topologyRevision)
+            assertEquals(PhysicsCoordinatorStatus.STALLED, world.physicsCoordinator.status)
+        } finally {
+            closeWorld(world)
+            closeWorld(otherWorld)
+        }
+    }
+
+    private fun withWorld(block: (CoreWorld) -> Unit) {
+        val world = createTestWorld()
+        try {
+            block(world)
+        } finally {
+            closeWorld(world)
+        }
+    }
+
+    private fun closeWorld(world: CoreWorld) {
+        world.physicsCoordinator.close()
+        (world.tickManager as AutoCloseable).close()
+    }
+
+    private fun straightCurve(fromX: Double, toX: Double): PrimeCurve {
+        val normal = Vector3d(0.0, 1.0, 0.0)
+        val tangent = Vector3d(1.0, 0.0, 0.0)
+        return PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(Vector3d(fromX, 0.0, 0.0), Vector3d(tangent), Vector3d(normal), 0.0),
+            Curve.RawPoint(Vector3d(toX, 0.0, 0.0), Vector3d(tangent), Vector3d(normal), toX - fromX)
+        ))
+    }
+}

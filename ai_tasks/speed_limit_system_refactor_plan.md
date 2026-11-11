@@ -175,7 +175,7 @@ data class CurveSafetyMetadata(
 2. 在 `BasicInfrastructureSnapshot` 增加按 Rail UUID 保存的 metadata records。
 3. 将所有消费者改为查询 Basic store：
    - PathFinder / RoutePlanner 的方向限制
-   - RailAutoConnector / PlannedRoute 的道岔参数
+   - RailWand 道岔几何维护 / PlannedRoute 的道岔参数
    - RailWand authoring / assembly / grade lock
    - RailVisualBootstrap 的 assembly 查询
    - RailObjectWand 的方向限制编辑
@@ -186,12 +186,9 @@ data class CurveSafetyMetadata(
 
 ## 持久化迁移
 
-这是破坏性变化，必须升级最小独立 Core infrastructure schema，并提供一次性配对迁移：
-
-```text
-/jr migrate rail-infrastructure-metadata --dry-run
-/jr migrate rail-infrastructure-metadata --apply
-```
+这是破坏性变化，必须升级最小独立 Core infrastructure schema，并由
+`09-24-explicit-rail-endpoint-connections`任务的独立文件迁移工具执行一次性配对迁移。
+运行中插件不再提供临时`/jr migrate`命令；当前代码只保留无文件副作用的纯转换器。
 
 迁移必须：
 

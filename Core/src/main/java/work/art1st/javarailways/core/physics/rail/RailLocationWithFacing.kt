@@ -15,21 +15,16 @@ import work.art1st.javarailways.core.physics.train.TrainEnd
 import work.art1st.configLib.persistence.Loads
 import work.art1st.configLib.persistence.PersistentBy
 import java.util.UUID
-import kotlin.math.min
 
 @ConsistentCopyVisibility
 data class RailLocationWithFacing internal constructor(
     val railView: RailView,
-    private val point: Curve.Point,
-    /* In case the deltaS is less than TOLERANCE */
-    val minorDeltaS: Double = 0.0
+    private val point: Curve.Point
 ): RailLocation, PersistentBy<RailLocationWithFacing.SavedRailLocationWithFacingV1> {
     // 弧长构造：在 railView 上弧长为 arcLength 处创建位置。
-    // minorDeltaS=0 因为插值后的 point.arcLength 已等于请求弧长。
     constructor(railView: RailView, arcLength: Double) : this(
         railView,
-        railView.curve.getPointAt(arcLength),
-        0.0
+        railView.curve.getPointAt(arcLength)
     )
 
     override val rail = railView.rail
@@ -44,7 +39,7 @@ data class RailLocationWithFacing internal constructor(
         get() = point.normal
 
     val arcLength
-        get() = point.arcLength + minorDeltaS
+        get() = point.arcLength
 
     val facing
         get() = railView.viewDirection
@@ -53,14 +48,15 @@ data class RailLocationWithFacing internal constructor(
         return if (facing == this.facing) arcLength else reverseArcLength(arcLength, railView.curve)
     }
 
-    // 反向位置：用反向弧长在反向视图上创建（minorDeltaS 取反）
+    // 反向位置：用反向弧长在反向视图上创建
     val reversed: RailLocationWithFacing
         get() {
             val p = railView.reversed.curve.getPointAt(reverseArcLength(arcLength, railView.curve))
-            return RailLocationWithFacing(railView.reversed, p, -minorDeltaS)
+            return RailLocationWithFacing(railView.reversed, p)
         }
 
     fun forward(deltaS: Double): RailLocationWithFacing? {
+        require(deltaS.isFinite()) { "deltaS must be finite" }
         if (deltaS >= 0) return forwardPositive(deltaS)
         return reversed.forwardPositive(-deltaS)?.reversed
     }
@@ -72,13 +68,11 @@ data class RailLocationWithFacing internal constructor(
         var arcLength = arcLength + deltaS
         var curve = point.curve
         var railView = this.railView
-        val list = ArrayList<Pair<RailView, Curve>>()
         while (true) {
             if (arcLength <= curve.totalArcLength) {
                 val newPoint = curve.getPointAt(arcLength)
-                return RailLocationWithFacing(railView, newPoint, 0.0)
+                return RailLocationWithFacing(railView, newPoint)
             }
-            list.add(Pair(railView, curve))
             arcLength -= curve.totalArcLength
 
             railView = railView.activeRail ?: return null
@@ -92,30 +86,34 @@ data class RailLocationWithFacing internal constructor(
      * distance为负：向后peek, 方向相反
      */
     fun peekCurve(distance: Double): RailSegments {
-        var arcLength: Double
-        var segment: RailSegment
+        require(distance.isFinite()) { "distance must be finite" }
+        var remainingDistance: Double
         var railView = this.railView
         val list: MutableList<RailSegment> = mutableListOf()
-        val baseLength: Double
+        var segmentStart: Double
         if (distance >= 0) {
-            arcLength = distance
-            baseLength = this.arcLength
+            remainingDistance = distance
+            segmentStart = this.arcLength
         } else {
-            arcLength = -distance
+            remainingDistance = -distance
             railView = railView.reversed
-            baseLength = railView.curve.totalArcLength - this.arcLength
+            segmentStart = railView.curve.totalArcLength - this.arcLength
         }
-        segment = RailSegment(railView, baseLength, min(railView.curve.totalArcLength, baseLength + arcLength))
         while (true) {
-            if (arcLength <= segment.totalArcLength) {
-                list.add(RailSegment(segment, 0.0, min(railView.curve.totalArcLength, arcLength)))
+            val railLength = railView.curve.totalArcLength
+            val requestedEnd = segmentStart + remainingDistance
+            // Test containment from the requested endpoint itself. Reconstructing the
+            // travelled distance as (requestedEnd - segmentStart) can round down and
+            // create a false positive remainder that incorrectly enters activeRail.
+            if (requestedEnd <= railLength) {
+                list.add(RailSegment(railView, segmentStart, requestedEnd))
                 break
             }
-            list.add(segment)
-            arcLength -= segment.totalArcLength
+            list.add(RailSegment(railView, segmentStart, railLength))
+            remainingDistance = requestedEnd - railLength
 
             railView = railView.activeRail ?: break
-            segment = RailSegment(railView)
+            segmentStart = 0.0
         }
         return RailSegments(list)
     }
@@ -184,8 +182,7 @@ data class RailLocationWithFacing internal constructor(
         val railId: String,
         // 弧长存储在原始 viewAB 曲线上的位置
         val arcLengthInCurveAB: Double,
-        val direction: ViewDirection,
-        val minorDeltaS: Double = 0.0
+        val direction: ViewDirection
     ) : Loads<RailLocationWithFacing, World> {
         @Throws(CorruptedDataException::class)
         override fun load(dependency: World): RailLocationWithFacing {
@@ -193,11 +190,11 @@ data class RailLocationWithFacing internal constructor(
             // 弧长始终在 viewAB 上存储，加载时统一从 viewAB 读取再按需反转到目标 facing
             val abPoint = rail.getView(ViewDirection.AB).curve.getPointAt(arcLengthInCurveAB)
             return if (direction == ViewDirection.AB) {
-                RailLocationWithFacing(rail.getView(ViewDirection.AB), abPoint, minorDeltaS)
+                RailLocationWithFacing(rail.getView(ViewDirection.AB), abPoint)
             } else {
                 val baCurve = rail.getView(ViewDirection.BA).curve
                 val baArc = baCurve.totalArcLength - arcLengthInCurveAB
-                RailLocationWithFacing(rail.getView(ViewDirection.BA), baCurve.getPointAt(baArc), minorDeltaS)
+                RailLocationWithFacing(rail.getView(ViewDirection.BA), baCurve.getPointAt(baArc))
             }
         }
     }
@@ -206,24 +203,7 @@ data class RailLocationWithFacing internal constructor(
         return SavedRailLocationWithFacingV1(
             rail.id.toString(),
             arcLengthIn(ViewDirection.AB),
-            facing,
-            minorDeltaS
+            facing
         )
     }
-
-//    fun save(): SavedRailLocationWithFacingV1 = SavedRailLocationWithFacingV1(
-//        rail.id.toString(),
-//        idxInCurveAB,
-//        facing,
-//        minorDeltaS
-//    )
-//
-//    companion object Deserializer : PersistentFactoryWithDependency<RailLocationWithFacing, SavedRailLocationWithFacingV1, World> {
-//        override fun load(saved: SavedRailLocationWithFacingV1, dependencyProvider: World): RailLocationWithFacing {
-//            val id = UUID.fromString(saved.railId)
-//            val rail = dependencyProvider.getRail(id)
-//                ?: throw DeserializationMissingDependencyException(Rail.javaClass, id, dependencyProvider)
-//            return RailLocationWithFacing(rail, saved.idxInCurveAB, saved.direction, saved.minorDeltaS)
-//        }
-//    }
 }

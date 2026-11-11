@@ -1,5 +1,8 @@
 package work.art1st.javarailways.bukkit.control
 
+import work.art1st.javarailways.core.physics.train.setControllerForTest
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.AfterEach
@@ -13,20 +16,24 @@ import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
-import work.art1st.javarailways.core.util.ThreadGuard
-import work.art1st.javarailways.core.util.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardRegistration
 
 class TrainControlManagerDirectionTest {
+    private var threadGuardRegistration: ThreadGuardRegistration? = null
+
     @BeforeEach
     fun installMainThreadBridge() {
-        ThreadGuard.installPlatformBridge(object : ThreadGuardPlatformBridge {
+        threadGuardRegistration = ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
             override fun isMainThread(): Boolean = true
         })
     }
 
     @AfterEach
     fun clearMainThreadBridge() {
-        ThreadGuard.clearPlatformBridge()
+        threadGuardRegistration?.close()
+        threadGuardRegistration = null
     }
 
     @Test
@@ -37,10 +44,10 @@ class TrainControlManagerDirectionTest {
             PrimeCurveGenerator.buildStraight(80.0, segmentCount = 1)
         )
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
-        val outgoing = ReverseTrackingController(train, world)
-        train.setController(outgoing)
+        val outgoing = ReverseTrackingController(train)
+        train.setControllerForTest(outgoing)
 
-        alignTrainHeadToDriverSeat(train, DriverControlEnd.TAIL)
+        world.onOwnerForTest { alignTrainHeadToDriverSeat(train, DriverControlEnd.TAIL) }
 
         assertTrue(train.isReversed)
         assertFalse(outgoing.reverseRequested)
@@ -55,18 +62,18 @@ class TrainControlManagerDirectionTest {
         )
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
 
-        alignTrainHeadToDriverSeat(train, DriverControlEnd.HEAD)
+        world.onOwnerForTest { alignTrainHeadToDriverSeat(train, DriverControlEnd.HEAD) }
 
         assertFalse(train.isReversed)
     }
 
-    private class ReverseTrackingController(train: Train, world: World) :
-        TrainController(train, world) {
+    private class ReverseTrackingController(train: Train) :
+        TrainController(train) {
         var reverseRequested = false
 
-        override fun reverse() {
+        override fun reverse(): java.util.concurrent.CompletableFuture<Unit> {
             reverseRequested = true
-            super.reverse()
+            return super.reverse()
         }
     }
 }

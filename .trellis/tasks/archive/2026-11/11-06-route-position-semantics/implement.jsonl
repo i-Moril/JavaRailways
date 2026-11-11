@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/javarailways/basic/route-planning.md", "reason": "路线坐标与端点适配契约"}
+{"file": ".trellis/spec/javarailways/simpleato/ato-policy-runtime.md", "reason": "进度与停车语义；现有未提交严格投影段落须按PRD修正"}
+{"file": ".trellis/spec/javarailways/simpleato/dispatcher-runtime.md", "reason": "停车与下一Mission衔接"}
+{"file": ".trellis/tasks/11-06-route-position-semantics/design.md", "reason": "已确认修复边界与不做事项"}

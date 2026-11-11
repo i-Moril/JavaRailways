@@ -1,0 +1,224 @@
+package work.art1st.javarailways.simplesignals.block
+
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
+import work.art1st.javarailways.core.api.physics.curve.Curve
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.simplesignals.route.DirectedRouteOccurrence
+import work.art1st.javarailways.simplesignals.route.DirectedRouteProjectionResult
+import work.art1st.javarailways.simplesignals.route.DirectedRouteProjector
+import kotlin.math.max
+import kotlin.math.min
+
+internal data class FixedBlockRouteWindow(
+    val blockId: String,
+    val entryRouteDistanceMeters: Double,
+    val exitRouteDistanceMeters: Double,
+    /** False when the operational route begins inside the block, past its entry signal. */
+    val enteredAtBoundary: Boolean = true,
+    /** True when this visit follows the compiled reverse of the authored path. */
+    val reversed: Boolean = false
+)
+
+internal sealed interface FixedBlockAuthorityMatchResult {
+    data class Matched(val windows: List<FixedBlockRouteWindow>) : FixedBlockAuthorityMatchResult
+    data class Rejected(val detail: String) : FixedBlockAuthorityMatchResult
+}
+
+/**
+ * Matches only the requested authority prefix against directed fixed-block traversals.
+ * Operational route endpoints may lie inside a block. Interior path discontinuities still reject.
+ */
+internal object FixedBlockRouteMatcher {
+    /** Clips compiled geometry only; it does not choose a branch or recursively enter another block. */
+    fun terminalContinuation(snapshot: FixedBlockReadSnapshot, route: RouteSnapshot): List<RouteSegmentSnapshot> {
+        snapshot.requireUsable(route, route.totalLengthMeters)
+        val terminal = route.segments.lastOrNull() ?: return emptyList()
+        val projection = when (val projected = DirectedRouteProjector.project(route, snapshot.routeTopology)) {
+            is DirectedRouteProjectionResult.Projected -> projected.route
+            is DirectedRouteProjectionResult.Rejected -> error(projected.failure.detail)
+        }
+        val suffixes = ArrayList<List<RouteSegmentSnapshot>>()
+        for (block in snapshot.candidates(listOf(terminal.railId))) {
+            for (traversals in listOf(block.traversals, block.reverseTraversals)) {
+                val runs = mergeContiguousPieces(overlapPieces(traversals, projection.occurrencesByRail,
+                    route.totalLengthMeters))
+                val terminalRun = runs.singleOrNull { run ->
+                    kotlin.math.abs(run.routeEndMeters - route.totalLengthMeters) <= Curve.TOLERANCE &&
+                        run.blockEndMeters < block.lengthMeters - Curve.TOLERANCE
+                } ?: continue
+                var consumed = 0.0
+                val suffix = ArrayList<RouteSegmentSnapshot>()
+                for (traversal in traversals) {
+                    val end = consumed + traversal.lengthMeters
+                    if (end > terminalRun.blockEndMeters + Curve.TOLERANCE) {
+                        val railLength = snapshot.routeTopology.rails.getValue(traversal.railId).lengthMeters
+                        val startInView = when (traversal.facing) {
+                            ViewDirection.AB -> traversal.lowerAbMeters
+                            ViewDirection.BA -> railLength - traversal.upperAbMeters
+                        }
+                        val offset = (terminalRun.blockEndMeters - consumed).coerceAtLeast(0.0)
+                        suffix += RouteSegmentSnapshot(traversal.railId, traversal.facing,
+                            startInView + offset, startInView + traversal.lengthMeters)
+                    }
+                    consumed = end
+                }
+                suffixes += suffix
+            }
+        }
+        check(suffixes.size <= 1) { "operational endpoint has ambiguous fixed-block continuations" }
+        return java.util.List.copyOf(suffixes.singleOrNull().orEmpty())
+    }
+
+    /** Matches every fixed block reached by the complete exact frozen route. */
+    fun matchRoute(
+        snapshot: FixedBlockReadSnapshot,
+        route: RouteSnapshot
+    ): FixedBlockAuthorityMatchResult = matchAuthority(snapshot, route, route.totalLengthMeters)
+
+    fun matchAuthority(
+        snapshot: FixedBlockReadSnapshot,
+        route: RouteSnapshot,
+        authorityEndRouteMeters: Double
+    ): FixedBlockAuthorityMatchResult {
+        require(authorityEndRouteMeters.isFinite() && authorityEndRouteMeters >= 0.0) {
+            "authorityEndRouteMeters must be finite and non-negative"
+        }
+        require(authorityEndRouteMeters <= route.totalLengthMeters) {
+            "authorityEndRouteMeters exceeds the frozen route"
+        }
+        snapshot.requireUsable(route, authorityEndRouteMeters)
+        if (snapshot.blocksById.isEmpty()) {
+            return FixedBlockAuthorityMatchResult.Matched(emptyList())
+        }
+        val projection = when (val projected = DirectedRouteProjector.project(route, snapshot.routeTopology)) {
+            is DirectedRouteProjectionResult.Projected -> projected.route
+            is DirectedRouteProjectionResult.Rejected -> return FixedBlockAuthorityMatchResult.Rejected(
+                projected.failure.detail
+            )
+        }
+        val candidates = snapshot.candidates(projection.occurrencesByRail.keys)
+        val windows = ArrayList<FixedBlockRouteWindow>()
+        for (block in candidates) {
+            val directions = listOf(block.traversals, block.reverseTraversals)
+            for ((direction, traversals) in directions.withIndex()) {
+                if (traversals.isEmpty()) continue
+                // Match the full operating route before clipping to the requested authority. Otherwise a
+                // rolling request ending inside a block looks indistinguishable from a broken path.
+                val pieces = overlapPieces(traversals, projection.occurrencesByRail, route.totalLengthMeters)
+                if (pieces.isEmpty()) continue
+                val runs = mergeContiguousPieces(pieces)
+                val complete = runs.filter { run ->
+                    (run.blockStartMeters <= Curve.TOLERANCE || run.routeStartMeters <= Curve.TOLERANCE) &&
+                        (block.lengthMeters - run.blockEndMeters <= Curve.TOLERANCE ||
+                            route.totalLengthMeters - run.routeEndMeters <= Curve.TOLERANCE)
+                }
+                if (complete.size != runs.size) {
+                    return FixedBlockAuthorityMatchResult.Rejected(
+                        "route leaves the directed traversal of fixed block " +
+                            block.definition.blockId
+                    )
+                }
+                for (run in complete) {
+                    if (run.routeStartMeters >= authorityEndRouteMeters - Curve.TOLERANCE) continue
+                    windows += FixedBlockRouteWindow(
+                        block.definition.blockId,
+                        run.routeStartMeters,
+                        min(run.routeEndMeters, authorityEndRouteMeters),
+                        enteredAtBoundary = run.blockStartMeters <= Curve.TOLERANCE,
+                        reversed = direction == 1
+                    )
+                }
+            }
+        }
+        return FixedBlockAuthorityMatchResult.Matched(
+            java.util.List.copyOf(
+                windows.sortedWith(
+                    compareBy(FixedBlockRouteWindow::entryRouteDistanceMeters)
+                        .thenBy(FixedBlockRouteWindow::blockId)
+                )
+            )
+        )
+    }
+
+    private fun overlapPieces(
+        traversals: List<FixedBlockTraversal>,
+        occurrencesByRail: Map<java.util.UUID, List<DirectedRouteOccurrence>>,
+        authorityEndRouteMeters: Double
+    ): List<OverlapPiece> {
+        val pieces = ArrayList<OverlapPiece>()
+        var blockTraversalStart = 0.0
+        for (traversal in traversals) {
+            for (occurrence in occurrencesByRail[traversal.railId].orEmpty()) {
+                if (occurrence.facing != traversal.facing) continue
+                val routeLow = min(
+                    occurrence.canonicalStartAbMeters,
+                    occurrence.canonicalEndAbMeters
+                )
+                val routeHigh = max(
+                    occurrence.canonicalStartAbMeters,
+                    occurrence.canonicalEndAbMeters
+                )
+                val overlapLow = max(routeLow, traversal.lowerAbMeters)
+                val overlapHigh = min(routeHigh, traversal.upperAbMeters)
+                if (overlapHigh - overlapLow <= Curve.TOLERANCE) continue
+                val (startAb, endAb) = when (occurrence.facing) {
+                    ViewDirection.AB -> overlapLow to overlapHigh
+                    ViewDirection.BA -> overlapHigh to overlapLow
+                }
+                val routeStart = occurrence.routeDistanceAt(startAb)
+                if (routeStart >= authorityEndRouteMeters - Curve.TOLERANCE) continue
+                val fullRouteEnd = occurrence.routeDistanceAt(endAb)
+                val routeEnd = min(fullRouteEnd, authorityEndRouteMeters)
+                if (routeEnd - routeStart <= Curve.TOLERANCE) continue
+                val blockStart = when (traversal.facing) {
+                    ViewDirection.AB -> blockTraversalStart + (overlapLow - traversal.lowerAbMeters)
+                    ViewDirection.BA -> blockTraversalStart + (traversal.upperAbMeters - overlapHigh)
+                }
+                val fullBlockEnd = when (traversal.facing) {
+                    ViewDirection.AB -> blockTraversalStart + (overlapHigh - traversal.lowerAbMeters)
+                    ViewDirection.BA -> blockTraversalStart + (traversal.upperAbMeters - overlapLow)
+                }
+                pieces += OverlapPiece(
+                    routeStartMeters = routeStart,
+                    routeEndMeters = routeEnd,
+                    blockStartMeters = blockStart,
+                    blockEndMeters = if (routeEnd == fullRouteEnd) fullBlockEnd
+                        else blockStart + (routeEnd - routeStart)
+                )
+            }
+            blockTraversalStart += traversal.lengthMeters
+        }
+        return pieces
+    }
+
+    private fun mergeContiguousPieces(pieces: List<OverlapPiece>): List<OverlapPiece> {
+        val merged = ArrayList<OverlapPiece>()
+        for (piece in pieces.sortedWith(
+            compareBy(OverlapPiece::routeStartMeters).thenBy(OverlapPiece::blockStartMeters)
+        )) {
+            val previous = merged.lastOrNull()
+            if (previous != null &&
+                kotlin.math.abs(piece.routeStartMeters - previous.routeEndMeters) <= Curve.TOLERANCE &&
+                kotlin.math.abs(piece.blockStartMeters - previous.blockEndMeters) <= Curve.TOLERANCE
+            ) {
+                merged[merged.lastIndex] = OverlapPiece(
+                    previous.routeStartMeters,
+                    max(previous.routeEndMeters, piece.routeEndMeters),
+                    previous.blockStartMeters,
+                    max(previous.blockEndMeters, piece.blockEndMeters)
+                )
+            } else {
+                merged += piece
+            }
+        }
+        return merged
+    }
+
+    private data class OverlapPiece(
+        val routeStartMeters: Double,
+        val routeEndMeters: Double,
+        val blockStartMeters: Double,
+        val blockEndMeters: Double
+    )
+}

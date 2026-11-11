@@ -119,8 +119,8 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "rows": {"type": "integer", "default": 1},
-        "columns": {"type": "integer", "default": 1},
+        "rows": {"type": "integer", "minimum": 1, "default": 1},
+        "columns": {"type": "integer", "minimum": 1, "default": 1},
         "spacing-x": {"type": "number"},
         "spacing-z": {"type": "number"},
         "spacing": {"$ref": "#/$defs/vector"}

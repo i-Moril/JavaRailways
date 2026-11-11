@@ -4,19 +4,22 @@ import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import org.joml.Vector3d
 import org.joml.Vector3dc
-import work.art1st.javarailways.basic.controller.SimpleATO
-import work.art1st.javarailways.basic.api.depot.RollingStockState
-import work.art1st.javarailways.basic.pathFinding.basicWorldDataOrNull
+import work.art1st.javarailways.simpleato.controller.SimpleATO
+import work.art1st.javarailways.simpleato.api.depot.RollingStockState
+import work.art1st.javarailways.simpleato.simpleAtoWorldDataOrNull
+import work.art1st.javarailways.basic.control.RealisticManualController
+import work.art1st.javarailways.basic.basicWorldDataOrNull
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.bukkit.BukkitPlugin
-import work.art1st.javarailways.bukkit.behavior.TrainBehaviorCallResult
 import work.art1st.javarailways.bukkit.config.model.CarControlConfig
 import work.art1st.javarailways.bukkit.debug.AbnormalTrainMarker
 import work.art1st.javarailways.bukkit.config.model.CarDefinition
+import work.art1st.javarailways.bukkit.config.model.TrainResourceVersion
+import work.art1st.javarailways.bukkit.persistence.TrainPackageSnapshotStore
+import work.art1st.javarailways.bukkit.persistence.CarModelSnapshotStore
 import work.art1st.javarailways.bukkit.config.model.TrainControlConfig
 import work.art1st.javarailways.bukkit.extension.train.CarExtension
 import work.art1st.javarailways.bukkit.extension.train.TrainExtension
-import work.art1st.javarailways.bukkit.control.RealisticManualController
 import work.art1st.javarailways.bukkit.control.TrainKeyItem
 import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
 import work.art1st.javarailways.bukkit.extension.train.renderer
@@ -28,19 +31,23 @@ import work.art1st.javarailways.bukkit.util.PlayerOperationGate
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
-import work.art1st.javarailways.core.physics.train.CoreBogie
 import work.art1st.javarailways.core.physics.train.CoreCar
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.CoreWorld
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
 
 object TrainCommand {
     /** 玩家 UUID -> 手动控制器 */
-    private val playerControllers = mutableMapOf<UUID, RealisticManualController>()
+    private val playerControllers = ConcurrentHashMap<UUID, RealisticManualController>()
     private val heavyOperationGate = PlayerOperationGate()
+    // Seat events revoke requests before their owner-side operation runs; no Bukkit entity reads on physics.
+    private val pendingAtpAcknowledgements = ConcurrentHashMap<UUID, Any>()
 
     init {
         SeatModel.SeatInteractionListener.addDriverSeatVacatedHandler { player, train ->
+            pendingAtpAcknowledgements.remove(player.uniqueId)
             val controller = playerControllers[player.uniqueId] ?: return@addDriverSeatVacatedHandler
             if (controller.controlledTrain === train) {
                 controller.coast()
@@ -61,12 +68,53 @@ object TrainCommand {
             "anim", "animation" -> return handleAnim(sender, args.drop(1))
             "action" -> return handleAction(sender, args.drop(1))
             "behavior" -> return handleBehavior(sender, args.drop(1))
+            "atp" -> return handleAtp(sender, args.drop(1))
             "info" -> return handleInfo(sender)
             "list" -> return handleList(sender)
             "delete" -> return handleDelete(sender, args.drop(1))
             "sit" -> return handleSit(sender)
             "stand" -> return handleStand(sender)
             else -> sender.sendMessage("未知子命令: ${args[0]}")
+        }
+        return true
+    }
+
+    internal fun revokePendingAtpAcknowledgement(playerId: UUID) {
+        pendingAtpAcknowledgements.remove(playerId)
+    }
+
+    private fun handleAtp(sender: CommandSender, args: List<String>): Boolean {
+        if (sender !is Player) { sender.sendMessage("此命令需要玩家执行"); return true }
+        val world = getPlayerWorld(sender) ?: return true
+        val train = findDrivenTrain(sender, world as? CoreWorld ?: return true) ?: run {
+            sender.sendMessage("请先坐在驾驶座上"); return true
+        }
+        val runtime = world.simpleAtoWorldDataOrNull?.controlRuntime ?: return true
+        when (args.firstOrNull()?.lowercase() ?: "status") {
+            "status" -> sender.sendMessage(if (runtime.isAcknowledgementRequired(train)) "ATP 制动保持中" else "ATP 正常")
+            "release" -> {
+                val manager = BukkitPlugin.INSTANCE.trainControlManager
+                val session = manager.sessionFor(sender)
+                val controller = session?.controller ?: playerControllers[sender.uniqueId]
+                if (controller == null || controller.controlledTrain !== train) {
+                    sender.sendMessage("请先取得本列车的手动驾驶控制权")
+                    return true
+                }
+                val playerId = sender.uniqueId
+                val request = Any()
+                pendingAtpAcknowledgements[playerId] = request
+                reportControllerOperation(sender, (world as CoreWorld).physicsCoordinator.submitBetweenFrames {
+                    try {
+                        check(pendingAtpAcknowledgements[playerId] === request &&
+                            world.getTrain(train.id) === train && train.controller === controller &&
+                            (if (session != null) manager.sessionFor(train) === session && session.playerId == playerId
+                             else playerControllers[playerId] === controller)) { "驾驶员或控制器已变化，请重新请求" }
+                        if (runtime.acknowledge(train)) listOf("已请求解除 ATP；下一次安全检查通过且停车后解除")
+                        else listOf("没有可解除的 ATP 干预")
+                    } finally { pendingAtpAcknowledgements.remove(playerId, request) }
+                })
+            }
+            else -> sender.sendMessage("用法: /jr train atp <status|release>")
         }
         return true
     }
@@ -116,22 +164,21 @@ object TrainCommand {
         }
         val modelManager = BukkitPlugin.INSTANCE.modelManager
 
-        val trainDef = modelManager.getTrain(trainTypeName)
-        if (trainDef == null) {
+        if (modelManager.getTrain(trainTypeName) == null) {
             heavyOperationGate.finish(sender.uniqueId)
             sender.sendMessage("错误: 未知列车类型 '$trainTypeName'")
             sender.sendMessage("可用类型: ${modelManager.trainPackages.keys.joinToString(", ")}")
             return true
         }
 
-        val carDefs = trainDef.composition.map { carModelName ->
-            modelManager.getCar(carModelName)
-                ?: run {
-                    heavyOperationGate.finish(sender.uniqueId)
-                    sender.sendMessage("错误: 未知车厢模型 '$carModelName'")
-                    return true
-                }
+        val resourceVersion = try {
+            modelManager.resourceVersion(trainTypeName)
+        } catch (failure: Exception) {
+            heavyOperationGate.finish(sender.uniqueId)
+            sender.sendMessage("错误: 列车资源无效: ${failure.message}")
+            return true
         }
+        val carDefs = resourceVersion.composition.map { resourceVersion.models.getValue(it).car }
         if (carDefs.isEmpty()) {
             heavyOperationGate.finish(sender.uniqueId)
             sender.sendMessage("错误: 列车类型 '$trainTypeName' 没有车厢编组")
@@ -143,7 +190,12 @@ object TrainCommand {
             plugin = BukkitPlugin.INSTANCE,
             completionEntity = sender,
             operation = "TrainCommand.handleCreate",
-            supplier = { HeavyRailQueries.findNearestRail(railSnapshot, playerPos) },
+            supplier = {
+                TrainPackageSnapshotStore.save(resourceVersion.packageSnapshot)
+                resourceVersion.carPackages.values.distinctBy { it.hash }.forEach(TrainPackageSnapshotStore::save)
+                resourceVersion.models.values.forEach(CarModelSnapshotStore::save)
+                HeavyRailQueries.findNearestRail(railSnapshot, playerPos)
+            },
             onSuccess = { nearestRail ->
                 heavyOperationGate.finish(sender.uniqueId)
                 val livePlayer = BukkitPlugin.INSTANCE.server.getPlayer(sender.uniqueId) ?: return@supply
@@ -153,7 +205,7 @@ object TrainCommand {
                     return@supply
                 }
                 completeCreateOnMainThread(
-                    livePlayer, liveWorld, trainTypeName, trainName, trainDef, carDefs, playerPos, nearestRail
+                    livePlayer, liveWorld, trainTypeName, trainName, resourceVersion, carDefs, nearestRail
                 )
             },
             onFailure = { error ->
@@ -161,7 +213,7 @@ object TrainCommand {
                 BukkitPlugin.INSTANCE.logger.warning(
                     "TrainCommand create lookup failed for player ${sender.name}: ${error::class.simpleName}: ${error.message ?: ""}"
                 )
-                BukkitPlugin.INSTANCE.server.getPlayer(sender.uniqueId)?.sendMessage("错误: 轨道查找失败，请重试")
+                BukkitPlugin.INSTANCE.server.getPlayer(sender.uniqueId)?.sendMessage("错误: 创建准备失败: ${error.message}")
             },
             onRetired = { heavyOperationGate.finish(sender.uniqueId) }
         )
@@ -183,23 +235,26 @@ object TrainCommand {
             return true
         }
         val newName = args[1]
-        if (train.controller != null) {
-            sender.sendMessage("错误: 列车 ${train.name} 正被控制或分配给 service，不能重命名")
-            return true
-        }
-        val rollingStock = world.basicWorldDataOrNull?.depots?.rollingStock(train.id)
-        if (rollingStock?.state == RollingStockState.RESERVED ||
-            rollingStock?.state == RollingStockState.IN_SERVICE
-        ) {
-            sender.sendMessage("错误: 列车 ${train.name} 当前 Depot 状态为 ${rollingStock.state}，不能重命名")
-            return true
-        }
         return try {
-            val oldName = train.name
-            world.renameTrain(train, newName)
-            sender.sendMessage("列车已重命名: $oldName -> ${train.name}")
+            world.physicsCoordinator.submitBetweenFrames {
+                require(train.controller == null) {
+                    "列车 ${train.name} 正被控制或分配给 service，不能重命名"
+                }
+                val rollingStock = world.simpleAtoWorldDataOrNull?.depots?.rollingStock(train.id)
+                require(rollingStock?.state != RollingStockState.RESERVED &&
+                    rollingStock?.state != RollingStockState.IN_SERVICE) {
+                    "列车 ${train.name} 当前 Depot 状态为 ${rollingStock?.state}，不能重命名"
+                }
+                val oldName = train.name
+                world.renameTrain(train, newName)
+                "列车已重命名: $oldName -> ${train.name}"
+            }.whenComplete { message, failure ->
+                BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                    sender.sendMessage(if (failure == null) message else "错误: ${failure.message}")
+                })
+            }
             true
-        } catch (failure: IllegalArgumentException) {
+        } catch (failure: IllegalStateException) {
             sender.sendMessage("错误: ${failure.message}")
             true
         }
@@ -220,114 +275,99 @@ object TrainCommand {
         coreWorld: CoreWorld,
         trainTypeName: String,
         trainName: String,
-        trainDef: work.art1st.javarailways.bukkit.config.model.TrainDefinition,
+        resourceVersion: TrainResourceVersion,
         carDefs: List<CarDefinition>,
-        playerPos: Vector3dc,
         nearestRail: HeavyRailQueries.NearestRailMatch?
     ) {
-        val rail = nearestRail?.let { coreWorld.getRail(it.railId) }
-        if (rail == null) {
-            sender.sendMessage("错误: 世界中没有轨道，请先使用 /jr wand rail 获取 RailWand 并铺设轨道")
-            return
-        }
-
-        val requiredBehindHead = estimateTrainLengthBehindHead(carDefs)
-        val railViewAB = rail.getView(work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB)
-        val rawHeadAB = RailLocationWithFacing(railViewAB, nearestRail.arcLength)
-        val headLocation = findPlaceableHeadLocation(rawHeadAB, requiredBehindHead, playerPos)
-            ?: run {
-                sender.sendMessage("错误: 附近轨道长度不足，无法放置 ${"%.1f".format(requiredBehindHead)}m 的列车")
-                sender.sendMessage("请站在更靠轨道中段的位置，或先把斜坡与前后轨道连接起来。")
-                return
+        val selectedRail = nearestRail?.let { coreWorld.getRail(it.railId) }
+        coreWorld.physicsCoordinator.submitBetweenFrames {
+            check(BukkitPlugin.INSTANCE.modelManager.resourceVersion(trainTypeName) === resourceVersion) {
+                "列车资源已变化，请重新创建"
             }
-        val blockingTrainId = findBlockingTrainForPlacement(headLocation, requiredBehindHead)
-        if (blockingTrainId != null) {
-            sender.sendMessage("错误: 放置区域已有列车 $blockingTrainId，请先移走或删除后再创建")
-            return
-        }
-        val firstHeadBogieOffset = headBogieToEndPointOffset(carDefs.first())
-        val initialBogieLocation = headLocation.forward(-firstHeadBogieOffset)
-            ?: run {
-                sender.sendMessage("错误: 无法初始化车头转向架位置")
-                return
+            val match = requireNotNull(nearestRail) { "世界中没有可放置的轨道" }
+            val rail = requireNotNull(selectedRail) { "世界中没有可放置的轨道" }
+            check(coreWorld.getRail(rail.id) === rail) { "轨道已变化，请重新创建" }
+            check(coreWorld.getTrain(trainName) == null) { "当前世界已存在列车名 '$trainName'" }
+            val requiredBehindHead = estimateTrainLengthBehindHead(carDefs)
+            val railViewAB = rail.getView(work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB)
+            val rawHeadAB = RailLocationWithFacing(railViewAB, match.arcLength)
+            val headLocation = findPlaceableHeadLocation(rawHeadAB, requiredBehindHead)
+                ?: error("所选位置两侧轨道长度不足，无法放置 ${"%.1f".format(requiredBehindHead)}m 的列车")
+            val blockingTrainId = findBlockingTrainForPlacement(headLocation, requiredBehindHead)
+            check(blockingTrainId == null) { "放置区域已有列车 $blockingTrainId，请先移走或删除后再创建" }
+            val firstHeadBogieOffset = headBogieToEndPointOffset(carDefs.first())
+            val initialBogieLocation = headLocation.forward(-firstHeadBogieOffset)
+                ?: error("无法初始化车头转向架位置")
+
+            val cars = mutableListOf<CoreCar>()
+            val trainId = UUID.randomUUID().toString()
+            CoreTrain.createOwned(coreWorld) {
+                for (i in resourceVersion.composition.indices) {
+                    val carDef = carDefs[i]
+                    val bogieA = bogie(initialBogieLocation)
+                    val bogieB = bogie(initialBogieLocation)
+
+                    val car = car(
+                        id = carIdForTrain(trainId, i),
+                        bogieA = bogieA,
+                        bogieB = bogieB,
+                        length = carDef.length,
+                        floorHeight = carDef.floorHeight,
+                        connectorLengthAtA = carDef.connectorLengthA,
+                        connectorLengthAtB = carDef.connectorLengthB,
+                        bogieAOffset = carDef.bogieAOffset,
+                        bogieBOffset = carDef.bogieBOffset
+                    )
+                    cars.add(car)
+
+                    val carExtension = CarExtension()
+                    car.registerExtensionData(BukkitPlugin.INSTANCE, carExtension)
+                    carExtension.initialize(car, emptyMap())
+                    carExtension.bindCreatedResources(trainTypeName, resourceVersion.composition[i], resourceVersion)
+                }
+
+                val train = train(
+                    id = trainId,
+                    cars = cars,
+                    name = trainName
+                )
+                train.setLocation(headLocation)
+                val trainExtension = TrainExtension()
+                train.registerExtensionData(BukkitPlugin.INSTANCE, trainExtension)
+                trainExtension.initialize(train, emptyMap())
+                trainExtension.bindCreatedResources(trainTypeName, resourceVersion)
+                coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.put(
+                    train.id,
+                    TrainSpeedProfile(trainExtension.resolveControl().curveSpeedLimitOffset)
+                )
+
+                onFailure { coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.remove(train.id) }
+                publish()
+                val messages = buildList {
+                    add("创建列车成功: ${train.name} [${train.id}] (类型: $trainTypeName)")
+                    add("手持通用列车钥匙坐在驾驶座上驾驶，可用 /jr train key 获取。")
+                    add("车厢数量: ${cars.size}")
+                    add("列车头部位置: ${formatVector(train.head.location.position)}")
+                    add("列车尾部位置: ${formatVector(train.tail.location.position)}")
+                    cars.forEachIndexed { index, car ->
+                        add(
+                            "车厢 ${index + 1}: model=${resourceVersion.composition[index]}, " +
+                                "center=${formatVector(car.position)}, " +
+                                "bogieA=${formatVector(car.bogieA.position)}, bogieB=${formatVector(car.bogieB.position)}"
+                        )
+                    }
+                }
+                train to messages
             }
-
-        val cars = mutableListOf<CoreCar>()
-        for ((i, carModelName) in trainDef.composition.withIndex()) {
-            val carDef = carDefs[i]
-            val bogieA = CoreBogie.create(initialBogieLocation)
-            val bogieB = CoreBogie.create(initialBogieLocation)
-
-            val car = CoreCar.create(
-                id = "${sender.name}-car-$i",
-                bogieA = bogieA,
-                bogieB = bogieB,
-                length = carDef.length,
-                floorHeight = carDef.floorHeight,
-                connectorLengthAtA = carDef.connectorLengthA,
-                connectorLengthAtB = carDef.connectorLengthB,
-                bogieAOffset = carDef.bogieAOffset,
-                bogieBOffset = carDef.bogieBOffset,
-                world = coreWorld
-            )
-            cars.add(car)
-
-            val carExtension = CarExtension()
-            car.registerExtensionData(BukkitPlugin.INSTANCE, carExtension)
-            carExtension.initialize(car, emptyMap())
-            carExtension.carModelName = carModelName
-        }
-
-        if (coreWorld.allTrains.any { it.name == trainName }) {
-            sender.sendMessage("错误: 当前世界已存在列车名 '$trainName'")
-            cars.forEach { it.destroy() }
-            return
-        }
-        val trainId = UUID.randomUUID().toString()
-        var createdTrain: CoreTrain? = null
-        val train = try {
-            val newTrain = CoreTrain.create(
-                id = trainId,
-                cars = cars,
-                world = coreWorld,
-                name = trainName
-            )
-            createdTrain = newTrain
-            newTrain.setLocation(headLocation)
-            newTrain
-        } catch (e: Exception) {
-            createdTrain?.let { failedTrain ->
-                failedTrain.destroy()
-                coreWorld.removeTrain(failedTrain)
-            }
-            sender.sendMessage("错误: 创建列车失败: ${e.javaClass.simpleName}${e.message?.let { ": $it" } ?: ""}")
-            sender.sendMessage("提示: 斜坡短轨道需要先连接到足够长的前后轨道，否则整列车无法排布。")
-            cars.forEach { it.destroy() }
-            return
-        }
-        val trainExtension = TrainExtension()
-        train.registerExtensionData(BukkitPlugin.INSTANCE, trainExtension)
-        trainExtension.initialize(train, emptyMap())
-        coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.put(
-            train.id,
-            TrainSpeedProfile(trainExtension.resolveControl().curveSpeedLimitOffset)
-        )
-
-        train.commit()
-        coreWorld.publishCurrentTrainFrame(train.id)
-        cars.forEach { it.renderer.sendTo(sender) }
-
-        sender.sendMessage("创建列车成功: ${train.name} [${train.id}] (类型: $trainTypeName)")
-        sender.sendMessage("手持通用列车钥匙坐在驾驶座上驾驶，可用 /jr train key 获取。")
-        sender.sendMessage("车厢数量: ${cars.size}")
-        sender.sendMessage("列车头部位置: ${formatVector(train.head.location.position)}")
-        sender.sendMessage("列车尾部位置: ${formatVector(train.tail.location.position)}")
-        cars.forEachIndexed { index, car ->
-            sender.sendMessage(
-                "车厢 ${index + 1}: model=${trainDef.composition[index]}, " +
-                    "center=${formatVector(car.position)}, " +
-                    "bogieA=${formatVector(car.bogieA.position)}, bogieB=${formatVector(car.bogieB.position)}"
-            )
+        }.whenComplete { created, failure ->
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                if (failure != null) {
+                    sender.sendMessage("错误: 创建列车失败: ${failure.message}")
+                } else {
+                    created.first.cars.forEach { it.renderer.sendTo(sender) }
+                    created.second.forEach(sender::sendMessage)
+                }
+            })
         }
     }
 
@@ -359,50 +399,6 @@ object TrainCommand {
         return carDef.length / 2.0 - bogieAOffset
     }
 
-    private fun findPlaceableHeadLocation(
-        rawHeadAB: RailLocationWithFacing,
-        requiredBehindHead: Double,
-        playerPos: Vector3dc
-    ): RailLocationWithFacing? {
-        val candidates = listOf(rawHeadAB, rawHeadAB.reversed).mapNotNull { raw ->
-            shiftHeadForwardUntilTailFits(raw, requiredBehindHead)
-        }
-        return candidates.minByOrNull { it.position.distance(playerPos) }
-    }
-
-    private fun shiftHeadForwardUntilTailFits(
-        rawHead: RailLocationWithFacing,
-        requiredBehindHead: Double
-    ): RailLocationWithFacing? {
-        if (rawHead.forward(-requiredBehindHead) != null) return rawHead
-
-        var hi = 1.0
-        var hiLoc: RailLocationWithFacing? = null
-        val maxShift = requiredBehindHead * 2.0 + 1.0
-        while (hi <= maxShift) {
-            val shifted = rawHead.forward(hi) ?: return null
-            if (shifted.forward(-requiredBehindHead) != null) {
-                hiLoc = shifted
-                break
-            }
-            hi *= 2.0
-        }
-        hiLoc ?: return null
-
-        var lo = 0.0
-        repeat(40) {
-            val mid = (lo + hi) / 2.0
-            val shifted = rawHead.forward(mid)
-            if (shifted != null && shifted.forward(-requiredBehindHead) != null) {
-                hi = mid
-                hiLoc = shifted
-            } else {
-                lo = mid
-            }
-        }
-        return hiLoc
-    }
-
     private fun handleStart(sender: CommandSender, args: List<String>): Boolean {
         if (sender !is Player) {
             sender.sendMessage("此命令需要玩家执行")
@@ -424,25 +420,31 @@ object TrainCommand {
             return true
         }
 
-        val (controlConfig, carControls) = try {
-            resolveControlProfile(train)
-        } catch (e: IllegalArgumentException) {
-            sender.sendMessage("错误: ${e.message}")
-            return true
-        }
-        val controller = RealisticManualController(train, coreWorld, controlConfig, carControls)
-        train.setController(controller)
-        playerControllers[sender.uniqueId] = controller
-
+        val playerId = sender.uniqueId
+        val expectedController = train.controller
         val initialHandle = args.firstOrNull()
-        if (initialHandle != null && !controller.setHandle(initialHandle)) {
-            sender.sendMessage("未知手柄档位: $initialHandle")
-            sender.sendMessage("可用档位: ${availableHandles(controlConfig)}")
-        }
-
-        sender.sendMessage("控制器已连接至列车: ${train.id}")
-        sender.sendMessage("使用 /jr train handle <P1..P5|N|B1..B7|EB> 设置手柄")
-        sender.sendMessage("使用 /jr train stop 断开连接")
+        reportControllerOperation(sender, coreWorld.physicsCoordinator.submitBetweenFrames {
+            check(coreWorld.getTrain(train.id) === train && train.controller === expectedController &&
+                playerControllers[playerId] == null) { "列车或驾驶员控制状态已变化，请重试" }
+            val (controlConfig, carControls) = resolveControlProfile(train)
+            val controller = RealisticManualController(
+                train, controlConfig, carControls,
+                BukkitPlugin.INSTANCE.physicsConfig.track.gravityMetersPerSecondSquared,
+                profileResolver = { car -> car.carRendererOrNull?.resolveCarControl() },
+                initialDeviceSource = train.controller as? work.art1st.javarailways.basic.control.DynamicsProfileSource
+            )
+            train.setController(controller)
+            playerControllers[playerId] = controller
+            buildList {
+                if (initialHandle != null && !controller.setHandle(initialHandle)) {
+                    add("未知手柄档位: $initialHandle")
+                    add("可用档位: ${availableHandles(controlConfig)}")
+                }
+                add("控制器已连接至列车: ${train.id}")
+                add("使用 /jr train handle <P1..P5|N|B1..B7|EB> 设置手柄")
+                add("使用 /jr train stop 断开连接")
+            }
+        })
         return true
     }
 
@@ -451,15 +453,31 @@ object TrainCommand {
             sender.sendMessage("此命令需要玩家执行")
             return true
         }
-        val controller = playerControllers.remove(sender.uniqueId)
+        val playerId = sender.uniqueId
+        val controller = playerControllers[playerId]
         if (controller == null) {
             sender.sendMessage("当前没有连接的控制器")
             return true
         }
 
-        (controller.controlledTrain as? CoreTrain)?.setController(null)
-        sender.sendMessage("控制器已断开连接")
+        val train = controller.controlledTrain as CoreTrain
+        reportControllerOperation(sender, train.world.physicsCoordinator.submitBetweenFrames {
+            check(playerControllers[playerId] === controller && train.world.getTrain(train.id) === train &&
+                train.controller === controller) { "控制器已变化，请重试" }
+            train.setController(null)
+            playerControllers.remove(playerId, controller)
+            listOf("控制器已断开连接")
+        })
         return true
+    }
+
+    private fun reportControllerOperation(player: Player, result: CompletableFuture<List<String>>) {
+        result.whenComplete { messages, failure ->
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(player, action = {
+                if (failure != null) player.sendMessage("操作失败: ${failure.message}")
+                else messages.forEach(player::sendMessage)
+            })
+        }
     }
 
     private fun handleHandle(sender: CommandSender, args: List<String>): Boolean {
@@ -510,8 +528,15 @@ object TrainCommand {
             return true
         }
 
-        controller.reverse()
-        sender.sendMessage("列车已换向")
+        controller.reverse().whenComplete { _, failure ->
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                if (failure == null) {
+                    sender.sendMessage("列车已换向")
+                } else {
+                    sender.sendMessage("换向失败: ${failure.cause?.message ?: failure.message}")
+                }
+            })
+        }
         return true
     }
 
@@ -541,27 +566,10 @@ object TrainCommand {
                 return true
             }
 
-        val applied = if (sceneName == null) {
-            train.renderer.applyAnimation(animationName)
-        } else {
-            train.renderer.applyAnimation(animationName, sceneName)
-        }
-        if (applied) {
-            sender.sendMessage(
-                if (sceneName == null) {
-                    "已触发列车动画: $animationName"
-                } else {
-                    "已触发列车动画: $animationName -> $sceneName"
-                }
-            )
-        } else {
-            sender.sendMessage(
-                if (sceneName == null) {
-                    "没有部件响应动画: $animationName"
-                } else {
-                    "没有部件响应动画: $animationName -> $sceneName"
-                }
-            )
+        train.renderer.applyAnimation(animationName, sceneName).whenComplete { _, failure ->
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                sender.sendMessage(if (failure == null) "已触发列车动画: $animationName" else "动画失败: ${failure.message}")
+            })
         }
         return true
     }
@@ -595,11 +603,10 @@ object TrainCommand {
                 return true
             }
 
-        val applied = train.renderer.applyAction(actionName)
-        if (applied) {
-            sender.sendMessage("已触发列车动作: $actionName")
-        } else {
-            sender.sendMessage("没有可执行的列车动作: $actionName")
+        train.renderer.executeModelAction(actionName).whenComplete { _, failure ->
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                sender.sendMessage(if (failure == null) "已完成列车动作: $actionName" else "动作失败: ${failure.message}")
+            })
         }
         return true
     }
@@ -628,14 +635,10 @@ object TrainCommand {
                 return true
             }
 
-        when (val result = train.renderer.callBehavior(methodName, args.drop(1).map(::parseBehaviorArg))) {
-            is TrainBehaviorCallResult.Success -> {
-                val suffix = result.returnValue?.let { " -> $it" } ?: ""
-                sender.sendMessage("已调用列车行为: ${result.method}$suffix")
-            }
-            is TrainBehaviorCallResult.Failure -> {
-                sender.sendMessage("列车行为调用失败: ${result.message}")
-            }
+        train.renderer.callBehavior(methodName, args.drop(1).map(::parseBehaviorArg)).whenComplete { _, failure ->
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                sender.sendMessage(if (failure == null) "已调用每车行为: $methodName" else "行为调用失败: ${failure.message}")
+            })
         }
         return true
     }
@@ -660,19 +663,27 @@ object TrainCommand {
             return true
         }
 
-        val train = args.firstOrNull()?.let { coreWorld.getTrain(it) }
-            ?: findNearestTrain(sender, coreWorld)
+        val requestedId = args.firstOrNull()
+        val train = selectTrainForDeletion(coreWorld, requestedId) { findNearestTrain(sender, coreWorld) }
             ?: run {
-                sender.sendMessage("错误: 附近没有列车")
+                sender.sendMessage(if (requestedId == null) "错误: 附近没有列车" else "错误: 列车不存在: $requestedId")
                 return true
             }
 
-        playerControllers.entries.removeIf { it.value.controlledTrain == train }
-        BukkitPlugin.INSTANCE.trainControlManager.releaseTrain(train)
-        AbnormalTrainMarker.clearTrain(sender.world, train.id)
-        coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.remove(train.id)
-        train.destroy()
-        sender.sendMessage("已删除列车: ${train.id}")
+        val platformWorld = sender.world
+        val deletion = coreWorld.physicsCoordinator.submitBetweenFrames {
+            check(coreWorld.getTrain(train.id) === train) { "列车已变化，请重试" }
+            playerControllers.entries.removeIf { it.value.controlledTrain === train }
+            BukkitPlugin.INSTANCE.trainControlManager.releaseTrain(train)
+            coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.remove(train.id)
+            train.destroy()
+        }.thenCompose { cleanup -> cleanup.thenApply { listOf("已删除列车: ${train.id}") } }
+        deletion.thenRun {
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                AbnormalTrainMarker.clearTrain(platformWorld, train.id)
+            })
+        }
+        reportControllerOperation(sender, deletion)
         return true
     }
 
@@ -800,23 +811,24 @@ object TrainCommand {
             return true
         }
 
+        return work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge.runInSimulationContext(world) {
         sender.sendMessage("=== 列车列表 ===")
         for (train in world.allTrains) {
             sender.sendMessage("  ${train.name} [${train.id}] - ${train.length} 节车厢")
         }
-        return true
+        true
+        }
     }
 
     private fun resolveControlProfile(train: CoreTrain): Pair<TrainControlConfig, List<CarControlConfig>> {
-        val carModelNames = train.cars.mapIndexed { index, car ->
-            car.carRendererOrNull?.carModelName
-                ?: throw IllegalArgumentException("列车 ${train.id} 的第 ${index + 1} 节车厢缺少 carModelName，无法解析控制配置")
-        }
         val renderer = train.rendererOrNull
             ?: throw IllegalArgumentException("列车 ${train.id} 没有渲染扩展，无法解析控制配置")
         val trainControl = renderer.resolveControl()
-        val carControls = carModelNames.mapIndexed { index, modelName ->
-            renderer.resolveCarControl(modelName)
+        val carControls = train.cars.mapIndexed { index, car ->
+            val carRenderer = car.carRendererOrNull
+            val modelName = carRenderer?.carModelName
+                ?: throw IllegalArgumentException("列车 ${train.id} 的第 ${index + 1} 节车厢缺少 carModelName，无法解析控制配置")
+            carRenderer.resolveCarControl()
                 ?: throw IllegalArgumentException("列车 ${train.id} 的第 ${index + 1} 节车厢模型 '$modelName' 没有控制配置")
         }
         return trainControl to carControls
@@ -842,10 +854,11 @@ object TrainCommand {
 
     /** Release this driver's manual controller before an ad-hoc ATO navigation starts. */
     fun prepareForAtoNavigation(
-        player: Player,
+        playerId: UUID,
         train: CoreTrain
     ): AtoNavigationControlPreparation {
-        val controller = playerControllers[player.uniqueId]
+        train.world.physicsCoordinator.ensureBetweenFrames("TrainCommand.prepareForAtoNavigation")
+        val controller = playerControllers[playerId]
         if (controller != null) {
             val controlledTrain = controller.controlledTrain as? CoreTrain
             if (controlledTrain !== train) {
@@ -855,7 +868,7 @@ object TrainCommand {
                 )
             }
             controller.coast()
-            playerControllers.remove(player.uniqueId)
+            playerControllers.remove(playerId)
             if (train.controller === controller) train.setController(null)
         }
         val activeController = train.controller
@@ -875,38 +888,16 @@ object TrainCommand {
     }
 
     fun restoreAfterFailedAtoNavigation(
-        player: Player,
+        playerId: UUID,
         train: CoreTrain,
         controller: TrainController?
     ) {
+        train.world.physicsCoordinator.ensureBetweenFrames("TrainCommand.restoreAfterFailedAtoNavigation")
         if (controller == null || train.controller != null) return
         train.setController(controller)
         if (controller is RealisticManualController) {
-            playerControllers[player.uniqueId] = controller
+            playerControllers[playerId] = controller
         }
-    }
-
-    fun controllerForKeyedDriver(player: Player): RealisticManualController? {
-        val train = SeatModel.SeatInteractionListener.drivingTrainFor(player) as? CoreTrain ?: return null
-        if (!TrainKeyItem.playerHasKey(player)) return null
-
-        playerControllers[player.uniqueId]?.let { existing ->
-            if (existing.controlledTrain === train) return existing
-            existing.coast()
-        }
-
-        val existingTrainController = train.controller as? RealisticManualController
-        val controller = existingTrainController ?: run {
-            val (controlConfig, carControls) = try {
-                resolveControlProfile(train)
-            } catch (e: IllegalArgumentException) {
-                BukkitPlugin.INSTANCE.logger.warning("Failed to resolve control profile for train ${train.id}: ${e.message}")
-                return null
-            }
-            RealisticManualController(train, train.world, controlConfig, carControls).also { train.setController(it) }
-        }
-        playerControllers[player.uniqueId] = controller
-        return controller
     }
 
     fun isDrivingControlledTrain(player: Player, controller: RealisticManualController): Boolean {
@@ -928,4 +919,22 @@ object TrainCommand {
         val worldManager = BukkitPlugin.INSTANCE.worldManager
         return worldManager.railWorlds[bukkitWorld]
     }
+}
+
+internal fun carIdForTrain(trainId: String, index: Int): String = "$trainId-car-$index"
+
+/** An explicit ID is authoritative: a typo must never target a nearby train. */
+internal fun selectTrainForDeletion(
+    world: CoreWorld,
+    requestedId: String?,
+    nearestTrain: () -> CoreTrain?
+): CoreTrain? = if (requestedId == null) nearestTrain() else world.getTrain(requestedId)
+
+/** Keep the selected head point; only choose which direction has room for the whole consist. */
+internal fun findPlaceableHeadLocation(
+    rawHeadAB: RailLocationWithFacing,
+    requiredBehindHead: Double
+): RailLocationWithFacing? {
+    if (rawHeadAB.forward(-requiredBehindHead) != null) return rawHeadAB
+    return rawHeadAB.reversed.takeIf { it.forward(-requiredBehindHead) != null }
 }

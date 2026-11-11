@@ -2,10 +2,14 @@ package work.art1st.javarailways.bukkit.persistence
 
 import kotlinx.serialization.Serializable
 import work.art1st.javarailways.basic.rail.RailAssemblyMetadata
+import work.art1st.javarailways.basic.rail.RailAuthoringMetadata
+import work.art1st.javarailways.basic.rail.CurveSafetyMetadata
+import work.art1st.javarailways.basic.rail.SpeedLimitEntry
+import work.art1st.javarailways.basic.rail.SpeedLimitMetadata
+import work.art1st.javarailways.basic.rail.SpeedLimitType
 import work.art1st.javarailways.basic.rail.RailGeometryMetadata
-import work.art1st.javarailways.basic.rail.RailMetadata
+import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
 import work.art1st.javarailways.basic.rail.RailSplitMetadata
-import work.art1st.javarailways.basic.rail.TurnoutEndpointMetadata
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 
 /** Migration-only shape of the metadata embedded in Core infrastructure format 1. */
@@ -18,22 +22,32 @@ internal data class LegacyRailMetadataV1(
     val geometry: RailGeometryMetadata = RailGeometryMetadata(),
     val assembly: RailAssemblyMetadata? = null,
     val createdBySplit: RailSplitMetadata? = null,
-    val turnoutAtA: TurnoutEndpointMetadata? = null,
-    val turnoutAtB: TurnoutEndpointMetadata? = null,
+    val turnoutAtA: LegacyTurnoutEndpointMetadata? = null,
+    val turnoutAtB: LegacyTurnoutEndpointMetadata? = null,
     val gradeLockedAtA: Boolean = false,
     val gradeLockedAtB: Boolean = false
 ) {
-    fun toCurrent(): RailMetadata = RailMetadata(
-        designSpeedMetersPerSecond,
-        speedLimitMetersPerSecond,
-        derailSpeedMetersPerSecond,
-        allowedDirection,
-        geometry,
-        assembly,
-        createdBySplit,
-        turnoutAtA,
-        turnoutAtB,
-        gradeLockedAtA,
-        gradeLockedAtB
+    fun toCurrent(): RailInfrastructureMetadata = RailInfrastructureMetadata(
+        authoring = RailAuthoringMetadata(
+            designSpeedMetersPerSecond = designSpeedMetersPerSecond,
+            geometry = geometry,
+            assembly = assembly,
+            createdBySplit = createdBySplit,
+            gradeLockedAtA = gradeLockedAtA,
+            gradeLockedAtB = gradeLockedAtB
+        ),
+        speedLimits = SpeedLimitMetadata(buildList {
+            designSpeedMetersPerSecond?.let { add(SpeedLimitEntry(it, SpeedLimitType.SUBGRADE)) }
+            speedLimitMetersPerSecond?.takeIf {
+                designSpeedMetersPerSecond == null || it < designSpeedMetersPerSecond
+            }?.let { add(SpeedLimitEntry(it, SpeedLimitType.CURVE)) }
+        }),
+        curveSafety = CurveSafetyMetadata(derailSpeedMetersPerSecond)
     )
 }
+
+@Serializable
+internal data class LegacyTurnoutEndpointMetadata(
+    val protectionDistanceMeters: Double,
+    val lockingDistanceMeters: Double
+)

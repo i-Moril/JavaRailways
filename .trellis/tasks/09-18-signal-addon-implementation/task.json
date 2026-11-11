@@ -1,9 +1,9 @@
 {
   "id": "signal-addon-implementation",
   "name": "signal-addon-implementation",
-  "title": "Stage 2: Signal add-on implementation",
-  "description": "Implement the independently deployable Signal add-on using the public contracts completed in stage 1.",
-  "status": "planning",
+  "title": "Stage 2: SimpleATO extraction and SimpleSignals",
+  "description": "Finish the SimpleATO module split and implement SimpleSignals as the first independent signalling-system plugin on the Stage 1 host APIs.",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": "javarailways",
@@ -12,15 +12,17 @@
   "assignee": "ARTI5T",
   "createdAt": "2026-09-18",
   "completedAt": null,
-  "branch": null,
+  "branch": "dev/signal-system",
   "base_branch": "feat/webui-timetable-editor",
   "worktree_path": null,
   "commit": null,
   "pr_url": null,
   "subtasks": [],
-  "children": [],
+  "children": [
+    "10-09-stage2-code-review"
+  ],
   "parent": "09-18-independent-signal-system",
   "relatedFiles": [],
-  "notes": "",
+  "notes": "Stage 1 host APIs completed at ae55fa6d and archived by 1f7b9623. Stage 2 consumes those contracts; it must not reimplement host resource, inspection, restriction, applied-plan dependency, or owner-lifecycle machinery.",
   "meta": {}
 }

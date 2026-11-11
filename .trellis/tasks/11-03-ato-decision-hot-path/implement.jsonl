@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/javarailways/simpleato/reference-control.md", "reason": "Owns reference strategy and nominal stop contracts"}
+{"file": ".trellis/spec/javarailways/simpleato/ato-policy-runtime.md", "reason": "Owns executor/ATP fast path and intervention semantics"}

@@ -1,24 +1,60 @@
 package work.art1st.javarailways.core.physics.train
 
+import work.art1st.javarailways.core.api.physics.WorldExecutionMode
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
-import work.art1st.javarailways.core.di.NoOpWorldParentContext
-import work.art1st.javarailways.core.di.ensureJavaRailwaysKoinStarted
 import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import work.art1st.javarailways.core.util.TickManagerImpl
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import java.util.concurrent.Executors
 
+/** Runs one test operation on the world's owner, excluding physics epochs for its lexical scope. */
+fun <T> CoreWorld.onOwnerForTest(action: () -> T): T =
+    IsolatedSimulationThreadMarker.run {
+        physicsCoordinator.processBetweenFrames { action() }
+    }
+
+/** Installs a test controller through the same frame boundary as the runtime owner. */
+fun CoreTrain.setControllerForTest(controller: TrainController?) =
+    world.onOwnerForTest { setController(controller) }
+
 /**
- * 创建用于测试的 World：空轨道/列车，单线程 TickManager，与运行时使用相同的 Koin 父 scope。
+ * 创建用于测试的 World：空轨道/列车，单线程 TickManager。
+ * 成功后调用方负责关闭 world 的 physics 和 tick manager。
+ * 创建失败时清理本函数分配的资源；显式传入的 coordinator 始终由调用方负责。
  */
-fun createTestWorld(): CoreWorld {
-    ensureJavaRailwaysKoinStarted()
+@JvmOverloads
+fun createTestWorld(
+    physicsCoordinator: PhysicsCoordinator? = null,
+    executionMode: WorldExecutionMode = WorldExecutionMode.LIVE
+): CoreWorld {
     val scheduler = Executors.newSingleThreadScheduledExecutor()
-    val tickManager = TickManagerImpl(scheduler, System.currentTimeMillis())
-    return CoreWorld.createEmpty(tickManager, NoOpWorldParentContext)
+    var tickManager: TickManagerImpl? = null
+    var ownedPhysics: PhysicsCoordinator? = null
+    try {
+        val tick = TickManagerImpl(scheduler, System.currentTimeMillis())
+        tickManager = tick
+        val physics = physicsCoordinator ?: PhysicsCoordinator(1).also { ownedPhysics = it }
+        return CoreWorld.createEmpty(tick, physics, executionMode)
+    } catch (failure: Throwable) {
+        try {
+            ownedPhysics?.close()
+        } catch (cleanupFailure: Throwable) {
+            if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+        }
+        try {
+            tickManager?.close() ?: scheduler.shutdownNow()
+        } catch (cleanupFailure: Throwable) {
+            if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+        }
+        throw failure
+    }
 }
 
 /**
@@ -28,11 +64,11 @@ fun createTestWorld(): CoreWorld {
 fun createLoopRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>): CoreRail {
     if (segments.isEmpty()) error("至少需要一段轨道")
     val rails = segments.map { curve ->
-        CoreRail(world, curve, mutableListOf(), mutableListOf())
+        world.createRailForTest(curve)
     }
     for (i in rails.indices) {
         val nextView = if (i == rails.lastIndex) rails.first().viewAB else rails[i + 1].viewAB
-        CoreRail.connect(rails[i], nextView.rail)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(rails[i], nextView.rail) }
     }
     return rails.first()
 }
@@ -44,11 +80,10 @@ fun createLoopRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>): Co
 fun createStraightRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>): CoreRail {
     if (segments.isEmpty()) error("至少需要一段轨道")
     val rails = segments.map { curve ->
-        CoreRail(world, curve, mutableListOf(), mutableListOf())
+        world.createRailForTest(curve)
     }
-    //rails.forEach { world.addRail(it) }
     for (i in 0 until rails.lastIndex) {
-        CoreRail.connect(rails[i], rails[i + 1])
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(rails[i], rails[i + 1]) }
     }
     return rails.first()
 }
@@ -62,7 +97,8 @@ fun createStraightRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>)
  * @param isLoop 是否为闭环轨道。true 时从起点尝试向前选取安全车头位置；false（直线）时从起点向前移动列车总长度，避免向后放置时超出轨道起点
  * @return 创建的列车
  */
-fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengths: List<Double>, isLoop: Boolean = false): CoreTrain {
+fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengths: List<Double>, isLoop: Boolean = false,
+    connectorLength: Double = 0.0): CoreTrain {
     // 计算列车总长度（所有车厢长度之和）
     val totalTrainLength = carLengths.sum()
 
@@ -85,15 +121,17 @@ fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengt
             bogiesOffsets = listOf(len / 2, -len / 2),
             length = len,
             floorHeight = 0.0,
-            connectorLengthAtA = 0.0,
-            connectorLengthAtB = 0.0,
+            connectorLengthAtA = connectorLength,
+            connectorLengthAtB = connectorLength,
             world = world,
             savedExtensionData = emptyMap()
         )
     }
-    return CoreTrain(id, cars, world, emptyMap()).also { train ->
-        train.setLocation(headLocation)
-        train.commit()
+    return world.onOwnerForTest {
+        CoreTrain(id, cars, world, emptyMap()).also { train ->
+            train.setLocation(headLocation)
+            train.commit()
+        }
     }
 }
 

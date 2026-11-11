@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="work.art1st.javarailways.core.physics.train.CoreCarPositioningRegressionTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-11T06:36:27.515Z" hostname="dev" time="0.148">
+  <properties/>
+  <testcase name="relocation immediately uses normals at the new bogie locations()" classname="work.art1st.javarailways.core.physics.train.CoreCarPositioningRegressionTest" time="0.001"/>
+  <testcase name="command style train relocation on circle succeeds()" classname="work.art1st.javarailways.core.physics.train.CoreCarPositioningRegressionTest" time="0.079"/>
+  <testcase name="test helper train relocation on circle succeeds()" classname="work.art1st.javarailways.core.physics.train.CoreCarPositioningRegressionTest" time="0.068"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

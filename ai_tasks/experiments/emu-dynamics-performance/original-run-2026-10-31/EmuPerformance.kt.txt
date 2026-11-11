@@ -1,0 +1,170 @@
+package experiment
+
+import work.art1st.javarailways.basic.control.TrainDynamics
+import java.lang.management.ManagementFactory
+import com.sun.management.ThreadMXBean
+import kotlin.math.*
+
+/** Isolated engineering-cost prototype, NOT a calibrated vehicle or a production ATO. */
+object EmuPerformance {
+    private const val dt = 0.05
+    private const val gravity = 9.80665
+    @Volatile private var sink = 0.0
+    private class Profile : TrainDynamics.TrainProfile {
+        override val maxSpeed = 40.0
+        override val powerHandles = (1..4).map { "P$it" }
+        override val brakeHandles = (1..7).map { "B$it" } + "EB"
+        override val brakeApplyTime = 1.2
+        override val brakeReleaseTime = 1.8
+        override val adhesionCoefficient = 0.2
+        override val tractionJerk = 0.8
+        override val brakeJerk = 0.8
+        override fun normalizedPowerScale(handle: String) = if (handle.startsWith("P")) handle.drop(1).toDouble()/4 else 0.0
+        override fun normalizedBrakeScale(handle: String) = when {
+            handle == "EB" -> 1.25
+            handle.startsWith("B") -> handle.drop(1).toDouble()/7
+            else -> 0.0
+        }
+        override fun resistanceForceAt(speed: Double) = 400.0 + 10.0*speed + 1.2*speed*speed
+    }
+    private class Car(private val motor: Boolean) : TrainDynamics.CarProfile {
+        override val mass = 32000.0
+        override val effectiveMass = mass*1.08
+        override val motorAdhesionMassRatio = if (motor) 1.0 else 0.0
+        override val brakeMaxForce = 45000.0
+        override val brakeAdhesionMassRatio = 1.0
+        override fun motorForceAt(speed: Double) = if (motor) min(50000.0, 500000.0/max(speed,0.5)) else 0.0
+        override fun resistanceForceAt(speed: Double, defaultResistance: (Double)->Double) = defaultResistance(speed)
+    }
+    private data class State(val motion: TrainDynamics.State, val pressure: DoubleArray, val electric: DoubleArray,
+                             val traction: DoubleArray, val age: DoubleArray, val previousDemand: DoubleArray)
+    private data class Result(val state: State, val distance: Double, val netForce: Double)
+    private class Engine(val n: Int, val complex: Boolean) {
+        val profile = Profile()
+        val cars = List(n) { TrainDynamics.CarInput(Car(it%2==0), if(it%3==0) -0.01 else 0.005) }
+        fun step(s: State, handle: String): Result {
+            if (!complex) {
+                val r = TrainDynamics.step(s.motion,profile,cars,handle,gravity,dt)
+                return Result(s.copy(motion=r.state),r.distance,r.tractionForce-r.brakeForce-r.resistanceForce-r.gradeForce)
+            }
+            // Deep-owned arrays: every speculative branch has isolated device state.
+            val p=s.pressure.copyOf(); val e=s.electric.copyOf(); val t=s.traction.copyOf()
+            val age=s.age.copyOf(); val last=s.previousDemand.copyOf()
+            val speed=s.motion.speed
+            val brake=profile.normalizedBrakeScale(handle)
+            val power=profile.normalizedPowerScale(handle)
+            var force=0.0; var mass=0.0
+            for(i in cars.indices) {
+                val c=cars[i].control
+                val demand=if(brake>0) -brake else power
+                age[i]=if(demand!=last[i]) 0.0 else age[i]+dt
+                last[i]=demand
+                val enabled=age[i]>=0.10
+                val adhesion=c.mass*gravity*profile.adhesionCoefficient
+                // Electric brake fades below 3m/s, half the cars are trailers.
+                val eTarget=if(enabled && brake>0 && i%2==0 && handle!="EB")
+                    min(35000.0,400000.0/max(speed,0.5))*min(1.0,speed/3.0)*min(brake,1.0) else 0.0
+                e[i]=approach(e[i],eTarget,100000.0*dt)
+                val pressureTarget=if(enabled) ((c.brakeMaxForce*brake-e[i]).coerceAtLeast(0.0)/c.brakeMaxForce*350.0) else p[i]
+                p[i]=approach(p[i],pressureTarget,(if(pressureTarget>p[i])350.0/1.2 else 350.0/1.8)*dt)
+                val tTarget=if(enabled && power>0 && p[i]<5.0 && e[i]<1.0)c.motorForceAt(speed)*power else 0.0
+                t[i]=approach(t[i],tTarget,(if(tTarget>t[i])80000.0 else 160000.0)*dt)
+                val braking=min(adhesion,e[i]+c.brakeMaxForce*p[i]/350.0)
+                force+=min(adhesion,t[i])-braking-profile.resistanceForceAt(speed)-c.mass*gravity*cars[i].grade
+                mass+=c.effectiveMass
+            }
+            val target=if(speed==0.0) max(0.0,force/mass) else force/mass
+            val a=approach(s.motion.acceleration,target,0.8*dt)
+            val v=(speed+a*dt).coerceIn(0.0,profile.maxSpeed)
+            val motion=TrainDynamics.State(v,(v-speed)/dt,p.average()/350.0)
+            return Result(State(motion,p,e,t,age,last),(speed+v)*0.5*dt,force)
+        }
+        fun seed(kind: String): State {
+            val speed=when(kind){"release"->0.0;"brake"->25.0;else->15.0}
+            val b=if(kind=="release")1.0 else 0.0
+            return State(TrainDynamics.State(speed,if(kind=="accelerate")0.4 else 0.0,b),
+                DoubleArray(n){350*b},DoubleArray(n),DoubleArray(n),DoubleArray(n){1.0},
+                DoubleArray(n){when(kind){"accelerate","cruise"->1.0;"brake"->-1.0;else->0.0}})
+        }
+        val order=(1..7).reversed().map{"B$it"}+"N"+(1..4).map{"P$it"}
+        private fun toward(current:String,desired:String):String {
+            val i=order.indexOf(current);val j=order.indexOf(desired)
+            return order[i+(j-i).sign]
+        }
+        // Structure follows HandleTrainActuator desiredHandle + recovery loop. No Core route/physics cost.
+        fun selection(s:State,target:Double):Pair<Double,Int> {
+            val speed=s.motion.speed
+            val desired=if(target>speed+1e-6) {
+                (listOf("N")+profile.powerHandles).map{it to step(s,it).state.motion.speed}
+                    .filter{it.second<=target+1e-6}.minByOrNull{target-it.second}?.first?:"N"
+            } else if(target<speed-1e-6) {
+                (listOf("N")+profile.brakeHandles.filter{it!="EB"}).firstOrNull{step(s,it).state.motion.speed<=target+1e-6}?:"B7"
+            } else {
+                (listOf("N")+profile.powerHandles+profile.brakeHandles.filter{it!="EB"})
+                    .minBy{abs(step(s,it).state.motion.speed-target)}
+            }
+            var handle=toward("N",desired);var count=0
+            if(target>=speed) {
+                var state=s
+                for(k in 0 until 256) {
+                    val r=step(state,handle);state=r.state;count++
+                    if(state.motion.speed>target+1e-6)break
+                    if(handle=="B7" && state.motion.acceleration<=0 && state.motion.brakeScale<=1.0 && r.netForce<=0)break
+                    handle=toward(handle,"B7")
+                }
+            }
+            return step(s,toward("N",desired)).state.motion.speed to count
+        }
+        fun recovery256(s:State):Double {
+            var state=s
+            repeat(256) { state=step(state,"B7").state }
+            return state.motion.speed+state.motion.brakeScale
+        }
+    }
+    private fun approach(a:Double,b:Double,d:Double)=a+(b-a).coerceIn(-d,d)
+    private fun validate() {
+        for(complex in listOf(false,true)) {
+            val e=Engine(8,complex);val initial=e.seed("release");var s=initial
+            repeat(20){s=e.step(s,"P4").state}
+            check(s.motion.speed.isFinite());check(initial.pressure.all{it==350.0})
+            if(complex) {
+                check(s.motion.speed==0.0) { "traction before pressure release" }
+                repeat(120){s=e.step(s,"P4").state};check(s.motion.speed>0.0)
+                repeat(1000){s=e.step(s,"B7").state};check(s.motion.speed==0.0)
+            }
+        }
+    }
+    @JvmStatic fun main(args:Array<String>) {
+        validate()
+        val bean=ManagementFactory.getThreadMXBean() as ThreadMXBean
+        bean.isThreadAllocatedMemoryEnabled=true
+        println("# java=${System.getProperty("java.version")} cpus=${Runtime.getRuntime().availableProcessors()} prototype=uncalibrated")
+        println("cars,model,workload,scenario,round,ns_per_op,bytes_per_op,recovery_steps")
+        val cells=mutableListOf<Triple<Int,Boolean,String>>()
+        for(n in listOf(4,8,16))for(c in listOf(false,true))for(w in listOf("step","selection","recovery256"))cells+=Triple(n,c,w)
+        // Shuffle removes fixed model/car ordering bias; independent JVMs use distinct order.
+        cells.shuffle(java.util.Random(args.firstOrNull()?.toLong()?:1))
+        for((n,c,w)in cells) {
+            val e=Engine(n,c)
+            val scenarios=if(w=="recovery256")listOf("accelerate")else listOf("accelerate","cruise","brake","release")
+            for(kind in scenarios) {
+                val s=e.seed(kind)
+                val target=when(kind){"accelerate"->16.0;"cruise"->15.0;"brake"->14.5;else->5.0}
+                val handle=if(kind=="brake")"B7" else "P4"
+                val run:()->Double=when(w){"step"->{ {e.step(s,handle).state.motion.speed} };"selection"->{ {e.selection(s,target).first} };else->{ {e.recovery256(s)} }}
+                var v=0.0;val warm=System.nanoTime()+150_000_000L
+                while(System.nanoTime()<warm){repeat(32){v+=run()}}
+                var reps=32
+                while(true){val t=System.nanoTime();repeat(reps){v+=run()};if(System.nanoTime()-t>15_000_000 || reps>=1048576)break;reps*=2}
+                val steps=if(w=="selection")e.selection(s,target).second else if(w=="recovery256")256 else 0
+                repeat(5){round->
+                    val a=bean.getThreadAllocatedBytes(Thread.currentThread().id);val t=System.nanoTime()
+                    repeat(reps){v+=run()}
+                    val elapsed=System.nanoTime()-t;val allocated=bean.getThreadAllocatedBytes(Thread.currentThread().id)-a
+                    println("$n,${if(c)"prototype" else "baseline"},$w,$kind,$round,${elapsed.toDouble()/reps},${allocated.toDouble()/reps},$steps")
+                }
+                sink=v
+            }
+        }
+    }
+}

@@ -1,5 +1,11 @@
 package work.art1st.javarailways.bukkit.extension.rail
 
+import java.util.concurrent.CompletionStage
+import java.util.concurrent.CompletableFuture
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
+
+
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.block.data.BlockData
@@ -42,7 +48,7 @@ internal data class RailDisplayPlacement(
 
 /**
  * Computes a display's visual position and a compensated entity position used as its light probe.
- * Both offsets use curve-local axes: tangent → x, normal → y, tangent × normal → z.
+ * Both offsets use curve-local axes: normal × tangent → x, normal → y, tangent → z.
  */
 internal fun computeRailDisplayPlacement(
     curvePosition: Vector3dc,
@@ -51,13 +57,12 @@ internal fun computeRailDisplayPlacement(
     visualOffset: OffsetConfig,
     lightProbeOffset: OffsetConfig
 ): RailDisplayPlacement {
-    val binormal = Vector3d()
-    tangent.cross(normal, binormal).normalize()
+    val lateral = Vector3d(normal).cross(tangent).normalize()
 
     fun applyLocalOffset(origin: Vector3dc, offset: OffsetConfig): Vector3d = Vector3d(
-        origin.x() + tangent.x() * offset.x + normal.x() * offset.y + binormal.x() * offset.z,
-        origin.y() + tangent.y() * offset.x + normal.y() * offset.y + binormal.y() * offset.z,
-        origin.z() + tangent.z() * offset.x + normal.z() * offset.y + binormal.z() * offset.z
+        origin.x() + lateral.x() * offset.x + normal.x() * offset.y + tangent.x() * offset.z,
+        origin.y() + lateral.y() * offset.x + normal.y() * offset.y + tangent.y() * offset.z,
+        origin.z() + lateral.z() * offset.x + normal.z() * offset.y + tangent.z() * offset.z
     )
 
     val visualPosition = applyLocalOffset(curvePosition, visualOffset)
@@ -67,6 +72,17 @@ internal fun computeRailDisplayPlacement(
         lightProbePosition = lightProbePosition,
         visualTranslation = Vector3d(visualPosition).sub(lightProbePosition)
     )
+}
+
+/** Maps model +X to lateral, +Y to normal and +Z to the curve tangent. */
+internal fun computeRailCurveRotation(tangent: Vector3dc, normal: Vector3dc): Quaterniond {
+    val lateral = Vector3d(normal).cross(tangent).normalize()
+    val rotationMatrix = Matrix3d(
+        lateral.x(), lateral.y(), lateral.z(),
+        normal.x(), normal.y(), normal.z(),
+        tangent.x(), tangent.y(), tangent.z()
+    )
+    return Quaterniond().setFromNormalized(rotationMatrix)
 }
 
 /**
@@ -88,8 +104,8 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
     @MainThread
     @Synchronized
     override fun sendTo(player: Player) {
-        if (retired) return
         BukkitThreadOwnership.ensureEntity(player, "RailExtension.sendTo")
+        if (retired) return
         audience.add(player.uniqueId)
         buildModel()
         displayVisuals.forEach { it.showTo(player) }
@@ -112,12 +128,12 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
     @MainThread
     @Synchronized
     protected fun buildModel() {
-        if (displayVisuals.isNotEmpty()) return
+        if (retired || displayVisuals.isNotEmpty()) return
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
         val config = self.templateSnapshot?.toModelConfig() ?: BukkitPlugin.INSTANCE.railModelConfig
         val curve = self.rail.curve
 
-        val repeatLength = config.repeatLength.coerceAtLeast(0.1)
+        val repeatLength = config.repeatLength
         val totalLength = curve.totalArcLength
         val segmentStart = self.arcStart.coerceIn(0.0, totalLength)
         val segmentEnd = self.arcEnd.coerceIn(segmentStart, totalLength)
@@ -154,30 +170,50 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
             }
             displayVisuals += created
         } catch (error: Throwable) {
-            created.forEach { it.destroy() }
+            val cleanup = DestructionSteps()
+            created.forEach { visual -> cleanup.await { visual.destroy() } }
+            cleanup.finish().whenComplete { _, failure ->
+                if (failure != null) {
+                    error.addSuppressed(failure)
+                    BukkitPlugin.INSTANCE.logger.log(java.util.logging.Level.SEVERE,
+                        "Rail model construction cleanup failed", failure)
+                }
+            }
             throw error
         }
     }
 
+    private val destruction = Destruction()
+
     @MainThread
     @Synchronized
-    override fun destroy() {
-        if (retired) return
+    override fun destroy(): CompletionStage<Void> = destruction.run {
+        val steps = DestructionSteps()
         retired = true
         audience.clear()
-        self.world.renderChunkManager.remove(self)
-        destroyModel()
+        steps.await { self.world.renderChunkManager.remove(self) }
+        steps.await { destroyModel() }
+        pendingModelCleanup.toList().forEach { completion -> steps.await { completion } }
+        steps.finish()
     }
 
     /**
      * 主线程：销毁所有 ItemDisplay 实体。
      */
     @Synchronized
-    protected fun destroyModel() {
-        displayVisuals.forEach { it.destroy() }
+    protected fun destroyModel(): CompletionStage<Void> {
+        val steps = DestructionSteps()
+        displayVisuals.forEach { visual -> steps.await { visual.destroy() } }
         displayVisuals.clear()
+        val completion = steps.finish()
+        pendingModelCleanup += completion
+        completion.whenComplete { _, failure ->
+            if (failure == null) synchronized(this) { pendingModelCleanup.remove(completion) }
+        }
+        return completion
     }
 
+    private val pendingModelCleanup = mutableListOf<CompletionStage<Void>>()
     private val displayVisuals = mutableListOf<DisplayVisual>()
 
     /** Create one backend-specific display visual at the requested curve point. */
@@ -193,7 +229,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
             visualOffset = element.offset,
             lightProbeOffset = element.lightProbeOffset
         )
-        val rotation = computeCurveRotation(point).mul(computeElementRotation(element.rotation))
+        val rotation = computeRailCurveRotation(point.tangent, point.normal).mul(computeElementRotation(element.rotation))
         val transformation = Transformation(
             Vector3f(
                 placement.visualTranslation.x().toFloat(),
@@ -240,26 +276,6 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
         ).also { visual ->
             element.brightness?.let { visual.setBrightness(it.block, it.sky) }
         }
-    }
-
-    /**
-     * 根据曲线点的切线和法线计算旋转四元数。
-     * local X = tangent, local Y = normal, local Z = tangent × normal.
-     */
-    private fun computeCurveRotation(point: Curve.Point): Quaterniond {
-        val tangent = point.tangent
-        val normal = point.normal
-        val binormal = Vector3d()
-        tangent.cross(normal, binormal).normalize()
-
-        // Matrix3d(a,b,c,d,e,f,g,h,i) fills columns: Col0=(a,b,c), Col1=(d,e,f), Col2=(g,h,i)
-        // Col0 = world dir of model+X = tangent, Col1 = normal, Col2 = binormal.
-        val rotationMatrix = Matrix3d(
-            tangent.x(), tangent.y(), tangent.z(),
-            normal.x(), normal.y(), normal.z(),
-            binormal.x(), binormal.y(), binormal.z()
-        )
-        return Quaterniond().setFromNormalized(rotationMatrix)
     }
 
     private fun computeElementRotation(rotation: RotationConfig): Quaterniond {

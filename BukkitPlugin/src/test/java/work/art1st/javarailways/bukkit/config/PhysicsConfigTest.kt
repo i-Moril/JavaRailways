@@ -15,7 +15,7 @@ class PhysicsConfigTest {
 
         val config = PhysicsConfig.fromYaml(yaml)
 
-        assertEquals(1, config.schemaVersion)
+        assertEquals(2, config.schemaVersion)
         assertEquals(1.435, config.track.gaugeMeters)
         assertEquals(9.80665, config.track.gravityMetersPerSecondSquared)
         assertEquals(1.0 / 300.0, config.track.maximumCantGradient, 1.0e-12)
@@ -29,8 +29,25 @@ class PhysicsConfigTest {
     }
 
     @Test
+    fun `geometry capture detaches configuration radii and updates by replacement`() {
+        val radii = mutableListOf(40.0, 30.0, 20.0, 10.0)
+        val loaded = PhysicsConfig.fromYaml(validYaml())
+        val config = loaded.copy(autoRadius = loaded.autoRadius.copy(fallbackRadiiMeters = radii))
+        val geometry = config.railGeometryParameters()
+
+        radii[0] = 50.0
+        val replacement = config.railGeometryParameters()
+
+        assertEquals(listOf(40.0, 30.0, 20.0, 10.0), geometry.autoRadiusFallbackRadiiMeters)
+        assertEquals(listOf(50.0, 30.0, 20.0, 10.0), replacement.autoRadiusFallbackRadiiMeters)
+        assertThrows(IllegalArgumentException::class.java) {
+            geometry.copy(autoRadiusFallbackRadiiMeters = listOf(10.0, 20.0))
+        }
+    }
+
+    @Test
     fun `physics config rejects unsupported schema and invalid gradient`() {
-        val unsupported = validYaml().apply { set("schema-version", 2) }
+        val unsupported = validYaml().apply { set("schema-version", 1) }
         val invalidGradient = validYaml().apply { set("track.maximum-cant-gradient", 0.0) }
 
         assertThrows(IllegalArgumentException::class.java) { PhysicsConfig.fromYaml(unsupported) }
@@ -46,11 +63,20 @@ class PhysicsConfigTest {
         assertThrows(IllegalArgumentException::class.java) { PhysicsConfig.fromYaml(yaml) }
     }
 
+    @Test
+    fun `physics config rejects the removed gravity-mps2 key`() {
+        val yaml = validYaml().apply {
+            set("track.gravity-mps2", 9.80665)
+        }
+
+        assertThrows(IllegalArgumentException::class.java) { PhysicsConfig.fromYaml(yaml) }
+    }
+
     private fun validYaml(): YamlConfiguration = YamlConfiguration().apply {
-        set("schema-version", 1)
+        set("schema-version", 2)
         set("worker-threads", 4)
         set("track.gauge-meters", 1.435)
-        set("track.gravity-mps2", 9.80665)
+        set("track.gravity", 9.80665)
         set("track.maximum-cant-gradient", 1.0 / 300.0)
         set("track.cant-balance-speed-offset-kmh", 10.0)
         set("geometry-sampling.default-step-meters", 0.2)
@@ -78,10 +104,6 @@ class PhysicsConfigTest {
         set("overspeed.derail-lateral-acceleration-mps2", 3.0)
         set("overspeed.tolerance-kmh", 5.0)
         set("overspeed.grace-ticks", 5)
-        set("turnout.default-protection-distance-meters", 20.0)
-        set("turnout.default-locking-distance-meters", 5.0)
-        set("turnout.decision-lead-ticks", 5)
-        set("turnout.allocation-retry-ticks", 5)
     }
 
     companion object {

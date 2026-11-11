@@ -18,12 +18,14 @@ repositories {
 dependencies {
     implementation(project(":Core"))
     implementation(project(":Basic"))
+    implementation(project(":SimpleATO"))
     implementation(project(":BukkitPlugin"))
     compileOnly("org.jetbrains:annotations:26.0.2")
     compileOnly(platform("io.insert-koin:koin-bom:4.1.1"))
     compileOnly("io.insert-koin:koin-core:4.1.1")
     dokka(project(":Core"))
     dokka(project(":Basic"))
+    dokka(project(":SimpleATO"))
 }
 
 dokka {
@@ -38,8 +40,226 @@ dokka {
 }
 
 tasks.register('apiJavadocJars') {
-    description = 'Builds Dokka Javadoc jars for the public Core and Basic API modules.'
-    dependsOn(':Core:dokkaJavadocJar', ':Basic:dokkaJavadocJar')
+    description = 'Builds Dokka Javadoc jars for the public Core, Basic, and SimpleATO API modules.'
+    dependsOn(':Core:dokkaJavadocJar', ':Basic:dokkaJavadocJar', ':SimpleATO:dokkaJavadocJar')
+}
+
+tasks.register('verifySignalModuleBoundaries') {
+    group = 'verification'
+    description = 'Guards declared signal-module dependencies and deployable JAR boundaries.'
+    dependsOn(
+        ':Core:jar',
+        ':SimpleATOBukkit:jar',
+        ':SimpleSignals:verifyPluginJar',
+        ':BukkitPlugin:shadowJar'
+    )
+
+    doLast {
+        def directProjectDependencies = { String projectPath, String configurationName ->
+            def target = project(projectPath)
+            def configuration = target.configurations.findByName(configurationName)
+            if (configuration == null) {
+                return [] as Set
+            }
+            configuration.dependencies
+                .findAll { dependency -> dependency instanceof ProjectDependency }
+                .collect { dependency -> dependency.path }
+                .toSet()
+        }
+        def assertNoProjectDependencies = { String projectPath, Collection<String> configurationNames,
+                                            Collection<String> forbiddenProjectPaths ->
+            configurationNames.each { configurationName ->
+                def forbidden = directProjectDependencies(projectPath, configurationName)
+                    .intersect(forbiddenProjectPaths as Set)
+                if (!forbidden.isEmpty()) {
+                    throw new GradleException(
+                        "${projectPath}:${configurationName} reverses a module boundary through ${forbidden.sort()}"
+                    )
+                }
+            }
+        }
+        def archiveFile = { String projectPath, String taskName ->
+            project(projectPath).tasks.named(taskName, Jar).get().archiveFile.get().asFile
+        }
+        def jarEntries = { File archive ->
+            def entries = [] as Set
+            new java.util.zip.ZipFile(archive).withCloseable { zip ->
+                zip.entries().each { entry ->
+                    if (!entry.directory) {
+                        entries.add(entry.name)
+                    }
+                }
+            }
+            entries
+        }
+        def classReferences = { File archive, String needle ->
+            def matches = []
+            new java.util.zip.ZipFile(archive).withCloseable { zip ->
+                zip.entries().each { entry ->
+                    if (!entry.directory && entry.name.endsWith('.class')) {
+                        def bytes = zip.getInputStream(entry).withCloseable { stream -> stream.readAllBytes() }
+                        def constants = new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1)
+                        if (constants.contains(needle)) {
+                            matches.add(entry.name)
+                        }
+                    }
+                }
+            }
+            matches.sort()
+        }
+        def classEntryContains = { File archive, String entryName, String needle ->
+            new java.util.zip.ZipFile(archive).withCloseable { zip ->
+                def entry = zip.getEntry(entryName)
+                if (entry == null) {
+                    return false
+                }
+                def bytes = zip.getInputStream(entry).withCloseable { stream -> stream.readAllBytes() }
+                new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1).contains(needle)
+            }
+        }
+
+        assertNoProjectDependencies(
+            ':Basic',
+            ['api', 'implementation', 'compileOnly', 'compileOnlyApi', 'runtimeOnly'],
+            [':SimpleATO', ':SimpleATOBukkit', ':SimpleSignals', ':BukkitPlugin']
+        )
+        assertNoProjectDependencies(
+            ':SimpleATO',
+            ['api', 'implementation', 'compileOnly', 'compileOnlyApi', 'runtimeOnly'],
+            [':SimpleATOBukkit', ':SimpleSignals', ':BukkitPlugin']
+        )
+        assertNoProjectDependencies(
+            ':SimpleATOBukkit',
+            ['api', 'implementation', 'compileOnly', 'compileOnlyApi', 'runtimeOnly'],
+            [':BukkitPlugin', ':SimpleSignals']
+        )
+        assertNoProjectDependencies(
+            ':BukkitPlugin',
+            ['api', 'implementation', 'compileOnly', 'compileOnlyApi', 'runtimeOnly'],
+            [':SimpleSignals']
+        )
+        assertNoProjectDependencies(
+            ':SimpleSignals',
+            ['api', 'implementation', 'compileOnlyApi', 'runtimeOnly'],
+            [':Core', ':Basic', ':SimpleATO', ':SimpleATOBukkit', ':BukkitPlugin']
+        )
+        assertNoProjectDependencies(
+            ':SimpleSignals',
+            ['compileOnly'],
+            [':SimpleATOBukkit']
+        )
+
+        def adapterJar = archiveFile(':SimpleATOBukkit', 'jar')
+        def adapterEntries = jarEntries(adapterJar)
+        def adapterDescriptors = adapterEntries.intersect(['plugin.yml', 'paper-plugin.yml'] as Set)
+        if (!adapterDescriptors.isEmpty()) {
+            throw new GradleException(
+                "SimpleATOBukkit is an embedded library and must not contain plugin descriptors: ${adapterDescriptors.sort()}"
+            )
+        }
+        [
+            'org/bukkit/plugin/java/JavaPlugin',
+            'org/bukkit/plugin/ServicesManager',
+            'work/art1st/javarailways/simplesignals/'
+        ].each { forbiddenReference ->
+            def offenders = classReferences(adapterJar, forbiddenReference)
+            if (!offenders.isEmpty()) {
+                throw new GradleException(
+                    "SimpleATOBukkit must not reference ${forbiddenReference}: ${offenders}"
+                )
+            }
+        }
+
+        def signalJar = archiveFile(':SimpleSignals', 'jar')
+        def legacyThreadGuardUsers = classReferences(
+            signalJar,
+            'work/art1st/javarailways/core/util/ThreadGuard'
+        )
+        if (!legacyThreadGuardUsers.isEmpty()) {
+            throw new GradleException(
+                "SimpleSignals must use the Core threading API instead of the former implementation path: " +
+                    "${legacyThreadGuardUsers}"
+            )
+        }
+        def adapterForwarders = classReferences(
+            signalJar,
+            'work/art1st/javarailways/simpleatobukkit/'
+        )
+        if (!adapterForwarders.isEmpty()) {
+            throw new GradleException(
+                "SimpleSignals must consume host APIs directly, not forward through SimpleATOBukkit: ${adapterForwarders}"
+            )
+        }
+
+        def coreJar = archiveFile(':Core', 'jar')
+        def coreEntries = jarEntries(coreJar)
+        def requiredThreadingApi = [
+            'work/art1st/javarailways/core/api/threading/ThreadContext.class',
+            'work/art1st/javarailways/core/api/threading/ThreadGuard.class',
+            'work/art1st/javarailways/core/api/threading/host/ThreadGuardHost.class',
+            'work/art1st/javarailways/core/api/threading/host/ThreadGuardPlatformBridge.class',
+            'work/art1st/javarailways/core/api/threading/host/ThreadGuardRegistration.class'
+        ] as Set
+        def missingThreadingApi = requiredThreadingApi - coreEntries
+        if (!missingThreadingApi.isEmpty()) {
+            throw new GradleException("Core JAR is missing the public threading API: ${missingThreadingApi.sort()}")
+        }
+        def formerThreadingApi = [
+            'work/art1st/javarailways/core/util/ThreadGuard.class',
+            'work/art1st/javarailways/core/util/ThreadContext.class',
+            'work/art1st/javarailways/core/util/ThreadGuardPlatformBridge.class',
+            'work/art1st/javarailways/core/util/IsolatedMainThreadMarker.class',
+            'work/art1st/javarailways/core/api/threading/ThreadGuardPlatformBridge.class'
+        ] as Set
+        def retainedFormerThreadingApi = coreEntries.intersect(formerThreadingApi)
+        if (!retainedFormerThreadingApi.isEmpty()) {
+            throw new GradleException(
+                "Core JAR retains former ThreadGuard implementation entry points: ${retainedFormerThreadingApi.sort()}"
+            )
+        }
+        def consumerGuardEntry = 'work/art1st/javarailways/core/api/threading/ThreadGuard.class'
+        def forbiddenConsumerGuardMembers = [
+            'installPlatformBridge',
+            'clearPlatformBridge',
+            'runInIsolatedSimulationContext'
+        ].findAll { member -> classEntryContains(coreJar, consumerGuardEntry, member) }
+        if (!forbiddenConsumerGuardMembers.isEmpty()) {
+            throw new GradleException(
+                "ThreadGuard consumer API exposes ownership mutation: ${forbiddenConsumerGuardMembers.sort()}"
+            )
+        }
+
+        def hostJar = archiveFile(':BukkitPlugin', 'shadowJar')
+        def hostEntries = jarEntries(hostJar)
+        def adapterEntry = 'work/art1st/javarailways/simpleatobukkit/SimpleATOBukkitModule.class'
+        if (!hostEntries.contains(adapterEntry)) {
+            throw new GradleException("JavaRailways host JAR does not embed ${adapterEntry}")
+        }
+        def embeddedSignalClasses = hostEntries.findAll { entry ->
+            entry.startsWith('work/art1st/javarailways/simplesignals/')
+        }
+        if (!embeddedSignalClasses.isEmpty()) {
+            throw new GradleException(
+                "JavaRailways host JAR must not embed the independently installed SimpleSignals plugin: " +
+                    "${embeddedSignalClasses.sort()}"
+            )
+        }
+        if (!hostEntries.contains('plugin.yml')) {
+            throw new GradleException('JavaRailways host JAR does not contain plugin.yml')
+        }
+        def hostDescriptor
+        new java.util.zip.ZipFile(hostJar).withCloseable { zip ->
+            hostDescriptor = zip.getInputStream(zip.getEntry('plugin.yml')).withCloseable { stream ->
+                stream.getText('UTF-8')
+            }
+        }
+        if (!hostDescriptor.contains('main: work.art1st.javarailways.bukkit.BukkitPlugin')) {
+            throw new GradleException('JavaRailways host descriptor does not retain the sole BukkitPlugin lifecycle')
+        }
+        if (hostDescriptor.contains('SimpleATOBukkit')) {
+            throw new GradleException('JavaRailways host descriptor must not declare a SimpleATOBukkit lifecycle')
+        }
+    }
 }
 
 def targetJavaVersion = 17

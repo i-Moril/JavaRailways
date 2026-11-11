@@ -1,0 +1,56 @@
+selection-boxes:
+  - min: [-0.40625, 0.0, -0.3125]
+    max: [0.40625, 1.0625, 0.125]
+parts:
+  - type: dummy
+    rotation: {y: -180.0}
+    parts:
+      - type: item_display
+        item: {type: PAPER, item-model: jr:route_indicator_housing}
+      - type: item_display
+        item: {type: PAPER, item-model: jr:route_indicator_closed, brightness: {block: 15, sky: 15}}
+        animations:
+          - name: display
+            scenes:
+              "closed":
+                item: {type: PAPER, item-model: jr:route_indicator_closed, brightness: {block: 15, sky: 15}}
+              "0":
+                item: {type: PAPER, item-model: jr:route_indicator_0, brightness: {block: 15, sky: 15}}
+              "1":
+                item: {type: PAPER, item-model: jr:route_indicator_1, brightness: {block: 15, sky: 15}}
+              "2":
+                item: {type: PAPER, item-model: jr:route_indicator_2, brightness: {block: 15, sky: 15}}
+              "3":
+                item: {type: PAPER, item-model: jr:route_indicator_3, brightness: {block: 15, sky: 15}}
+              "4":
+                item: {type: PAPER, item-model: jr:route_indicator_4, brightness: {block: 15, sky: 15}}
+              "5":
+                item: {type: PAPER, item-model: jr:route_indicator_5, brightness: {block: 15, sky: 15}}
+              "6":
+                item: {type: PAPER, item-model: jr:route_indicator_6, brightness: {block: 15, sky: 15}}
+              "7":
+                item: {type: PAPER, item-model: jr:route_indicator_7, brightness: {block: 15, sky: 15}}
+              "8":
+                item: {type: PAPER, item-model: jr:route_indicator_8, brightness: {block: 15, sky: 15}}
+              "9":
+                item: {type: PAPER, item-model: jr:route_indicator_9, brightness: {block: 15, sky: 15}}
+default: {display: closed}
+variants:
+  "closed": {display: "closed"}
+  "0": {display: "0"}
+  "1": {display: "1"}
+  "2": {display: "2"}
+  "3": {display: "3"}
+  "4": {display: "4"}
+  "5": {display: "5"}
+  "6": {display: "6"}
+  "7": {display: "7"}
+  "8": {display: "8"}
+  "9": {display: "9"}
+rail-placement:
+  follow-rail-tilt: false
+  presets:
+    left:
+      offset: {x: 2.0}
+    right:
+      offset: {x: -2.0}

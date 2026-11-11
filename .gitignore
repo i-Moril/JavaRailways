@@ -89,7 +89,10 @@ http-client.private.env.json
 .gradle
 **/build/
 !**/src/**/build/
+# IDE-generated output in top-level modules, not source directories named bin.
+/*/bin/
 BukkitPlugin/run-folia/
+/SimpleSignals/logs/
 
 # Ignore Gradle GUI config
 gradle-app.setting
@@ -102,6 +105,7 @@ gradle-app.setting
 
 # Cache of project
 .gradletasknamecache
+/scripts/**/__pycache__/
 
 # Eclipse Gradle plugin generated files
 # Eclipse Core
@@ -130,3 +134,6 @@ gradle-app.setting
 
 tmp/*
 !tmp/template.yml
+
+# Local deployment records are audit evidence, not source history.
+ai_tasks/deployments/

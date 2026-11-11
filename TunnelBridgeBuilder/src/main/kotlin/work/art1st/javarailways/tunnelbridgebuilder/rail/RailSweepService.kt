@@ -9,7 +9,7 @@ import org.bukkit.block.data.type.Slab
 import org.bukkit.entity.Player
 import work.art1st.javarailways.bukkit.api.operation.OperationResult
 import work.art1st.javarailways.bukkit.api.operation.UndoableOperation
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.rail.resolveLogicalRailLaneIds
 import work.art1st.javarailways.core.api.physics.rail.Rail
 import work.art1st.javarailways.tunnelbridgebuilder.TunnelBridgeBuilderPlugin

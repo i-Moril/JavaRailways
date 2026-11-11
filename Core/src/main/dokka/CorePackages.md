@@ -6,6 +6,10 @@
 
 轨道、方向视图、位置、运营对象稳定引用与不可变快照。弧长单位为米，并以 Rail 的 AB 曲线作为持久化基准。
 
+# Package work.art1st.javarailways.core.api.physics.rail.topology
+
+按 runtime revision 原子发布的不可变物理连通图。Node/edge ID 只在所属 revision 内有效，不是持久化身份。
+
 # Package work.art1st.javarailways.core.api.physics.train
 
 列车、车厢、转向架与渲染扩展接口。结构修改必须遵守宿主提供的线程边界。
@@ -21,6 +25,16 @@ Core 事件 payload。事件对象不等同于 Bukkit Event，派发线程取决
 # Package work.art1st.javarailways.core.api.event.processor
 
 按主线程和 physics worker 分离的同步事件总线。注册返回的 token 必须与扩展插件生命周期配对关闭。
+
+# Package work.art1st.javarailways.core.api.threading
+
+线程身份和 fail-fast 契约。`ThreadGuard` 只判断当前线程，不负责调度或授予 owner 权限；普通 consumer
+不能安装或清除平台 bridge。
+
+# Package work.art1st.javarailways.core.api.threading.host
+
+可信平台宿主的启动/停用集成面。第一个 bridge registration 获得 identity-bound token；重复注册被拒绝，
+关闭 token 幂等且只能移除自己的注册。该包不是普通附属插件的调度入口。
 
 # Package work.art1st.javarailways.core.api.util.plugin
 

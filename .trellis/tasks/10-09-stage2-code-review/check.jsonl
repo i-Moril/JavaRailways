@@ -1,0 +1,27 @@
+{"file": ".trellis/spec/javarailways/shared/quality.md", "reason": "Independent Core fixes review plus direct nearest-query consumer regression gate"}
+{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "No schema bump, migration or runtime compatibility in current input/geometry fixes"}
+{"file": ".trellis/spec/javarailways/core/api-boundaries.md", "reason": "Public Train split entry and unstable annotation, no implementation casts or generic transaction framework"}
+{"file": ".trellis/spec/javarailways/core/train-physics.md", "reason": "CR-030 split decisions and independent directions prepare before mutation; initialization failure preserves original geometry/frames/ownership"}
+{"file": ".trellis/spec/javarailways/core/curve-geometry.md", "reason": "CR-028 shared once-per-construction strict raw/decode validation and unique LINE stream; retain valid nonorthogonal frames"}
+{"file": ".trellis/spec/javarailways/core/rail-topology-and-occupancy.md", "reason": "CR-027 strict current references, nullable selection, order and per-rail pre-mutation checks"}
+{"file": ".trellis/spec/javarailways/core/runtime-publication.md", "reason": "Verify shared frame-between gate and FIFO queue, terminal results outside lock, host/simulation integration and rename without replacing collision frames"}
+{"file": ".trellis/spec/javarailways/core/train-controller.md", "reason": "Verify batch3a reversal results, parity and stale owner; no worker reverse path, coherent shared publication before direction event; don't claim pending batch3b complete"}
+{"file": ".trellis/spec/javarailways/core/di-and-runtime-lifecycle.md", "reason": "Check in-flight close and CR-015 bounded pre-publication cleanup without claiming Koin scope release"}
+{"file": ".trellis/spec/javarailways/core/persistence.md", "reason": "Distinguish strict rail endpoint decoding from unresolved full materialization lifecycle"}
+{"file": ".trellis/spec/javarailways/core/testing.md", "reason": "CR-020 real bounded physics epochs, end-of-track derail dispatch and live-mutation snapshot isolation; no count padding"}
+{"file": ".trellis/spec/javarailways/core/event-bus.md", "reason": "Monotonic veto and direction conflict; pre listener error continues dispatch but prevents commit, success error does not undo commit"}
+{"file": ".trellis/spec/javarailways/core/render-publication.md", "reason": "CR-030 mixed installation, split and restore must preserve exact physical model identity and coherent frames"}
+{"file": ".trellis/tasks/10-09-stage2-code-review/research/core-link-transaction-plan.md", "reason": "Audit latest approved scope rather than superseded A-B-only historical proposal"}
+{"file": ".trellis/spec/javarailways/basic/curve-authoring.md", "reason": "CR-028 raw validation must not reject current formal authoring producers"}
+{"file": ".trellis/spec/javarailways/basic/testing.md", "reason": "CR-028 verify real generator junctions, reverse/rebuild and immutable geometry"}
+{"file": ".trellis/tasks/10-09-stage2-code-review/research/core-module-review.md", "reason": "Check bounded CR-025/027 algorithms/inputs while CR-023 remains partial and product decisions stay separate"}
+{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "CR-014 unload gate and CR-015 constructor/factory ownership; no false DI or region completion guarantee"}
+{"file": ".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md", "reason": "Final save remains failure-reporting, exact-epoch capture; no persistence version or compatibility path"}
+{"file": ".trellis/tasks/10-09-stage2-code-review/research/core-link-current-contract.md", "reason": "CR-030 refreshed proposal: verify actual temporary epoch exclusion, stable-end mapping and unresolved policy boundaries; do not mistake target coupling for current implementation"}
+{"file": ".trellis/spec/bukkit-plugin/backend/car-behavior.md", "reason": "Verify both source car runtimes survive link/split, pending door completion and cross-region ownership"}
+{"file": ".trellis/tasks/10-09-stage2-code-review/research/car-behavior-implementation-plan.md", "reason": "Check current Car.train identity contract separately from pending Bukkit runtime and snapshot migration; no partial JS backend or package fallback"}
+{"file": ".trellis/tasks/10-09-stage2-code-review/research/dev-server-save-audit.md", "reason": "Do not equate stable fetched bytes/no-train sample with complete current-codec migration or nonempty-car snapshot validation"}
+{"file": ".trellis/tasks/10-09-stage2-code-review/research/basic-module-review.md", "reason": "Verify complete coverage versus remaining defects and distinguish game/performance gaps"}
+{"file": ".trellis/spec/javarailways/basic/route-resource-admission.md", "reason": "Check nested retained intervals, suspension no-mutation and unchanged ordinary release"}
+{"file": ".trellis/spec/javarailways/basic/persistence.md", "reason": "Check canonical UUID duplicates and full prevalidation, no rollback framework or version bump"}
+{"file": ".trellis/spec/javarailways/basic/testing.md", "reason": "Check independent lifecycle/fixed JSON assertions and fixture cleanup"}

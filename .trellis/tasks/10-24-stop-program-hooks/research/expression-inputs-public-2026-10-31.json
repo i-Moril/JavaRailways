@@ -1,0 +1,17 @@
+{
+  "/": {
+    "status": 200,
+    "sha256": "97ac0600a970e31d645139559cf22bb0eb84688ba744206a81fcf5ec6f960486"
+  },
+  "/assets/index-CYKRQMnZ.js": {
+    "status": 200,
+    "sha256": "870fc9ff8123231fa38deaf023ce8e13144920257e4f822730d2ed8652571520"
+  },
+  "sse": {
+    "status": 200,
+    "receivedFrame": true,
+    "verifiedEvent": "trains",
+    "valueType": "array",
+    "trainCount": 1
+  }
+}

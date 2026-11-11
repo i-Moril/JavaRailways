@@ -1,0 +1,6 @@
+parts:
+  - type: dummy
+default: {}
+variants:
+  proceed: {}
+  stop: {}

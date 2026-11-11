@@ -60,36 +60,45 @@ actions:
         volume: 0.8
         pitch: 1.0
         at: 0.6
-  lights-head-running:
-    display-name: "头端运行灯"
+  front-light-head:
     executable: false
     requires-control: false
     animations:
       - name: front_end_light
-        scene: head
+        scene: "head"
         at: 0.0
-      - name: rear_end_light
-        scene: tail
-        at: 0.0
-  lights-tail-running:
-    display-name: "尾端运行灯"
+  front-light-tail:
     executable: false
     requires-control: false
     animations:
       - name: front_end_light
-        scene: tail
+        scene: "tail"
         at: 0.0
-      - name: rear_end_light
-        scene: head
-        at: 0.0
-  end-lights-off:
-    display-name: "关闭头尾灯"
+  front-light-off:
     executable: false
     requires-control: false
     animations:
       - name: front_end_light
         scene: "off"
         at: 0.0
+  rear-light-head:
+    executable: false
+    requires-control: false
+    animations:
+      - name: rear_end_light
+        scene: "head"
+        at: 0.0
+  rear-light-tail:
+    executable: false
+    requires-control: false
+    animations:
+      - name: rear_end_light
+        scene: "tail"
+        at: 0.0
+  rear-light-off:
+    executable: false
+    requires-control: false
+    animations:
       - name: rear_end_light
         scene: "off"
         at: 0.0

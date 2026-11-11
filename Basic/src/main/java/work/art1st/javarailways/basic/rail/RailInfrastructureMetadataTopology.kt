@@ -21,23 +21,21 @@ object RailInfrastructureMetadataTopology {
         require(setOf(sourceRailId, beforeRailId, afterRailId).size == 3)
         val snapshot = store.snapshot()
         val source = snapshot[sourceRailId] ?: RailInfrastructureMetadata.EMPTY
-        val parent = source.createdBySplit
-        val sourceRole = source.assembly?.role
+        val parent = source.authoring?.createdBySplit
+        val sourceRole = source.authoring?.assembly?.role
         val before = source.copy(
-            authoring = source.authoring?.copy(gradeLockedAtB = false),
-            operating = source.operating.copy(turnoutAtB = null)
+            authoring = source.authoring?.copy(gradeLockedAtB = false)
         ).withSplit(RailSplitMetadata(operationId, 0, parent, sourceRole))
         val after = source.copy(
-            authoring = source.authoring?.copy(gradeLockedAtA = false),
-            operating = source.operating.copy(turnoutAtA = null)
+            authoring = source.authoring?.copy(gradeLockedAtA = false)
         ).withSplit(RailSplitMetadata(operationId, 1, parent, sourceRole))
         val additions = linkedMapOf<UUID, RailInfrastructureMetadata>()
 
-        val sourceAssembly = source.assembly
+        val sourceAssembly = source.authoring?.assembly
         if (sourceAssembly == null) {
             dissolveParallelGroups(
                 snapshot,
-                setOfNotNull(source.geometry.parallel?.groupId),
+                setOfNotNull(source.authoring?.geometry?.parallel?.groupId),
                 additions
             )
             additions[beforeRailId] = before.withoutAssemblyOrParallel()
@@ -47,26 +45,26 @@ object RailInfrastructureMetadataTopology {
             // instead of creating matching topology nodes on companion lanes. Each existing lane
             // remains a complete lane-local assembly; the selected lane becomes left/right groups.
             val assemblyMembers = snapshot.entries
-                .filter { it.value.assembly?.groupId == sourceAssembly.groupId }
+                .filter { it.value.authoring?.assembly?.groupId == sourceAssembly.groupId }
             require(assemblyMembers.size == sourceAssembly.laneCount * sourceAssembly.segmentCount) {
                 "Incomplete rail assembly ${sourceAssembly.groupId}"
             }
             val parallelGroupIds = assemblyMembers.mapNotNullTo(linkedSetOf()) {
-                it.value.geometry.parallel?.groupId
+                it.value.authoring?.geometry?.parallel?.groupId
             }
             dissolveParallelGroups(snapshot, parallelGroupIds, additions)
 
-            val lanes = assemblyMembers.groupBy { requireNotNull(it.value.assembly).laneIndex }
+            val lanes = assemblyMembers.groupBy { requireNotNull(it.value.authoring?.assembly).laneIndex }
             require(lanes.keys == (0 until sourceAssembly.laneCount).toSet()) {
                 "Incomplete rail assembly lanes ${sourceAssembly.groupId}"
             }
             lanes.toSortedMap().forEach { (laneIndex, entries) ->
-                val ordered = entries.sortedBy { requireNotNull(it.value.assembly).segmentIndex }
+                val ordered = entries.sortedBy { requireNotNull(it.value.authoring?.assembly).segmentIndex }
                 require(ordered.size == sourceAssembly.segmentCount)
                 if (laneIndex != sourceAssembly.laneIndex) {
                     assignAssembly(
                         ordered.map { (id, metadata) ->
-                            AssemblyPart(id, metadata.withoutParallel(), requireNotNull(metadata.assembly).role)
+                            AssemblyPart(id, metadata.withoutParallel(), requireNotNull(metadata.authoring?.assembly).role)
                         },
                         sourceAssembly.kind,
                         additions
@@ -76,7 +74,7 @@ object RailInfrastructureMetadataTopology {
 
                 val expanded = ordered.flatMap { (id, metadata) ->
                     if (id != sourceRailId) {
-                        listOf(AssemblyPart(id, metadata.withoutParallel(), requireNotNull(metadata.assembly).role))
+                        listOf(AssemblyPart(id, metadata.withoutParallel(), requireNotNull(metadata.authoring?.assembly).role))
                     } else {
                         listOf(
                             AssemblyPart(beforeRailId, before.withoutParallel(), sourceRole ?: RailAssemblyRole.CURVE),
@@ -105,8 +103,8 @@ object RailInfrastructureMetadataTopology {
     ): String? {
         val before = store[beforeRailId] ?: return "前段缺少基础设施元数据"
         val after = store[afterRailId] ?: return "后段缺少基础设施元数据"
-        val beforeSplit = before.createdBySplit ?: return "前段不是由分割创建"
-        val afterSplit = after.createdBySplit ?: return "后段不是由分割创建"
+        val beforeSplit = before.authoring?.createdBySplit ?: return "前段不是由分割创建"
+        val afterSplit = after.authoring?.createdBySplit ?: return "后段不是由分割创建"
         if (beforeSplit.operationId != afterSplit.operationId ||
             beforeSplit.segmentIndex != 0 || afterSplit.segmentIndex != 1
         ) return "两段轨道不是同一次分割产生的相邻段"
@@ -130,20 +128,18 @@ object RailInfrastructureMetadataTopology {
         val snapshot = store.snapshot()
         val before = store.getValue(beforeRailId)
         val after = store.getValue(afterRailId)
-        val beforeSplit = requireNotNull(before.createdBySplit)
+        val beforeSplit = requireNotNull(before.authoring?.createdBySplit)
         val parent = beforeSplit.parent
         val merged = before.copy(
-            authoring = before.authoring?.copy(
-                assembly = null,
-                createdBySplit = parent,
-                gradeLockedAtA = before.gradeLockedAtA,
-                gradeLockedAtB = after.gradeLockedAtB,
-                geometry = before.geometry.copy(parallel = null)
-            ),
-            operating = before.operating.copy(
-                turnoutAtA = before.turnoutAtA,
-                turnoutAtB = after.turnoutAtB
-            )
+            authoring = before.authoring?.let { authoring ->
+                authoring.copy(
+                    assembly = null,
+                    createdBySplit = parent,
+                    gradeLockedAtA = authoring.gradeLockedAtA,
+                    gradeLockedAtB = after.authoring?.gradeLockedAtB == true,
+                    geometry = authoring.geometry.copy(parallel = null)
+                )
+            }
         )
         val left = assemblyParts(snapshot, beforeRailId, before)
         val right = assemblyParts(snapshot, afterRailId, after)
@@ -154,7 +150,7 @@ object RailInfrastructureMetadataTopology {
             add(AssemblyPart(mergedRailId, merged, beforeSplit.sourceAssemblyRole ?: RailAssemblyRole.CURVE))
             addAll(right.drop(1))
         }
-        val kind = before.assembly?.kind ?: after.assembly?.kind ?: RailAssemblyKind.FIVE_SEGMENT_CURVE
+        val kind = before.authoring?.assembly?.kind ?: after.authoring?.assembly?.kind ?: RailAssemblyKind.FIVE_SEGMENT_CURVE
         val additions = linkedMapOf<UUID, RailInfrastructureMetadata>()
         assignAssembly(combined, kind, additions)
         store.replace(
@@ -168,20 +164,20 @@ object RailInfrastructureMetadataTopology {
         railId: UUID,
         metadata: RailInfrastructureMetadata
     ): List<AssemblyPart> {
-        val assembly = metadata.assembly ?: return listOf(AssemblyPart(
+        val assembly = metadata.authoring?.assembly ?: return listOf(AssemblyPart(
             railId,
             metadata,
-            metadata.createdBySplit?.sourceAssemblyRole ?: RailAssemblyRole.CURVE
+            metadata.authoring?.createdBySplit?.sourceAssemblyRole ?: RailAssemblyRole.CURVE
         ))
         require(assembly.laneCount == 1 && assembly.laneIndex == 0) {
             "Split assembly must be detached from parallel authoring before merge"
         }
         val members = snapshot.entries
-            .filter { it.value.assembly?.groupId == assembly.groupId }
-            .sortedBy { requireNotNull(it.value.assembly).segmentIndex }
+            .filter { it.value.authoring?.assembly?.groupId == assembly.groupId }
+            .sortedBy { requireNotNull(it.value.authoring?.assembly).segmentIndex }
         require(members.size == assembly.segmentCount) { "Incomplete split assembly ${assembly.groupId}" }
         return members.map { (id, value) ->
-            AssemblyPart(id, value, requireNotNull(value.assembly).role)
+            AssemblyPart(id, value, requireNotNull(value.authoring?.assembly).role)
         }
     }
 
@@ -219,7 +215,7 @@ object RailInfrastructureMetadataTopology {
     ) {
         if (groupIds.isEmpty()) return
         snapshot.forEach { (railId, metadata) ->
-            if (metadata.geometry.parallel?.groupId in groupIds) {
+            if (metadata.authoring?.geometry?.parallel?.groupId in groupIds) {
                 additions[railId] = metadata.withoutParallel()
             }
         }
@@ -237,13 +233,13 @@ object RailInfrastructureMetadataTopology {
     )
 
     private fun RailInfrastructureMetadata.withoutParallel(): RailInfrastructureMetadata = copy(
-        authoring = authoring?.copy(geometry = geometry.copy(parallel = null))
+        authoring = authoring?.let { it.copy(geometry = it.geometry.copy(parallel = null)) }
     )
 
     private fun RailInfrastructureMetadata.withoutAssemblyOrParallel(): RailInfrastructureMetadata = copy(
         authoring = (authoring ?: RailAuthoringMetadata()).copy(
             assembly = null,
-            geometry = geometry.copy(parallel = null)
+            geometry = (authoring?.geometry ?: RailGeometryMetadata()).copy(parallel = null)
         )
     )
 
@@ -255,8 +251,7 @@ object RailInfrastructureMetadataTopology {
             createdBySplit = lineage,
             gradeLockedAtA = false,
             gradeLockedAtB = false,
-            geometry = geometry.copy(parallel = null)
-        ),
-        operating = operating.copy(turnoutAtA = null, turnoutAtB = null)
+            geometry = (authoring?.geometry ?: RailGeometryMetadata()).copy(parallel = null)
+        )
     )
 }

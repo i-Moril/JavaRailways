@@ -97,7 +97,24 @@ class TrainBehaviorRuntimeTest {
         runtime.close()
     }
 
+    @Test
+    fun `animation capability query is available during initialization without effects`() {
+        val bindings = RecordingBindings()
+        TrainBehaviorRuntime(TrainBehaviorScript("behavior.js", """
+            const known = hasAnimation('known');
+            const scene = hasAnimation('known', 'open');
+            const missing = hasAnimation('missing');
+            const missingScene = hasAnimation('known', 'missing');
+            function inspect() { return known && scene && !missing && !missingScene; }
+        """.trimIndent()), bindings).use { runtime ->
+            assertEquals(true, (runtime.call("inspect") as TrainBehaviorCallResult.Success).returnValue)
+            assertTrue(bindings.actions.isEmpty())
+            assertTrue(bindings.sounds.isEmpty())
+        }
+    }
+
     private class RecordingBindings : TrainBehaviorBindings {
+        override fun hasAnimation(name: String, scene: String?): Boolean = name == "known" && (scene == null || scene == "open")
         val actions = mutableListOf<String>()
         val sounds = mutableListOf<Triple<String, Double, Double>>()
         val logs = mutableListOf<String>()

@@ -13,11 +13,17 @@ object AnchorGeometry {
     fun formatNumber(value: Double, digits: Int = 3): String =
         "% .${digits}f".format(java.util.Locale.US, value).trim()
 
-    fun rollDegrees(anchor: Anchor): Double =
-        anchor.metadata[ROLL_METADATA_KEY]?.toDoubleOrNull() ?: 0.0
+    fun rollDegrees(anchor: Anchor): Double {
+        val value = anchor.metadata[ROLL_METADATA_KEY] ?: return 0.0
+        return requireNotNull(value.toDoubleOrNull()?.takeIf { it.isFinite() }) {
+            "Anchor ${anchor.id} has invalid $ROLL_METADATA_KEY: $value"
+        }
+    }
 
-    fun withRoll(anchor: Anchor, rollDegrees: Double): Anchor =
-        anchor.copy(metadata = anchor.metadata + (ROLL_METADATA_KEY to formatNumber(rollDegrees, digits = 3)))
+    fun withRoll(anchor: Anchor, rollDegrees: Double): Anchor {
+        require(rollDegrees.isFinite()) { "Roll must be finite" }
+        return anchor.copy(metadata = anchor.metadata + (ROLL_METADATA_KEY to formatNumber(rollDegrees, digits = 3)))
+    }
 
     fun yawDegrees(tangent: Vector3dc): Double {
         val direction = Vector3d(tangent)
@@ -50,7 +56,7 @@ object AnchorGeometry {
         if (t.lengthSquared() < 1e-12 || n.lengthSquared() < 1e-12) return 0.0
         t.normalize()
         n.normalize()
-        val (_, baseNormal, _) = ConstraintSolver.computeFrame(t)
+        val (_, baseNormal, _) = CurveFrames.computeFrame(t)
         val sinRoll = Vector3d(baseNormal).cross(n).dot(t)
         val cosRoll = baseNormal.dot(n)
         return Math.toDegrees(atan2(sinRoll, cosRoll))

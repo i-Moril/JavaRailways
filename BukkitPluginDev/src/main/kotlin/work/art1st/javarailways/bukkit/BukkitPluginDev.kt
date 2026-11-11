@@ -8,7 +8,7 @@ import work.art1st.javarailways.bukkit.tests.PhysTestCommand
 class BukkitPluginDev : JavaPlugin() {
 
     override fun onEnable() {
-        registerCommand("phys", "Physics playground: oval track + train test", listOf(), PhysTestCommand())
+        registerCommand("phys", "Physics playground: oval track + train test", listOf(), PhysTestCommand(this))
 
         val configTest = ConfigApiTest()
         ConfigApiTest.INSTANCE = configTest

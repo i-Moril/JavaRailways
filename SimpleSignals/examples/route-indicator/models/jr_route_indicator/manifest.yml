@@ -1,0 +1,5 @@
+config-version: 1
+name: jr_route_indicator
+display-name: 多进路式进路表示器
+models:
+  - head

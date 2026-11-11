@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "worldId": "00000000-0000-0000-0000-000000000078",
+  "definitionRevision": 4,
+  "protectionRegions": [],
+  "protectionRouteTables": [],
+  "fixedBlocks": [{
+    "blockId": "test:shared", "revision": 1, "bidirectional": true,
+    "traversals": [{"railId": "00000000-0000-0000-0000-00000000007a",
+      "facing": "BA", "lowerAbMeters": 2.0, "upperAbMeters": 8.0}]
+  }],
+  "fixedBlockSignals": [{
+    "signalId": "test:forward", "revision": 1, "controlledBlockId": "test:shared",
+    "entryDirection": "FORWARD", "inspectionLeadTimeSeconds": 12.0,
+    "type": "automatic:block",
+    "placement": null
+  }, {
+    "signalId": "test:reverse", "revision": 2, "controlledBlockId": "test:shared",
+    "entryDirection": "REVERSE", "inspectionLeadTimeSeconds": 4.0,
+    "type": "automatic:block",
+    "placement": {"kind": "ground",
+      "pose": {"x": 1.0, "y": 64.0, "z": 2.0,
+        "rotationX": 0.0, "rotationY": 0.0, "rotationZ": 0.0, "rotationW": 1.0}}
+  }]
+}

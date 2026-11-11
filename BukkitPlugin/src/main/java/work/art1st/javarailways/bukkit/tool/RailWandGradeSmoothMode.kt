@@ -20,7 +20,7 @@ internal class RailWandGradeSmoothMode(private val wand: RailWand) {
                 player.sendActionBar(RailWandI18n.component(
                     player,
                     "message.grade_anchor_selected",
-                    anchor.id,
+                    RailWandI18n.anchorName(player, anchor.id),
                     state.selectedAnchors.size
                 ).color(NamedTextColor.YELLOW))
                 wand.updateAnchorDisplay(player)

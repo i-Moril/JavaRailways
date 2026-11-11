@@ -1,0 +1,68 @@
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.12' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+
+> Configure project :WebUI
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.11' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+
+> Task :ConfigLib:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :ConfigLib:processResources NO-SOURCE
+> Task :Core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :Core:processResources NO-SOURCE
+> Task :Core:processTestFixturesResources NO-SOURCE
+> Task :Core:processTestResources
+> Task :ConfigLib:compileKotlin
+> Task :ConfigLib:compileJava NO-SOURCE
+> Task :ConfigLib:classes UP-TO-DATE
+> Task :ConfigLib:jar
+> Task :Core:compileKotlin
+> Task :Core:compileJava NO-SOURCE
+> Task :Core:classes UP-TO-DATE
+> Task :Core:jar
+> Task :Core:compileTestFixturesKotlin
+> Task :Core:compileTestFixturesJava NO-SOURCE
+> Task :Core:testFixturesClasses UP-TO-DATE
+> Task :Core:testFixturesJar
+
+> Task :Core:compileTestKotlin
+w: file:///workspace/minecraft/JavaRailways/Core/src/test/java/work/art1st/javarailways/core/physics/rail/RailLocationPersistTest.kt:36:45 No cast needed.
+w: file:///workspace/minecraft/JavaRailways/Core/src/test/java/work/art1st/javarailways/core/physics/rail/RailLocationPersistTest.kt:52:45 No cast needed.
+w: file:///workspace/minecraft/JavaRailways/Core/src/test/java/work/art1st/javarailways/core/physics/rail/RailLocationPersistTest.kt:71:45 No cast needed.
+w: file:///workspace/minecraft/JavaRailways/Core/src/test/java/work/art1st/javarailways/core/physics/rail/RailLocationPersistTest.kt:87:45 No cast needed.
+
+> Task :Core:compileTestJava NO-SOURCE
+> Task :Core:testClasses
+
+> Task :Core:test FAILED
+
+CoreTrainRigidGeometryTest > real connector geometry survives placement movement reverse stop and reload(String) > [1] straight FAILED
+    org.opentest4j.AssertionFailedError at CoreTrainRigidGeometryTest.kt:99
+
+CoreTrainRigidGeometryTest > real connector geometry survives placement movement reverse stop and reload(String) > [2] R30 FAILED
+    org.opentest4j.AssertionFailedError at CoreTrainRigidGeometryTest.kt:118
+
+CoreTrainRigidGeometryTest > real connector geometry survives placement movement reverse stop and reload(String) > [3] S FAILED
+    org.opentest4j.AssertionFailedError at CoreTrainRigidGeometryTest.kt:118
+
+CoreTrainRigidGeometryTest > real connector geometry survives placement movement reverse stop and reload(String) > [4] banked-slope FAILED
+    org.opentest4j.AssertionFailedError at CoreTrainRigidGeometryTest.kt:118
+
+4 tests completed, 4 failed
+
+[Incubating] Problems report is available at: file:///tmp/train-coordinate-build/root/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':Core:test'.
+> There were failing tests. See the report at: file:///tmp/train-coordinate-build/Core/reports/tests/test/index.html
+
+* Try:
+> Run with --scan to generate a Build Scan (Powered by Develocity).
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.0.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD FAILED in 10s
+9 actionable tasks: 9 executed

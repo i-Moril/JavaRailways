@@ -1,84 +1,48 @@
 package work.art1st.javarailways.bukkit.http
 
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Assertions.assertThrows
+import kotlinx.serialization.json.*
+import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.bukkit.config.model.CarControlConfig
-import work.art1st.javarailways.bukkit.config.model.MotorControlConfig
-import work.art1st.javarailways.bukkit.config.model.TrainControlConfig
 
 class IsolatedLineSimulatorTest {
-    private val profile = SimulationControlProfile(
-        SimulationProfileType.TRAIN_TEMPLATE,
-        "test",
-        TrainControlConfig(),
-        List(6) { index -> CarControlConfig(motor = MotorControlConfig(
-            enabled = index < 4,
-            maxForce = if (index < 4) 40_000.0 else 0.0,
-            maxPower = if (index < 4) 500_000.0 else 0.0
-        )) }
-    )
-
-    @Test
-    fun `simulates each line leg without a live train`() {
-        val result = IsolatedLineSimulator.simulate(
-            listOf(
-                SimulationLeg("A", "B", 500.0),
-                SimulationLeg("B", "C", 800.0)
-            ),
-            profile
-        )
-
-        assertEquals(2, result.legs.size)
-        assertTrue(result.totalTravelSeconds > 0.0)
-        assertTrue(result.legs.all { it.peakSpeedMetersPerSecond > 0.0 })
-        assertTrue(result.legs.all { kotlin.math.abs(it.stoppingErrorMeters) < 8.0 })
+    private fun input(originOffset: Double = 0.0, departure: JsonElement = JsonPrimitive(100)) = buildJsonObject {
+        put("measurementSource", "function main(timetable) {}")
+        put("firstDepartureTick", departure)
+        put("fixedDwellTicks", 20)
+        put("minimumDwellTicks", 0)
+        put("calls", buildJsonArray {
+            add(buildJsonObject {
+                put("callId", "a"); put("stationId", "a"); put("destinationId", "a@one"); put("kind", "ORIGIN")
+                put("stoppingOffsetMetersBefore", originOffset)
+            })
+            add(buildJsonObject {
+                put("callId", "b"); put("stationId", "b"); put("destinationId", "b@one"); put("kind", "TERMINAL")
+            })
+        })
     }
 
     @Test
-    fun `keeps speed through pass stations while returning adjacent crossing intervals`() {
-        val legs = listOf(
-            SimulationLeg("A", "B", 500.0, stopAtEnd = false),
-            SimulationLeg("B", "C", 500.0, stopAtEnd = false),
-            SimulationLeg("C", "D", 500.0, stopAtEnd = true)
-        )
-        val passing = IsolatedLineSimulator.simulate(legs, profile)
-        val allStops = IsolatedLineSimulator.simulate(legs.map { it.copy(stopAtEnd = true) }, profile)
-
-        assertEquals(listOf("B", "C", "D"), passing.legs.map { it.toStationId })
-        assertTrue(passing.legs.all { it.travelSeconds > 0.0 })
-        assertTrue(passing.totalTravelSeconds < allStops.totalTravelSeconds)
-    }
-
-    @Test
-    fun `applies the resolved timetable line maximum speed to detailed simulation`() {
-        val uncapped = IsolatedLineSimulator.simulate(
-            listOf(SimulationLeg("A", "B", 1_000.0)),
-            profile
-        )
-        val capped = IsolatedLineSimulator.simulate(
-            listOf(SimulationLeg("A", "B", 1_000.0)),
-            profile,
-            lineMaximumSpeedMetersPerSecond = 5.0
-        )
-
-        assertTrue(capped.legs.single().peakSpeedMetersPerSecond <= 5.0)
-        assertTrue(capped.totalTravelSeconds > uncapped.totalTravelSeconds)
-    }
-
-    @Test
-    fun `honors worker interruption`() {
-        Thread.currentThread().interrupt()
-        try {
-            assertThrows(java.util.concurrent.CancellationException::class.java) {
-                IsolatedLineSimulator.simulate(
-                    listOf(SimulationLeg("A", "B", 500.0)),
-                    profile
-                )
-            }
-        } finally {
-            Thread.interrupted()
+    fun `origin offset unsupported by actual initial placement is rejected rather than ignored`() {
+        assertEquals(100L, LineMeasurementRequest.parse(input()).firstDepartureTick)
+        listOf<JsonElement?>(null, JsonNull).forEach { offset ->
+            val request = input()
+            val calls = request.getValue("calls").jsonArray.toMutableList()
+            val origin = calls.first().jsonObject.toMutableMap()
+            if (offset == null) origin.remove("stoppingOffsetMetersBefore") else origin["stoppingOffsetMetersBefore"] = offset
+            calls[0] = JsonObject(origin)
+            assertEquals(100L, LineMeasurementRequest.parse(JsonObject(request + ("calls" to JsonArray(calls)))).firstDepartureTick)
         }
+        val failure = assertThrows(IllegalArgumentException::class.java) { LineMeasurementRequest.parse(input(1.0)) }
+        assertTrue(failure.message!!.contains("origin stopping offset"))
+    }
+
+    @Test
+    fun `measurement ticks require actual integers and safe bounded budget`() {
+        listOf(JsonPrimitive("100"), JsonPrimitive(1.5), JsonPrimitive(-1)).forEach { departure ->
+            assertThrows(IllegalArgumentException::class.java) { LineMeasurementRequest.parse(input(departure = departure)) }
+        }
+        val request = LineMeasurementRequest.parse(input())
+        assertThrows(IllegalArgumentException::class.java) { request.copy(maximumDurationTicks = 0) }
+        assertThrows(IllegalArgumentException::class.java) { request.copy(maximumDurationTicks = 1_728_001) }
     }
 }

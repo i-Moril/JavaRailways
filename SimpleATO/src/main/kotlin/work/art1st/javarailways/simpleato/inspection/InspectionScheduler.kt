@@ -1,0 +1,288 @@
+package work.art1st.javarailways.simpleato.inspection
+
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration
+import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclarationBinding
+import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
+import java.util.UUID
+import kotlin.math.max
+
+/** Validated immutable declarations for one exact train and frozen route binding. */
+internal class CompiledInspectionBinding private constructor(
+    val binding: InspectionDeclarationBinding,
+    val maximumDeclaredInspectionLeadTimeSeconds: Double,
+    val authorityRequestFloors: List<AuthorityRequestFloor>,
+    private val declarationsByTriggerDistance: List<InspectionDeclaration>,
+    private val declarationIds: Set<String>
+) {
+    fun declarationsBetween(
+        startRouteDistanceMeters: Double,
+        endRouteDistanceMeters: Double
+    ): List<InspectionDeclaration> {
+        val startIndex = lowerBound(startRouteDistanceMeters)
+        val endIndex = upperBound(endRouteDistanceMeters)
+        return declarationsByTriggerDistance.subList(startIndex, endIndex)
+    }
+
+    private fun lowerBound(routeDistanceMeters: Double): Int {
+        var low = 0
+        var high = declarationsByTriggerDistance.size
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (declarationsByTriggerDistance[middle].triggerRouteDistanceMeters < routeDistanceMeters) {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        return low
+    }
+
+    private fun upperBound(routeDistanceMeters: Double): Int {
+        var low = 0
+        var high = declarationsByTriggerDistance.size
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (declarationsByTriggerDistance[middle].triggerRouteDistanceMeters <= routeDistanceMeters) {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        return low
+    }
+
+    companion object {
+        fun compile(
+            binding: InspectionDeclarationBinding,
+            route: RouteSnapshot
+        ): CompiledInspectionBinding {
+            require(binding.route == FrozenRouteBinding.from(route)) {
+                "inspection declarations must bind the supplied frozen route"
+            }
+            val occurrences = ArrayList<RouteOccurrence>(route.segments.size)
+            var routeDistance = 0.0
+            route.segments.forEachIndexed { index, segment ->
+                val start = routeDistance
+                routeDistance += segment.lengthMeters
+                val previous = route.segments.getOrNull(index - 1)
+                if (previous != null && previous.railId == segment.railId && previous.facing == segment.facing &&
+                    kotlin.math.abs(previous.endArcLengthMeters - segment.startArcLengthMeters) <= ROUTE_DISTANCE_EPSILON_METERS
+                ) {
+                    // Append-only authorization keeps segment boundaries stable. Such a split is
+                    // still one directed rail visit, not two ambiguous signal occurrences.
+                    val occurrence = occurrences.last()
+                    occurrences[occurrences.lastIndex] = occurrence.copy(endRouteDistanceMeters = routeDistance)
+                } else {
+                    occurrences += RouteOccurrence(segment.railId, segment.facing, start, routeDistance)
+                }
+            }
+            val cumulativeStarts = occurrences.map(RouteOccurrence::startRouteDistanceMeters).toDoubleArray()
+
+            binding.declarations.forEach { declaration ->
+                val matchingOccurrences = matchingOccurrences(declaration, occurrences, cumulativeStarts)
+                require(matchingOccurrences.size == 1) {
+                    "declaration ${declaration.declarationId} must identify exactly one route occurrence"
+                }
+            }
+
+            return CompiledInspectionBinding(
+                binding,
+                binding.declarations.maxOfOrNull(InspectionDeclaration::inspectionLeadTimeSeconds) ?: 0.0,
+                java.util.List.copyOf(binding.declarations.mapNotNull { declaration ->
+                    declaration.minimumRequestedAuthorityEndRouteDistanceMeters?.let { requestEnd ->
+                        AuthorityRequestFloor(
+                            declaration.triggerRouteDistanceMeters,
+                            requestEnd,
+                            declaration.declarationId
+                        )
+                    }
+                } + binding.authorityRequestFloors.mapIndexed { index, floor ->
+                    AuthorityRequestFloor(floor.triggerRouteDistanceMeters, floor.minimumEndRouteDistanceMeters,
+                        "${binding.sourceId}/request-floor/$index")
+                }.sortedWith(
+                    compareBy(AuthorityRequestFloor::triggerRouteDistanceMeters)
+                        .thenBy(AuthorityRequestFloor::declarationId)
+                )),
+                binding.declarations.sortedWith(
+                    compareBy(InspectionDeclaration::triggerRouteDistanceMeters)
+                        .thenBy(InspectionDeclaration::declarationId)
+                ),
+                binding.declarations.mapTo(hashSetOf(), InspectionDeclaration::declarationId)
+            )
+        }
+
+        private fun matchingOccurrences(
+            declaration: InspectionDeclaration,
+            occurrences: List<RouteOccurrence>,
+            cumulativeStarts: DoubleArray
+        ): List<RouteOccurrence> {
+            if (occurrences.isEmpty()) return emptyList()
+            val target = declaration.triggerRouteDistanceMeters
+            var low = 0
+            var high = cumulativeStarts.size
+            while (low < high) {
+                val middle = (low + high) ushr 1
+                if (cumulativeStarts[middle] <= target + ROUTE_DISTANCE_EPSILON_METERS) {
+                    low = middle + 1
+                } else {
+                    high = middle
+                }
+            }
+            val insertionPoint = low
+            val candidates = arrayListOf<RouteOccurrence>()
+            var index = insertionPoint - 1
+            while (index >= 0 &&
+                occurrences[index].endRouteDistanceMeters >= target - ROUTE_DISTANCE_EPSILON_METERS
+            ) {
+                candidates += occurrences[index]
+                index--
+            }
+            index = insertionPoint
+            while (index < occurrences.size &&
+                occurrences[index].startRouteDistanceMeters <= target + ROUTE_DISTANCE_EPSILON_METERS
+            ) {
+                candidates += occurrences[index]
+                index++
+            }
+            return candidates.filter { occurrence ->
+                occurrence.railId == declaration.railId && occurrence.facing == declaration.facing
+            }
+        }
+    }
+
+    fun containsDeclaration(declarationId: String): Boolean = declarationId in declarationIds
+}
+
+/**
+ * Stateful activation filter for one compiled declaration binding.
+ *
+ * It never calls plugin code or scans the frozen route. The owner invokes [updatesFor] with the
+ * current route progress and then dispatches only the returned declarations.
+ */
+internal class InspectionScheduler(initialBinding: CompiledInspectionBinding) {
+    private var binding = initialBinding
+    private val activeDeclarations = hashSetOf<InspectionDeclaration>()
+    private val dirtyDeclarationIds = hashSetOf<String>()
+    private var retryPending = false
+
+    val maximumDeclaredInspectionLeadTimeSeconds: Double
+        get() = binding.maximumDeclaredInspectionLeadTimeSeconds
+
+    fun replaceBinding(replacement: CompiledInspectionBinding) {
+        binding = replacement
+        activeDeclarations.clear()
+        dirtyDeclarationIds.clear()
+        retryPending = false
+    }
+
+    /** Marks only declarations present on this route; unrelated source declarations are ignored. */
+    fun markPresentDirty(declarationIds: Collection<String>) {
+        dirtyDeclarationIds += declarationIds.filter(binding::containsDeclaration)
+    }
+
+    /** Retries the last complete active-set publication, including an empty deactivation. */
+    fun retry() {
+        retryPending = true
+    }
+
+    fun updatesFor(
+        currentHeadRouteDistanceMeters: Double,
+        dynamicLookaheadMeters: Double,
+        currentSpeedMetersPerSecond: Double,
+        maximumSpeedMetersPerSecond: Double,
+        accelerationMetersPerSecondSquared: Double
+    ): List<InspectionDeclaration>? {
+        require(currentHeadRouteDistanceMeters.isFinite() &&
+            currentHeadRouteDistanceMeters >= 0.0 &&
+            currentHeadRouteDistanceMeters <= binding.binding.route.totalLengthMeters
+        ) { "currentHeadRouteDistanceMeters must be within the frozen route" }
+        require(dynamicLookaheadMeters.isFinite() && dynamicLookaheadMeters >= 0.0) {
+            "dynamicLookaheadMeters must be finite and non-negative"
+        }
+        val maximumActivationDistance = max(
+            reachableDistanceMeters(
+                currentSpeedMetersPerSecond,
+                maximumSpeedMetersPerSecond,
+                accelerationMetersPerSecondSquared,
+                maximumDeclaredInspectionLeadTimeSeconds
+            ),
+            dynamicLookaheadMeters
+        )
+        val visibleEndRouteDistance = minOf(
+            binding.binding.route.totalLengthMeters,
+            currentHeadRouteDistanceMeters + maximumActivationDistance
+        )
+        val visible = arrayListOf<InspectionDeclaration>()
+        binding.declarationsBetween(currentHeadRouteDistanceMeters, visibleEndRouteDistance)
+            .forEach { declaration ->
+                val distance = declaration.triggerRouteDistanceMeters - currentHeadRouteDistanceMeters
+                val threshold = max(
+                    reachableDistanceMeters(
+                        currentSpeedMetersPerSecond,
+                        maximumSpeedMetersPerSecond,
+                        accelerationMetersPerSecondSquared,
+                        declaration.inspectionLeadTimeSeconds
+                    ),
+                    dynamicLookaheadMeters
+                )
+                if (distance <= threshold) {
+                    visible += declaration
+                }
+            }
+
+        val visibleSet = visible.toSet()
+        val activeSetChanged = activeDeclarations != visibleSet
+        val activeWasInvalidated = visible.any { it.declarationId in dirtyDeclarationIds }
+        val shouldUpdate = activeSetChanged || activeWasInvalidated || retryPending
+        activeDeclarations.clear()
+        activeDeclarations += visibleSet
+        dirtyDeclarationIds.clear()
+        retryPending = false
+        return if (shouldUpdate) visible else null
+    }
+}
+
+/** Conservative forward distance reachable within one signal preparation interval. */
+internal fun reachableDistanceMeters(
+    currentSpeedMetersPerSecond: Double,
+    maximumSpeedMetersPerSecond: Double,
+    accelerationMetersPerSecondSquared: Double,
+    leadTimeSeconds: Double
+): Double {
+    require(currentSpeedMetersPerSecond.isFinite() && currentSpeedMetersPerSecond >= 0.0) {
+        "currentSpeedMetersPerSecond must be finite and non-negative"
+    }
+    require(maximumSpeedMetersPerSecond.isFinite() && maximumSpeedMetersPerSecond >= 0.0) {
+        "maximumSpeedMetersPerSecond must be finite and non-negative"
+    }
+    require(accelerationMetersPerSecondSquared.isFinite() && accelerationMetersPerSecondSquared > 0.0) {
+        "accelerationMetersPerSecondSquared must be finite and positive"
+    }
+    require(leadTimeSeconds.isFinite() && leadTimeSeconds >= 0.0) {
+        "leadTimeSeconds must be finite and non-negative"
+    }
+    val speedCeiling = max(currentSpeedMetersPerSecond, maximumSpeedMetersPerSecond)
+    val accelerationSeconds = (speedCeiling - currentSpeedMetersPerSecond) /
+        accelerationMetersPerSecondSquared
+    val distance = if (leadTimeSeconds <= accelerationSeconds) {
+        currentSpeedMetersPerSecond * leadTimeSeconds +
+            0.5 * accelerationMetersPerSecondSquared * leadTimeSeconds * leadTimeSeconds
+    } else {
+        val accelerationDistance = currentSpeedMetersPerSecond * accelerationSeconds +
+            0.5 * accelerationMetersPerSecondSquared * accelerationSeconds * accelerationSeconds
+        accelerationDistance + speedCeiling * (leadTimeSeconds - accelerationSeconds)
+    }
+    require(distance.isFinite()) { "inspection lead-time distance must be finite" }
+    return distance
+}
+
+private data class RouteOccurrence(
+    val railId: UUID,
+    val facing: ViewDirection,
+    val startRouteDistanceMeters: Double,
+    val endRouteDistanceMeters: Double
+)
+
+private const val ROUTE_DISTANCE_EPSILON_METERS = 1.0e-9

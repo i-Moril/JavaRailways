@@ -1,0 +1,139 @@
+JavaRailways 二分查找/求根容差盘点 — 2026-11-09 UTC
+settings.gradle各模块生产源码及WebUI前端；排除tests、bin/build副本、依赖与Trellis工具。当前工作区已有站台1mm删除改动，本轮不新增产品修改。
+
+共26处实现：{'连续求解': 4, '索引内容差': 6, '索引前后容差': 4, '无二分容差': 12}。CoreTrain车尾求解是泛型二分的调用点，不重复计实现。
+
+01. [连续求解] 车厢轴距及车钩：solveDistance
+    容差：轴距1e-6m（0.001mm）；车钩1e-5m（0.01mm）
+    割线+二分混合；只接受|残差|<=tolerance，最多60轮区间修正。初始扩张半径>=0.01m和割线中间80%准入不是精度容差。
+    /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/physics/train/CoreCar.kt:320
+
+02. [连续求解] 轨道弧长区间：searchArcRange
+    容差：tolerance由调用者传入；当前生产调用为Curve.TOLERANCE=0.005m（5mm）
+    纯二分，|condition|<tolerance时成功，最多50轮；不是以弧长区间宽度停机。当前调用是CoreTrain.findTailEndForward，CoreTrain.kt:712，求车尾端与转向架的沿轨距离残差。
+    /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/physics/rail/RailSegment.kt:48
+
+03. [连续求解] 五段式曲线缓和段长度L1：ConstraintSolver.solve
+    容差：hi-lo<0.005m（5mm），最多60轮
+    区间宽度终止精度，数值写死0.005，不引用Curve.TOLERANCE。内部straightOk允许sa/sb>=-0.001m（负1mm）；rawArcAngle>=-1e-12rad；|sin(dp)|<1e-12避免除法；入口dp<1e-10rad拒绝近零夹角。后续build把负直线长度截到0。
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/ConstraintSolver.kt:46
+
+04. [连续求解] S弯Hermite手柄比例：fitHermiteHandlesToExactRadius
+    容差：没有误差停止容差；每个异号区间固定48轮
+    先用161个比例样本找包围区间。半径误差最终由RailCurveFactory.kt:357按max(0.5m,R*0.005)验收；该验收阈值没有传入二分循环。error==0.0时return@repeat仅跳过当轮，未结束48轮循环。曲率计算speedSq<1e-12和maxCurvature<1e-12另用于退化/直线处理。
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/HermiteSCurveBuilder.kt:279
+
+05. [索引内容差] 授权请求触发点下界
+    容差：1e-9m
+    比较trigger<boundary-EPSILON_METERS；索引相遇结束，不以epsilon控制迭代次数。
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/AuthorityRequestFloors.kt:59
+
+06. [索引内容差] 巡检声明匹配实际路线出现次数
+    容差：1e-9m
+    二分比较cumulativeStart<=target+epsilon；随后同一epsilon过滤相邻出现次数。
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/InspectionScheduler.kt:114
+
+07. [索引内容差] 轨道资源锚点重叠查询
+    容差：Curve.TOLERANCE=5mm
+    二分prefixMaximumEnd>=start-5mm，结果扫描上界end+5mm。
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/RouteBoundResourceCatalog.kt:258
+
+08. [索引内容差] 保护进路替换后切片包含判断
+    容差：REPLACEMENT_POSITION_EPSILON=1e-9m
+    二分start<=traversal.lower+epsilon；候选包含检查也用相同epsilon。
+    /workspace/minecraft/JavaRailways/SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/region/ProtectionRouteTableCatalog.kt:368
+
+09. [索引内容差] 保护区域出口接续固定闭塞
+    容差：Curve.TOLERANCE=5mm
+    二分查找entry>=exit-5mm，再要求候选entry<=exit+5mm并检查歧义。
+    /workspace/minecraft/JavaRailways/SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/region/ProtectionRegionInspectionSource.kt:97
+
+10. [索引内容差] 固定闭塞与保护区域切片重叠关联
+    容差：Curve.TOLERANCE=5mm
+    二分跳过end<=interval.min+5mm的切片；结果上界也减5mm。
+    /workspace/minecraft/JavaRailways/SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsWorldRuntime.kt:898
+
+11. [索引前后容差] 轨道分割站点映射
+    容差：输入上界允许+1e-8m
+    binarySearch本身精确；先允许station<=source.last+1e-8，再clamp到末端。
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurvePartitioner.kt:48
+
+12. [索引前后容差] 限制区间插入点及covers/overlaps
+    容差：结果判定POSITION_EPSILON=1e-9m
+    insertionPoint按lower精确比较；Interval.covers/overlaps使用epsilon，作用在最终结果而非二分循环。
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/route/TopologyRoutePlanner.kt:899
+
+13. [索引前后容差] 边界名称同点归并
+    容差：邻居同点验收Curve.TOLERANCE=5mm
+    binarySearchBy精确命中；未命中时取左右邻居，samePoint用5mm验收。nearest中的1e-9等距歧义阈值属于另一条线性筛选路径，不算二分容差。
+    /workspace/minecraft/JavaRailways/SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/BoundaryNames.kt:26
+
+14. [索引前后容差] 保护进路绑定窗口裁剪
+    容差：结果片段长度>Curve.TOLERANCE=5mm才保留
+    二分按routeEnd<=window.entry精确比较；随后过滤<=5mm的裁剪片段。
+    /workspace/minecraft/JavaRailways/SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/signal/ProtectionRouteBindingCompiler.kt:81
+
+15. [无二分容差] 曲线采样段定位
+    容差：无
+    findSegmentStartIndex按arcLength<=target精确比较，整数索引结束；MIN_ARC_SPACING/FRAME_MARGIN不属于该查找。
+    /workspace/minecraft/JavaRailways/Core/src/main/java/work/art1st/javarailways/core/physics/rail/curve/PrimeCurveImpl.kt:368
+
+16. [无二分容差] 巡检声明lowerBound
+    容差：无
+    trigger<distance精确比较。
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/InspectionScheduler.kt:28
+
+17. [无二分容差] 巡检声明upperBound
+    容差：无
+    trigger<=distance精确比较。
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/InspectionScheduler.kt:42
+
+18. [无二分容差] 入口净空索引bound
+    容差：无
+    按<或==确定开闭端点；同文件的EPSILON和GUARD_METERS不参与这个二分。
+    /workspace/minecraft/JavaRailways/SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/inspection/EntryClearance.kt:52
+
+19. [无二分容差] 资源保留边界前缀最大值查找
+    容差：无
+    maximumEnds<occurrenceStart精确比较。
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/PhysicalRouteResourceCompiler.kt:206
+
+20. [无二分容差] 物理资源按终点lowerBoundByEnd
+    容差：无
+    endAbMeters<canonicalMeters精确比较。
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/PhysicalRouteResourceCompiler.kt:375
+
+21. [无二分容差] 监测区边界lowerBound
+    容差：无
+    boundary.arc<arc精确比较。
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/observation/RailwayAreaOccupancyTracker.kt:265
+
+22. [无二分容差] 监测区间前缀lowerBoundPrefix
+    容差：无
+    prefix<target精确比较。
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/observation/RailwayAreaOccupancyTracker.kt:354
+
+23. [无二分容差] 寻路边切点精确索引
+    容差：无
+    cuts.binarySearch(point.distanceMeters)，必须精确找到既有切点。
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/route/TopologyRoutePlanner.kt:453
+
+24. [无二分容差] 保护区域交叉点所在切片索引
+    容差：无
+    otherCuts.binarySearch，按精确命中或插入点处理。
+    /workspace/minecraft/JavaRailways/SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/region/ProtectionRegionGraphResolver.kt:158
+
+25. [无二分容差] 制动包络分段workAt
+    容差：无
+    按endDistance<distance定位分段，随后段内公式计算。
+    /workspace/minecraft/JavaRailways/Basic/src/main/java/work/art1st/javarailways/basic/api/ato/GradeAwareBrakingEnvelope.kt:116
+
+26. [无二分容差] WebUI标签可显示字符数
+    容差：无
+    整数二分；measureText<=maxWidth为可行条件，不是连续数值求根。
+    /workspace/minecraft/JavaRailways/WebUI/frontend/src/railMap.ts:69
+
+相近但未计入二分查找数量：
+Core PrimeCurveImpl.provesNonzeroFrame递归二分细分：FRAME_MARGIN=1e-12（归一化标架叉积系数界），深度32、预算256；属于区间证明，不是查找位置。
+Bukkit HeavyRailQueries.findLookedAtRailPoint是三分最小化，固定28轮；命中半径hitRadius是选取范围，不是二分精度。
+StandardRailCurve.integrateGaussLegendre16中的mid是积分中点，不是二分算法。

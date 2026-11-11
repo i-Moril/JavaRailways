@@ -1,5 +1,6 @@
 package work.art1st.javarailways.bukkit.render.model
 
+import work.art1st.javarailways.core.api.util.DestructionSteps
 import org.bukkit.Location
 import org.bukkit.entity.Interaction
 import work.art1st.javarailways.bukkit.config.model.PartInteractionConfig
@@ -35,6 +36,7 @@ class InteractionModel internal constructor(
     }
 
     override fun spawnEntity() {
+        if (retired) return
         val bukkitWorld = world.bukkitWorldData.bukkitWorld
         val position = state.worldTransform.position
         val spawnLocation = Location(
@@ -48,21 +50,23 @@ class InteractionModel internal constructor(
         if (!spawnScheduled.compareAndSet(false, true)) return
         BukkitPlugin.INSTANCE.platformDispatcher.runAt(spawnLocation) {
             try {
-                if (retired || entity != null) return@runAt
-                val interaction = bukkitWorld.spawn(spawnLocation, Interaction::class.java) {
-                    it.isPersistent = false
-                    it.setInteractionWidth(interactionConfig.width.toFloat())
-                    it.setInteractionHeight(interactionConfig.height.toFloat())
+                synchronized(this@InteractionModel) {
+                    if (retired || entity != null) return@synchronized
+                    val interaction = bukkitWorld.spawn(spawnLocation, Interaction::class.java) {
+                        it.isPersistent = false
+                        it.setInteractionWidth(interactionConfig.width.toFloat())
+                        it.setInteractionHeight(interactionConfig.height.toFloat())
+                    }
+                    entity = interaction
                 }
-                entity = interaction
             } finally {
                 spawnScheduled.set(false)
             }
         }
     }
 
-    override fun destroy() {
+    override fun collectDestruction(steps: DestructionSteps) {
         retired = true
-        super.destroy()
+        super.collectDestruction(steps)
     }
 }

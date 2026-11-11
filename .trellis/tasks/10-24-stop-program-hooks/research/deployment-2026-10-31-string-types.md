@@ -1,0 +1,17 @@
+# Scalar program strings deployment — 2026-10-31
+
+User authorized commit and deployment. Product commit `3ef8047bfbd6cecf09ee6cd41a3ac7d4e0e7df5a`; offline tool correction `86f1e682`. No push or task archival. Unrelated heap dump preserved.
+
+Program scalar destination/station/depot parameter and expression types are now STRING throughout frontend, Java validation and Kotlin runtime. Generic text retains text limits; action ID sinks retain their own constraints. No runtime compatibility paths or schema version changes for unreleased development formats. Real browser verified one String category and contextual waypoint filtering. Frontend 416 passed; backend 763 passed and one expected opt-in skip; independent implementation review passed. Offline migration 12 tests and deployment guard/rollback 4 tests passed.
+
+Read-only deployment preflight found a tool assumption inconsistent with DraftRepository.create: external storage key may be suffixed independently of internal document id. Corrected only the offline tool, preserving the library filename/id constraint, with regression tests. No document IDs or filenames changed.
+
+Live baseline main JAR SHA256 `7d5f2e9f3117632b4b52197c2d5ad49c2fbd38e00f4d4d06a3ddb4f9fd3c9d59`, old JVM 787679. User online during authorized restart. Normal MCS stop saved all worlds and player data at 14:51:03 UTC; MCS status 0/PID0 and original process/listeners gone before recovery. External recovery `/opt/mcsmanager/backups/javarailways/string-types-20261031-3bx43qyq`, 154 files; archive SHA256 `e27d11c4058d9d8973cc72b05754df8fbb4bbda0f222c6025ba0426fde3f28e1`. Audited preflight/stopped plans exactly matched.
+
+Installed main JAR at 14:51:54 UTC, SHA256 `789404c767a91d1c4e08796b064d857da4de8e492c137bffdfebbfc290a06486`; embedded/managed WebUI SHA256 `0e2445fa4466a5c37362012674b4166f78d5e979f36b8ee935921e30a993cade`. Signals artifact unchanged. Offline conversion validated 14 files using candidate Java codec, converted exactly one DEPOT parameter in library/world/43678141787292951110305815093458768576.json to STRING and recomputed its content identity; revisions, values and all eight editor documents unchanged. Conversion recovery at recovery-directory/program-conversion; metadata/modes preserved. No generated formal scripts needed conversion.
+
+New JVM 792039, startup done 14:53:09 UTC. ATO RUNNING; Signals definitionRevision117/topology1 loaded. Bridge health good. All 17 local/public frontend assets match installed candidate, main JS /assets/index-til1-TgS.js. Public rail map has31 markers; unauthorized simulation returns structured401. Public SSE with standard Accept:text/event-stream returns event:trains and one train. First asset check was before plugin startup completed and passed after startup. Existing train-stream409 warning at14:53:23 recovered on explicit stream check.
+
+Post-install project errors0. Known old shutdown errors JR13/Signals1 and third-party Terra theUnsafe startup error1 remain; startup physics overload/clamp warnings observed. No authenticated live editor save, live simulation or game acceptance claimed.
+
+Local/remote staging /tmp/jr-deploy-20261031-string-types. Adjacent JSON records sanitized evidence. Rollback requires normal save/stop and a fresh recovery point for any subsequent player changes; restore matching old main JAR and only the converted library record from verified recovery, avoiding overwriting newer edits. Original ongoing task stays open.

@@ -1,0 +1,57 @@
+{
+  "modules": {
+    "Core": {
+      "suites": 67,
+      "tests": 538,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "Basic": {
+      "suites": 63,
+      "tests": 435,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "SimpleATO": {
+      "suites": 76,
+      "tests": 657,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "SimpleATOBukkit": {
+      "suites": 2,
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "SimpleSignals": {
+      "suites": 59,
+      "tests": 657,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "BukkitPlugin": {
+      "suites": 141,
+      "tests": 663,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "WebUI": {
+      "suites": 15,
+      "tests": 49,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "totalJvmTests": 3001,
+  "frontendTests": 323,
+  "sourceFilesVerified": 1309,
+  "sourceChangesDuringGate": []
+}

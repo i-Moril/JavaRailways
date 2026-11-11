@@ -1,26 +1,20 @@
 import type { LineV1, SavedTimetableV1, TimetableActionV1, WorldMetadata } from './types';
 
-export interface GraphViewport { scaleX:number; scaleY:number; offsetX:number; offsetY:number }
 const DARK_SERVICE_COLORS=['#56c5ff','#ffb454','#8bd17c','#d28cff','#ff718b','#54d6c5'];
 const LIGHT_SERVICE_COLORS=['#0076a8','#a94f00','#247a39','#7138ad','#b72b47','#00776c'];
 export const graphServiceColors=(theme:'dark'|'light')=>theme==='light'?LIGHT_SERVICE_COLORS:DARK_SERVICE_COLORS;
 
-export function zoomGraphViewport(viewport:GraphViewport, axis:'x'|'y', factor:number, anchor:number, origin:number, minimum=0.5, maximum=8):GraphViewport {
-  const scaleKey=axis==='x'?'scaleX':'scaleY';
-  const offsetKey=axis==='x'?'offsetX':'offsetY';
-  const previous=viewport[scaleKey];
-  const next=Math.min(maximum,Math.max(minimum,previous*factor));
-  return { ...viewport, [scaleKey]:next, [offsetKey]:anchor-origin-(anchor-origin-viewport[offsetKey])*next/previous };
-}
-
-export function graphScreenXToTick(layout:Pick<GraphLayout,'left'|'xToTick'>, viewport:GraphViewport, screenX:number):number {
-  const logicalX=layout.left+(screenX-layout.left-viewport.offsetX)/viewport.scaleX;
-  return layout.xToTick(logicalX);
+/** Use the complete document order so diagram, direction and search filters keep run colors stable. */
+export function graphServiceColor(theme:'dark'|'light',serviceId:string,serviceIds:readonly string[],lineColor?:string|null,runColor?:string):string {
+  if(runColor)return runColor;
+  const palette=graphServiceColors(theme);
+  return lineColor||palette[Math.max(0,serviceIds.indexOf(serviceId))%palette.length];
 }
 
 export interface GraphPoint {
   serviceIndex: number;
   stepIndex: number;
+  runId?:string;
   kind: 'DEPARTURE'|'ARRIVAL';
   tick: number;
   x: number;
@@ -30,7 +24,7 @@ export interface GraphPoint {
 }
 
 export interface GraphLane { id: string; y: number }
-export interface GraphPath { serviceIndex: number; serviceId: string; points: GraphPoint[] }
+export interface GraphPath { runId?:string; serviceIndex: number; serviceId: string; points: GraphPoint[] }
 export interface GraphLayout {
   width: number;
   height: number;
@@ -43,12 +37,8 @@ export interface GraphLayout {
   xToTick: (x: number) => number;
 }
 
-export function snapTick(tick: number, snap = 20) {
-  return Math.max(0, Math.round(tick / snap) * snap);
-}
-
 export function filterTimetableForDiagramLine(value:SavedTimetableV1,lineId:string):SavedTimetableV1 {
-  return {...value,services:value.services.filter((service)=>service.diagramLineId===lineId)};
+  return {...value,services:value.services.filter((service)=>service.runSegments?.length?service.runSegments.some((segment)=>segment.diagramLineId===lineId):service.diagramLineId===lineId).map((service)=>service.runSegments?.length?{...service,runSegments:service.runSegments.filter((segment)=>segment.diagramLineId===lineId)}:service)};
 }
 
 function destination(action?: TimetableActionV1 | null): string | undefined {
@@ -94,6 +84,27 @@ export function layoutGraph(
   const laneById = new Map(lanes.map((lane) => [lane.id, lane.y]));
 
   const paths = value.services.flatMap((service, serviceIndex) => {
+    if(service.runSegments?.length){
+      return service.runSegments.filter((segment)=>!graphLineId||segment.diagramLineId===graphLineId).flatMap((segment)=>{
+        let stepCursor=segment.startStepIndex;
+        const callSteps=segment.calls.map((call,index)=>{
+          if(index===0)return segment.startStepIndex;
+          const matched=service.steps.findIndex((step,i)=>i>=stepCursor&&i<segment.endStepIndexExclusive&&step.type==='AT'&&step.action?.type==='DESTINATION'&&step.action.wayPointIds.at(-1)===call.destinationId);
+          if(matched>=0)stepCursor=matched+1;
+          return matched;
+        });
+        return segment.calls.slice(1).flatMap((call,index)=>{
+          const previous=segment.calls[index],from=laneById.get(previous.stationId),to=laneById.get(call.stationId);
+          const departure=previous.status==='PASS'?previous.arrivalTick:previous.departureTick;
+          if(from==null||to==null||departure==null||call.arrivalTick==null)return [];
+          const sourceIndex=callSteps[index+1];
+          // PASS may be a VIA inside the same top-level timed route: use that containing route address.
+          const stepIndex=sourceIndex>=0?sourceIndex:callSteps.slice(index+1).find((i)=>i>=0)??segment.startStepIndex;
+          const point=(kind:'DEPARTURE'|'ARRIVAL',tick:number,y:number,station:string):GraphPoint=>({serviceIndex,stepIndex,runId:segment.runId,kind,tick,x:tickToX(tick),y,label:station,location:station});
+          return [{serviceIndex,serviceId:service.id,runId:segment.runId,points:[point('DEPARTURE',departure,from,previous.stationId),point('ARRIVAL',call.arrivalTick,to,call.stationId)]}];
+        });
+      });
+    }
     let current=normalizeLocation(service.steps.find((step)=>step.type==='CHECK')?.wayPointId||`${service.id}: origin`);
     let pendingArrival:{tick:number;stepIndex:number}|null=null;
     const segments:GraphPath[]=[];

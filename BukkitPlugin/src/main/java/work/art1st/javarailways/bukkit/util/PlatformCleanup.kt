@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit.util
 
+import java.util.concurrent.CompletionStage
+import java.util.concurrent.CompletionException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
@@ -78,6 +80,20 @@ internal object PlatformCleanup {
     }
 
     fun capture(action: () -> Unit): Task? = current.get()?.let { Task(it, action) }
+
+    /** Joins an asynchronous destruction result into the enclosing barrier without blocking its owner. */
+    fun awaitCompletion(stage: CompletionStage<*>) {
+        if (skipsOwnerTasks()) return
+        val task = capture {} ?: return
+        try {
+            stage.whenComplete { _, failure ->
+                if (failure == null) task.retired()
+                else task.failed(if (failure is CompletionException && failure.cause != null) failure.cause!! else failure)
+            }
+        } catch (failure: Throwable) {
+            task.failed(failure)
+        }
+    }
 
     /** Folia full shutdown has stopped region ticks; only local teardown remains executable. */
     fun skipsOwnerTasks(): Boolean = current.get()?.skipOwnerTasks == true

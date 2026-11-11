@@ -1,217 +1,81 @@
 package work.art1st.javarailways.bukkit.operation
 
-import org.bukkit.Location
 import work.art1st.javarailways.basic.api.operation.TrainOperation
 import work.art1st.javarailways.basic.api.operation.TrainOperationExecutionResult
 import work.art1st.javarailways.basic.api.operation.TrainOperationGateway
 import work.art1st.javarailways.basic.api.operation.TrainOperationRequest
-import work.art1st.javarailways.basic.api.operation.TrainOperationTicket
-import work.art1st.javarailways.basic.api.operation.TrainOperationTicketSnapshot
-import work.art1st.javarailways.basic.api.operation.TrainOperationTicketState
-import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.bukkit.BukkitPlugin
-import work.art1st.javarailways.bukkit.extension.bukkitWorldData
-import work.art1st.javarailways.bukkit.extension.train.TrainModelOperationResult
-import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
+import work.art1st.javarailways.bukkit.extension.train.CarExtension
+import work.art1st.javarailways.bukkit.extension.train.renderer
+import work.art1st.javarailways.bukkit.util.BukkitThreadOwnership
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.train.Train
-import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
-import work.art1st.javarailways.bukkit.util.BukkitThreadOwnership
-import work.art1st.javarailways.core.util.ThreadGuard
-import java.util.concurrent.atomic.AtomicReference
+import work.art1st.javarailways.core.api.threading.ThreadGuard
+import java.util.concurrent.CompletableFuture
 
-fun interface BukkitDoorOperationExecutor {
-    fun execute(
-        train: Train,
-        side: DoorSide,
-        opening: Boolean,
-        onComplete: () -> Unit
-    ): TrainModelOperationResult
-}
-
-fun interface BukkitModelActionExecutor {
-    fun execute(
-        train: Train,
-        actionName: String,
-        onComplete: () -> Unit
-    ): TrainModelOperationResult
-}
-
-fun interface BukkitTrainOperationDispatcher {
-    /** Submit without waiting for a Folia region thread; completion may run on that region later. */
-    fun dispatch(
-        train: Train,
-        operation: () -> TrainModelOperationResult,
-        onResult: (Result<TrainModelOperationResult>) -> Unit
-    )
-}
-
-class RegionTrainOperationDispatcher(
-    private val plugin: BukkitPlugin
-) : BukkitTrainOperationDispatcher {
-    override fun dispatch(
-        train: Train,
-        operation: () -> TrainModelOperationResult,
-        onResult: (Result<TrainModelOperationResult>) -> Unit
-    ) {
-        val position = train.headLocation.position
-        val location = Location(
-            train.world.bukkitWorldData.bukkitWorld,
-            position.x(),
-            position.y(),
-            position.z()
-        )
-        val execute = {
-            onResult(runCatching {
-                BukkitThreadGuardBridge.runInSimulationContext(operation)
-            })
+/** Re-resolves the exact car's location on arrival; no simulation lock or live train traversal. */
+class RegionTrainOperationDispatcher(private val plugin: BukkitPlugin) {
+    internal fun <T> dispatch(car: CarExtension, operation: () -> T): CompletableFuture<T> {
+        val result = CompletableFuture<T>()
+        fun submit() {
+            if (result.isDone) return
+            try {
+                val location = car.behaviorLocation()
+                if (BukkitThreadOwnership.isOwnedByCurrentRegion(location)) result.complete(operation())
+                else plugin.platformDispatcher.runAt(location) { submit() }
+            } catch (failure: Exception) { result.completeExceptionally(failure) }
         }
-        if (BukkitThreadOwnership.isOwnedByCurrentRegion(location)) {
-            execute()
-        } else {
-            plugin.platformDispatcher.runAt(location, execute)
-        }
+        submit()
+        return result
     }
 }
 
-/** Simulation adapter from Basic semantic operations to region-owned train model actions. */
+/** Adapts a semantic operation to a fixed-car future, never merely queue acceptance. */
 class BukkitTrainOperationGateway(
     private val world: World,
-    private val operationDispatcher: BukkitTrainOperationDispatcher = BukkitTrainOperationDispatcher {
-        _, action, onResult -> onResult(runCatching(action))
-    },
-    private val doorExecutor: BukkitDoorOperationExecutor = BukkitDoorOperationExecutor {
-        train, side, opening, onComplete ->
-        val renderer = train.rendererOrNull
-            ?: return@BukkitDoorOperationExecutor TrainModelOperationResult.Rejected(
-                "train renderer is not registered: ${train.id}"
-            )
-        renderer.executeDoorOperation(side, opening, onComplete)
-    },
-    private val modelActionExecutor: BukkitModelActionExecutor = BukkitModelActionExecutor {
-        train, actionName, onComplete ->
-        val renderer = train.rendererOrNull
-            ?: return@BukkitModelActionExecutor TrainModelOperationResult.Rejected(
-                "train renderer is not registered: ${train.id}"
-            )
-        renderer.executeModelAction(actionName, onComplete)
+    private val executeOperation: (Train, TrainOperation, () -> Boolean) -> CompletableFuture<Unit> = { train, operation, pending ->
+        when (operation) {
+            is TrainOperation.OpenDoors -> train.renderer.executeDoorOperation(operation.side, true, pending)
+            is TrainOperation.CloseDoors -> train.renderer.executeDoorOperation(operation.side, false, pending)
+            is TrainOperation.ExecuteModelAction -> train.renderer.executeModelAction(operation.actionName, pending)
+            else -> error("unsupported operation")
+        }
     }
 ) : TrainOperationGateway {
-    constructor(world: World, doorExecutor: BukkitDoorOperationExecutor) : this(
-        world = world,
-        operationDispatcher = BukkitTrainOperationDispatcher {
-            _, action, onResult -> onResult(runCatching(action))
-        },
-        doorExecutor = doorExecutor
-    )
+    override fun estimateDoorCloseDurationTicks(trainId: String, side: work.art1st.javarailways.basic.api.operation.DoorSide): CompletableFuture<Long> {
+        ThreadGuard.ensureMainThread("BukkitTrainOperationGateway.estimateDoorCloseDurationTicks")
+        if (side == work.art1st.javarailways.basic.api.operation.DoorSide.NONE) return CompletableFuture.completedFuture(0L)
+        val train = world.getTrain(trainId) ?: return CompletableFuture.failedFuture(IllegalArgumentException("train not found: $trainId"))
+        return train.renderer.estimateDoorCloseDurationTicks(side)
+    }
 
     override fun execute(request: TrainOperationRequest): TrainOperationExecutionResult {
         ThreadGuard.ensureMainThread("BukkitTrainOperationGateway.execute")
-        val train = world.getTrain(request.trainId)
-            ?: return TrainOperationExecutionResult.Rejected("train not found: ${request.trainId}")
         val operation = request.operation
-        if (operation !is TrainOperation.OpenDoors &&
-            operation !is TrainOperation.CloseDoors &&
-            operation !is TrainOperation.ExecuteModelAction
-        ) {
-            return TrainOperationExecutionResult.Rejected(
-                "Bukkit adapter does not support ${operation::class.simpleName}"
-            )
-        }
-        val ticket = BukkitOperationTicket(request)
+        if (operation !is TrainOperation.OpenDoors && operation !is TrainOperation.CloseDoors && operation !is TrainOperation.ExecuteModelAction)
+            return TrainOperationExecutionResult.Rejected("Bukkit adapter does not support ${operation::class.simpleName}")
+        val train = world.getTrain(request.trainId) ?: return TrainOperationExecutionResult.Rejected("train not found: ${request.trainId}")
+        val ticket = ModelOperationTicket(request, "bukkit")
         try {
-            operationDispatcher.dispatch(
-                train,
-                operation = {
-                    if (!ticket.isPending()) {
-                        TrainModelOperationResult.Rejected("operation cancelled before region dispatch")
-                    } else {
-                        when (operation) {
-                            is TrainOperation.OpenDoors -> doorExecutor.execute(
-                                train,
-                                operation.side,
-                                true,
-                                ticket::complete
-                            )
-                            is TrainOperation.CloseDoors -> doorExecutor.execute(
-                                train,
-                                operation.side,
-                                false,
-                                ticket::complete
-                            )
-                            is TrainOperation.ExecuteModelAction -> modelActionExecutor.execute(
-                                train,
-                                operation.actionName,
-                                ticket::complete
-                            )
-                            else -> error("unsupported operation passed validation")
-                        }
-                    }
-                },
-                onResult = { result ->
-                    result.fold(
-                        onSuccess = { operationResult ->
-                            if (operationResult is TrainModelOperationResult.Rejected) {
-                                ticket.fail(operationResult.reason)
-                            }
-                        },
-                        onFailure = { failure ->
-                            ticket.fail(
-                                "train operation failed: " +
-                                    (failure.message ?: failure::class.java.simpleName)
-                            )
-                        }
-                    )
+            executeOperation(train, operation, ticket::isPending).whenComplete { _, failure ->
+                if (failure == null) ticket.complete()
+                else {
+                    reportFailure(request, ticket, failure)
+                    ticket.fail(failure.cause?.message ?: failure.message ?: failure::class.java.simpleName)
                 }
-            )
+            }
         } catch (failure: Exception) {
-            return TrainOperationExecutionResult.Rejected(
-                "train operation dispatch failed: " +
-                    (failure.message ?: failure::class.java.simpleName)
-            )
+            reportFailure(request, ticket, failure)
+            ticket.fail(failure.message ?: failure::class.java.simpleName)
         }
         return TrainOperationExecutionResult.Accepted(ticket)
     }
 
-    private data class TicketStatus(
-        val state: TrainOperationTicketState,
-        val message: String? = null
-    )
-
-    private class BukkitOperationTicket(
-        override val request: TrainOperationRequest
-    ) : TrainOperationTicket {
-        private val status = AtomicReference(TicketStatus(TrainOperationTicketState.PENDING))
-
-        fun isPending(): Boolean = status.get().state == TrainOperationTicketState.PENDING
-
-        fun complete() {
-            transition(TicketStatus(TrainOperationTicketState.SUCCEEDED))
-        }
-
-        fun fail(message: String) {
-            require(message.isNotBlank())
-            transition(TicketStatus(TrainOperationTicketState.FAILED, message))
-        }
-
-        override fun snapshot(): TrainOperationTicketSnapshot {
-            val current = status.get()
-            return TrainOperationTicketSnapshot(
-                ticketId = "bukkit:${request.requestId}",
-                requestId = request.requestId,
-                state = current.state,
-                message = current.message
-            )
-        }
-
-        override fun cancel() {
-            transition(TicketStatus(TrainOperationTicketState.CANCELLED))
-        }
-
-        private fun transition(next: TicketStatus) {
-            status.updateAndGet { current ->
-                if (current.state == TrainOperationTicketState.PENDING) next else current
-            }
-        }
+    private fun reportFailure(request: TrainOperationRequest, ticket: ModelOperationTicket, failure: Throwable) {
+        if (!ticket.isPending() || failure is java.util.concurrent.CancellationException ||
+            failure.cause is java.util.concurrent.CancellationException) return
+        java.util.logging.Logger.getLogger(BukkitTrainOperationGateway::class.java.name).log(
+            java.util.logging.Level.WARNING,
+            "Train operation failed request=${request.requestId} train=${request.trainId} operation=${request.operation}", failure)
     }
 }

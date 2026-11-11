@@ -34,7 +34,7 @@ validate-models
   → Pagefind index
 ```
 
-- `validate-model-packages.mjs` 从主仓 `schemas/train-model/` 读取 Draft 2020-12 schema，并验证 `models/` YAML；YAML 1.2 strict、unique keys，`on/off/yes/no` scene name 必须 quote。
+- `validate-model-packages.mjs` 从主仓 `schemas/train-model/` 读取 Draft 2020-12 schema，并验证 `models/` 中列车包的 YAML；以manifest/control/actions/cars/parts包标记识别候选，裸轨道素材和resourcepack目录不当作列车包，具有列车内容但缺manifest仍报错。YAML 1.2 strict、unique keys，`on/off/yes/no` scene name 必须 quote。
 - `test-model-schemas.mjs` 固定 schema rejection cases，防止 schema 接受 loader 不支持的 shape。
 - `check-examples.mjs` 对主仓 `examples/`、`models/` 中 `.js` 执行 Node syntax check；示例改动要显式运行，因为当前 `npm run check` 未包含该 script。
 - `copy-reference-files.mjs` 把主仓 `schemas/` 和 submodule `reference/types/` 复制到 `static/`。修改 source 后重建，不直接编辑 `static`。

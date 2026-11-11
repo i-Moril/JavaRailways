@@ -13,16 +13,65 @@ import work.art1st.javarailways.bukkit.extension.renderChunkManager
 import work.art1st.javarailways.bukkit.persistence.PersistedRailRenderMeta
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
-import work.art1st.javarailways.core.util.ThreadGuard
+import work.art1st.javarailways.core.api.threading.ThreadGuard
+import work.art1st.javarailways.core.api.render.RenderableExtension
+import work.art1st.javarailways.core.api.physics.rail.Rail
+import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
+import work.art1st.javarailways.core.api.util.plugin.ExtensionData
+import work.art1st.javarailways.core.api.util.DestructionSteps
+import work.art1st.javarailways.core.api.util.Destruction
+import java.util.concurrent.CompletionStage
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 object RailVisualBootstrap {
-    private val railSegments: MutableMap<UUID, MutableList<RailArcVisualSegment>> = ConcurrentHashMap()
+    internal data class RailVisualKey(val worldRuntimeId: String, val railId: UUID)
+
+    private val railVisuals = ConcurrentHashMap<RailVisualKey, RailVisualLifetime>()
+
+    private fun key(rail: CoreRail) = RailVisualKey(rail.world.runtimeId, rail.id)
+
+    /** The rail owns both current visuals and cleanup already started by a replacement. */
+    internal class RailVisualLifetime(val rail: CoreRail) :
+        RenderableExtension<Rail> {
+        var segments: List<RailArcVisualSegment> = emptyList()
+        private val pending = ConcurrentLinkedQueue<CompletionStage<Void>>()
+        private val destruction = Destruction()
+
+        override fun initialize(host: Rail,
+            savedExtensionData: Map<String, SerializableExtensionData>) = Unit
+        override fun save(): Pair<String, SerializableExtensionData>? = null
+        override fun commit() = Unit
+
+        fun clear(): CompletionStage<Void> {
+            val removed = segments
+            segments = emptyList()
+            val steps = DestructionSteps()
+            removed.forEach { segment -> steps.await { segment.destroy() } }
+            val current = steps.finish()
+            pending.add(current)
+            current.whenComplete { _, failure -> if (failure == null) pending.remove(current) }
+            val all = DestructionSteps()
+            pending.forEach { result -> all.await { result } }
+            return rail.world.trackRailCleanup(all.finish())
+        }
+
+        override fun destroy(): CompletionStage<Void> = destruction.run {
+            val result = clear()
+            railVisuals.remove(key(rail), this)
+            result
+        }
+    }
 
     fun registerRail(rail: CoreRail, railType: String = "standard"): PersistedRailRenderMeta =
         registerRailWithTemplate(rail, createTemplateSnapshot(railType))
+
+    /** Captures the immutable model template before an asynchronous RailWand prepare stage. */
+    fun captureTemplateSnapshot(railType: String = "standard"): RailTemplateSnapshot =
+        createTemplateSnapshot(railType)
 
     fun registerRailWithTemplate(
         rail: CoreRail,
@@ -30,7 +79,7 @@ object RailVisualBootstrap {
     ): PersistedRailRenderMeta {
         ThreadGuard.ensureMainThread("RailVisualBootstrap.registerRailWithTemplate")
         val segments = createSegments(rail, templateSnapshot)
-        registerSegments(rail.id, segments)
+        registerSegments(rail, segments)
         return PersistedRailRenderMeta(
             railId = rail.id,
             segments = segments.map { RailArcSegmentMeta(it.arcStart, it.arcEnd, it.pointArcs) },
@@ -38,51 +87,131 @@ object RailVisualBootstrap {
         )
     }
 
-    fun unregisterRail(railId: UUID) {
+    /** Computes decoration records without replacing any registered visual. */
+    internal fun capturePersistedMeta(rail: CoreRail, template: RailTemplateSnapshot): PersistedRailRenderMeta =
+        PersistedRailRenderMeta(
+            rail.id,
+            createSegments(rail, template).map { RailArcSegmentMeta(it.arcStart, it.arcEnd, it.pointArcs) },
+            template
+        )
+
+    fun unregisterRail(world: CoreWorld, railId: UUID): CompletionStage<Void> {
         ThreadGuard.ensureMainThread("RailVisualBootstrap.unregisterRail")
-        railSegments.remove(railId)?.forEach { it.destroy() }
+        val owner = railVisuals.remove(RailVisualKey(world.runtimeId, railId))
+            ?: return CompletableFuture.completedFuture(null)
+        return owner.clear().whenComplete { _, failure ->
+            if (failure != null) BukkitPlugin.INSTANCE.logger.log(java.util.logging.Level.SEVERE,
+                "Rail visual cleanup failed: rail=$railId", failure)
+        }
+    }
+
+    /** Retires only the exact runtime, even if another loaded world has copied rail IDs. */
+    internal fun retireWorld(world: CoreWorld): CompletionStage<Void> {
+        val cleanup = DestructionSteps()
+        railVisuals.entries.filter { it.key.worldRuntimeId == world.runtimeId }.forEach { (key, owner) ->
+            if (railVisuals.remove(key, owner)) cleanup.await { owner.destroy() }
+        }
+        return cleanup.finish()
     }
 
     fun fromPersisted(coreWorld: CoreWorld, persisted: PersistedRailRenderMeta): Boolean {
         ThreadGuard.ensureMainThread("RailVisualBootstrap.fromPersisted")
         val rail = coreWorld.getRail(persisted.railId) ?: return false
-        registerSegments(rail.id, createSegments(rail, persisted.templateSnapshot))
+        registerSegments(rail, createSegmentsFromPersisted(rail, persisted))
         return true
     }
 
-    private fun registerSegments(railId: UUID, segments: List<RailArcVisualSegment>) {
-        unregisterRail(railId)
+    /**
+     * Builds persistence/render input without touching a live world. [assemblyLengths] is the
+     * ordered length of every segment in the same lane when [assemblyIndex] is non-null.
+     */
+    fun preparePersistedMeta(
+        railId: UUID,
+        totalArcLength: Double,
+        templateSnapshot: RailTemplateSnapshot,
+        assemblyIndex: Int? = null,
+        assemblyLengths: List<Double> = emptyList()
+    ): PersistedRailRenderMeta {
+        require(totalArcLength >= 0.0 && totalArcLength.isFinite())
+        val allArcs = if (assemblyIndex == null) {
+            RailDecorationLayout.endpointInclusiveArcs(
+                totalArcLength,
+                templateSnapshot.repeatLength
+            )
+        } else {
+            require(assemblyIndex in assemblyLengths.indices)
+            require(assemblyLengths.all { it >= 0.0 && it.isFinite() })
+            val offset = assemblyLengths.take(assemblyIndex).sum()
+            val assemblyTotal = assemblyLengths.sum()
+            RailDecorationLayout.endpointInclusiveArcs(
+                assemblyTotal,
+                templateSnapshot.repeatLength
+            ).filter { globalArc ->
+                globalArc >= offset - 1.0e-9 &&
+                    (globalArc < offset + totalArcLength - 1.0e-9 || assemblyIndex == assemblyLengths.lastIndex)
+            }.map { it - offset }
+        }
+        val segmentCount = kotlin.math.ceil(totalArcLength / RailArcVisualSegment.SEGMENT_ARC_LENGTH).toInt()
+        val segments = (0 until segmentCount).mapNotNull { index ->
+            val arcStart = index * RailArcVisualSegment.SEGMENT_ARC_LENGTH
+            val arcEnd = minOf((index + 1) * RailArcVisualSegment.SEGMENT_ARC_LENGTH, totalArcLength)
+            val pointArcs = RailDecorationLayout.arcsInSegment(
+                allArcs,
+                arcStart,
+                arcEnd,
+                includeEnd = index == segmentCount - 1
+            )
+            pointArcs.takeIf { it.isNotEmpty() }?.let {
+                RailArcSegmentMeta(arcStart, arcEnd, it)
+            }
+        }
+        return PersistedRailRenderMeta(railId, segments, templateSnapshot)
+    }
+
+    @OptIn(ExtensionData::class)
+    private fun registerSegments(rail: CoreRail, segments: List<RailArcVisualSegment>) {
+        val existing = railVisuals[key(rail)]
+        val owner = if (existing != null && existing.rail === rail) existing else {
+            existing?.let { rail.world.trackRailCleanup(it.destroy()) }
+            val registered = rail.getExtensionDataOrNull<RenderableExtension<Rail>>(BukkitPlugin.INSTANCE)
+            check(registered == null || registered is RailVisualLifetime) {
+                "Rail already has a different Bukkit lifecycle extension"
+            }
+            (registered as? RailVisualLifetime ?: RailVisualLifetime(rail).also {
+                rail.registerExtensionData(BukkitPlugin.INSTANCE, it)
+            }).also { railVisuals[key(rail)] = it }
+        }
+        owner.clear()
+        // Attach the full batch before indexing, so partial registration failures remain owned.
+        owner.segments = segments
         if (segments.isEmpty()) return
         val renderManager = segments.first().world.renderChunkManager
         segments.forEach { segment ->
             val extension = RailExtension()
             segment.registerExtensionData(BukkitPlugin.INSTANCE, extension)
             extension.initialize(segment, emptyMap())
-            // Register lightweight metadata only. RenderChunkManager builds entities when the
-            // first nearby player becomes an audience member and unloads them after the last leaves.
             renderManager.update(segment, null, segment.position)
         }
-        railSegments[railId] = segments.toMutableList()
     }
 
     private fun createSegments(rail: CoreRail, templateSnapshot: RailTemplateSnapshot): List<RailArcVisualSegment> {
         val total = rail.curve.totalArcLength
         if (total <= 0.0) return emptyList()
         val segmentCount = kotlin.math.ceil(total / RailArcVisualSegment.SEGMENT_ARC_LENGTH).toInt()
-        val assembly = rail.metadata.assembly
+        val assembly = rail.metadata.authoring?.assembly
         val allArcs = if (assembly == null) {
             RailDecorationLayout.endpointInclusiveArcs(
                 totalArcLength = total,
-                repeatLength = templateSnapshot.repeatLength.coerceAtLeast(0.1)
+                repeatLength = templateSnapshot.repeatLength
             )
         } else {
             val candidates = rail.world.allRails.filter { candidate ->
-                candidate.metadata.assembly?.let {
+                candidate.metadata.authoring?.assembly?.let {
                     it.groupId == assembly.groupId && it.laneIndex == assembly.laneIndex
                 } == true
             }
             val siblings = (0 until assembly.segmentCount).map { segmentIndex ->
-                val atIndex = candidates.filter { it.metadata.assembly!!.segmentIndex == segmentIndex }
+                val atIndex = candidates.filter { it.metadata.authoring?.assembly!!.segmentIndex == segmentIndex }
                 require(atIndex.isNotEmpty()) { "Incomplete rail assembly ${assembly.groupId}" }
                 if (segmentIndex == assembly.segmentIndex) atIndex.firstOrNull { it.id == rail.id } ?: atIndex.first()
                 else atIndex.first()
@@ -91,7 +220,7 @@ object RailVisualBootstrap {
             val assemblyTotal = siblings.sumOf { it.curve.totalArcLength }
             RailDecorationLayout.endpointInclusiveArcs(
                 totalArcLength = assemblyTotal,
-                repeatLength = templateSnapshot.repeatLength.coerceAtLeast(0.1)
+                repeatLength = templateSnapshot.repeatLength
             ).filter { globalArc ->
                 globalArc >= offset - 1.0e-9 &&
                     (globalArc < offset + total - 1.0e-9 || assembly.segmentIndex == assembly.segmentCount - 1)
@@ -116,6 +245,20 @@ object RailVisualBootstrap {
                 )
             }
         }
+    }
+
+    private fun createSegmentsFromPersisted(
+        rail: CoreRail,
+        persisted: PersistedRailRenderMeta
+    ): List<RailArcVisualSegment> = persisted.segments.map { segment ->
+        require(segment.arcStart >= 0.0 && segment.arcEnd <= rail.curve.totalArcLength + 1.0e-6)
+        RailArcVisualSegment(
+            rail = rail,
+            arcStart = segment.arcStart,
+            arcEnd = segment.arcEnd,
+            pointArcs = segment.pointArcs,
+            templateSnapshot = persisted.templateSnapshot
+        )
     }
 
     private fun createTemplateSnapshot(railType: String): RailTemplateSnapshot {

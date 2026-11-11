@@ -1,0 +1,14 @@
+{
+  "/": {
+    "status": 200,
+    "sha256": "4df36e99599ca1e778063bd518f45daa43aac7eb7b842e4e6cd5dfe5e5521b46"
+  },
+  "/assets/index-CUF49kzK.js": {
+    "status": 200,
+    "sha256": "2b7a3d936f3e735655cbf928808d268fbbb4bfd92e00b843ae70ff41dc5cf710"
+  },
+  "sse": {
+    "status": 200,
+    "receivedFrame": true
+  }
+}

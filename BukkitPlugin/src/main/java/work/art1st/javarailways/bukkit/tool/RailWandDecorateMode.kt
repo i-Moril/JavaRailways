@@ -2,6 +2,8 @@ package work.art1st.javarailways.bukkit.tool
 
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.entity.Player
+import work.art1st.javarailways.bukkit.BukkitPlugin
+import java.util.concurrent.CompletionStage
 import org.bukkit.event.block.Action
 import org.bukkit.event.player.PlayerInteractEvent
 import work.art1st.javarailways.bukkit.logic.RailVisualBootstrap
@@ -36,8 +38,7 @@ internal class RailWandDecorateMode(private val wand: RailWand) {
                 wand.persistPlayerState(player, state)
                 player.sendActionBar(RailWandI18n.component(
                     player,
-                    "message.decorate_delete_selected",
-                    rail.id.toString().take(8)
+                    "message.decorate_delete_selected"
                 ).color(NamedTextColor.YELLOW))
                 return@findLookedAtRailAsync
             }
@@ -45,18 +46,20 @@ internal class RailWandDecorateMode(private val wand: RailWand) {
             val railIds = logicalRails.mapTo(linkedSetOf()) { it.id }
             val renderMetas = RailRenderMetaStore.load(player.world)
             val renderMetasBefore = renderMetas.filter { it.railId in railIds }
-            logicalRails.forEach { RailVisualBootstrap.unregisterRail(it.id) }
-            RailRenderMetaStore.saveAll(
-                player.world,
-                renderMetas.filterNot { it.railId in railIds }
-            )
-            state.pendingDecorationDeleteRail = null
-            wand.persistPlayerState(player, state)
-            wand.recordDecorationUndo(player, railIds, renderMetasBefore, emptyList())
-            player.sendActionBar(RailWandI18n.component(
-                player,
-                "message.decorations_cleared"
-            ).color(NamedTextColor.GREEN))
+            runCatching {
+                rail.world.collectRailCleanup {
+                    RailRenderMetaStore.saveAll(player.world, renderMetas.filterNot { it.railId in railIds })
+                    logicalRails.forEach { RailVisualBootstrap.unregisterRail(it.world, it.id) }
+                    state.pendingDecorationDeleteRail = null
+                    wand.persistPlayerState(player, state)
+                    wand.recordDecorationUndo(player, railIds, renderMetasBefore, emptyList())
+                }.second
+            }.onSuccess { cleanup ->
+                afterCleanup(player, cleanup) {
+                    player.sendActionBar(RailWandI18n.component(player, "message.decorations_cleared")
+                        .color(NamedTextColor.GREEN))
+                }
+            }.onFailure { reportFailure(player, it) }
         }
     }
 
@@ -75,28 +78,39 @@ internal class RailWandDecorateMode(private val wand: RailWand) {
                 ?: return@findLookedAtRailAsync
 
             runCatching {
-                val logicalRails = wand.logicalRails(player, rail)
-                val railIds = logicalRails.mapTo(linkedSetOf()) { it.id }
-                val renderMetasBefore = RailRenderMetaStore.load(player.world).filter { it.railId in railIds }
-                val metas = logicalRails.map { RailVisualBootstrap.registerRail(it, modelName) }
-                RailRenderMetaStore.upsertRails(player.world, metas)
-                Triple(railIds, renderMetasBefore, metas)
-            }.onSuccess { (railIds, renderMetasBefore, expectedAfter) ->
+                rail.world.collectRailCleanup {
+                    val logicalRails = wand.logicalRails(player, rail)
+                    val railIds = logicalRails.mapTo(linkedSetOf()) { it.id }
+                    val renderMetasBefore = RailRenderMetaStore.load(player.world).filter { it.railId in railIds }
+                    val template = RailVisualBootstrap.captureTemplateSnapshot(modelName)
+                    val metas = logicalRails.map { RailVisualBootstrap.capturePersistedMeta(it, template) }
+                    RailRenderMetaStore.upsertRails(player.world, metas)
+                    metas.forEach { RailVisualBootstrap.fromPersisted(rail.world, it) }
+                    Triple(railIds, renderMetasBefore, metas)
+                }
+            }.onSuccess { (applied, cleanup) ->
+                val (railIds, renderMetasBefore, expectedAfter) = applied
                 state.pendingDecorationDeleteRail = null
                 wand.persistPlayerState(player, state)
                 wand.recordDecorationUndo(player, railIds, renderMetasBefore, expectedAfter)
-                player.sendActionBar(RailWandI18n.component(
-                    player,
-                    "message.rail_decorated",
-                    modelName
-                ).color(NamedTextColor.GREEN))
-            }.onFailure { error ->
-                player.sendMessage(RailWandI18n.component(
-                    player,
-                    "message.decoration_failed",
-                    railWandFailureReason(error)
-                ).color(NamedTextColor.RED))
-            }
+                afterCleanup(player, cleanup) {
+                    player.sendActionBar(RailWandI18n.component(player, "message.rail_decorated", modelName)
+                        .color(NamedTextColor.GREEN))
+                }
+            }.onFailure { reportFailure(player, it) }
         }
+    }
+
+    private fun afterCleanup(player: Player, cleanup: CompletionStage<Void>, success: () -> Unit) {
+        cleanup.whenComplete { _, failure ->
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(player, action = {
+                if (failure == null) success() else reportFailure(player, failure)
+            })
+        }
+    }
+
+    private fun reportFailure(player: Player, failure: Throwable) {
+        player.sendMessage(RailWandI18n.component(player, "message.decoration_failed",
+            railWandFailureReason(failure)).color(NamedTextColor.RED))
     }
 }

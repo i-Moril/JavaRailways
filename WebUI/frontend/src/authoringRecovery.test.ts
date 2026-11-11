@@ -1,7 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {parseAuthoringRecovery} from './authoringRecovery';
 
-const document={formatVersion:1 as const,id:'weekday',periodDays:1,runs:[],duties:[],diagramLines:[],arrivalOverrides:[]};
+const document={formatVersion:1 as const,id:'weekday',periodDays:1,runs:[],duties:[],diagramLines:[],arrivalOverrides:[],initialPositions:[]};
 
 describe('authoring recovery',()=>{
   it('restores a valid unsaved workspace for the same world',()=>{
@@ -22,4 +22,12 @@ describe('authoring recovery',()=>{
     expect(parseAuthoringRecovery(JSON.stringify({version:1,owner:'Alice',world:'other',document,savedDocumentJson:'x'}),'Alice','world')).toBeUndefined();
     expect(parseAuthoringRecovery(JSON.stringify({version:1,owner:'Bob',world:'world',document,savedDocumentJson:'x'}),'Alice','world')).toBeUndefined();
   });
+});
+
+it('retains the global minimum across recovery and rejects invalid persisted values',()=>{
+ const state={version:1,owner:'Alice',world:'world',documentId:'draft',formalScriptName:'t.js',persistedFormalScriptName:'',savedDocumentJson:'',document:{...document,minimumDwellTicks:40}};
+ expect(parseAuthoringRecovery(JSON.stringify(state),'Alice','world')?.document.minimumDwellTicks).toBe(40);
+ for(const value of [-1,0.5,null,'20',Number.MAX_SAFE_INTEGER+1]){
+  expect(parseAuthoringRecovery(JSON.stringify({...state,document:{...document,minimumDwellTicks:value}}),'Alice','world')).toBeUndefined();
+ }
 });

@@ -1,0 +1,87 @@
+package work.art1st.javarailways.core.api.physics.infrastructure
+
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import java.util.Collections
+import java.util.LinkedHashSet
+import java.util.UUID
+
+/**
+ * Stable identity of one structural topology node, independent of a runtime topology revision.
+ *
+ * A Core [work.art1st.javarailways.core.api.physics.rail.topology.TopologyNodeId] is revision-local
+ * and must not be retained by an infrastructure dependency. The canonical set of persistent rail endpoints is
+ * stable until that physical node is itself edited.
+ */
+class StableTopologyNodeKey(ports: Collection<RailEndpointRef>) {
+    val ports: List<RailEndpointRef> = Collections.unmodifiableList(ports.distinct().sorted())
+
+    init {
+        require(this.ports.isNotEmpty()) { "topology node key must contain at least one port" }
+    }
+
+    override fun equals(other: Any?): Boolean =
+        other is StableTopologyNodeKey && ports == other.ports
+
+    override fun hashCode(): Int = ports.hashCode()
+
+    override fun toString(): String = "StableTopologyNodeKey(ports=$ports)"
+}
+
+/** Non-exclusive infrastructure references required by one long-lived runtime or plan owner. */
+class InfrastructureDependencies(
+    railIds: Collection<UUID>,
+    topologyNodeKeys: Collection<StableTopologyNodeKey>,
+    resourceIds: Collection<StableInfrastructureResource>
+) {
+    val railIds: Set<UUID> = immutableSet(railIds)
+    val topologyNodeKeys: Set<StableTopologyNodeKey> = immutableSet(topologyNodeKeys)
+    val resourceIds: Set<StableInfrastructureResource> = immutableSet(resourceIds)
+
+    init {
+        require(this.railIds.isNotEmpty() || this.topologyNodeKeys.isNotEmpty() || this.resourceIds.isNotEmpty()) {
+            "infrastructure dependencies must not be empty"
+        }
+    }
+
+    override fun equals(other: Any?): Boolean = other is InfrastructureDependencies &&
+        railIds == other.railIds && topologyNodeKeys == other.topologyNodeKeys && resourceIds == other.resourceIds
+
+    override fun hashCode(): Int = 31 * (31 * railIds.hashCode() + topologyNodeKeys.hashCode()) + resourceIds.hashCode()
+}
+
+/** Applies or replaces one owner's complete dependency declaration against the current topology. */
+data class InfrastructureDependencyRequest(
+    val owner: InfrastructureOwner,
+    val dependencies: InfrastructureDependencies
+)
+
+data class InfrastructureDependencySnapshot(
+    val owner: InfrastructureOwner,
+    val dependencies: InfrastructureDependencies
+)
+
+enum class InfrastructureDependencyMutationStatus {
+    APPLIED,
+    REPLACED,
+    REMOVED,
+    UNCHANGED,
+    INVALID_REFERENCE,
+    OWNER_REVISION_CONFLICT,
+    EDIT_IN_PROGRESS,
+    WORLD_UNAVAILABLE,
+    SERVICE_CLOSED
+}
+
+data class InfrastructureDependencyMutationResult(
+    val status: InfrastructureDependencyMutationStatus,
+    val detail: String = ""
+) {
+    val successful: Boolean
+        get() = status == InfrastructureDependencyMutationStatus.APPLIED ||
+            status == InfrastructureDependencyMutationStatus.REPLACED ||
+            status == InfrastructureDependencyMutationStatus.REMOVED ||
+            status == InfrastructureDependencyMutationStatus.UNCHANGED
+}
+
+private fun <T> immutableSet(values: Collection<T>): Set<T> =
+    Collections.unmodifiableSet(LinkedHashSet(values))

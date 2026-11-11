@@ -1,0 +1,19 @@
+# 实现中的独立检查发现
+
+2026-10-19：以下具体问题均已修复，并通过独立全范围静态复核与对应定向回归；完整联合门禁的结果见最终validation/check-result，不使用早期focused替代。
+
+1. Inspection token退休误走planned replaceSources：active route使正常取消/PeriodEnded清理抛错。host改用既有removeSource；active binding+另一feature保留回归已在22项focused中真实通过。
+2. Capture锁顺序：source owner内的preparer不得反取manager management gate；domain实现仅短目录/immutable state读取，最终实码及真实交错测试已独立复核，12个新增Signals case包含该路径。
+3. Attach间接共享阻塞：manager目录锁内取runtime锁，而prepareDefinitions持该runtime锁编译；A attach等待使B目录被挡。已移出目录锁，真实prepare/attach barrier回归通过。
+4. Retire异常资源泄漏：topologySubscription.close抛错时remove/clear/failed-install可能跳JS close，或残留closed entry；已用独立/finally撤identity及关闭logic，保留原异常；真实subscription退休失败回归通过。
+5. 同UUID诊断竞态：旧remove/迟到install按UUID无条件clear/replace issues会覆盖新runtime诊断；按实际runtime identity及UUID重用边界修复，不加generation。
+6. 新JUnit方法发现：service lifecycle表达式推导Exception返回，JUnit静默未执行。已明确withServer<Unit>；当前host focused实际22项，最终应多发现执行该新增生命周期case，不能提前计23。所有新@Test最终核XML名称。
+7. 旧卸载语义回归：closedlogic候选误报VALIDATION_REJECTED；domain在candidateModels后复核实际runtimeidentity，保留原WORLD_UNAVAILABLE断言，原断言保持，最终manager focused154项通过。
+
+8. clearLocal诊断清空需与在途issue callback使用已有issueLock协调，防已通过closed检查的旧上报在清空后回填；与目录锁顺序保持一致，最终代码及相关生命周期回归已复核，无issueLock→目录锁逆序。
+
+9. 迟到旧拓扑worker在publishIssues之后另按UUID清revalidation，可能清新runtime诊断；已删除冗余unguarded clear，统一走现有issueLock/实际runtime identity检查。最终154项manager回归通过；未引入generation或测试专用生产hook。
+
+最终冻结27源码canonical SHA-256：a50950903a2a5a1273e2d006e546249b8a3dd08116324ac92e74c4e7f7377820。早期host22、Signals184及上一批2395均保留历史身份，不能替代本次完整门禁。
+
+门禁复核补项：Bukkit index要求HTTP bridge修改连跑frontend tests，最初完整JVM/Dokka/docs记录未含本轮vitest。最终已独立补跑108项/21files全部通过，使用本轮日志而非前批历史结果，无源变更，因此不重复已通过JVM门禁。

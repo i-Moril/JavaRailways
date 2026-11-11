@@ -8,6 +8,63 @@ class ScriptWorkerTest {
     private val json = Json { ignoreUnknownKeys = true }
     private fun run(body: String) = json.decodeFromString<SavedTimetableV1>(executeScript("function main(timetable) { $body }", "test"))
 
+    @Test fun `segments capture actual scoped action ranges and trips preserve per-unit definitions`() {
+        val result = run("""
+            timetable.setPeriodDays(1);
+            timetable.operationalTrip('trip', {defaults:{destination:'E'},segments:[{serviceId:'s',runId:'branch',unitSlots:[2]}]});
+            timetable.service('s','train',t=>{
+              t.check('A');
+              t.runSegment({runId:'main',lineId:'A',calls:[]},r=>r.origin('run:main',a=>a.at(10).destination('C')));
+              t.runSegment({runId:'branch',lineId:'B',diagramLineId:'diagram-B',lineDirection:'DOWN',calls:[
+                {id:'origin',stationId:'C',destinationId:'C@1',status:'ORIGIN',departureTick:20},
+                {id:'end',stationId:'E',destinationId:'E@1',status:'TERMINAL',arrivalTick:40}]},r=>{
+                  r.at(20).setDisplay([2],{kind:'express'},['old']);r.at(40).destination('E');r.resetDisplay([2]);
+              });
+            });
+        """)
+        val service = result.services.single()
+        assertEquals(listOf(1,3), service.runSegments.map { it.startStepIndex })
+        assertEquals(listOf(3,7), service.runSegments.map { it.endStepIndexExclusive })
+        assertEquals("E", service.runSegments.last().calls.last().stationId)
+        assertEquals(listOf(2), result.operationalTrips.single().segments.single().unitSlots)
+        assertEquals(SavedTimetableActionTypeV1.SET_DISPLAY, service.steps[3].action!!.type)
+        assertEquals(SavedTimetableActionTypeV1.RESET_DISPLAY, service.steps.last().action!!.type)
+        assertEquals(1, result.compilationTrace.first().stepIndex)
+    }
+
+    @Test fun `nested and empty segments and invalid display slots fail closed`() {
+        listOf(
+            "t.runSegment({runId:'r',lineId:'A'},r=>{});",
+            "t.runSegment({runId:'r',lineId:'A'},r=>r.runSegment({runId:'nested',lineId:'A'},a=>a.halt()));",
+            "t.setDisplay([0],{});", "t.resetDisplay([1,1]);", "t.setDisplay(['1'],{});"
+        ).forEach { body -> assertThrows(Throwable::class.java) {
+            run("timetable.setPeriodDays(1);timetable.service('s','train',t=>{t.check('A');$body});")
+        } }
+    }
+
+    @Test fun `station display before a run starts its upcoming trip after the final structural action`() {
+        val result = run("""
+            timetable.setPeriodDays(1);
+            timetable.service('s','train',t=>{
+              t.check('A'); t.at(5).reverse();
+              t.origin('duty:s/program:display',p=>p.at(5).setDisplay([1],{destination:'E'}));
+              t.runSegment({runId:'branch',lineId:'B',calls:[]},r=>r.at(10).destination('E'));
+            });
+            timetable.operationalTrip('next', {defaults:{destination:'D'},segments:[{serviceId:'s',runId:'branch',unitSlots:[1]}]});
+        """)
+        val service = result.services.single()
+        assertEquals(SavedTimetableActionTypeV1.REVERSE, service.steps[1].action!!.type)
+        val begin = service.steps[2].action!!
+        assertEquals(SavedTimetableActionTypeV1.BEGIN_OPERATIONAL_TRIP, begin.type)
+        assertEquals("next", begin.operationalTripId)
+        assertEquals("branch", begin.runId)
+        assertEquals(listOf(1), begin.unitSlots)
+        assertEquals(SavedTimetableActionTypeV1.SET_DISPLAY, service.steps[3].action!!.type)
+        assertEquals(4, service.runSegments.single().startStepIndex)
+        assertEquals(listOf(3, 2), result.compilationTrace.map { it.stepIndex })
+        assertTrue(result.compilationTrace.last().origin.endsWith("/operational-trip:next"))
+    }
+
     @Test fun `valid core DSL produces current snapshot`() {
         val result = run("""
             timetable.setPeriodDays(1);
@@ -97,7 +154,7 @@ class ScriptWorkerTest {
         val action = result.services.single().steps.last().action!!
         assertEquals(SavedTimetableActionTypeV1.CONDITIONAL, action.type)
         assertEquals("javarailways:occupied", action.condition!!.call!!.typeId)
-        assertEquals(1, action.elseActions.size)
+        assertEquals(1, action.elseSteps.size)
     }
 
     @Test fun `conditional service activation is serialized`() {
@@ -170,20 +227,88 @@ class ScriptWorkerTest {
         }
     }
 
-    @Test fun `legacy goto call and stop APIs are not exposed`() {
-        assertThrows(Throwable::class.java) {
-            run("timetable.setPeriodDays(1); timetable.service('s','train', t => t.at(1).goto('a'));")
-        }
-        assertThrows(Throwable::class.java) {
-            run("timetable.setPeriodDays(1); timetable.service('s','train', t => t.at(1).call('station','one'));")
-        }
-        assertThrows(Throwable::class.java) {
-            run("timetable.setPeriodDays(1); timetable.service('s','train', t => t.at(1).stop(20));")
-        }
-    }
-
     @Test fun `host classes are inaccessible`() {
         val error = assertThrows(Throwable::class.java) { run("timetable.setPeriodDays(1); Java.type('java.lang.System');") }
         assertTrue(error.toString().contains("Java") || error.toString().contains("host", ignoreCase = true))
     }
+
+    @Test fun `timed JS branch callbacks share sequence builder and retain addressed origins`() {
+        val result = run("""
+            timetable.setPeriodDays(1);
+            const condition = timetable.predicate('test:choose', {});
+            timetable.service('s', 'train', t => {
+              t.check('start');
+              t.origin('outer', t => t.at(10).whenCondition(condition,
+                yes => yes.origin('yes-leaf', a => a.at(20).action('test:action', {})),
+                no => no.origin('no-leaf', a => a.at(30).action('test:action', {}))));
+              t.action('test:suffix', {});
+            });
+        """)
+        val steps = result.services.single().steps
+        assertEquals(20L, steps[1].action!!.thenSteps.single().tick)
+        assertEquals(30L, steps[1].action!!.elseSteps.single().tick)
+        assertEquals(30L, steps.last().tick)
+        val yes = result.compilationTrace.single { it.origin == "yes-leaf" }
+        assertEquals(1, yes.stepIndex)
+        assertEquals(listOf(SavedTimetableBranchPathEntryV1(SavedTimetableBranchArmV1.THEN, 0)), yes.branchPath)
+        assertEquals(SavedTimetableBranchArmV1.ELSE,
+            result.compilationTrace.single { it.origin == "no-leaf" }.branchPath.single().arm)
+    }
+
+    @Test fun `JS nested conditional cannot hide a fixed event or move suffix before arm schedule`() {
+        for (body in listOf(
+            "t.at(10).whenCondition(condition, a => a.whenCondition(condition, b => b.split('split')))",
+            "t.at(10).whenCondition(condition, a => a.at(20).action('test:action', {})); t.at(15).action('test:suffix', {})")) {
+            assertThrows(Throwable::class.java) {
+                run("timetable.setPeriodDays(1); const condition=timetable.predicate('test:choose',{}); timetable.service('s','train',t=>{t.check('start'); $body;});")
+            }
+        }
+    }
+
+
+    @Test fun `captured timed builder compares emitted actions rather than unused selections`() {
+        val saved = run("""
+            timetable.setPeriodDays(1);
+            timetable.service('s','train',t=>{
+              t.check('start'); const earlier=t.at(5); t.at(20);
+              earlier.destination('target'); t.at(6).action('test:action',{});
+            });
+        """)
+        assertEquals(listOf(5L,5L,6L), saved.services.single().steps.drop(1).map { it.tick })
+        assertThrows(Throwable::class.java) {
+            run("timetable.setPeriodDays(1);timetable.service('s','train',t=>{const earlier=t.at(5);t.at(20).action('test:action',{});earlier.action('test:action',{});});")
+        }
+    }
+
+
+    @Test fun `selectStop emits one movement action with ordered finite station candidates`() {
+        val saved = run("""
+            timetable.setPeriodDays(1);
+            timetable.service('s','train',t=>{
+              t.check('start'); t.at(5).selectStop('central',['long','short'],'AVAILABLE_PRIORITY',
+                {minimumDwellTicks:30,stoppingOffsetMetersBefore:1.5,doorSide:'RIGHT'});
+            });
+        """)
+        val steps = saved.services.single().steps
+        assertEquals(2, steps.size)
+        val action = steps.last().action!!
+        assertEquals(SavedTimetableActionTypeV1.SELECT_STOP, action.type)
+        assertEquals("central", action.stationId)
+        assertEquals(listOf(SavedStationStopCandidateV1("long",0), SavedStationStopCandidateV1("short",1)), action.berthCandidates)
+        assertEquals(SavedStationStopSelectionPolicyV1.AVAILABLE_PRIORITY, action.selectionPolicy)
+        assertEquals(30L, action.minimumDwellTicks)
+        assertEquals(1.5, action.stoppingOffsetMetersBefore)
+        assertEquals("RIGHT", action.doorSideOverride)
+        assertTrue(action.wayPointIds.isEmpty())
+    }
+
+    @Test fun `selectStop rejects empty duplicate candidates and unsupported policy before generation`() {
+        for (call in listOf("'central',[],'FIXED_PREFERENCE'", "'central',['same','same'],'AVAILABLE_PRIORITY'",
+            "'central',['one'],'PREDICTED_RELEASE'", "'central',['one'],'FIXED_PREFERENCE',{unknown:1}")) {
+            assertThrows(Throwable::class.java) {
+                run("timetable.setPeriodDays(1);timetable.service('s','train',t=>{t.check('start');t.selectStop($call);});")
+            }
+        }
+    }
+
 }

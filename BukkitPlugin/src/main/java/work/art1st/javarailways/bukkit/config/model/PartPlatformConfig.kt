@@ -16,14 +16,19 @@ data class PartPlatformConfig(
     val spacingX: Double = 1.0,
     val spacingZ: Double = 1.0
 ) {
+    init {
+        require(rows > 0) { "platform.rows must be positive" }
+        require(columns > 0) { "platform.columns must be positive" }
+        require(spacingX.isFinite()) { "platform.spacing-x must be finite" }
+        require(spacingZ.isFinite()) { "platform.spacing-z must be finite" }
+    }
+
     fun cellOffsets(): List<Vec3Config> {
-        val safeRows = rows.coerceAtLeast(1)
-        val safeColumns = columns.coerceAtLeast(1)
-        val startX = -((safeRows - 1) * spacingX) / 2.0
-        val startZ = -((safeColumns - 1) * spacingZ) / 2.0
+        val startX = -((rows - 1) * spacingX) / 2.0
+        val startZ = -((columns - 1) * spacingZ) / 2.0
         return buildList {
-            for (row in 0 until safeRows) {
-                for (column in 0 until safeColumns) {
+            for (row in 0 until rows) {
+                for (column in 0 until columns) {
                     add(Vec3Config(
                         x = startX + row * spacingX,
                         y = 0.0,

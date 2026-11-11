@@ -1,8 +1,13 @@
 package work.art1st.javarailways.bukkit.render.model
 
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
+
 import org.bukkit.Location
 import org.bukkit.entity.Player
 import org.joml.Vector3dc
+import work.art1st.javarailways.bukkit.api.model.ModelAnimation
 import work.art1st.javarailways.bukkit.render.Animation
 import work.art1st.javarailways.bukkit.render.AnimationDisplayState
 import work.art1st.javarailways.bukkit.extension.bukkitWorldData
@@ -16,6 +21,8 @@ abstract class AbstractModel(
     val attachedModels: Collection<AbstractModel>,
     val animation: Map<String, Animation>
 ) : Destroyable {
+    private val destruction = Destruction()
+
     protected var activeAnimation: Animation.ActiveAnimation? = null
     protected var heldAnimationTransform: CompactTransform? = null
     protected var heldAnimationDisplayState: AnimationDisplayState? = null
@@ -68,8 +75,8 @@ abstract class AbstractModel(
         var applied = false
         animation[animationName]?.let { animationPrototype ->
             if (animationPrototype.hasScene(sceneName)) {
-                val currentScene = if (heldAnimationName == animationName) heldAnimationScene else null
-                val currentTransform = if (heldAnimationName == animationName) heldAnimationTransform else null
+                val currentScene = if (heldAnimationName == animationName && activeAnimation == null) heldAnimationScene else null
+                val currentTransform = if (heldAnimationName == animationName) activeAnimation?.currentTransform ?: heldAnimationTransform else null
                 startAnimation(
                     animationName,
                     animationPrototype.activateToScene(
@@ -90,6 +97,20 @@ abstract class AbstractModel(
         return applied
     }
 
+    /** Car-owned playback projects one committed frame; this renderer owns no second clock. */
+    internal fun projectAnimationFrame(name: String?, scene: String?, transform: CompactTransform?, display: AnimationDisplayState?) {
+        activeAnimation?.let { it.destroy().toCompletableFuture().getNow(null) }
+        activeAnimation = null
+        heldAnimationName = name
+        heldAnimationScene = scene
+        heldAnimationTransform = transform?.let(::CompactTransform)
+        heldAnimationDisplayState = display
+        val parent = lastParentRelativeTransform ?: return
+        val root = lastRootTransform ?: return
+        val velocity = lastRootVelocity ?: return
+        updateState(parent, root, velocity, transformDirty = true)
+    }
+
     fun collectHeldAnimationScenes(target: MutableMap<String, String> = linkedMapOf()): Map<String, String> {
         val animationName = heldAnimationName
         val sceneName = heldAnimationScene
@@ -103,7 +124,7 @@ abstract class AbstractModel(
     fun setAnimationScene(animationName: String, sceneName: String): Boolean {
         var applied = false
         animation[animationName]?.stateAtScene(sceneName)?.let { (sceneTransform, sceneDisplayState) ->
-            activeAnimation?.let { world.tickManager.unregister(it) }
+            activeAnimation?.let { it.destroy().toCompletableFuture().getNow(null) }
             activeAnimation = null
             heldAnimationName = animationName
             heldAnimationScene = Animation.normalizeSceneName(sceneName)
@@ -117,8 +138,13 @@ abstract class AbstractModel(
         return applied
     }
 
+    /** Exact held frame for the ordinary path; null restores the local baseline without playback. */
+    internal open fun holdOrdinaryScene(frame: ModelAnimation.Frame?) {
+        heldAnimationTransform = frame?.pose()?.toCompactTransform(frame.scale())
+    }
+
     private fun startAnimation(animationName: String, active: Animation.ActiveAnimation) {
-        activeAnimation?.let { world.tickManager.unregister(it) }
+        activeAnimation?.let { it.destroy().toCompletableFuture().getNow(null) }
         heldAnimationName = animationName
         activeAnimation = active
         world.tickManager.register(active)
@@ -140,7 +166,7 @@ abstract class AbstractModel(
     private fun onAnimationFinished(animation: Animation.ActiveAnimation) {
         world.tickManager.unregister(animation)
         if (activeAnimation === animation) {
-            if (animation.keepFinalState) {
+            if (animation.keepFinalState && animation.completedNormally) {
                 heldAnimationTransform = CompactTransform(animation.finalTransform)
                 heldAnimationDisplayState = animation.finalDisplayState
                 heldAnimationScene = animation.targetScene
@@ -171,14 +197,21 @@ abstract class AbstractModel(
      * the held target scene from the normal held-animation snapshot path.
      */
     fun prepareForUnload() {
-        activeAnimation?.destroy()
+        activeAnimation?.finishForUnload()?.toCompletableFuture()?.getNow(null)
         attachedModels.forEach { it.prepareForUnload() }
     }
 
     @MainThread
-    override fun destroy() {
-        activeAnimation?.destroy()
-        attachedModels.forEach { it.destroy() }
+    @Synchronized
+    final override fun destroy(): CompletionStage<Void> = destruction.run {
+        val steps = DestructionSteps()
+        collectDestruction(steps)
+        steps.finish()
+    }
+
+    protected open fun collectDestruction(steps: DestructionSteps) {
+        activeAnimation?.let { animation -> steps.await { animation.destroy() } }
+        attachedModels.forEach { child -> steps.await { child.destroy() } }
     }
 
     fun forEachModelRecursive(f: (AbstractModel) -> Unit) {

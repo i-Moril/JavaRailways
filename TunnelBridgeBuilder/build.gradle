@@ -29,6 +29,7 @@ dependencies {
 
     // JavaRailways owns rail/world APIs at runtime. These projects must never be copied into
     // the add-on jar; plugin.yml makes JavaRailways a required server dependency instead.
+    compileOnly(project(':Diagnostics'))
     compileOnly(project(':Core'))
     compileOnly(project(':Basic'))
     compileOnly(project(':ConfigLib'))

@@ -44,12 +44,6 @@ enum class StandardTurnout(val number: Int) {
     N60(60)
 }
 
-data class StandardTurnoutBuildResult(
-    val curve: PrimeCurve,
-    val startTangent: Vector3d,
-    val endTangent: Vector3d
-)
-
 object StandardTurnoutFactory {
     private data class DirectionCandidate(
         val startTangent: Vector3d,
@@ -68,7 +62,7 @@ object StandardTurnoutFactory {
         towards: Vector3dc,
         geometry: StandardTurnoutGeometry,
         sampleStepMeters: Double = RailGeometryParameters().turnoutStepMeters
-    ): StandardTurnoutBuildResult? {
+    ): PrimeCurve? {
         require(sampleStepMeters.isFinite() && sampleStepMeters > 0.0)
         val axis = Vector3d(anchor.tangent.x(), 0.0, anchor.tangent.z())
         val target = Vector3d(towards.x(), 0.0, towards.z())
@@ -99,11 +93,12 @@ object StandardTurnoutFactory {
             representedGrade,
             sampleStepMeters
         )
-        return StandardTurnoutBuildResult(
-            curve,
-            Vector3d(selected.startTangent.x(), representedGrade, selected.startTangent.z()).normalize(),
-            Vector3d(selected.endTangent.x(), representedGrade, selected.endTangent.z()).normalize()
-        )
+        return try {
+            CurveEndpointCorrection.correct(curve, anchor.position,
+                curve.getPointAt(curve.totalArcLength).position).curve
+        } catch (_: IllegalArgumentException) {
+            null
+        }
     }
 
     private fun circularBranch(
@@ -131,7 +126,7 @@ object StandardTurnoutFactory {
             val cumulativeArc = horizontalArc * slopeLengthFactor
             val horizontalTangent = Vector3d(direction.startTangent).rotateY(rotation).normalize()
             val tangent = Vector3d(horizontalTangent.x(), grade, horizontalTangent.z()).normalize()
-            val (_, normal, _) = ConstraintSolver.computeFrame(tangent)
+            val (_, normal, _) = CurveFrames.computeFrame(tangent)
             points += Curve.RawPoint(position, tangent, normal, cumulativeArc)
         }
         return PrimeCurve.fromPoints(points)

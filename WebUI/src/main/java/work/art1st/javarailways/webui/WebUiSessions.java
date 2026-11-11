@@ -3,6 +3,7 @@ package work.art1st.javarailways.webui;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.security.SecureRandom;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.Optional;
@@ -14,14 +15,20 @@ final class WebUiSessions {
     private final ConcurrentHashMap<String, Session> sessions = new ConcurrentHashMap<>();
     private final SecureRandom random = new SecureRandom();
     private final long lifetimeMillis;
+    private final Clock clock;
 
     WebUiSessions(Duration lifetime) {
+        this(lifetime, Clock.systemUTC());
+    }
+
+    WebUiSessions(Duration lifetime, Clock clock) {
         this.lifetimeMillis = lifetime.toMillis();
+        this.clock = java.util.Objects.requireNonNull(clock);
         if (lifetimeMillis < 60_000L) throw new IllegalArgumentException("session lifetime is too short");
     }
 
     CreatedSession create(JsonNode grant) {
-        long now = System.currentTimeMillis();
+        long now = clock.millis();
         sessions.entrySet().removeIf(entry -> entry.getValue().expiresAtEpochMillis() <= now);
         byte[] bytes = new byte[32];
         random.nextBytes(bytes);
@@ -43,12 +50,25 @@ final class WebUiSessions {
         if (id == null || id.length() > 128) return Optional.empty();
         Session session = sessions.get(id);
         if (session == null) return Optional.empty();
-        if (session.expiresAtEpochMillis() <= System.currentTimeMillis()) {
+        if (session.expiresAtEpochMillis() <= clock.millis()) {
             sessions.remove(id, session);
             return Optional.empty();
         }
         return Optional.of(session);
     }
+
+    /** Only explicit browser activity renews a session; lookups and stream polls remain read-only. */
+    Optional<Session> renew(String id) {
+        if (id == null || id.length() > 128) return Optional.empty();
+        return Optional.ofNullable(sessions.computeIfPresent(id, (key, session) -> {
+            long now = clock.millis();
+            if (session.expiresAtEpochMillis() <= now) return null;
+            return new Session(session.playerId(), session.playerName(), session.worldId(),
+                Math.addExact(now, lifetimeMillis));
+        }));
+    }
+
+    long cookieMaxAgeSeconds() { return lifetimeMillis / 1000L; }
 
     record Session(String playerId, String playerName, String worldId, long expiresAtEpochMillis) {}
     record CreatedSession(String id, Session session) {}

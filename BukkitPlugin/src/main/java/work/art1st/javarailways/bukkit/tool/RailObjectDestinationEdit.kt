@@ -1,12 +1,12 @@
 package work.art1st.javarailways.bukkit.tool
 
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.destination.DestinationRole
-import work.art1st.javarailways.basic.api.destination.DestinationRoleType
-import work.art1st.javarailways.basic.api.destination.OperationalDestination
-import work.art1st.javarailways.basic.api.destination.OperationalDestinationIds
-import work.art1st.javarailways.basic.api.station.DoorSide
-import work.art1st.javarailways.basic.api.station.StationId
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
+import work.art1st.javarailways.simpleato.api.destination.DestinationRoleType
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationIds
+import work.art1st.javarailways.basic.api.operation.DoorSide
+import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 
 /** Values exposed by the RailObjectWand Destination dialog. */
@@ -20,7 +20,7 @@ internal data class RailObjectDestinationEdit(
     val depotId: String = "",
     val stablingPointId: String = "",
     val stablingUsableLengthMeters: Double? = null,
-    val stablingAllowedTags: Set<String> = emptySet()
+    val stablingAllowedTags: Set<String> = emptySet(),
 )
 
 /**
@@ -46,11 +46,10 @@ internal fun applyRailObjectDestinationEdit(
                 berthId = edit.berthId.trim(),
                 doorSide = edit.doorSide,
                 stoppingOffsetMetersBefore = previous?.stoppingOffsetMetersBefore ?: 0.0,
-                positionToleranceMeters = previous?.positionToleranceMeters
-                    ?: DestinationRole.DEFAULT_POSITION_TOLERANCE_METERS,
+
                 usableLengthMeters = previous?.usableLengthMeters,
                 defaultDwellTicks = previous?.defaultDwellTicks ?: 0L,
-                releaseDistanceMetersAfter = previous?.releaseDistanceMetersAfter ?: 0.0
+                releaseDistanceMetersAfter = previous?.releaseDistanceMetersAfter ?: 0.0,
             )
         }
         DestinationRoleType.DEPOT_STABLING_POINT -> {
@@ -81,10 +80,8 @@ internal fun applyRailObjectDestinationEdit(
             role.stablingPointId
         )
     }
-    val displayName = original?.displayName ?: wayPoint.displayName.ifBlank { id }
     return OperationalDestination(
         id = id,
-        displayName = displayName,
         railId = wayPoint.railId,
         arcLengthInAbMeters = wayPoint.arcLength,
         approachDirection = edit.approachDirection,

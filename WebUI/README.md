@@ -66,6 +66,12 @@ Configuration environment variables:
 | `JAVARAILWAYS_MAX_REQUEST_BYTES` | `1048576` |
 | `JAVARAILWAYS_REQUEST_TIMEOUT_MS` | `10000` |
 
+模拟请求必须带 `executionTimeoutMillis`，由网页每次模拟时填写的执行超时秒数换算，
+范围 `1..3600000` 毫秒。函数、线路和整张时刻表模拟共用此字段；它不是服务器配置项。
+WebUI 的模拟 HTTP 等待时间由该执行预算加普通请求超时作为响应余量推导，
+普通 API 超时保持不变。执行预算与模拟推进 tick 上限独立；捕获、编译、序列化等
+不同阶段仍有各自边界，这不是整个请求的绝对总预算。
+
 Remote plaintext HTTP is supported when explicitly configured. It preserves short-token authentication but does not protect tokens or session traffic from network interception.
 
 ## 世界轨道地图

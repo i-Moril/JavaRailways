@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="work.art1st.javarailways.core.physics.train.CoreTrainSplitTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-10-11T06:36:29.330Z" hostname="dev" time="0.906">
+  <properties/>
+  <testcase name="separated half must have a connected body before either train is published()" classname="work.art1st.javarailways.core.physics.train.CoreTrainSplitTest" time="0.062"/>
+  <testcase name="[1] false" classname="work.art1st.javarailways.core.physics.train.CoreTrainSplitTest" time="0.081"/>
+  <testcase name="[2] true" classname="work.art1st.javarailways.core.physics.train.CoreTrainSplitTest" time="0.071"/>
+  <testcase name="extension preparation failure preserves original consist and ownership()" classname="work.art1st.javarailways.core.physics.train.CoreTrainSplitTest" time="0.078"/>
+  <testcase name="new extension initialization failure removes prepared train registrations()" classname="work.art1st.javarailways.core.physics.train.CoreTrainSplitTest" time="0.071"/>
+  <testcase name="[1] missing" classname="work.art1st.javarailways.core.physics.train.CoreTrainSplitTest" time="0.084"/>
+  <testcase name="[2] car-0" classname="work.art1st.javarailways.core.physics.train.CoreTrainSplitTest" time="0.075"/>
+  <testcase name="duplicate target car identity is rejected without choosing an ambiguous boundary()" classname="work.art1st.javarailways.core.physics.train.CoreTrainSplitTest" time="0.083"/>
+  <testcase name="last stable car can be split into a one-car train()" classname="work.art1st.javarailways.core.physics.train.CoreTrainSplitTest" time="0.089"/>
+  <testcase name="endpoint preparation failure does not publish either half()" classname="work.art1st.javarailways.core.physics.train.CoreTrainSplitTest" time="0.063"/>
+  <testcase name="duplicate identity is rejected before extension preparation()" classname="work.art1st.javarailways.core.physics.train.CoreTrainSplitTest" time="0.077"/>
+  <testcase name="moving split publishes one completed epoch and clears detached motion()" classname="work.art1st.javarailways.core.physics.train.CoreTrainSplitTest" time="0.062"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

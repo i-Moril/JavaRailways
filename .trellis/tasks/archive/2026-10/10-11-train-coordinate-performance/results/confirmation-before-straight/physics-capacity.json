@@ -1,0 +1,102 @@
+{
+    "environment": {
+        "gitRevision": "00a44abd16c284a2ec7f908a650637f70aeeebd3",
+        "javaVersion": "17.0.20",
+        "javaVm": "OpenJDK 64-Bit Server VM",
+        "os": "Linux 6.18.54",
+        "architecture": "amd64",
+        "availableProcessors": 8,
+        "cpuModel": "Intel(R) Core(TM) Ultra 9 275HX",
+        "maxHeapBytes": 536870912
+    },
+    "config": {
+        "trainCounts": [
+            500
+        ],
+        "workerThreads": [
+            4
+        ],
+        "carsPerTrain": 15,
+        "warmupEpochs": 200,
+        "measurementEpochs": 1000,
+        "repetitions": 3,
+        "budgetMillis": 50.0,
+        "scenarios": [
+            "shared"
+        ],
+        "trackShape": "straight",
+        "curvedTrackAmplitudeMeters": 20.0,
+        "curvedTrackWavelengthMeters": 500.0,
+        "speedMetersPerSecond": 10.0,
+        "sharedSpacingMeters": 155.0,
+        "requiredTrainCount": 0
+    },
+    "results": [
+        {
+            "scenario": "shared",
+            "trainCount": 500,
+            "carsPerTrain": 15,
+            "workerThreads": 4,
+            "repetition": 1,
+            "warmupEpochs": 200,
+            "measurementEpochs": 1000,
+            "wallP50Millis": 21.971547,
+            "wallP95Millis": 28.164787,
+            "wallP99Millis": 32.660256,
+            "wallMaxMillis": 61.202104,
+            "workerMaxP95Millis": 16.756759,
+            "workerTotalP95Millis": 65.283172,
+            "coordinatorP95Millis": 12.520017,
+            "averageSpanCount": 500.0,
+            "averageBucketReferences": 2854.157,
+            "averageCandidateChecks": 868.031,
+            "mailboxPeakSize": 500,
+            "budgetMillis": 50.0,
+            "passed": true
+        },
+        {
+            "scenario": "shared",
+            "trainCount": 500,
+            "carsPerTrain": 15,
+            "workerThreads": 4,
+            "repetition": 2,
+            "warmupEpochs": 200,
+            "measurementEpochs": 1000,
+            "wallP50Millis": 22.426674,
+            "wallP95Millis": 27.818302,
+            "wallP99Millis": 29.53557,
+            "wallMaxMillis": 38.189992,
+            "workerMaxP95Millis": 16.331936,
+            "workerTotalP95Millis": 63.659509,
+            "coordinatorP95Millis": 12.832928,
+            "averageSpanCount": 500.0,
+            "averageBucketReferences": 2854.157,
+            "averageCandidateChecks": 868.031,
+            "mailboxPeakSize": 500,
+            "budgetMillis": 50.0,
+            "passed": true
+        },
+        {
+            "scenario": "shared",
+            "trainCount": 500,
+            "carsPerTrain": 15,
+            "workerThreads": 4,
+            "repetition": 3,
+            "warmupEpochs": 200,
+            "measurementEpochs": 1000,
+            "wallP50Millis": 23.691925,
+            "wallP95Millis": 29.865371,
+            "wallP99Millis": 33.573657,
+            "wallMaxMillis": 74.955695,
+            "workerMaxP95Millis": 17.260161,
+            "workerTotalP95Millis": 66.260347,
+            "coordinatorP95Millis": 13.920832,
+            "averageSpanCount": 500.0,
+            "averageBucketReferences": 2854.157,
+            "averageCandidateChecks": 868.031,
+            "mailboxPeakSize": 500,
+            "budgetMillis": 50.0,
+            "passed": true
+        }
+    ]
+}

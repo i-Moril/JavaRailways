@@ -1,0 +1,39 @@
+package work.art1st.javarailways.simplesignals.testing
+
+import org.bukkit.plugin.Plugin
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration
+import work.art1st.javarailways.simplesignals.block.*
+import work.art1st.javarailways.simplesignals.runtime.PublishedSectionSignal
+import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntime
+import java.util.UUID
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry
+import work.art1st.javarailways.simplesignals.signal.*
+import work.art1st.javarailways.simplesignals.presentation.ModelPlacement
+
+/** Rebuild through the immutable domain constructor; its generated copy deliberately stays private. */
+internal fun FixedBlockSignalDefinition.reconfigured(
+    signalId: String = this.signalId,
+    revision: Long = this.revision,
+    entryDirection: FixedBlockEntryDirection = this.entryDirection,
+    inspectionLeadTimeSeconds: Double = this.inspectionLeadTimeSeconds,
+    signalType: String = this.signalType,
+    placement: ModelPlacement? = this.placement
+) = FixedBlockSignalDefinition(signalId, revision, controlledBlockId, inspectionLeadTimeSeconds,
+    signalType, entryDirection, placement)
+
+internal fun signalWorldRuntime(worldId: UUID): SimpleSignalsWorldRuntime = SimpleSignalsWorldRuntime(worldId)
+
+internal fun fixedBlockPolicy(plugin: Plugin, snapshotForWorld: (UUID) -> FixedBlockReadSnapshot?): FixedBlockRouteResourcePolicy =
+    FixedBlockRouteResourcePolicy(plugin, snapshotForWorld = snapshotForWorld)
+
+internal fun fixedBlockInspectionSource(
+    snapshot: () -> FixedBlockReadSnapshot,
+    signalState: (FixedBlockSignalEntry) -> PublishedSectionSignal? = { null },
+    hasConfiguredSignal: (FixedBlockSignalEntry) -> Boolean = { false },
+    inspectionLeadTimeSeconds: (FixedBlockReadSnapshot, FixedBlockSignalEntry) -> Double = { _, _ -> 0.0 },
+    protectionDeclarations: (FixedBlockReadSnapshot, RouteSnapshot) -> List<InspectionDeclaration> = { _, _ -> emptyList() },
+    protectionSignalState: (String) -> PublishedSectionSignal? = { null },
+    hasConfiguredProtectionSignal: (String) -> Boolean = { false }
+): FixedBlockInspectionSource = FixedBlockInspectionSource(snapshot, signalState, hasConfiguredSignal,
+    inspectionLeadTimeSeconds, protectionDeclarations, protectionSignalState, hasConfiguredProtectionSignal)

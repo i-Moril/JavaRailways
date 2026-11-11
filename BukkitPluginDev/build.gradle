@@ -48,10 +48,12 @@ bukkitPluginYaml {
     depend.add("JavaRailways")
 }
 
-// Dev 插件有独立 classloader；Bukkit/Paper 的 depend 不保证能看到 JavaRailways jar 里的 Kotlin stdlib。
-// 因此保留 kotlin-stdlib，其它 JavaRailways 模块仍由主插件提供，避免重复加载业务类。
+// The dev plugin depends on JavaRailways and calls APIs whose signatures contain Kotlin types.
+// A private stdlib copy creates distinct FunctionN classes and violates those loader constraints,
+// so the runtime copy must come from the required host plugin together with its API classes.
 shadowJar {
     dependencies {
+        exclude(dependency("org.jetbrains.kotlin:.*"))
         exclude(dependency("org.jetbrains.kotlinx:.*"))
         exclude(project(":Core"))
         exclude(project(":Basic"))

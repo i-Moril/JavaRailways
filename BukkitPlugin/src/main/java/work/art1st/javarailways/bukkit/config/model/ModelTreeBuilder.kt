@@ -12,16 +12,25 @@ import org.joml.Quaternionf
 import org.joml.Vector3d
 import org.joml.Vector3f
 import work.art1st.javarailways.bukkit.BukkitPlugin
+import work.art1st.javarailways.bukkit.api.model.ModelDefinition
+import work.art1st.javarailways.bukkit.api.model.ModelPart
 import work.art1st.javarailways.bukkit.extension.bukkitWorldData
+import work.art1st.javarailways.bukkit.render.model.ModelConstruction
 import work.art1st.javarailways.bukkit.render.model.AbstractModel
 import work.art1st.javarailways.bukkit.render.model.CompactTransform
 import work.art1st.javarailways.bukkit.render.model.CompositeModel
 import work.art1st.javarailways.bukkit.render.model.DisplayModel
 import work.art1st.javarailways.bukkit.render.model.InteractionModel
 import work.art1st.javarailways.bukkit.render.model.ModelState
+import work.art1st.javarailways.bukkit.render.model.OrdinaryModel
+import work.art1st.javarailways.bukkit.render.model.OrdinarySceneIndex
+import work.art1st.javarailways.bukkit.render.backend.DisplayCleanupException
+import work.art1st.javarailways.bukkit.render.model.toCompactTransform
+import work.art1st.javarailways.bukkit.render.model.toItemStack
 import work.art1st.javarailways.bukkit.render.model.PlatformModel
 import work.art1st.javarailways.bukkit.render.model.SeatModel
 import work.art1st.javarailways.bukkit.render.backend.DisplayVisual
+import work.art1st.javarailways.bukkit.render.backend.DisplayRenderBackend
 import work.art1st.javarailways.bukkit.render.backend.DisplayVisualContent
 import work.art1st.javarailways.bukkit.render.backend.DisplayVisualDescriptor
 import work.art1st.javarailways.bukkit.render.backend.displayViewRangeForDistance
@@ -51,17 +60,63 @@ class DummyModel internal constructor(
  * PlatformModel (for collision platforms), and DummyModel (for transform
  * grouping nodes).
  */
-class ModelTreeBuilder(
+class ModelTreeBuilder internal constructor(
     private val world: World,
-    private val partRegistry: PartResolver
+    private val partRegistry: PartResolver?,
+    private val rootVisualFactory: ((Location) -> DisplayVisual)?,
+    private val backend: DisplayRenderBackend?,
+    private val viewRange: Float?
 ) {
+    constructor(world: World, partRegistry: PartResolver) : this(world, partRegistry, null, null, null)
+
+    internal constructor(world: World, partRegistry: PartResolver, rootVisualFactory: (Location) -> DisplayVisual) :
+        this(world, partRegistry, rootVisualFactory, null, null)
+
+    internal constructor(world: World, backend: DisplayRenderBackend, viewRange: Float) :
+        this(world, null, null, backend, viewRange)
+
     private val bukkitWorld
         get() = world.bukkitWorldData.bukkitWorld
 
-    // Root location used as spawn anchor for display entities,
-    // ensuring they start near the player instead of at (0,0,0).
-    private var rootLocation: Location = Location(null, 0.0, 0.0, 0.0)
-    private var ownerCar: Car? = null
+    /** Consume validated pre-expanded values, with zero smoothing and no train/config dependencies. */
+    internal fun buildModel(
+        definition: ModelDefinition,
+        rootLocation: Location,
+        sceneIndex: OrdinarySceneIndex = OrdinarySceneIndex(definition)
+    ): OrdinaryModel {
+        require(rootLocation.world != null) { "Ordinary model root must belong to a Bukkit world" }
+        val bindings = mutableListOf<OrdinaryModel.Binding>()
+        val createdVisuals = mutableListOf<DisplayVisual>()
+        fun buildNode(part: ModelPart, path: String): AbstractModel {
+            val model = when (part) {
+                is ModelPart.Group -> DummyModel(
+                    world, ModelState(part.pose().toCompactTransform()),
+                    part.children().mapIndexed { index, child -> buildNode(child, "$path/$index") }, emptyMap()
+                )
+                is ModelPart.Item -> {
+                    val item = part.appearance().toItemStack()
+                    val visual = createDisplayVisual(rootLocation.clone(), item, 0, 0).also(createdVisuals::add)
+                    part.appearance().brightness()?.let { visual.setBrightness(it.block(), it.sky()) }
+                    DisplayModel(
+                        world, ModelState(part.pose().toCompactTransform(part.scale())), emptyList(), emptyMap(),
+                        visual, item, part.appearance()
+                    )
+                }
+            }
+            bindings += OrdinaryModel.Binding(model, path, part)
+            return model
+        }
+        try {
+            val models = definition.parts().mapIndexed { index, part -> buildNode(part, "$index") }
+            val root = createDisplayVisual(rootLocation.clone(), ItemStack.of(Material.AIR), 0, 0).also(createdVisuals::add)
+            return OrdinaryModel(CompositeModel(world, models, root, rootLocation.world), bindings, sceneIndex, createdVisuals.toList())
+        } catch (failure: Throwable) {
+            val cleanup = work.art1st.javarailways.core.api.util.DestructionSteps()
+            if (failure is DisplayCleanupException) cleanup.await { failure.cleanup }
+            createdVisuals.asReversed().forEach { visual -> cleanup.await { visual.destroy() } }
+            throw DisplayCleanupException(failure, cleanup.finish())
+        }
+    }
 
     /**
      * Build the car body model tree at the given root location.
@@ -71,19 +126,9 @@ class ModelTreeBuilder(
         carDef: CarDefinition,
         rootLocation: Location,
         ownerCar: Car? = null
-    ): CompositeModel {
-        this.rootLocation = rootLocation
-        this.ownerCar = ownerCar
-
-        val bodyModels = buildPartList(carDef.bodyParts, carDef.namespace)
-
-        val rootVisual = createRootVisual(rootLocation)
-
-        return CompositeModel(
-            world = world,
-            models = bodyModels,
-            rootVisual = rootVisual
-        )
+    ): CompositeModel = ModelConstruction.build { construction ->
+        val bodyModels = buildPartList(carDef.bodyParts, carDef.namespace, rootLocation, ownerCar, construction)
+        buildComposite(bodyModels, rootLocation, construction)
     }
 
     /**
@@ -94,19 +139,19 @@ class ModelTreeBuilder(
         bogieDef: BogieDefinition,
         namespace: String,
         rootLocation: Location
-    ): CompositeModel {
-        this.rootLocation = rootLocation
-        this.ownerCar = null
+    ): CompositeModel = ModelConstruction.build { construction ->
+        val bogieModel = buildBogieGroup(bogieDef, namespace, rootLocation, includeLongitudinalOffset = false, construction)
+        buildComposite(listOf(bogieModel), rootLocation, construction)
+    }
 
-        val bogieModel = buildBogieGroup(bogieDef, namespace, includeLongitudinalOffset = false)
-
-        val rootVisual = createRootVisual(rootLocation)
-
-        return CompositeModel(
-            world = world,
-            models = listOf(bogieModel),
-            rootVisual = rootVisual
-        )
+    private fun buildComposite(models: List<AbstractModel>, rootLocation: Location, construction: ModelConstruction): CompositeModel {
+        val root = rootVisualFactory?.invoke(rootLocation) ?: createRootVisual(rootLocation)
+        construction.own(root, root::destroy)
+        return CompositeModel(world, models, root).also { composite ->
+            construction.own(composite, composite::destroy)
+            models.forEach(construction::transfer)
+            construction.transfer(root)
+        }
     }
 
     /**
@@ -117,7 +162,9 @@ class ModelTreeBuilder(
     private fun buildBogieGroup(
         bogieDef: BogieDefinition,
         namespace: String,
-        includeLongitudinalOffset: Boolean
+        rootLocation: Location,
+        includeLongitudinalOffset: Boolean,
+        construction: ModelConstruction
     ): DummyModel {
         val bogieOffset = bogieDef.offset
         val modelState = ModelState(
@@ -133,27 +180,42 @@ class ModelTreeBuilder(
 
         // Combine bogie parts and wheel parts
         val allBogiePartRefs = bogieDef.parts + bogieDef.wheelParts
-        val children = buildPartList(allBogiePartRefs, namespace)
+        val children = buildPartList(allBogiePartRefs, namespace, rootLocation, null, construction)
 
         return DummyModel(
             world = world,
             state = modelState,
             attachedModels = children,
             animation = emptyMap()
-        )
+        ).also { model ->
+            construction.own(model, model::destroy)
+            children.forEach(construction::transfer)
+        }
     }
 
     /**
      * Build models from a list of part references.
      */
-    private fun buildPartList(entries: List<PartRefEntry>, namespace: String): List<AbstractModel> {
-        return entries.map { entry -> buildPart(entry, namespace) }
+    private fun buildPartList(
+        entries: List<PartRefEntry>,
+        namespace: String,
+        rootLocation: Location,
+        ownerCar: Car?,
+        construction: ModelConstruction
+    ): List<AbstractModel> {
+        return entries.map { entry -> buildPart(entry, namespace, rootLocation, ownerCar, construction) }
     }
 
     /**
      * Build a single part model tree from a part reference entry.
      */
-    private fun buildPart(entry: PartRefEntry, namespace: String): AbstractModel {
+    private fun buildPart(
+        entry: PartRefEntry,
+        namespace: String,
+        rootLocation: Location,
+        ownerCar: Car?,
+        construction: ModelConstruction
+    ): AbstractModel {
         val def: PartDefinition
         val entryOffset: Vec3Config
         val entryRotation: Vec3Config
@@ -167,7 +229,7 @@ class ModelTreeBuilder(
             childNamespace = def.namespace
         } else {
             // Imported reference: resolve from the package registry.
-            val resolved = partRegistry.resolve(entry.name, namespace)
+            val resolved = requireNotNull(partRegistry) { "Config construction requires a part resolver" }.resolve(entry.name, namespace)
             def = resolved.resolved
             entryOffset = entry.offset
             entryRotation = entry.rotation
@@ -200,9 +262,9 @@ class ModelTreeBuilder(
             CompactTransform(position = position, rotation = rotation, scale = scaleVec)
         )
 
-        val children = buildPartList(def.parts, childNamespace)
+        val children = buildPartList(def.parts, childNamespace, rootLocation, ownerCar, construction)
         val animations = def.animations.toRuntimeAnimationMap()
-        // Spawn entities at the car's root location so they start near the player,
+        // Spawn entities at the model's root location so they start near the player,
         // not at world origin. DisplayModel.updateState will teleport them to exact positions.
         val spawnLoc = rootLocation.clone()
 
@@ -212,6 +274,7 @@ class ModelTreeBuilder(
                     ?: throw IllegalArgumentException("ITEM_DISPLAY part '${def.name}' missing item config")
                 val itemStack = buildItemStack(itemConfig)
                 val visual = createItemDisplayVisual(spawnLoc, itemStack)
+                construction.own(visual, visual::destroy)
                 DisplayModel(
                     world = world,
                     state = modelState,
@@ -219,7 +282,7 @@ class ModelTreeBuilder(
                     animation = animations,
                     visual = visual,
                     initialItemStack = itemStack
-                )
+                ).also { construction.transfer(visual) }
             }
             PartType.INTERACT -> {
                 InteractionModel(world = world, state = modelState, attachedModels = children, animation = animations, interactionConfig = def.interaction, initialLocation = spawnLoc)
@@ -242,15 +305,14 @@ class ModelTreeBuilder(
             PartType.DUMMY -> {
                 DummyModel(world = world, state = modelState, attachedModels = children, animation = animations)
             }
+        }.also { model ->
+            construction.own(model, model::destroy)
+            children.forEach(construction::transfer)
         }
     }
 
     private fun buildItemStack(itemConfig: PartItemConfig): ItemStack {
-        val material = try {
-            Material.valueOf(itemConfig.type.uppercase())
-        } catch (e: Exception) {
-            Material.STONE
-        }
+        val material = Material.valueOf(itemConfig.type.uppercase())
 
         val itemStack = ItemStack(material)
 
@@ -270,7 +332,7 @@ class ModelTreeBuilder(
 
     private fun createRootVisual(location: Location): DisplayVisual = createDisplayVisual(
         location = location,
-        itemStack = ItemStack(Material.AIR),
+        itemStack = ItemStack.of(Material.AIR),
         interpolationDuration = TRAIN_ROOT_INTERPOLATION_TICKS,
         teleportDuration = TRAIN_ROOT_TELEPORT_TICKS
     )
@@ -288,13 +350,13 @@ class ModelTreeBuilder(
         interpolationDuration: Int,
         teleportDuration: Int
     ): DisplayVisual {
-        return BukkitPlugin.INSTANCE.displayRenderBackend.create(
-            bukkitWorld,
+        return (backend ?: BukkitPlugin.INSTANCE.displayRenderBackend).create(
+            if (backend != null) requireNotNull(location.world) { "Display location must belong to a Bukkit world" } else bukkitWorld,
             DisplayVisualDescriptor(
                 location = location,
                 content = DisplayVisualContent.Item(itemStack),
                 transformation = Transformation(Vector3f(), Quaternionf(), Vector3f(1f), Quaternionf()),
-                viewRange = displayViewRangeForDistance(
+                viewRange = viewRange ?: displayViewRangeForDistance(
                     BukkitPlugin.INSTANCE.javaRailwaysConfig.displayRenderer.playerDistance.maxBlocks
                 ),
                 interpolationDuration = interpolationDuration,

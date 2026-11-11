@@ -3,6 +3,7 @@ package work.art1st.javarailways.core.physics.rail.curve
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.descriptors.element
 import kotlinx.serialization.descriptors.SerialDescriptor
@@ -12,6 +13,7 @@ import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.encoding.decodeStructure
 import kotlinx.serialization.encoding.encodeStructure
 import org.joml.Vector3d
+import org.joml.Vector3dc
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.util.annotation.Heavy
 import work.art1st.javarailways.core.util.ObjectPools
@@ -31,11 +33,84 @@ open class PrimeCurveImpl : PrimeCurve {
                 segmentType = p.segmentType
             )
         }
+        require(pointList.size >= 2) { "A curve requires at least two raw points" }
+        require(pointList.first().arcLength == 0.0) { "The first curve arc length must be zero" }
+        pointList.forEachIndexed { index, point ->
+            require(point.arcLength.isFinite() &&
+                (index == 0 || point.arcLength - pointList[index - 1].arcLength >= MIN_ARC_SPACING)) {
+                "Curve point $index arc length must be finite and separated by at least $MIN_ARC_SPACING metres"
+            }
+            requireFiniteComponents(point.position, index, "position")
+            requireFiniteComponents(point.tangent, index, "tangent")
+            requireFiniteComponents(point.normal, index, "normal")
+            val tangentLengthSquared = point.tangent.lengthSquared()
+            val normalLengthSquared = point.normal.lengthSquared()
+            require(tangentLengthSquared.isFinite() && tangentLengthSquared > 0.0) {
+                "Curve point $index tangent must be normalizable"
+            }
+            require(normalLengthSquared.isFinite() && normalLengthSquared > 0.0) {
+                "Curve point $index normal must be normalizable"
+            }
+            val crossLengthSquared = Vector3d(point.tangent).normalize()
+                .cross(Vector3d(point.normal).normalize()).lengthSquared()
+            require(crossLengthSquared.isFinite() && crossLengthSquared > 0.0) {
+                "Curve point $index tangent and normal must not be parallel"
+            }
+        }
+        validateInterpolatedFrames()
+    }
+
+    /** Prove nonzero T(t) x N(t) over each whole interval using its quadratic Bernstein hull. */
+    private fun validateInterpolatedFrames() {
+        for (index in 0 until pointList.lastIndex) {
+            val lo = pointList[index]
+            val hi = pointList[index + 1]
+            requireFiniteComponents(Vector3d(hi.position).sub(lo.position), index, "position delta")
+            if (lo.segmentType == Curve.SegmentType.LINE_START &&
+                hi.segmentType == Curve.SegmentType.LINE_END) continue
+            val tangentScale = maxOf(lo.tangent.length(), hi.tangent.length())
+            val normalScale = maxOf(lo.normal.length(), hi.normal.length())
+            val t0 = Vector3d(lo.tangent).div(tangentScale)
+            val t1 = Vector3d(hi.tangent).div(tangentScale)
+            val n0 = Vector3d(lo.normal).div(normalScale)
+            val n1 = Vector3d(hi.normal).div(normalScale)
+            val start = Vector3d(t0).cross(n0)
+            val middle = Vector3d(t0).cross(n1).add(Vector3d(t1).cross(n0)).mul(0.5)
+            val end = Vector3d(t1).cross(n1)
+            require(provesNonzeroFrame(start, middle, end, 0, intArrayOf(256))) {
+                "Curve interval $index has a degenerate or numerically unsafe interpolated frame"
+            }
+        }
+    }
+
+    private fun provesNonzeroFrame(a: Vector3d, b: Vector3d, c: Vector3d, depth: Int, budget: IntArray): Boolean {
+        if (--budget[0] < 0) return false
+        // A Bernstein polynomial lies in the convex hull of its control coefficients. A strictly
+        // signed coordinate therefore excludes the zero vector everywhere, not only at samples.
+        for (axis in 0..2) {
+            val low = minOf(a.get(axis), b.get(axis), c.get(axis))
+            val high = maxOf(a.get(axis), b.get(axis), c.get(axis))
+            if (low > FRAME_MARGIN || high < -FRAME_MARGIN) return true
+        }
+        // Fail closed when roundoff/near-degeneracy prevents a proof. Subdivision uses only bounded
+        // additions and halves; the margin exceeds accumulated double roundoff over this depth.
+        if (depth == 32) return false
+        val ab = Vector3d(a).add(b).mul(0.5)
+        val bc = Vector3d(b).add(c).mul(0.5)
+        val center = Vector3d(ab).add(bc).mul(0.5)
+        return provesNonzeroFrame(a, ab, center, depth + 1, budget) &&
+            provesNonzeroFrame(center, bc, c, depth + 1, budget)
     }
 
     private constructor()
 
     companion object {
+        private fun requireFiniteComponents(vector: Vector3dc, index: Int, field: String) {
+            require(vector.x().isFinite() && vector.y().isFinite() && vector.z().isFinite()) {
+                "Curve point $index $field must have finite components"
+            }
+        }
+
         @JvmStatic
         internal fun fromRawPoints(points: List<Curve.RawPoint>): PrimeCurveImpl {
             return PrimeCurveImpl(points)
@@ -43,6 +118,9 @@ open class PrimeCurveImpl : PrimeCurve {
 
         /** stream() 中直线段虚拟采样步长 */
         private const val STREAM_LINE_STEP = 1.0
+
+        private const val MIN_ARC_SPACING = 1e-12
+        private const val FRAME_MARGIN = 1e-12
     }
 
     @Serializable
@@ -62,6 +140,38 @@ open class PrimeCurveImpl : PrimeCurve {
 
     @Transient
     override val reversed: PrimeCurve = ReversedCurve(this)
+
+    @Heavy
+    override fun getNearestPoint(position: Vector3dc): Curve.Point {
+        require(position.x().isFinite() && position.y().isFinite() && position.z().isFinite()) {
+            "Nearest-point query position must have finite components"
+        }
+        val nearestArc = ObjectPools.withTwoVector3d { segment, relative ->
+            var bestArc = pointList.first().arcLength
+            var bestDistanceSquared = Double.POSITIVE_INFINITY
+            // Both LINE and DISCRETE positions interpolate along these stored segments.
+            for (index in 0 until pointList.lastIndex) {
+                val lo = pointList[index]
+                val hi = pointList[index + 1]
+                hi.position.sub(lo.position, segment)
+                position.sub(lo.position, relative)
+                val lengthSquared = segment.lengthSquared()
+                val t = if (lengthSquared == 0.0) 0.0 else
+                    (relative.dot(segment) / lengthSquared).coerceIn(0.0, 1.0)
+                val distanceSquared = relative.fma(-t, segment).lengthSquared()
+                if (distanceSquared < bestDistanceSquared) {
+                    bestDistanceSquared = distanceSquared
+                    bestArc = when (t) {
+                        0.0 -> lo.arcLength
+                        1.0 -> hi.arcLength
+                        else -> lo.arcLength + (hi.arcLength - lo.arcLength) * t
+                    }
+                }
+            }
+            bestArc
+        }
+        return getPointAt(nearestArc)
+    }
 
     override fun getPointAt(arcLength: Double): Curve.Point {
         require(arcLength in 0.0..totalArcLength) {
@@ -83,7 +193,7 @@ open class PrimeCurveImpl : PrimeCurve {
         if (lo.segmentType == Curve.SegmentType.LINE_START &&
             hi.segmentType == Curve.SegmentType.LINE_END) {
             val range = hi.arcLength - lo.arcLength
-            val t = if (range > 1e-12) (arcLength - lo.arcLength) / range else 0.0
+            val t = (arcLength - lo.arcLength) / range
             // P3: 用池化临时向量，减少 GC 压力
             return ObjectPools.withTwoVector3d { dir, result ->
                 Vector3d(hi.position).sub(lo.position, dir).mul(t)
@@ -94,9 +204,6 @@ open class PrimeCurveImpl : PrimeCurve {
 
         // 离散/曲线段：相邻点之间线性插值
         val range = hi.arcLength - lo.arcLength
-        if (range < 1e-12) {
-            return Curve.Point(lo.position, lo.tangent, lo.normal, this, lo.arcLength)
-        }
         val t = (arcLength - lo.arcLength) / range
         ObjectPools.withTwoVector3d { dir, tmpRes ->
             // position
@@ -104,12 +211,14 @@ open class PrimeCurveImpl : PrimeCurve {
             Vector3d(lo.position).add(dir, tmpRes)
             val pos = Vector3d(tmpRes)
             // tangent
-            Vector3d(hi.tangent).sub(lo.tangent, dir).mul(t)
-            Vector3d(lo.tangent).add(dir, tmpRes).normalize()
+            val tangentScale = maxOf(lo.tangent.length(), hi.tangent.length())
+            Vector3d(hi.tangent).div(tangentScale).sub(Vector3d(lo.tangent).div(tangentScale), dir).mul(t)
+            Vector3d(lo.tangent).div(tangentScale).add(dir, tmpRes).normalize()
             val tan = Vector3d(tmpRes)
             // normal — 线性插值后重新投影到切线垂直面 (Gram-Schmidt)
-            Vector3d(hi.normal).sub(lo.normal, dir).mul(t)
-            Vector3d(lo.normal).add(dir, tmpRes).normalize()
+            val normalScale = maxOf(lo.normal.length(), hi.normal.length())
+            Vector3d(hi.normal).div(normalScale).sub(Vector3d(lo.normal).div(normalScale), dir).mul(t)
+            Vector3d(lo.normal).div(normalScale).add(dir, tmpRes).normalize()
             // 将 normal 投影到 tangent 的垂直面上，确保正交
             val dt = tmpRes.dot(tan)
             tmpRes.sub(Vector3d(tan).mul(dt)).normalize()
@@ -221,12 +330,17 @@ open class PrimeCurveImpl : PrimeCurve {
 
         val span = nextPoint.arcLength + (junction.arcLength - previous.arcLength)
         if (span <= 1e-12) return false
-        val probe = PrimeCurveImpl(
-            listOf(
+        // Removing a valid junction may create an unsafe frame interval. Elision is optional;
+        // retain the original two validated intervals when the proposed replacement is rejected.
+        val probeCurve = try {
+            PrimeCurveImpl(listOf(
                 previous.copyPoint(arcLength = 0.0).toRawPoint(),
                 nextPoint.copyPoint(arcLength = span).toRawPoint()
-            )
-        ).getPointAt(junction.arcLength - previous.arcLength)
+            ))
+        } catch (_: IllegalArgumentException) {
+            return false
+        }
+        val probe = probeCurve.getPointAt(junction.arcLength - previous.arcLength)
         return probe.position.distance(junction.position) <= 1e-9 &&
             probe.tangent.distance(junction.tangent) <= 1e-9 &&
             probe.normal.distance(junction.normal) <= 1e-9
@@ -265,6 +379,11 @@ open class PrimeCurveImpl : PrimeCurve {
         return lo.coerceAtMost(pointList.lastIndex - 1)
     }
 
+    /** Exact endpoints of the implementation's piecewise-linear geometry, without stream virtual samples. */
+    internal fun geometryBreakpoints(): List<Curve.Point> = pointList.map { point ->
+        Curve.Point(point.position, point.tangent, point.normal, this, point.arcLength)
+    }
+
     @Heavy
     override fun stream(): Stream<Curve.Point> {
         // 对 LINE 段按步长生成虚拟点；对 DISCRETE 段用存储点
@@ -276,7 +395,7 @@ open class PrimeCurveImpl : PrimeCurve {
                 hi.segmentType == Curve.SegmentType.LINE_END) {
                 val range = hi.arcLength - lo.arcLength
                 val n = maxOf(1, (range / STREAM_LINE_STEP).toInt())
-                for (j in 0..n) {
+                for (j in 0 until n) {
                     val arc = (lo.arcLength + range * j.toDouble() / n).coerceIn(lo.arcLength, hi.arcLength)
                     builder.add(getPointAt(arc))
                 }
@@ -289,6 +408,19 @@ open class PrimeCurveImpl : PrimeCurve {
         builder.add(Curve.Point(last.position, last.tangent, last.normal, this, last.arcLength))
         return builder.build()
     }
+
+    /** Materialize a new rail's AB authority from a runtime reverse view. */
+    internal fun reversedCopy(): PrimeCurveImpl = PrimeCurveImpl(pointList.asReversed().map { point ->
+        Curve.RawPoint(
+            Vector3d(point.position), Vector3d(point.tangent).negate(), Vector3d(point.normal),
+            totalArcLength - point.arcLength,
+            when (point.segmentType) {
+                Curve.SegmentType.LINE_START -> Curve.SegmentType.LINE_END
+                Curve.SegmentType.LINE_END -> Curve.SegmentType.LINE_START
+                Curve.SegmentType.DISCRETE -> Curve.SegmentType.DISCRETE
+            }
+        )
+    })
 
     override fun save(): PrimeCurve.SavedPrimeCurve {
         return SavedPrimeCurveV1.build(this)
@@ -329,9 +461,9 @@ object Vector3dSerializer : KSerializer<Vector3d> {
     }
 
     override fun deserialize(decoder: Decoder): Vector3d {
-        var x = 0.0
-        var y = 0.0
-        var z = 0.0
+        var x: Double? = null
+        var y: Double? = null
+        var z: Double? = null
         decoder.decodeStructure(descriptor) {
             while (true) {
                 when (val index = decodeElementIndex(descriptor)) {
@@ -343,6 +475,10 @@ object Vector3dSerializer : KSerializer<Vector3d> {
                 }
             }
         }
-        return Vector3d(x, y, z)
+        return Vector3d(
+            x ?: throw SerializationException("Missing x coordinate in Vector3d"),
+            y ?: throw SerializationException("Missing y coordinate in Vector3d"),
+            z ?: throw SerializationException("Missing z coordinate in Vector3d")
+        )
     }
 }

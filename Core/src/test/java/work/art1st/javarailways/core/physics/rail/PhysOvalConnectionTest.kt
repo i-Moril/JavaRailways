@@ -1,5 +1,11 @@
 package work.art1st.javarailways.core.physics.rail
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.junit.jupiter.api.Assertions.assertSame
@@ -8,6 +14,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
+import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.CoreBogie
 import work.art1st.javarailways.core.physics.train.CoreCar
@@ -18,8 +25,7 @@ import kotlin.math.sin
 
 class PhysOvalConnectionTest {
     @Test
-    fun `phys oval connects and forwards across every joint`() {
-        val world = createTestWorld()
+    fun `phys oval connects and forwards across every joint`() = withWorld { world ->
         val rails = createPhysOvalRails(world)
 
         rails.indices.forEach { i ->
@@ -35,19 +41,29 @@ class PhysOvalConnectionTest {
     }
 
     @Test
-    fun `multi car train moves across phys oval straight arc joint`() {
-        val world = createTestWorld()
+    fun `multi car train moves across phys oval straight arc joint`() = withWorld { world ->
         val rails = createPhysOvalRails(world)
         val train = createCommandStyleTrain(world, rails[0], carCount = 4, carLength = 2.0)
         val beforeJoint = RailLocationWithFacing(rails[0].viewAB, rails[0].curve.totalArcLength - 0.5)
 
-        train.setLocation(beforeJoint)
-        train.commit()
+        train.world.onOwnerForTest {
+            train.setLocation(beforeJoint)
+            train.commit()
+        }
         train.moveTrainForward(1.0)
         train.commit()
 
         assertFalse(train.isDerailed)
         assertSame(rails[1], train.head.location.rail)
+    }
+
+    private fun withWorld(block: (CoreWorld) -> Unit) {
+        val world = createTestWorld()
+        (world.tickManager as AutoCloseable).use {
+            run {
+                world.physicsCoordinator.use { block(world) }
+            }
+        }
     }
 
     private fun createPhysOvalRails(world: work.art1st.javarailways.core.physics.CoreWorld): List<CoreRail> {
@@ -62,11 +78,11 @@ class PhysOvalConnectionTest {
         val s2 = makeStraight(Vector3d(a1.lastPoint().position), Vector3d(-1.0, 0.0, 0.0), straightLen, normal)
         val a2 = makeArcRightTurn(Vector3d(s2.lastPoint().position), radius, fromEast = false, normal, step)
 
-        val rails = listOf(s1, a1, s2, a2).map { CoreRail(world, it, mutableListOf(), mutableListOf()) }
-        CoreRail.connect(rails[0], rails[1])
-        CoreRail.connect(rails[1], rails[2])
-        CoreRail.connect(rails[2], rails[3])
-        CoreRail.connect(rails[3], rails[0])
+        val rails = listOf(s1, a1, s2, a2).map(world::createRailForTest)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(rails[0], rails[1]) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(rails[1], rails[2]) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(rails[2], rails[3]) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(rails[3], rails[0]) }
         return rails
     }
 
@@ -128,6 +144,6 @@ class PhysOvalConnectionTest {
             currentLocation = nextLocation
         }
 
-        return CoreTrain.create("phys-oval-train", cars, world)
+        return world.onOwnerForTest { CoreTrain.create("phys-oval-train", cars, world) }
     }
 }

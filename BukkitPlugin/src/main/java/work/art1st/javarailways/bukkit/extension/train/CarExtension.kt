@@ -1,5 +1,11 @@
 package work.art1st.javarailways.bukkit.extension.train
 
+import java.util.concurrent.CompletionStage
+import java.util.concurrent.CompletableFuture
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
+
+
 import org.bukkit.Location
 import org.bukkit.entity.Player
 import org.joml.Matrix3d
@@ -9,6 +15,7 @@ import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.config.TrainModelUpdatePolicy
 import work.art1st.javarailways.bukkit.debug.TrainDebugLog
 import work.art1st.javarailways.bukkit.persistence.CarModelSnapshotStore
+import work.art1st.javarailways.bukkit.render.model.ModelConstruction
 import work.art1st.javarailways.bukkit.render.model.CompactTransform
 import work.art1st.javarailways.bukkit.render.model.CompositeModel
 import work.art1st.javarailways.bukkit.render.model.PlatformModel
@@ -22,6 +29,21 @@ import work.art1st.javarailways.bukkit.extension.bukkitWorldData
 import work.art1st.javarailways.core.physics.train.CoreCar
 import work.art1st.javarailways.bukkit.extension.renderChunkManager
 import work.art1st.javarailways.bukkit.util.BukkitThreadOwnership
+import work.art1st.javarailways.bukkit.behavior.CarBehavior
+import work.art1st.javarailways.bukkit.behavior.CapturedCarBehavior
+import work.art1st.javarailways.bukkit.behavior.carBehaviorActions
+import work.art1st.javarailways.bukkit.behavior.captureAnimationCapabilities
+import work.art1st.javarailways.bukkit.behavior.captureAnimationParts
+import work.art1st.javarailways.bukkit.behavior.supportsAnimation
+import work.art1st.javarailways.bukkit.behavior.TrainBehaviorActionDefinition
+import work.art1st.javarailways.bukkit.config.model.SavedTrainPackageSnapshot
+import work.art1st.javarailways.bukkit.config.model.CarControlConfig
+import work.art1st.javarailways.bukkit.config.model.SavedCarModelTree
+import work.art1st.javarailways.bukkit.config.model.TrainResourceVersion
+import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueInput
+import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueKind
+import work.art1st.javarailways.bukkit.persistence.TrainPackageSnapshotStore
+import work.art1st.javarailways.basic.api.operation.DoorSide
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -39,6 +61,33 @@ class CarExtension : TrainComponentExtension<Car>() {
 
     private var pendingHeldScenes: Map<String, String> = emptyMap()
     private var savedModelSnapshotHash: String? = null
+    private var savedPackageSnapshotHash: String? = null
+    private var savedPackageSnapshot: SavedTrainPackageSnapshot? = null
+    private var savedModelSnapshot: SavedCarModelTree? = null
+    var resourceType: String? = null
+        private set
+    private var behaviorClosed = false
+    private val behaviorClockDelegate = lazy {
+        work.art1st.javarailways.bukkit.behavior.CarBehaviorClock(self.world.tickManager, this, ::behaviorLocation)
+    }
+    private val behaviorClock by behaviorClockDelegate
+    private val playback by lazy {
+        work.art1st.javarailways.bukkit.behavior.CarAnimationPlayback(
+            { animationParts() },
+            { active -> behaviorClock.register(active) },
+            { pendingHeldScenes }, ::projectBehaviorFrame)
+    }
+    private val behavior by lazy {
+        CarBehavior(::resolveBehavior, ::resolveActions,
+            { name, scene -> ensureBehaviorOwned(); playBehaviorAnimation(name, scene) },
+            { key, volume, pitch ->
+                val location = behaviorLocation()
+                BukkitThreadOwnership.ensureLocation(location, "CarExtension.sound")
+                location.world!!.playSound(location, key, volume.toFloat(), pitch.toFloat())
+            }, { delay, action -> behaviorClock.schedule(delay, action) },
+            { BukkitPlugin.INSTANCE.logger.info("[CarBehavior:${self.id}] $it") }, ::stopTrainForScriptFailure, ::hasAnimation, playback::closeDurationTicks, { resolveModelSnapshot() to resolveActions() })
+    }
+    private var behaviorModelNodes: List<work.art1st.javarailways.bukkit.render.model.AbstractModel> = emptyList()
     private var bodyModel: CompositeModel? = null
     private var bogieModels: List<CompositeModel> = emptyList()
     private var platformModels: List<PlatformModel> = emptyList()
@@ -47,60 +96,243 @@ class CarExtension : TrainComponentExtension<Car>() {
     private var modelStateApplied: Boolean = false
     private var detailStateCurrent: Boolean = false
     private var forceNextModelUpdate: Boolean = false
-    private var latestFrameRevision: Long = -1L
-    private var latestFrame: CarFrameSnapshot? = null
-    private var latestTrainSpeedMetersPerSecond: Double = 0.0
+    private val publishedFrameGate = CarFramePublicationGate()
+    @Volatile private var latestFrame: CarFrameSnapshot? = null
     private var builtModelGeneration: Long = -1L
     private val detailAudience: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
 
     override fun initialize(host: Car, savedExtensionData: Map<String, SerializableExtensionData>) {
         super.initialize(host, savedExtensionData)
+        behaviorClock.start()
         val savedState = savedExtensionData[BukkitPlugin.EXTENSION_ID] as? SavedCarRenderState
         if (savedState != null) {
             carModelName = savedState.carModelName
             pendingHeldScenes = savedState.heldScenes
             savedModelSnapshotHash = savedState.modelSnapshotHash
+            savedPackageSnapshotHash = savedState.packageSnapshotHash
+            resourceType = savedState.resourceType
         }
     }
 
     override fun save(): Pair<String, SerializableExtensionData>? {
         val modelName = carModelName ?: return null
-        val snapshotHash = if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT) {
-            pinCurrentModelSnapshot()
-        } else {
-            null
-        }
         return BukkitPlugin.EXTENSION_ID to SavedCarRenderState(
             carModelName = modelName,
             heldScenes = collectHeldScenes(),
-            modelSnapshotHash = snapshotHash
+            modelSnapshotHash = savedModelSnapshotHash,
+            packageSnapshotHash = savedPackageSnapshotHash,
+            resourceType = resourceType
         )
     }
 
-    fun pinCurrentModelSnapshot(): String? {
-        savedModelSnapshotHash?.let { return it }
+    fun bindCreatedResources(type: String, modelName: String, version: TrainResourceVersion) {
+        resourceType = type
+        carModelName = modelName
+        val model = requireNotNull(version.models[modelName]) { "Template '$type' has no model '$modelName'" }
+        savedModelSnapshot = model
+        savedModelSnapshotHash = model.hash
+        val source = version.carPackages.getValue(modelName)
+        savedPackageSnapshot = source
+        savedPackageSnapshotHash = source.hash
+    }
+
+    /** Read-only profile lookup; structure preparation must not pin or save source packages. */
+    @Synchronized
+    fun resolveCarControl(): CarControlConfig? {
         val modelName = carModelName ?: return null
-        return BukkitPlugin.INSTANCE.modelManager.createCarModelSnapshot(modelName)?.let { snapshot ->
-            CarModelSnapshotStore.save(snapshot)
-        }?.also { savedModelSnapshotHash = it }
+        return requireNotNull(operationalSnapshot()?.carControls?.get(modelName)) {
+            "Car '${self.id}' has no configuration for '$modelName'"
+        }
+    }
+
+    @Synchronized
+    internal fun resolveCarControl(
+        policy: TrainModelUpdatePolicy,
+        loadSnapshot: (String) -> SavedTrainPackageSnapshot?,
+        liveControl: (String) -> CarControlConfig?
+    ): CarControlConfig? {
+        val modelName = carModelName ?: return null
+        val hash = savedPackageSnapshotHash
+        if (policy != TrainModelUpdatePolicy.SNAPSHOT) return liveControl(modelName)
+        requireNotNull(hash) { "Car has no creation-time configuration snapshot" }
+        val snapshot = savedPackageSnapshot ?: requireNotNull(loadSnapshot(hash)) {
+            "Pinned car package snapshot '$hash' is unavailable"
+        }
+        return requireNotNull(snapshot.carControls[modelName]) {
+            "Pinned car package snapshot '$hash' has no control profile for '$modelName'"
+        }
+    }
+
+    @Synchronized
+    fun resolveActions(): Map<String, work.art1st.javarailways.bukkit.config.model.TrainActionConfig> {
+        return operationalSnapshot()?.actions.orEmpty()
+    }
+
+    /** Value-only inputs from this car's exact operational package and model policy. */
+    @Synchronized
+    internal fun captureSimulationBehavior(): CapturedCarBehavior = captureSimulationBehavior(
+        BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy,
+        TrainPackageSnapshotStore::load, CarModelSnapshotStore::load,
+        BukkitPlugin.INSTANCE.modelManager::resourceVersion
+    )
+
+    @Synchronized
+    internal fun captureSimulationBehavior(
+        policy: TrainModelUpdatePolicy,
+        loadPackage: (String) -> SavedTrainPackageSnapshot?,
+        loadModel: (String) -> SavedCarModelTree?,
+        liveVersion: (String) -> TrainResourceVersion
+    ): CapturedCarBehavior {
+        val liveResources by lazy { liveVersion(requireNotNull(resourceType)) }
+        val source = requireNotNull(operationalSnapshot(policy, loadPackage) { liveResources }) {
+            "Car '${self.id}' has no operational package"
+        }
+        val modelName = requireNotNull(carModelName)
+        val model = if (policy == TrainModelUpdatePolicy.SNAPSHOT) {
+            savedModelSnapshot ?: requireNotNull(loadModel(requireNotNull(savedModelSnapshotHash) {
+                "Car '${self.id}' has no creation-time model snapshot"
+            })) { "Pinned car model snapshot '$savedModelSnapshotHash' is unavailable" }
+        } else {
+            liveResources.models.getValue(modelName)
+        }
+        return captureCarBehavior(source, model)
+    }
+
+    private fun resolveBehavior(): work.art1st.javarailways.bukkit.config.model.TrainBehaviorScript? =
+        operationalSnapshot()?.behavior
+
+    private fun operationalSnapshot(): SavedTrainPackageSnapshot? = operationalSnapshot(
+        BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy,
+        TrainPackageSnapshotStore::load, BukkitPlugin.INSTANCE.modelManager::resourceVersion
+    )
+
+    private fun operationalSnapshot(
+        policy: TrainModelUpdatePolicy,
+        loadPackage: (String) -> SavedTrainPackageSnapshot?,
+        liveVersion: (String) -> TrainResourceVersion
+    ): SavedTrainPackageSnapshot? {
+        if (carModelName == null) return null
+        if (policy != TrainModelUpdatePolicy.SNAPSHOT) {
+            val type = requireNotNull(resourceType) { "Car '${self.id}' has no creation template" }
+            return liveVersion(type).carPackages.getValue(requireNotNull(carModelName))
+        }
+        val hash = requireNotNull(savedPackageSnapshotHash) { "Car '${self.id}' has no creation-time configuration snapshot" }
+        return savedPackageSnapshot ?: requireNotNull(loadPackage(hash)) {
+            "Pinned car package snapshot '$hash' is unavailable"
+        }.also { savedPackageSnapshot = it }
+    }
+
+    internal fun behaviorLocation(): Location {
+        val position = latestFrame?.state?.positionVector() ?: self.initialRenderState.position
+        return Location(self.world.bukkitWorldData.bukkitWorld, position.x(), position.y(), position.z())
+    }
+
+    @Synchronized
+    internal fun behaviorActions(tail: Boolean): List<TrainBehaviorActionDefinition> {
+        ensureBehaviorOwned()
+        return carBehaviorActions(resolveActions(), behavior.metadata(tail))
+    }
+
+    @Synchronized
+    internal fun executeDoor(side: DoorSide, opening: Boolean, tail: Boolean, done: (Result<Unit>) -> Unit): TrainModelOperationResult {
+        ensureBehaviorOwned()
+        return behavior.door(side, opening, tail, done)
+    }
+
+    /** Discard script globals, scheduled effects and persisted animation selections. */
+    @Synchronized
+    internal fun resetOperationalState() {
+        ensureBehaviorOwned()
+        behavior.reset()
+        pendingHeldScenes = emptyMap()
+        playback.resetToDefault()
+    }
+
+    @Synchronized
+    internal fun estimateDoorCloseDurationTicks(side: DoorSide, tail: Boolean): Long {
+        ensureBehaviorOwned()
+        return behavior.estimateDoorCloseDurationTicks(side, tail)
+    }
+
+    @Synchronized
+    internal fun executeAction(name: String, tail: Boolean, done: (Result<Unit>) -> Unit): TrainModelOperationResult {
+        ensureBehaviorOwned()
+        return behavior.action(name, tail, done)
+    }
+
+    @Synchronized
+    internal fun executeAnimation(name: String, scene: String?): Boolean = !executeAnimationTracked(name, scene).isCompletedExceptionally
+
+    @Synchronized
+    internal fun executeAnimationTracked(name: String, scene: String?): CompletableFuture<Unit> {
+        ensureBehaviorOwned()
+        return playBehaviorAnimation(name, scene)
+    }
+
+    @Synchronized
+    internal fun executeBehavior(method: String, args: List<Any?>, tail: Boolean, done: (Result<Unit>) -> Unit, optional: Boolean = false): TrainModelOperationResult {
+        ensureBehaviorOwned()
+        return behavior.call(method, args, tail, done, optional)
+    }
+
+    private fun stopTrainForScriptFailure(failure: work.art1st.javarailways.bukkit.behavior.TrainBehaviorScriptException) {
+        val train = self.train as? work.art1st.javarailways.core.physics.train.CoreTrain
+        BukkitPlugin.INSTANCE.logger.log(java.util.logging.Level.SEVERE,
+            "Car behavior failed: car=${self.id}, train=${train?.id}", failure)
+        if (train != null) train.world.physicsCoordinator.submitBetweenFrames {
+            if (self.train === train && train.world.getTrain(train.id) === train) {
+                train.derail("Car behavior failed: car=${self.id}: ${failure.message}")
+            }
+        }
+    }
+
+    private fun ensureBehaviorOwned() {
+        check(!behaviorClosed) { "car behavior is closed" }
+        BukkitThreadOwnership.ensureLocation(behaviorLocation(), "CarExtension.behavior")
+    }
+
+    @Synchronized
+    internal fun closeBehavior() {
+        if (behaviorClosed) return
+        behaviorClosed = true
+        // Accessing lazy here does not initialize a JS Context; close also covers never-used cars.
+        try { behavior.close() } finally { try { playback.close() } finally { if (behaviorClockDelegate.isInitialized()) behaviorClock.close() } }
     }
 
     /** Synchronous commit entry point used by explicit Core command paths. */
+    @Synchronized
     override fun commit() {
-        applyFrame(
-            captureLiveFrame(),
-            latestFrameRevision + 1L,
-            latestTrainSpeedMetersPerSecond
+        applyFrameState(captureLiveFrame())
+    }
+
+    /** Applies one value-only frame; revisions are ordered only within their exact runtime train. */
+    @Synchronized
+    internal fun applyPublishedFrame(
+        frame: CarFrameSnapshot,
+        publicationStreamId: UUID,
+        revision: Long
+    ) {
+        require(revision >= 0L) { "published car frame revision must be non-negative" }
+        ensureFrameLocationOwned(frame)
+        if (!publishedFrameGate.accept(self as CoreCar, publicationStreamId, revision)) return
+        applyFrameState(
+            frame,
+            locationOwnershipChecked = true
         )
     }
 
-    /** Applies one value-only frame; stale revisions cannot move a model backwards. */
-    @Synchronized
-    fun applyFrame(
+    private fun applyFrameState(
         frame: CarFrameSnapshot,
-        revision: Long,
-        trainSpeedMetersPerSecond: Double
+        locationOwnershipChecked: Boolean = false
     ) {
+        if (!locationOwnershipChecked) ensureFrameLocationOwned(frame)
+        val oldPosition = latestFrame?.state?.positionVector() ?: self.initialRenderState.position
+        latestFrame = frame
+        self.world.renderChunkManager.update(self, oldPosition, frame.state.positionVector())
+        super.commit()
+    }
+
+    private fun ensureFrameLocationOwned(frame: CarFrameSnapshot) {
         BukkitThreadOwnership.ensureLocation(
             Location(
                 self.world.bukkitWorldData.bukkitWorld,
@@ -108,67 +340,124 @@ class CarExtension : TrainComponentExtension<Car>() {
                 frame.state.positionY,
                 frame.state.positionZ
             ),
-            "CarExtension.applyFrame"
+            "CarExtension.applyPublishedFrame"
         )
-        if (revision <= latestFrameRevision) return
-        require(trainSpeedMetersPerSecond.isFinite() && trainSpeedMetersPerSecond >= 0.0)
-        val oldPosition = latestFrame?.state?.positionVector() ?: self.lastState.position
-        latestFrame = frame
-        latestFrameRevision = revision
-        latestTrainSpeedMetersPerSecond = trainSpeedMetersPerSecond
-        self.world.renderChunkManager.update(self, oldPosition, frame.state.positionVector())
-        super.commit()
     }
 
+    private val destruction = Destruction()
+
     @Synchronized
-    override fun destroy() {
-        // Retire and tear down the model before removing audience-index entries. Their removal is
-        // dispatched per player and may race with an already queued visibility update; retirement
-        // prevents either task from rebuilding an orphaned model after the train has gone.
-        super.destroy()
-        self.world.renderChunkManager.remove(
-            self,
-            latestFrame?.state?.positionVector() ?: self.position
-        )
+    override fun destroy(): CompletionStage<Void> = destruction.run {
+        val steps = DestructionSteps()
+        steps.action(::closeBehavior)
+        steps.await { super.destroy() }
+        steps.await { self.world.renderChunkManager.remove(self, latestFrame?.state?.positionVector() ?: self.position) }
+        steps.finish()
     }
 
     override fun buildModel() {
-        val modelName = carModelName
-            ?: throw IllegalStateException("Car model name not set for car at ${self.position}")
+        val plugin = BukkitPlugin.INSTANCE
+        val worldId = self.world.bukkitWorldData.bukkitWorld.uid
+        val trainId = (self as? CoreCar)?.train?.id ?: self.id
+        try {
+            buildPreparedModel()
+            plugin.worldIssues.resolve(worldId, "javarailways:train-model", WorldIssueKind.TRAIN, trainId, "MODEL_UNAVAILABLE:${self.id}")
+        } catch (failure: Exception) {
+            plugin.worldIssues.report(worldId, "javarailways:train-model", WorldIssueInput(WorldIssueKind.TRAIN, trainId,
+                "MODEL_UNAVAILABLE:${self.id}", "Car '${self.id}' model is unavailable: ${failure.message}"))
+            throw failure
+        }
+    }
+
+    private var capabilityModel: SavedCarModelTree? = null
+    private var animationCapabilities: Map<String, Set<String>> = emptyMap()
+
+    /** Same resource policy as display construction, independent of visibility. */
+    private fun resolveModelSnapshot(): SavedCarModelTree {
+        val modelName = requireNotNull(carModelName) { "Car model name not set" }
         val modelManager = BukkitPlugin.INSTANCE.modelManager
-        val snapshot = if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT) {
-            savedModelSnapshotHash?.let { CarModelSnapshotStore.load(it) }
+        return if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT) {
+            savedModelSnapshot ?: requireNotNull(CarModelSnapshotStore.load(requireNotNull(savedModelSnapshotHash) {
+                "Car '${self.id}' has no creation-time model snapshot"
+            })) { "Pinned car model snapshot '$savedModelSnapshotHash' is unavailable" }.also { savedModelSnapshot = it }
         } else {
-            null
+            requireNotNull(modelManager.resourceVersion(requireNotNull(resourceType) {
+                "Car '${self.id}' has no creation template"
+            }).models[modelName]) { "Template '$resourceType' has no model '$modelName'" }
         }
-        val carDef = snapshot?.car ?: modelManager.getCar(modelName)
-            ?: throw IllegalStateException("Car model not found: $modelName")
-        val builder = if (snapshot != null) {
-            modelManager.createTreeBuilder(self.world, snapshot.partResolver())
-        } else {
-            modelManager.createTreeBuilder(
-                self.world,
-                requireNotNull(carDef.packageName) { "Car model '$modelName' has no package" }
-            )
+    }
+
+    private var playbackModel: SavedCarModelTree? = null
+    private var playbackParts: List<Map<String, work.art1st.javarailways.bukkit.render.Animation>> = emptyList()
+    private fun animationParts(): List<Map<String, work.art1st.javarailways.bukkit.render.Animation>> {
+        val source = resolveModelSnapshot()
+        if (playbackModel !== source) {
+            if (playbackModel != null) playback.resetForSourceChange()
+            playbackParts = source.captureAnimationParts()
+            playbackModel = source
         }
+        return playbackParts
+    }
+
+    private fun projectBehaviorFrame(index: Int, frame: work.art1st.javarailways.bukkit.behavior.CarAnimationPlayback.Frame) {
+        if (bodyModel != null || bogieModels.isNotEmpty())
+            behaviorModelNodes.getOrNull(index)?.projectAnimationFrame(frame.name, frame.scene, frame.transform, frame.display)
+        if (frame.name != null && frame.scene != null) pendingHeldScenes = pendingHeldScenes + (frame.name to frame.scene)
+    }
+
+    private fun playBehaviorAnimation(name: String, scene: String?): CompletableFuture<Unit> {
+        val future = playback.play(name, scene)
+        if (!future.isCompletedExceptionally && scene != null) pendingHeldScenes = pendingHeldScenes + (name to scene)
+        return future
+    }
+
+    private fun hasAnimation(name: String, scene: String?): Boolean {
+        val snapshot = resolveModelSnapshot()
+        if (capabilityModel !== snapshot) {
+            animationCapabilities = snapshot.captureAnimationCapabilities()
+            capabilityModel = snapshot
+        }
+        return animationCapabilities.supportsAnimation(name, scene)
+    }
+
+    private fun buildPreparedModel() {
+        animationParts() // Settle old model-slot playback before publishing another tree's node ordering.
+        val modelManager = BukkitPlugin.INSTANCE.modelManager
+        val modelGeneration = modelManager.generation
+        val snapshot = resolveModelSnapshot()
+        val carDef = snapshot.car
+        val builder = modelManager.createTreeBuilder(self.world, snapshot.partResolver())
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
         val rootState = renderFrame().state
         val rootLocation = Location(bukkitWorld, rootState.positionX, rootState.positionY, rootState.positionZ)
 
-        bodyModel = builder.buildCarBody(carDef, rootLocation, self)
-        bogieModels = carDef.bogies.map { bogieDef ->
-            builder.buildBogie(bogieDef, carDef.namespace, rootLocation)
+        ModelConstruction.build { construction ->
+            val body = builder.buildCarBody(carDef, rootLocation, self)
+            construction.own(body, body::destroy)
+            val bogies = carDef.bogies.map { bogieDef ->
+                builder.buildBogie(bogieDef, carDef.namespace, rootLocation).also { construction.own(it, it::destroy) }
+            }
+            val platforms = buildList<PlatformModel> {
+                body.collectModelsOfType(this)
+                bogies.forEach { it.collectModelsOfType(this) }
+            }
+            val seats = buildList<SeatModel> {
+                body.collectModelsOfType(this)
+                bogies.forEach { it.collectModelsOfType(this) }
+            }
+            body.setAnimationScenes(pendingHeldScenes)
+            bogies.forEach { it.setAnimationScenes(pendingHeldScenes) }
+            bodyModel = body
+            bogieModels = bogies
+            platformModels = platforms
+            seatModels = seats
+            behaviorModelNodes = buildList {
+                body.forEachModelRecursive { if (it.animation.isNotEmpty()) add(it) }
+                bogies.forEach { model -> model.forEachModelRecursive { if (it.animation.isNotEmpty()) add(it) } }
+            }
+            playback.projectCurrentFrames()
         }
-        platformModels = buildList {
-            bodyModel?.collectModelsOfType(this)
-            bogieModels.forEach { it.collectModelsOfType(this) }
-        }
-        seatModels = buildList {
-            bodyModel?.collectModelsOfType(this)
-            bogieModels.forEach { it.collectModelsOfType(this) }
-        }
-        applyHeldScenes(pendingHeldScenes)
-        builtModelGeneration = modelManager.generation
+        builtModelGeneration = modelGeneration
     }
 
     override fun updateModel() {
@@ -189,9 +478,8 @@ class CarExtension : TrainComponentExtension<Car>() {
         val position = state.positionVector()
         val direction = state.directionVector()
         val normal = state.normalVector()
-        val velocity = Vector3d(direction).mul(
-            latestTrainSpeedMetersPerSecond / SERVER_TICKS_PER_SECOND
-        )
+        val motion = frame.bukkitMotion()
+        val velocity = motion.bodyVelocityBlocksPerTick
         modelUpdateSequence += 1L
         val nearDetailAudience = detailAudience.isNotEmpty()
         val movingWithAudience = velocity.lengthSquared() > MOVING_EPSILON_SQUARED && hasAudience()
@@ -232,12 +520,12 @@ class CarExtension : TrainComponentExtension<Car>() {
             ))
         }
 
-        frame.bogies.zip(bogieModels).forEach { (bogieState, bogieModel) ->
+        frame.bogies.zip(bogieModels).forEachIndexed { index, (bogieState, bogieModel) ->
             val bogieTransform = CompactTransform(
                 position = bogieRootPosition(bogieState),
                 rotation = rotationFrom(bogieState.directionVector(), bogieState.normalVector())
             )
-            bogieModel.updateState(bogieTransform, bogieState.velocityVector())
+            bogieModel.updateState(bogieTransform, motion.bogieVelocitiesBlocksPerTick[index])
         }
 
     }
@@ -245,6 +533,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     @Synchronized
     override fun refreshFor(player: Player) {
         BukkitThreadOwnership.ensureEntity(player, "CarExtension.refreshFor")
+        if (!ensureModelBuilt()) return
         bodyModel?.showTo(player)
         bodyModel?.updatePlayerVisibility(player)
         bogieModels.forEach { model ->
@@ -267,10 +556,12 @@ class CarExtension : TrainComponentExtension<Car>() {
         deactivateInteractiveModelsFor(player)
     }
 
-    override fun destroyModel() {
-        snapshotHeldScenesForReload()
-        bodyModel?.destroy()
-        bogieModels.forEach { it.destroy() }
+    override fun destroyModel(): CompletionStage<Void> {
+        val steps = DestructionSteps()
+        steps.action { snapshotHeldScenesForReload() }
+        bodyModel?.let { model -> steps.await { model.destroy() } }
+        bogieModels.forEach { model -> steps.await { model.destroy() } }
+        behaviorModelNodes = emptyList()
         bodyModel = null
         bogieModels = emptyList()
         platformModels = emptyList()
@@ -281,32 +572,17 @@ class CarExtension : TrainComponentExtension<Car>() {
         forceNextModelUpdate = false
         builtModelGeneration = -1L
         detailAudience.clear()
+        return steps.finish()
     }
 
     override fun applyAnimation(name: String): Boolean {
-        var applied = bodyModel?.applyAnimation(name) ?: false
-        bogieModels.forEach { model ->
-            applied = model.applyAnimation(name) || applied
-        }
-        return applied
+        ensureBehaviorOwned()
+        return !playBehaviorAnimation(name, null).isCompletedExceptionally
     }
 
     override fun applyAnimation(name: String, sceneName: String): Boolean {
-        if (bodyModel == null && bogieModels.isEmpty()) {
-            // A held scene is semantic vehicle state, not merely an update to currently spawned
-            // display entities. Keep the latest target so reverse/lights/doors remain correct when
-            // the model is outside every player's render distance and is rebuilt later.
-            pendingHeldScenes = pendingHeldScenes + (name to sceneName)
-            return true
-        }
-        var applied = bodyModel?.applyAnimation(name, sceneName) ?: false
-        bogieModels.forEach { model ->
-            applied = model.applyAnimation(name, sceneName) || applied
-        }
-        if (applied) {
-            pendingHeldScenes = pendingHeldScenes - name
-        }
-        return applied
+        ensureBehaviorOwned()
+        return !playBehaviorAnimation(name, sceneName).isCompletedExceptionally
     }
 
     private fun snapshotHeldScenesForReload() {
@@ -396,6 +672,44 @@ class CarExtension : TrainComponentExtension<Car>() {
         private const val NEAR_UPDATE_INTERVAL = 1
         private const val FAR_UPDATE_INTERVAL = 4
         private const val MOVING_EPSILON_SQUARED = 1.0e-6
-        private const val SERVER_TICKS_PER_SECOND = 20.0
     }
 }
+
+/** Bukkit entity motion derived exclusively from one immutable Core frame. */
+internal data class BukkitCarFrameMotion(
+    val bodyVelocityBlocksPerTick: Vector3d,
+    val bogieVelocitiesBlocksPerTick: List<Vector3d>
+)
+
+/** Converts Core world-space metres/second to Bukkit blocks/tick without changing direction. */
+internal fun CarFrameSnapshot.bukkitMotion(): BukkitCarFrameMotion = BukkitCarFrameMotion(
+    bodyVelocityBlocksPerTick = state.velocityVector().div(SERVER_TICKS_PER_SECOND),
+    bogieVelocitiesBlocksPerTick = bogies.map { it.velocityVector().div(SERVER_TICKS_PER_SECOND) }
+)
+
+private const val SERVER_TICKS_PER_SECOND = 20.0
+
+/** Per-car ordering gate for frames emitted by one exact process-local train stream. */
+internal class CarFramePublicationGate {
+    private var publicationStreamId: UUID? = null
+    private var latestRevision: Long = -1L
+
+    fun accept(car: CoreCar, streamId: UUID, revision: Long): Boolean {
+        require(revision >= 0L) { "published car frame revision must be non-negative" }
+        if (!car.isOwnedByPublicationStream(streamId)) return false
+        if (publicationStreamId == streamId && revision <= latestRevision) return false
+        publicationStreamId = streamId
+        latestRevision = revision
+        return true
+    }
+}
+
+/** Detached values only; no script initialization, render graph or source-world callback. */
+internal fun captureCarBehavior(source: SavedTrainPackageSnapshot, model: SavedCarModelTree): CapturedCarBehavior =
+    CapturedCarBehavior(
+        source.behavior?.copy(),
+        source.actions.mapValues { (_, action) -> action.copy(
+            animations = action.animations.toList(), sounds = action.sounds.toList()
+        ) },
+        model.captureAnimationParts()
+    )

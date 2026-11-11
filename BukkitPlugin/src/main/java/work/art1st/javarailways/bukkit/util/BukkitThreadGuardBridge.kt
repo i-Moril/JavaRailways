@@ -1,39 +1,50 @@
 package work.art1st.javarailways.bukkit.util
 
 import org.bukkit.Bukkit
-import work.art1st.javarailways.core.util.ThreadGuardPlatformBridge
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
+import org.bukkit.entity.Player
+import work.art1st.javarailways.bukkit.BukkitPlugin
+import work.art1st.javarailways.core.api.physics.World
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.core.physics.WorldExecutionOwner
 
-/** Bridges Core simulation-thread contracts to the single JavaRailways simulation owner. */
+/** Classifies host domain callbacks; World execution ownership is independent of platform ownership. */
 object BukkitThreadGuardBridge : ThreadGuardPlatformBridge {
     private val simulationDepth = ThreadLocal.withInitial { 0 }
-    private val simulationLock = ReentrantLock()
 
     override fun isMainThread(): Boolean = simulationDepth.get() > 0 || Bukkit.isPrimaryThread()
 
-    fun <T> runInSimulationContext(action: () -> T): T = simulationLock.withLock {
+    fun <T> runInSimulationContext(action: () -> T): T {
         simulationDepth.set(simulationDepth.get() + 1)
         try {
-            action()
+            return action()
         } finally {
             val remaining = simulationDepth.get() - 1
             if (remaining == 0) simulationDepth.remove() else simulationDepth.set(remaining)
         }
     }
 
-    /** Releases the simulation lock while waiting for a region task, then restores this context. */
+    fun <T> runInSimulationContext(world: World, action: () -> T): T = runInSimulationContext {
+        (world as CoreWorld).executionOwner.run(action)
+    }
+
+    fun <T> runInPlayerWorldContext(player: Player, action: () -> T): T {
+        val world = BukkitPlugin.INSTANCE.worldManager.railWorlds[player.world]
+        return if (world == null) runInSimulationContext(action) else runInSimulationContext(world, action)
+    }
+
+    fun <T> runWithWorlds(worlds: Collection<CoreWorld>, action: () -> T): T = runInSimulationContext {
+        WorldExecutionOwner.runTogether(worlds.map { it.executionOwner }, action)
+    }
+
+    /** Release actual domain owners while waiting for a target-aware platform task. */
     fun <T> runOutsideSimulationContext(action: () -> T): T {
-        val holdCount = simulationLock.holdCount
-        if (holdCount == 0) return action()
         val depth = simulationDepth.get()
         simulationDepth.remove()
-        repeat(holdCount) { simulationLock.unlock() }
         try {
-            return action()
+            return WorldExecutionOwner.runWithoutOwners(action)
         } finally {
-            repeat(holdCount) { simulationLock.lock() }
-            simulationDepth.set(depth)
+            if (depth > 0) simulationDepth.set(depth)
         }
     }
 }

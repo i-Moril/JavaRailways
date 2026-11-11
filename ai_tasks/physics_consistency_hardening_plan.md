@@ -1,5 +1,7 @@
 # AI Task B：物理时序与一致性加固
 
+> 2026-10-14决策更新：用户批准移除 `SweptOccupancyIndex` 的 `maxCandidates` 截断。碰撞查询检查同一有限occupancy snapshot中全部局部候选，不以人为阈值漏掉真实候选；相关复杂度/压力评估仍可作为独立性能观察，但不得恢复候选数量截断。
+
 > 状态：核心代码已实现；occupancy benchmark 与 Paper/Folia 实机验证待执行
 > 类型：confirmed concurrency/time-step risks
 > 范围：PhysicsCoordinator、轨道运行输入、Controller command、SpeedSafetyMonitor；occupancy 仅 benchmark 后按证据处理
@@ -61,7 +63,7 @@ MAX_STEP_MILLIS                       -> DEFAULT_EPOCH_OVERLOAD_THRESHOLD_MILLIS
 
 ### 2.4 Occupancy 是待测性能风险
 
-`SweptOccupancyIndex` 会先收集、去重并排序全部 candidate train，再应用 `maxCandidates`。这可能在病态共享桶中产生较大分配和排序成本；但 separation 排序会优先检查真实 overlap，现有代码不能证明存在漏碰撞。因此只允许先 benchmark。
+`SweptOccupancyIndex` 会收集、去重并排序全部局部 candidate train；2026-10-14已批准去除此前排序后的 `maxCandidates` 截断。候选生成、去重和排序本来就处理完整集合，截断不能有效界定这些成本，反而会造成真实候选漏检。每个候选还会与自身及查询train的spans进行比较以确定body overlap、separation和exact overlap；多轨长列车会提高该比较成本。可以benchmark病态共享桶下的bucket引用、span比较、临时分配、排序与精确检查成本；优化必须保持穷尽当前有限候选集合，不得重新加入数量截断。
 
 ---
 
@@ -187,7 +189,7 @@ droppedDeltaMillis = rawDeltaMillis - appliedDeltaMillis
 - 临时分配和排序成本；
 - 真实服务器典型桶密度。
 
-只有 benchmark 证明问题后才允许最小优化：bucket-local exact filter、按 train ID 去重、减少全局候选临时对象。不得改变 `maxCandidates` 的安全语义、不得漏检、不得增加 overflow 状态机。API 字段命名若要改变，必须单独说明兼容影响。
+只有 benchmark 证明问题后才允许最小优化：bucket-local exact filter、按 train ID 去重、减少全局候选临时对象。所有优化仍须穷尽局部候选，不得重新增加 `maxCandidates` 截断或漏检，也不增加overflow状态机。
 
 ---
 

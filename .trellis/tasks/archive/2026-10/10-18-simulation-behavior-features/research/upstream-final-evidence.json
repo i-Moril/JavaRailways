@@ -1,0 +1,2554 @@
+{
+  "captured": "2026-10-20T14:43:42.692278+00:00",
+  "upstream": "87fe3e4567c4b9fddbcee3c0b5975e460a7e05c7",
+  "branch": "codex/simulation-world-alignment",
+  "candidate": {
+    "base": "87fe3e4567c4b9fddbcee3c0b5975e460a7e05c7",
+    "fingerprint": "ae862ac844d99e997c76bbf840a6ded5fe589b1d44a037f989e0effabcbcef79",
+    "files": [
+      {
+        "path": "BukkitPlugin/build.gradle",
+        "sha256": "f2c5eb1c4a3cc63e91ee6ffa95a3296d903f640c7e35279f8d698544934cb787"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/BukkitPlugin.kt",
+        "sha256": "d3033a1d00aa23592b798a9e4885fa9f8892de2b1a85b3c6b8883df641848b21"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/DefaultSimulationFeatureService.kt",
+        "sha256": "335fccef7f381bac2a8ab528943ebb24fa00177a7a40f0e67d3117f74511c88b"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/JavaRailwaysServiceRegistration.kt",
+        "sha256": "19908f12a28f8aacc21418f892d0e4e023d3c6a37a08726ccf78b1fbfe38c449"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/SimulationFeatureOwnerLifecycleListener.kt",
+        "sha256": "ea84306f1f4da4f525e39bda8393a20d9b0f053a41f4b0fe5581f4df1a87b306"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/simulation/SimulationFeaturePreparer.java",
+        "sha256": "05682c41e1463a0903cbde3e8efe10863fed5b996e23473240b751dfec5683f4"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/simulation/SimulationFeatureService.java",
+        "sha256": "9f3eef2c7f6cec662d7521de49210293e776b9bffc48c5e2982539377d65623f"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/behavior/CapturedCarBehavior.kt",
+        "sha256": "3f0a40a1585050321f45bed6a6ff219e033844c725e44159912def580d469a4b"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/behavior/CarBehaviorTargets.kt",
+        "sha256": "fcb6c5906c2c04f561e3d5893782e6bf38c354f1bd3aaf6b07fc2cc2f8727b1f"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/CarExtension.kt",
+        "sha256": "8240d03fcda5c35e61ff3b8fc01981306a4150cbba2c7f4a167cd97c2b9ba486"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/SimulationTrainExtension.kt",
+        "sha256": "10a557d4ff9726faee3a8fa7f8ffa213614bf1015bd0974e6867f48a2f84c7bb"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/TrainComponentExtension.kt",
+        "sha256": "40be3b4e51fc5ae6134a8592bcdf0a583d85cd39a5d3996ad717008f919f4587"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/TrainExtension.kt",
+        "sha256": "6a2d53e676d9e3cac286873d4207bc0c550b8d0d15da9a30ba2b6f4c069c5580"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/http/IsolatedLineSimulator.kt",
+        "sha256": "012e6796e317459c70b694baed89ddbe742dfcf0580ab6f96fe51811b211b7c5"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/http/IsolatedTimetableSimulationFactory.kt",
+        "sha256": "294be4f8c922786ce3fa1a039b4e6052ad1f68c30d0e868e33c18f1fb14c3712"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/http/SimulationControlProfiles.kt",
+        "sha256": "a0a56ff0f561e301c28f04a93381f8999b19d3dd4443183ce5b0348b2faf0900"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/http/TimetableHttpBridge.kt",
+        "sha256": "5f371242bd8407464de67bd8123605cc1d40bc966e1f7c62322d7647249ea1bd"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/operation/BukkitTrainOperationGateway.kt",
+        "sha256": "2353c4484d51c7f346381a4921e5c1adca9e63a5141df5d2a3d14294ff3017e5"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/operation/ModelOperationTicket.kt",
+        "sha256": "6782db52241f47b857ea180308023c5831ec4f638b4e3e3e52e11b397754a6bb"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/operation/SimulationCarBehaviorExtension.kt",
+        "sha256": "94f3bc717bb670ca3e99b28a68daf737258753cc4c83857a081be7fcd0b2f196"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/operation/SimulationTrainOperationGateway.kt",
+        "sha256": "8167df284f86ea466ea1b6a4cbdf6b00cbafa4b5d0303a8d4428ed0ce4f3d653"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/Animation.kt",
+        "sha256": "38b369872db867c7c1a2621f5b1666d7a358bc8e7207aac530e07f823c3ffd27"
+      },
+      {
+        "path": "BukkitPlugin/src/signalApiConsumer/java/example/signaladdon/SignalApiConsumerPlugin.java",
+        "sha256": "6a7321749922d23eb1452fee4e447fb941546ebdd5411149f0214dc0f54f1296"
+      },
+      {
+        "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/api/internal/DefaultSimulationFeatureServiceTest.kt",
+        "sha256": "25be426fac1fc3cdd6495a4b78c551431f842187ef8761751428f9c35207671e"
+      },
+      {
+        "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/api/internal/JavaRailwaysServiceRegistrationTest.kt",
+        "sha256": "22c2334883e3a1882d23d4c87457f8ef988d81fe32494931b9b57513abab7f9d"
+      },
+      {
+        "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/behavior/CapturedCarBehaviorTest.kt",
+        "sha256": "ef813908901dfe93c7ff51f842cdeda73c6915c3341aa71edf5ff64ea3d686c9"
+      },
+      {
+        "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/http/FullFeatureSimulationIsolationTest.kt",
+        "sha256": "fc563241b51e18f458369ea16fa826796f9dc5d876b7f1a75392e68e84adb73d"
+      },
+      {
+        "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/http/IsolatedTimetableSimulationFactoryTest.kt",
+        "sha256": "841745feeeb84d5bf1f6441ae28e69562aa6081de316420ad288e050721a8b47"
+      },
+      {
+        "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/http/SimulationControlProfilesTest.kt",
+        "sha256": "2abe46ceaf20a812cabebe469b785c9b5194870d1d3f6d798622e07512f3a07e"
+      },
+      {
+        "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/operation/SimulationTrainOperationGatewayTest.kt",
+        "sha256": "e4085a95f1b29d1bcc9f13edf533cac0b8c849e9242c2dcb567c5322630f633e"
+      },
+      {
+        "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/signal/SimpleSignalsSimulationFeatureFactory.java",
+        "sha256": "68121e784dd36e4df4ce4174bb5c587bc53d411f3b2381487a054da09a7327cd"
+      },
+      {
+        "path": "SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/simulation/PreparedSimulationFeature.kt",
+        "sha256": "25809584359d7fbf79278c02931f57273a131f448ca30df328d9f262f9e3b01e"
+      },
+      {
+        "path": "SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/DefaultSimulationDomainTarget.kt",
+        "sha256": "f0d28e83858ace2171513282abd780c963da028e976f5e783f23c14236f684d7"
+      },
+      {
+        "path": "SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/IsolatedTimetableSimulation.kt",
+        "sha256": "1a6271fe6e191bce390cf684e9f32f63142fa43132dabc614042e8c88e7b5cd2"
+      },
+      {
+        "path": "SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/SimulationTrainOperationGateway.kt",
+        "sha256": "<deleted>"
+      },
+      {
+        "path": "SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/IsolatedTimetableSimulationTest.kt",
+        "sha256": "a14759bc882a2c08257555bea4c45d93c45c9ea489f8785699e1c317ce16d436"
+      },
+      {
+        "path": "SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/SimulationTrainOperationGatewayTest.kt",
+        "sha256": "<deleted>"
+      },
+      {
+        "path": "SimpleSignals/src/main/java/work/art1st/javarailways/simplesignals/SimpleSignalsHostServices.java",
+        "sha256": "560d3ef0935ede2ec78292a9aa1840f11860c179c1b34e73705327b7f20961bc"
+      },
+      {
+        "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/SimpleSignalsPlugin.kt",
+        "sha256": "bee6cff003db2728ba47d01a235c2e29a7b1e339c0b5c75cd9eb9689f8d002d0"
+      },
+      {
+        "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/SimpleSignalsWorldLifecycleListener.kt",
+        "sha256": "76d54dec93fe71c350e52489e97cd0b8afd70979b4619898270f6069072c5c0c"
+      },
+      {
+        "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/block/FixedBlockRouteResourcePolicy.kt",
+        "sha256": "ace50e5e2d21dcc34964a1bf185109d0ea00d239e084e4f0d5d91da26ee5a2b8"
+      },
+      {
+        "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsSimulationFeature.kt",
+        "sha256": "fc681cec4f413b5b7e96b8a389f5bcdec3f7797befd125bdac9163d4192385aa"
+      },
+      {
+        "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsWorldRuntime.kt",
+        "sha256": "219a497a0ced0e07c4fd8553d0d2548f9dfe75bb4d51050ac8ea03d5e2e0577a"
+      },
+      {
+        "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/signalpack/SignalLogicRuntime.kt",
+        "sha256": "90d8cd5194a3b6a12e089f006cbec1bd02efdac50498adebd0d569874d863c9e"
+      },
+      {
+        "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/signalpack/SignalPackCatalog.kt",
+        "sha256": "d3db358f33b48f07fb5cfa30a36fee4667b1581ba948035ac047840f2551fa6f"
+      },
+      {
+        "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/signalpack/SignalPackEpochRuntime.kt",
+        "sha256": "dd4abdf63e39da4990863852faceff3a5cca2ac0484b541064444b61e8ff73c3"
+      },
+      {
+        "path": "SimpleSignals/src/test/java/work/art1st/javarailways/simplesignals/SimpleSignalsHostServicesTest.java",
+        "sha256": "6d6be553658fe0fd3c630345d052961acfb46fcc71a4db43c6066730690c2b46"
+      },
+      {
+        "path": "SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsWorldRuntimeManagerTest.kt",
+        "sha256": "0b4617450eed9a01d2ffe0f7aeebcbe9a91ca42ce6524b1b7063b31b274d1def"
+      }
+    ],
+    "captured": "2026-10-20T14:29:48.247551+00:00",
+    "updated": "2026-10-20T14:30:53.081711+00:00",
+    "gateNote": "Current final source; real joint fixture validated finite speed and AB direction authoring. No source changes during final aggregate gate."
+  },
+  "totals": {
+    "suites": 364,
+    "tests": 2491,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "modules": {
+    "Core": {
+      "counts": {
+        "suites": 62,
+        "tests": 505,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "xml": [
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.api.event.CollisionEventTest.xml",
+          "sha256": "6a701764066ab5717296a5b2395a13f54aa9aaadfe669f72d6bc0d9384042f3c",
+          "timestamp": "2026-10-20T14:24:05.521Z",
+          "tests": "1"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.api.event.RailEventBusTest.xml",
+          "sha256": "b34934990c5b2e49ea63306ecbb66ea6e3d1e4694c37ea06f06bcd17578e8d76",
+          "timestamp": "2026-10-20T14:24:05.607Z",
+          "tests": "9"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.api.event.WorldEventTest.xml",
+          "sha256": "6672d37d1a9b0be92d1cae524dfa316adbd20d7c72547a7cc1f31ebf921dd1bf",
+          "timestamp": "2026-10-20T14:24:06.221Z",
+          "tests": "1"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.api.physics.ImmutableSnapshotTest.xml",
+          "sha256": "47d3e56e3c2a8789e72cc4fd6b9e96e09349a41266833eeffb75e4a82a4ae8c5",
+          "timestamp": "2026-10-20T14:24:06.942Z",
+          "tests": "4"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.api.physics.TopologyStateApiTest.xml",
+          "sha256": "67280748337405e79b643db26ff73ca9ca35497bb46960645be3b233aeda54df",
+          "timestamp": "2026-10-20T14:24:07.116Z",
+          "tests": "3"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.api.threading.ThreadGuardTest.xml",
+          "sha256": "2485ff78ccd50b7ba06650257077c93927c97c5083d3baa85b118bfd21f36447",
+          "timestamp": "2026-10-20T14:24:07.137Z",
+          "tests": "5"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.api.util.DestructionTest.xml",
+          "sha256": "82fd2b40b91b988ee392978857645e835123b436fb11b0b1d127683282cbe51c",
+          "timestamp": "2026-10-20T14:24:07.148Z",
+          "tests": "2"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.api.util.plugin.ExtensionDataContainerTest.xml",
+          "sha256": "baf1e022c97510437aec4c751f49b49a1f63f4f1ee28eba8392abd9398bc779f",
+          "timestamp": "2026-10-20T14:24:07.160Z",
+          "tests": "6"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.persistence.ExtensionDataCodecTest.xml",
+          "sha256": "d77a48e08b882cfcab4e3ffb39c28f26ce2a66ab2730514707db807dda73667f",
+          "timestamp": "2026-10-20T14:24:07.191Z",
+          "tests": "3"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.persistence.SplitWorldSnapshotTest.xml",
+          "sha256": "2d99260915697fd67f8a6ab87e8ad632cbae8fdd2cc932dd373d7cfcf0a3d21e",
+          "timestamp": "2026-10-20T14:24:07.286Z",
+          "tests": "1"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.persistence.WorldPersistenceRoundTripTest.xml",
+          "sha256": "7d23f4a3b612c12124285cf42adbc2c509f9f22ce007b78adda5376ea64ab3cd",
+          "timestamp": "2026-10-20T14:24:07.405Z",
+          "tests": "5"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.CoreWorldActiveContinuationsPublicationTest.xml",
+          "sha256": "e5a1a8ea2018f1e1bb5baf7d9e39b0887ee62cc727488c2d759772a6dee9f9ac",
+          "timestamp": "2026-10-20T14:24:08.495Z",
+          "tests": "3"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.CoreWorldAtGradeRailCrossingTest.xml",
+          "sha256": "f4740a9b36d60b2a65f9cf382b7c59dbe01034e0c50a1d6ad08b682b83c2114c",
+          "timestamp": "2026-10-20T14:24:08.516Z",
+          "tests": "8"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.CoreWorldRailTopologyTransactionTest.xml",
+          "sha256": "f483be02ea31d7cbb0d90535738a2c00ae48e6ce5334da61421e557b7ac96948",
+          "timestamp": "2026-10-20T14:24:08.544Z",
+          "tests": "26"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.CoreWorldThreadGuardTest.xml",
+          "sha256": "6888cba4d457077bf6887b3aa2d639d7a6f1852fc97784c56e1219d3c0c43c97",
+          "timestamp": "2026-10-20T14:24:10.830Z",
+          "tests": "2"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.CoreWorldTopologyStatePublicationTest.xml",
+          "sha256": "b2dc17e1c4acce89d48e3daf9853eef7c25759a023d18da27f5e49e09f7ca11b",
+          "timestamp": "2026-10-20T14:24:10.833Z",
+          "tests": "8"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.PreparedRailCreationBatchTest.xml",
+          "sha256": "0657f0d5b354b2c24f582ff1506b8e2a8c1464b621f7997e45942f565fac714a",
+          "timestamp": "2026-10-20T14:24:12.914Z",
+          "tests": "10"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.WorldExecutionOwnerTest.xml",
+          "sha256": "3a8b6dfdfd918786169e3368e1319f511bef965010461aee7c2184343ee1edfa",
+          "timestamp": "2026-10-20T14:24:13.623Z",
+          "tests": "5"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistryTest.xml",
+          "sha256": "796c4dbcc31c35506cd7c5bde064a931c4244fdeaf81908fd3befca1dda55ba7",
+          "timestamp": "2026-10-20T14:24:13.638Z",
+          "tests": "39"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.rail.PhysOvalConnectionTest.xml",
+          "sha256": "c7f14bae7b728e8b27abdbc12812f9020d44e8f5918ac3ea2eac40b336dffa84",
+          "timestamp": "2026-10-20T14:24:14.114Z",
+          "tests": "2"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.rail.PreparedRailConnectionPlanTest.xml",
+          "sha256": "f3b53f98662032ffebb98bcca65bf826a92ad6f8c9b01c1613b0bbc443af5a80",
+          "timestamp": "2026-10-20T14:24:14.242Z",
+          "tests": "10"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.rail.PreparedRailWorldSnapshotPlanTest.xml",
+          "sha256": "4afada864b50de4cc2a31f4a3a7088626bd0c672e429cc0babff0baafb1a6126",
+          "timestamp": "2026-10-20T14:24:14.267Z",
+          "tests": "11"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.rail.RailConnectTest.xml",
+          "sha256": "1196baf3e319d6750917cb093e059925e0468c28f60ef1aa4e289b5d695e3a5d",
+          "timestamp": "2026-10-20T14:24:14.300Z",
+          "tests": "2"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.rail.RailDirectionRestrictionTest.xml",
+          "sha256": "fd1b83f12d1bc742514a02b4a8ac7d12db3fb040dd115241758f16acd2de89fa",
+          "timestamp": "2026-10-20T14:24:14.303Z",
+          "tests": "1"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.rail.RailIntervalReleaseDetectorTest.xml",
+          "sha256": "06b2c7cd9900f56b0d6cbd097d178754a70435bb8340fda5ae1bcdb8a469affb",
+          "timestamp": "2026-10-20T14:24:14.320Z",
+          "tests": "3"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.rail.RailLocationPeekCurveTest.xml",
+          "sha256": "62842295d49d86d6fb5f0b468feeb1ac5ca16ed478e0665f922c91027eef5aba",
+          "timestamp": "2026-10-20T14:24:14.322Z",
+          "tests": "2"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.rail.RailLocationPersistTest.xml",
+          "sha256": "758cd554220c0f4d4ffb5d91aa445559fcdb582b8659cd69bfb63e96f9da46bc",
+          "timestamp": "2026-10-20T14:24:14.325Z",
+          "tests": "5"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.rail.RailTopologyEditorTest.xml",
+          "sha256": "0d70434300cc7de30183e5b2f379df22cc6e4b2b414e998e43786ee3e396cf42",
+          "timestamp": "2026-10-20T14:24:14.328Z",
+          "tests": "1"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.rail.SavedRailConnectionsTest.xml",
+          "sha256": "63a60e7cf07671bcc8b2140dae0414b755db06d027c8902ebe39829877115edd",
+          "timestamp": "2026-10-20T14:24:14.332Z",
+          "tests": "35"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.rail.SweptOccupancyIndexTest.xml",
+          "sha256": "71095734e46054db02028744524d9131e625219b0ac400ba44af0eb8732fee26",
+          "timestamp": "2026-10-20T14:24:14.398Z",
+          "tests": "14"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.rail.curve.PrimeCurveInputValidationTest.xml",
+          "sha256": "70e46dfa23fbe3143c7c90d513adac36b9818b9bb4e80d1fcece645a521cf518",
+          "timestamp": "2026-10-20T14:24:14.408Z",
+          "tests": "18"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.rail.curve.PrimeCurveNearestPointTest.xml",
+          "sha256": "7d997a4f82ed48cf4148644fdbd236a88d8fef8750708a51c462652727a9e0a8",
+          "timestamp": "2026-10-20T14:24:14.417Z",
+          "tests": "6"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.rail.curve.PrimeCurveSurgeryTest.xml",
+          "sha256": "c1e56ebd9577742cf1cae6e062c35446e7945acf10fdea1507cd7cc353ed9021",
+          "timestamp": "2026-10-20T14:24:14.418Z",
+          "tests": "4"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.rail.curve.PrimeCurveTest.xml",
+          "sha256": "e8cbc84b2102978f2b94debdde40e8e3f1d11ab35e9c5c668d840fbea7bee328",
+          "timestamp": "2026-10-20T14:24:14.420Z",
+          "tests": "5"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.rail.topology.TopologyStateBuilderTest.xml",
+          "sha256": "1e256d3b67378f86d24cf31ea901e9f394b826d435bcb0b989b87d79b8996428",
+          "timestamp": "2026-10-20T14:24:14.421Z",
+          "tests": "7"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.tick.BetweenFramesOperationsTest.xml",
+          "sha256": "d68dc33588084229b50ef36169c996c4dd36a8d3a2997355d78519b2063eeb80",
+          "timestamp": "2026-10-20T14:24:14.424Z",
+          "tests": "10"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.tick.LatestTrainFrameMailboxTest.xml",
+          "sha256": "a4d03cfb7bffe5aed452562d58b81e183796a5efd519c0ec05167ba042ea63b5",
+          "timestamp": "2026-10-20T14:24:15.931Z",
+          "tests": "5"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest.xml",
+          "sha256": "46e476225160019753b3770f7978b68ee6214d443c741c97e5613a393c41f7c4",
+          "timestamp": "2026-10-20T14:24:15.947Z",
+          "tests": "37"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.tick.PhysicsEpochEventsTest.xml",
+          "sha256": "d06314ce090ade2e06f39e6c87543c0e1655e714d0da83f566ba28597e3f512d",
+          "timestamp": "2026-10-20T14:24:21.883Z",
+          "tests": "17"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.tick.RailwaySimulationHaltTest.xml",
+          "sha256": "e9f8de0adf1df213b9a3d55483b7b4a6a15c64cd80cdbaeee1a2384f4957daa9",
+          "timestamp": "2026-10-20T14:24:24.773Z",
+          "tests": "2"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.CoreCarPositioningRegressionTest.xml",
+          "sha256": "9a25bdfc8d9e35870dd081a3abbf76285c990842d786c1eaa5414b86a0c68a5a",
+          "timestamp": "2026-10-20T14:24:25.793Z",
+          "tests": "7"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.CoreRenderCommitDecouplingTest.xml",
+          "sha256": "a78c630ddfea503dea1863379327b0d5711d044b16abcb962a55faa2c65a37e5",
+          "timestamp": "2026-10-20T14:24:25.947Z",
+          "tests": "1"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.CoreTrainAsymmetricTurnoutTest.xml",
+          "sha256": "142900a40ea1074d91c221f09f0bac387aa4198f7b1a45024892e0da56d4c91b",
+          "timestamp": "2026-10-20T14:24:25.947Z",
+          "tests": "9"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.CoreTrainCollisionCouplingTest.xml",
+          "sha256": "82fbf91ca6801e026f062678c06abda8e5c641ecc0db6ab61473e24fa36e607b",
+          "timestamp": "2026-10-20T14:24:26.019Z",
+          "tests": "27"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.CoreTrainConstructionTest.xml",
+          "sha256": "c7915ea9c2fbad868ed9bec7f17a4b8df495ee6f5d5e28bd0304d143630b89b0",
+          "timestamp": "2026-10-20T14:24:29.399Z",
+          "tests": "15"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.CoreTrainDerailEventTest.xml",
+          "sha256": "4bc91379217ed57d5e5d7fad03df8742aa8be4af785af0758b45d02d7ab6533c",
+          "timestamp": "2026-10-20T14:24:30.103Z",
+          "tests": "3"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.CoreTrainLinkTest.xml",
+          "sha256": "0f1efcf856265f6c9fe9e130983bb23fabf82a54868225708c6f8e598e488bdd",
+          "timestamp": "2026-10-20T14:24:30.194Z",
+          "tests": "5"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.CoreTrainMixedInstallationTest.xml",
+          "sha256": "e6f5c41df4b14cd2251d1c3f78436f565153452288be3a2fec2fafec27b796b4",
+          "timestamp": "2026-10-20T14:24:30.461Z",
+          "tests": "5"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.CoreTrainMultiCarDiagnosticTest.xml",
+          "sha256": "b9023e53ed2dd068b6e81d9b581e6517870f7d829fc910e6f19e4ec04509ba4d",
+          "timestamp": "2026-10-20T14:24:30.891Z",
+          "tests": "3"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.CoreTrainPersistedPlacementTest.xml",
+          "sha256": "241331debae5b452e16d2ac6fbbe1fb99daa03e11dfa938c172cf6f3caafb2fa",
+          "timestamp": "2026-10-20T14:24:31.035Z",
+          "tests": "16"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.CoreTrainPersistenceStateTest.xml",
+          "sha256": "1c2176b65122056599f3d41007602c309e8e6a0e36b6a86158cf0e83d11606a7",
+          "timestamp": "2026-10-20T14:24:31.072Z",
+          "tests": "2"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.CoreTrainPublicationBoundaryTest.xml",
+          "sha256": "65aa826c2a3415b29c1b96750066a41551084e78eade9991e5127d6e2458bb9d",
+          "timestamp": "2026-10-20T14:24:31.278Z",
+          "tests": "6"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.CoreTrainReversedPersistenceTest.xml",
+          "sha256": "0f439bf90345d3cd7da30e96fdf24200887ed66f46c95231cf487cb1b43203b9",
+          "timestamp": "2026-10-20T14:24:31.478Z",
+          "tests": "2"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.CoreTrainRigidGeometryTest.xml",
+          "sha256": "2f22e760875fc15ac45ed0220f2c9f8c7485bc169a85aa9ec59ce4721cd656c1",
+          "timestamp": "2026-10-20T14:24:31.700Z",
+          "tests": "4"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.CoreTrainSplitTest.xml",
+          "sha256": "ae049470c0bc477273570d5a1301757b4663bb84ca18cf3fd5690716608cdf20",
+          "timestamp": "2026-10-20T14:24:31.797Z",
+          "tests": "38"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.CoreTrainTailBogieTest.xml",
+          "sha256": "a57a5cca1cc8a0310d36972850b26840e746f49562623575693aa022e9d72bfd",
+          "timestamp": "2026-10-20T14:24:34.316Z",
+          "tests": "5"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.TrainNameTest.xml",
+          "sha256": "66d883357df6969c2b7ea352d824ff4b63f4dc77492125dd662b27cdaf9a4bc8",
+          "timestamp": "2026-10-20T14:24:34.800Z",
+          "tests": "1"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.TrainSlopeJointMotionTest.xml",
+          "sha256": "84295b0a1cd3a062941700b97a1de1ce793110d1ed8a8534b6e2789c5e4228b2",
+          "timestamp": "2026-10-20T14:24:34.839Z",
+          "tests": "2"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.TrainSlopeMotionTest.xml",
+          "sha256": "0e98bce4e2dd98d05c642c92d2a7eac129f48a774c419e3aa3e446546d8a2555",
+          "timestamp": "2026-10-20T14:24:34.851Z",
+          "tests": "1"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.physics.train.TrainUniformMotionTest.xml",
+          "sha256": "8bb1f584bd06d2e3076065c7c29daf27e0b2e7bee347c7bfeeb64aa37d897383",
+          "timestamp": "2026-10-20T14:24:34.859Z",
+          "tests": "10"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.util.LatestTickCommitMailboxTest.xml",
+          "sha256": "945b5cd369dc96ef21ea63158747c5bf57da9c6c7e9ecaa89277915faa500ef4",
+          "timestamp": "2026-10-20T14:24:37.040Z",
+          "tests": "2"
+        },
+        {
+          "path": "Core/build/test-results/test/TEST-work.art1st.javarailways.core.util.TickManagerImplTest.xml",
+          "sha256": "df37cf71953f6cb91e06569d6c840e1f2326450fd97d72310b1164257261c5ce",
+          "timestamp": "2026-10-20T14:24:37.043Z",
+          "tests": "3"
+        }
+      ]
+    },
+    "Basic": {
+      "counts": {
+        "suites": 59,
+        "tests": 390,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "xml": [
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.BasicWorldDataAccessorsTest.xml",
+          "sha256": "b1836304e34500784bed11f70706f731dac365654dd9ef1173c30bc634b89ce3",
+          "timestamp": "2026-10-20T14:24:37.857Z",
+          "tests": "3"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.api.ato.PhaseAFoundationTest.xml",
+          "sha256": "ca7681fabd64a09aae48f0c8648d1c6b9f105c88f4aadd45428936f33c5da498",
+          "timestamp": "2026-10-20T14:24:37.907Z",
+          "tests": "5"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.api.observation.RailwayObservationTest.xml",
+          "sha256": "ff4a5888affd649e542e90dcf50e5840304eb615ccf7fd08a5510f1006c71420",
+          "timestamp": "2026-10-20T14:24:37.936Z",
+          "tests": "7"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.api.observation.RailwayStateStampTest.xml",
+          "sha256": "ca69e34ae542a17ef29023792d459df8fe99b52d3242df68bc0dabcc2b3cc6e8",
+          "timestamp": "2026-10-20T14:24:38.213Z",
+          "tests": "2"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.api.rail.RailObjectStoreTest.xml",
+          "sha256": "ec6fdc6a9f16ca31f432af8e820c6d19b5c80f50fffaad504cd521700b4a25f2",
+          "timestamp": "2026-10-20T14:24:38.214Z",
+          "tests": "2"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.api.route.ExpandedRouteTest.xml",
+          "sha256": "54b2c006e8fbea3eca18a92b30da2b1f378a7d7290bf51e61a9691cfb8f3d96d",
+          "timestamp": "2026-10-20T14:24:38.238Z",
+          "tests": "1"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.api.route.ResourcePreparationTest.xml",
+          "sha256": "606d80071b6912eb9b12405b6694aba0654f5820975bb9b0f62b1563de91917b",
+          "timestamp": "2026-10-20T14:24:38.240Z",
+          "tests": "1"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.api.route.RouteAdmissionTest.xml",
+          "sha256": "6ff21f23edf2d0701b752ef126e1b0b96d74b10ac6dc20773bb1ef986fa478f7",
+          "timestamp": "2026-10-20T14:24:38.241Z",
+          "tests": "6"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.api.route.RouteResourceIntentTest.xml",
+          "sha256": "3e2984f03558ab7ea23d22aa3e66f0e0bb3f3394922007acd8ded64e8e03d727",
+          "timestamp": "2026-10-20T14:24:38.250Z",
+          "tests": "6"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.api.route.planning.PhysicalRailDistanceTest.xml",
+          "sha256": "cef33d9eab7281bef9a05bd2b1b4624e04106835c3d90e0aa957b0bd5f6da366",
+          "timestamp": "2026-10-20T14:24:38.255Z",
+          "tests": "4"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.api.safety.WorldSafetyInterlockTest.xml",
+          "sha256": "4f1b6bf9862cd188fdac6376d2c0edbb99ffe84465152c48bdc81b7d5bddcb3b",
+          "timestamp": "2026-10-20T14:24:38.267Z",
+          "tests": "1"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.control.TrainDynamicsTest.xml",
+          "sha256": "7036f03ea616fa5e17714e207732f47ba3376a79613aad990c6d2405f4e539aa",
+          "timestamp": "2026-10-20T14:24:38.269Z",
+          "tests": "20"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.curve.ConstraintSolverTest$ComputeAngle.xml",
+          "sha256": "017083f67d701b9b9b47d33d31a237ebe49b24ed7fb81cdd729489d2cc57b8fe",
+          "timestamp": "2026-10-20T14:24:38.879Z",
+          "tests": "3"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.curve.ConstraintSolverTest$GenerateCurve.xml",
+          "sha256": "f8a030240538a2150000113eb54b4b7411b193a6d23ab71b185750805cca4cfa",
+          "timestamp": "2026-10-20T14:24:38.881Z",
+          "tests": "4"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.curve.ConstraintSolverTest$SolveBest.xml",
+          "sha256": "34796e6d7ec77dc218553794001b5299212dc3437bd6a36aac2605a8f00cc334",
+          "timestamp": "2026-10-20T14:24:38.925Z",
+          "tests": "2"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.curve.ConstraintSolverTest$SolveWithRadius.xml",
+          "sha256": "ff523a98121dadacb9a41382cb4a216226b38aba5574437989c4c1e80f0d8715",
+          "timestamp": "2026-10-20T14:24:38.931Z",
+          "tests": "4"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.curve.ParallelAnchorGeometryTest.xml",
+          "sha256": "c74f6684b93d4699fdaa17ebd70fab81fbdd3225c732856da0fa868d1f2ac822",
+          "timestamp": "2026-10-20T14:24:38.943Z",
+          "tests": "3"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.curve.RailCurveFactoryTemplateTest.xml",
+          "sha256": "c0356e744d63d2446306323581d32bd4fa5608c79ae062d187bd4108f389bad8",
+          "timestamp": "2026-10-20T14:24:38.950Z",
+          "tests": "23"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.curve.RailCurvePartitionerTest.xml",
+          "sha256": "bc7820743046283abcccaf04af0e333ab5f50deba1db460fc78ff95f6b47005f",
+          "timestamp": "2026-10-20T14:24:39.056Z",
+          "tests": "9"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.curve.RailGeometryMeasurementServiceTest.xml",
+          "sha256": "0625692e689601747584265ba14c1cd203735a9d90c120bb727750b019e2b8c0",
+          "timestamp": "2026-10-20T14:24:39.114Z",
+          "tests": "3"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.curve.StandardRailCurveTest$Builder.xml",
+          "sha256": "51a6f965700ab505443181e62a20e5bb5f6a4909f7c2a94b4f68641c5ba9d76f",
+          "timestamp": "2026-10-20T14:24:39.119Z",
+          "tests": "3"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.curve.StandardRailCurveTest$CurveMath.xml",
+          "sha256": "0f376a2b5f89b29374b853909cae7a29244b65bec27c23f7c1f39e36b89a5793",
+          "timestamp": "2026-10-20T14:24:39.121Z",
+          "tests": "4"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.curve.StandardRailCurveTest$GeneratePoints.xml",
+          "sha256": "625440a9ede734626c7c69521b8ef8229e03536ae4bed1dce3f199c32a66278d",
+          "timestamp": "2026-10-20T14:24:39.122Z",
+          "tests": "4"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.curve.StandardRailCurveTest$PointAt.xml",
+          "sha256": "2df89037ce66fc1b785e68932318d396a3fce45b60832330509c1975f636f350",
+          "timestamp": "2026-10-20T14:24:39.129Z",
+          "tests": "5"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.curve.StandardRailCurveTest$Superelevation.xml",
+          "sha256": "bf4cef38f3df18c153751bb5595f60aacd5b6b53569f240455d2bd63374cb4e5",
+          "timestamp": "2026-10-20T14:24:39.131Z",
+          "tests": "19"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.curve.StandardRailCurveTest$ToGlobal.xml",
+          "sha256": "989196c4653d1319f4593a372c1ccd8f083e43735a9aa66638a0ffb6b090e065",
+          "timestamp": "2026-10-20T14:24:39.135Z",
+          "tests": "2"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.curve.StandardTurnoutFactoryTest.xml",
+          "sha256": "8a2807990c2633cf5840696a2b8c3eb3b9c79127f16d725266d7b862dc1e8fba",
+          "timestamp": "2026-10-20T14:24:39.135Z",
+          "tests": "5"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.curve.VerticalCurveRebuilderTest.xml",
+          "sha256": "010973bb9d2f0b4bd4a80de20eaf939dabb237871f79c06c17b7f2ff5780fc43",
+          "timestamp": "2026-10-20T14:24:39.138Z",
+          "tests": "5"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.curve.VerticalProfileSmootherTest.xml",
+          "sha256": "91ec8197b12a58cf25559177660a2947085cc06d10f618a29132d6df01fbce6e",
+          "timestamp": "2026-10-20T14:24:39.142Z",
+          "tests": "5"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.infrastructure.BulbLineAdmissionTest.xml",
+          "sha256": "5418be5087bad3de40f0a6bf5ac9070b4d4c062ea4a9eca00bc006c0a1d0635f",
+          "timestamp": "2026-10-20T14:24:39.144Z",
+          "tests": "2"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.infrastructure.CompiledRouteProgressPathTest.xml",
+          "sha256": "4c047accfdc733f94da0d856b8819853c9164286649db5732682a1f7f0fd87e0",
+          "timestamp": "2026-10-20T14:24:39.176Z",
+          "tests": "15"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.infrastructure.CompiledTailReleaseQueueTest.xml",
+          "sha256": "02f9fb0437ddcd0689fb424d1bbe0a7708f08c791638d704992d4d7db1b089c7",
+          "timestamp": "2026-10-20T14:24:39.182Z",
+          "tests": "4"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.infrastructure.LiveClaimTailReleaseTest.xml",
+          "sha256": "326fe58843f4e9ecd108bdc9200622584cf21f1416ce35df06f607964931f3f1",
+          "timestamp": "2026-10-20T14:24:39.184Z",
+          "tests": "18"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.infrastructure.LiveInfrastructurePreparationActuatorTest.xml",
+          "sha256": "a476e02bf527872b12d83af4e2fc3d0316ca8f36b26a2d1d36a47cce813ad886",
+          "timestamp": "2026-10-20T14:24:39.192Z",
+          "tests": "10"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.infrastructure.ManualTurnoutSelectionRuntimeTest.xml",
+          "sha256": "5444baa5358931dc9767735e607ddef095d33753fc2d99acf75c15b240a4dce0",
+          "timestamp": "2026-10-20T14:24:39.218Z",
+          "tests": "4"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.infrastructure.OccupancyQueryGeometryTest.xml",
+          "sha256": "15537e8488c48bb084efa32d6200832f07c1539961140c8872862af7d7132de2",
+          "timestamp": "2026-10-20T14:24:39.229Z",
+          "tests": "1"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.infrastructure.PhysicalRouteDependencyCompilerTest.xml",
+          "sha256": "84fb8986814d842b613c443d8f7eeda0ac607755e07268dc6694692a3080675d",
+          "timestamp": "2026-10-20T14:24:39.229Z",
+          "tests": "3"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.infrastructure.PhysicalRouteResourceCompilerTest.xml",
+          "sha256": "207220d558c97634da23ece89d62dc67ef4d33f899bd68dceaaac78d3e257cb1",
+          "timestamp": "2026-10-20T14:24:39.234Z",
+          "tests": "2"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.infrastructure.PhysicalTopologyReplacementOrRemovalImpactResolverTest.xml",
+          "sha256": "0fbc7a9d41bfdb2f31bf5987b6df8394d13e87fd57e7e6973d2615b2a2610d3d",
+          "timestamp": "2026-10-20T14:24:39.238Z",
+          "tests": "10"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.infrastructure.PhysicalTopologyResourcesTest.xml",
+          "sha256": "9242933aa8d983ea1deed3e92041192cd25976de4d4626e20d9d8586386f747e",
+          "timestamp": "2026-10-20T14:24:39.264Z",
+          "tests": "2"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.infrastructure.RouteBoundResourceCatalogTest.xml",
+          "sha256": "6eaebe91c3c42cc8ce49d66e106b4e813c46de83e76598232671d9fe3c8f1222",
+          "timestamp": "2026-10-20T14:24:39.265Z",
+          "tests": "6"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.infrastructure.RouteGrantTailReleaseTest.xml",
+          "sha256": "c72e17bdd7c3a8edae2791bb2088268471a3fab765ae7e2aabc9926fc0738c04",
+          "timestamp": "2026-10-20T14:24:39.271Z",
+          "tests": "5"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.infrastructure.RouteResourceAdmissionEngineTest.xml",
+          "sha256": "9fda1402b8ab950d1b13dac43f94de1696e92260c7da502de3dfea33ba483136",
+          "timestamp": "2026-10-20T14:24:39.278Z",
+          "tests": "45"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.infrastructure.RouteResourceConflictIntegrationTest.xml",
+          "sha256": "a302af92601b9f36d4f2af93a479ae4db0b3f3d5c1a227eee954109ebaa77105",
+          "timestamp": "2026-10-20T14:24:39.328Z",
+          "tests": "2"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.infrastructure.TopologyRouteProjectorTest.xml",
+          "sha256": "b36c806d8c681b629f204c171dd47621f5bf7b5329833762f2bf722c1a0dcee7",
+          "timestamp": "2026-10-20T14:24:39.332Z",
+          "tests": "10"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.observation.RailwayAreaOccupancyTrackerTest.xml",
+          "sha256": "dfa28a46a76a98a65aa458da136138fc61e894f16eeff993c15f0faaa2e378e9",
+          "timestamp": "2026-10-20T14:24:39.336Z",
+          "tests": "13"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotTest.xml",
+          "sha256": "b0e5634540ea41b3e464ed46bd7fb45b3319df8ff357e6202d68630d327db776",
+          "timestamp": "2026-10-20T14:24:39.347Z",
+          "tests": "11"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotTest.xml",
+          "sha256": "22c084aee6cbd654a2dd4f554be4f24dda6caa3dbb351df4055e03093811b391",
+          "timestamp": "2026-10-20T14:24:39.606Z",
+          "tests": "3"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.rail.LogicalRailLaneResolverTest.xml",
+          "sha256": "5aa8c6d27bb0e42015f64b80832ca9c06a8e486fbd38f18bfffa35d8bb8145ac",
+          "timestamp": "2026-10-20T14:24:39.608Z",
+          "tests": "3"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.rail.OperatingDirectionStoreTest.xml",
+          "sha256": "9951f55b3a681a8ad52270c39dd4ba1ce10ea398f2676715a000ac8a029bed86",
+          "timestamp": "2026-10-20T14:24:39.611Z",
+          "tests": "9"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignalTest.xml",
+          "sha256": "de755ae5a091149560b648915419a86d38d32c9af97913e756a2981cf4d9e045",
+          "timestamp": "2026-10-20T14:24:39.748Z",
+          "tests": "2"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.rail.RailInfrastructureMetadataStoreTest.xml",
+          "sha256": "639572662fac7155fc7caf4c6fd638b787f64724997db0cd3f38729349b707ce",
+          "timestamp": "2026-10-20T14:24:39.767Z",
+          "tests": "6"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.rail.RailInfrastructureMetadataTopologyTest.xml",
+          "sha256": "2d23669df3df6f25a5169a93a4a25fc62a143d3344f5f2307fa45b0f5f2128be",
+          "timestamp": "2026-10-20T14:24:39.779Z",
+          "tests": "8"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.rail.SpeedLimitMetadataTest.xml",
+          "sha256": "343de70df64b341110b21469f6e73b3e997208f7b3d7d4752a50d030a4c1a259",
+          "timestamp": "2026-10-20T14:24:39.785Z",
+          "tests": "5"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.rail.TurnoutTopologyTest.xml",
+          "sha256": "a9a33d4b95a73feada8b4b7a67fc637478630e40a6e9fd6931e0143ff8c43ae0",
+          "timestamp": "2026-10-20T14:24:39.787Z",
+          "tests": "1"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.route.TopologyRoutePlannerTest.xml",
+          "sha256": "aa342d901e3b981f52137c9cf6ead96fb39966e4f9ba7f25f09cf221cbe08200",
+          "timestamp": "2026-10-20T14:24:39.793Z",
+          "tests": "12"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.route.TopologyRouteRestrictionTest.xml",
+          "sha256": "893ab0ea0dbeb90a3b5ce2079658c73c70a711296fc9a81c87ad1e58fcc93b09",
+          "timestamp": "2026-10-20T14:24:39.802Z",
+          "tests": "8"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.safety.RailSpeedCalculatorTest.xml",
+          "sha256": "942c60dc5d0c26079a7b918ef114fe9e31212e557bacf599396949c53b897911",
+          "timestamp": "2026-10-20T14:24:39.808Z",
+          "tests": "6"
+        },
+        {
+          "path": "Basic/build/test-results/test/TEST-work.art1st.javarailways.basic.safety.SpeedSafetyMonitorTest.xml",
+          "sha256": "784107693fafe3ec643991d7ed85aaf84785ab6ded6a75271b65d4adce9f9f01",
+          "timestamp": "2026-10-20T14:24:39.815Z",
+          "tests": "3"
+        }
+      ]
+    },
+    "SimpleATO": {
+      "counts": {
+        "suites": 48,
+        "tests": 375,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "xml": [
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.SimpleATOWorldDataTest.xml",
+          "sha256": "b31f295de0ca498a04bbe5b4e91a0363178caaab236c175047b10c2f0f00a638",
+          "timestamp": "2026-10-20T14:30:12.130Z",
+          "tests": "1"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.admission.RollingRouteAuthorityPlannerTest.xml",
+          "sha256": "be27dc8f2cd6023e2c1bb025ba72e140c799e09bbcff200b2bf3df10ef915ce4",
+          "timestamp": "2026-10-20T14:30:12.139Z",
+          "tests": "7"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.admission.RouteAuthorityAdmissionClientTest.xml",
+          "sha256": "68e8bb9798382d1449256134d596759c07219b2bedcf2469ad19ec5f9ca0fe15",
+          "timestamp": "2026-10-20T14:30:12.147Z",
+          "tests": "18"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.api.ato.AbstractATOConsistTest.xml",
+          "sha256": "ab9937abb7c7b7ca45844c7a9d1b0b9f8642e617436d07bce2ae100e13a0e8f5",
+          "timestamp": "2026-10-20T14:30:12.177Z",
+          "tests": "3"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.api.ato.AbstractATOMotionPublicationTest.xml",
+          "sha256": "c31475ceb430861923c64ee58f0c08099e1d40c9a68baed6b696e5332e1ec769",
+          "timestamp": "2026-10-20T14:30:12.542Z",
+          "tests": "1"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.api.ato.AtoPolicyTest.xml",
+          "sha256": "ba4f6749e41ac9798855b10d81eb60644a28fedfcbf44c78ffc882e8ac90ea9e",
+          "timestamp": "2026-10-20T14:30:12.633Z",
+          "tests": "7"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.api.depot.DepotStoreTest.xml",
+          "sha256": "9f8a829f5ca6d83b9fc3fd6baefdec8a3637e16afbd7efe7e0cb5b60c418a967",
+          "timestamp": "2026-10-20T14:30:12.681Z",
+          "tests": "10"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.api.destination.OperationalDestinationTest.xml",
+          "sha256": "776bd1557f7e8ebb121e007165bf4798f2d9337999bbc9e2668430c5e748f3fd",
+          "timestamp": "2026-10-20T14:30:12.701Z",
+          "tests": "10"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.api.line.LinePlannerTest.xml",
+          "sha256": "14c6690bdca3c267fb2bf491b472e0b46a52658075e4f13bbd13a5f607f7af8a",
+          "timestamp": "2026-10-20T14:30:13.456Z",
+          "tests": "2"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.api.line.LineStoreTest.xml",
+          "sha256": "eea7cbee8bd6c4b29db43f8af111cf062b6fa1ffe8fe5c907638ad4cf83ec7bb",
+          "timestamp": "2026-10-20T14:30:13.568Z",
+          "tests": "3"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.api.mission.AtoMissionTest.xml",
+          "sha256": "1ea373feba21e19b9400c60365bf8a7435b68e0ae104c5ddfc976d239e415f97",
+          "timestamp": "2026-10-20T14:30:13.571Z",
+          "tests": "5"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.api.station.StationBerthAllocatorTest.xml",
+          "sha256": "8981f101d9552fdeb16d2134a7d5857034a997efaeebb78e540e2e2487104b75",
+          "timestamp": "2026-10-20T14:30:13.789Z",
+          "tests": "1"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.api.station.StationCallResolverTest.xml",
+          "sha256": "7eee4ad2292a72f0c4fdc3c835514eaa8ada05150f55dcd9761bab64ca5b8337",
+          "timestamp": "2026-10-20T14:30:13.791Z",
+          "tests": "5"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.api.station.StationModelTest.xml",
+          "sha256": "6bda7d7a96ae47d661154049a16379446ddf86df4c9560440d4cdb18ec9f5028",
+          "timestamp": "2026-10-20T14:30:14.207Z",
+          "tests": "4"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionRegistryTest.xml",
+          "sha256": "20c620915371a104458afbc0d08e1750df5ee3b3baddcf44f816653630ffd679",
+          "timestamp": "2026-10-20T14:30:14.467Z",
+          "tests": "6"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.controller.SimpleATOTest.xml",
+          "sha256": "a10478ff3bef5d32e15a731f4157367fcae0c6e4232d99902a66844327e301ea",
+          "timestamp": "2026-10-20T14:30:14.490Z",
+          "tests": "16"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.depot.DepotResetCoordinatorTest.xml",
+          "sha256": "d77edd8a66cffd35eb8e815f36437d2a25bcb3bf7640723fb08076c81c31ab64",
+          "timestamp": "2026-10-20T14:30:17.926Z",
+          "tests": "5"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.inspection.AuthorityRequestFloorsTest.xml",
+          "sha256": "0cd83a649b8c6a11a3e72a2630aefe52244c0c594358d6b22eee8a06dd64fb2c",
+          "timestamp": "2026-10-20T14:30:18.267Z",
+          "tests": "6"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.inspection.EntryClearanceRuntimeTest.xml",
+          "sha256": "df503b37048f7d71a36fd1fbd311e8e565aa26d69147a22ef0b2da9128544cac",
+          "timestamp": "2026-10-20T14:30:18.269Z",
+          "tests": "4"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.inspection.EntryClearanceTest.xml",
+          "sha256": "222d6bdcb3e6bc1d2a5f293881c80a673235d051d1021aa9c2967b695b9a308c",
+          "timestamp": "2026-10-20T14:30:18.588Z",
+          "tests": "8"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.inspection.InspectionRuntimeTest.xml",
+          "sha256": "2927297a5e2e1510671b409e620648ede2fcb80d2e97ba1fe4830bd9296a793e",
+          "timestamp": "2026-10-20T14:30:18.617Z",
+          "tests": "23"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.inspection.InspectionSchedulerTest.xml",
+          "sha256": "71f79a042d2ab0d49150a5e9defa49737ab05f573de7ea7392fe3313ec4d875c",
+          "timestamp": "2026-10-20T14:30:18.671Z",
+          "tests": "14"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.persistence.DispatcherSnapshotTest.xml",
+          "sha256": "cc9af7e847922f2b5fb017c16d93927f57f0142938aa541c2de6ed2c5127ce88",
+          "timestamp": "2026-10-20T14:30:18.679Z",
+          "tests": "6"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotTest.xml",
+          "sha256": "a2b02428d72da383a023c3d6acf32089684dcca923d50882c9bf50f5955035ae",
+          "timestamp": "2026-10-20T14:30:18.751Z",
+          "tests": "4"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.persistence.TimetableSnapshotTest.xml",
+          "sha256": "1dee2d474b5b2c0cd30e566b82035635d7c2dae6465de1716342cbc6015091c0",
+          "timestamp": "2026-10-20T14:30:18.948Z",
+          "tests": "3"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.restriction.TrainRestrictionConstraintAdapterTest.xml",
+          "sha256": "0e84e5c92a37c81bae085e9626aa6dca47bf015f27b1c25b796481b16fd44d97",
+          "timestamp": "2026-10-20T14:30:18.978Z",
+          "tests": "9"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStoreTest.xml",
+          "sha256": "b8b41ebffb6094f8fef0f0876567185fc33d8ee00eb6d683844c2586914b2dd2",
+          "timestamp": "2026-10-20T14:30:18.983Z",
+          "tests": "5"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.routing.FrozenMissionRouteAssemblerTest.xml",
+          "sha256": "d7d41db9629ecf08f8025af7a44d69865e37507a0f9a5809f497eea3635c69ac",
+          "timestamp": "2026-10-20T14:30:18.990Z",
+          "tests": "9"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.routing.FrozenRouteSelectorTest.xml",
+          "sha256": "d1da14ff011a878550df5dc6fc4a37d43c043ab011e4410c2f4bcd5699ae0c87",
+          "timestamp": "2026-10-20T14:30:19.002Z",
+          "tests": "6"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.routing.MissionRouteProgressTest.xml",
+          "sha256": "7d889dc9ab2a1dc2bb63a28df566b6a4cddf4b2ff81c14727d928db5a11ab519",
+          "timestamp": "2026-10-20T14:30:19.017Z",
+          "tests": "1"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.routing.OperationalRoutePlannerTest.xml",
+          "sha256": "dbf5c6c9a8b302921816059a1c8784d87659c187eb4917088146e2b0b11bab98",
+          "timestamp": "2026-10-20T14:30:19.080Z",
+          "tests": "2"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.routing.ProductionRoutePlanningRestrictionTest.xml",
+          "sha256": "c4c71e66eef1abb9b035d98b449a9184e0f023fd8639b1d31a7f7f553e510eb3",
+          "timestamp": "2026-10-20T14:30:19.145Z",
+          "tests": "1"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.routing.RouteAllocationTimingTest.xml",
+          "sha256": "e21d347bbd23419cb76d7019ca56e95771f1b5739ef916e295e893f9ac2feb28",
+          "timestamp": "2026-10-20T14:30:19.192Z",
+          "tests": "1"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.routing.RoutePlanningRestrictionRuntimeTest.xml",
+          "sha256": "3f71c0d4731900150f17501ba30fd7f9df1bbacd4d23dadb4d42ef436913dead",
+          "timestamp": "2026-10-20T14:30:19.193Z",
+          "tests": "2"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.routing.TerminalRouteMarginTest.xml",
+          "sha256": "4d73b0b407ac556e276fdad98cbb6e76aba8c744fedbf180cc59d7168b718364",
+          "timestamp": "2026-10-20T14:30:19.195Z",
+          "tests": "7"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.signal.SignalEpochRuntimeTest.xml",
+          "sha256": "e2a56bbdbf205ff10087c5d25bbc33b7ebcffd7deb3606dd14e7401af32ac818",
+          "timestamp": "2026-10-20T14:30:19.203Z",
+          "tests": "27"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.station.StationCallRuntimeTest.xml",
+          "sha256": "2a67cf134991cadf6cade6bb9f8abaaa85163e56cdaf38629909e1ac63b82f7b",
+          "timestamp": "2026-10-20T14:30:19.233Z",
+          "tests": "5"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.testing.KinematicTrainActuatorTest.xml",
+          "sha256": "470f6a558d03205a99c9286d820b8e880a025611a907da0eb93d10f9f4348721",
+          "timestamp": "2026-10-20T14:30:19.495Z",
+          "tests": "2"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.timetable.FrozenRouteEditProtectionTest.xml",
+          "sha256": "b8d186a891bc3a421ea20bec6e474199106088aad0b8a03f97d79f1359667c5a",
+          "timestamp": "2026-10-20T14:30:19.496Z",
+          "tests": "1"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.timetable.LineMaximumSpeedResolverTest.xml",
+          "sha256": "50a0cc52bb9ecc1f04920a70c6238601117eda7d836900fc2396c8361a9a6843",
+          "timestamp": "2026-10-20T14:30:19.500Z",
+          "tests": "2"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.timetable.ManualNavigationTest.xml",
+          "sha256": "010504e9749a433030a7d6390dbd9016e6e40108eab35d77dc2f6f91dadc8283",
+          "timestamp": "2026-10-20T14:30:19.501Z",
+          "tests": "4"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.timetable.TimetableDispatcherSharedAdmissionTest.xml",
+          "sha256": "a10a40fcbc40510b962b5da8ac0aff7537bcc91fad89edf912cda7ef77a57564",
+          "timestamp": "2026-10-20T14:30:19.727Z",
+          "tests": "24"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.timetable.TimetableDispatcherTest.xml",
+          "sha256": "cbbfa67ef81d30993883f4b93b6d7f62609f7fb28bf46f0e710c8c22d17d4aa2",
+          "timestamp": "2026-10-20T14:30:25.817Z",
+          "tests": "38"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.timetable.TimetableInitialPositionerTest.xml",
+          "sha256": "c0466bab0bc50029b2759216c5a8a3aed7cfa73661bcd5c4c03ad7eec21bb3b4",
+          "timestamp": "2026-10-20T14:30:29.750Z",
+          "tests": "5"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.timetable.TimetableStationCallDispatcherTest.xml",
+          "sha256": "c769e92794b06477c298155cdc4f299acdb76e01a2fa74ddecd280c07173d68e",
+          "timestamp": "2026-10-20T14:30:30.496Z",
+          "tests": "27"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.timetable.TimetableValidatorTest.xml",
+          "sha256": "78a29fbcfd7ef0422582520427caaa380b6b7a12989a62315bebb74d0b3c3406",
+          "timestamp": "2026-10-20T14:30:34.226Z",
+          "tests": "10"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.timetable.simulation.DetailedTrainTravelSimulatorTest.xml",
+          "sha256": "b9214430dfa44507ab1dec960a7d730f9b06a8087216834462623fe2d313011e",
+          "timestamp": "2026-10-20T14:30:34.640Z",
+          "tests": "1"
+        },
+        {
+          "path": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationTest.xml",
+          "sha256": "86bdde1ee1e598a1d6199c399046dc0c45671e373b848541f35d9207cd34c378",
+          "timestamp": "2026-10-20T14:30:01.971Z",
+          "tests": "14"
+        }
+      ]
+    },
+    "SimpleATOBukkit": {
+      "counts": {
+        "suites": 2,
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "xml": [
+        {
+          "path": "SimpleATOBukkit/build/test-results/test/TEST-work.art1st.javarailways.simpleatobukkit.SimpleATOBukkitModuleTest.xml",
+          "sha256": "335be7229197626be271af03d3a419b73fa7e5b5dd6e6a05247142c894b8aa69",
+          "timestamp": "2026-10-20T14:30:55.149Z",
+          "tests": "1"
+        },
+        {
+          "path": "SimpleATOBukkit/build/test-results/test/TEST-work.art1st.javarailways.simpleatobukkit.diagnostics.AtoStallDiagnosticsTest.xml",
+          "sha256": "0810530175502e2105e732be861b0b6b12d8261dca19a3074ed0d1a2d2638663",
+          "timestamp": "2026-10-20T14:30:55.264Z",
+          "tests": "1"
+        }
+      ]
+    },
+    "BukkitPlugin": {
+      "counts": {
+        "suites": 122,
+        "tests": 532,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "xml": [
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.api.diagnostics.PluginErrorLogTest.xml",
+          "sha256": "195cbc90c621f30c72ee17ed290607cc4221d75ea74a0f051fc306e20a1d8650",
+          "timestamp": "2026-10-20T14:41:28.458Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueServiceTest.xml",
+          "sha256": "2c00feed35ea052926c995bc8a5608a96381e5d99f60e1aa8fcb9e7a0b2833de",
+          "timestamp": "2026-10-20T14:41:28.563Z",
+          "tests": "4"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.api.internal.BukkitRailTargetServiceTest.xml",
+          "sha256": "ea6738c354f54609040bbceed62d5d9d0c4529fc56ab97461540c381eaee4a57",
+          "timestamp": "2026-10-20T14:41:28.608Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.api.internal.DefaultEditorTextServiceTest.xml",
+          "sha256": "f087772053dae93d2c1cb4b8ff550b13e3e70d41011d0cb1a54dde14031742a4",
+          "timestamp": "2026-10-20T14:41:34.705Z",
+          "tests": "11"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureResourceServiceTest.xml",
+          "sha256": "0f6be9b97397018ebf6acf07471677110548d8ea075ef098725bafcb3e0957c8",
+          "timestamp": "2026-10-20T14:41:34.899Z",
+          "tests": "31"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.api.internal.DefaultModelPresentationServiceTest.xml",
+          "sha256": "c00701568985b63f18d8bfb6bd64f2058123298049cbbe39bbc6b9deb4d8593f",
+          "timestamp": "2026-10-20T14:41:35.560Z",
+          "tests": "17"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.api.internal.DefaultPlayerOperationServiceTest.xml",
+          "sha256": "ec9a722c6e495fc7b3775280f32deb4b832350223bd8edc559de7963faffef9d",
+          "timestamp": "2026-10-20T14:41:35.678Z",
+          "tests": "4"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationServiceTest.xml",
+          "sha256": "d0ee7ea11d8e87a618b797102d8a5b6212c69ac3bffc9f1b9b8bae5f2d461910",
+          "timestamp": "2026-10-20T14:41:35.691Z",
+          "tests": "10"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.api.internal.DefaultSignalEpochSourceServiceTest.xml",
+          "sha256": "454b306ced91993edccb833518d272501eefda83fa9e43eb9b1196b8441bac47",
+          "timestamp": "2026-10-20T14:41:36.242Z",
+          "tests": "17"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.api.internal.DefaultSimulationFeatureServiceTest.xml",
+          "sha256": "83e32e3b9f2f9e0422c120b16a13c3cc6c7061a8b63eb1ce0c6d141a3aa92aab",
+          "timestamp": "2026-10-20T14:41:37.976Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.api.internal.EditorMarkerLabelsTest.xml",
+          "sha256": "687785d8e70730b6a52c70b33b6cfd21f68f04f5ae3488047c641ac391531080",
+          "timestamp": "2026-10-20T14:41:37.984Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.api.internal.JavaRailwaysServiceRegistrationTest.xml",
+          "sha256": "0e1256159c9a9d50f791bcebd24fc39ee37fca51868f17b0f2b7901189fb19a6",
+          "timestamp": "2026-10-20T14:41:38.049Z",
+          "tests": "1"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.api.model.ModelDefinitionTest.xml",
+          "sha256": "1e5e56ed7728db46b40281bdee92c7073c9ed4a60a181c3ce0de35ced030d977",
+          "timestamp": "2026-10-20T14:41:38.056Z",
+          "tests": "8"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.api.model.ModelPresentationTest.xml",
+          "sha256": "9eb4b677f9370f988bee68cbcbe823f679ddcb769cad7471c9bbd78f407fccfa",
+          "timestamp": "2026-10-20T14:41:38.064Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.api.model.asset.ModelAssetYamlCompilerTest.xml",
+          "sha256": "d514efa4b1758885f20adb803d1b7e9df51d2ef30760473b159e0d62e86f5d8b",
+          "timestamp": "2026-10-20T14:41:38.065Z",
+          "tests": "4"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.api.wand.WandModeSwitchTest.xml",
+          "sha256": "bfed5366a7b4049361317370504e1be127da0472268711a5ffa33bc9d72ec753",
+          "timestamp": "2026-10-20T14:41:38.219Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.behavior.CapturedCarBehaviorTest.xml",
+          "sha256": "daef2cfb9c81fb74c69270b28a15666fc82013351c3e2a296fd679f91f2ab56d",
+          "timestamp": "2026-10-20T14:41:38.229Z",
+          "tests": "1"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.behavior.CarBehaviorTest.xml",
+          "sha256": "4daecb5d71a7916a03d964aca301205d2b3a96a0670ef586ca20d512dfe80bb1",
+          "timestamp": "2026-10-20T14:41:38.258Z",
+          "tests": "8"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.behavior.CarOperationBatchTest.xml",
+          "sha256": "26fa22bbe3217cca03b9eafb82f60b6aacd7cdd14597e1afa6dbde543db40b87",
+          "timestamp": "2026-10-20T14:41:40.411Z",
+          "tests": "5"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.behavior.SimulationEventBoundaryTest.xml",
+          "sha256": "af12173e28bbef9524e85212f67ea7dbd019daf77143d36e8c49fdb8830bf7f6",
+          "timestamp": "2026-10-20T14:41:40.423Z",
+          "tests": "1"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.behavior.TrainBehaviorRuntimeTest.xml",
+          "sha256": "638e0b21ad767b2e9436e018d8427f4be243b9d2082b02007e9e104bf2319637",
+          "timestamp": "2026-10-20T14:41:40.721Z",
+          "tests": "4"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.command.CloudCommandRegistrarTest.xml",
+          "sha256": "9eec0187d5275901a735a71cbba905008d6bcd1755b414c9fa57557c512c1e5a",
+          "timestamp": "2026-10-20T14:41:40.796Z",
+          "tests": "5"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.config.JavaRailwaysConfigTest.xml",
+          "sha256": "1628d9fed1720a03ea5474e285e79cd300fb3d422e4f8157bf456716c1d6408e",
+          "timestamp": "2026-10-20T14:41:40.827Z",
+          "tests": "15"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.config.PhysicsConfigTest.xml",
+          "sha256": "e1830843fed70a2e64351352243c80db6cc8c740a5dddf963fc942a0c1c033d8",
+          "timestamp": "2026-10-20T14:41:40.862Z",
+          "tests": "4"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.config.RailModelConfigTest.xml",
+          "sha256": "eabfd8115407b80e98ff4eda80fc228efb911a0e6224889c424aa2a1a8441a62",
+          "timestamp": "2026-10-20T14:41:40.879Z",
+          "tests": "6"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.config.model.ControlNumericValidationTest.xml",
+          "sha256": "b9578c55817be4fac3e5bff728932fc4c2f4ac6deb4f0ed05ba746fd7b2e739c",
+          "timestamp": "2026-10-20T14:41:40.897Z",
+          "tests": "5"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.config.model.ModelConfigStrictValidationTest.xml",
+          "sha256": "aca59726a9e5019765443fae1bc412fe56e654c2e8fd56d1bb1f0ef683fd3bee",
+          "timestamp": "2026-10-20T14:41:40.924Z",
+          "tests": "7"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.config.model.ModelManagerReloadTest.xml",
+          "sha256": "3dd2bdeafcc665739e1b904ac6502dd335c179c5885116365477d38be2684508",
+          "timestamp": "2026-10-20T14:41:40.941Z",
+          "tests": "9"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.config.model.ModelTreeBuilderTest.xml",
+          "sha256": "09cadb4dbe1e6195ef67e6580eac5f10fc09f7ed959f4d6cfaaae5055270dc8b",
+          "timestamp": "2026-10-20T14:41:41.057Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.config.model.PackageLoaderBehaviorTest.xml",
+          "sha256": "307e7e246eddde23108ac1be2c74d3a570e9ec29cbbc78db279f15774ec152a2",
+          "timestamp": "2026-10-20T14:41:41.170Z",
+          "tests": "1"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.config.model.PackageLoaderControlTest.xml",
+          "sha256": "3884f23eb877897442a2b5205f04f57a49dd2418aa113de91088419083173d9e",
+          "timestamp": "2026-10-20T14:41:41.174Z",
+          "tests": "4"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.config.model.PartAnimationRuntimeTest.xml",
+          "sha256": "1ca4b54876a628ab834f57f3f0db2d5671326a01d238fb9c57f93c049d170cbe",
+          "timestamp": "2026-10-20T14:41:41.186Z",
+          "tests": "4"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.config.model.PartRegistryAnimationTest.xml",
+          "sha256": "df957c5071b74327e30f30521b1b079d90d86ddfaf6114e85092e0aca60e00fa",
+          "timestamp": "2026-10-20T14:41:41.199Z",
+          "tests": "7"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.config.model.PartRegistryDriverSeatTest.xml",
+          "sha256": "aade7d56f2167a2594aefb9e9296edc712a6cb2684855a1eaa21eebf55c84d50",
+          "timestamp": "2026-10-20T14:41:41.207Z",
+          "tests": "1"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.config.model.S100PackageLoadTest.xml",
+          "sha256": "856a95b59737eabbe0190712c3d7da9fe65a8f96f8922ac7b56b55934564d510",
+          "timestamp": "2026-10-20T14:41:41.207Z",
+          "tests": "1"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.config.model.SavedCarModelTreeTest.xml",
+          "sha256": "40cae1e340e3f0210a427f59516e5dc3f77e82f34a2daee79fc8311571b382e2",
+          "timestamp": "2026-10-20T14:41:41.263Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.config.model.TrainActionConfigTest.xml",
+          "sha256": "9d01c1200246537963671d585dca7f3080b28e41fa083ab2aef96c64b796b8b8",
+          "timestamp": "2026-10-20T14:41:41.267Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.config.model.TrainPackageSnapshotTest.xml",
+          "sha256": "bc310a2d85e5b12d201b489fab331923dcc7893aaa092d09d558ebb772766f2e",
+          "timestamp": "2026-10-20T14:41:41.270Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.control.TrainControlManagerDirectionTest.xml",
+          "sha256": "222013a4c987ec86f85da1926e45b6b7149125501731a8c52f23448bf5499db2",
+          "timestamp": "2026-10-20T14:41:41.291Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.control.TrainControlWorldIsolationTest.xml",
+          "sha256": "5f05b30bc8e5452d3271f85933c1bbf8ce9c053c3e51b860dace64042d63dce8",
+          "timestamp": "2026-10-20T14:41:41.391Z",
+          "tests": "1"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.extension.WorldModelOperationsTest.xml",
+          "sha256": "216bf0bef37f701c2ff1ee43eba6e1ef0326ef529028e95bc7b0466ef8039d61",
+          "timestamp": "2026-10-20T14:41:41.491Z",
+          "tests": "1"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.extension.rail.RailDecorationLayoutTest.xml",
+          "sha256": "cd6bf3fbbde795d82b6a1357f93b8282f60e40982e896271f8a578ed11971741",
+          "timestamp": "2026-10-20T14:41:41.493Z",
+          "tests": "5"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.extension.rail.RailDisplayPlacementTest.xml",
+          "sha256": "53f590a1d62d337dad2ba13d1141879e4e77043e7c41671f8ebed8289465ad6f",
+          "timestamp": "2026-10-20T14:41:41.499Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.extension.rail.RailPackageCoordinateTest.xml",
+          "sha256": "6bad829e4d2bbb9c171435af8252f6f6cb6b11a5e348ac630b027fad04c1cf5d",
+          "timestamp": "2026-10-20T14:41:41.501Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.extension.train.CarControlSourceTest.xml",
+          "sha256": "a64340755ff5ef1cfb28602f55ebd7c0a2abf1238b7a3b1f6fe03b6ecaf00c0a",
+          "timestamp": "2026-10-20T14:41:41.516Z",
+          "tests": "4"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.extension.train.CarExtensionHeldSceneTest.xml",
+          "sha256": "8fddd7e5585a2fea3645242f4b1986250110f225eee5a5d81639f1118f3f4b34",
+          "timestamp": "2026-10-20T14:41:41.761Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.extension.train.CarFrameRevisionGateTest.xml",
+          "sha256": "b5fa0f0efe3a2d29573c5d9ccd0e7d0065df2a95c586910666270b3a95419ac1",
+          "timestamp": "2026-10-20T14:41:41.766Z",
+          "tests": "1"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.extension.train.CarFrameVelocityConversionTest.xml",
+          "sha256": "586437e6b90ccebf59e43c9372b2ba2525ec2e115648c67cf2cb61d620cddd14",
+          "timestamp": "2026-10-20T14:41:41.893Z",
+          "tests": "1"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.extension.train.TrainComponentExtensionAudienceTest.xml",
+          "sha256": "2ac1a8074c053727a5d1df490fd4495f2a4c107c7ac62a6178b5d2279a86ab59",
+          "timestamp": "2026-10-20T14:41:41.895Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.http.FullFeatureSimulationIsolationTest.xml",
+          "sha256": "62bccc62cfcf9f419dc809c274be01400b672bbd8d7f027df3b50edcbe0be9e2",
+          "timestamp": "2026-10-20T14:41:41.897Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.http.IsolatedLineSimulatorTest.xml",
+          "sha256": "8e5070c7a956c75da8371c94afcb79b9561a85ce4fa121022683cb1c21af662e",
+          "timestamp": "2026-10-20T14:41:48.099Z",
+          "tests": "4"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.http.IsolatedTimetableSimulationFactoryTest.xml",
+          "sha256": "9980078e21c7f69541e6ba0ee2aac7b944d948325ed80433f319bf3070587298",
+          "timestamp": "2026-10-20T14:41:48.136Z",
+          "tests": "7"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.http.RailMapPreviewServiceTest.xml",
+          "sha256": "4912b61c02448536765f5f28589d7f51cff5466fce81dbad2ad02c8ed93f2b2d",
+          "timestamp": "2026-10-20T14:41:51.701Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.http.ScriptWorkerCompatibilityTest.xml",
+          "sha256": "f224523657e7864f042913034457ffceff54ff4a4ccc78b000b9c40a8ad55027",
+          "timestamp": "2026-10-20T14:41:51.897Z",
+          "tests": "1"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.http.SimulationControlProfilesTest.xml",
+          "sha256": "e6fd60f8d8df5ce61c96ceaffd146f81bfc0161527ee1ee8842c90bc8b2e22b1",
+          "timestamp": "2026-10-20T14:41:52.008Z",
+          "tests": "5"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.http.TimetableScriptNormalizerTest.xml",
+          "sha256": "c6ee78347e9759325ff3ac9293c3442ecd6765012853b07be3e1abe6598148f8",
+          "timestamp": "2026-10-20T14:41:52.090Z",
+          "tests": "1"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.http.TimetableScriptStorageTest.xml",
+          "sha256": "59284b6f1105c67b8f91d05d64039237cd0a40b792c7638aeacfcba582ef1053",
+          "timestamp": "2026-10-20T14:41:52.104Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.http.WebUiLoginTokensTest.xml",
+          "sha256": "128730896d9b4e13cefb1818bc068bd60642fd6465696c87719bd16785b92801",
+          "timestamp": "2026-10-20T14:41:52.112Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.http.WorldHttpRequestIsolationTest.xml",
+          "sha256": "332e18f1dd85a167337fc0693c6ec5cc28f72013fa6958c686124dbd72d4869e",
+          "timestamp": "2026-10-20T14:41:52.116Z",
+          "tests": "1"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.logic.RailVisualLifetimeTest.xml",
+          "sha256": "11da21531c269eaf646d88e832c8ec841c3638bb3e57fc6cf63680dd68d92b19",
+          "timestamp": "2026-10-20T14:41:52.124Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.logic.TrainResourceConfigurationTest.xml",
+          "sha256": "4dd17c1f0800eb1e81c77aeed8a3c6d2f392a6d3dcfbd7464d442e657bd2c9af",
+          "timestamp": "2026-10-20T14:41:52.149Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.logic.WorldConstructionResourcesTest.xml",
+          "sha256": "52f41f27262a491701fd4fa86b2abda8056e87d96f02567730578fb6eff71e95",
+          "timestamp": "2026-10-20T14:41:52.239Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.logic.WorldManagerUnloadTest.xml",
+          "sha256": "5e4ee5c4dae9ab3895a86104f3436d3289294e9a2796321810380074e0ab97bc",
+          "timestamp": "2026-10-20T14:41:52.241Z",
+          "tests": "4"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.logic.WorldTickRunnerRegistryTest.xml",
+          "sha256": "47a560a6efaa98c948a009ff1369e7b52e23f95141ec72e02e19663c8f9f8075",
+          "timestamp": "2026-10-20T14:41:52.266Z",
+          "tests": "4"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.logic.WorldTickRunnerTest.xml",
+          "sha256": "62a9c3144e848024954a90f04396c5665b70f4a02a23cf521c41496c81c228d7",
+          "timestamp": "2026-10-20T14:41:52.371Z",
+          "tests": "1"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.operation.BukkitTrainOperationGatewayTest.xml",
+          "sha256": "6d7f6398a41c762562487c4c41ca8a93798571101b9ad81c00cfd24254647ca5",
+          "timestamp": "2026-10-20T14:41:52.485Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.operation.SimulationTrainOperationGatewayTest.xml",
+          "sha256": "71cb4a89b1cd1b0403861ffd6c7803b903ee3a2714259ee84786fea5e43fd830",
+          "timestamp": "2026-10-20T14:41:52.635Z",
+          "tests": "10"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.persistence.CarPackageSnapshotReferenceTest.xml",
+          "sha256": "f9ebdc16419d086c379166f259d783c62f348faaf6cbc511e09cf1fa0b32c7b8",
+          "timestamp": "2026-10-20T14:41:58.886Z",
+          "tests": "1"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.persistence.DevelopmentWorldMigrationTest.xml",
+          "sha256": "079281e9851dbf977d922cc3bc8d9b968919e79d1eda8ba7e13823faea106b60",
+          "timestamp": "2026-10-20T14:41:59.207Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.persistence.EndpointWorldMigrationTest.xml",
+          "sha256": "b5a02c72123e6853aeee8e9adae8f28710e3041e1ed22a9c8b5065237ca30e97",
+          "timestamp": "2026-10-20T14:41:59.399Z",
+          "tests": "6"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.persistence.RailInfrastructureMetadataMigrationTest.xml",
+          "sha256": "283b4c57f4aebedfc5a93676982768765876ba403a40aa2b5fd41da28616ac87",
+          "timestamp": "2026-10-20T14:41:59.512Z",
+          "tests": "5"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.persistence.RailRenderMetaBrightnessTest.xml",
+          "sha256": "5b4df40a30055b64788aefcb37c3a874c9e6cf072e5a19751ba019e77d4e6817",
+          "timestamp": "2026-10-20T14:41:59.562Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.persistence.RailRenderMetaStorePreparedSaveTest.xml",
+          "sha256": "a61af3cc02066e569bd14531f2e3f4e005f44a9e061d2b30514bb43eb9a4a7e4",
+          "timestamp": "2026-10-20T14:41:59.578Z",
+          "tests": "5"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.persistence.WorldSnapshotExtensionDataTest.xml",
+          "sha256": "bb9f7739c2fa0ee127de8fcefeab5be4dfebbb6e619bae6179c43d056fbfcb4b",
+          "timestamp": "2026-10-20T14:41:59.630Z",
+          "tests": "4"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.AnimationTest.xml",
+          "sha256": "71ebe22b414ec03ac4fa4e7644c70fd7e96ed12632e85c09e20e342c741b71e2",
+          "timestamp": "2026-10-20T14:41:59.686Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.backend.AuthoritativeAnchorPolicyTest.xml",
+          "sha256": "c3fbe8ca50b4ea94e6caf7eaee8653cbcb3782355bd532a45fcddc0fa0a41494",
+          "timestamp": "2026-10-20T14:41:59.690Z",
+          "tests": "6"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.backend.DisplayAppearanceBackendTest.xml",
+          "sha256": "520f339d5a34ae968f8b19fa36a3b5aab73a0d8ad291812a2a42ccb98fe3b0e4",
+          "timestamp": "2026-10-20T14:41:59.698Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.backend.DisplayVisualTest.xml",
+          "sha256": "0bfa3bedee100dd11ab9a01ea16b0289aab59e5e886244ac3b41d2fe707a3a71",
+          "timestamp": "2026-10-20T14:42:00.028Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.backend.LatestTargetGateTest.xml",
+          "sha256": "d5010d0711d9c551a9ea18533072da6c5bd4814c665075f7c57fb9aa81895c49",
+          "timestamp": "2026-10-20T14:42:00.029Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.backend.ManagedMovementViewersTest.xml",
+          "sha256": "fdbb706fe0db3933d516fb17409c546657c9c2721912feb90e764e77ebd7c212",
+          "timestamp": "2026-10-20T14:42:00.043Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.backend.PacketMotionTraceTest.xml",
+          "sha256": "065986e0ff5bd1f86a2df6c79d41a083a6c13f3fdd0b4331a76c5f4ec2a25ae7",
+          "timestamp": "2026-10-20T14:42:00.048Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.backend.PacketVirtualSeatTest.xml",
+          "sha256": "42d2ce0da294f776e917265413e4bad59398a08ff6e1e8dcf6f89cffc931c95c",
+          "timestamp": "2026-10-20T14:42:00.053Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.backend.SeatAuthorityMovePlanTest.xml",
+          "sha256": "f0ff72c5f106dd6732c4f63aaae72c0a413d4da2b1b5ab67258560f1ce60ebe4",
+          "timestamp": "2026-10-20T14:42:00.056Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.backend.SeatTeleportCorrectionGateTest.xml",
+          "sha256": "2407629a1764aaa92b0eb740cfccf10b5684b39a624fcebcf77ef1ab502edde7",
+          "timestamp": "2026-10-20T14:42:00.058Z",
+          "tests": "4"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.backend.TrainPacketBundleCoordinatorTest.xml",
+          "sha256": "f9be4a75cc02541ac1b27497438fb9dd4316a76f9e8b04bd9115a57ee024278e",
+          "timestamp": "2026-10-20T14:42:00.065Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.chunk.PlayerAudienceRefreshPolicyTest.xml",
+          "sha256": "a8e6741fcdd4de963413b57beff7762ef269dd9d5607c3cff776754191fc146f",
+          "timestamp": "2026-10-20T14:42:00.070Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.chunk.RenderAudienceIndexTest.xml",
+          "sha256": "527be9b09ca53fb6c074b7165e50d85bb3082e9fc7b5d69e8890243187e36e8f",
+          "timestamp": "2026-10-20T14:42:00.072Z",
+          "tests": "4"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.chunk.RenderChunkManagerConstructionTest.xml",
+          "sha256": "9f6e5309ec2f6ae7052f1229b1e89aaa34fc890f44e75e970be56dfd16e2b8cb",
+          "timestamp": "2026-10-20T14:42:00.160Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.model.AbstractModelAnimationTest.xml",
+          "sha256": "0f731d3ebf6209f92d3f559ea0cbcfee9d512adfa7c38999ddaa7ae546563321",
+          "timestamp": "2026-10-20T14:42:00.169Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.model.CompositeModelVisibilityTest.xml",
+          "sha256": "9c31240c78612896f8b2ce3e7f6d90c4a5cb6e5d30f6cc96d4a9f4088ef4a155",
+          "timestamp": "2026-10-20T14:42:00.175Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.model.DisplaySmoothingTest.xml",
+          "sha256": "aee6b72ece3cd99c36a66a86eaf73328007f72e0c29ecec34bd93dab7a2cd659",
+          "timestamp": "2026-10-20T14:42:00.180Z",
+          "tests": "1"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.model.OrdinaryModelTest.xml",
+          "sha256": "c3a228a977e4a3fba3fb5b835fe47c26625076984215a1d3b05c925ef4ff7740",
+          "timestamp": "2026-10-20T14:42:00.183Z",
+          "tests": "8"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.render.persistence.BukkitSerializersTest.xml",
+          "sha256": "ae5ca39c249558aca61e790652c9cf76b7fdd1b2d963ddbe9309244dc27114be",
+          "timestamp": "2026-10-20T14:42:00.198Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.DirectionRestrictionTargetLookupTest.xml",
+          "sha256": "318d33a00e7872da6c382c8d1a5b2463063872914998d188548a6fae278d0422",
+          "timestamp": "2026-10-20T14:42:00.200Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.RailObjectDestinationEditTest.xml",
+          "sha256": "ccad49e7cfc44338bb278aa4076eaceb0078bfaab10656637d3de55c6394a6dd",
+          "timestamp": "2026-10-20T14:42:00.217Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.RailObjectDestinationEditorTest.xml",
+          "sha256": "2aad32215ff68a51b42f72423807a8d42dfed430daf7c71dfe2b64777069e10f",
+          "timestamp": "2026-10-20T14:42:00.240Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.RailObjectDirectionDrawingTest.xml",
+          "sha256": "cdc5d4e1422a524b80b7a0de76778a9c980f261dd465249e45b62497b767894f",
+          "timestamp": "2026-10-20T14:42:00.391Z",
+          "tests": "4"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.RailObjectWandDynamicUiTest.xml",
+          "sha256": "9a1d87f6b5dc2bd47a3458c63d8812f9882fc71976e57707d0dbb6dcf5f81681",
+          "timestamp": "2026-10-20T14:42:00.407Z",
+          "tests": "1"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.RailObjectWandI18nTest.xml",
+          "sha256": "609a06b27d9a0c771eb4985e8b333345fe412d682fb95d7a7b9c098f6ec3ed14",
+          "timestamp": "2026-10-20T14:42:00.413Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.RailWandFailureMessagesTest.xml",
+          "sha256": "13de48403ea6e6538a6bfded8c456d266f0ebfaf900ac6266095c5e381934aaf",
+          "timestamp": "2026-10-20T14:42:00.418Z",
+          "tests": "4"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.RailWandGeometryDisplayTest.xml",
+          "sha256": "863bdaf2b0ef0c91cffb06ab06bad637e34cc51a0aff7441b2d10b40b59a00ef",
+          "timestamp": "2026-10-20T14:42:00.437Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.RailWandI18nTest.xml",
+          "sha256": "daf493a6783d5b96e1584d68a3788e5254663514c9872df718ed2da6c7ddad05",
+          "timestamp": "2026-10-20T14:42:00.458Z",
+          "tests": "6"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.RailWandParallelLinkagePolicyTest.xml",
+          "sha256": "ea3fb0e96a91fb4d68b58ecf8002c24dd88aeae9a055ad9251e8b21a9bfe4e45",
+          "timestamp": "2026-10-20T14:42:00.462Z",
+          "tests": "5"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.RailWandStraightCreationTest.xml",
+          "sha256": "5df13acc93542cf5b38d249ed8b5f16e1cda622e6993e25f72796689394afc41",
+          "timestamp": "2026-10-20T14:42:00.466Z",
+          "tests": "9"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.RailWandSuperelevationPolicyTest.xml",
+          "sha256": "ed5ce3e0a65400574e16aeaf4fcd207ecaee16c901cd0b25e09a86d54ab10b9e",
+          "timestamp": "2026-10-20T14:42:00.505Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.RailWandTopologyEditPlanTest.xml",
+          "sha256": "00e88792767ea43ef82e68a1e721f40bee7ee353db5a58d38d23eb5de1223d1e",
+          "timestamp": "2026-10-20T14:42:00.509Z",
+          "tests": "12"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.RailWandTurnoutGeometryPolicyTest.xml",
+          "sha256": "db48864f25d617819b56971297e32fbf47b3c5afaad0711f1ae66f30fe953911",
+          "timestamp": "2026-10-20T14:42:00.659Z",
+          "tests": "6"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.RebuiltRailMetadataTest.xml",
+          "sha256": "69da0ba31ae5b0923afd311fd77f55befa7b6eab25b89c1ede19851744db9d24",
+          "timestamp": "2026-10-20T14:42:00.705Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.TurnoutWandI18nTest.xml",
+          "sha256": "a1d72ce40a0dc5cbb529dfc330e89a1e2a57ab30cbbf3de3f8480fd4bca7de1a",
+          "timestamp": "2026-10-20T14:42:00.707Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.TurnoutWandSelectionTest.xml",
+          "sha256": "a0483671f50570253e4f4d14334469348e79846fa6fef40da6741f61c24719a3",
+          "timestamp": "2026-10-20T14:42:00.718Z",
+          "tests": "7"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.WandActionUndoSupportTest.xml",
+          "sha256": "8f3eaec333e8b1d6ad3ed063c4cd1c9bde3c67a3a831d3efdfcadedafe173d2f",
+          "timestamp": "2026-10-20T14:42:00.752Z",
+          "tests": "9"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.WandInteractionRoutingTest.xml",
+          "sha256": "7e981262a0e2def3494a9ff3a87cf650220aa7af027c8ce6a568dc37d6ed10dd",
+          "timestamp": "2026-10-20T14:42:00.785Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.tool.WandStateCodecTest.xml",
+          "sha256": "571b26545845a45d0e89794b9c1b91c0507321e9064b3c8ce585956390ea9c4b",
+          "timestamp": "2026-10-20T14:42:00.786Z",
+          "tests": "8"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.ui.config.ConfigUIRegistryContractTest.xml",
+          "sha256": "7ff7254df6f1b7f4419a67d7e50212af7fb5c6a825121b5f3426c90dd1aeeb45",
+          "timestamp": "2026-10-20T14:42:00.805Z",
+          "tests": "19"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.ui.config.ConfigUIRegistryVisibilityTest.xml",
+          "sha256": "efcc609d519e6233b2998e3a7e1d7638d155d1594be8c72e015f7632f3b84abc",
+          "timestamp": "2026-10-20T14:42:00.820Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.ui.dialog.DialogRendererNumberTextTest.xml",
+          "sha256": "9ad19a28c88e1d0b6683d02747e9595b909c1eaf655078cf25a6d383f5b21102",
+          "timestamp": "2026-10-20T14:42:00.822Z",
+          "tests": "5"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridgeTest.xml",
+          "sha256": "b258de419013ef881c9f43933d0ee418df2c2accd95d0b41d9ca2beb600bdb59",
+          "timestamp": "2026-10-20T14:42:00.867Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.util.HeavyRailQueriesTest.xml",
+          "sha256": "b465ee5ac336d6216c20ceebcabab6f6c80101c6d844183564ef8bd47735e81b",
+          "timestamp": "2026-10-20T14:42:00.875Z",
+          "tests": "1"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.util.LatestAffinityTaskDispatcherTest.xml",
+          "sha256": "61f10508f33c3b4052aeb78e04c4b30b673830e87e934dcaa606e8a852956335",
+          "timestamp": "2026-10-20T14:42:00.879Z",
+          "tests": "4"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.util.LiveWorldManagementTest.xml",
+          "sha256": "26619ab277362f30e44a55bb1f1982b185a274992e8236f6979b328732335345",
+          "timestamp": "2026-10-20T14:42:00.882Z",
+          "tests": "2"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.util.PlatformDispatcherCleanupTest.xml",
+          "sha256": "1b035b315d0964de48cf834007710af711a6a1841fbc8a6297ff76c2ad357ad5",
+          "timestamp": "2026-10-20T14:42:00.884Z",
+          "tests": "3"
+        },
+        {
+          "path": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.scriptworker.ScriptWorkerTest.xml",
+          "sha256": "779803e1a6c8143f3222f8b7f192e8e22d92a15f9c2cfc5d6dfbc0734008b2a1",
+          "timestamp": "2026-10-20T14:42:00.887Z",
+          "tests": "17"
+        }
+      ]
+    },
+    "SimpleSignals": {
+      "counts": {
+        "suites": 59,
+        "tests": 644,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "xml": [
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.SimpleSignalsConfigTest.xml",
+          "sha256": "08c4e1b3126f35c2515289af91dfc39b5338df5978a5172323cc8b247b8c10a3",
+          "timestamp": "2026-10-20T14:36:27.148Z",
+          "tests": "2"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.SimpleSignalsHostServicesTest.xml",
+          "sha256": "291cbb73405127cf936fad4c6dfffd2a9959d3ec79a6fd348d1c74e3be58ecd1",
+          "timestamp": "2026-10-20T14:36:27.134Z",
+          "tests": "2"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.BoundaryNamesTest.xml",
+          "sha256": "25e789400d085ae1b162c94c6e9e6e81b3a315a2099c5bdea320c87bab924881",
+          "timestamp": "2026-10-20T14:36:27.152Z",
+          "tests": "9"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.CurrentRoutePreviewSessionTest.xml",
+          "sha256": "2ce6cc9a9fb0e90191ae31aae8a2d973fb4c1c8c3b9c65ec703cd530f262481c",
+          "timestamp": "2026-10-20T14:36:27.162Z",
+          "tests": "9"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.CurrentRouteTracerTest.xml",
+          "sha256": "86dcfd56317f5627391406e2609f9000b7097922da1fbb46ec4e2449a3111999",
+          "timestamp": "2026-10-20T14:36:27.176Z",
+          "tests": "9"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.FixedBlockSignalEntranceResolverTest.xml",
+          "sha256": "45753d8129b5797898cc8a51c4f837589c006b6284b81034eda63a6da65ea2ef",
+          "timestamp": "2026-10-20T14:36:27.181Z",
+          "tests": "6"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.MeasurementWandHandlerTest.xml",
+          "sha256": "22afb6b75ee45d34ef9b676773384d5d0e6f6d1196b4fa928a422c1275181566",
+          "timestamp": "2026-10-20T14:36:27.187Z",
+          "tests": "5"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.ProtectionRouteDiscoveryTest.xml",
+          "sha256": "3cbfbdb16feb1ee632d617ec4f0cca5404e1b0471e5ed811491f4aab1b7f7c6d",
+          "timestamp": "2026-10-20T14:36:27.215Z",
+          "tests": "9"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.ProtectionSignalEntranceResolverTest.xml",
+          "sha256": "0b0324cf76800187ff004695863d9ef8aaf67e6e0014339c6070177f3c2b3134",
+          "timestamp": "2026-10-20T14:36:27.227Z",
+          "tests": "3"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.RailMeasurementTest.xml",
+          "sha256": "2c7dc8daf2263159725516c00565c74e302cca96a2160e2fb25c8658664e5e4f",
+          "timestamp": "2026-10-20T14:36:27.230Z",
+          "tests": "2"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.RoutePreviewDrawingTest.xml",
+          "sha256": "d179119af8cce15268e29f842c2dc57762c5e8713bc5596ce15fab8610fee8b1",
+          "timestamp": "2026-10-20T14:36:27.234Z",
+          "tests": "5"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.RoutePreviewWandHandlerTest.xml",
+          "sha256": "828d85d01e6df2821e12cf5c561997b3d4bcc1144501930918d7c3d64c322c2f",
+          "timestamp": "2026-10-20T14:36:27.245Z",
+          "tests": "18"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.RuntimeRoutePreviewBackendTest.xml",
+          "sha256": "9334e371441fe565c8b3942198b664717bec77c5172fc238bafcbb0ce1a6b36a",
+          "timestamp": "2026-10-20T14:36:27.309Z",
+          "tests": "6"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.RuntimeSectionOverlayBackendTest.xml",
+          "sha256": "705e8f1c56679ebb2a10a54df52c1f82e0619d74f99c7f61bdf8b3851d4a3697",
+          "timestamp": "2026-10-20T14:36:27.323Z",
+          "tests": "2"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.SectionAuthoringActionsTest.xml",
+          "sha256": "8ada71bb5df81aeb508d58b75e3e9b3248174ca6257b80921c932898dce42130",
+          "timestamp": "2026-10-20T14:36:27.343Z",
+          "tests": "19"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.SectionOverlayDrawingTest.xml",
+          "sha256": "7b6aa05c96ad5941fc2017bd3a7964e4c0840d9f5061f73c4432cd94e4dcdc59",
+          "timestamp": "2026-10-20T14:36:27.357Z",
+          "tests": "9"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.SectionTopologyTest.xml",
+          "sha256": "4294902fbc0fe9a0dd4339c1ec627354c716d5f9503aed7f709ee028f4752722",
+          "timestamp": "2026-10-20T14:36:27.380Z",
+          "tests": "11"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.SectionWandHandlerTest.xml",
+          "sha256": "7a6f4953aa7088fc56cdf1dd00a846af88deee12687c1869cebfba737fe0df3e",
+          "timestamp": "2026-10-20T14:36:27.394Z",
+          "tests": "18"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.SectionWandOverlayTest.xml",
+          "sha256": "7a99e8a73b8d3f3555e634d2f1f07b9062acead8cedd45c8e05fa5e26d27f7e1",
+          "timestamp": "2026-10-20T14:36:27.459Z",
+          "tests": "9"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.SignalDevicePickingTest.xml",
+          "sha256": "bee665b346a412abcac2b5fc71b27122447fd956ec5aed33f2e856cbf37996ea",
+          "timestamp": "2026-10-20T14:36:27.499Z",
+          "tests": "1"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.SignalWandHandlerTest.xml",
+          "sha256": "217bb0276a33c71af4bc4b693db631c8c2c0e5ea889f2bb04660b3193ed72ea8",
+          "timestamp": "2026-10-20T14:36:27.503Z",
+          "tests": "32"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.WandDialogsTest.xml",
+          "sha256": "8600733d3978ec03d0be57a3a12a4c86ffad8c801f97201ed68bff63bc27cdf4",
+          "timestamp": "2026-10-20T14:36:27.736Z",
+          "tests": "3"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.authoring.WandI18nTest.xml",
+          "sha256": "9403fdbb47815cb2a505055a27fc49c1bac0df61a9265d038d1f375000c521bd",
+          "timestamp": "2026-10-20T14:36:27.772Z",
+          "tests": "1"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.block.FixedBlockCatalogTest.xml",
+          "sha256": "f5039738b94364f060d7a79d9ee1466d5936d0fdc0020ebb18dd6d6424ba3eae",
+          "timestamp": "2026-10-20T14:36:27.773Z",
+          "tests": "7"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.block.FixedBlockInspectionSourceTest.xml",
+          "sha256": "50510df62c16cc2b5f6fe9b976f5ed6a37c4776bebbf32e5f884d54d9ff071a2",
+          "timestamp": "2026-10-20T14:36:27.781Z",
+          "tests": "20"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.block.FixedBlockRouteResourcePolicyTest.xml",
+          "sha256": "20bfcc94bc905d8ffca06787077493d3ef9d6888cf552ca69151a4a1d990add8",
+          "timestamp": "2026-10-20T14:36:27.811Z",
+          "tests": "16"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.block.FixedBlockStopContinuationTest.xml",
+          "sha256": "6531cd6c0bf7c43b1d96872a0b1c0c513df1f8f7fd526baea77aeda3ea9242d0",
+          "timestamp": "2026-10-20T14:36:27.821Z",
+          "tests": "5"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.block.FixedBlockTimetableDependencyTest.xml",
+          "sha256": "6b1864794e3328cc7643f403870dbb4f50131f7e7247cc6fdf76ede72c2bc8dd",
+          "timestamp": "2026-10-20T14:36:47.236Z",
+          "tests": "3"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.block.StoppedReturnToDepotIntegrationTest.xml",
+          "sha256": "63abaa6e3ba7f7717524f300847a4204fa1ec7e52c59b54479e45fb3cfba05a1",
+          "timestamp": "2026-10-20T14:36:47.263Z",
+          "tests": "7"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.persistence.AttachedSignalPersistenceTest.xml",
+          "sha256": "34a5ca861c07842c6a711887b05f95157a0c69034c7b47843d1f48a189b759f6",
+          "timestamp": "2026-10-20T14:36:50.092Z",
+          "tests": "4"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.persistence.DeviceModelPersistenceTest.xml",
+          "sha256": "26de3b22ab776046267b0480def67d1eede96ce63258f840682e561a51b81e6e",
+          "timestamp": "2026-10-20T14:36:50.103Z",
+          "tests": "3"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.persistence.DirectionalSignalPersistenceTest.xml",
+          "sha256": "120a9941a06c57abdd61b6e5e73c9db86da64215579b1ba0520f01e954919236",
+          "timestamp": "2026-10-20T14:36:50.109Z",
+          "tests": "3"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.persistence.SimpleSignalsDefinitionDraftsTest.xml",
+          "sha256": "3f67452f7f94aa83d65116854949fd3d9ef41c41ecd5e5b3f717eb87c00b10b1",
+          "timestamp": "2026-10-20T14:36:50.115Z",
+          "tests": "5"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionStoreTest.xml",
+          "sha256": "dc4f167382fb0e038ffd76ba4051b9d9fb5e89156804274ef6877c35a2f8ecbc",
+          "timestamp": "2026-10-20T14:36:50.128Z",
+          "tests": "18"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.presentation.JrFourLightDemoTest.xml",
+          "sha256": "144ca83850f48d2b7bfd60947771f23368ccdefe944857a711c3f7ed4ae5f73a",
+          "timestamp": "2026-10-20T14:36:50.156Z",
+          "tests": "3"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.presentation.ModelPackageLoaderTest.xml",
+          "sha256": "375cc53df96937371d69845ad0b7ab5145360e121492642cd948aff370fd51ac",
+          "timestamp": "2026-10-20T14:36:50.256Z",
+          "tests": "27"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.presentation.ModelPlacementCalculatorTest.xml",
+          "sha256": "6b6cd53492911d56f5027486036ca6abe5117953e10d5273ef6dd598676b35fb",
+          "timestamp": "2026-10-20T14:36:50.455Z",
+          "tests": "14"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.presentation.ModelPlacementTest.xml",
+          "sha256": "3bb65be90e3deaa7bf5a8d91229774707462c98872949f0576e566e89a33b142",
+          "timestamp": "2026-10-20T14:36:50.466Z",
+          "tests": "3"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.presentation.RouteIndicatorModelTest.xml",
+          "sha256": "b23fc78f7e4522884b2450c066dad9e44bbd166fbbc2bd9e8b24d5f08aad111d",
+          "timestamp": "2026-10-20T14:36:50.472Z",
+          "tests": "2"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.region.ProtectionRegionCatalogTest.xml",
+          "sha256": "7e0e12eaddd04190626e44fb09b5fb5d324ef0f45e0b9188f1515cb352065625",
+          "timestamp": "2026-10-20T14:36:50.504Z",
+          "tests": "10"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.region.ProtectionRegionGraphResolverTest.xml",
+          "sha256": "89715741b546011ce19849f1354d7a85fb2dde03ba45fb71f8b38f63074c429f",
+          "timestamp": "2026-10-20T14:36:50.524Z",
+          "tests": "7"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.region.ProtectionRegionInspectionSourceTest.xml",
+          "sha256": "ecbb9b355348162e4ae87a63c15d2f6cea30ed6d12fe51e509d0a6125d34dc50",
+          "timestamp": "2026-10-20T14:36:50.530Z",
+          "tests": "17"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.region.ProtectionRegionTimetableDependencyTest.xml",
+          "sha256": "cfa05d766e7f563ff3568b7e9669f9499aca56f44ee8de5d3c72bee8ec1dca63",
+          "timestamp": "2026-10-20T14:36:50.561Z",
+          "tests": "1"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.region.ProtectionRegionTopologyTest.xml",
+          "sha256": "4a7e6a196dccf79c123dbdcfb0a80abf0808577a7ab99b6b256b3696a0829d0d",
+          "timestamp": "2026-10-20T14:36:50.575Z",
+          "tests": "3"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.region.ProtectionRouteTableCatalogTest.xml",
+          "sha256": "44546f0272386c447d50a9283b22d53b295b8b8b253c05837af70e35ad60e5e0",
+          "timestamp": "2026-10-20T14:36:50.577Z",
+          "tests": "9"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.runtime.SectionOccupancyRuntimeTest.xml",
+          "sha256": "d35f97f00bc900265dffc0467498d08ce0c9ed10c94fd4f6cd7a91d47d838b89",
+          "timestamp": "2026-10-20T14:36:50.588Z",
+          "tests": "3"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.runtime.SectionTopologyRevalidationTest.xml",
+          "sha256": "39f8defd54e2c9f1c0c8737c90db7a2c92ad807b9f9a11036bf2507233253050",
+          "timestamp": "2026-10-20T14:36:50.615Z",
+          "tests": "12"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntimeManagerTest.xml",
+          "sha256": "fcfee861e98b2bb50437531f7a7cf3315624984c8886e422fa3d09443529cc6b",
+          "timestamp": "2026-10-20T14:36:11.248Z",
+          "tests": "156"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.signal.FixedBlockSignalCompilerTest.xml",
+          "sha256": "fb384bac7facc6b1442b7749c5d09d4f5f5c6c2a50ffcf6ff9ebfba4d0199f8e",
+          "timestamp": "2026-10-20T14:36:50.641Z",
+          "tests": "3"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionIndexTest.xml",
+          "sha256": "edac5618a8518328f5334bc43979de1e13a24c865c8aa72852aec2bccbf56077",
+          "timestamp": "2026-10-20T14:36:50.643Z",
+          "tests": "4"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionRuntimeTest.xml",
+          "sha256": "2ea3cc1511d99ff2ef35c74726f95518441f0e9fc63ba77d82fe61081ed8dc29",
+          "timestamp": "2026-10-20T14:36:50.645Z",
+          "tests": "12"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.signal.ProtectionSignalControllerHandoffTest.xml",
+          "sha256": "f2291d28eb10352444535e416b198445e93911c830f590f9428719672bbf4e6e",
+          "timestamp": "2026-10-20T14:36:50.674Z",
+          "tests": "7"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.signal.ProtectionSignalDevicesTest.xml",
+          "sha256": "7b2560275c93c7817ded3abda3596cd312964ba2e49448cd6b309e589b42e465",
+          "timestamp": "2026-10-20T14:36:53.726Z",
+          "tests": "10"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.signal.SignalReplacementContinuityTest.xml",
+          "sha256": "2f21f4fd972360ecfb6bc8d73f802a537fc10c1322ed2f10d1b35b651ff2cd09",
+          "timestamp": "2026-10-20T14:36:53.789Z",
+          "tests": "6"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.signalpack.JrFourLightSignalPackTest.xml",
+          "sha256": "98fc3175e631ee35931c8816288b98236fc41d078ceed8c7b24e46ac8541add5",
+          "timestamp": "2026-10-20T14:36:53.849Z",
+          "tests": "9"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.signalpack.SignalLogicRuntimeTest.xml",
+          "sha256": "3258641f75ea488548646c5497564da0375e0cf7157f234ecf0b84d301db5ac1",
+          "timestamp": "2026-10-20T14:36:54.166Z",
+          "tests": "12"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.signalpack.SignalObservationGraphPublicationTest.xml",
+          "sha256": "64f9a41dece8641ad3d37a2fdf6b1370d93979ee387b01327ae97229e5dbd760",
+          "timestamp": "2026-10-20T14:36:55.087Z",
+          "tests": "6"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.signalpack.SignalObservationPlanTest.xml",
+          "sha256": "4aaf534f6e303b6575ce379535d07fcc4f0fd60db95c162534fc64f770c8ee4d",
+          "timestamp": "2026-10-20T14:36:55.094Z",
+          "tests": "10"
+        },
+        {
+          "path": "SimpleSignals/build/test-results/test/TEST-work.art1st.javarailways.simplesignals.signalpack.SignalPackLoaderTest.xml",
+          "sha256": "a0b9ca6153c63cb5fef558e9117a7b30e1597c5e499f3778aa6663f1f32ee3ee",
+          "timestamp": "2026-10-20T14:36:55.099Z",
+          "tests": "17"
+        }
+      ]
+    },
+    "TunnelBridgeBuilder": {
+      "counts": {
+        "suites": 8,
+        "tests": 31,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "xml": [
+        {
+          "path": "TunnelBridgeBuilder/build/test-results/test/TEST-work.art1st.javarailways.tunnelbridgebuilder.algorithm.SweepPlannerTest.xml",
+          "sha256": "8560952df445fa003aa3be8fe1906cd861bbdfe354749952fc148caadfed140b",
+          "timestamp": "2026-10-20T14:37:57.190Z",
+          "tests": "7"
+        },
+        {
+          "path": "TunnelBridgeBuilder/build/test-results/test/TEST-work.art1st.javarailways.tunnelbridgebuilder.rail.FullBlockSnapshotTest.xml",
+          "sha256": "3262a2d728f87df80ee40abe8ccd5417073d5f220af996d1cfd457a31d0fc3ce",
+          "timestamp": "2026-10-20T14:37:57.318Z",
+          "tests": "2"
+        },
+        {
+          "path": "TunnelBridgeBuilder/build/test-results/test/TEST-work.art1st.javarailways.tunnelbridgebuilder.rail.HalfBlockPlacementTest.xml",
+          "sha256": "7b70e64ceea800e5a04ffabb36500113ab66cf85760d0cd03145fc4ca1159cb8",
+          "timestamp": "2026-10-20T14:37:57.394Z",
+          "tests": "3"
+        },
+        {
+          "path": "TunnelBridgeBuilder/build/test-results/test/TEST-work.art1st.javarailways.tunnelbridgebuilder.rail.LogicalRailSegmentResolverTest.xml",
+          "sha256": "694b89bb3adef288fd818bc60c5828ed3a4e35108de041753738b73bc3db23c1",
+          "timestamp": "2026-10-20T14:37:57.409Z",
+          "tests": "3"
+        },
+        {
+          "path": "TunnelBridgeBuilder/build/test-results/test/TEST-work.art1st.javarailways.tunnelbridgebuilder.rail.RailSweepSamplingTest.xml",
+          "sha256": "a7ec1c0b8b855f2ee22378e0b8fb8302fe1ebd9ded1a5a0405d26a1fd32119b7",
+          "timestamp": "2026-10-20T14:37:57.444Z",
+          "tests": "1"
+        },
+        {
+          "path": "TunnelBridgeBuilder/build/test-results/test/TEST-work.art1st.javarailways.tunnelbridgebuilder.wand.BlockWandEditorTest.xml",
+          "sha256": "0a8b614f2d2cc9ce5ec955126c88072de86668a3c1bd29838861512620823823",
+          "timestamp": "2026-10-20T14:37:57.451Z",
+          "tests": "8"
+        },
+        {
+          "path": "TunnelBridgeBuilder/build/test-results/test/TEST-work.art1st.javarailways.tunnelbridgebuilder.wand.BlockWandStateCodecTest.xml",
+          "sha256": "9b179d6ccf2bf681bb25bc110cedec34085d0cb4c1b4e07b7585bd681244531c",
+          "timestamp": "2026-10-20T14:37:57.473Z",
+          "tests": "5"
+        },
+        {
+          "path": "TunnelBridgeBuilder/build/test-results/test/TEST-work.art1st.javarailways.tunnelbridgebuilder.wand.WandCrossSectionFactoryTest.xml",
+          "sha256": "f7dbd329a4a285564527a407e391a162dba879dbddb1c65b56425d38f2b58ada",
+          "timestamp": "2026-10-20T14:37:57.592Z",
+          "tests": "2"
+        }
+      ]
+    },
+    "WebUI": {
+      "counts": {
+        "suites": 4,
+        "tests": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "xml": [
+        {
+          "path": "WebUI/build/test-results/test/TEST-work.art1st.javarailways.webui.DraftRepositoryTest.xml",
+          "sha256": "81596bf2d50b2ae9a15f0ad577c63b8b0367a94d9335a2e60924be09e329dc27",
+          "timestamp": "2026-10-20T14:29:20.343Z",
+          "tests": "3"
+        },
+        {
+          "path": "WebUI/build/test-results/test/TEST-work.art1st.javarailways.webui.WebUiApplicationTest.xml",
+          "sha256": "691c9cc450b98ebd79c8da4b002e6c1af8792a66671c472a6bd29373dd3f4cf1",
+          "timestamp": "2026-10-20T14:29:20.426Z",
+          "tests": "5"
+        },
+        {
+          "path": "WebUI/build/test-results/test/TEST-work.art1st.javarailways.webui.WebUiConfigTest.xml",
+          "sha256": "9d50eaa7c08a4036b9ebc9c14c07cf1444d0c283f5d1bd069fc9d8e75ad0ce39",
+          "timestamp": "2026-10-20T14:29:21.737Z",
+          "tests": "3"
+        },
+        {
+          "path": "WebUI/build/test-results/test/TEST-work.art1st.javarailways.webui.WebUiSessionsTest.xml",
+          "sha256": "8b1a75892f4e6020624cfd54ed27016ababc939dec37f94bc35e9a03c14f4ff8",
+          "timestamp": "2026-10-20T14:29:21.742Z",
+          "tests": "1"
+        }
+      ]
+    }
+  },
+  "frontend": {
+    "tests": 108,
+    "log": "/workspace/minecraft/JavaRailways/.worktree/simulation-alignment-snapshot-20261020/evidence/simulation-alignment-frontend.log"
+  },
+  "docs": {
+    "base": "cb9263b9459ec179faef47feb960c11bf14e5b0f",
+    "file": "docs-site/docs/architecture/threading-model.md",
+    "sha256": "555c59c3e5230cd0a40d3f82224f0306f9b98aa7683701bf4fdfdb5fc483c77e",
+    "check": "passed; npm run check"
+  },
+  "logs": [
+    {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-alignment-snapshot-20261020/evidence/simulation-alignment-full-gate.log",
+      "sha256": "16f37f2555e66dd038e0545fbb32e20d812ddacd0416fe041fbb7ec0e639ea5a"
+    },
+    {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-alignment-snapshot-20261020/evidence/simulation-alignment-domain.log",
+      "sha256": "fde69bc9384038a09b4cbbe9ca731021b2d1f269ba88751ae090b0084ee07513"
+    },
+    {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-alignment-snapshot-20261020/evidence/simulation-alignment-joint-focused.log",
+      "sha256": "d0d1d8a16451b0fe7ff365af8320aa2657d0f67fd3f637faa141a63e64cc0833"
+    },
+    {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-alignment-snapshot-20261020/evidence/simulation-alignment-core-basic.log",
+      "sha256": "c2a6f9b08b9bb0c5fd51f54958d5fc418f34c6872be8a2756cf69fb22cdc2ebe"
+    },
+    {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-alignment-snapshot-20261020/evidence/simulation-alignment-frontend.log",
+      "sha256": "83de12b30ddaceaab40f6ffc76c8c220280901202ccd7ccdcb09a4cf1448d517"
+    },
+    {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-alignment-snapshot-20261020/evidence/simulation-alignment-bukkit-gate.log",
+      "sha256": "3fc66f309942a3b60f0c14db5dea33e4623d8480d54901857eb6fb1991dd6f24"
+    },
+    {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-alignment-snapshot-20261020/evidence/simulation-alignment-docs.log",
+      "sha256": "b82f263e1c247eadc71f7a97a23cbede650f3305fa5e330643c53694a502830a"
+    },
+    {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-alignment-snapshot-20261020/evidence/simulation-alignment-aggregate-gate.log",
+      "sha256": "fb7d231e83520b99f50eee5b4013b54fbf9681c4ed1d56ec9a43c7df594bad47"
+    },
+    {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-alignment-snapshot-20261020/evidence/simulation-alignment-bukkit-final.log",
+      "sha256": "e899e12909b870564ba1f5be1f78b906a825ee033a747a747eda0c88b8e238ae"
+    },
+    {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-alignment-snapshot-20261020/evidence/simulation-alignment-signals-final.log",
+      "sha256": "3ddf1b994370adf7eca9299a3022c236b9ff57b8719114a5c722d6c26b0b2f2a"
+    },
+    {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-alignment-snapshot-20261020/evidence/simulation-alignment-signals-compile.log",
+      "sha256": "32cd5764faa88c2278fb5f8c4152eec6fe79c91b2f2cd60c4ad80ec87178a96d"
+    },
+    {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-alignment-snapshot-20261020/evidence/simulation-alignment-final-gate.log",
+      "sha256": "a603fdd7ed257370499c38a361eaa7ad0d62b4c317b4209cc51ef6462b59bd4c"
+    }
+  ],
+  "aggregateGate": "BUILD SUCCESSFUL in1m28s;65 tasks:4 executed61 current-run up-to-date",
+  "sourceDrift": false,
+  "limits": [
+    "No Paper/Folia/client/deployment acceptance",
+    "Unexpected fatal host failures retain upstream process-global halt policy",
+    "Joint collision case executes real owner coupling transaction; contact detection separately covered by Core tests"
+  ]
+}

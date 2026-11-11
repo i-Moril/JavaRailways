@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit.tool
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.bukkit.event.block.Action
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -55,8 +57,7 @@ class DirectionRestrictionTargetLookupTest {
 
     private fun straightRail(): CoreRail {
         val world = createTestWorld()
-        return CoreRail(
-            world,
+        return world.createRailForTest(
             PrimeCurve.fromPoints(
                 listOf(
                     Curve.RawPoint(
@@ -74,9 +75,7 @@ class DirectionRestrictionTargetLookupTest {
                         Curve.SegmentType.LINE_END
                     )
                 )
-            ),
-            mutableListOf(),
-            mutableListOf()
+            )
         )
     }
 }

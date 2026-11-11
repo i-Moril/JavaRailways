@@ -30,9 +30,18 @@ data class TrainControlConfig(
     override val brakeReleaseTime: Double = 1.8,
     val resistance: DavisResistanceConfig = DavisResistanceConfig(),
     val adhesion: AdhesionConfig = AdhesionConfig(),
-    val jerk: JerkLimitConfig = JerkLimitConfig()
+    val jerk: JerkLimitConfig = JerkLimitConfig(),
+    override val nominalOperatingAcceleration: Double = 1.0,
+    override val nominalOperatingDeceleration: Double = 1.0
 ) : TrainDynamics.TrainProfile {
     init {
+        require(nominalOperatingAcceleration.isFinite() && nominalOperatingAcceleration > 0.0)
+        require(nominalOperatingDeceleration.isFinite() && nominalOperatingDeceleration > 0.0)
+        maxSpeed.requireNonNegative("maxSpeed")
+        brakeApplyTime.requireNonNegative("brakeApplyTime")
+        brakeReleaseTime.requireNonNegative("brakeReleaseTime")
+        tractionNotchScales.forEach { (handle, scale) -> scale.requireNonNegative("tractionNotchScales.$handle") }
+        brakeNotchScales.forEach { (handle, scale) -> scale.requireNonNegative("brakeNotchScales.$handle") }
         require(curveSpeedLimitOffset.isFinite()) { "curveSpeedLimitOffset must be finite" }
     }
 
@@ -51,7 +60,7 @@ data class TrainControlConfig(
             source.requireOnlyKeys(
                 setOf(
                     "config-version", "max-speed", "curve-speed-limit-offset", "controller",
-                    "traction", "brake", "resistance", "adhesion", "jerk"
+                    "traction", "brake", "resistance", "adhesion", "jerk", "ato"
                 ),
                 "train control"
             )
@@ -59,6 +68,8 @@ data class TrainControlConfig(
             require(version == PartRegistry.CONFIG_VERSION) {
                 "Unsupported train control config-version: $version"
             }
+            val ato = source.optionalMap("ato", "train control")
+            ato?.requireOnlyKeys(setOf("operating-acceleration", "operating-deceleration"), "train control.ato")
             val controller = source.requireMap("controller", "train control")
             val traction = source.requireMap("traction", "train control")
             val brake = source.requireMap("brake", "train control")
@@ -73,6 +84,8 @@ data class TrainControlConfig(
             validateNotchScales("brake-notches", brakeNotches, brakeScales, "train control.brake.notch-scales")
             return TrainControlConfig(
                 maxSpeed = source.requireDouble("max-speed", "train control"),
+                nominalOperatingAcceleration = ato?.double("operating-acceleration") ?: 1.0,
+                nominalOperatingDeceleration = ato?.double("operating-deceleration") ?: 1.0,
                 curveSpeedLimitOffset = source.double("curve-speed-limit-offset") ?: 0.0,
                 powerNotches = powerNotches,
                 brakeNotches = brakeNotches,
@@ -115,12 +128,29 @@ data class CarControlConfig(
     val rotatingMassFactor: Double = 1.08,
     val motor: MotorControlConfig = MotorControlConfig(),
     val brake: CarBrakeControlConfig = CarBrakeControlConfig(),
-    val resistance: DavisResistanceConfig? = null
+    val resistance: DavisResistanceConfig? = null,
+    override val equipment: TrainDynamics.Equipment = TrainDynamics.Equipment()
 ) : TrainDynamics.CarProfile {
+    init {
+        require(mass.isFinite() && mass > 0.0) { "mass must be finite and positive" }
+        require(rotatingMassFactor.isFinite() && rotatingMassFactor > 0.0) {
+            "rotatingMassFactor must be finite and positive"
+        }
+        require((mass * rotatingMassFactor).isFinite() && mass * rotatingMassFactor > 0.0) {
+            "effectiveMass must be finite and positive"
+        }
+    }
+
     override val effectiveMass: Double get() = mass * rotatingMassFactor
     override val motorAdhesionMassRatio: Double get() = motor.adhesionMassRatio
     override val brakeMaxForce: Double get() = brake.maxForce
+    override val electricBrakeMaxForce: Double get() = brake.regenerativeForce
     override val brakeAdhesionMassRatio: Double get() = brake.adhesionMassRatio
+    override val maximumMotorForceUpperBound: Double get() = when {
+        !motor.enabled -> 0.0
+        motor.forceCurve.isNotEmpty() -> motor.forceCurve.maxOf { it.force }
+        else -> motor.maxForce
+    }
     override fun motorForceAt(speed: Double): Double = motor.forceAt(speed)
     override fun resistanceForceAt(speed: Double, defaultResistance: (Double) -> Double): Double =
         resistance?.forceAt(speed) ?: defaultResistance(speed)
@@ -129,7 +159,7 @@ data class CarControlConfig(
         fun parse(root: Map<String, Any>?): CarControlConfig {
             val source = root ?: throw IllegalArgumentException("car control config is required")
             source.requireOnlyKeys(
-                setOf("mass", "rotating-mass-factor", "motor", "brake", "resistance"),
+                setOf("mass", "rotating-mass-factor", "motor", "brake", "resistance", "equipment"),
                 "car control"
             )
             return CarControlConfig(
@@ -137,10 +167,42 @@ data class CarControlConfig(
                 rotatingMassFactor = source.requireDouble("rotating-mass-factor", "car control"),
                 motor = MotorControlConfig.parse(source.requireMap("motor", "car control")),
                 brake = CarBrakeControlConfig.parse(source.requireMap("brake", "car control")),
-                resistance = source.optionalMap("resistance", "car control")?.let { DavisResistanceConfig.parse(it) }
+                resistance = source.optionalMap("resistance", "car control")?.let { DavisResistanceConfig.parse(it) },
+                equipment = parseEquipment(source.optionalMap("equipment", "car control"))
             )
         }
     }
+}
+
+
+/** Additive per-car equipment settings use the same immutable value as the production kernel. */
+private fun parseEquipment(source: Map<String, Any>?): TrainDynamics.Equipment {
+    val defaults = TrainDynamics.Equipment()
+    if (source == null) return defaults
+    source.requireOnlyKeys(setOf(
+        "nominal-cylinder-pressure-kpa",
+        "command-delay-seconds",
+        "electric-brake-max-power-watts",
+        "electric-brake-fade-speed-meters-per-second",
+        "electric-brake-apply-rate-newtons-per-second",
+        "electric-brake-release-rate-newtons-per-second",
+        "traction-apply-rate-newtons-per-second",
+        "traction-release-rate-newtons-per-second",
+        "traction-release-pressure-kpa",
+        "electric-release-force-threshold-newtons"
+    ), "car control.equipment")
+    return TrainDynamics.Equipment(
+        nominalCylinderPressureKpa = source.double("nominal-cylinder-pressure-kpa") ?: defaults.nominalCylinderPressureKpa,
+        commandDelaySeconds = source.double("command-delay-seconds") ?: defaults.commandDelaySeconds,
+        electricBrakeMaxPowerWatts = source.double("electric-brake-max-power-watts") ?: defaults.electricBrakeMaxPowerWatts,
+        electricBrakeFadeSpeedMetersPerSecond = source.double("electric-brake-fade-speed-meters-per-second") ?: defaults.electricBrakeFadeSpeedMetersPerSecond,
+        electricBrakeApplyRateNewtonsPerSecond = source.double("electric-brake-apply-rate-newtons-per-second") ?: defaults.electricBrakeApplyRateNewtonsPerSecond,
+        electricBrakeReleaseRateNewtonsPerSecond = source.double("electric-brake-release-rate-newtons-per-second") ?: defaults.electricBrakeReleaseRateNewtonsPerSecond,
+        tractionApplyRateNewtonsPerSecond = source.double("traction-apply-rate-newtons-per-second") ?: defaults.tractionApplyRateNewtonsPerSecond,
+        tractionReleaseRateNewtonsPerSecond = source.double("traction-release-rate-newtons-per-second") ?: defaults.tractionReleaseRateNewtonsPerSecond,
+        tractionReleasePressureKpa = source.double("traction-release-pressure-kpa") ?: defaults.tractionReleasePressureKpa,
+        electricReleaseForceThresholdNewtons = source.double("electric-release-force-threshold-newtons") ?: defaults.electricReleaseForceThresholdNewtons
+    )
 }
 
 @Serializable
@@ -151,12 +213,18 @@ data class MotorControlConfig(
     val adhesionMassRatio: Double = 1.0,
     val forceCurve: List<SpeedForcePoint> = emptyList()
 ) {
+    init {
+        maxForce.requireNonNegative("motor.maxForce")
+        maxPower.requireNonNegative("motor.maxPower")
+        adhesionMassRatio.requireNonNegative("motor.adhesionMassRatio")
+    }
+
     fun forceAt(speed: Double): Double {
         if (!enabled) return 0.0
         if (forceCurve.isNotEmpty()) return interpolateForceCurve(speed)
-        if (maxPower <= 0.0) return maxForce.coerceAtLeast(0.0)
+        if (maxPower <= 0.0) return maxForce
         val powerLimitedForce = maxPower / speed.coerceAtLeast(0.5)
-        return minOf(maxForce.coerceAtLeast(0.0), powerLimitedForce)
+        return minOf(maxForce, powerLimitedForce)
     }
 
     private fun interpolateForceCurve(speed: Double): Double {
@@ -198,6 +266,12 @@ data class CarBrakeControlConfig(
     val regenerativeForce: Double = 0.0,
     val adhesionMassRatio: Double = 1.0
 ) {
+    init {
+        maxForce.requireNonNegative("brake.maxForce")
+        regenerativeForce.requireNonNegative("brake.regenerativeForce")
+        adhesionMassRatio.requireNonNegative("brake.adhesionMassRatio")
+    }
+
     companion object {
         fun parse(root: Map<String, Any>?): CarBrakeControlConfig {
             val source = root ?: throw IllegalArgumentException("brake control config is required")
@@ -220,6 +294,12 @@ data class DavisResistanceConfig(
     val b: Double = 20.0,
     val c: Double = 4.0
 ) {
+    init {
+        a.requireNonNegative("resistance.a")
+        b.requireNonNegative("resistance.b")
+        c.requireNonNegative("resistance.c")
+    }
+
     fun forceAt(speed: Double): Double = a + b * speed + c * speed * speed
 
     companion object {
@@ -239,6 +319,10 @@ data class DavisResistanceConfig(
 data class AdhesionConfig(
     val coefficient: Double = 0.22
 ) {
+    init {
+        coefficient.requireNonNegative("adhesion.coefficient")
+    }
+
     companion object {
         fun parse(root: Map<String, Any>?): AdhesionConfig {
             val source = root ?: throw IllegalArgumentException("adhesion config is required")
@@ -255,6 +339,11 @@ data class JerkLimitConfig(
     val traction: Double = 0.7,
     val brake: Double = 1.0
 ) {
+    init {
+        traction.requireNonNegative("jerk.traction")
+        brake.requireNonNegative("jerk.brake")
+    }
+
     companion object {
         fun parse(root: Map<String, Any>?): JerkLimitConfig {
             val source = root ?: throw IllegalArgumentException("jerk config is required")
@@ -272,6 +361,11 @@ data class SpeedForcePoint(
     val speed: Double,
     val force: Double
 ) {
+    init {
+        speed.requireNonNegative("force-curve.speed")
+        force.requireNonNegative("force-curve.force")
+    }
+
     companion object {
         fun parse(root: Map<String, Any>): SpeedForcePoint {
             root.requireOnlyKeys(setOf("speed", "force"), "force-curve point")
@@ -384,3 +478,6 @@ internal fun Map<String, Any>.requireList(key: String, subject: String): List<*>
         ?: throw IllegalArgumentException("$subject.$key must be a list")
 }
 
+private fun Double.requireNonNegative(subject: String) {
+    require(isFinite() && this >= 0.0) { "$subject must be finite and nonnegative" }
+}

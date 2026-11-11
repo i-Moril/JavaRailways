@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="work.art1st.javarailways.core.physics.train.CoreTrainMultiCarDiagnosticTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-11T06:36:28.242Z" hostname="dev" time="0.145">
+  <properties/>
+  <testcase name="command style two-car relocation is visible only after publication()" classname="work.art1st.javarailways.core.physics.train.CoreTrainMultiCarDiagnosticTest" time="0.059"/>
+  <testcase name="default endpoint offsets match physical end distances()" classname="work.art1st.javarailways.core.physics.train.CoreTrainMultiCarDiagnosticTest" time="0.013"/>
+  <testcase name="published two-car movement preserves fixed consist spacing()" classname="work.art1st.javarailways.core.physics.train.CoreTrainMultiCarDiagnosticTest" time="0.072"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

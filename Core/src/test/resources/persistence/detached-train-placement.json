@@ -1,0 +1,28 @@
+{
+  "id": "detached-placement",
+  "name": "Detached placement",
+  "cars": [{
+    "id": "car-0",
+    "bogieA": {
+      "location": {"railId": "00000000-0000-0000-0000-000000000023", "arcLengthInCurveAB": 50.5, "direction": "AB"},
+      "isSameDirectionAsFacing": true,
+      "extension": {}
+    },
+    "bogieB": {
+      "location": {"railId": "00000000-0000-0000-0000-000000000023", "arcLengthInCurveAB": 44.5, "direction": "AB"},
+      "isSameDirectionAsFacing": true,
+      "extension": {}
+    },
+    "config": {
+      "length": 10.0, "floorHeight": 0.5,
+      "bogieAType": null, "bogieAOffset": 3.0,
+      "bogieBType": null, "bogieBOffset": -3.0,
+      "connectorLengthAtA": 0.3, "connectorLengthAtB": 0.3,
+      "extension": {}
+    }
+  }],
+  "reversed": false,
+  "extension": {},
+  "headLocation": {"railId": "00000000-0000-0000-0000-000000000023", "arcLengthInCurveAB": 180.0, "direction": "AB"},
+  "tailLocation": {"railId": "00000000-0000-0000-0000-000000000023", "arcLengthInCurveAB": 140.0, "direction": "AB"}
+}

@@ -1,0 +1,161 @@
+{
+  "migration": "remove-fixed-block-bidirectional",
+  "source": "/tmp/jr-direction-preflight-20261030/plugins/SimpleSignals/worlds",
+  "sourceSha256": {
+    "2952ad2c-41ce-40bc-b83b-1b578ae7af12-definitions.json": "2a83abb7987352aec373225963d86a258365bdaf451651d8508b28c7ff01dcd4",
+    "2952ad2c-41ce-40bc-b83b-1b578ae7af12-definitions.json.bak": "933fd41c2cf74e36c6cb4718ce3a164726eff0a4375efd89537d29512a44404f"
+  },
+  "files": [
+    {
+      "name": "2952ad2c-41ce-40bc-b83b-1b578ae7af12-definitions.json",
+      "sourceSha256": "2a83abb7987352aec373225963d86a258365bdaf451651d8508b28c7ff01dcd4",
+      "candidateSha256": "640f1fa3bc8fd84497c0c120a3b3a781b71fd0ce3c029813b6bedadbee9b48cb",
+      "removedFields": [
+        {
+          "path": "fixedBlocks[0].bidirectional",
+          "blockId": "simplesignals:43bb8a78-db53-4a78-821e-414f3cda1500",
+          "removedValue": false
+        },
+        {
+          "path": "fixedBlocks[1].bidirectional",
+          "blockId": "simplesignals:7b022d1e-b11f-436b-9ad4-3c40b08b5d07",
+          "removedValue": false
+        },
+        {
+          "path": "fixedBlocks[2].bidirectional",
+          "blockId": "simplesignals:86532588-be5c-4555-ac97-43139bea840f",
+          "removedValue": false
+        },
+        {
+          "path": "fixedBlocks[3].bidirectional",
+          "blockId": "simplesignals:889af257-19ea-4875-83b9-bf48b9fc4dc6",
+          "removedValue": true
+        },
+        {
+          "path": "fixedBlocks[4].bidirectional",
+          "blockId": "simplesignals:8eeab55a-4096-4109-b10a-81d235af7862",
+          "removedValue": true
+        },
+        {
+          "path": "fixedBlocks[5].bidirectional",
+          "blockId": "simplesignals:ac097da0-e9bd-4165-b303-a1de83b7f943",
+          "removedValue": true
+        },
+        {
+          "path": "fixedBlocks[6].bidirectional",
+          "blockId": "simplesignals:af49aa44-1c0c-4e5d-bbb8-cc6825dbe7e9",
+          "removedValue": true
+        },
+        {
+          "path": "fixedBlocks[7].bidirectional",
+          "blockId": "simplesignals:b487ad90-0848-44f2-a5c3-3e4d8291f448",
+          "removedValue": true
+        },
+        {
+          "path": "fixedBlocks[8].bidirectional",
+          "blockId": "simplesignals:bcd26815-6557-49bc-8b64-b200b2f0cde7",
+          "removedValue": true
+        },
+        {
+          "path": "fixedBlocks[9].bidirectional",
+          "blockId": "simplesignals:c200ca46-3bd8-4c4d-9fcf-ceceb864eaf8",
+          "removedValue": false
+        },
+        {
+          "path": "fixedBlocks[10].bidirectional",
+          "blockId": "simplesignals:cc87e2c2-0c47-4573-a269-36212fc83bf3",
+          "removedValue": false
+        },
+        {
+          "path": "fixedBlocks[11].bidirectional",
+          "blockId": "simplesignals:dd4a39f0-6852-4a2a-90aa-359d333cbb17",
+          "removedValue": false
+        },
+        {
+          "path": "fixedBlocks[12].bidirectional",
+          "blockId": "simplesignals:dddac2b3-3ec2-478d-a0f9-aee52c791ada",
+          "removedValue": false
+        }
+      ]
+    },
+    {
+      "name": "2952ad2c-41ce-40bc-b83b-1b578ae7af12-definitions.json.bak",
+      "sourceSha256": "933fd41c2cf74e36c6cb4718ce3a164726eff0a4375efd89537d29512a44404f",
+      "candidateSha256": "1761ffe64b26ddac1a71bd1616204a19c30f5d784936c5dafc2540f5101c3940",
+      "removedFields": [
+        {
+          "path": "fixedBlocks[0].bidirectional",
+          "blockId": "simplesignals:43bb8a78-db53-4a78-821e-414f3cda1500",
+          "removedValue": false
+        },
+        {
+          "path": "fixedBlocks[1].bidirectional",
+          "blockId": "simplesignals:7b022d1e-b11f-436b-9ad4-3c40b08b5d07",
+          "removedValue": false
+        },
+        {
+          "path": "fixedBlocks[2].bidirectional",
+          "blockId": "simplesignals:86532588-be5c-4555-ac97-43139bea840f",
+          "removedValue": false
+        },
+        {
+          "path": "fixedBlocks[3].bidirectional",
+          "blockId": "simplesignals:889af257-19ea-4875-83b9-bf48b9fc4dc6",
+          "removedValue": true
+        },
+        {
+          "path": "fixedBlocks[4].bidirectional",
+          "blockId": "simplesignals:8eeab55a-4096-4109-b10a-81d235af7862",
+          "removedValue": true
+        },
+        {
+          "path": "fixedBlocks[5].bidirectional",
+          "blockId": "simplesignals:ac097da0-e9bd-4165-b303-a1de83b7f943",
+          "removedValue": true
+        },
+        {
+          "path": "fixedBlocks[6].bidirectional",
+          "blockId": "simplesignals:af49aa44-1c0c-4e5d-bbb8-cc6825dbe7e9",
+          "removedValue": true
+        },
+        {
+          "path": "fixedBlocks[7].bidirectional",
+          "blockId": "simplesignals:b487ad90-0848-44f2-a5c3-3e4d8291f448",
+          "removedValue": true
+        },
+        {
+          "path": "fixedBlocks[8].bidirectional",
+          "blockId": "simplesignals:bcd26815-6557-49bc-8b64-b200b2f0cde7",
+          "removedValue": true
+        },
+        {
+          "path": "fixedBlocks[9].bidirectional",
+          "blockId": "simplesignals:cc87e2c2-0c47-4573-a269-36212fc83bf3",
+          "removedValue": false
+        },
+        {
+          "path": "fixedBlocks[10].bidirectional",
+          "blockId": "simplesignals:dd4a39f0-6852-4a2a-90aa-359d333cbb17",
+          "removedValue": false
+        },
+        {
+          "path": "fixedBlocks[11].bidirectional",
+          "blockId": "simplesignals:dddac2b3-3ec2-478d-a0f9-aee52c791ada",
+          "removedValue": false
+        }
+      ]
+    }
+  ],
+  "removedFields": 25,
+  "currentCodec": {
+    "result": "CURRENT_DEFINITIONS_OK files=2 blocks=25 fixedBlockSignals=16",
+    "classpathSha256": {
+      "/workspace/minecraft/JavaRailways/SimpleSignals/build/libs/SimpleSignals-1.0-SNAPSHOT.jar": "4951ea121c979b42213b108de2d9d1df4d810ffa43e2d6f78a234ebe1903ef99",
+      "/workspace/minecraft/JavaRailways/BukkitPlugin/build/libs/JavaRailways-1.0-SNAPSHOT-all.jar": "023e9a193ea23d441d723771d03ce856afcc5cf822a99b86d97bcc88e61ca8c4"
+    },
+    "helperSha256": "8ecb757e3acf04169c184a9738983cfb7d31d984e2f8db81634ab5b537149d7e"
+  },
+  "dryRun": false,
+  "candidate": "/tmp/jr-direction-online-candidate-20261030",
+  "complete": true
+}

@@ -58,6 +58,9 @@ class CloudCommandRegistrar(plugin: BukkitPlugin) {
         private fun tokenizeForExecution(input: String): List<String> =
             if (input.isBlank()) emptyList() else input.split(' ')
 
+        internal fun routeAcceptsArguments(path: String): Boolean =
+            ROUTES.single { it.path.joinToString(" ") == path }.acceptsArguments
+
         private val ROUTES = buildList {
             fun parent(vararg path: String) = add(Route(path.toList()))
             fun args(vararg path: String) = add(Route(path.toList(), acceptsArguments = true))
@@ -69,24 +72,24 @@ class CloudCommandRegistrar(plugin: BukkitPlugin) {
             parent("train", "sit"); parent("train", "stand")
             parent("wand"); parent("wand", "rail"); parent("wand", "give")
             parent("wand", "railobject"); parent("wand", "object"); parent("wand", "ro")
+            parent("wand", "turnout")
             listOf("waypoint", "wp", "stop").forEach { name ->
                 parent(name); parent(name, "list"); args(name, "info"); args(name, "remove")
             }
             parent("route"); args("route", "validate")
             args("navigate"); args("nav")
             parent("depot")
-            args("depot", "assign"); parent("depot", "list"); args("depot", "reset"); args("depot", "reset-all")
+            args("depot", "assign"); args("depot", "register-unit"); parent("depot", "list"); args("depot", "reset"); args("depot", "reset-all")
             listOf("timetable", "tt").forEach { name ->
                 parent(name)
-                listOf("edit", "load", "dump", "start", "reset", "status", "stop", "replan")
+                listOf("edit", "load", "reload-all", "dump", "start", "reset", "status", "stop", "replan")
                     .forEach { sub -> args(name, sub) }
                 parent(name, "list")
             }
             parent("ato"); args("ato", "status"); args("ato", "dump"); args("ato", "reset")
-            args("perf"); args("performance")
+            args("perf"); args("performance"); args("issues")
             parent("resources"); parent("resources", "reload")
             parent("resource"); parent("resource", "reload")
-            parent("migrate"); args("migrate", "rail-infrastructure-metadata")
             parent("undo"); parent("redo"); parent("help")
         }
     }

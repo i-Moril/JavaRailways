@@ -1,0 +1,42 @@
+{
+  "product_test_files": [
+    "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/SimpleSignalsPlugin.kt",
+    "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/BoundaryNames.kt",
+    "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/CurrentRoutePreview.kt",
+    "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/RouteIndicatorWandEditor.kt",
+    "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/RoutePreviewWandHandler.kt",
+    "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/SectionOverlayBackend.kt",
+    "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/SectionOverlayDrawing.kt",
+    "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/SectionWandBackend.kt",
+    "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/SectionWandHandler.kt",
+    "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/SectionWandSessions.kt",
+    "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/SignalWandBackend.kt",
+    "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/SignalWandHandler.kt",
+    "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/authoring/WandDialogs.kt",
+    "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/persistence/BoundaryName.kt",
+    "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/persistence/SimpleSignalsDefinitionDrafts.kt",
+    "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/persistence/SimpleSignalsWorldDefinitions.kt",
+    "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsDefinitionEditImpact.kt",
+    "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsWorldRuntime.kt",
+    "SimpleSignals/src/main/resources/i18n/wands_en_US.properties",
+    "SimpleSignals/src/main/resources/i18n/wands_zh_CN.properties",
+    "SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/authoring/BoundaryNamesTest.kt",
+    "SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/authoring/RuntimeRoutePreviewBackendTest.kt",
+    "SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/authoring/SectionOverlayDrawingTest.kt",
+    "SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/authoring/SectionWandHandlerTest.kt",
+    "SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/authoring/SignalWandHandlerTest.kt",
+    "SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/persistence/SimpleSignalsDefinitionDraftsTest.kt",
+    "SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/persistence/SimpleSignalsWorldDefinitionStoreTest.kt",
+    "SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsWorldRuntimeManagerTest.kt"
+  ],
+  "unrelated_preserved": 74,
+  "unexpected_baseline_differences": [],
+  "jar_sha256": "29c6a46bab3fe18a8254a29bb8dcc017dcfc19571c93127fb8fc9eb915951050",
+  "tests": {
+    "suites": 59,
+    "tests": 622,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

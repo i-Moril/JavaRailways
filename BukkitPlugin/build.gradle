@@ -10,12 +10,14 @@ plugins {
 
 evaluationDependsOn(":WebUI")
 evaluationDependsOn(":TunnelBridgeBuilder")
+evaluationDependsOn(":SimpleSignals")
 
 runPaper {
     disablePluginJarDetection()
 }
 
 def foliaPluginJar = layout.buildDirectory.file("folia-plugin/JavaRailways.jar")
+def simpleSignalsJar = project(":SimpleSignals").tasks.named("jar", Jar)
 def prepareFoliaPlugin = tasks.register("prepareFoliaPlugin") {
     dependsOn(tasks.shadowJar)
     inputs.file(tasks.shadowJar.archiveFile)
@@ -47,9 +49,10 @@ runPaper.folia.registerTask {
         github("retrooper", "packetevents", "v2.12.1", "packetevents-spigot-2.12.1.jar")
     }
     runDirectory = file("run-folia")
-    dependsOn(prepareFoliaPlugin, ":TunnelBridgeBuilder:shadowJar")
+    dependsOn(prepareFoliaPlugin, ":TunnelBridgeBuilder:shadowJar", simpleSignalsJar)
     pluginJars.from(foliaPluginJar)
     pluginJars.from(project(":TunnelBridgeBuilder").tasks.named("shadowJar").flatMap { it.archiveFile })
+    pluginJars.from(simpleSignalsJar.flatMap { it.archiveFile })
     jvmArgs("-Dcom.mojang.eula.agree=true")
 }
 
@@ -64,6 +67,16 @@ tasks.named("processResources") {
     }
 }
 
+tasks.register('editorMarkersResourcePack', Zip) {
+    group = 'distribution'
+    description = 'Packages the standalone 26.1.2 client resource pack for railway editor markers.'
+    from(layout.projectDirectory.dir('examples/editor-markers/resourcepack'))
+    destinationDirectory = layout.buildDirectory.dir('distributions')
+    archiveFileName = 'JavaRailways-editor-markers-26.1.2.zip'
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+}
+
 group = 'work.art1st'
 version = '1.0-SNAPSHOT'
 
@@ -72,6 +85,18 @@ base {
 }
 
 repositories {
+    // Only this optional API is resolved from the explicitly prepared local repository.
+    // See BukkitPlugin/docs/simpledisplays-integration.md for the source revision and publication command.
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "simpleDisplaysApi"
+                url = uri(providers.gradleProperty("simpleDisplaysRepository")
+                    .getOrElse(new File(System.getProperty("user.home"), ".m2/repository").toURI().toString()))
+            }
+        }
+        filter { includeModule("simpledisplays", "simpledisplays-api") }
+    }
     mavenCentral()
     maven {
         name = "papermc-repo"
@@ -82,6 +107,9 @@ repositories {
 }
 
 dependencies {
+    compileOnly("simpledisplays:simpledisplays-api:0.1.0-SNAPSHOT")
+    testImplementation("simpledisplays:simpledisplays-api:0.1.0-SNAPSHOT")
+    implementation(project(':Diagnostics'))
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     paperweight.paperDevBundle("1.21.11-R0.1-SNAPSHOT")
     // Provided by the independently installed packetevents plugin.
@@ -102,11 +130,65 @@ dependencies {
     implementation("io.insert-koin:koin-core:4.1.1")
     implementation(project(":Core"))
     implementation(project(":Basic"))
+    implementation(project(":SimpleATO"))
+    implementation(project(":SimpleATOBukkit"))
     implementation(project(":ConfigLib"))
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation(testFixtures(project(":Core")))
+    // Joint-fixture only: the host test compiles against SimpleSignals main to build the real
+    // PreparedSimulationFeature via the Java bridge. This is a test edge (acyclic: SimpleSignals
+    // main is compileOnly against BukkitPlugin main); the shadowJar runtime graph is untouched.
+    testImplementation(project(":SimpleSignals"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+// Compile a minimal add-on against the same classpath exposed to external Bukkit plugins.
+// Keep this source set free of BukkitPlugin implementation-package imports.
+sourceSets {
+    // One-time development-save tooling: never included in the deployable plugin JAR.
+    offlineMigration {
+        compileClasspath = sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath = output + compileClasspath + sourceSets.main.runtimeClasspath
+    }
+    signalApiConsumer {
+        java.srcDir("src/signalApiConsumer/java")
+        compileClasspath = sourceSets.main.output + sourceSets.main.compileClasspath
+    }
+}
+
+kotlin.sourceSets.named('offlineMigration') {
+    kotlin.srcDir(rootProject.file('scripts/offline-world-migration'))
+}
+
+tasks.register('migrateDevelopmentWorlds', JavaExec) {
+    group = 'migration'
+    description = 'Dry-run old development worlds; -PmigrationOutput must name a new output directory.'
+    classpath = sourceSets.offlineMigration.runtimeClasspath
+    mainClass = 'work.art1st.javarailways.offline.DevelopmentWorldMigrationKt'
+    doFirst {
+        if (project.hasProperty('migrationValidateConfigDirectory')) {
+            args = ['--validate-config-directory', project.property('migrationValidateConfigDirectory').toString()]
+            return
+        }
+        if (project.hasProperty('migrationValidateDataDirectory')) {
+            args = ['--validate-data-directory', project.property('migrationValidateDataDirectory').toString()]
+            return
+        }
+        if (!project.hasProperty('migrationSource')) throw new GradleException('Specify -PmigrationSource=/absolute/source/worlds')
+        args = [project.property('migrationSource').toString()]
+        if (project.hasProperty('migrationOutput')) args += ['--output', project.property('migrationOutput').toString()]
+        if (project.hasProperty('repairRedundantCurvePoints')) args += '--repair-redundant-curve-points'
+        if (project.hasProperty('migrationEndpointsOnly')) args += '--endpoints-only'
+        if (project.hasProperty('migrationJunctionsOnly')) args += '--junctions-only'
+    }
+}
+
+sourceSets.test.compileClasspath += sourceSets.offlineMigration.output
+sourceSets.test.runtimeClasspath += sourceSets.offlineMigration.output
+
+tasks.named("check") {
+    dependsOn(tasks.named("compileSignalApiConsumerJava"))
 }
 
 tasks {
@@ -122,11 +204,12 @@ tasks {
         }
         pluginJars.from(tasks.shadowJar.archiveFile)
         pluginJars.from(project(":TunnelBridgeBuilder").tasks.named("shadowJar").flatMap { it.archiveFile })
+        pluginJars.from(simpleSignalsJar.flatMap { it.archiveFile })
         // Also load the Dev plugin for testing
         pluginJars.from(provider {
             rootProject.project(":BukkitPluginDev").tasks.shadowJar.archiveFile.get().asFile
         })
-        dependsOn(":BukkitPluginDev:shadowJar", ":TunnelBridgeBuilder:shadowJar")
+        dependsOn(":BukkitPluginDev:shadowJar", ":TunnelBridgeBuilder:shadowJar", simpleSignalsJar)
         doFirst {
             delete(layout.projectDirectory.dir("run/plugins/.paper-remapped"))
         }
@@ -191,6 +274,13 @@ tasks.withType(Test).configureEach {
     useJUnitPlatform()
 }
 
+// Coordinate regression reads the shipped packages directly; edits must invalidate test results.
+tasks.named('test') {
+    inputs.file(rootProject.file('rail_model.yml'))
+    inputs.files(rootProject.fileTree('models/rails') { include '**/rail_model.yml' })
+}
+
+
 processResources {
     def props = [version: version]
     inputs.properties props
@@ -220,6 +310,7 @@ bukkitPluginYaml {
 
     depend.add("packetevents")
     softDepend.add("PlugManX")
+    softDepend.add("SimpleDisplays")
 
     permissions.register("javarailways.admin") {
         description.set("允许执行 JavaRailways 管理操作")

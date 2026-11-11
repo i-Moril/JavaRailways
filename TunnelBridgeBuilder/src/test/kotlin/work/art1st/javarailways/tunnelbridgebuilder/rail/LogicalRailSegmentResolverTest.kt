@@ -7,6 +7,7 @@ import work.art1st.javarailways.basic.rail.RailAssemblyKind
 import work.art1st.javarailways.basic.rail.RailAssemblyMetadata
 import work.art1st.javarailways.basic.rail.RailAssemblyRole
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
+import work.art1st.javarailways.basic.rail.RailAuthoringMetadata
 import work.art1st.javarailways.basic.rail.resolveLogicalRailLaneIds
 import java.util.UUID
 
@@ -29,7 +30,7 @@ class LogicalRailSegmentResolverTest {
             val lane = flatIndex / 3
             val segment = flatIndex % 3
             id to RailInfrastructureMetadata(
-                assembly = RailAssemblyMetadata(
+                authoring = RailAuthoringMetadata(assembly = RailAssemblyMetadata(
                     groupId = groupId,
                     kind = RailAssemblyKind.FIVE_SEGMENT_CURVE,
                     laneIndex = lane,
@@ -41,7 +42,7 @@ class LogicalRailSegmentResolverTest {
                         2 -> RailAssemblyRole.TRAILING_TANGENT
                         else -> RailAssemblyRole.CURVE
                     }
-                )
+                ))
             )
         }
 
@@ -57,7 +58,7 @@ class LogicalRailSegmentResolverTest {
         val second = UUID.randomUUID()
         val metadata = mapOf(
             first to RailInfrastructureMetadata(
-                assembly = RailAssemblyMetadata(
+                authoring = RailAuthoringMetadata(assembly = RailAssemblyMetadata(
                     groupId = "incomplete",
                     kind = RailAssemblyKind.FIVE_SEGMENT_CURVE,
                     laneIndex = 0,
@@ -65,10 +66,10 @@ class LogicalRailSegmentResolverTest {
                     segmentIndex = 0,
                     segmentCount = 3,
                     role = RailAssemblyRole.LEADING_TANGENT
-                )
+                ))
             ),
             second to RailInfrastructureMetadata(
-                assembly = RailAssemblyMetadata(
+                authoring = RailAuthoringMetadata(assembly = RailAssemblyMetadata(
                     groupId = "incomplete",
                     kind = RailAssemblyKind.FIVE_SEGMENT_CURVE,
                     laneIndex = 0,
@@ -76,7 +77,7 @@ class LogicalRailSegmentResolverTest {
                     segmentIndex = 1,
                     segmentCount = 3,
                     role = RailAssemblyRole.CURVE
-                )
+                ))
             )
         )
 

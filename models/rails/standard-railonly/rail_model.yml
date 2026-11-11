@@ -1,0 +1,25 @@
+# Local axes: X lateral (up × forward), Y up, Z forward; offsets are metres.
+# 标准轨轨道包的运行时轨道可视化配置。
+# 除 offset/rotation/scale 的 x/y/z 可省略并使用默认值外，其余键都是必填项。
+
+# 重复周期长度（米）。每个元素沿曲线每隔此距离放置一次。
+repeat_length: 0.95
+
+# 周期内的显示元素列表。
+# 每个元素都必须显式提供：type / material / offset / rotation / scale。
+# 但 offset/rotation 缺失的分量默认是 0.0，scale 缺失的分量默认是 1.0。
+elements:
+  - type: item
+    material: RAIL
+    offset:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+    rotation:
+      x: 90.0
+      y: 0.0
+      z: 180.0
+    scale:
+      x: 1.4
+      y: 1.0
+      z: 1.0

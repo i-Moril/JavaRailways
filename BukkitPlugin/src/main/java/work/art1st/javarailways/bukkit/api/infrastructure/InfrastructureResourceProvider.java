@@ -1,0 +1,48 @@
+package work.art1st.javarailways.bukkit.api.infrastructure;
+
+import org.bukkit.plugin.Plugin;
+import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor;
+import work.art1st.javarailways.basic.api.route.FormationRouteContext;
+import work.art1st.javarailways.basic.api.route.FormationRoutePolicyResult;
+import work.art1st.javarailways.basic.api.route.RouteResourceIntent;
+import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure;
+import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode;
+
+import java.util.UUID;
+
+/**
+ * Authoritative existence check for one stable infrastructure {@code typeId}.
+ *
+ * <p>Called synchronously on the infrastructure service caller's thread. Implementations must be
+ * thread-safe, deterministic, non-blocking, and must not access Bukkit entity or region state.</p>
+ */
+public interface InfrastructureResourceProvider {
+    boolean exists(UUID worldId, String resourceId);
+
+    /**
+     * Checks one route resource contributed by an authenticated signalling plugin. Return {@code null} only
+     * when both the resource use and optional preparation descriptor are allowed. Otherwise
+     * return {@code INVALID_CONTRIBUTION} or {@code INVALID_PREPARATION}. This callback is invoked
+     * on the simulation owner before any claim mutation and must be quick and side-effect-free.
+     * Resource existence alone is never route authorization. Every provider must explicitly
+     * decide whether its resources may be added to a route.
+     */
+    RouteAdmissionFailureCode validateRouteContribution(
+        Plugin contributor,
+        UUID worldId,
+        String resourceId,
+        ResourcePreparationDescriptor preparation
+    );
+    /**
+     * Certifies exactly this resource's output clearance on the complete frozen route. An accepted
+     * result must contain exactly one entry for this identity; a null boundary explicitly means
+     * not needed. Existence or another contributor's approval is never sufficient.
+     */
+    default FormationRoutePolicyResult authorizeFormationResource(
+        UUID worldId, String resourceId, FormationRouteContext context, RouteResourceIntent intent
+    ) {
+        return new FormationRoutePolicyResult.Rejected(new RouteAdmissionFailure(
+            RouteAdmissionFailureCode.INVALID_CONTRIBUTION, "provider does not authorize formation routes",
+            java.util.List.of(), null));
+    }
+}

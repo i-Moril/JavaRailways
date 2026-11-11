@@ -1,5 +1,8 @@
 package work.art1st.javarailways.core.physics.train
 
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.joml.unaryMinus
@@ -9,10 +12,13 @@ import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.api.physics.train.Bogie
 import work.art1st.javarailways.core.api.render.RenderableExtension
 import work.art1st.javarailways.core.api.render.RenderableStateSnapshot
+import work.art1st.javarailways.core.api.render.RenderableFrameSnapshot
+import work.art1st.javarailways.core.api.render.Vector3Snapshot
 import work.art1st.javarailways.core.api.util.annotation.MainThread
-import work.art1st.javarailways.core.util.trait.render.DynamicRenderableTrait
+import work.art1st.javarailways.core.api.render.DynamicRenderable
 import work.art1st.javarailways.core.api.util.plugin.Extendable
 import work.art1st.javarailways.core.api.util.plugin.ExtensionDataContainer
+import work.art1st.javarailways.core.api.util.plugin.collectSavedExtensionData
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
 import work.art1st.javarailways.core.util.CommitBuffer
 import work.art1st.configLib.persistence.PersistentBy
@@ -27,7 +33,7 @@ class CoreBogie @MainThread internal constructor(
     isSameDirectionAsFacing: Boolean = true,
     savedExtensionData: Map<String, SerializableExtensionData>,
     val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Bogie>> = ExtensionDataContainer()
-) : Bogie, DynamicRenderableTrait<Bogie>, Reversible, Extendable<RenderableExtension<Bogie>> by extensionDataContainer, PersistentBy<SavedBogieV1> {
+) : Bogie, DynamicRenderable, Reversible, Extendable<RenderableExtension<Bogie>> by extensionDataContainer, PersistentBy<SavedBogieV1> {
 
     companion object {
         @JvmStatic
@@ -37,16 +43,13 @@ class CoreBogie @MainThread internal constructor(
         ): CoreBogie = CoreBogie(location, true, extensionData)
     }
     private val sameDirectionBuffer = CommitBuffer(isSameDirectionAsFacing)
-    private var directionPhysicsDirty = false
     private val publishedSameDirectionAsFacing: Boolean get() = sameDirectionBuffer.get()
-    private val activeSameDirectionAsFacing: Boolean
-        get() = if (directionPhysicsDirty) sameDirectionBuffer.getActive() else sameDirectionBuffer.get()
 
     private val _location = CommitBuffer(location)
     override var location: RailLocationWithFacing by _location
         private set
     internal val activeLocation
-        get() = if (physicsDirty) _location.getActive() else _location.get()
+        get() = if (locationPhysicsDirty) _location.getActive() else _location.get()
 
     override val position
         get() = location.position
@@ -60,16 +63,33 @@ class CoreBogie @MainThread internal constructor(
     override var velocity: Vector3dc by _velocity
         internal set
     internal val activeVelocity
-        get() = if (physicsDirty) _velocity.getActive() else _velocity.get()
+        get() = if (velocityPhysicsDirty) _velocity.getActive() else _velocity.get()
 
     override val world
         get() = location.rail.world
 
-    override var lastState: RenderableStateSnapshot = takeSnapshot()
-    private var physicsDirty = false
+    override val initialRenderState: RenderableStateSnapshot = initialRenderSnapshot()
+    private var locationPhysicsDirty = false
+    private var velocityPhysicsDirty = false
 
     init {
-        this.initialize(savedExtensionData)
+        extensionDataContainer.extensionData.forEach { it?.initialize(this, savedExtensionData) }
+    }
+
+    private fun initialRenderSnapshot(): RenderableStateSnapshot = RenderableStateSnapshot(
+        position = position,
+        direction = direction,
+        normal = normal,
+        velocity = velocity,
+        world = world
+    )
+
+    private val destruction = Destruction()
+
+    override fun destroy(): CompletionStage<Void> = destruction.run {
+        val steps = DestructionSteps()
+        extensionDataContainer.extensionData.filterNotNull().forEach { steps.await { it.destroy() } }
+        steps.finish()
     }
 
     @Throws(BogieException::class)
@@ -79,43 +99,82 @@ class CoreBogie @MainThread internal constructor(
 
     /** Publishes Core state off the Bukkit main thread after all physics workers complete. */
     internal fun publishPhysicsState() {
-        if (physicsDirty) {
+        if (locationPhysicsDirty) {
             _location.commit()
+            locationPhysicsDirty = false
+        }
+        if (velocityPhysicsDirty) {
             _velocity.commit()
-            physicsDirty = false
+            velocityPhysicsDirty = false
         }
-        if (directionPhysicsDirty) {
-            sameDirectionBuffer.commit()
-            directionPhysicsDirty = false
-        }
+    }
+
+    /** Discard an unsuccessful worker step without publishing either buffer slot. */
+    internal fun discardPhysicsChanges() {
+        _location.set(_location.get())
+        _velocity.set(_velocity.get())
+        locationPhysicsDirty = false
+        velocityPhysicsDirty = false
     }
 
     internal fun updateLocation(location: RailLocationWithFacing) {
         this.location = location
-        physicsDirty = true
+        locationPhysicsDirty = true
+    }
+
+    internal data class PlacementState(
+        val location: RailLocationWithFacing,
+        val sameDirection: Boolean,
+        val velocity: Vector3Snapshot
+    )
+
+    internal fun capturePlacementState(): PlacementState = PlacementState(
+        location, publishedSameDirectionAsFacing, Vector3Snapshot.capture(velocity)
+    )
+
+    internal fun restorePlacementState(state: PlacementState) {
+        sameDirectionBuffer.set(state.sameDirection)
+        sameDirectionBuffer.commit()
+        sameDirectionBuffer.set(state.sameDirection)
+        updateLocation(state.location)
+        updateVelocity(state.velocity.toVector3d())
+        publishPhysicsState()
+    }
+
+    internal fun captureActivePlacementFrame(): RenderableFrameSnapshot =
+        prepareStationaryFrameAt(activeLocation)
+
+    /** Owner-local candidate at a new location, preserving physical model orientation. */
+    internal fun prepareStationaryFrameAt(location: RailLocationWithFacing): RenderableFrameSnapshot =
+        RenderableFrameSnapshot.create(
+            Vector3Snapshot.capture(location.position),
+            Vector3Snapshot.capture(if (publishedSameDirectionAsFacing) location.tangent else -location.tangent),
+            Vector3Snapshot.capture(location.normal),
+            Vector3Snapshot(0.0, 0.0, 0.0)
+        )
+
+    /** Updates the active physics velocity; publication remains at the epoch barrier. */
+    internal fun updateVelocity(velocity: Vector3dc) {
+        this.velocity = Vector3d(velocity)
+        velocityPhysicsDirty = true
     }
 
     @MainThread
     override fun reverse() {
+        applyPreparedOperatingReversal(location.reversed)
+    }
+
+    /** Apply an already-resolved facing change without solving geometry during structural commit. */
+    internal fun applyPreparedOperatingReversal(reversedLocation: RailLocationWithFacing) {
         sameDirectionBuffer.set(!publishedSameDirectionAsFacing)
         sameDirectionBuffer.commit()
-        val reversedLocation = location.reversed
         _location.set(reversedLocation)
         _location.commit()
         _location.set(reversedLocation)
     }
 
-    internal fun reverseFromPhysics() {
-        sameDirectionBuffer.set(!activeSameDirectionAsFacing)
-        directionPhysicsDirty = true
-        updateLocation(activeLocation.reversed)
-    }
-
     override fun save(): SavedBogieV1 {
-        val savedExtension = HashMap<String, SerializableExtensionData>()
-        extensionDataContainer.extensionData.forEach { ext ->
-            ext?.save()?.let { savedExtension[it.first] = it.second }
-        }
+        val savedExtension = extensionDataContainer.extensionData.collectSavedExtensionData("bogie")
         return SavedBogieV1(location.save(), publishedSameDirectionAsFacing, savedExtension)
     }
 }

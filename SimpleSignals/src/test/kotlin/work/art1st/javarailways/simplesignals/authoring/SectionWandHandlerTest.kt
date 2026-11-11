@@ -1,0 +1,562 @@
+package work.art1st.javarailways.simplesignals.authoring
+
+import net.kyori.adventure.text.Component
+import org.bukkit.Location
+import org.bukkit.World
+import org.bukkit.command.Command
+import org.bukkit.entity.Player
+import org.bukkit.event.player.PlayerChangedWorldEvent
+import org.bukkit.plugin.Plugin
+import org.joml.Vector3d
+import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Test
+import work.art1st.javarailways.bukkit.api.rail.RailTarget
+import work.art1st.javarailways.bukkit.api.rail.RailTargetService
+import work.art1st.javarailways.core.api.physics.curve.Curve
+import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
+import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.simplesignals.region.RailCutPosition
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.core.physics.createRailForTest
+import work.art1st.javarailways.core.physics.train.createTestWorld
+import java.lang.reflect.Proxy
+import java.util.ArrayDeque
+import java.util.Optional
+import java.util.UUID
+import java.util.concurrent.CompletableFuture
+
+/** Real handler with deterministic owner/worker scheduling; this is not a live Folia test. */
+class SectionWandHandlerTest {
+    private val coreWorlds = mutableListOf<CoreWorld>()
+    @AfterEach fun closeWorlds() = coreWorlds.forEach {
+        it.physicsCoordinator.close()
+        (it.tickManager as? AutoCloseable)?.close()
+    }
+    @Test fun `permission rejection does not start targeting or worker and command requires permission`() {
+        val f = Fixture()
+        f.permitted = false
+        f.handler.click(f.player, f.tool!!, false)
+        f.handler.onCommand(f.player, command, "simplesignals", arrayOf("wand", "section"))
+        assertEquals(0, f.targetCalls)
+        assertEquals(0, f.given)
+        assertTrue(f.workers.isEmpty())
+        assertTrue(f.messages.isNotEmpty())
+    }
+
+    @Test fun `command supplies naming and deletion tools directly`() {
+        val f = Fixture()
+        f.handler.onCommand(f.player, command, "simplesignals", arrayOf("wand", "section", "delete"))
+        assertEquals(SectionWandTool.DELETE, f.lastGiven)
+        assertEquals(1, f.given)
+        assertEquals(0, f.targetCalls)
+        f.handler.onCommand(f.player, command, "simplesignals", arrayOf("wand", "section", "name"))
+        assertEquals(SectionWandTool.NAME, f.lastGiven)
+        assertEquals(2, f.given)
+    }
+
+    @Test fun `duplicate clicks coalesce and edits and geometry run only on worker then reply on owner`() {
+        val f = Fixture()
+        f.handler.click(f.player, f.tool!!, false)
+        f.handler.click(f.player, f.tool!!, false)
+        assertEquals(1, f.targetCalls)
+        f.completeTarget()
+        assertEquals(0, f.performs)
+        f.drainOwner()
+        assertEquals(1, f.workers.size)
+        assertEquals(0, f.performs)
+        f.drainWorkers()
+        assertEquals(1, f.performs)
+        assertTrue(f.messages.isEmpty())
+        f.drainOwner()
+        assertEquals(1, f.messages.size)
+    }
+
+    @Test fun `stale publication rejects the pending click before another capture`() {
+        val f = Fixture()
+        f.clickAndDrain()
+
+        f.target = CompletableFuture()
+        f.handler.click(f.player, f.tool!!, false)
+        f.completeTarget(); f.drainOwner()
+        f.current = false
+        f.drainWorkers(); f.drainOwner()
+        assertEquals(1, f.performs)
+
+        f.current = true
+        f.advanceCapture()
+        f.nextOutcome = SectionWandOutcome(WandText.diagnostic("recovered"))
+        f.clickAndDrain()
+        assertEquals(2, f.performs)
+        assertTrue(f.messages.isNotEmpty())
+    }
+
+    @Test fun `world change and returning to same world invalidate a queued click`() {
+        val f = Fixture()
+        f.handler.click(f.player, f.tool!!, false)
+        f.completeTarget(); f.drainOwner()
+        f.handler.onWorldChange(PlayerChangedWorldEvent(f.player, f.world))
+        f.drainWorkers(); f.drainOwner()
+        assertEquals(0, f.performs)
+        assertTrue(f.messages.isEmpty())
+    }
+
+    @Test fun `tool swap before targeting completion invalidates click`() {
+        val f = Fixture()
+        f.handler.click(f.player, f.tool!!, false)
+        f.tool = SectionWandTool.DELETE
+        f.completeTarget(); f.drainOwner(); f.drainWorkers()
+        assertEquals(0, f.performs)
+    }
+
+    @Test fun `disable drops queued workers and retired player receives no reply`() {
+        val f = Fixture()
+        f.handler.click(f.player, f.tool!!, false)
+        f.completeTarget(); f.drainOwner()
+        f.handler.close()
+        f.drainWorkers(); f.drainOwner()
+        assertEquals(0, f.performs)
+        val next = Fixture()
+        next.handler.click(next.player, next.tool!!, false)
+        next.completeTarget(); next.drainOwner(); next.drainWorkers()
+        next.online = false
+        next.drainOwner()
+        assertTrue(next.messages.isEmpty())
+    }
+
+    @Test fun `failed target releases busy state for retry`() {
+        val f = Fixture()
+        f.handler.click(f.player, f.tool!!, false)
+        f.target.complete(Optional.empty()); f.drainOwner()
+        f.target = CompletableFuture()
+        f.handler.click(f.player, f.tool!!, false)
+        assertEquals(2, f.targetCalls)
+    }
+
+    @Test fun `section creation and deletion do not require an inward viewing direction`() {
+        val f = Fixture()
+        f.tool = SectionWandTool.CREATE
+        f.yaw = 0f // Looking +Z, while the rail tangent points +X.
+        f.clickAndDrain()
+        assertEquals(1, f.performs)
+        assertTrue(f.messages.isNotEmpty())
+        f.tool = SectionWandTool.DELETE
+        f.clickAndDrain()
+        assertEquals(2, f.performs)
+    }
+
+    @Test fun `obsolete callback cannot remove a new session`() {
+        val sessions = SectionWandSessions()
+        val player = UUID(0, 1)
+        val state = SectionWandState.create(SectionWandTool.CREATE)
+        val old = sessions.begin(player, UUID(0, 2), state, true)!!
+        sessions.invalidate(player)
+        val fresh = sessions.begin(player, UUID(0, 2), state, true)!!
+        sessions.invalidate(player, old)
+        assertTrue(sessions.current(player, fresh))
+        assertFalse(old.active.get())
+    }
+
+    @Test fun `item preference is strict and settings callbacks expire after normal clicks or mode changes`() {
+        val f = Fixture()
+        val initial = f.state!!
+        assertTrue(initial.retainDevices)
+        assertEquals(initial, SectionWandStateCodec.decode(SectionWandStateCodec.encode(initial)))
+        assertThrows(IllegalArgumentException::class.java) { SectionWandStateCodec.decode("create") }
+        assertThrows(IllegalArgumentException::class.java) {
+            SectionWandStateCodec.decode(SectionWandStateCodec.encode(initial).replace(",\"retainDevices\":true", ""))
+        }
+        f.handler.openSettings(f.player, initial)
+        val obsolete = f.dialog.first().second
+        f.clickAndDrain()
+        obsolete(); f.drainOwner()
+        assertEquals(initial, f.state)
+        f.handler.openSettings(f.player, initial)
+        f.dialog.first().second(); f.drainOwner()
+        assertFalse(f.state!!.retainDevices)
+        assertEquals(initial.itemId, f.state!!.itemId)
+        assertEquals(1, f.state!!.stateRevision)
+        f.handler.openSettings(f.player, f.state!!)
+        val beforeF = f.dialog
+        f.handler.switchMode(f.player)
+        beforeF.first().second(); beforeF.last().second(); f.drainOwner()
+        assertEquals(SectionWandTool.NAME, f.tool)
+        assertFalse(f.state!!.retainDevices)
+        assertEquals(initial.itemId, f.state!!.itemId)
+        assertEquals(2, f.state!!.stateRevision)
+    }
+
+    @Test fun `F cycles create name delete and keeps item identity and preference`() {
+        val f = Fixture()
+        f.state = f.state!!.changed(retainDevices = false)
+        val initial = f.state!!
+        listOf(SectionWandTool.NAME, SectionWandTool.DELETE, SectionWandTool.CREATE).forEachIndexed { i, mode ->
+            f.handler.switchMode(f.player)
+            assertEquals(mode, f.tool)
+            assertEquals(initial.itemId, f.state!!.itemId)
+            assertEquals(initial.stateRevision + i + 1, f.state!!.stateRevision)
+            assertFalse(f.state!!.retainDevices)
+            assertEquals(f.state, SectionWandStateCodec.decode(SectionWandStateCodec.encode(f.state!!)))
+        }
+    }
+
+    @Test fun `unavailable region repair requires confirmation and consumes callback once`() {
+        val f = Fixture()
+        f.prepareRepair = true
+        f.handler.click(f.player, SectionWandTool.CREATE, true)
+        f.completeTarget(); f.drainOwner(); f.drainWorkers(); f.drainOwner()
+        assertEquals(0, f.repairs)
+        assertEquals(0, f.performs)
+        val cancel = f.dialog.last().second
+        val oldConfirm = f.dialog.first().second
+        cancel(); f.drainOwner()
+        oldConfirm(); f.drainOwner(); f.drainWorkers()
+        assertEquals(0, f.repairs)
+        f.target = CompletableFuture()
+        f.handler.click(f.player, SectionWandTool.CREATE, true)
+        f.completeTarget(); f.drainOwner(); f.drainWorkers(); f.drainOwner()
+        val confirm = f.dialog.first().second
+        confirm(); confirm(); f.drainOwner(); f.drainWorkers(); f.drainOwner()
+        assertEquals(1, f.repairs)
+    }
+
+    @Test fun `repair owner and stale capture guards reject late confirmation`() {
+        for (invalidate in listOf<(Fixture) -> Unit>(
+            { it.handler.switchMode(it.player) }, { it.worldId = UUID.randomUUID() },
+            { it.permitted = false }, { it.current = false }, { it.online = false })) {
+            val f = Fixture()
+            f.prepareRepair = true
+            f.handler.click(f.player, SectionWandTool.CREATE, true)
+            f.completeTarget(); f.drainOwner(); f.drainWorkers(); f.drainOwner()
+            val confirm = f.dialog.first().second
+            invalidate(f)
+            confirm(); f.drainOwner(); f.drainWorkers(); f.drainOwner()
+            assertEquals(0, f.repairs)
+        }
+    }
+
+    @Test fun `body deletion requires confirmation and cancelled or stale callbacks never commit`() {
+        val f = Fixture()
+        f.tool = SectionWandTool.DELETE
+        f.prepareDeletion = true
+        f.clickAndDrain()
+        assertEquals(0, f.performs)
+        assertEquals(0, f.deletions)
+        f.dialog.last().second(); f.drainOwner(); f.drainWorkers()
+        assertEquals(0, f.deletions)
+        f.clickAndDrain()
+        val obsolete = f.dialog.first().second
+        f.handler.switchMode(f.player)
+        obsolete(); f.drainOwner(); f.drainWorkers()
+        assertEquals(0, f.deletions)
+        f.handler.switchMode(f.player)
+        f.handler.switchMode(f.player)
+        f.clickAndDrain()
+        val confirm = f.dialog.first().second
+        confirm(); confirm(); f.drainOwner()
+        assertEquals(0, f.deletions)
+        f.drainWorkers(); f.drainOwner()
+        assertEquals(1, f.deletions)
+    }
+
+    @Test fun `region warnings are worker prepared and owner refresh performs no geometry work`() {
+        val f = Fixture()
+        f.tool = SectionWandTool.CREATE
+        val cut = work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition("test:warn",
+            RailPositionSnapshot(f.railId, ViewDirection.AB, 5.0))
+        f.nextOutcome = SectionWandOutcome(WandText.diagnostic("multiple paths"), warnings = listOf(cut), warningCapture = f.capture)
+        f.target = CompletableFuture()
+        f.handler.click(f.player, f.tool!!, true)
+        f.completeTarget(); f.drainOwner(); f.drainWorkers(); f.drainOwner()
+        assertEquals(1, f.openRefresh)
+        val samples = f.curveCalls
+        repeat(3) { f.refresh!!.invoke() }
+        assertEquals(3, f.draws)
+        assertEquals(samples, f.curveCalls)
+        f.current = false
+        f.refresh!!.invoke()
+        assertEquals(1, f.closedRefresh)
+        assertEquals(3, f.draws)
+    }
+
+    @Test fun `world swap disable and late warning handle attachment all close display`() {
+        val f = Fixture()
+        val cut = work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition("test:warn",
+            RailPositionSnapshot(f.railId, ViewDirection.AB, 5.0))
+        f.nextOutcome = SectionWandOutcome(WandText.diagnostic("warnings"), warnings = listOf(cut))
+        f.closeOnAttach = true
+        f.clickAndDrain()
+        assertEquals(1, f.closedRefresh)
+        f.refresh!!.invoke()
+        assertEquals(0, f.draws)
+        val next = Fixture()
+        next.nextOutcome = SectionWandOutcome(WandText.diagnostic("warnings"), warnings = listOf(cut.copy(position = cut.position.copy(railId = next.railId))))
+        next.clickAndDrain()
+        next.handler.onWorldChange(PlayerChangedWorldEvent(next.player, next.world))
+        assertEquals(1, next.closedRefresh)
+        next.handler.close(); next.refresh!!.invoke()
+        assertEquals(0, next.draws)
+    }
+
+    @Test fun `old warning capture changing during own edit does not suppress successful owner reply`() {
+        val f = Fixture()
+        val cut = work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition("test:warn",
+            RailPositionSnapshot(f.railId, ViewDirection.AB, 5.0))
+        f.nextOutcome = SectionWandOutcome(WandText.diagnostic("first warning"), warnings = listOf(cut), warningCapture = f.capture)
+        f.clickAndDrain()
+        f.nextOutcome = SectionWandOutcome(WandText.diagnostic("next edit succeeded"))
+        f.target = CompletableFuture()
+        f.handler.click(f.player, f.tool!!, false)
+        f.completeTarget(); f.drainOwner(); f.drainWorkers()
+        f.current = false // The just-completed edit changed publication before the queued player reply.
+        f.refresh!!.invoke()
+        assertEquals(0, f.closedRefresh)
+        f.drainOwner()
+        assertTrue(f.messages.last().toString().contains("next edit succeeded"))
+        assertEquals(1, f.closedRefresh)
+    }
+
+    @Test fun `naming mode saves once per selection and stays selected for consecutive left and right clicks`() {
+        val f = Fixture()
+        val initial = f.state!!
+        f.handler.openSettings(f.player, initial)
+        f.dialog.single { it.first == "Name boundary" }.second(); f.drainOwner()
+        assertEquals(initial.itemId, f.state!!.itemId)
+        assertEquals(initial.stateRevision + 1, f.state!!.stateRevision)
+        assertEquals(initial.retainDevices, f.state!!.retainDevices)
+        f.clickAndDrain()
+        assertEquals(0, f.performs)
+        val submit = f.nameSubmit!!
+        submit(" 西端 "); submit("other")
+        f.drainOwner(); f.drainWorkers(); f.drainOwner()
+        assertEquals(listOf(" 西端 "), f.renames)
+        assertEquals(SectionWandTool.NAME, f.tool)
+        f.clickAndDrain(leftClick = true)
+        f.nameSubmit!!("East"); f.drainOwner(); f.drainWorkers(); f.drainOwner()
+        assertEquals(listOf(" 西端 ", "East"), f.renames)
+        assertEquals(SectionWandTool.NAME, f.tool)
+        assertEquals(0, f.performs)
+    }
+
+    @Test fun `naming cancellation validation and permission expiry never save`() {
+        val f = Fixture()
+        fun select() {
+            f.handler.openSettings(f.player, f.state!!)
+            f.dialog.single { it.first == "Name boundary" }.second(); f.drainOwner(); f.clickAndDrain()
+        }
+        select(); f.nameSubmit!!("bad\nname"); f.drainOwner()
+        assertTrue(f.renames.isEmpty())
+        f.nameSubmit!!(null); f.drainOwner(); f.drainWorkers()
+        assertTrue(f.renames.isEmpty())
+        assertEquals(SectionWandTool.NAME, f.tool)
+        f.nameSubmit = null
+        f.clickAndDrain()
+        assertNotNull(f.nameSubmit)
+        select(); f.permitted = false; f.nameSubmit!!("West"); f.drainOwner(); f.drainWorkers()
+        assertTrue(f.renames.isEmpty())
+    }
+
+    @Test fun `naming miss stays armed and stale input does not fall through to geometry`() {
+        val f = Fixture()
+        f.handler.openSettings(f.player, f.state!!)
+        f.dialog.single { it.first == "Name boundary" }.second(); f.drainOwner()
+        f.nameHit = false; f.clickAndDrain()
+        assertNull(f.nameSubmit); assertEquals(0, f.performs)
+        f.nameHit = true; f.clickAndDrain()
+        f.current = false; f.nameSubmit!!(""); f.drainOwner(); f.drainWorkers(); f.drainOwner()
+        assertTrue(f.renames.isEmpty()); assertEquals(0, f.performs)
+    }
+
+    @Test fun `naming callbacks expire on new selection mode item permission and world changes`() {
+        val changes: List<(Fixture) -> Unit> = listOf(
+            { it.clickAndDrain() },
+            { it.handler.switchMode(it.player) },
+            { it.state = SectionWandState.create(SectionWandTool.NAME) },
+            { it.permitted = false },
+            { it.handler.onWorldChange(PlayerChangedWorldEvent(it.player, it.world)) }
+        )
+        changes.forEach { change ->
+            val f = Fixture()
+            f.tool = SectionWandTool.NAME
+            f.clickAndDrain()
+            val old = f.nameSubmit!!
+            change(f)
+            old("obsolete"); f.drainOwner(); f.drainWorkers(); f.drainOwner()
+            assertTrue(f.renames.isEmpty())
+            assertEquals(0, f.performs)
+        }
+        val f = Fixture()
+        f.tool = SectionWandTool.NAME
+        f.clickAndDrain()
+        f.nameSubmit!!("queued"); f.drainOwner()
+        f.handler.switchMode(f.player)
+        f.drainWorkers(); f.drainOwner()
+        assertTrue(f.renames.isEmpty())
+    }
+
+    private inner class Fixture {
+        var worldId = UUID(0, 1)
+        val playerId = UUID(0, 2)
+        val railId get() = rail.id
+        var permitted = true
+        var online = true
+        var ownerThread = true
+        var current = true
+        var yaw = -90f
+        var state: SectionWandState? = SectionWandState.create(SectionWandTool.CREATE)
+        var tool: SectionWandTool?
+            get() = state?.tool
+            set(value) { state = value?.let { state?.changed(tool = it) ?: SectionWandState.create(it) } }
+        var dialog = emptyList<Pair<String, () -> Unit>>()
+        var nameSubmit: ((String?) -> Unit)? = null
+        var nameHit = true
+        val renames = mutableListOf<String>()
+        var prepareRepair = false
+        var repairs = 0
+        var prepareDeletion = false
+        var deletions = 0
+        var target = CompletableFuture<Optional<RailTarget>>()
+        var targetCalls = 0
+        var curveCalls = 0
+        var performs = 0
+        var given = 0
+        var lastGiven: SectionWandTool? = null
+        var refresh: (() -> Unit)? = null
+        var openRefresh = 0
+        var closedRefresh = 0
+        var draws = 0
+        var closeOnAttach = false
+        val messages = mutableListOf<Component>()
+        val workers = ArrayDeque<() -> Unit>()
+        val owners = ArrayDeque<() -> Unit>()
+        var capture: SectionWandCapture = newCapture()
+        var nextOutcome = SectionWandOutcome(WandText.diagnostic("edited"))
+        val world: World = proxy(World::class.java) { name, _ -> when (name) {
+            "getUID" -> worldId
+            else -> error("Unexpected world method $name")
+        } }
+        val player: Player = proxy(Player::class.java) { name, args ->
+            check(ownerThread) { "Player access on worker: $name" }
+            when (name) {
+                "getUniqueId" -> playerId
+                "hasPermission" -> permitted
+                "getWorld" -> world
+                "isOnline" -> online
+                "isSneaking" -> false
+                "getEyeLocation" -> Location(world, 0.0, 0.0, 0.0, yaw, 0f)
+                "locale" -> java.util.Locale.US
+                "sendMessage" -> { messages += args!![0] as Component; null }
+                "sendActionBar" -> null
+                else -> error("Unexpected player method $name")
+            }
+        }
+        private val plugin = proxy(Plugin::class.java) { name, _ -> when (name) {
+            "isEnabled" -> true
+            "getName" -> "SimpleSignals"
+            else -> error("Unexpected plugin method $name")
+        } }
+        private val curve = PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(Vector3d(), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0, Curve.SegmentType.LINE_START),
+            Curve.RawPoint(Vector3d(10.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 10.0, Curve.SegmentType.LINE_END)))
+        private val coreWorld = createTestWorld().also(coreWorlds::add)
+        private val rail = coreWorld.createRailForTest(curve)
+        private val targets = object : RailTargetService {
+            override fun findLookedAtRail(player: Player, maxDistance: Double, hitRadius: Double) = target
+            override fun findCurve(worldId: UUID, railId: UUID): Optional<PrimeCurve> {
+                check(!ownerThread)
+                curveCalls++
+                return Optional.of(curve)
+            }
+        }
+        private val backend = object : SectionWandBackend {
+            override fun naming(capture: SectionWandCapture, point: RailCutPosition): SectionBoundaryNaming? =
+                if (!nameHit) null else object : SectionBoundaryNaming {
+                    override val initial = ""
+                    override val description = WandText.diagnostic("boundary")
+                }
+            override fun rename(selection: SectionBoundaryNaming, name: String, active: () -> Boolean): SectionWandOutcome {
+                check(!ownerThread && active() && current)
+                renames += name
+                return nextOutcome
+            }
+            override fun capture(worldId: UUID) = capture
+            override fun current(capture: SectionWandCapture): Boolean =
+                current && capture === this@Fixture.capture
+            override fun perform(capture: SectionWandCapture, tool: SectionWandTool, leftClick: Boolean,
+                point: RailCutPosition, retainDevices: Boolean, active: () -> Boolean): SectionWandOutcome {
+                check(!ownerThread)
+                assertTrue(active())
+                performs++
+                return nextOutcome
+            }
+            override fun prepareRepair(capture: SectionWandCapture, point: RailCutPosition): SectionWandRepair? {
+                check(!ownerThread)
+                return if (prepareRepair) object : SectionWandRepair {
+                    override val text = WandText.diagnostic("repair summary")
+                } else null
+            }
+            override fun repair(selection: SectionWandRepair, active: () -> Boolean): SectionWandOutcome {
+                check(!ownerThread && active() && current)
+                repairs++
+                return nextOutcome
+            }
+            override fun prepareDeletion(capture: SectionWandCapture, point: RailCutPosition, retainDevices: Boolean): SectionWandDeletion? {
+                check(!ownerThread)
+                return if (prepareDeletion) object : SectionWandDeletion {
+                    override val text = WandText.diagnostic("selected region")
+                    override val retainDevices = retainDevices
+                } else null
+            }
+            override fun delete(selection: SectionWandDeletion, active: () -> Boolean): SectionWandOutcome {
+                check(!ownerThread)
+                check(active() && current)
+                deletions++
+                return nextOutcome
+            }
+        }
+        val handler: SectionWandHandler = SectionWandHandler(plugin, backend, targets, enabled = { true },
+            worker = { workers += it }, entity = { _, action -> owners += action },
+            stateInHand = { check(ownerThread); state }, saveState = { _, value -> check(ownerThread); state = value },
+            giveTool = { _, value -> check(ownerThread); given++; lastGiven = value; state = SectionWandState.create(value) },
+            findTarget = { check(ownerThread); targetCalls++; target },
+            repeatDisplay = { _, action, _ ->
+                check(ownerThread); refresh = action; openRefresh++
+                if (closeOnAttach) handler.close()
+                var closed = false
+                AutoCloseable { if (!closed) { closed = true; closedRefresh++ } }
+            }, render = { _, drawing, offset ->
+                check(ownerThread); assertTrue(drawing.batch(offset).size <= 512); draws++
+            }, showDialog = { _, _, options -> check(ownerThread); dialog = options },
+            showName = { _, _, _, submitted -> check(ownerThread); nameSubmit = submitted })
+        fun completeTarget() { target.complete(Optional.of(RailTarget(rail, 5.0, 0.0))) }
+        fun advanceCapture() { capture = newCapture() }
+        fun drainOwner() { ownerThread = true; while (owners.isNotEmpty()) owners.removeFirst().invoke() }
+        fun drainWorkers() {
+            ownerThread = false
+            try { while (workers.isNotEmpty()) workers.removeFirst().invoke() } finally { ownerThread = true }
+        }
+        fun clickAndDrain(leftClick: Boolean = false) {
+            target = CompletableFuture()
+            handler.click(player, tool!!, leftClick)
+            completeTarget(); drainOwner(); drainWorkers(); drainOwner()
+        }
+
+        private fun newCapture() = object : SectionWandCapture {
+            override val worldId = this@Fixture.worldId
+        }
+    }
+
+    companion object {
+        private val command = object : Command("simplesignals") {
+            override fun execute(sender: org.bukkit.command.CommandSender, commandLabel: String, args: Array<out String>) = true
+        }
+        private fun <T> proxy(type: Class<T>, handler: (String, Array<out Any?>?) -> Any?): T = type.cast(
+            Proxy.newProxyInstance(type.classLoader, arrayOf(type)) { instance, method, args -> when (method.name) {
+                "hashCode" -> System.identityHashCode(instance)
+                "equals" -> instance === args?.get(0)
+                "toString" -> type.simpleName
+                else -> handler(method.name, args)
+            } })
+    }
+}

@@ -15,7 +15,7 @@ import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.lifecycle.GentleUnloadPreparation
 import work.art1st.javarailways.bukkit.lifecycle.PlugManXGentleUnload
 import work.art1st.javarailways.bukkit.logic.WorldManager
-import work.art1st.javarailways.core.util.ThreadGuard
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
 import java.lang.reflect.Proxy
 import java.util.ArrayDeque
 import java.util.concurrent.CompletableFuture
@@ -78,7 +78,7 @@ class GentleUnloadCompositionTest {
             .get(plugin.worldManager) as MutableMap<World, Future<*>>
         val world = proxy(World::class.java) { method, _ -> when (method) { "hashCode" -> 1; else -> error(method) } }
         snapshotWrites[world] = write
-        ThreadGuard.installPlatformBridge(BukkitThreadGuardBridge)
+        val threadGuardRegistration = ThreadGuardHost.registerPlatformBridge(BukkitThreadGuardBridge)
         try {
             call(plugin, "installGentleUnload")
             val preparation = BukkitPlugin::class.java.getDeclaredField("gentleUnload").apply { isAccessible = true }
@@ -105,7 +105,7 @@ class GentleUnloadCompositionTest {
                 .get(plugin.worldManager) as java.util.concurrent.ExecutorService).shutdownNow()
             BukkitPlugin::class.java.getDeclaredField("currentInstance").apply { isAccessible = true }
                 .set(null, previousInstance)
-            ThreadGuard.clearPlatformBridge()
+            threadGuardRegistration.close()
         }
     }
 

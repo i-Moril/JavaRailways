@@ -7,6 +7,7 @@ import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.StandardCopyOption
 import java.util.UUID
 import java.util.logging.Level
+import java.util.logging.Logger
 
 /**
  * 将分离的世界快照保存到插件数据目录下，按 Bukkit 世界 [World.getUID] 区分文件。
@@ -14,7 +15,7 @@ import java.util.logging.Level
 object WorldPersistence {
     sealed interface SplitSnapshotLoadResult {
         data object Missing : SplitSnapshotLoadResult
-        data class Loaded(val snapshots: CapturedWorldSnapshots) : SplitSnapshotLoadResult
+        data class Loaded(val snapshots: CapturedWorldSnapshots, val highestRevision: Long) : SplitSnapshotLoadResult
         data class Corrupted(val files: List<File>, val error: Throwable) : SplitSnapshotLoadResult
     }
 
@@ -30,8 +31,14 @@ object WorldPersistence {
     fun runtimeFile(worldId: UUID): File = File(worldsDir(), "$worldId-runtime.json")
 
     fun loadSplitSnapshots(world: World): SplitSnapshotLoadResult {
-        val infrastructure = infrastructureFile(world)
-        val runtime = runtimeFile(world)
+        return loadSplitSnapshots(infrastructureFile(world), runtimeFile(world), BukkitPlugin.INSTANCE.logger)
+    }
+
+    internal fun loadSplitSnapshots(
+        infrastructure: File,
+        runtime: File,
+        logger: Logger
+    ): SplitSnapshotLoadResult {
         if (!infrastructure.exists() && !runtime.exists()) return SplitSnapshotLoadResult.Missing
         if (!infrastructure.isFile || !runtime.isFile) {
             return SplitSnapshotLoadResult.Corrupted(
@@ -69,23 +76,31 @@ object WorldPersistence {
                 failures
             )
             if (pair.infrastructureFile != infrastructure || pair.runtimeFile != runtime) {
-                BukkitPlugin.INSTANCE.logger.warning(
-                    "Recovered world ${world.uid} snapshots from backup files: " +
+                logger.warning(
+                    "Recovered world ${infrastructure.name} snapshots from backup files: " +
                         "infrastructure=${pair.infrastructureFile.name}, runtime=${pair.runtimeFile.name}"
                 )
             }
             failures.forEach { (file, failure) ->
-                BukkitPlugin.INSTANCE.logger.log(
+                logger.log(
                     Level.WARNING,
-                    "Ignored invalid snapshot candidate ${file.path} while restoring world ${world.uid}",
+                    "Ignored invalid snapshot candidate ${file.path} while restoring world ${infrastructure.name}",
                     failure
                 )
             }
             pair.snapshots.infrastructure.core()
             pair.snapshots.infrastructure.basic()
+            pair.snapshots.infrastructure.simpleAto()
             pair.snapshots.runtime.core()
             pair.snapshots.runtime.basic()
-            SplitSnapshotLoadResult.Loaded(pair.snapshots)
+            pair.snapshots.runtime.simpleAto()
+            SplitSnapshotLoadResult.Loaded(
+                pair.snapshots,
+                maxOf(
+                    infrastructureCandidates.maxOf { it.value.infrastructureRevision },
+                    runtimeCandidates.maxOf { it.value.infrastructureRevision }
+                )
+            )
         } catch (failure: Exception) {
             SplitSnapshotLoadResult.Corrupted(listOf(infrastructure, runtime), failure)
         }
@@ -113,8 +128,8 @@ object WorldPersistence {
     }
 
     private fun noMatchingRevisionFailure(
-        infrastructureCandidates: List<DecodedCandidate<InfrastructureFileV1>>,
-        runtimeCandidates: List<DecodedCandidate<RuntimeFileV1>>,
+        infrastructureCandidates: List<DecodedCandidate<InfrastructureFileV2>>,
+        runtimeCandidates: List<DecodedCandidate<RuntimeFileV2>>,
         failures: List<Pair<File, Exception>>
     ): IllegalStateException {
         val infrastructureRevisions = infrastructureCandidates.map { it.value.infrastructureRevision }
@@ -140,8 +155,12 @@ object WorldPersistence {
     }
 
     fun saveSplitSnapshots(worldId: UUID, snapshots: CapturedWorldSnapshots) {
-        writeAtomic(infrastructureFile(worldId), SplitWorldSnapshotCodec.encode(snapshots.infrastructure))
-        writeAtomic(runtimeFile(worldId), SplitWorldSnapshotCodec.encode(snapshots.runtime))
+        saveSplitSnapshots(infrastructureFile(worldId), runtimeFile(worldId), snapshots)
+    }
+
+    internal fun saveSplitSnapshots(infrastructure: File, runtime: File, snapshots: CapturedWorldSnapshots) {
+        writeAtomic(infrastructure, SplitWorldSnapshotCodec.encode(snapshots.infrastructure))
+        writeAtomic(runtime, SplitWorldSnapshotCodec.encode(snapshots.runtime))
     }
 
     private fun backupFile(target: File): File = File(target.parentFile, "${target.name}.bak")

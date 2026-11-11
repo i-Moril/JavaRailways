@@ -95,3 +95,16 @@ JAR 实查：`BukkitPlugin/build/libs/JavaRailways-1.0-SNAPSHOT-all.jar` 的 plu
 没有启动服务器、修改实服配置、部署、提交或推送。真实 Folia 单 worker 在线玩家的 unload/reload 与 PlugManX 依赖级联仍未执行验收。PlugManX 独立 disable 绕过 GentleUnload，不属于本次兼容路径；直接禁用或停服打断准备会取消排队动作并报告未完整关闭。Cloud 与外部 PacketEvents lifecycle 保持原契约。
 
 最终完整验证命令：`JAVA_HOME=/nix/store/6mwdyvwm1qpzry3z1nkg9777vnmhy9ab-openjdk-25.0.4+1 ./gradlew :BukkitPlugin:test :BukkitPlugin:shadowJar --offline --console=plain --no-parallel --max-workers=2`，BUILD SUCCESSFUL。最终 JAR SHA-256：`7e32be452b3adfb971a34b9eda79add51645071ec689db00bd0f2735e14796b5`。
+
+
+## 2026-11-11：合并到用户指定主工作区分支
+
+用户明确指定目标为 `/workspace/minecraft/JavaRailways` 当前 `feat/simpledisplays-train-integration`（基线 e5809088），而不是旧本地 main 或远端默认分支。本次 GentleUnload 独立提交为 14a3007b。目标尚未包含此前三个生命周期提交，故在任务工作区合并其基线并适配冲突；不从其他集成分支顺带引入 Decorations 等功能。
+
+集成保留目标显式 world runtime，不恢复已删除 Koin/WorldParentContext 及旧DI测试；保留 SimpleATO/SimpleSignals/可选 SimpleDisplays、新 snapshot revision 与 WorldUnload 事件契约。模型/编辑文字服务增加真实 host cleanup stage，共用独立 presentation dispatcher 并进入非阻塞 owner barrier；其 drain 失败阻止后续共享资源释放。新增测试先创建实际 visual，再排队 update 并验证 host cleanup 等待真实删除。
+
+独立审查完成，无未解决发现。最终 `--continue` 检查：Core 574、Basic 494、BukkitPlugin 796、TunnelBridgeBuilder 34，共 1898 项；1896 passed、1 failed、1 skipped。唯一失败为目标已有 `ProgramExpressionsTest.one string parameter composes into destination station depot and display fields` 第130行的旧动作下标断言；该测试及 `scriptworker` 被测源码与 e5809088 字节一致，未修改断言。不能将本次整体检查报告为全绿。默认测试堆曾 OOM，最后使用 `/tmp/jr-integrated-test-heap.gradle` 临时配置 Bukkit 2g、forkEvery20 重跑；不改变生产内存或曲线逻辑。
+
+Bukkit/TBB shadowJar、BukkitPluginDev compileKotlin、verifySignalModuleBoundaries 均通过。最终完整日志 `/tmp/jr-integrated-build-final.log`。主 JAR SHA256 `db4d18754e9160d5f50f1e6601c19a02a6933b3bff68126a5007e7ef7e5bc7cc`，硬依赖 packetevents、可选依赖 PlugManX/SimpleDisplays，无内嵌 PacketEvents/PlugManX API class。没有部署或实服验收。
+
+主工作区18个原有修改文件已备份至 `/tmp/jr-gentle-main-merge-backup-20261111`；7个重叠文件的三方恢复预检查无冲突。合并时只临时保存这7个文件，完整恢复后保留原工作为未提交状态，不纳入合并提交。

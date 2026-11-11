@@ -1,0 +1,22 @@
+{"file": ".trellis/spec/guides/cross-layer.md", "reason": "保持跨模块producer/consumer和副作用边界"}
+{"file": ".trellis/spec/javarailways/shared/modules-and-build.md", "reason": "保持现有领域与平台模块ownership"}
+{"file": ".trellis/tasks/10-18-isolated-simulation-runtime/prd.md", "reason": "父任务R1-R6及跨子任务验收范围"}
+{"file": ".trellis/tasks/10-18-isolated-simulation-runtime/design.md", "reason": "共同World、事件、装配、信号和行为方案"}
+{"file": ".trellis/tasks/10-18-isolated-simulation-runtime/research/current-state.md", "reason": "当前合并基线、WIP及已核实的缺口"}
+{"file": ".trellis/tasks/10-18-simulation-signal-features/prd.md", "reason": "本子任务需求和可验证结果"}
+{"file": ".trellis/tasks/10-18-simulation-signal-features/design.md", "reason": "本子任务技术边界和ownership"}
+{"file": ".trellis/spec/simple-signals/backend/index.md", "reason": "完整插件能力与领域/平台边界"}
+{"file": ".trellis/spec/simple-signals/backend/js-signal-rules.md", "reason": "真实同epoch规则、观察树与静态速度准备"}
+{"file": ".trellis/spec/javarailways/simpleato/reactive-signal-epochs.md", "reason": "source路由、声明失效及限制发布"}
+{"file": ".trellis/spec/javarailways/basic/route-resource-admission.md", "reason": "固定闭塞贡献不能替代物理底线"}
+{"file": ".trellis/tasks/10-15-simplesignals-platform-split/prd.md", "reason": "既有拆分方向与本任务局部抽取界限"}
+{"file": ".trellis/tasks/10-18-isolated-simulation-runtime/research/remaining-cross-world-locks.md", "reason": "2026-10-19补充O1 observation构造与S1各LIVE/SIM JS求值隔离的源码证据、任务归属和真实阻塞验收"}
+{"file": ".trellis/tasks/10-18-simulation-signal-features/research/signal-execution.md", "reason": "S1/S3真实共享执行器、manager锁范围、关闭归属与最小改造"}
+{"file": ".trellis/tasks/10-18-simulation-signal-features/research/signal-simulation.md", "reason": "完整模拟安装链和不暴露impl的最小public端点"}
+{"file": ".trellis/spec/javarailways/simpleato/simulation.md", "reason": "前批已落地准备/目标装配和真终止边界"}
+{"file": ".trellis/spec/simple-signals/backend/simulation-runtime.md", "reason": "本批按World signal执行、neutral rules、完整目标安装与生命周期合同（实施中待最终验收）"}
+{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "公开Feature准备器登记/捕获的短锁与插件owner生命周期"}
+{"file": ".trellis/tasks/archive/2026-10/10-18-simulation-behavior-features/research/upstream-compatibility.md", "reason": "Exact new upstream contracts, preserved candidate lineage and required fresh gates"}
+{"file": ".trellis/tasks/archive/2026-10/10-18-simulation-behavior-features/research/upstream-alignment.md", "reason": "Exact new upstream contracts, preserved candidate lineage and required fresh gates"}
+{"file": ".trellis/tasks/archive/2026-10/10-18-simulation-behavior-features/research/review-fixes-validation.md", "reason": "User review lifecycle fixes and independent current-source evidence"}
+{"file": ".trellis/tasks/archive/2026-10/10-18-simulation-behavior-features/research/review-fixes-check.md", "reason": "User review lifecycle fixes and independent current-source evidence"}

@@ -1,0 +1,173 @@
+plugins {
+    id 'java'
+    id 'org.jetbrains.kotlin.jvm'
+    id('org.jetbrains.kotlin.plugin.serialization') version '2.3.0'
+    id('xyz.jpenilla.resource-factory-bukkit-convention') version '1.3.0'
+}
+
+group = 'work.art1st'
+version = '1.0-SNAPSHOT'
+
+base {
+    archivesName = 'SimpleSignals'
+}
+
+repositories {
+    mavenCentral()
+    maven {
+        name = 'papermc-repo'
+        url = 'https://repo.papermc.io/repository/maven-public/'
+    }
+}
+
+dependencies {
+    compileOnly(project(':Diagnostics'))
+    compileOnly('io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT')
+    compileOnly('org.jetbrains.kotlin:kotlin-stdlib-jdk8')
+    compileOnly('org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0')
+
+    // Signal rule evaluation is owned by this add-on. Keep the same Graal family as the host,
+    // but do not import the host's private script runtime.
+    implementation('org.graalvm.polyglot:polyglot:24.2.2')
+    implementation('org.graalvm.polyglot:js-community:24.2.2')
+
+    // The host owns these APIs at runtime. The add-on JAR must not copy them.
+    compileOnly(project(':Core'))
+    compileOnly(project(':Basic'))
+    compileOnly(project(':SimpleATO'))
+    compileOnly(project(':BukkitPlugin'))
+
+    testImplementation(platform('org.junit:junit-bom:5.10.0'))
+    testImplementation('org.junit.jupiter:junit-jupiter')
+    testImplementation('io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT')
+    testImplementation('org.jetbrains.kotlin:kotlin-stdlib-jdk8')
+    testImplementation('org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0')
+    // Model-package tests bootstrap the real cached Paper item registry, as host model tests do.
+    // Reuse configured dependencies only: no host test classes or production/JAR dependency.
+    testImplementation(files(rootProject.project(':BukkitPlugin').configurations.named('testRuntimeClasspath')))
+    testImplementation(testFixtures(project(':Core')))
+    testImplementation(project(':ConfigLib'))
+    testCompileOnly(project(':Core'))
+    testCompileOnly(project(':Basic'))
+    testCompileOnly(project(':SimpleATO'))
+    testCompileOnly(project(':BukkitPlugin'))
+    testRuntimeOnly(project(':Core')) { transitive = false }
+    testRuntimeOnly(project(':Basic')) { transitive = false }
+    testRuntimeOnly(project(':SimpleATO')) { transitive = false }
+    testRuntimeOnly(project(':BukkitPlugin')) { transitive = false }
+    testRuntimeOnly('org.junit.platform:junit-platform-launcher')
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(25)
+}
+
+kotlin {
+    jvmToolchain(25)
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_25
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release.set(25)
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+}
+
+// Test the shipped demo directly, without a second copy of its YAML or client assets.
+tasks.named('processTestResources') {
+    from('examples/route-indicator') {
+        into('examples/route-indicator')
+    }
+    from('examples/jr-four-light') {
+        into('examples/jr-four-light')
+    }
+}
+
+bukkitPluginYaml {
+    name = 'SimpleSignals'
+    main = 'work.art1st.javarailways.simplesignals.SimpleSignalsPlugin'
+    apiVersion = '1.21.11'
+    foliaSupported = true
+    authors.add('__ART1st__')
+    depend.add('JavaRailways')
+    // Host APIs expose Kotlin and serialization types. Resolve their runtime classes through
+    // JavaRailways; private Paper libraries would create incompatible classloader identities.
+    libraries.add('org.graalvm.polyglot:polyglot:24.2.2')
+    // Paper's plugin library loader requires concrete JAR coordinates; js-community is POM-only.
+    libraries.add('org.graalvm.js:js-language:24.2.2')
+    libraries.add('org.graalvm.truffle:truffle-runtime:24.2.2')
+    commands.register('simplesignals') {
+        description.set('Inspect/apply definitions or obtain construction and mouse-operated route wands')
+        permission.set('simplesignals.admin')
+    }
+    permissions.register('simplesignals.admin') {
+        description.set('Allows administering SimpleSignals definitions')
+        getDefault().set(xyz.jpenilla.resourcefactory.bukkit.Permission.Default.OP)
+    }
+}
+
+def pluginJar = tasks.named('jar', Jar)
+def verifyPluginJar = tasks.register('verifyPluginJar') {
+    dependsOn(pluginJar)
+    inputs.file(pluginJar.flatMap { it.archiveFile })
+
+    doLast {
+        def jarTree = zipTree(pluginJar.get().archiveFile.get().asFile)
+        def relativeEntries = [] as Set
+        jarTree.visit { details ->
+            if (!details.directory) {
+                relativeEntries.add(details.relativePath.pathString)
+            }
+        }
+        if (!relativeEntries.contains('plugin.yml')) {
+            throw new GradleException('SimpleSignals JAR does not contain plugin.yml')
+        }
+        def descriptor = jarTree.matching { include('plugin.yml') }.singleFile.getText('UTF-8')
+        [
+            'name: SimpleSignals',
+            'main: work.art1st.javarailways.simplesignals.SimpleSignalsPlugin',
+            'api-version: 1.21.11',
+            'JavaRailways',
+            'folia-supported: true',
+            'simplesignals:',
+            'simplesignals.admin:',
+            'org.graalvm.polyglot:polyglot:24.2.2',
+            'org.graalvm.js:js-language:24.2.2',
+            'org.graalvm.truffle:truffle-runtime:24.2.2'
+        ].each { requiredText ->
+            if (!descriptor.contains(requiredText)) {
+                throw new GradleException("SimpleSignals plugin.yml is missing: ${requiredText}")
+            }
+        }
+        if (descriptor =~ /org\.jetbrains\.kotlin:|org\.jetbrains\.kotlinx:kotlinx-serialization-/) {
+            throw new GradleException(
+                'SimpleSignals plugin.yml must inherit Kotlin and serialization from JavaRailways, not declare private libraries'
+            )
+        }
+        def forbiddenPrefixes = [
+            'work/art1st/javarailways/diagnostics/',
+            'work/art1st/javarailways/core/',
+            'work/art1st/javarailways/basic/',
+            'work/art1st/javarailways/simpleato/',
+            'work/art1st/javarailways/bukkit/',
+            'kotlin/',
+            'kotlinx/serialization/',
+            'org/graalvm/'
+        ]
+        def shadowedHostClasses = relativeEntries.findAll { entry ->
+            forbiddenPrefixes.any { prefix -> entry.startsWith(prefix) }
+        }
+        if (!shadowedHostClasses.isEmpty()) {
+            throw new GradleException("SimpleSignals JAR contains host or library classes: ${shadowedHostClasses.sort()}")
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn(verifyPluginJar)
+}

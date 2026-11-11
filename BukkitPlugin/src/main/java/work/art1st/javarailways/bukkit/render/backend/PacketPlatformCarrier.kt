@@ -10,6 +10,9 @@ import org.bukkit.Location
 import org.bukkit.entity.Player
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import java.util.UUID
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
 import java.util.concurrent.atomic.AtomicLong
 
 /** Packet platform pair: Chicken is the continuous mover and Shulker is its passenger. */
@@ -18,6 +21,7 @@ class PacketPlatformCarrier(initialLocation: Location) {
     private val shulker = WrapperEntity(EntityTypes.SHULKER)
     private val viewers = linkedSetOf<UUID>()
     private var destroyed = false
+    private val destruction = Destruction()
 
     init {
         chicken.entityMeta.setInvisible(true)
@@ -101,15 +105,19 @@ class PacketPlatformCarrier(initialLocation: Location) {
     }
 
     @Synchronized
-    fun destroy() {
-        if (destroyed) return
+    fun destroy(): CompletionStage<Void> = destruction.run {
         destroyed = true
-        repeat(viewers.size) { PacketPlatformDiagnostics.onViewerRemoved() }
-        viewers.clear()
-        chicken.remove()
-        shulker.remove()
-        PacketPlatformDiagnostics.onCarrierDestroyed()
+        val steps = DestructionSteps()
+        steps.action {
+            repeat(viewers.size) { PacketPlatformDiagnostics.onViewerRemoved() }
+            viewers.clear()
+        }
+        steps.action { chicken.remove() }
+        steps.action { shulker.remove() }
+        steps.action { PacketPlatformDiagnostics.onCarrierDestroyed() }
+        steps.finish()
     }
+
 }
 
 data class PacketPlatformMetrics(

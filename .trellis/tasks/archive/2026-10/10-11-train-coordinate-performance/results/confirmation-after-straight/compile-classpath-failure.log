@@ -1,0 +1,167 @@
+
+> Configure project :WebUI
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.12' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.11' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+
+> Task :ConfigLib:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :ConfigLib:compileKotlin UP-TO-DATE
+> Task :ConfigLib:compileJava NO-SOURCE
+> Task :ConfigLib:processResources NO-SOURCE
+> Task :ConfigLib:classes UP-TO-DATE
+> Task :ConfigLib:jar UP-TO-DATE
+> Task :Core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :Core:processResources NO-SOURCE
+> Task :Core:processTestFixturesResources NO-SOURCE
+> Task :Core:processTestResources UP-TO-DATE
+> Task :Core:compileKotlin
+> Task :Core:compileJava NO-SOURCE
+> Task :Core:classes UP-TO-DATE
+> Task :Core:jar
+> Task :Core:compileTestFixturesKotlin
+> Task :Core:compileTestFixturesJava NO-SOURCE
+> Task :Core:testFixturesClasses UP-TO-DATE
+> Task :Core:testFixturesJar UP-TO-DATE
+> Task :Core:compileTestKotlin
+> Task :Core:compileTestJava NO-SOURCE
+> Task :Core:testClasses UP-TO-DATE
+> Task :Core:physicsStressTest FAILED
+w: Detected multiple Kotlin daemon sessions at 
+
+[Incubating] Problems report is available at: file:///tmp/train-coordinate-build/root/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':Core:physicsStressTest'.
+> Test process encountered an unexpected problem.
+   > Could not execute test class 'work.art1st.javarailways.core.api.event.CollisionEventTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.api.event.RailEventBusTest$Companion'.
+   > Could not execute test class 'work.art1st.javarailways.core.api.event.RailEventBusTest$CountingListener'.
+   > Could not execute test class 'work.art1st.javarailways.core.api.event.RailEventBusTest$MockEventListener'.
+   > Could not execute test class 'work.art1st.javarailways.core.api.event.RailEventBusTest$MockMainA'.
+   > Could not execute test class 'work.art1st.javarailways.core.api.event.RailEventBusTest$MockMainB'.
+   > Could not execute test class 'work.art1st.javarailways.core.api.event.RailEventBusTest$MockMainC'.
+   > Could not execute test class 'work.art1st.javarailways.core.api.event.RailEventBusTest$MockMainClass'.
+   > Could not execute test class 'work.art1st.javarailways.core.api.event.RailEventBusTest$MockMainInterfaceA'.
+   > Could not execute test class 'work.art1st.javarailways.core.api.event.RailEventBusTest$MockMainInterfaceB'.
+   > Could not execute test class 'work.art1st.javarailways.core.api.event.RailEventBusTest$MockPhysicsEvent'.
+   > Could not execute test class 'work.art1st.javarailways.core.api.event.RailEventBusTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.api.physics.ImmutableSnapshotTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.api.physics.TopologyStateApiTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.api.threading.ThreadGuardTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.api.util.plugin.ExtensionDataContainerTest$TestPlugin'.
+   > Could not execute test class 'work.art1st.javarailways.core.api.util.plugin.ExtensionDataContainerTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.control.train.MockTrainController$ConstantSpeedCommand'.
+   > Could not execute test class 'work.art1st.javarailways.core.control.train.MockTrainController'.
+   > Could not execute test class 'work.art1st.javarailways.core.di.KoinWorldParentContextTest$DummyTickManager'.
+   > Could not execute test class 'work.art1st.javarailways.core.di.KoinWorldParentContextTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.persistence.SplitWorldSnapshotTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.persistence.WorldPersistenceRoundTripTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.CoreWorldActiveContinuationsPublicationTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.CoreWorldAtGradeRailCrossingTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.CoreWorldRailTopologyTransactionTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.CoreWorldRuntimeBindingTest$DummyTickManager'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.CoreWorldRuntimeBindingTest$RecordingWorldParentContext'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.CoreWorldRuntimeBindingTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.CoreWorldThreadGuardTest$DummyTickManager'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.CoreWorldThreadGuardTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.CoreWorldTopologyStatePublicationTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.PreparedRailCreationBatchTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.PhysOvalConnectionTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.PreparedRailConnectionPlanTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.PreparedRailWorldSnapshotPlanTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.RailConnectTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.RailDirectionRestrictionTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.RailIntervalReleaseDetectorTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.RailLocationPeekCurveTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.RailLocationPersistTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.RailTopologyEditorTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.SavedRailConnectionsTest$Companion'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.SavedRailConnectionsTest$InvalidConnection'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.SavedRailConnectionsTest$WhenMappings'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.SavedRailConnectionsTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.SweptOccupancyIndexTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.curve.PrimeCurveInputValidationTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.curve.PrimeCurveNearestPointTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.curve.PrimeCurveSurgeryTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.curve.PrimeCurveTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.rail.topology.TopologyStateBuilderTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.LatestTrainFrameMailboxTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$Companion'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$DummyTickManager'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$StressConfig$Companion'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$StressConfig'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$StressConfigSnapshot$$serializer'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$StressConfigSnapshot$Companion'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$StressConfigSnapshot'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$StressController'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$StressEnvironment$$serializer'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$StressEnvironment$Companion'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$StressEnvironment'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$StressReport$$serializer'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$StressReport$Companion'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$StressReport'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$StressRunResult$$serializer'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$StressRunResult$Companion'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$StressRunResult'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$StressScenario$Companion'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$StressScenario'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$TrackShape$Companion'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$TrackShape'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest$WhenMappings'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCapacityStressTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest$BlockingController'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest$CollisionCounter'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest$ConstantSpeedController'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest$DummyTickManager'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest$MutableSpeedController'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreCarPositioningRegressionTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreRenderCommitDecouplingTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainAsymmetricTurnoutTest$Fixture'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainAsymmetricTurnoutTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainConstructionTest$CountingController'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainConstructionTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainDerailEventTest$DerailCounter'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainDerailEventTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainLinkTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainMultiCarDiagnosticTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainPersistedPlacementTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainPersistenceStateTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainPublicationBoundaryTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainReversedPersistenceTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainRigidGeometryTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainSplitTest$ConstantSpeedController'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainSplitTest$NoOpController'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainSplitTest$RecordingSplitExtension'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainSplitTest$State$Companion'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainSplitTest$State'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainSplitTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.CoreTrainTailBogieTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.TrainNameTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.TrainSlopeJointMotionTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.TrainSlopeMotionTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.TrainUniformMotionTest$CommandController'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.TrainUniformMotionTest$MutableSpeedCommand'.
+   > Could not execute test class 'work.art1st.javarailways.core.physics.train.TrainUniformMotionTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.util.LatestTickCommitMailboxTest$NoOpSynchronizable'.
+   > Could not execute test class 'work.art1st.javarailways.core.util.LatestTickCommitMailboxTest'.
+   > Could not execute test class 'work.art1st.javarailways.core.util.TickManagerImplTest$ProfiledSynchronizableTickingObject'.
+   > Could not execute test class 'work.art1st.javarailways.core.util.TickManagerImplTest$RecordingSynchronizableTickingObject'.
+   > Could not execute test class 'work.art1st.javarailways.core.util.TickManagerImplTest'.
+
+* Try:
+> Check common problems https://docs.gradle.org/9.0.0/userguide/java_testing.html#sec:java_testing_troubleshooting.
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to generate a Build Scan (Powered by Develocity).
+> Get more help at https://help.gradle.org.
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.0.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD FAILED in 9s
+9 actionable tasks: 5 executed, 4 up-to-date

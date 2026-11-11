@@ -1,0 +1,18 @@
+{"file":".trellis/spec/javarailways/core/render-publication.md","reason":"Frame fields and immutable publication contract"}
+{"file":".trellis/spec/javarailways/core/runtime-publication.md","reason":"Close/stall gates and hook locking; current flip-before-frame hook order is explicitly superseded by this task"}
+{"file":".trellis/spec/javarailways/basic/ato-missions-and-perception.md","reason":"Perception input and frame sampling boundaries"}
+{"file":".trellis/spec/javarailways/basic/speed-and-derail-safety.md","reason":"Native whole-body limits versus derail monitor"}
+{"file":".trellis/spec/javarailways/simpleato/controller-runtime.md","reason":"Controller state and production control execution"}
+{"file":".trellis/spec/javarailways/simpleato/entry-clearance.md","reason":"Body length and clearance; unknown-length whole-route fallback is a confirmed defect to remove"}
+{"file":".trellis/spec/javarailways/shared/versioning.md","reason":"No speculative schema bump or compatibility layer"}
+{"file":".trellis/tasks/11-06-simpleato-snapshot-engineering-audit/research/train-snapshot-role.md","reason":"All producers consumers and counters"}
+{"file":".trellis/tasks/11-06-simpleato-snapshot-engineering-audit/research/known-14219-issues.md","reason":"Known fault chain and actual local replay facts"}
+{"file":".trellis/tasks/11-06-simpleato-snapshot-engineering-audit/research/control-audit.md","reason":"C01 only in scope; other findings deferred"}
+{"file":".trellis/tasks/11-06-simpleato-snapshot-engineering-audit/research/validation.md","reason":"Baseline tests and isolated target omission counterexample"}
+{"file":".trellis/tasks/11-06-simpleato-snapshot-engineering-audit/research/authority-handoff-repair.md","reason":"Approved F6-F8 handoff and exact boundary repair with replay evidence"}
+{"file":".trellis/spec/javarailways/simpleato/terminal-route-completion.md","reason":"Retained physical authority is distinct from operating stops and Mission lifecycle"}
+{"file":".trellis/spec/simple-signals/backend/protection-region-authority-transition.md","reason":"Signal floor ownership and shared route-local boundaries"}
+{"file":".trellis/spec/javarailways/simpleato/timetable-model-and-validation.md","reason":"F9 validator ownership, contextual errors and invalid definition gate"}
+{"file":".trellis/spec/javarailways/simpleato/dispatcher-runtime.md","reason":"Actual terminal station program and door-state execution semantics must remain unchanged"}
+{"file":".trellis/spec/javarailways/simpleato/stations.md","reason":"DoorSide.NONE means no door operation and runtime door safety gate remains authoritative"}
+{"file":".trellis/tasks/11-06-simpleato-snapshot-engineering-audit/research/door-state-static-validation.md","reason":"Approved F9 real Tick18402 chain, minimal static proof and regressions"}

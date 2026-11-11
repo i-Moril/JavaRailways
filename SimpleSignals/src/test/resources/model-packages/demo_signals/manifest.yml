@@ -1,0 +1,6 @@
+config-version: 1
+name: demo_signals
+display-name: 示例信号模型
+models:
+  - home
+  - wall

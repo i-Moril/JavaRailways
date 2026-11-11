@@ -1,4 +1,4 @@
-/** Global API injected into each train model behavior.js context. */
+/** Global API in each car's independent, lazy behavior.js context. State survives consist transfers. */
 
 type JavaRailwaysOperatingEnd = "head" | "tail";
 type JavaRailwaysBehaviorArgument = string | number | boolean | null;
@@ -13,16 +13,19 @@ interface JavaRailwaysBehaviorActionOptions {
   "requires-control"?: boolean;
 }
 
-/** Execute a declarative action from actions.yml. */
+/** Execute this car's source-package action; delayed effects keep this exact car and physical side. */
 declare function action(name: string): boolean;
 
-/** Play a sound at the train. Volume and pitch default to 1.0. */
+/** Query this car's configured model without playing effects; available during initialization. */
+declare function hasAnimation(name: string, scene?: string | null): boolean;
+
+/** Play a sound at this car. Volume and pitch default to 1.0. */
 declare function sound(key: string, volume?: number, pitch?: number): boolean;
 
 /** Write a message to the JavaRailways plugin log. */
 declare function log(message: unknown): void;
 
-/** Return the currently active control end. */
+/** Control end relative to this car's installation, captured for this call. Flip semantic sides once. */
 declare function operatingEnd(): JavaRailwaysOperatingEnd;
 
 /** Register an action exposed by behavior.js. */
@@ -33,3 +36,7 @@ declare function defineAction(
   options: JavaRailwaysBehaviorActionOptions,
   handler: JavaRailwaysBehaviorHandler,
 ): void;
+
+/** Pure declarative door planner. No action/sound/log effects; returns current YAML action names.
+ * Evaluated in an isolated context for both execution and duration queries. */
+declare function door(side: "left" | "right" | "both", scene: "open" | "closed"): string[];

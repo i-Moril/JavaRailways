@@ -1,8 +1,9 @@
 package work.art1st.javarailways.basic.rail
 
 import kotlinx.serialization.Serializable
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.core.api.physics.rail.Rail
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -10,97 +11,15 @@ import java.util.concurrent.ConcurrentHashMap
 @Serializable
 data class RailInfrastructureMetadata(
     val authoring: RailAuthoringMetadata? = null,
-    val operating: RailOperatingMetadata = RailOperatingMetadata(),
     val speedLimits: SpeedLimitMetadata = SpeedLimitMetadata(),
     val curveSafety: CurveSafetyMetadata = CurveSafetyMetadata()
 ) {
-    constructor(
-        designSpeedMetersPerSecond: Double? = null,
-        speedLimitMetersPerSecond: Double? = designSpeedMetersPerSecond,
-        derailSpeedMetersPerSecond: Double? = null,
-        allowedDirection: work.art1st.javarailways.core.api.physics.rail.ViewDirection? = null,
-        geometry: RailGeometryMetadata = RailGeometryMetadata(),
-        assembly: RailAssemblyMetadata? = null,
-        createdBySplit: RailSplitMetadata? = null,
-        turnoutAtA: TurnoutEndpointMetadata? = null,
-        turnoutAtB: TurnoutEndpointMetadata? = null,
-        gradeLockedAtA: Boolean = false,
-        gradeLockedAtB: Boolean = false,
-        curveSpeedLimitAutomatic: Boolean = true
-    ) : this(
-        authoring = RailAuthoringMetadata(
-            designSpeedMetersPerSecond,
-            geometry,
-            assembly,
-            createdBySplit,
-            gradeLockedAtA,
-            gradeLockedAtB,
-            curveSpeedLimitAutomatic
-        ),
-        operating = RailOperatingMetadata(allowedDirection, turnoutAtA, turnoutAtB),
-        speedLimits = legacySpeedLimits(designSpeedMetersPerSecond, speedLimitMetersPerSecond),
-        curveSafety = CurveSafetyMetadata(derailSpeedMetersPerSecond)
-    )
-
-    val designSpeedMetersPerSecond: Double? get() = authoring?.designSpeedMetersPerSecond
-    val speedLimitMetersPerSecond: Double? get() = speedLimits.effectiveLimitMetersPerSecond()
-    val derailSpeedMetersPerSecond: Double? get() = curveSafety.baseCurveDerailSpeedMetersPerSecond
-    val allowedDirection get() = operating.allowedDirection
-    val geometry: RailGeometryMetadata get() = authoring?.geometry ?: RailGeometryMetadata()
-    val assembly: RailAssemblyMetadata? get() = authoring?.assembly
-    val createdBySplit: RailSplitMetadata? get() = authoring?.createdBySplit
-    val turnoutAtA: TurnoutEndpointMetadata? get() = operating.turnoutAtA
-    val turnoutAtB: TurnoutEndpointMetadata? get() = operating.turnoutAtB
-    val gradeLockedAtA: Boolean get() = authoring?.gradeLockedAtA == true
-    val gradeLockedAtB: Boolean get() = authoring?.gradeLockedAtB == true
-
-    @Suppress("LongParameterList")
-    fun copy(
-        designSpeedMetersPerSecond: Double? = this.designSpeedMetersPerSecond,
-        speedLimitMetersPerSecond: Double? = this.speedLimitMetersPerSecond,
-        derailSpeedMetersPerSecond: Double? = this.derailSpeedMetersPerSecond,
-        allowedDirection: work.art1st.javarailways.core.api.physics.rail.ViewDirection? = this.allowedDirection,
-        geometry: RailGeometryMetadata = this.geometry,
-        assembly: RailAssemblyMetadata? = this.assembly,
-        createdBySplit: RailSplitMetadata? = this.createdBySplit,
-        turnoutAtA: TurnoutEndpointMetadata? = this.turnoutAtA,
-        turnoutAtB: TurnoutEndpointMetadata? = this.turnoutAtB,
-        gradeLockedAtA: Boolean = this.gradeLockedAtA,
-        gradeLockedAtB: Boolean = this.gradeLockedAtB,
-        curveSpeedLimitAutomatic: Boolean = authoring?.curveSpeedLimitAutomatic ?: true
-    ): RailInfrastructureMetadata = RailInfrastructureMetadata(
-        designSpeedMetersPerSecond,
-        speedLimitMetersPerSecond,
-        derailSpeedMetersPerSecond,
-        allowedDirection,
-        geometry,
-        assembly,
-        createdBySplit,
-        turnoutAtA,
-        turnoutAtB,
-        gradeLockedAtA,
-        gradeLockedAtB,
-        curveSpeedLimitAutomatic
-    )
-
     fun isEmpty(): Boolean = this == EMPTY
 
     companion object {
         val EMPTY = RailInfrastructureMetadata()
-
-        private fun legacySpeedLimits(designSpeed: Double?, effectiveSpeed: Double?): SpeedLimitMetadata {
-            val entries = buildList {
-                designSpeed?.let { add(SpeedLimitEntry(it, SpeedLimitType.SUBGRADE)) }
-                effectiveSpeed?.takeIf { designSpeed == null || it < designSpeed }?.let {
-                    add(SpeedLimitEntry(it, SpeedLimitType.CURVE))
-                }
-            }
-            return SpeedLimitMetadata(entries)
-        }
     }
 }
-
-typealias RailMetadata = RailInfrastructureMetadata
 
 var Rail.infrastructureMetadata: RailInfrastructureMetadata
     get() = world.basicWorldData.railMetadata.getOrDefault(id)
@@ -143,6 +62,14 @@ class RailInfrastructureMetadataStore {
 
     fun snapshot(): Map<UUID, RailInfrastructureMetadata> = synchronized(transactionLock) {
         values.toSortedMap(compareBy(UUID::toString))
+    }
+
+    /** Detached static limits for exactly these rails; null means neither CURVE nor SUBGRADE exists. */
+    fun speedLimits(topology: TopologyState, railIds: Collection<UUID>): Map<UUID, Double?> = synchronized(transactionLock) {
+        require(railIds.all(topology.railProjection::containsKey)) { "speed limit subset references a missing rail" }
+        java.util.Collections.unmodifiableMap(railIds.associateWith { railId ->
+            values[railId]?.speedLimits?.effectiveLimitMetersPerSecond()
+        })
     }
 
     fun restore(restored: Map<UUID, RailInfrastructureMetadata>) = synchronized(transactionLock) {

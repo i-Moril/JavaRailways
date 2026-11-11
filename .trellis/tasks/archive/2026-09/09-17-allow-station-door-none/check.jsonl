@@ -1,2 +1,2 @@
-{"file": ".trellis/spec/basic/backend/persistence-and-tests.md", "reason": "Basic test and isolation quality gate."}
+{"file": ".trellis/spec/javarailways/basic/testing.md", "reason": "Basic test and isolation quality gate."}
 {"file": ".trellis/spec/javarailways/shared/quality.md", "reason": "Repository-wide build, artifact, and dirty-worktree checks."}

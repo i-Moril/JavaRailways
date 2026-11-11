@@ -18,6 +18,7 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.meta.ItemMeta
 import org.bukkit.persistence.PersistentDataType
 import work.art1st.javarailways.bukkit.BukkitPlugin
+import work.art1st.javarailways.bukkit.api.wand.WandModeSwitch
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.core.physics.CoreWorld
 import java.util.UUID
@@ -39,7 +40,7 @@ internal fun shouldGloballyClearSelection(
     modeHandlesSneakLeftClickAir: Boolean
 ): Boolean = sneaking && action == Action.LEFT_CLICK_AIR && !modeHandlesSneakLeftClickAir
 
-/** Temporarily disabled; Shift+F remains the only Wand mode-switch shortcut. */
+/** Temporarily disabled; F remains the Wand mode-switch shortcut. */
 private const val WAND_HELD_SLOT_MODE_SWITCH_ENABLED = false
 
 internal fun shouldSwitchWandModeOnHeldSlotChange(
@@ -56,7 +57,7 @@ abstract class AbstractWand<S, M>(
     private val modes: List<M>
 ) : Listener where S : WandState<M>, M : Enum<M>, M : WandModeSpec {
     /** PDC is persisted by modern Paper inside the item's minecraft:custom_data component. */
-    private data class BoundState<S>(val itemId: UUID, val state: S, val persistable: Boolean = true)
+    private data class BoundState<S>(val itemId: UUID, val state: S, val writable: Boolean)
 
     protected open val modeHandlesSneakLeftClickAir: Boolean = false
 
@@ -160,7 +161,7 @@ abstract class AbstractWand<S, M>(
             )
         }
         val state = decoded ?: createDefaultState()
-        playerStates[player.uniqueId] = BoundState(itemId, state, persistable = !corrupted)
+        playerStates[player.uniqueId] = BoundState(itemId, state, writable = !corrupted)
         if (!corrupted) persistState(player, state)
         return state
     }
@@ -172,7 +173,10 @@ abstract class AbstractWand<S, M>(
             return
         }
         val item = findActiveWand(player) ?: return
-        val replacement = BoundState(ensureItemId(item), state)
+        val itemId = ensureItemId(item)
+        if (bound?.itemId != itemId) getState(player)
+        val target = playerStates[player.uniqueId]?.takeIf { it.itemId == itemId } ?: return
+        val replacement = BoundState(itemId, state, writable = target.writable)
         playerStates[player.uniqueId] = replacement
         persistBoundState(player, replacement)
     }
@@ -195,18 +199,17 @@ abstract class AbstractWand<S, M>(
         player.inventory.addItem(item)
     }
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true)
     fun onSwapHands(event: PlayerSwapHandItemsEvent) {
-        val player = event.player
-        if (!isWandItem(player.inventory.itemInMainHand) && !isWandItem(player.inventory.itemInOffHand)) return
-        event.isCancelled = true
-        switchToNextMode(player, getState(player))
+        WandModeSwitch.handle(event, ::isWandItem) { player ->
+            switchToNextMode(player, getState(player))
+        }
     }
 
     @EventHandler
     fun onInteract(event: PlayerInteractEvent) {
         if (!isRunning) return
-        BukkitThreadGuardBridge.runInSimulationContext {
+        BukkitThreadGuardBridge.runInPlayerWorldContext(event.player) {
             if (isRunning) handleInteract(event)
         }
     }
@@ -300,7 +303,7 @@ abstract class AbstractWand<S, M>(
     }
 
     private fun persistBoundState(player: Player, bound: BoundState<S>) {
-        if (!bound.persistable) return
+        if (!bound.writable) return
         val item = player.inventory.contents.firstOrNull { candidate ->
             if (!isWandItem(candidate)) return@firstOrNull false
             candidate?.itemMeta?.persistentDataContainer

@@ -38,8 +38,8 @@
       "additionalProperties": false,
       "required": ["speed", "force"],
       "properties": {
-        "speed": {"type": "number"},
-        "force": {"type": "number"}
+        "speed": {"type": "number", "minimum": 0},
+        "force": {"type": "number", "minimum": 0}
       }
     },
     "resistance": {
@@ -47,9 +47,9 @@
       "additionalProperties": false,
       "required": ["a", "b", "c"],
       "properties": {
-        "a": {"type": "number"},
-        "b": {"type": "number"},
-        "c": {"type": "number"}
+        "a": {"type": "number", "minimum": 0},
+        "b": {"type": "number", "minimum": 0},
+        "c": {"type": "number", "minimum": 0}
       }
     },
     "motor": {
@@ -58,9 +58,9 @@
       "required": ["enabled", "max-force", "max-power", "adhesion-mass-ratio"],
       "properties": {
         "enabled": {"type": "boolean"},
-        "max-force": {"type": "number"},
-        "max-power": {"type": "number"},
-        "adhesion-mass-ratio": {"type": "number"},
+        "max-force": {"type": "number", "minimum": 0},
+        "max-power": {"type": "number", "minimum": 0},
+        "adhesion-mass-ratio": {"type": "number", "minimum": 0},
         "force-curve": {
           "type": "array",
           "items": {"$ref": "#/$defs/speedForcePoint"}
@@ -72,9 +72,9 @@
       "additionalProperties": false,
       "required": ["max-force", "regenerative-force", "adhesion-mass-ratio"],
       "properties": {
-        "max-force": {"type": "number"},
-        "regenerative-force": {"type": "number"},
-        "adhesion-mass-ratio": {"type": "number"}
+        "max-force": {"type": "number", "minimum": 0},
+        "regenerative-force": {"type": "number", "minimum": 0},
+        "adhesion-mass-ratio": {"type": "number", "minimum": 0}
       }
     },
     "carControl": {
@@ -82,8 +82,8 @@
       "additionalProperties": false,
       "required": ["mass", "rotating-mass-factor", "motor", "brake"],
       "properties": {
-        "mass": {"type": "number"},
-        "rotating-mass-factor": {"type": "number"},
+        "mass": {"type": "number", "exclusiveMinimum": 0},
+        "rotating-mass-factor": {"type": "number", "exclusiveMinimum": 0},
         "motor": {"$ref": "#/$defs/motor"},
         "brake": {"$ref": "#/$defs/brake"},
         "resistance": {"$ref": "#/$defs/resistance"}

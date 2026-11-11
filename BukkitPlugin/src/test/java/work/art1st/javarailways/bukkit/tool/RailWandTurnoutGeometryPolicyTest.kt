@@ -1,5 +1,9 @@
 package work.art1st.javarailways.bukkit.tool
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -7,11 +11,11 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.rail.RailAutoConnector
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.rail.configureTurnoutForTest
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import java.util.Locale
@@ -90,16 +94,17 @@ class RailWandTurnoutGeometryPolicyTest {
     @Test
     fun `mapped turnout snapshot restores selected branch after one leg replacement`() {
         val (world, stem, straight, branch) = turnout()
-        stem.viewAB.activeRail = branch.viewAB
+        IsolatedSimulationThreadMarker.run { stem.viewAB.activeRail = branch.viewAB }
         val snapshots = captureTurnoutViewSnapshots(listOf(stem))
 
-        world.removeRail(stem)
+        IsolatedSimulationThreadMarker.run { world.removeRail(stem) }
         val replacement = rail(world, Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
-        RailAutoConnector.connectIfAllowed(replacement, straight)
-        RailAutoConnector.connectIfAllowed(replacement, branch)
+        configureTurnoutForTest(replacement, listOf(straight, branch))
         assertSame(straight.viewAB, replacement.viewAB.activeRail)
 
-        restoreMappedTurnoutViewSnapshots(world, snapshots, mapOf(stem.id to replacement.id))
+        IsolatedSimulationThreadMarker.run {
+            restoreMappedTurnoutViewSnapshots(world, snapshots, mapOf(stem.id to replacement.id))
+        }
 
         assertEquals(listOf(straight.viewAB, branch.viewAB), replacement.viewAB.nextRails)
         assertSame(branch.viewAB, replacement.viewAB.activeRail)
@@ -109,15 +114,75 @@ class RailWandTurnoutGeometryPolicyTest {
 
     @Test
     fun `mapped turnout snapshot rejects a topology that lost a branch`() {
-        val (world, stem, straight, _) = turnout()
+        val (world, stem, straight, branch) = turnout()
         val snapshots = captureTurnoutViewSnapshots(listOf(stem))
 
-        world.removeRail(stem)
+        IsolatedSimulationThreadMarker.run {
+            world.removeRail(stem)
+            // Removing only the stem retains the two authored branch members. Rejoining either
+            // one now correctly completes the turnout again, so actually remove the lost branch.
+            world.removeRail(branch)
+        }
         val replacement = rail(world, Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
-        RailAutoConnector.connectIfAllowed(replacement, straight)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(replacement, straight) }
 
         assertThrows(IllegalArgumentException::class.java) {
+            IsolatedSimulationThreadMarker.run {
             restoreMappedTurnoutViewSnapshots(world, snapshots, mapOf(stem.id to replacement.id))
+        }
+        }
+    }
+
+    @Test
+    fun `mapped incomplete junction snapshot rejects lost membership despite unchanged empty routes`() {
+        val world = createTestWorld()
+        try {
+            val straight = rail(world, Vector3d(), Vector3d(10.0, 0.0, 0.0))
+            val branch = rail(world, Vector3d(), Vector3d(10.0, 0.0, 3.0))
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(straight, branch) }
+            val snapshots = captureTurnoutViewSnapshots(listOf(straight))
+            IsolatedSimulationThreadMarker.run { world.removeRail(straight) }
+            val unjoinedReplacement = rail(world, Vector3d(), Vector3d(10.0, 0.0, 0.0))
+
+            assertThrows(IllegalArgumentException::class.java) {
+                IsolatedSimulationThreadMarker.run {
+                    restoreMappedTurnoutViewSnapshots(world, snapshots, mapOf(straight.id to unjoinedReplacement.id))
+                }
+            }
+            assertTrue(unjoinedReplacement.viewBA.joinedEndpoints.isEmpty())
+            assertTrue(branch.viewBA.joinedEndpoints.isEmpty())
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
+    fun `incomplete junction keeps its boundary frame and peers through mapped restore`() {
+        val world = createTestWorld()
+        try {
+            val straight = rail(world, Vector3d(), Vector3d(10.0, 0.0, 0.0))
+            val branch = rail(world, Vector3d(), Vector3d(10.0, 0.0, 3.0))
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(straight, branch) }
+            val snapshots = captureTurnoutViewSnapshots(listOf(straight))
+            assertEquals(2, snapshots.size)
+            assertTrue(snapshots.all { it.next.isEmpty() && it.active == null && it.joinedEndpoints.size == 1 })
+            val moved = curve(Vector3d(0.01, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
+            val error = turnoutBoundaryFrameError(listOf(listOf(straight)), listOf(listOf(moved)))
+            assertTrue(error?.let { RailWandI18n.resolve(Locale.US, it).contains("position") } == true)
+
+            IsolatedSimulationThreadMarker.run { world.removeRail(straight) }
+            val replacement = rail(world, Vector3d(), Vector3d(10.0, 0.0, 0.0))
+            IsolatedSimulationThreadMarker.run {
+                CoreRail.connect(replacement, branch)
+                restoreMappedTurnoutViewSnapshots(world, snapshots, mapOf(straight.id to replacement.id))
+            }
+            assertTrue(replacement.viewBA.nextRails.isEmpty())
+            assertEquals(setOf(replacement, branch),
+                work.art1st.javarailways.basic.rail.TurnoutTopology.turnoutRailsTouching(listOf(replacement)))
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as AutoCloseable).close()
         }
     }
 
@@ -125,19 +190,18 @@ class RailWandTurnoutGeometryPolicyTest {
         val world = createTestWorld()
         val stem = rail(world, Vector3d(-30.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
         val straight = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(30.0, 0.0, 0.0))
-        RailAutoConnector.connectIfAllowed(stem, straight)
         val radians = Math.toRadians(20.0)
         val branch = rail(
             world,
             Vector3d(0.0, 0.0, 0.0),
             Vector3d(cos(radians) * 30.0, 0.0, sin(radians) * 30.0)
         )
-        RailAutoConnector.connectIfAllowed(stem, branch)
+        configureTurnoutForTest(stem, listOf(straight, branch))
         return TurnoutFixture(world, stem, straight, branch)
     }
 
     private fun rail(world: CoreWorld, from: Vector3d, to: Vector3d): CoreRail =
-        CoreRail(world, curve(from, to), mutableListOf(), mutableListOf())
+        world.createRailForTest(curve(from, to))
 
     private fun curve(
         from: Vector3d,

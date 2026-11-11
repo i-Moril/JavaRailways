@@ -1,0 +1,330 @@
+# Core 逐文件审查清单
+
+基线：`8f1d845d`，2026-10-10。全部条目已静态阅读并核对所属契约/测试；不是全部通过或全部修复。C1已读且源码未变化的runtime路径纳入本轮闭合，新增分区补足此前未覆盖的全部文件。结论见[整模块报告](./core-module-review.md)。
+
+清单由当前`rg --files Core/src/main/java Core/src/test Core/src/testFixtures`逐项闭合；136个生产文件、49个测试源文件、5个fixture，另有build/Dokka/spec/相关文档。计数只用于发现遗漏，不代表审查百分比。
+
+## 生产源码
+
+以下均相对`Core/src/main/java/work/art1st/javarailways/core/`。
+
+### 曲线、轨道、拓扑（43）
+
+```text
+api/physics/curve/Curve.kt
+api/physics/curve/CurveException.kt
+api/physics/curve/PrimeCurve.kt
+api/physics/rail/Rail.kt
+api/physics/rail/RailIntervalOccupancy.kt
+api/physics/rail/RailLocation.kt
+api/physics/rail/RailObject.kt
+api/physics/rail/RailObjectLifecycleState.kt
+api/physics/rail/RailObjectRef.kt
+api/physics/rail/RailObjectSnapshot.kt
+api/physics/rail/RailPositionSnapshot.kt
+api/physics/rail/RailView.kt
+api/physics/rail/RailwayOccupancySnapshot.kt
+api/physics/rail/Reversible.kt
+api/physics/rail/ViewDirection.kt
+api/physics/rail/topology/ActiveRailContinuationsSnapshot.kt
+api/physics/rail/topology/RailTopologyChange.kt
+api/physics/rail/topology/TopologyState.kt
+physics/rail/AtGradeRailCrossingIndex.kt
+physics/rail/CoreRail.kt
+physics/rail/PreparedRailConnectionPlan.kt
+physics/rail/PreparedRailCreationBatch.kt
+physics/rail/PreparedRailTopologyUpdate.kt
+physics/rail/PreparedRailWorldSnapshotPlan.kt
+physics/rail/RailGeometryBreakpoints.kt
+physics/rail/RailLocationWithFacing.kt
+physics/rail/RailLocationWithoutFacing.kt
+physics/rail/RailSegment.kt
+physics/rail/RailSpatialIndex.kt
+physics/rail/RailTopologyEditor.kt
+physics/rail/RailView.kt
+physics/rail/SweptOccupancyIndex.kt
+physics/rail/curve/CurveExt.kt
+physics/rail/curve/PrimeCurveGenerator.kt
+physics/rail/curve/PrimeCurveImpl.kt
+physics/rail/curve/ReversedCurve.kt
+physics/rail/persistence/PersistentRail.kt
+physics/rail/persistence/PersistentRailLocation.kt
+physics/rail/persistence/PersistentRailLocationWithFacing.kt
+physics/rail/topology/CoreTopologyInputAdapter.kt
+physics/rail/topology/TopologyInput.kt
+physics/rail/topology/TopologyStateBuilder.kt
+util/BinarySearch.kt
+```
+
+### 列车、控制、render值/trait（33）
+
+```text
+api/control/ControlCommand.kt
+api/control/TrainController.kt
+api/physics/exception/BogieException.kt
+api/physics/exception/CannotConnectRailException.kt
+api/physics/exception/CannotCreateTrainException.kt
+api/physics/exception/CannotMoveForwardException.kt
+api/physics/exception/CannotSplitException.kt
+api/physics/exception/Collision.kt
+api/physics/exception/InvalidActiveRailException.kt
+api/physics/exception/PhysicsException.kt
+api/physics/exception/RailException.kt
+api/physics/train/Bogie.kt
+api/physics/train/Car.kt
+api/physics/train/Seat.kt
+api/physics/train/Train.kt
+api/physics/train/TrainExtension.kt
+api/physics/train/TrainFrameSnapshot.kt
+api/physics/train/TrainSnapshot.kt
+api/render/DynamicRenderable.kt
+api/render/Renderable.kt
+api/render/RenderableExtension.kt
+api/render/RenderableFrameSnapshot.kt
+api/render/RenderableStateSnapshot.kt
+control/signal/Signal.kt
+physics/train/CoreBogie.kt
+physics/train/CoreCar.kt
+physics/train/CoreTrain.kt
+physics/train/TrainEnd.kt
+physics/train/TrainFactory.kt
+physics/train/TrainPersistence.kt
+util/trait/TrainComponentTrait.kt
+util/trait/render/DynamicRenderableTrait.kt
+util/trait/render/ExtendableRenderableTrait.kt
+```
+
+### 事件、线程、扩展、codec、DI与基础工具（49）
+
+```text
+api/event/CollisionEvent.kt
+api/event/DerailEvent.kt
+api/event/Event.kt
+api/event/PassSignalEvent.kt
+api/event/PostTickEvent.kt
+api/event/PreTickEvent.kt
+api/event/RenderableEvent.kt
+api/event/TrainEvent.kt
+api/event/TrainSwitchDirectionEvent.kt
+api/event/processor/EventListener.kt
+api/event/processor/EventRegistration.kt
+api/event/processor/MainRailEventBus.kt
+api/event/processor/PhysicsRailEventBus.kt
+api/event/processor/TypedRailEventBus.kt
+api/threading/ThreadContext.kt
+api/threading/ThreadGuard.kt
+api/threading/host/ThreadGuardHost.kt
+api/threading/host/ThreadGuardPlatformBridge.kt
+api/threading/host/ThreadGuardRegistration.kt
+api/util/Destroyable.kt
+api/util/WeakReferenceWrapper.kt
+api/util/annotation/AsyncEventApi.kt
+api/util/annotation/Concurrent.kt
+api/util/annotation/Heavy.kt
+api/util/annotation/MainThread.kt
+api/util/annotation/Pure.kt
+api/util/exception/CorruptedDataException.kt
+api/util/persistence/LoadPersistentDataException.kt
+api/util/persistence/PersistenceException.kt
+api/util/plugin/Extendable.kt
+api/util/plugin/Extension.kt
+api/util/plugin/ExtensionData.kt
+api/util/plugin/ExtensionDataContainer.kt
+api/util/plugin/Plugin.kt
+api/util/plugin/PluginRegistry.kt
+api/util/plugin/SerializableExtensionData.kt
+api/util/tick/Synchronizable.kt
+api/util/tick/TickManager.kt
+api/util/tick/TickMetrics.kt
+api/util/tick/TickingObject.kt
+di/JavaRailwaysKoin.kt
+di/NoOpWorldParentContext.kt
+di/WorldParentContext.kt
+persistence/WorldSnapshotCodec.kt
+util/AsyncTickThreadMarker.kt
+util/CommitBuffer.kt
+util/IsolatedSimulationThreadMarker.kt
+util/ObjectPools.kt
+util/ThreadGuardBridgeRegistry.kt
+```
+
+### CoreWorld、runtime/publication与整合（11）
+
+```text
+api/physics/RailwayEpochProcessor.kt
+api/physics/RailwayWorldFrameSnapshot.kt
+api/physics/World.kt
+api/physics/WorldElement.kt
+physics/CoreWorld.kt
+physics/RailTopologyHealth.kt
+physics/tick/LatestTrainFrameMailbox.kt
+physics/tick/PhysicsCoordinator.kt
+physics/tick/PublishedTrainFrameProcessor.kt
+util/LatestTickCommitMailbox.kt
+util/TickManagerImpl.kt
+```
+
+## 测试源码：逐文件处置（49）
+
+路径相对`Core/src/test/`。这些是建议，尚未删除/改写测试；normal test实际执行206项、跳过6项，不能把源码阅读或disabled/stress当已执行覆盖。
+
+- `java/work/art1st/javarailways/core/api/event/CollisionEventTest.kt`： 保留默认DERAIL/显式LINK业务决策，不等同联结integration。
+
+- `java/work/art1st/javarailways/core/api/event/RailEventBusTest.kt`： 保留继承/token/thread/failure；补同type priority/签名/并发注册边界。
+
+- `java/work/art1st/javarailways/core/api/physics/ImmutableSnapshotTest.kt`： 保留并增强：capture后修改live对象；单位校验去掉无用world fixture。
+
+- `java/work/art1st/javarailways/core/api/physics/TopologyStateApiTest.kt`： 保留：revision-local节点/edge、immutable/read索引契约。
+
+- `java/work/art1st/javarailways/core/api/threading/ThreadGuardTest.kt`： 保留身份token/线程marker；增强退出、nested/failure恢复。
+
+- `java/work/art1st/javarailways/core/control/train/MockTrainController.kt`： 保留测试helper；永不finished command不能代表completion覆盖。
+
+- `java/work/art1st/javarailways/core/persistence/SplitWorldSnapshotTest.kt`： 保留materialization/rail身份/topology；source/load setup前取得显式tick/coordinator owner，以use在失败/成功路径关闭physics、binding和tick。
+
+- `java/work/art1st/javarailways/core/persistence/WorldPersistenceRoundTripTest.kt`： 保留真实Koin恢复和bad input；source/load setup均有显式resource owner与use清理，不关闭共享parent；添加固定18/10/14 m位置及AB方向预期。其余固定坏输入增强仍按持久化范围跟踪。
+
+- `java/work/art1st/javarailways/core/physics/CoreWorldActiveContinuationsPublicationTest.kt`： 保留：active选择与structural revision分离；可增强往返切换。
+
+- `java/work/art1st/javarailways/core/physics/CoreWorldAtGradeRailCrossingTest.kt`： 保留：几何交叉不产生跨线continuation、fault/恢复及增量观测。
+
+- `java/work/art1st/javarailways/core/physics/CoreWorldRailTopologyTransactionTest.kt`： 已改写两个sleep reader：具体reader线程进入拓扑锁等待队列后再断言阻塞，并以finally有界释放/关闭。
+
+- `java/work/art1st/javarailways/core/physics/CoreWorldThreadGuardTest.kt`： 保留结构入口wrong-thread及owner范围。
+
+- `java/work/art1st/javarailways/core/physics/CoreWorldTopologyStatePublicationTest.kt`： 保留：旧root不可变、事务/no-op/失败publication。
+
+- `java/work/art1st/javarailways/core/physics/PreparedRailCreationBatchTest.kt`： 保留：prepared capture、几何root和batch身份。
+
+- `java/work/art1st/javarailways/core/physics/rail/PhysOvalConnectionTest.kt`： 保留：oval多车跨接头物理行为。
+
+- `java/work/art1st/javarailways/core/physics/rail/PreparedRailConnectionPlanTest.kt`： 保留：连接准备、stale与物理校验。
+
+- `java/work/art1st/javarailways/core/physics/rail/PreparedRailWorldSnapshotPlanTest.kt`： 保留：snapshot restore严格校验、选择保留与失败不提交。
+
+- `java/work/art1st/javarailways/core/physics/rail/RailConnectTest.kt`： 保留连接方向/结构两项；已用显式dependency和局部use保护setup/body失败，physics→binding→tick成对释放，主异常与suppressed保留。
+
+- `java/work/art1st/javarailways/core/physics/rail/RailDirectionRestrictionTest.kt`： 保留：Core方向中立；删除同用例内重复一行断言。
+
+- `java/work/art1st/javarailways/core/physics/rail/RailIntervalReleaseDetectorTest.kt`： 保留生命周期；伪reverse的重复update并入持续占用。
+
+- `java/work/art1st/javarailways/core/physics/rail/RailLocationPeekCurveTest.kt`： 保留：跨轨/反向peek与距离边界。
+
+- `java/work/art1st/javarailways/core/physics/rail/RailLocationPersistTest.kt`： 保留：canonical AB恢复；补固定损坏引用并整理无用cast。
+
+- `java/work/art1st/javarailways/core/physics/rail/RailTopologyEditorTest.kt`： 已删除旧split/merge mutation的2项专用测试；保留不依赖废路径的merge eligibility branch拒绝回归。现有Core/Bukkit测试覆盖prepared plan、stale与transaction rollback组件，但没有覆盖完整RailWand split/merge跨层事务，继续列为测试缺口。
+
+- `java/work/art1st/javarailways/core/physics/rail/SweptOccupancyIndexTest.kt`： 保留：候选排序/上限/blocking；补collision跨bucket容差。
+
+- `java/work/art1st/javarailways/core/physics/rail/curve/PrimeCurveSurgeryTest.kt`： 保留：split/concatenate保持、LINE/DISCRETE差异；非纯roundtrip。
+
+- `java/work/art1st/javarailways/core/physics/rail/curve/PrimeCurveTest.kt`： 合并/改写回显断言；补独立坐标/frame、稀疏LINE投影和坏输入。
+
+- `java/work/art1st/javarailways/core/physics/rail/topology/TopologyStateBuilderTest.kt`： 保留：归一化、纯环、对称/coverage/方向、确定性。
+
+- `java/work/art1st/javarailways/core/physics/tick/LatestTrainFrameMailboxTest.kt`： 保留coalescing/stale/concurrency/capacity；增强tail/swept/bogie隔离。
+
+- `java/work/art1st/javarailways/core/physics/tick/PhysicsCapacityStressTest.kt`： 保留opt-in headless容量工具；本轮未执行性能matrix。
+
+- `java/work/art1st/javarailways/core/physics/tick/PhysicsCoordinatorTest.kt`： 保留真实epoch/barrier/publication/collision/failure；无限await改有界。
+
+- `java/work/art1st/javarailways/core/physics/train/CoreCarPositioningRegressionTest.kt`： 保留normal回归；relocation补发布后目标/间距/finite断言。
+
+- `java/work/art1st/javarailways/core/physics/train/CoreRenderCommitDecouplingTest.kt`： 保留：CoreCar/Bogie不进入generic mailbox的能力边界。
+
+- `java/work/art1st/javarailways/core/physics/train/CoreTrainAsymmetricTurnoutTest.kt`： 已改写为exact coordinator epoch后的车头/车尾推进、body path、重锚及未脱轨断言；全部fixture成对关闭。
+
+- `java/work/art1st/javarailways/core/physics/train/CoreTrainDerailEventTest.kt`： 保留wrong-thread；通知用真实coordinator触发，不复制生产queue分支。
+
+- `java/work/art1st/javarailways/core/physics/train/CoreTrainLinkTest.kt`： 保留端点清理；补车序/方向/frame/失败事务及换属主。
+
+- `java/work/art1st/javarailways/core/physics/train/CoreTrainMultiCarDiagnosticTest.kt`： 已删除private buffer反射；用commit前后公开状态、真实physics epoch和固定fixture数值验证两车摆位/移动/间距及默认offset。
+
+- `java/work/art1st/javarailways/core/physics/train/CoreTrainPersistenceStateTest.kt`： zero-distance项本批才改为真实PhysicsCoordinator，以controller计数及exact ticket/frame epoch证明实际执行；固定80/70/75 m及零motion，恢复保留source比较并加独立位置预期。两项fixture均以use保护setup/load/body失败；先前“改真实coordinator”是待办而非已完成。
+
+- `java/work/art1st/javarailways/core/physics/train/CoreTrainPublicationBoundaryTest.kt`： 保留AB/BA/placement/reverse/derail；reverse/derail已补pending→buffer→frame→commit、旧immutable frame隔离、revision/epoch及物理/运营方向断言，资源清理失败保留原异常。真实coordinator接线由motion/derail integration另行覆盖。
+
+- `java/work/art1st/javarailways/core/physics/train/CoreTrainReversedPersistenceTest.kt`： 已保留精确bogie恢复并增加独立固定位置/BA方向；失败项经parent binding捕获实际目标world，验证ID/name、rail ends、mailbox及下一真实epoch frame/occupancy为空，binding关闭。全部setup/load资源由嵌套use保护；只证明该单列车失败清理。
+- `java/work/art1st/javarailways/core/physics/rail/SavedRailConnectionsTest.kt`： 保留23项endpoint拒绝/组合/active恢复覆盖，全部world setup/load/body由嵌套use管理physics→binding→tick清理，失败不覆盖主异常。
+
+- `java/work/art1st/javarailways/core/physics/train/CoreTrainTailBogieTest.kt`： 保留尾架、支路、reversed间距/压缩修正原五项；已用显式dependency和局部use保护setup/body失败，physics→binding→tick成对释放，未扩展geometry或epoch断言。
+
+- `java/work/art1st/javarailways/core/physics/train/DummyAsset.kt`： 空helper零引用，删除候选。
+
+- `java/work/art1st/javarailways/core/physics/train/TrainConfigurationLoadTest.kt`： 已随无生产consumer的prototype构建链删除；不保留反射填map框架，current SavedTrain/SavedCar/CarConfig恢复由既有persistence回归覆盖。
+
+- `java/work/art1st/javarailways/core/physics/train/TrainNameTest.kt`： 保留双索引/metadata；补invalid name失败保持。
+
+- `java/work/art1st/javarailways/core/physics/train/TrainSlopeJointMotionTest.kt`：保留短/长编组crossing两项及原运动断言；已补physics→binding→tick的配对use清理，setup失败由共享createTestWorld负责。此项不证明全部fixture已审计。
+
+- `java/work/art1st/javarailways/core/physics/train/TrainSlopeMotionTest.kt`： 保留实际位移/高度断言。
+
+- `java/work/art1st/javarailways/core/physics/train/TrainUniformMotionTest.kt`： 重写本地distance空跑为真实ticket位移/速度；6项disabled另恢复。
+
+- `java/work/art1st/javarailways/core/util/LatestTickCommitMailboxTest.kt`： 保留对象身份合并/并发/容量，不与train mailbox语义混同。
+
+- `java/work/art1st/javarailways/core/util/TickManagerImplTest.kt`： 保留真实tick→commit交接/metrics；加强完整manager生命周期。
+
+- `kotlin/work/art1st/javarailways/core/api/util/plugin/ExtensionDataContainerTest.kt`： 保留required/nullable/slot；增强扩容/host隔离。
+
+## Fixtures（5）
+
+- `Core/src/testFixtures/java/work/art1st/javarailways/core/physics/rail/RailTopologyTestFixtures.kt`：完整检查；train/rail helper补资源所有权与失败可诊断性，AsyncTick helper保留lexical marker边界。
+
+- `Core/src/testFixtures/kotlin/work/art1st/javarailways/core/physics/RailTestUtils.kt`：完整检查；train/rail helper补资源所有权与失败可诊断性，AsyncTick helper保留lexical marker边界。
+
+- `Core/src/testFixtures/kotlin/work/art1st/javarailways/core/physics/rail/topology/TopologyTestFixture.kt`：完整检查；train/rail helper补资源所有权与失败可诊断性，AsyncTick helper保留lexical marker边界。
+
+- `Core/src/testFixtures/kotlin/work/art1st/javarailways/core/physics/train/TrainTestUtils.kt`：完整检查；train/rail helper补资源所有权与失败可诊断性，AsyncTick helper保留lexical marker边界。
+
+- `Core/src/testFixtures/kotlin/work/art1st/javarailways/core/util/AsyncTickTestSupport.kt`：完整检查；train/rail helper补资源所有权与失败可诊断性，AsyncTick helper保留lexical marker边界。
+
+## 构建与文档
+
+完整核查Core build/Dokka输入及全部Core契约：
+
+- `Core/build.gradle.kts`：JDK17、dependencies、normal/stress分离、Dokka白名单与warning策略。
+- `Core/src/main/dokka/Module.md`、`CorePackages.md`。
+
+- `.trellis/spec/javarailways/core/index.md`。
+
+- `.trellis/spec/javarailways/core/api-boundaries.md`。
+
+- `.trellis/spec/javarailways/core/curve-geometry.md`。
+
+- `.trellis/spec/javarailways/core/di-and-runtime-lifecycle.md`。
+
+- `.trellis/spec/javarailways/core/event-bus.md`。
+
+- `.trellis/spec/javarailways/core/extension-data.md`。
+
+- `.trellis/spec/javarailways/core/persistence.md`。
+
+- `.trellis/spec/javarailways/core/rail-topology-and-occupancy.md`。
+
+- `.trellis/spec/javarailways/core/render-publication.md`。
+
+- `.trellis/spec/javarailways/core/runtime-publication.md`。
+
+- `.trellis/spec/javarailways/core/testing.md`。
+
+- `.trellis/spec/javarailways/core/train-controller.md`。
+
+- `.trellis/spec/javarailways/core/train-physics.md`。
+
+- `.trellis/spec/javarailways/core/versioned-operational-topology.md`。
+
+相关跨层规范：shared documentation-ownership/versioning/persistence/quality、指南与Core/Bukkit/Basic对应线程、持久化/寻路/基础设施契约，以及`ai_tasks/persistence_schema_evolution_rules.md`；只用于核对Core边界，不表示其他模块完成。
+
+相关网页：`docs-site/docs/architecture/overview.md`、`modules.md`、`threading-model.md`、`persistence.md`、`rendering.md`，`docs-site/docs/extensions/api-status.md`、`api-reference.md`，以及`docs-site/docs/performance_assessment.md`与列车模型schema/reference的Core消费说明。只核查与Core实现对应内容，不宣称整站审查结束。
+
+导航：`.codeabs/dirs/Core*.md`中rail/curve/train/API/control/render/event/runtime/tests/fixture相关地图，核查路径和职责描述；记录过期/TODO，不把导航当实现事实，不修改既有地图。
+
+其他边界：本轮`find Core/src -type d -empty`未发现空源目录；不据此推断整个仓库无空目录。用户模型/生成物、docs-site既有修改均未清理。
+
+## 验证边界
+
+- 本轮强制重跑Core/Basic normal tests及Core HTML/Javadoc：成功；详细数字和warning见模块报告。
+- 六条临时诊断使用实际Core类，结果见报告；不成为正式实现或长期测试。
+- 未执行opt-in stress matrix、宿主实体/游戏客户端验证；其余静态发现并非全部已有运行复现。
+- 无Core生产/测试文件改动；全项目任务仍in_progress，下一完整模块为Basic。

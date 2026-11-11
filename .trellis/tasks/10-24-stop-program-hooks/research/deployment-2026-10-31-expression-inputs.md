@@ -1,0 +1,17 @@
+# Expression input usability deployment — 2026-10-31
+
+User authorized commit and deployment of the destination-expression replacement and operand-label corrections. Product `2b1e4d776b105e6afd6e686ac6076295c4492e34`;8ownedfiles. No new task, lifecycle/archive action or push. Unrelated heap dump preserved.
+
+Connected literal inputs useBlocklyshadows; replacing destination constant withCONCAT no longer leaves an unwanted loose placeholder. Removing expression restores shadow. Actual authored real blocks remain real and loose blocks continue to invalidate saving. Sidebar literal creation follows same rule. Operation labels describe their arguments inChinese/English; ARG wire fields and program schema unchanged. No backend runtime/model/data migration.
+
+Final frontend411tests/60files, TypeScript/Vitebuild and independent focused review passed. Real localHTTP browser verified restored incomplete draft containing finished looseCONCAT, actual mouse insert intoMOVEdestination, originalID restoration on removal, reinsertion/savePUT and valid reload. Reopened rawdraft retains concat-drag visualID rather than converter-generatedID; test initially queried the wrongID, then directDOM inspection confirmed valid saved program. Browser fixture is storage-only, not live compiler/game acceptance. `:BukkitPlugin:shadowJar :WebUI:test` deployment gate passed (63existingJava tests), plus4recovery/rollback/guard tests.
+
+Live targetJavaRailwaysTest/MCSinstance836082a48c4f48fcb1fea4e83c57dc96. Baseline mainSHA256 `a7ec6e269d658466b99d5dfcde7516a30ccbb1d00a321c9dd217dc5cae94d868`, PID786557. NormalstopSaved allworlds14:18:24UTC, MCSstatus0/PID0, oldJVM/listeners gone beforebackup.153files recovery `/opt/mcsmanager/backups/javarailways/expression-inputs-20261031-11folwvz`, archiveSHA256 `b80e9d42a3e3f133722c8718db8bf54215437c9494541be8b7293d53cde64e93`.
+
+Installed14:19:00.387834UTC, only mainJAR replaced;152other files byte-identical at cutover. NewmainSHA256 `7d5f2e9f3117632b4b52197c2d5ad49c2fbd38e00f4d4d06a3ddb4f9fd3c9d59`; embedded/managedWebUI `8928e11671685ca86443672b8f4945b9d5c1dd6784bdac0e9359c3bacbfef46f`; mainJS `/assets/index-CYKRQMnZ.js`. Signals artifact remains unchanged. Existing sudo authority used for private root-owned recovery data; original modes retained.
+
+NewPID787679, Done14:19:43UTC. Readonlyconsole ATO RUNNING, Signals installeddefinitionRevision117/topology1. Bridgehealth good,17local/public assets byte-match embedded and newlabels/setShadow code found in actualJS,22draft/signal/otherjar files unchanged afterboot,31mapmarkers, guestsimulate401structured. Workspace independently obtained publicHTML/newJS200 and event:trains carrying array/1actualtrain.
+
+Post-install projecterrors0. One WebUI trainstreamHTTP409 warning appeared14:20:12UTC; subsequent explicitSSE check returned event:trains with real array/1train, so this was not presented as persistent outage. Initialstartup overload/clamp warnings observed. Old-version shutdown still reports knownJR13/Signals1cleanup errors and third-partyTerra theUnsafe startup remains1; these are not fixed bythisUIchange. No authenticated productioneditor save or game acceptance claimed.
+
+Local/remote staging `/tmp/jr-deploy-20261031-expression-inputs`; sanitized machine evidence adjacent. To rollback: normal save/stop, create a new recovery point for any later player edits, restore matching old mainJAR from checked archive; do not overwrite newer user data. Existing task remains open.

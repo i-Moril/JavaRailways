@@ -4,11 +4,14 @@ import org.bukkit.Location
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.util.Transformation
-import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.*
+import java.util.concurrent.CompletableFuture
+import work.art1st.javarailways.core.api.util.DestructionSteps
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.bukkit.render.backend.DisplayVisual
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.Rail
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
 import work.art1st.javarailways.core.api.util.plugin.Plugin
@@ -36,6 +39,33 @@ class CompositeModelVisibilityTest {
         assertEquals(listOf("child-show", "root-show", "root-hide", "child-hide"), calls)
     }
 
+    @Test
+    fun `destruction attempts all children waits for cleanup and retains the same outcome`() {
+        val calls = mutableListOf<String>()
+        val world = FakeWorld()
+        val pending = CompletableFuture<Void>()
+        val failedChild = object : AbstractModel(world, ModelState(CompactTransform()), emptyList(), emptyMap()) {
+            override fun collectDestruction(steps: DestructionSteps) {
+                steps.action { calls += "failed-child"; error("child cleanup failed") }
+            }
+        }
+        val delayedChild = object : AbstractModel(world, ModelState(CompactTransform()), emptyList(), emptyMap()) {
+            override fun collectDestruction(steps: DestructionSteps) {
+                steps.await { calls += "delayed-child"; pending }
+            }
+        }
+        val composite = CompositeModel(world, listOf(failedChild, delayedChild), RecordingVisual(calls))
+        val completion = composite.destroy()
+        val result = completion.toCompletableFuture()
+        assertEquals(listOf("failed-child", "delayed-child", "root-destroy"), calls)
+        assertFalse(result.isDone)
+        assertSame(completion, composite.destroy())
+        pending.complete(null)
+        assertTrue(result.isCompletedExceptionally)
+        assertSame(completion, composite.destroy())
+        assertEquals(3, calls.size)
+    }
+
     private class RecordingModel(
         world: World,
         private val calls: MutableList<String>
@@ -56,8 +86,12 @@ class CompositeModelVisibilityTest {
         override fun setTransformation(transformation: Transformation) = Unit
         override fun setItemStack(itemStack: ItemStack) = Unit
         override fun setBrightness(blockLight: Int, skyLight: Int) = Unit
+        override fun clearBrightness() = Unit
         override fun addPassenger(passenger: DisplayVisual): Boolean = true
-        override fun destroy() = Unit
+        override fun destroy(): java.util.concurrent.CompletionStage<Void> {
+            calls += "root-destroy"
+            return CompletableFuture.completedFuture(null)
+        }
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -77,17 +111,20 @@ class CompositeModelVisibilityTest {
 
     @OptIn(ExtensionData::class)
     private class FakeWorld : World {
+        override val executionMode = work.art1st.javarailways.core.api.physics.WorldExecutionMode.LIVE
+        override val maximumPhysicsDeltaSeconds: Double = 0.2
         override val tickManager: TickManager = FakeTickManager()
+        override val topologyState: TopologyState
+            get() = error("Topology is not used by this render test")
         override val allTrains: Collection<Train> = emptyList()
         override fun getTrain(name: String): Train? = null
-        override fun removeTrain(train: Train) = Unit
         override fun getRail(id: UUID): Rail? = null
-        override fun removeRail(rail: Rail) = Unit
+        override fun removeRail(rail: Rail): java.util.concurrent.CompletionStage<Void> =
+            java.util.concurrent.CompletableFuture.completedFuture(null)
         override fun <T : Any> getExtensionDataOrNull(plugin: Plugin): T? = null
         override fun <T : Any> requireExtensionData(plugin: Plugin): T = error("No extensions")
         override fun <T : Any> registerExtensionData(plugin: Plugin, data: T) = Unit
         override fun forEachExtensionData(action: (Any) -> Unit) = Unit
-        override fun <T> forEachExtensionData(action: (Any) -> T): List<T> = emptyList()
     }
 
     private class FakeTickManager : TickManager {
@@ -95,7 +132,6 @@ class CompositeModelVisibilityTest {
         override fun unregister(obj: TickingObject) = Unit
         override fun preTick(currentTimeMs: Long) = Unit
         override fun postTick() = Unit
-        override fun <T> scheduleMainThreadAfterCommitTask(task: Callable<T>): Future<T> = runTask(task)
         override fun <T> scheduleMainThreadPostTickTask(task: Callable<T>): Future<T> = runTask(task)
         private fun <T> runTask(task: Callable<T>): Future<T> = FutureTask(task).also { it.run() }
     }

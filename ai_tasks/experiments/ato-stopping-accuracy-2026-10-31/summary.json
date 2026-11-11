@@ -1,0 +1,305 @@
+{
+  "sourceCommit": "f377bc154da83e6c1628a09d97f047bac257b829",
+  "totalCases": 968,
+  "runOptions": {
+    "matrix": {
+      "options": {
+        "FULL": "1"
+      },
+      "modes": {
+        "AUTHORITY": {
+          "cases": 96,
+          "stopped": 96,
+          "reportedArrival": 0,
+          "finalErrorRangeMeters": [
+            -4.999985920631616,
+            -4.996178956986796
+          ],
+          "maximumForwardExcursionMetersRelativeToNominalTarget": -4.996178956986796,
+          "maximumPostStopDriftMeters": 0.0,
+          "maximumMeasuredSpeedMetersPerSecond": 20.272034685672438
+        },
+        "STATION": {
+          "cases": 96,
+          "stopped": 96,
+          "reportedArrival": 0,
+          "finalErrorRangeMeters": [
+            -0.19998930060319253,
+            -0.1961789569870689
+          ],
+          "maximumForwardExcursionMetersRelativeToNominalTarget": -0.1961789569870689,
+          "maximumPostStopDriftMeters": 0.0,
+          "maximumMeasuredSpeedMetersPerSecond": 20.365716463036918
+        },
+        "STOP": {
+          "cases": 96,
+          "stopped": 96,
+          "reportedArrival": 96,
+          "finalErrorRangeMeters": [
+            1.4977030787122203e-05,
+            0.003821043012976588
+          ],
+          "maximumForwardExcursionMetersRelativeToNominalTarget": 0.003821043012976588,
+          "maximumPostStopDriftMeters": 0.0,
+          "maximumMeasuredSpeedMetersPerSecond": 20.381449726296314
+        }
+      }
+    },
+    "long": {
+      "options": {
+        "LONG": "1"
+      },
+      "modes": {
+        "AUTHORITY": {
+          "cases": 48,
+          "stopped": 48,
+          "reportedArrival": 0,
+          "finalErrorRangeMeters": [
+            -4.999998473662345,
+            -4.9957581114886125
+          ],
+          "maximumForwardExcursionMetersRelativeToNominalTarget": -4.9957581114886125,
+          "maximumPostStopDriftMeters": 0.0,
+          "maximumMeasuredSpeedMetersPerSecond": 31.10343469501893
+        },
+        "STATION": {
+          "cases": 48,
+          "stopped": 48,
+          "reportedArrival": 0,
+          "finalErrorRangeMeters": [
+            -0.19999828115851415,
+            -0.1831731770053011
+          ],
+          "maximumForwardExcursionMetersRelativeToNominalTarget": -0.1831731770053011,
+          "maximumPostStopDriftMeters": 0.0,
+          "maximumMeasuredSpeedMetersPerSecond": 31.131581552109093
+        },
+        "STOP": {
+          "cases": 48,
+          "stopped": 48,
+          "reportedArrival": 48,
+          "finalErrorRangeMeters": [
+            2.2809035726822913e-07,
+            0.01579328642310429
+          ],
+          "maximumForwardExcursionMetersRelativeToNominalTarget": 0.01579328642310429,
+          "maximumPostStopDriftMeters": 0.0,
+          "maximumMeasuredSpeedMetersPerSecond": 31.131581552109093
+        }
+      }
+    },
+    "200ms": {
+      "options": {
+        "FULL": "1",
+        "STEP_MS": "200"
+      },
+      "modes": {
+        "AUTHORITY": {
+          "cases": 96,
+          "stopped": 96,
+          "reportedArrival": 0,
+          "finalErrorRangeMeters": [
+            -5.000157175702043,
+            -4.986194966603762
+          ],
+          "maximumForwardExcursionMetersRelativeToNominalTarget": -4.986194966603762,
+          "maximumPostStopDriftMeters": 0.0,
+          "maximumMeasuredSpeedMetersPerSecond": 20.29845201732534
+        },
+        "STATION": {
+          "cases": 96,
+          "stopped": 96,
+          "reportedArrival": 0,
+          "finalErrorRangeMeters": [
+            -0.19978341096884833,
+            -0.18740080344696253
+          ],
+          "maximumForwardExcursionMetersRelativeToNominalTarget": -0.18740080344696253,
+          "maximumPostStopDriftMeters": 0.0,
+          "maximumMeasuredSpeedMetersPerSecond": 20.442437629092563
+        },
+        "STOP": {
+          "cases": 96,
+          "stopped": 96,
+          "reportedArrival": 96,
+          "finalErrorRangeMeters": [
+            0.0002153711602659314,
+            0.017082451798160037
+          ],
+          "maximumForwardExcursionMetersRelativeToNominalTarget": 0.017082451798160037,
+          "maximumPostStopDriftMeters": 0.0,
+          "maximumMeasuredSpeedMetersPerSecond": 20.442437629092563
+        }
+      }
+    },
+    "candidate-200ms": {
+      "options": {
+        "FULL": "1",
+        "STEP_MS": "200",
+        "ADVANCE": "0.05",
+        "ONLY_STOP": "1"
+      },
+      "modes": {
+        "STOP": {
+          "cases": 96,
+          "stopped": 96,
+          "reportedArrival": 96,
+          "finalErrorRangeMeters": [
+            -0.050198233601349784,
+            -0.0316273344324145
+          ],
+          "maximumForwardExcursionMetersRelativeToNominalTarget": -0.0316273344324145,
+          "maximumPostStopDriftMeters": 0.0,
+          "maximumMeasuredSpeedMetersPerSecond": 20.442437629092563
+        }
+      }
+    },
+    "candidate-jitter": {
+      "options": {
+        "FULL": "1",
+        "JITTER": "1",
+        "ADVANCE": "0.05",
+        "ONLY_STOP": "1"
+      },
+      "modes": {
+        "STOP": {
+          "cases": 96,
+          "stopped": 96,
+          "reportedArrival": 96,
+          "finalErrorRangeMeters": [
+            -0.04997826185081067,
+            -0.03204664723489259
+          ],
+          "maximumForwardExcursionMetersRelativeToNominalTarget": -0.03204664723489259,
+          "maximumPostStopDriftMeters": 0.0,
+          "maximumMeasuredSpeedMetersPerSecond": 20.39450934314801
+        }
+      }
+    },
+    "candidate-long": {
+      "options": {
+        "LONG": "1",
+        "ADVANCE": "0.05",
+        "ONLY_STOP": "1"
+      },
+      "modes": {
+        "STOP": {
+          "cases": 48,
+          "stopped": 48,
+          "reportedArrival": 48,
+          "finalErrorRangeMeters": [
+            -0.050271588184841676,
+            -0.047229455081833294
+          ],
+          "maximumForwardExcursionMetersRelativeToNominalTarget": -0.047229455081833294,
+          "maximumPostStopDriftMeters": 0.0,
+          "maximumMeasuredSpeedMetersPerSecond": 31.131581552109093
+        }
+      }
+    },
+    "highspeed-default-berth": {
+      "options": {
+        "DISTANCE": "4000",
+        "CAP": "33.3",
+        "STEP_MS": "200",
+        "BERTH_TOLERANCE": "1.0"
+      },
+      "modes": {
+        "AUTHORITY": {
+          "cases": 2,
+          "stopped": 2,
+          "reportedArrival": 0,
+          "finalErrorRangeMeters": [
+            -4.998426083131562,
+            -4.998426083131562
+          ],
+          "maximumForwardExcursionMetersRelativeToNominalTarget": -4.998426083131562,
+          "maximumPostStopDriftMeters": 0.0,
+          "maximumMeasuredSpeedMetersPerSecond": 33.3
+        },
+        "STATION": {
+          "cases": 2,
+          "stopped": 2,
+          "reportedArrival": 2,
+          "finalErrorRangeMeters": [
+            -0.47827626649632293,
+            -0.47827626649632293
+          ],
+          "maximumForwardExcursionMetersRelativeToNominalTarget": -0.47827626649632293,
+          "maximumPostStopDriftMeters": 0.0,
+          "maximumMeasuredSpeedMetersPerSecond": 33.3
+        },
+        "STOP": {
+          "cases": 2,
+          "stopped": 2,
+          "reportedArrival": 2,
+          "finalErrorRangeMeters": [
+            0.0028790319029212696,
+            0.0028790319029212696
+          ],
+          "maximumForwardExcursionMetersRelativeToNominalTarget": 0.0028790319029212696,
+          "maximumPostStopDriftMeters": 0.0,
+          "maximumMeasuredSpeedMetersPerSecond": 33.3
+        }
+      }
+    },
+    "highspeed-candidate": {
+      "options": {
+        "DISTANCE": "4000",
+        "CAP": "33.3",
+        "STEP_MS": "200",
+        "ADVANCE": "0.05",
+        "ONLY_STOP": "1"
+      },
+      "modes": {
+        "STOP": {
+          "cases": 2,
+          "stopped": 2,
+          "reportedArrival": 2,
+          "finalErrorRangeMeters": [
+            -0.046430130265434855,
+            -0.046430130265434855
+          ],
+          "maximumForwardExcursionMetersRelativeToNominalTarget": -0.046430130265434855,
+          "maximumPostStopDriftMeters": 0.0,
+          "maximumMeasuredSpeedMetersPerSecond": 33.3
+        }
+      }
+    }
+  },
+  "findings": {
+    "baselineStopMaximumOvershootMeters": 0.017082451798160037,
+    "candidateAdvanceMeters": 0.05,
+    "candidateFinalErrorRangeMeters": [
+      -0.050271588184841676,
+      -0.0316273344324145
+    ],
+    "stationTightToleranceFinding": "At 0.1m berth tolerance the existing 2*min(berthTolerance,0.1) margin targets ~0.2m early; all240 station cases stop but none emits BERTHED.",
+    "stationDefaultToleranceFinding": "At default1.0m tolerance the two4km/200ms station cases emit BERTHED and hold0.478276m early. This is not ordinary point stopping accuracy.",
+    "recommendation": "0.05m is a measured candidate for ordinary target advance in these S100 scenarios. Station control/tolerance coupling and authority semantics must be corrected and retested before using it as the production station fix. No universal safety bound inferred."
+  },
+  "inputSha256": {
+    "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/http/AtoStoppingAccuracyExperiment.kt": "9397f30683ee4ab8a0cb23e6ed76974d77f3e36d4dde92d75f2e35cb5058381e",
+    "models/s100/control.yml": "09068d4557f8c85265a462cc8376c9e387924da353c581b407a5b76160cc0df7",
+    "models/s100/manifest.yml": "60598268beedb9321f6b7987734b2f6ef760a173597440926569f22fbe7b4f80",
+    "models/s100/cars/s100/head.yml": "49581451eed74e8d90526665b2e05fd041b5e3f1525186695346dde358bbf280",
+    "models/s100/cars/s100/head_tail.yml": "840c705a274d1bf52de6653e38abf153be780ed223516daaf1abdd8d31612335",
+    "models/s100/cars/s100/motor.yml": "792736e878d22934e517eb170f91ade55e3ef1e65346f34a6639032b53af87d4",
+    "models/s100/cars/s100/motor_tail.yml": "014cc41a286aa5ef01c0b4a87cb3ac39f5c9fd3bad1bff5a92d0ae82c299be88",
+    "models/s100/cars/s100/passenger.yml": "280daa428d5227eb23e5ed4f26c2be9949bfed8fbdcccd05176459f26e005515",
+    "models/s100/cars/s100/trailer.yml": "c7800e1572165f29cf616f7d6620d7f303ff209d214a72829cf59508b032ee34"
+  },
+  "method": {
+    "execution": "Real SimpleATO + HandleTrainActuator + TrainDynamics + Core PhysicsCoordinator. Controlled, pre-granted movement authority; no dispatcher/resource admission or signal plugin invoked.",
+    "geometry": "Straight constant-grade rail, fixture cars with package lengths and 0.3m connectors; fixture bogies at car ends rather than rendered model offsets.",
+    "signedError": "positive = beyond nominal target in direction of travel; negative = before target",
+    "stationToleranceMeters": "0.1 except highspeed-default-berth uses production default 1.0",
+    "arrivalColumn": "STATION: real BERTHED notification; STOP/AUTHORITY: geometric abs(error)<=0.1, not dispatcher completion",
+    "authorityTarget": "AUTHORITY uses a mission target 200m farther and authority at nominal target; current braking target is 5m before nominal target",
+    "candidate": "STOP only, existing mission offsetMetersBefore=0.05; no runtime implementation changed",
+    "stopCriterion": "exactly zero published speed for at least 2 simulated seconds; then 40 additional steps measure drift",
+    "jitter": "deterministic repeated [25,200,50,100,25,50] ms, not random statistical samples",
+    "motion": "starts from rest; cap is configured maximum, peak column is actual attained speed; 4km cases attain 33.3m/s",
+    "limits": "S100 profiles only; repeated five-car composition for ten cars retains motor/trailer ratio. No curvature, grade transitions, changing adhesion, sudden authority contraction, live server scheduling or game acceptance measured. Finite observed maxima are not a universal safety bound."
+  }
+}

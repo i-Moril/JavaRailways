@@ -1,0 +1,10 @@
+{"file": ".trellis/spec/simple-signals/backend/index.md", "reason": "SimpleSignals ownership, persistence and quality gate"}
+{"file": ".trellis/spec/simple-signals/backend/boundary-names.md", "reason": "Authoritative current shared boundary metadata, input, lifecycle and label contract"}
+{"file": ".trellis/spec/simple-signals/backend/section-authoring-wands.md", "reason": "Existing gestures, sessions, overlays and indicator mapping"}
+{"file": ".trellis/spec/simple-signals/backend/definition-edit-impact.md", "reason": "Sole transaction, affected rails and permit contract"}
+{"file": ".trellis/spec/simple-signals/backend/section-topology-revalidation.md", "reason": "Draft and repair lifecycle"}
+{"file": ".trellis/spec/simple-signals/backend/current-route-recording.md", "reason": "Exact route identities and endpoint semantics"}
+{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "No schema bump for empty-default additive metadata"}
+{"file": "ai_tasks/persistence_schema_evolution_rules.md", "reason": "Strict default fixtures and writer contract"}
+{"file": ".trellis/tasks/archive/2026-10/10-17-boundary-display-names/research/boundary-names.md", "reason": "Domain/persistence/UI evidence"}
+{"file": ".trellis/tasks/archive/2026-10/10-17-boundary-display-names/research/shared-boundary-names-design.md", "reason": "Shared raw anchors, metadata patch and lifecycle design"}

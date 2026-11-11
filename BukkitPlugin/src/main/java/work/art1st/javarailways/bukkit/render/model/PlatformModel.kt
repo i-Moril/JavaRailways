@@ -17,6 +17,9 @@ import work.art1st.javarailways.bukkit.render.Animation
 import work.art1st.javarailways.bukkit.render.backend.PacketPlatformCarrier
 import work.art1st.javarailways.core.api.physics.World
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.DestructionSteps
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
@@ -34,14 +37,16 @@ class PlatformModel internal constructor(
 ) : AbstractModel(world, state, attachedModels, animation) {
     private val units: MutableList<PlatformUnit> = CopyOnWriteArrayList()
     private val cellOffsets = platformConfig.cellOffsets().map { Vector3d(it.x, it.y, it.z) }
-    private val platformHalfX = ((platformConfig.rows.coerceAtLeast(1) - 1) * platformConfig.spacingX) / 2.0 + CELL_HALF_EXTENT
-    private val platformHalfZ = ((platformConfig.columns.coerceAtLeast(1) - 1) * platformConfig.spacingZ) / 2.0 + CELL_HALF_EXTENT
+    private val platformHalfX = ((platformConfig.rows - 1) * platformConfig.spacingX) / 2.0 + CELL_HALF_EXTENT
+    private val platformHalfZ = ((platformConfig.columns - 1) * platformConfig.spacingZ) / 2.0 + CELL_HALF_EXTENT
     private val activePlayers = ConcurrentHashMap<UUID, Player>()
     private val lifecycleRevision = AtomicLong(0L)
     private val spawnScheduled = AtomicBoolean(false)
+    @Volatile private var retired = false
+    private val pendingRemovals = mutableListOf<CompletableFuture<Void>>()
 
     private fun spawnEntities() {
-        if (units.isNotEmpty() || cellOffsets.isEmpty() || !spawnScheduled.compareAndSet(false, true)) return
+        if (retired || units.isNotEmpty() || cellOffsets.isEmpty() || !spawnScheduled.compareAndSet(false, true)) return
         if (BukkitPlugin.INSTANCE.platformCapabilities.folia) {
             spawnPacketEntities()
             return
@@ -55,7 +60,7 @@ class PlatformModel internal constructor(
             BukkitPlugin.INSTANCE.platformDispatcher.runAt(location) {
                 try {
                     synchronized(this@PlatformModel) {
-                        if (generation != lifecycleRevision.get() || activePlayers.isEmpty()) return@synchronized
+                        if (retired || generation != lifecycleRevision.get() || activePlayers.isEmpty()) return@synchronized
                         val chicken = bukkitWorld.spawn(location, Chicken::class.java) { chicken ->
                             chicken.isPersistent = false
                             chicken.isSilent = true
@@ -92,7 +97,7 @@ class PlatformModel internal constructor(
         val generation = lifecycleRevision.get()
         try {
             synchronized(this) {
-                if (generation != lifecycleRevision.get() || activePlayers.isEmpty()) return
+                if (retired || generation != lifecycleRevision.get() || activePlayers.isEmpty()) return
                 cellOffsets.forEach { offset ->
                     val location = unitLocation(offset, yaw, pitch)
                     val carrier = PacketPlatformCarrier(location)
@@ -109,25 +114,28 @@ class PlatformModel internal constructor(
     }
 
     @Synchronized
-    private fun destroyEntities() {
+    private fun destroyEntities(): CompletionStage<Void> {
         lifecycleRevision.incrementAndGet()
         val removed = units.toList()
         units.clear()
+        val steps = DestructionSteps()
         removed.forEach { unit ->
             when (unit) {
-                is PacketPlatformUnit -> unit.carrier.destroy()
+                is PacketPlatformUnit -> steps.await { unit.carrier.destroy() }
                 is NativePlatformUnit -> {
-                    BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(unit.chicken, action = {
-                        unit.chicken.eject()
-                        unit.chicken.remove()
-                    })
-                    BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(
-                        unit.shulker,
-                        action = { unit.shulker.remove() }
-                    )
+                    steps.await {
+                        BukkitPlugin.INSTANCE.platformDispatcher.removeEntityWithPassengers(unit.chicken)
+                    }
+                    steps.await {
+                        BukkitPlugin.INSTANCE.platformDispatcher.runForEntityCompletion(unit.shulker) { unit.shulker.remove() }
+                    }
                 }
             }
         }
+        pendingRemovals.removeAll { it.isDone && !it.isCompletedExceptionally }
+        val completion = steps.finish().toCompletableFuture()
+        pendingRemovals += completion
+        return completion
     }
 
     override fun updateState(
@@ -142,6 +150,7 @@ class PlatformModel internal constructor(
     }
 
     fun refreshActivation(player: Player) {
+        if (retired) return
         if (!isEligible(player)) {
             deactivateFor(player)
             return
@@ -234,10 +243,12 @@ class PlatformModel internal constructor(
         return yaw to pitch
     }
 
-    override fun destroy() {
+    override fun collectDestruction(steps: DestructionSteps) {
+        retired = true
         activePlayers.clear()
-        destroyEntities()
-        super.destroy()
+        steps.await { destroyEntities() }
+        pendingRemovals.forEach { pending -> steps.await { pending } }
+        super.collectDestruction(steps)
     }
 
     private sealed interface PlatformUnit {

@@ -7,6 +7,7 @@ import work.art1st.javarailways.core.api.util.tick.Synchronizable
 import work.art1st.javarailways.core.api.util.tick.TickManager
 import work.art1st.javarailways.core.api.util.tick.TickProfiled
 import work.art1st.javarailways.core.api.util.tick.TickingObject
+import work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -15,6 +16,8 @@ import java.util.concurrent.Future
 import java.util.concurrent.FutureTask
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.atomic.AtomicLong
+import java.util.logging.Level
+import java.util.logging.Logger
 
 class TickManagerImpl(
     private val scheduler: ScheduledExecutorService,
@@ -23,9 +26,9 @@ class TickManagerImpl(
     private val tickingObjects: MutableSet<TickingObject> = HashSet()
     private val pendingCommits = LatestTickCommitMailbox(DEFAULT_COMMIT_MAILBOX_CAPACITY)
 
-    private val afterCommitTasks: ConcurrentLinkedQueue<Runnable> = ConcurrentLinkedQueue()
     private val postTickTasks: ConcurrentLinkedQueue<Runnable> = ConcurrentLinkedQueue()
     private var awaitAsyncAndCommit: () -> PostTickBarrierMetrics = { PostTickBarrierMetrics.EMPTY }
+    private var asyncPhasePending = false
     private var currentTickIndex: Long = 0L
     private var preTickComputeNanos: Long = 0L
 
@@ -46,11 +49,15 @@ class TickManagerImpl(
     override fun unregister(obj: TickingObject) {
         scheduleMainThreadPostTickTask {
             tickingObjects.remove(obj)
+            asyncObjectStates.remove(obj.metricKey())
             if (obj is Synchronizable) pendingCommits.remove(obj)
         }
     }
 
     override fun preTick(currentTimeMs: Long) {
+        RailwaySimulationHalt.ensureRunning()
+        if (asyncPhasePending) throw RailwaySimulationHalt.halt("Previous generic tick barrier was not consumed")
+        asyncPhasePending = true
         currentTickIndex += 1L
         val preTickStartNanos = System.nanoTime()
         val deltaT = (currentTimeMs - currentTick).toDouble()
@@ -111,7 +118,10 @@ class TickManagerImpl(
             tickLatch.await()
             val waitNanos = System.nanoTime() - waitStartNanos
             val wallTimeNanos = System.nanoTime() - asyncPhaseStartNanos
-            tickErrors.forEach { it.printStackTrace() }
+            tickErrors.forEach { error ->
+                LOGGER.log(Level.SEVERE, "Generic async tick $currentTickIndex failed", error)
+                RailwaySimulationHalt.halt("Generic async tick $currentTickIndex failed", error)
+            }
 
             lastAsyncPhaseMetricsSnapshot = AsyncTickPhaseMetrics(
                 tickIndex = currentTickIndex,
@@ -130,10 +140,10 @@ class TickManagerImpl(
         val phaseBreakdown = linkedMapOf<String, Long>()
         phaseBreakdown["preTick.snapshot_and_schedule"] = preTickComputeNanos
 
-        val barrierMetrics = awaitAsyncAndCommit()
+        val barrierMetrics = finishAsyncPhase()
+        RailwaySimulationHalt.ensureRunning()
         phaseBreakdown["postTick.wait_async"] = barrierMetrics.waitNanos
         phaseBreakdown["postTick.publish_commit_requests"] = barrierMetrics.publishCommitRequestsNanos
-        phaseBreakdown["postTick.after_commit_tasks"] = drainQueue(afterCommitTasks)
         phaseBreakdown["postTick.post_tick_tasks"] = drainQueue(postTickTasks)
 
         val computeNanos = phaseBreakdown
@@ -154,12 +164,17 @@ class TickManagerImpl(
         preTickComputeNanos = 0L
     }
 
-    override fun <T> scheduleMainThreadAfterCommitTask(task: Callable<T>): Future<T> {
-        val futureTask = FutureTask(task)
-        afterCommitTasks.add {
-            futureTask.run()
-        }
-        return futureTask
+    /** Waits for the captured batch without executing queued owner or platform mutations. */
+    fun finishPendingAsyncTick() {
+        finishAsyncPhase()
+    }
+
+    private fun finishAsyncPhase(): PostTickBarrierMetrics {
+        if (!asyncPhasePending) return PostTickBarrierMetrics.EMPTY
+        val metrics = awaitAsyncAndCommit()
+        asyncPhasePending = false
+        awaitAsyncAndCommit = { PostTickBarrierMetrics.EMPTY }
+        return metrics
     }
 
     override fun <T> scheduleMainThreadPostTickTask(task: Callable<T>): Future<T> {
@@ -235,7 +250,18 @@ class TickManagerImpl(
         scheduler.shutdownNow()
     }
 
+    /** Stops generic workers and confirms callback exit before a host releases World dependencies. */
+    fun closeAndAwaitTermination(worldRuntimeId: String) {
+        check(!AsyncTickThreadMarker.isAsyncTickThread()) { "Generic teardown must not wait on its own worker" }
+        work.art1st.javarailways.core.api.threading.ThreadGuard.ensureMainThread(
+            "TickManagerImpl.closeAndAwaitTermination")
+        close()
+        awaitExecutorTermination(scheduler, "World $worldRuntimeId generic tick workers", LOGGER)
+        pendingCommits.clear()
+    }
+
     companion object {
+        private val LOGGER = Logger.getLogger(TickManagerImpl::class.java.name)
         private const val DEFAULT_COMMIT_MAILBOX_CAPACITY = 65_536
     }
 

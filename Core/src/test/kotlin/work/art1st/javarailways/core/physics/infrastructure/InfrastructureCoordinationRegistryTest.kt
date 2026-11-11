@@ -1,0 +1,968 @@
+package work.art1st.javarailways.core.physics.infrastructure
+
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureClaimRequest
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencies
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyMutationStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureBlockerKind
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureFootprint
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureMutationStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.RailIntervalResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableTopologyNodeKey
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditBlockerKind
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditImpact
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditStatus
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import java.util.UUID
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+
+class InfrastructureCoordinationRegistryTest {
+    @Test
+    @work.art1st.javarailways.core.testing.IsolateGlobalHalt
+    fun `halt blocks new ownership and old permit entry but retains diagnostics and cleanup`() {
+        val platform = Any()
+        val routeOwner = owner("test:halt-route", 1)
+        val mutation = registry.beginAcquireClaim(platform, InfrastructureClaimRequest(routeOwner, footprint(0.0, 10.0)))
+        val permits = InfrastructureCoordinationRegistry({ 7L }, { true }, { true }, { true })
+        val permit = permits.acquireEditPermit(platform, TopologyEditRequest(7L, owner("test:edit", 1), editImpact()))
+        assertTrue(permit.decision.successful)
+        work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt.halt("test infrastructure halt")
+        val failure = work.art1st.javarailways.core.physics.tick.PhysicsStalledException::class.java
+        assertThrows(failure) { registry.acquireClaim(platform, InfrastructureClaimRequest(owner("test:new", 1), footprint(20.0, 30.0))) }
+        assertThrows(failure) { registry.beginAppendClaim(platform, routeOwner, listOf(interval(20.0, 30.0))) }
+        assertThrows(failure) { registry.setInfrastructureDependencies(platform, dependencies(owner("test:plan", 1))) }
+        assertThrows(failure) { permits.acquireEditPermit(platform, TopologyEditRequest(7L, owner("test:new-edit", 1), editImpact())) }
+        assertThrows(failure) { permits.withEditPermit(platform, permit.id) { error("must not execute") } }
+        assertThrows(failure) { registry.withClaim(platform, routeOwner) { error("must not execute") } }
+        assertEquals(1, registry.claimSnapshots().size)
+        assertTrue(registry.rollbackClaimMutation(mutation).successful)
+        assertTrue(registry.claimSnapshots().isEmpty())
+        assertTrue(permits.releaseEditPermit(platform, permit.id))
+        registry.close()
+        permits.close()
+    }
+
+    @Test
+    fun `edit permit cannot enter between dependency validation and installation`() {
+        val validating = CountDownLatch(1)
+        val releaseValidation = CountDownLatch(1)
+        val editStarted = CountDownLatch(1)
+        val tested = InfrastructureCoordinationRegistry(
+            currentTopologyRevision = { 4L }, resourceExists = { true },
+            railExists = {
+                validating.countDown()
+                check(releaseValidation.await(5, TimeUnit.SECONDS))
+                true
+            }, topologyNodeExists = { true })
+        val declaration = CompletableFuture.supplyAsync {
+            tested.setInfrastructureDependencies(Any(), dependencies(owner("test:plan", 1)))
+        }
+        check(validating.await(5, TimeUnit.SECONDS))
+        val edit = CompletableFuture.supplyAsync {
+            editStarted.countDown()
+            tested.acquireEditPermit(Any(), TopologyEditRequest(4L, owner("test:editor", 1), editImpact()))
+        }
+        check(editStarted.await(5, TimeUnit.SECONDS))
+        assertFalse(edit.isDone)
+        releaseValidation.countDown()
+        assertEquals(InfrastructureDependencyMutationStatus.APPLIED, declaration.get(5, TimeUnit.SECONDS).status)
+        assertEquals(TopologyEditStatus.CONFLICT, edit.get(5, TimeUnit.SECONDS).decision.status)
+    }
+
+    @Test
+    fun `older edit request keeps valid local references`() {
+        topologyRevision = 12L
+        val permit = registry.acquireEditPermit(Any(), TopologyEditRequest(4L,
+            owner("test:editor", 1), editImpact()))
+        assertEquals(TopologyEditStatus.GRANTED, permit.decision.status)
+    }
+
+    @Test
+    fun `active edit scope authenticates ownership and pins permit`() {
+        val platform = Any()
+        val permit = registry.acquireEditPermit(platform,
+            TopologyEditRequest(4L, owner("test:editor", 1), editImpact()))
+        assertThrows(IllegalStateException::class.java) {
+            registry.enterEditPermit(Any(), permit.id)
+        }
+        registry.withEditPermit(platform, permit.id) {
+            registry.ensureEditProtected(editImpact()).use {
+                assertFalse(registry.releaseEditPermit(platform, permit.id))
+            }
+        }
+        assertTrue(registry.releaseEditPermit(platform, permit.id))
+    }
+
+    @Test
+    fun `claim actuation scope prevents removal but does not authorize structural edits`() {
+        val platform = Any()
+        val claimant = owner("test:route", 1)
+        registry.acquireClaim(platform, InfrastructureClaimRequest(claimant,
+            InfrastructureFootprint(listOf(runtimeResource))))
+        registry.withClaim(platform, claimant) {
+            registry.ensureSelectionProtected(runtimeResource).close()
+            val concurrentRelease = CompletableFuture.supplyAsync {
+                registry.releaseClaim(platform, claimant)
+            }
+            assertEquals(InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+                concurrentRelease.get(5, TimeUnit.SECONDS).status)
+            assertEquals(InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+                registry.shrinkClaim(platform, claimant, listOf(runtimeResource)).status)
+            assertThrows(IllegalStateException::class.java) {
+                registry.ensureEditProtected(editImpact())
+            }
+        }
+        assertEquals(InfrastructureMutationStatus.RELEASED,
+            registry.releaseClaim(platform, claimant).status)
+    }
+
+    @Test
+    fun `owner teardown waits for active scopes then releases automatically`() {
+        val platform = Any()
+        val claimant = owner("test:route", 1)
+        registry.acquireClaim(platform, InfrastructureClaimRequest(claimant,
+            InfrastructureFootprint(listOf(runtimeResource))))
+        registry.withClaim(platform, claimant) {
+            registry.releasePlatformOwner(platform)
+            assertEquals(1, registry.claimSnapshots().size)
+        }
+        assertTrue(registry.claimSnapshots().isEmpty())
+
+        val permit = registry.acquireEditPermit(platform,
+            TopologyEditRequest(4L, owner("test:editor", 1), editImpact()))
+        registry.withEditPermit(platform, permit.id) {
+            registry.releasePlatformOwner(platform)
+            registry.ensureEditProtected(editImpact()).close()
+        }
+        assertFalse(registry.releaseEditPermit(platform, permit.id))
+    }
+
+    private val railId = UUID.randomUUID()
+    private var topologyRevision = 4L
+    private val validRails = mutableSetOf(railId)
+    private val nodeKey = StableTopologyNodeKey(listOf(RailEndpointRef(railId, RailEndpoint.B)))
+    private val validNodes = mutableSetOf(nodeKey)
+    private val runtimeResource = StableInfrastructureResource("test:signal", "home")
+    private val registry = InfrastructureCoordinationRegistry(
+        currentTopologyRevision = { topologyRevision },
+        resourceExists = {
+            it == runtimeResource || it is RailIntervalResource && it.railId in validRails
+        },
+        railExists = validRails::contains,
+        topologyNodeExists = validNodes::contains
+    )
+
+    @Test
+    fun `non-exclusive dependencies overlap without claiming runtime resources`() {
+        val firstPlatform = Any()
+        val secondPlatform = Any()
+        val first = owner("test:first", 1)
+        val second = owner("test:second", 2)
+
+        assertEquals(
+            InfrastructureDependencyMutationStatus.APPLIED,
+            registry.setInfrastructureDependencies(firstPlatform, dependencies(first)).status
+        )
+        assertEquals(
+            InfrastructureDependencyMutationStatus.APPLIED,
+            registry.setInfrastructureDependencies(secondPlatform, dependencies(second)).status
+        )
+        assertEquals(
+            InfrastructureMutationStatus.ACQUIRED,
+            registry.acquireClaim(
+                Any(),
+                InfrastructureClaimRequest(owner("test:route", 1), footprint(0.0, 20.0))
+            ).status
+        )
+
+        val replacement = owner("test:first", 2)
+        assertEquals(
+            InfrastructureDependencyMutationStatus.REPLACED,
+            registry.setInfrastructureDependencies(firstPlatform, dependencies(replacement)).status
+        )
+        assertEquals(setOf(replacement, second), registry.dependencySnapshots().map { it.owner }.toSet())
+    }
+
+    @Test
+    fun `route dependency blocks intersecting edits but leaves unrelated rails editable`() {
+        val unrelatedRail = UUID.randomUUID()
+        validRails += unrelatedRail
+        registry.setInfrastructureDependencies(Any(), dependencies(owner("test:active-route", 1)))
+
+        val blocked = registry.acquireEditPermit(
+            Any(),
+            TopologyEditRequest(
+                4L,
+                owner("test:blocked-editor", 1),
+                TopologyEditImpact(setOf(railId), emptySet(), emptySet())
+            )
+        ).decision
+        val allowed = registry.acquireEditPermit(
+            Any(),
+            TopologyEditRequest(
+                4L,
+                owner("test:unrelated-editor", 1),
+                TopologyEditImpact(setOf(unrelatedRail), emptySet(), emptySet())
+            )
+        ).decision
+
+        assertEquals(TopologyEditStatus.CONFLICT, blocked.status)
+        assertEquals(TopologyEditStatus.GRANTED, allowed.status)
+    }
+
+    @Test
+    fun `edit diagnostics preserve independent rail node and resource intersections`() {
+        registry.setInfrastructureDependencies(Any(), dependencies(owner("test:plan", 1)))
+        registry.acquireClaim(
+            Any(),
+            InfrastructureClaimRequest(owner("test:route", 1), footprint(0.0, 10.0))
+        )
+        val denied = registry.acquireEditPermit(
+            Any(),
+            TopologyEditRequest(4L, owner("test:editor", 1), editImpact())
+        ).decision
+
+        assertEquals(
+            TopologyEditStatus.CONFLICT,
+            denied.status
+        )
+        assertEquals(
+            setOf(TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM),
+            denied.blockers.map { it.kind }.toSet()
+        )
+        assertEquals(
+            setOf(railId),
+            denied.blockers.single { it.kind == TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY }.overlap.railIds
+        )
+        assertEquals(
+            setOf(nodeKey),
+            denied.blockers.single { it.kind == TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY }
+                .overlap.topologyNodeKeys
+        )
+        assertEquals(
+            setOf(runtimeResource),
+            denied.blockers.single { it.kind == TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY }.overlap.resourceIds
+        )
+    }
+
+    @Test
+    fun `held edit permit blocks new dependencies and live claims by category`() {
+        val editorPlatform = Any()
+        val permit = registry.acquireEditPermit(
+            editorPlatform,
+            TopologyEditRequest(4L, owner("test:editor", 1), editImpact())
+        )
+        assertTrue(permit.decision.successful)
+
+        assertEquals(
+            InfrastructureDependencyMutationStatus.EDIT_IN_PROGRESS,
+            registry.setInfrastructureDependencies(Any(), dependencies(owner("test:plan", 1))).status
+        )
+        val blockedClaim = registry.acquireClaim(
+            Any(),
+            InfrastructureClaimRequest(owner("test:route", 1), footprint(0.0, 10.0))
+        )
+        assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, blockedClaim.status)
+        assertEquals(InfrastructureBlockerKind.EDIT_PERMIT, blockedClaim.blockers.single().kind)
+        assertTrue(registry.releaseEditPermit(editorPlatform, permit.id))
+        assertFalse(registry.releaseEditPermit(editorPlatform, permit.id))
+    }
+
+    @Test
+    fun `dependencies validate the three categories only when applied`() {
+        val platform = Any()
+        val owner = owner("test:older-root", 1)
+        assertEquals(
+            InfrastructureDependencyMutationStatus.APPLIED,
+            registry.setInfrastructureDependencies(
+                platform,
+                dependencies(owner)
+            ).status
+        )
+        registry.removeInfrastructureDependencies(platform, owner)
+        validNodes.clear()
+        assertEquals(
+            InfrastructureDependencyMutationStatus.INVALID_REFERENCE,
+            registry.setInfrastructureDependencies(Any(), dependencies(owner("test:missing", 1))).status
+        )
+        assertTrue(registry.dependencySnapshots().isEmpty())
+    }
+
+    @Test
+    fun `unrelated topology revision change during dependency validation does not expire stable references`() {
+        var revision = 4L
+        val changingRegistry = InfrastructureCoordinationRegistry(
+            currentTopologyRevision = { revision },
+            resourceExists = { true },
+            railExists = {
+                revision = 5L
+                true
+            },
+            topologyNodeExists = { true }
+        )
+
+        val result = changingRegistry.setInfrastructureDependencies(
+            Any(),
+            dependencies(owner("test:plan", 1))
+        )
+
+        assertEquals(InfrastructureDependencyMutationStatus.APPLIED, result.status)
+        assertEquals(1, changingRegistry.dependencySnapshots().size)
+    }
+
+    @Test
+    fun `owner cleanup keeps dependencies until explicit removal`() {
+        val platform = Any()
+        registry.setInfrastructureDependencies(platform, dependencies(owner("test:plan", 1)))
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(owner("test:route", 1), footprint(20.0, 30.0))
+        )
+        registry.acquireEditPermit(
+            platform,
+            TopologyEditRequest(4L, owner("test:edit", 1), editImpact())
+        )
+
+        registry.releasePlatformOwner(platform)
+        assertEquals(1, registry.dependencySnapshots().size)
+        assertTrue(registry.claimSnapshots().isEmpty())
+        assertEquals(
+            TopologyEditStatus.CONFLICT,
+            registry.acquireEditPermit(
+                Any(), TopologyEditRequest(4L, owner("test:next", 1), editImpact())
+            ).decision.status
+        )
+        assertEquals(
+            InfrastructureDependencyMutationStatus.REMOVED,
+            registry.removeInfrastructureDependencies(platform, owner("test:plan", 1)).status
+        )
+
+        registry.close()
+        assertEquals(
+            InfrastructureDependencyMutationStatus.SERVICE_CLOSED,
+            registry.setInfrastructureDependencies(Any(), dependencies(owner("test:late", 1))).status
+        )
+    }
+
+    @Test
+    fun `dependencies survive unrelated topology revisions`() {
+        val platform = Any()
+        val plan = owner("test:plan", 1)
+        assertEquals(
+            InfrastructureDependencyMutationStatus.APPLIED,
+            registry.setInfrastructureDependencies(platform, dependencies(plan)).status
+        )
+
+        topologyRevision = 5L
+
+        assertEquals(listOf(plan), registry.dependencySnapshots().map { it.owner })
+        val edit = registry.acquireEditPermit(
+            Any(),
+            TopologyEditRequest(5L, owner("test:editor", 1), editImpact())
+        ).decision
+        assertEquals(TopologyEditStatus.CONFLICT, edit.status)
+        assertEquals(
+            TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY,
+            edit.blockers.first().kind
+        )
+    }
+
+    @Test
+    fun `pending admission survives platform cleanup and completed token cannot remove its claim`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 1)
+        val mutation = registry.beginAcquireClaim(
+            platform,
+            InfrastructureClaimRequest(routeOwner, footprint(0.0, 10.0))
+        )
+
+        assertEquals(
+            InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+            registry.releaseClaim(platform, routeOwner).status
+        )
+        registry.releasePlatformOwner(platform)
+        assertEquals(listOf(routeOwner), registry.claimSnapshots().map { it.owner })
+        assertTrue(registry.completeClaimMutation(mutation))
+        assertFalse(registry.completeClaimMutation(mutation))
+        assertEquals(listOf(routeOwner), registry.claimSnapshots().map { it.owner })
+    }
+
+    @Test
+    fun `registry close invalidates an unfinished admission token`() {
+        val mutation = registry.beginAcquireClaim(
+            Any(),
+            InfrastructureClaimRequest(owner("test:route", 1), footprint(0.0, 10.0))
+        )
+
+        registry.close()
+
+        assertFalse(registry.completeClaimMutation(mutation))
+        assertEquals(InfrastructureMutationStatus.NOT_FOUND, registry.rollbackClaimMutation(mutation).status)
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `claim shrink removes an exact overlapping interval and preserves original order`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val first = interval(0.0, 40.0)
+        val overlapping = interval(20.0, 60.0)
+        val last = interval(70.0, 80.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(
+                routeOwner,
+                InfrastructureFootprint(listOf(first, overlapping, last))
+            )
+        )
+
+        val result = registry.shrinkClaim(platform, routeOwner, listOf(overlapping))
+
+        assertEquals(InfrastructureMutationStatus.REPLACED, result.status)
+        val snapshot = registry.claimSnapshots().single()
+        assertEquals(routeOwner, snapshot.owner)
+        assertEquals(listOf(first, last), snapshot.footprint.resources)
+        assertEquals(
+            InfrastructureMutationStatus.RESOURCE_CONFLICT,
+            registry.acquireClaim(
+                Any(),
+                InfrastructureClaimRequest(
+                    owner("test:overlapping-route", 1),
+                    InfrastructureFootprint(listOf(interval(30.0, 35.0)))
+                )
+            ).status
+        )
+        assertEquals(
+            InfrastructureMutationStatus.ACQUIRED,
+            registry.acquireClaim(
+                Any(),
+                InfrastructureClaimRequest(
+                    owner("test:released-overlap", 1),
+                    InfrastructureFootprint(listOf(interval(50.0, 55.0)))
+                )
+            ).status
+        )
+    }
+
+    @Test
+    fun `claim snapshots stay detached across shrink append and rollback`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val first = interval(0.0, 10.0)
+        val second = interval(20.0, 30.0)
+        val delta = interval(40.0, 50.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(first, second)))
+        )
+        val before = registry.claimSnapshots().single()
+
+        assertEquals(InfrastructureMutationStatus.REPLACED, registry.shrinkClaim(platform, routeOwner, listOf(first)).status)
+        val afterShrink = registry.claimSnapshots().single()
+        val append = registry.beginAppendClaim(platform, routeOwner, listOf(delta))
+        assertEquals(InfrastructureMutationStatus.REPLACED, append.result.status)
+        val afterAppend = registry.claimSnapshots().single()
+        assertEquals(InfrastructureMutationStatus.REPLACED, registry.rollbackClaimAppend(append).status)
+
+        assertEquals(listOf(first, second), before.footprint.resources)
+        assertEquals(listOf(second), afterShrink.footprint.resources)
+        assertEquals(listOf(second, delta), afterAppend.footprint.resources)
+        assertEquals(listOf(second), registry.claimSnapshots().single().footprint.resources)
+        assertThrows(UnsupportedOperationException::class.java) {
+            @Suppress("UNCHECKED_CAST")
+            (afterAppend.footprint.resources as MutableList).clear()
+        }
+    }
+
+    @Test
+    fun `many ordered resources release one by one without losing owner or order`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val resources = (0 until 128).map { index ->
+            interval(index * 2.0, index * 2.0 + 1.0)
+        }
+        assertEquals(
+            InfrastructureMutationStatus.ACQUIRED,
+            registry.acquireClaim(
+                platform,
+                InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(resources))
+            ).status
+        )
+
+        resources.forEachIndexed { index, resource ->
+            val expected = if (index == resources.lastIndex) InfrastructureMutationStatus.RELEASED
+            else InfrastructureMutationStatus.REPLACED
+            assertEquals(expected, registry.shrinkClaim(platform, routeOwner, listOf(resource)).status)
+        }
+
+        assertTrue(registry.claimSnapshots().isEmpty())
+        assertEquals(
+            InfrastructureMutationStatus.ACQUIRED,
+            registry.acquireClaim(
+                Any(),
+                InfrastructureClaimRequest(owner("test:reuse", 1), InfrastructureFootprint(resources))
+            ).status
+        )
+        assertEquals(resources, registry.claimSnapshots().single().footprint.resources)
+    }
+
+    @Test
+    fun `unchanged claim requires the same resource order after release`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val first = interval(0.0, 10.0)
+        val second = interval(20.0, 30.0)
+        val last = interval(40.0, 50.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(first, second, last)))
+        )
+        assertEquals(InfrastructureMutationStatus.REPLACED, registry.shrinkClaim(platform, routeOwner, listOf(first)).status)
+
+        assertEquals(
+            InfrastructureMutationStatus.UNCHANGED,
+            registry.acquireClaim(
+                platform,
+                InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(second, last)))
+            ).status
+        )
+        assertEquals(
+            InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+            registry.acquireClaim(
+                platform,
+                InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(last, second)))
+            ).status
+        )
+        assertEquals(listOf(second, last), registry.claimSnapshots().single().footprint.resources)
+    }
+
+    @Test
+    fun `claim shrink releases the claim when every exact resource is removed`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 1)
+        val resources = listOf(interval(0.0, 10.0), interval(20.0, 30.0))
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(resources))
+        )
+
+        assertEquals(
+            InfrastructureMutationStatus.RELEASED,
+            registry.shrinkClaim(platform, routeOwner, resources.reversed()).status
+        )
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `claim shrink rejects missing exact resource without mutation`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 1)
+        val held = interval(0.0, 40.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(held)))
+        )
+
+        val result = registry.shrinkClaim(platform, routeOwner, listOf(interval(10.0, 20.0)))
+
+        assertEquals(InfrastructureMutationStatus.NOT_FOUND, result.status)
+        assertEquals(listOf(held), registry.claimSnapshots().single().footprint.resources)
+    }
+
+    @Test
+    fun `claim shrink validates every requested identity before removing any`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 1)
+        val first = interval(0.0, 10.0)
+        val second = interval(20.0, 30.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(first, second)))
+        )
+
+        val result = registry.shrinkClaim(
+            platform,
+            routeOwner,
+            listOf(first, interval(40.0, 50.0))
+        )
+
+        assertEquals(InfrastructureMutationStatus.NOT_FOUND, result.status)
+        assertEquals(listOf(first, second), registry.claimSnapshots().single().footprint.resources)
+    }
+
+    @Test
+    fun `claim shrink reports a missing claim without mutation`() {
+        val result = registry.shrinkClaim(
+            Any(),
+            owner("test:missing-route", 1),
+            listOf(interval(0.0, 10.0))
+        )
+
+        assertEquals(InfrastructureMutationStatus.NOT_FOUND, result.status)
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `claim shrink rejects wrong owner without mutation`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 1)
+        val held = interval(0.0, 10.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(held)))
+        )
+
+        assertEquals(
+            InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+            registry.shrinkClaim(Any(), routeOwner, listOf(held)).status
+        )
+        assertEquals(
+            InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+            registry.shrinkClaim(platform, owner("test:route", 2), listOf(held)).status
+        )
+        assertEquals(routeOwner, registry.claimSnapshots().single().owner)
+        assertEquals(listOf(held), registry.claimSnapshots().single().footprint.resources)
+    }
+
+    @Test
+    fun `claim shrink rejects pending admission without mutation`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 1)
+        val held = interval(0.0, 10.0)
+        val mutation = registry.beginAcquireClaim(
+            platform,
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(held)))
+        )
+
+        val result = registry.shrinkClaim(platform, routeOwner, listOf(held))
+
+        assertEquals(InfrastructureMutationStatus.OWNER_REVISION_CONFLICT, result.status)
+        assertEquals(listOf(held), registry.claimSnapshots().single().footprint.resources)
+        assertTrue(registry.completeClaimMutation(mutation))
+    }
+
+    @Test
+    fun `claim shrink does not revalidate topology or resource providers`() {
+        var revision = 4L
+        var revisionReads = 0
+        var providerCalls = 0
+        val independentRegistry = InfrastructureCoordinationRegistry(
+            currentTopologyRevision = {
+                revisionReads += 1
+                revision
+            },
+            resourceExists = {
+                providerCalls += 1
+                true
+            }
+        )
+        val platform = Any()
+        val routeOwner = owner("test:route", 1)
+        val first = interval(0.0, 10.0)
+        val second = interval(20.0, 30.0)
+        independentRegistry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(first, second)))
+        )
+        revision = 5L
+        revisionReads = 0
+        providerCalls = 0
+
+        val result = independentRegistry.shrinkClaim(platform, routeOwner, listOf(first))
+
+        assertEquals(InfrastructureMutationStatus.REPLACED, result.status)
+        assertEquals(0, revisionReads)
+        assertEquals(0, providerCalls)
+        assertEquals(listOf(second), independentRegistry.claimSnapshots().single().footprint.resources)
+    }
+
+    @Test
+    fun `claim shrink requires a nonempty unique release collection`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 1)
+        val held = interval(0.0, 10.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(held)))
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            registry.shrinkClaim(platform, routeOwner, emptyList())
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            registry.shrinkClaim(platform, routeOwner, listOf(held, held))
+        }
+        assertEquals(listOf(held), registry.claimSnapshots().single().footprint.resources)
+    }
+
+    @Test
+    fun `claim shrink reports closed registry without consulting resource providers`() {
+        var providerCalls = 0
+        val closedRegistry = InfrastructureCoordinationRegistry(
+            currentTopologyRevision = { 4L },
+            resourceExists = {
+                providerCalls += 1
+                true
+            }
+        )
+        closedRegistry.close()
+
+        val result = closedRegistry.shrinkClaim(
+            Any(),
+            owner("test:route", 1),
+            listOf(interval(0.0, 10.0))
+        )
+
+        assertEquals(InfrastructureMutationStatus.SERVICE_CLOSED, result.status)
+        assertEquals(0, providerCalls)
+        assertTrue(closedRegistry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `claim append conflict leaves the established claim unchanged`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val established = interval(0.0, 10.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(established)))
+        )
+        registry.acquireClaim(
+            Any(),
+            InfrastructureClaimRequest(
+                owner("test:blocker", 1),
+                InfrastructureFootprint(listOf(interval(30.0, 40.0)))
+            )
+        )
+
+        val append = registry.beginAppendClaim(
+            platform,
+            routeOwner,
+            listOf(interval(35.0, 45.0))
+        )
+
+        assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, append.result.status)
+        val routeSnapshot = registry.claimSnapshots().single { it.owner == routeOwner }
+        assertEquals(listOf(established), routeSnapshot.footprint.resources)
+        assertFalse(registry.completeClaimAppend(append))
+    }
+
+    @Test
+    fun `pending claim append allows established prefix shrink`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val first = interval(0.0, 10.0)
+        val second = interval(20.0, 30.0)
+        val delta = interval(40.0, 50.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(first, second)))
+        )
+
+        val append = registry.beginAppendClaim(platform, routeOwner, listOf(delta))
+        val shrink = registry.shrinkClaim(platform, routeOwner, listOf(first))
+
+        assertEquals(InfrastructureMutationStatus.REPLACED, append.result.status)
+        assertEquals(InfrastructureMutationStatus.REPLACED, shrink.status)
+        val snapshot = registry.claimSnapshots().single()
+        assertEquals(routeOwner, snapshot.owner)
+        assertEquals(listOf(second, delta), snapshot.footprint.resources)
+    }
+
+    @Test
+    fun `finalizing claim append keeps the same owner revision and appended order`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val established = interval(0.0, 10.0)
+        val firstDelta = interval(20.0, 30.0)
+        val secondDelta = interval(40.0, 50.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(established)))
+        )
+
+        val append = registry.beginAppendClaim(
+            platform,
+            routeOwner,
+            listOf(firstDelta, secondDelta)
+        )
+
+        assertTrue(registry.completeClaimAppend(append))
+        assertFalse(registry.completeClaimAppend(append))
+        val snapshot = registry.claimSnapshots().single()
+        assertEquals(routeOwner, snapshot.owner)
+        assertEquals(listOf(established, firstDelta, secondDelta), snapshot.footprint.resources)
+    }
+
+    @Test
+    fun `claim append rollback removes only delta after established prefix shrink`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val releasedPrefix = interval(0.0, 10.0)
+        val remainingPrefix = interval(20.0, 30.0)
+        val delta = interval(40.0, 50.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(
+                routeOwner,
+                InfrastructureFootprint(listOf(releasedPrefix, remainingPrefix))
+            )
+        )
+        val append = registry.beginAppendClaim(platform, routeOwner, listOf(delta))
+        registry.shrinkClaim(platform, routeOwner, listOf(releasedPrefix))
+
+        val rollback = registry.rollbackClaimAppend(append)
+
+        assertEquals(InfrastructureMutationStatus.REPLACED, rollback.status)
+        val snapshot = registry.claimSnapshots().single()
+        assertEquals(routeOwner, snapshot.owner)
+        assertEquals(listOf(remainingPrefix), snapshot.footprint.resources)
+    }
+
+    @Test
+    fun `claim append rollback releases claim after every established resource shrinks`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val established = interval(0.0, 10.0)
+        val delta = interval(20.0, 30.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(established)))
+        )
+        val append = registry.beginAppendClaim(platform, routeOwner, listOf(delta))
+
+        assertEquals(
+            InfrastructureMutationStatus.REPLACED,
+            registry.shrinkClaim(platform, routeOwner, listOf(established)).status
+        )
+        assertEquals(listOf(delta), registry.claimSnapshots().single().footprint.resources)
+
+        assertEquals(InfrastructureMutationStatus.RELEASED, registry.rollbackClaimAppend(append).status)
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `pending append reports delta only after every established resource is released`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val established = (0 until 64).map { index -> interval(index * 2.0, index * 2.0 + 1.0) }
+        val delta = listOf(interval(200.0, 201.0), interval(202.0, 203.0))
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(established))
+        )
+        val append = registry.beginAppendClaim(platform, routeOwner, delta)
+        assertEquals(InfrastructureMutationStatus.REPLACED, append.result.status)
+
+        established.forEachIndexed { index, resource ->
+            val shrink = registry.shrinkClaimWithEvidence(platform, routeOwner, listOf(resource))
+            assertEquals(InfrastructureMutationStatus.REPLACED, shrink.mutation.status)
+            assertEquals(index == established.lastIndex, shrink.pendingAppendOnly)
+        }
+        assertEquals(delta, registry.claimSnapshots().single().footprint.resources)
+        assertEquals(InfrastructureMutationStatus.RELEASED, registry.rollbackClaimAppend(append).status)
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `second claim append is busy while the first delta is pending`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val established = interval(0.0, 10.0)
+        val firstDelta = interval(20.0, 30.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(established)))
+        )
+        val firstAppend = registry.beginAppendClaim(platform, routeOwner, listOf(firstDelta))
+
+        val secondAppend = registry.beginAppendClaim(
+            platform,
+            routeOwner,
+            listOf(interval(40.0, 50.0))
+        )
+
+        assertEquals(InfrastructureMutationStatus.OWNER_REVISION_CONFLICT, secondAppend.result.status)
+        assertEquals(
+            listOf(established, firstDelta),
+            registry.claimSnapshots().single().footprint.resources
+        )
+        assertTrue(registry.completeClaimAppend(firstAppend))
+    }
+
+    @Test
+    fun `claim shrink cannot remove a pending appended resource`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val established = interval(0.0, 10.0)
+        val delta = interval(20.0, 30.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(established)))
+        )
+        val append = registry.beginAppendClaim(platform, routeOwner, listOf(delta))
+
+        val shrink = registry.shrinkClaim(platform, routeOwner, listOf(established, delta))
+
+        assertEquals(InfrastructureMutationStatus.OWNER_REVISION_CONFLICT, shrink.status)
+        assertEquals(
+            listOf(established, delta),
+            registry.claimSnapshots().single().footprint.resources
+        )
+        assertEquals(InfrastructureMutationStatus.REPLACED, registry.rollbackClaimAppend(append).status)
+    }
+
+    @Test
+    fun `claim append rejects invalid delta identity without mutation`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val established = interval(0.0, 10.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(established)))
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            registry.beginAppendClaim(platform, routeOwner, emptyList())
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            registry.beginAppendClaim(platform, routeOwner, listOf(established, established))
+        }
+        val alreadyHeld = registry.beginAppendClaim(platform, routeOwner, listOf(established))
+
+        assertEquals(InfrastructureMutationStatus.INVALID_RESOURCE, alreadyHeld.result.status)
+        assertEquals(listOf(established), registry.claimSnapshots().single().footprint.resources)
+    }
+
+    @Test
+    fun `public footprint cannot be mutated through Java collection view`() {
+        val footprint = footprint(0.0, 10.0)
+        assertThrows(UnsupportedOperationException::class.java) {
+            @Suppress("UNCHECKED_CAST")
+            (footprint.resources as MutableList).add(interval(20.0, 30.0))
+        }
+    }
+
+    private fun owner(id: String, revision: Long) = InfrastructureOwner(id, revision)
+    private fun interval(start: Double, end: Double) = RailIntervalResource(railId, start, end)
+    private fun footprint(start: Double, end: Double) = InfrastructureFootprint(listOf(interval(start, end)))
+    private fun dependencies(owner: InfrastructureOwner) =
+        InfrastructureDependencyRequest(
+            owner,
+            InfrastructureDependencies(setOf(railId), setOf(nodeKey), setOf(runtimeResource))
+        )
+
+    private fun editImpact() = TopologyEditImpact(setOf(railId), setOf(nodeKey), setOf(runtimeResource))
+}

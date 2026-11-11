@@ -1,418 +1,194 @@
 package work.art1st.javarailways.bukkit.extension.train
 
-import org.bukkit.Location
-import work.art1st.javarailways.basic.api.station.DoorSide
+import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.behavior.TrainBehaviorActionDefinition
-import work.art1st.javarailways.bukkit.behavior.TrainBehaviorBindings
-import work.art1st.javarailways.bukkit.behavior.TrainBehaviorCallResult
-import work.art1st.javarailways.bukkit.behavior.TrainBehaviorRuntime
+import work.art1st.javarailways.bukkit.behavior.CarOperationBatch
+import work.art1st.javarailways.bukkit.behavior.behaviorRelativeTail
 import work.art1st.javarailways.bukkit.config.TrainModelUpdatePolicy
-import work.art1st.javarailways.bukkit.config.model.CarControlConfig
 import work.art1st.javarailways.bukkit.config.model.DriverControlEnd
 import work.art1st.javarailways.bukkit.config.model.SavedTrainPackageSnapshot
-import work.art1st.javarailways.bukkit.config.model.TrainActionAnimationConfig
 import work.art1st.javarailways.bukkit.config.model.TrainActionConfig
-import work.art1st.javarailways.bukkit.config.model.TrainBehaviorScript
 import work.art1st.javarailways.bukkit.config.model.TrainControlConfig
+import work.art1st.javarailways.bukkit.config.model.TrainResourceVersion
 import work.art1st.javarailways.bukkit.extension.bukkitWorldData
+import work.art1st.javarailways.bukkit.operation.RegionTrainOperationDispatcher
+import work.art1st.javarailways.bukkit.persistence.TrainPackageSnapshotStore
 import work.art1st.javarailways.core.api.physics.train.Train
-import work.art1st.javarailways.core.api.physics.train.TrainExtension as CoreTrainExtension
-import work.art1st.javarailways.core.api.util.Destroyable
+import work.art1st.javarailways.core.api.threading.ThreadGuard
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
-import work.art1st.javarailways.core.api.util.tick.Synchronizable
-import work.art1st.javarailways.core.api.util.tick.TickingObject
-import work.art1st.javarailways.bukkit.util.BukkitThreadOwnership
-import work.art1st.javarailways.bukkit.util.PlatformCommitAffinity
-import work.art1st.javarailways.bukkit.persistence.TrainPackageSnapshotStore
-import kotlin.math.max
+import java.util.concurrent.CompletableFuture
+import work.art1st.javarailways.core.api.physics.train.TrainExtension as CoreTrainExtension
 
 @OptIn(ExtensionData::class)
 val Train.rendererOrNull: TrainExtension?
-    get() {
-        val plugin = BukkitPlugin.instanceOrNull() ?: return null
-        return getExtensionDataOrNull(plugin)
-    }
+    get() = BukkitPlugin.instanceOrNull()?.let { getExtensionDataOrNull<CoreTrainExtension>(it) as? TrainExtension }
 
 val Train.renderer: TrainExtension
-    get() = rendererOrNull
-        ?: throw IllegalStateException("Train renderer 未注册到列车 ${this.id} 上")
+    get() = rendererOrNull ?: error("Train renderer 未注册到列车 $id 上")
 
 sealed interface TrainModelOperationResult {
-    data class Accepted(val completionDelaySeconds: Double) : TrainModelOperationResult
+    data object Accepted : TrainModelOperationResult
     data class Rejected(val reason: String) : TrainModelOperationResult
 }
 
+/** Simulation-owner facade. JS and accepted effects belong to the captured car instances. */
 class TrainExtension : CoreTrainExtension {
     lateinit var self: Train
-    private var behaviorRuntime: TrainBehaviorRuntime? = null
-    private var behaviorScript: TrainBehaviorScript? = null
-    private var actionExecutionTracker: ActionExecutionTracker? = null
     private var savedPackageName: String? = null
     private var savedPackageSnapshotHash: String? = null
     private var savedPackageSnapshot: SavedTrainPackageSnapshot? = null
-
-    fun close() {
-        behaviorRuntime?.close()
-        behaviorRuntime = null
-        behaviorScript = null
-        actionExecutionTracker = null
-    }
+    private var preparedPackageState = false
 
     override fun initialize(host: Train, savedExtensionData: Map<String, SerializableExtensionData>) {
         self = host
-        val savedState = savedExtensionData[BukkitPlugin.EXTENSION_ID] as? SavedTrainRenderState
-        savedPackageName = savedState?.packageName
-        savedPackageSnapshotHash = savedState?.packageSnapshotHash
+        if (preparedPackageState) return
+        val state = savedExtensionData[BukkitPlugin.EXTENSION_ID] as? SavedTrainRenderState
+        savedPackageName = state?.packageName
+        savedPackageSnapshotHash = state?.packageSnapshotHash
     }
 
-    fun applyAnimation(name: String): Boolean {
-        return self.cars.fold(false) { applied, car -> car.renderer.applyAnimation(name) || applied }
+    private data class Target(val renderer: CarExtension, val tail: Boolean)
+
+    private fun capture(): List<Target> {
+        ThreadGuard.ensureMainThread("TrainExtension.captureBehaviorTargets")
+        val controlTail = BukkitPlugin.INSTANCE.trainControlManager.operatingControlEndFor(self) == DriverControlEnd.TAIL
+        return self.cars.map { car -> Target(car.carRenderer, self.behaviorRelativeTail(car, controlTail)) }
     }
 
-    fun applyAnimation(name: String, sceneName: String): Boolean {
-        return self.cars.fold(false) { applied, car -> car.renderer.applyAnimation(name, sceneName) || applied }
+    fun executeDoorOperation(side: DoorSide, opening: Boolean, isPending: () -> Boolean = { true }): CompletableFuture<Unit> =
+        broadcast(isPending = isPending) { target, done -> target.renderer.executeDoor(side, opening, target.tail, done) }
+
+    /** Reset every captured car on its owning region before the train is restarted. */
+    fun resetOperationalState(): CompletableFuture<Unit> {
+        val captured = capture()
+        val future = self.world.bukkitWorldData.trackModelOperation(CompletableFuture<Unit>())
+        if (future.isDone) return future
+        val dispatcher = RegionTrainOperationDispatcher(BukkitPlugin.INSTANCE)
+        val calls = captured.map { target -> dispatcher.dispatch(target.renderer) { target.renderer.resetOperationalState() } }
+        CompletableFuture.allOf(*calls.toTypedArray()).whenComplete { _, failure ->
+            if (failure == null) future.complete(Unit) else future.completeExceptionally(failure)
+        }
+        return future
     }
 
-    fun applyAction(name: String): Boolean {
-        val action = resolveAction(name)
-        if (action == null) {
-            actionExecutionTracker?.record(applied = false, completionDelaySeconds = 0.0)
-            return false
+    fun estimateDoorCloseDurationTicks(side: DoorSide): CompletableFuture<Long> {
+        if (side == DoorSide.NONE) return CompletableFuture.completedFuture(0L)
+        val captured = capture()
+        val future = self.world.bukkitWorldData.trackModelOperation(CompletableFuture<Long>())
+        if (future.isDone) return future
+        val dispatcher = RegionTrainOperationDispatcher(BukkitPlugin.INSTANCE)
+        val calls = captured.map { target -> dispatcher.dispatch(target.renderer) {
+            target.renderer.estimateDoorCloseDurationTicks(side, target.tail)
+        } }
+        CompletableFuture.allOf(*calls.toTypedArray()).whenComplete { _, failure ->
+            if (failure != null) future.completeExceptionally(failure)
+            else future.complete(calls.maxOfOrNull { it.join() } ?: 0L)
         }
-        var applied = false
-        var completionDelaySeconds = 0.0
-        for (animation in action.animations) {
-            completionDelaySeconds = max(completionDelaySeconds, animation.at)
-            if (animation.at > 0.0) {
-                scheduleDelayed(animation.at) { applyActionAnimation(animation) }
-                applied = true
-            } else {
-                applied = applyActionAnimation(animation) || applied
-            }
-        }
-        for (sound in action.sounds) {
-            completionDelaySeconds = max(completionDelaySeconds, sound.at)
-            if (sound.at > 0.0) {
-                scheduleDelayed(sound.at) { playSound(sound.key, sound.volume, sound.pitch) }
-            } else {
-                playSound(sound.key, sound.volume, sound.pitch)
-            }
-            applied = true
-        }
-        actionExecutionTracker?.record(applied, completionDelaySeconds)
-        return applied
+        return future
     }
 
-    /**
-     * Executes the model's semantic door behavior and confirms only after all declared delayed
-     * action effects have reached their latest configured start time.
-     */
-    fun executeDoorOperation(
-        side: DoorSide,
-        opening: Boolean,
-        onComplete: () -> Unit
-    ): TrainModelOperationResult {
-        val position = self.headLocation.position
-        BukkitThreadOwnership.ensureLocation(
-            Location(self.world.bukkitWorldData.bukkitWorld, position.x(), position.y(), position.z()),
-            "TrainExtension.executeDoorOperation"
-        )
-        if (side == DoorSide.NONE) return TrainModelOperationResult.Rejected("door side is NONE")
-        if (actionExecutionTracker != null) {
-            return TrainModelOperationResult.Rejected("another tracked train action is executing")
-        }
-        val tracker = ActionExecutionTracker()
-        actionExecutionTracker = tracker
-        val behaviorResult: TrainBehaviorCallResult?
-        try {
-            val packageName = resolvePackageName()
-                ?: return TrainModelOperationResult.Rejected("train model package is unavailable")
-            val behavior = resolveBehavior()
-            behaviorResult = if (behavior != null) {
-                val runtime = ensureBehaviorRuntime(behavior)
-                    ?: return TrainModelOperationResult.Rejected("train behavior script failed to load")
-                runtime.call(
-                    "door",
-                    listOf(
-                        side.name.lowercase(),
-                        if (opening) "open" else "closed"
-                    )
-                )
-            } else {
-                val suffix = if (opening) "open" else "close"
-                val semanticSides = if (side == DoorSide.BOTH) {
-                    listOf("left", "right")
-                } else {
-                    listOf(side.name.lowercase())
+    fun executeModelAction(name: String, isPending: () -> Boolean = { true }, hasControl: Boolean = true): CompletableFuture<Unit> =
+        broadcast(isPending = isPending, customName = name, hasControl = hasControl) { target, done -> target.renderer.executeAction(name, target.tail, done) }
+
+    fun callBehavior(method: String, args: List<Any?> = emptyList(), optional: Boolean = false): CompletableFuture<Unit> =
+        broadcast { target, done -> target.renderer.executeBehavior(method, args, target.tail, done, optional) }
+
+    fun applyAnimation(name: String, scene: String? = null): CompletableFuture<Unit> = broadcast { target, done ->
+        val playback = target.renderer.executeAnimationTracked(name, scene)
+        playback.whenComplete { _, failure -> done(if (failure == null) Result.success(Unit) else Result.failure(failure)) }
+        if (playback.isCompletedExceptionally) TrainModelOperationResult.Rejected("car animation is unavailable: $name")
+        else TrainModelOperationResult.Accepted
+    }
+
+    private fun broadcast(
+        isPending: () -> Boolean = { true }, customName: String? = null, hasControl: Boolean = true,
+        invoke: (Target, (Result<Unit>) -> Unit) -> TrainModelOperationResult
+    ): CompletableFuture<Unit> {
+        val captured = capture()
+        val future = self.world.bukkitWorldData.trackModelOperation(CompletableFuture<Unit>())
+        val dispatcher = RegionTrainOperationDispatcher(BukkitPlugin.INSTANCE)
+        val targets = captured.map { target ->
+            CarOperationBatch.Target(
+                metadata = { dispatcher.dispatch(target.renderer) { target.renderer.behaviorActions(target.tail) } },
+                execute = { done ->
+                    dispatcher.dispatch(target.renderer) {
+                        if (future.isDone || !isPending()) TrainModelOperationResult.Rejected("operation cancelled before car dispatch")
+                        else invoke(target, done)
+                    }
                 }
-                val operatingFromTail = BukkitPlugin.INSTANCE.trainControlManager
-                    .operatingControlEndFor(self) == DriverControlEnd.TAIL
-                val physicalSides = semanticSides.map { semanticSide ->
-                    if (!operatingFromTail) semanticSide
-                    else if (semanticSide == "left") "right" else "left"
-                }
-                val applied = physicalSides.all { applyAction("door-$it-$suffix") }
-                if (applied) TrainBehaviorCallResult.Success("model-actions", true)
-                else TrainBehaviorCallResult.Failure("door model action is unavailable")
-            }
-        } finally {
-            actionExecutionTracker = null
-        }
-        if (behaviorResult is TrainBehaviorCallResult.Failure) {
-            return TrainModelOperationResult.Rejected(behaviorResult.message)
-        }
-        if (behaviorResult !is TrainBehaviorCallResult.Success || behaviorResult.returnValue == false) {
-            return TrainModelOperationResult.Rejected("door behavior rejected the operation")
-        }
-        if (tracker.callCount == 0 || tracker.failedCount > 0) {
-            return TrainModelOperationResult.Rejected(
-                "door behavior did not apply every requested model action"
             )
         }
-        if (tracker.completionDelaySeconds > 0.0) {
-            scheduleDelayed(tracker.completionDelaySeconds, onComplete)
-        } else {
-            onComplete()
+        return CarOperationBatch.execute(targets, future, isPending, customName, hasControl)
+    }
+
+    /** Metadata executes on car owners, not the player's region. */
+    fun loadBehaviorActions(): CompletableFuture<List<TrainBehaviorActionDefinition>> {
+        val targets = capture()
+        val future = self.world.bukkitWorldData.trackModelOperation(CompletableFuture<List<TrainBehaviorActionDefinition>>())
+        if (future.isDone) return future
+        val dispatcher = RegionTrainOperationDispatcher(BukkitPlugin.INSTANCE)
+        val calls = targets.map { target -> dispatcher.dispatch(target.renderer) { target.renderer.behaviorActions(target.tail) } }
+        CompletableFuture.allOf(*calls.toTypedArray()).whenComplete { _, failure ->
+            if (failure != null) future.completeExceptionally(failure)
+            else future.complete(calls.flatMap { it.join() }.groupBy { it.name }.values.map { entries ->
+                entries.first().copy(executable = entries.all { it.executable }, requiresControl = entries.any { it.requiresControl })
+            })
         }
-        return TrainModelOperationResult.Accepted(tracker.completionDelaySeconds)
+        return future
     }
 
-    /** Execute a named behavior.js or actions.yml action and confirm its delayed effects. */
-    fun executeModelAction(name: String, onComplete: () -> Unit): TrainModelOperationResult {
-        val position = self.headLocation.position
-        BukkitThreadOwnership.ensureLocation(
-            Location(self.world.bukkitWorldData.bukkitWorld, position.x(), position.y(), position.z()),
-            "TrainExtension.executeModelAction"
-        )
-        if (name.isBlank() || name != name.trim()) {
-            return TrainModelOperationResult.Rejected("model action name is invalid")
-        }
-        if (actionExecutionTracker != null) {
-            return TrainModelOperationResult.Rejected("another tracked train action is executing")
-        }
-        val tracker = ActionExecutionTracker()
-        actionExecutionTracker = tracker
-        val applied = try {
-            val behaviorDefinesAction = behaviorActions().any { it.name == name }
-            if (behaviorDefinesAction) applyBehaviorAction(name) else applyAction(name)
-        } finally {
-            actionExecutionTracker = null
-        }
-        if (!applied || tracker.callCount == 0 || tracker.failedCount > 0) {
-            return TrainModelOperationResult.Rejected("train model action is unavailable or failed: $name")
-        }
-        if (tracker.completionDelaySeconds > 0.0) {
-            scheduleDelayed(tracker.completionDelaySeconds, onComplete)
-        } else {
-            onComplete()
-        }
-        return TrainModelOperationResult.Accepted(tracker.completionDelaySeconds)
-    }
-
-    private fun applyActionAnimation(animation: TrainActionAnimationConfig): Boolean {
-        return if (animation.scene == null) {
-            applyAnimation(animation.name)
-        } else {
-            applyAnimation(animation.name, animation.scene)
-        }
-    }
-
-    private fun scheduleDelayed(delaySeconds: Double, action: () -> Unit) {
-        val delayed = DelayedActionEffect(delaySeconds.coerceAtLeast(0.0), action)
-        self.world.tickManager.register(delayed)
-    }
-
-    fun callBehavior(method: String, args: List<Any?> = emptyList()): TrainBehaviorCallResult {
-        val runtime = ensureBehaviorRuntime()
-            ?: return TrainBehaviorCallResult.Failure("当前列车模型包没有 behavior.js 或行为脚本加载失败")
-        return runtime.call(method, args)
-    }
-
-    fun behaviorActions(): List<TrainBehaviorActionDefinition> {
-        return ensureBehaviorRuntime()?.listActions() ?: emptyList()
-    }
-
-    fun applyBehaviorAction(name: String): Boolean {
-        val runtime = ensureBehaviorRuntime() ?: return false
-        val result = runtime.runDefinedAction(name)
-        return result is TrainBehaviorCallResult.Success && result.returnValue != false
-    }
-
-    private fun ensureBehaviorRuntime(): TrainBehaviorRuntime? {
-        val script = resolveBehavior() ?: return null
-        return ensureBehaviorRuntime(script)
-    }
-
-    private fun ensureBehaviorRuntime(script: TrainBehaviorScript): TrainBehaviorRuntime? {
-        if (behaviorRuntime != null && behaviorScript == script) return behaviorRuntime
-        behaviorRuntime?.close()
-        behaviorRuntime = null
-        behaviorScript = script
-        return try {
-            TrainBehaviorRuntime(script, createBehaviorBindings()).also { behaviorRuntime = it }
-        } catch (e: Exception) {
-            BukkitPlugin.INSTANCE.logger.warning(TrainBehaviorRuntime.formatLoadException(script, e))
-            null
-        }
-    }
-
-    private fun createBehaviorBindings(): TrainBehaviorBindings {
-        return object : TrainBehaviorBindings {
-            override fun action(name: String): Boolean = applyAction(name)
-
-            override fun sound(key: String, volume: Double, pitch: Double): Boolean {
-                playSound(key, volume, pitch)
-                return true
-            }
-
-            override fun log(message: String) {
-                BukkitPlugin.INSTANCE.logger.info("[TrainBehavior:${self.id}] $message")
-            }
-
-            override fun operatingEnd(): String {
-                return BukkitPlugin.INSTANCE.trainControlManager.operatingControlEndFor(self).name.lowercase()
-            }
+    /** Immutable YAML values; no Context initialization. Durations include every source car. */
+    fun resolveActions(): Map<String, TrainActionConfig> {
+        ThreadGuard.ensureMainThread("TrainExtension.resolveActions")
+        return self.cars.flatMap { it.carRenderer.resolveActions().values }.groupBy { it.name }.mapValues { (_, entries) ->
+            entries.first().copy(executable = entries.all { it.executable }, requiresControl = entries.any { it.requiresControl },
+                animations = entries.flatMap { it.animations }, sounds = entries.flatMap { it.sounds })
         }
     }
 
     fun modelPackageName(): String? = resolvePackageName()
 
-    fun resolveActions(): Map<String, TrainActionConfig> {
-        if (hasPinnedOperationalSnapshot()) return operationalSnapshot()?.actions.orEmpty()
-        return BukkitPlugin.INSTANCE.modelManager.getTrainActions(resolvePackageName())
-    }
-
-    fun resolveAction(name: String): TrainActionConfig? {
-        if (hasPinnedOperationalSnapshot()) return operationalSnapshot()?.actions?.get(name)
-        return BukkitPlugin.INSTANCE.modelManager.getTrainAction(resolvePackageName(), name)
-    }
-
-    fun resolveBehavior(): TrainBehaviorScript? {
-        if (hasPinnedOperationalSnapshot()) return operationalSnapshot()?.behavior
-        return BukkitPlugin.INSTANCE.modelManager.getTrainBehavior(resolvePackageName())
+    fun bindCreatedResources(type: String, version: TrainResourceVersion) {
+        savedPackageName = type
+        savedPackageSnapshot = version.packageSnapshot
+        savedPackageSnapshotHash = version.packageSnapshot.hash
     }
 
     fun resolveControl(): TrainControlConfig {
-        if (hasPinnedOperationalSnapshot()) {
-            return operationalSnapshot()?.control
-                ?: throw IllegalStateException("Pinned train package snapshot '$savedPackageSnapshotHash' is unavailable")
-        }
-        return BukkitPlugin.INSTANCE.modelManager.getTrainControl(resolvePackageName())
+        val type = requireNotNull(resolvePackageName()) { "Train '${self.id}' has no creation template" }
+        if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.FOLLOW_PACKAGE)
+            return BukkitPlugin.INSTANCE.modelManager.resourceVersion(type).packageSnapshot.control
+        return requireNotNull(operationalSnapshot()) { "Train '${self.id}' has no creation-time configuration snapshot" }.control
     }
-
-    fun resolveCarControl(carModelName: String): CarControlConfig? {
-        if (hasPinnedOperationalSnapshot()) {
-            return operationalSnapshot()?.carControls?.get(carModelName.substringAfterLast('/'))
-        }
-        return BukkitPlugin.INSTANCE.modelManager.getCar(carModelName)?.control
-    }
-
-    private fun hasPinnedOperationalSnapshot(): Boolean =
-        BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT &&
-            savedPackageSnapshotHash != null
 
     private fun operationalSnapshot(): SavedTrainPackageSnapshot? {
         if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy != TrainModelUpdatePolicy.SNAPSHOT) return null
         savedPackageSnapshot?.let { return it }
-        val hash = savedPackageSnapshotHash ?: return null
-        return TrainPackageSnapshotStore.load(hash)?.also { savedPackageSnapshot = it }
+        val hash = requireNotNull(savedPackageSnapshotHash) { "Train '${self.id}' has no creation-time configuration snapshot" }
+        return requireNotNull(TrainPackageSnapshotStore.load(hash)) {
+            "Pinned train package snapshot '$hash' is unavailable"
+        }.also { savedPackageSnapshot = it }
     }
 
-    private fun resolvePackageName(): String? {
-        savedPackageName?.let { return it }
-        val modelManager = BukkitPlugin.INSTANCE.modelManager
-        val firstModelName = self.cars.firstOrNull()?.carRendererOrNull?.carModelName ?: return null
-        return modelManager.getCar(firstModelName)?.packageName?.also { savedPackageName = it }
+    private fun resolvePackageName(): String? = savedPackageName
+
+    override fun splitBefore(carId: String, newId: String): CoreTrainExtension = TrainExtension().also {
+        it.savedPackageName = savedPackageName
+        it.savedPackageSnapshotHash = savedPackageSnapshotHash
+        it.savedPackageSnapshot = savedPackageSnapshot
+        it.preparedPackageState = true
     }
-
-    private fun playSound(key: String, volume: Double = 1.0, pitch: Double = 1.0) {
-        val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
-        val position = self.headLocation.position
-        BukkitThreadOwnership.ensureLocation(
-            Location(bukkitWorld, position.x(), position.y(), position.z()),
-            "TrainExtension.playSound"
-        )
-        val location = Location(bukkitWorld, position.x(), position.y(), position.z())
-        bukkitWorld.playSound(location, key, volume.toFloat(), pitch.toFloat())
-    }
-
-    private class ActionExecutionTracker {
-        var callCount: Int = 0
-            private set
-        var failedCount: Int = 0
-            private set
-        var completionDelaySeconds: Double = 0.0
-            private set
-
-        fun record(applied: Boolean, completionDelaySeconds: Double) {
-            callCount++
-            if (!applied) failedCount++
-            this.completionDelaySeconds = max(
-                this.completionDelaySeconds,
-                completionDelaySeconds.coerceAtLeast(0.0)
-            )
-        }
-    }
-
-    private inner class DelayedActionEffect(
-        private val delaySeconds: Double,
-        private val action: () -> Unit
-    ) : TickingObject, Synchronizable, Destroyable, PlatformCommitAffinity {
-        private var elapsedSeconds: Double = 0.0
-        private var ready: Boolean = delaySeconds <= 0.0
-        private var destroyed: Boolean = false
-
-        @Synchronized
-        override fun tick(deltaT: Double) {
-            if (destroyed || ready) return
-            elapsedSeconds += deltaT.coerceAtLeast(0.0) / 1000.0
-            if (elapsedSeconds >= delaySeconds) ready = true
+    override fun prepareLink(masterTrain: Train, removedTrain: Train, counterpart: CoreTrainExtension?): CoreTrainExtension =
+        TrainExtension().also {
+            it.savedPackageName = savedPackageName
+            it.savedPackageSnapshotHash = savedPackageSnapshotHash
+            it.savedPackageSnapshot = savedPackageSnapshot
+            it.preparedPackageState = true
         }
 
-        override fun commitLocation(): Location {
-            val position = self.headLocation.position
-            return Location(self.world.bukkitWorldData.bukkitWorld, position.x(), position.y(), position.z())
-        }
-
-        @Synchronized
-        override fun commit() {
-            if (destroyed || !ready) return
-            action.invoke()
-            destroy()
-        }
-
-        @Synchronized
-        override fun destroy() {
-            if (destroyed) return
-            destroyed = true
-            self.world.tickManager.unregister(this)
-        }
-    }
-
-    override fun splitFrom(carNum: Int, newId: String): CoreTrainExtension = TrainExtension()
-
-    override fun linkWith(otherTrain: Train) = Unit
-
-    fun pinCurrentPackageSnapshot(): String? {
-        savedPackageSnapshotHash?.let { return it }
-        return resolvePackageName()
-            ?.let { BukkitPlugin.INSTANCE.modelManager.createTrainPackageSnapshot(it) }
-            ?.let { TrainPackageSnapshotStore.save(it) }
-            ?.also { savedPackageSnapshotHash = it }
-    }
-
-    override fun save(): Pair<String, SerializableExtensionData>? {
-        val packageName = resolvePackageName()
-        val snapshotHash = if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT) {
-            pinCurrentPackageSnapshot()
-        } else {
-            null
-        }
-        return BukkitPlugin.EXTENSION_ID to SavedTrainRenderState(
-            packageName = packageName,
-            packageSnapshotHash = snapshotHash
-        )
-    }
+    override fun save(): Pair<String, SerializableExtensionData> = BukkitPlugin.EXTENSION_ID to SavedTrainRenderState(
+        packageName = resolvePackageName(),
+        packageSnapshotHash = savedPackageSnapshotHash)
 }

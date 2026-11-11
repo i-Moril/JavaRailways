@@ -5,9 +5,9 @@ import io.papermc.paper.command.brigadier.CommandSourceStack
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.entity.Player
-import work.art1st.javarailways.basic.api.ui.config.*
-import work.art1st.javarailways.basic.impl.config.ConfigUIRegistry
+import work.art1st.javarailways.bukkit.api.wand.config.*
 import work.art1st.javarailways.bukkit.BukkitPlugin
+import work.art1st.javarailways.bukkit.ui.config.ConfigUIRegistry
 import work.art1st.javarailways.bukkit.ui.dialog.DialogRenderer
 
 /**
@@ -128,9 +128,9 @@ class ConfigApiTest : BasicCommand {
             label = "高级选项",
             visibleWhen = { it.get<Boolean>("rail.advanced") == true }
         ).apply {
-            items.add(ConfigItemImpl(superelevationKey))
-            items.add(ConfigItemImpl(clothoidKey))
-            items.add(ConfigItemImpl(transitionKey))
+            items.add(WandConfigItemImpl(superelevationKey))
+            items.add(WandConfigItemImpl(clothoidKey))
+            items.add(WandConfigItemImpl(transitionKey))
         }
 
         val railGroup = ConfigGroup(
@@ -138,10 +138,10 @@ class ConfigApiTest : BasicCommand {
             label = "轨道绘制",
             description = "配置轨道绘制参数"
         ).apply {
-            items.add(ConfigItemImpl(radiusKey))
-            items.add(ConfigItemImpl(lengthKey))
-            items.add(ConfigItemImpl(designSpeedKey))
-            items.add(ConfigItemImpl(advancedKey))
+            items.add(WandConfigItemImpl(radiusKey))
+            items.add(WandConfigItemImpl(lengthKey))
+            items.add(WandConfigItemImpl(designSpeedKey))
+            items.add(WandConfigItemImpl(advancedKey))
             subGroups.add(advancedGroup)
         }
         configUI.register(railGroup)
@@ -158,7 +158,7 @@ class ConfigApiTest : BasicCommand {
             group = "rail.draw"
             order = 100
         }
-        configUI.registerToGroup("rail.draw", ConfigItemImpl(signalKey))
+        configUI.registerToGroup("rail.draw", WandConfigItemImpl(signalKey))
 
         // 模拟: 第二个外部插件贡献"自动闭塞"选项
         val autoBlockKey = ConfigKey.build<Boolean>("signal.autoBlock") {
@@ -169,23 +169,25 @@ class ConfigApiTest : BasicCommand {
             group = "rail.draw"
             order = 101
         }
-        configUI.registerToGroup("rail.draw", ConfigItemImpl(autoBlockKey))
+        configUI.registerToGroup("rail.draw", WandConfigItemImpl(autoBlockKey))
 
         // ═══════════════════════════════════════
         // 方式 4: 预渲染事件 - 权限门控
         // ═══════════════════════════════════════
+        val decorativeItem = WandConfigItemImpl(ConfigKey.build<Boolean>("rail.decorative") {
+            label = "装饰模式"
+            description = "OP 专属: 启用装饰轨道"
+            defaultValue(false)
+            valueType = ConfigValueType.BOOLEAN
+            order = 200
+        })
+        // 先注册保存目标；不指定 group，由构建事件决定是否展示。
+        configUI.register(decorativeItem)
         configUI.addBuildListener("rail.draw") { event ->
             // 模拟: 仅 OP 玩家看到"装饰模式"选项
             val player = org.bukkit.Bukkit.getPlayer(event.playerId)
             if (player != null && player.isOp) {
-                event.addItem(ConfigItemImpl(ConfigKey.build<Boolean>("rail.decorative") {
-                    label = "装饰模式"
-                    description = "OP 专属: 启用装饰轨道"
-                    defaultValue(false)
-                    valueType = ConfigValueType.BOOLEAN
-                    group = "rail.draw"
-                    order = 200
-                }))
+                event.addItem(decorativeItem)
             }
         }
     }
@@ -269,7 +271,7 @@ class ConfigApiTest : BasicCommand {
     /**
      * 按 keyId 设置配置值（支持类型转换）。
      */
-    private fun setConfigValue(item: ConfigItem, valueStr: String) {
+    private fun setConfigValue(item: WandConfigItem, valueStr: String) {
         val key = item.key
         when (key.valueType) {
             ConfigValueType.BOOLEAN -> {
@@ -277,7 +279,7 @@ class ConfigApiTest : BasicCommand {
                 @Suppress("UNCHECKED_CAST")
                 configUI.setValue(key as ConfigKey<Boolean>, value)
             }
-            ConfigValueType.NUMBER -> {
+            ConfigValueType.NUMBER, ConfigValueType.NUMBER_TEXT -> {
                 val value = valueStr.toDoubleOrNull() ?: return
                 @Suppress("UNCHECKED_CAST")
                 configUI.setValue(key as ConfigKey<Double>, value)

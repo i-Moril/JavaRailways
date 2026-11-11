@@ -259,6 +259,11 @@ tasks.register('verifySignalModuleBoundaries') {
         if (hostDescriptor.contains('SimpleATOBukkit')) {
             throw new GradleException('JavaRailways host descriptor must not declare a SimpleATOBukkit lifecycle')
         }
+        // Decorations owns the optional provider connection. A host dependency changes Paper's
+        // dependency classloader lookup and can split Kotlin identities used by host consumers.
+        if (hostDescriptor.contains('SimpleDisplays')) {
+            throw new GradleException('JavaRailways must not depend on SimpleDisplays; the optional integration belongs to Decorations')
+        }
     }
 }
 

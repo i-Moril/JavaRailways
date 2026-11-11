@@ -119,3 +119,14 @@ Bukkit/TBB shadowJar、BukkitPluginDev compileKotlin、verifySignalModuleBoundar
 宽范围 Bukkit 888项出现2失败、1跳过：已记录的 ProgramExpressions 旧下标断言，以及 ExtensionPartModelTest.style revision 的首次 frame消费超时。相关测试及实现与已部署41f7bceb相同。最终聚焦83项82通过，显示测试仍失败；其余70项Gentle/PlatformCleanup/呈现/编辑文字/part服务生命周期测试全通过，TBB34项通过。源码独立审查无未解决发现。Bukkit/TBB shadowJar、BukkitPluginDev compile、verifySignalModuleBoundaries通过。完整记录 `/tmp/jr-deploy-merged-check.log`、`/tmp/jr-deploy-focused-check.log`；不宣称测试全绿。
 
 最终候选主JAR SHA256 `ee69b8dd616d8b71130d5abf8e8ac7b182e604b95ad226f6275bef1eea822d57`，无内嵌PacketEvents/PlugManX API。TBB JAR仍为远端已安装指纹b6c56122bf4862fe693c3dfc8a7c3688965553903620bbc4b5d6f088646b5fbd，因此只替换主JAR。停服后的恢复备份范围是完整world、plugins、config及根配置，权限受限，且逐文件验证压缩包。部署状态/结果另见临时目录 `/tmp/jr-gentle-deploy-20261111`。
+
+
+### 实服首轮与元数据修正
+
+首轮候选8af6dd23经1915文件完整备份后只替换主JAR。11:00:24实际注册GentleUnload，运行时1个tick worker，Bridge/WebUI health200；但SimpleSignals启用出现Kotlin Function1/JsonKt loader constraint violation，未视为部署成功，立即正常停服保存。
+
+比对真实旧JAR和候选plugin.yml：旧部署仅harddepend packetevents；候选从主工作区旧集成遗留softdepend SimpleDisplays（以及本次新增PlugManX）。SimpleDisplays独立Paper libraries含Kotlin2.3.0，SimpleSignals不内嵌或声明私有Kotlin，宿主则内嵌Kotlin/serialization。当前SimpleDisplays连接已由Decorations拥有，宿主无API导入和初始化；因此删除宿主过时SimpleDisplays软依赖，保留PlugManX，并在根verifySignalModuleBoundaries增加产物回归检查。此修正不删除屏幕功能、不改其他插件。
+
+修正后聚焦18测试全部通过，主shadowJar、Devcompile和边界检查通过（/tmp/jr-deploy-metadata-fix-check.log）。新JAR SHA256 e19b38fc120f5e4f1a7a13b67238462f09dbd83efabe1777a3c1a60c39ad1be3；后续实际重启结果单独记录，不能以静态检查替代SimpleSignals启用验收。首轮恢复点 /opt/mcsmanager/backups/javarailways/gentle-unload-20261111-juslpv0f，archive SHA256 d2ced447d79f9627e4706d105e5441aeb65b75fafc3abd1328d3486337e34267。
+
+显示测试的额外二进制对照已完成：将实际旧部署JAR840ad44作为测试classpath首项，执行同一个ExtensionPartModelTest用例，复现同样首次frame消费失败（/tmp/jr-baseline-binary-test.log）；这是原有行为。

@@ -113,6 +113,7 @@ worker的record比较、JSON编码、旧文件复制均为`O(render record count
 - `RenderableFrameSnapshot.velocity`是world-space m/s；`CarExtension`只做`/20`转换为Bukkit blocks/tick。body和bogie都从各自同一frame velocity转换，禁止用train标量speed×模型direction重建车体速度，也禁止把bogie的m/s原样传给entity。
 - `DisplayRenderBackendFactory` 根据 config 选择 `NATIVE`/`ENTITYLIB`，backend-specific entity/packet 细节隐藏在 `render.backend`。
 - composite visual 显示顺序是 children before root passenger packet；隐藏顺序是 root before children。`CompositeModelVisibilityTest` 固定该 contract。
+- packet display 仅在 `Player.isChunkSent` 确认 anchor 区块已发送后加入 viewer；挂载部件使用 live root anchor 生成，不能沿用模型构建位置。`PacketDisplayChunks` 记录每玩家/世界/区块发送 generation，区块重发后按 children-before-root 重建，普通跨区块移动不触发反复 respawn；`TrainVisibilitySimulationTest` 覆盖持续移动、等待区块、重发恢复和观众隔离。generation 是客户端运行态标记，不是存档 schema version。
 - model/audience/revision pipeline 保持 latest-wins、有界队列和 stale revision rejection；不要引入每车遍历全服玩家或每 tick 无界 scheduler submission。
 - destroy/unload 必须幂等并清理 child/root/backend resources。
 - 列车模型部件的 `item.type` 与动画 command/keyframe 的 `item-type` 在包解析阶段校验 Bukkit 材质名；构建和播放不以石头或原材质掩盖非法输入。解析错误沿现有文件上下文上报，不新增格式版本。

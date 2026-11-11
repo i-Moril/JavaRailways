@@ -244,12 +244,12 @@ tasks.register('verifySignalModuleBoundaries') {
                     "${embeddedSignalClasses.sort()}"
             )
         }
-        if (!hostEntries.contains('plugin.yml')) {
-            throw new GradleException('JavaRailways host JAR does not contain plugin.yml')
+        if (!hostEntries.contains('paper-plugin.yml') || hostEntries.contains('plugin.yml')) {
+            throw new GradleException('JavaRailways host JAR must contain only paper-plugin.yml as its plugin descriptor')
         }
         def hostDescriptor
         new java.util.zip.ZipFile(hostJar).withCloseable { zip ->
-            hostDescriptor = zip.getInputStream(zip.getEntry('plugin.yml')).withCloseable { stream ->
+            hostDescriptor = zip.getInputStream(zip.getEntry('paper-plugin.yml')).withCloseable { stream ->
                 stream.getText('UTF-8')
             }
         }

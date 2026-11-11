@@ -102,3 +102,8 @@
 本批实施与独立审查完成：GentleUnload / 非阻塞 owner barrier / 精确注册释放 / 文档规范 / 269 项 Bukkit 测试与打包通过。实服验收待后续授权；未提交和部署。
 
 集成到用户明确指定的 feat/simpledisplays-train-integration：保留显式world runtime并接入目标呈现服务cleanup stage。受影响模块与JAR/边界检查完成；记录一个目标已有 ProgramExpressionsTest 下标失败，未扩大范围修改。主工作区原有工作不纳入提交。
+
+
+## 2026-11-11：Paper 描述文件迁移完成
+
+用户确认最新 `8e40af9d` 所在分支实施。主插件唯一 paper-plugin.yml、现代 Cloud 保留、原有模块边界同步；配套打包通过。隔离 Folia 单worker中七插件启动和一次GentleUnload两请求重载通过，重载前后 `jr help` 均成功，临时实例已停；未验收真实客户端补全，未部署或提交。详情见 [迁移验证](research/paper-plugin-migration-20261111.md)。

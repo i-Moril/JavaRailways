@@ -32,6 +32,8 @@ JavaRailways 需要 Paper/Folia、Java 25，以及**独立安装的 PacketEvents
 2. 将 PacketEvents 和 JavaRailways 的插件 JAR 放入服务器 `plugins/`，重启服务器。
 3. JavaRailways 声明硬依赖 `packetevents`；缺少该插件时不会加载，版本过旧或未初始化时启用失败。
 
+JavaRailways 使用 `paper-plugin.yml` 声明 Paper/Folia 插件入口；PacketEvents 是必需的 server 依赖，PlugManX 是可选依赖，均在 JavaRailways 之前启用并开放所需类访问。主插件继续使用现代 Cloud `PaperCommandManager`，不额外声明 Bukkit `commands`。
+
 JavaRailways 不再包含 PacketEvents，其他插件内嵌的副本不能代替独立安装。EntityLib 仍由 JavaRailways 内嵌并重定位，使用独立 PacketEvents 的共享 API。
 
 关闭或重载 JavaRailways 时，它只释放自己的模型和监听器，不关闭 PacketEvents、不撤销玩家网络注入。不要在依赖插件运行时单独卸载 PacketEvents；需要更新它时重启服务器。当前仅以 PlugManX 3.2.1 的 Paper/Folia 路径为支持目标，完整热重载兼容性仍需真实服务器验证。

@@ -77,3 +77,10 @@ Folia 禁用阶段 owner cleanup、Cloud 命令恢复、PacketEvents 在线玩�
 预期边界：BukkitPlugin composition、PlatformCleanup 非阻塞完成接口、局部 GentleUnload 状态与可选 API adapter、必要的 plugin dependency metadata、生产路径测试和 README。优先不引入硬依赖或内嵌 PlugManX；任何反射适配仅针对已核对的 3.2.1 接口，不能更改 enabled、借用其他插件调度身份或绕过线程 ownership。异步准备不能简单把含 Bukkit 操作的整个 prepareShutdown 丢给异步线程；global/entity/region affinity 必须保留，等待点必须让 tick worker 返回调度器。异步期间正常停服或非 GentleUnload 禁用应有显式安全处理和测试。
 
 验证：单 worker 队列第一次返回后才能执行 cleanup 的生产逻辑测试；重复/ready/failed/超时/嵌套任务/迟到回调/直接禁用及缺失 PlugManX 的场景。执行 Bukkit tests + shadowJar，检查 PlugManX 未内嵌；下游 compile/test 按实际变更边界。实服验证未执行不能声称已通过。
+
+
+## 2026-11-11：最新分支的 Paper 插件描述文件迁移
+
+用户明确要求在当前最新分支 `codex/deploy-folia-gentle-unload`（基线 `8e40af9d`）修改；取代此前沿用的旧主工作区目标。将主插件迁移到唯一 `paper-plugin.yml`，保留现代 Cloud manager 和 GentleUnload；硬依赖外部 PacketEvents，可选依赖 PlugManX。最新分支的 SimpleDisplays 集成归 Decorations，宿主不得重新添加该依赖。撤回误落旧主工作区的三项任务改动，保留其余既有未提交文件。
+
+验收限于构建/描述文件边界，以及独立 Folia26.1.2 + PlugManX3.2.1 + 现有附属插件的一次两请求重载，核实重载前后 `jr help` 可执行。无需新增单元测试或全仓测试；在线玩家补全未经真实客户端验收不能宣称已通过。不提交、不替换在线实例。

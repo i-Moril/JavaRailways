@@ -8,6 +8,16 @@
 - 嵌套配置的唯一有效条目与值快照归[Wand配置UI合同](./wand-config.md)。Dialog显示、触发按钮与回复捕获只消费`BuiltGroup.effectiveItems`，不能拼回原始子组items；初始值来自该构建的snapshot，不临时重读session。CR-041实现状态以该合同及审查记录为准。
 - 玩家文本使用 Adventure `Component` 和资源/locale owner；固定 enum/JSON token 不翻译。
 
+### Paper 描述文件与命令恢复（CURRENT）
+
+主插件由 `BukkitPlugin/build.gradle` 的 ResourceFactory Paper convention 生成唯一 `paper-plugin.yml`，保留原 JavaPlugin 入口、管理员权限和 Folia 标记。`dependencies.server.packetevents` 必需，`PlugManX` 可选；两者均为 `load: BEFORE`、`join-classpath: true`。SimpleDisplays 集成归 Decorations，宿主不得添加该依赖；附属插件保留各自现有描述文件和运行库归属。此变更不修改世界、配置或扩展 payload 格式。
+
+正常启动先按依赖顺序启用外部插件，再由 Cloud 的 `buildOnEnable(plugin)` 登记 `LifecycleEvents.COMMANDS` 回调；收到事件时，Cloud 才将已定义的路由注册为 Brigadier 命令树。创建 manager 或同步服务器已有命令都不能替代这个事件。该步骤发生于加载/重载阶段，不增加 tick 扫描，注册工作随现有命令树规模增长；未注册时不提供命令降级入口。
+
+PlugManX 3.2.1 在 `paper-plugin.yml` provider 加载路径启用插件后补发该插件的 `COMMANDS` 事件，再同步命令；其普通 `plugin.yml` 路径缺少相同重放。保留现代 Cloud manager，不手工反射调用 Cloud 内部方法，也不同时打包两个描述文件。缺少必需 PacketEvents 时由加载器拒绝；命令未恢复即视为重载验收失败，不能用插件列表显示已启用代替。
+
+验证仅需主 JAR 描述文件和现有模块边界检查、一次实际 Folia 启动及 GentleUnload 两请求重载前后的 `jr help`；同时核实附属插件重新启用。重载命令经过 global scheduler，业务清理仍遵守既有 owner 契约。真实客户端补全、在线实体和保存验收分别记录，不能从控制台命令成功推导；同实例 disable/enable 和其他管理器也不在本次结论范围。
+
 ### 共用Wand按F切换模式（CURRENT）
 
 BukkitPlugin公开`bukkit.api.wand.WandModeSwitch.handle(PlayerSwapHandItemsEvent event, Predicate<ItemStack> matches, Consumer<Player> switchMode): boolean`。它只提取既有AbstractWand的输入路由，不拥有模式、物品状态或铁路业务，也不注册服务或监听器。宿主AbstractWand及附属工具在各自的事件监听器中调用。

@@ -292,7 +292,7 @@ RailVisualBootstrap索引键为(exact CoreWorld.runtimeId, rail UUID)，不能�
 
 ### 1. 触发范围
 
-BukkitPlugin、WorldManager、dispatcher、模型/工具和 add-on 在同实例启停或类加载器替换时必须释放单次 enable 资源。Cloud 命令管理器仍是独立未解决项，本轮不宣称完整 PlugMan 兼容。
+BukkitPlugin、WorldManager、dispatcher、模型/工具和 add-on 在同实例启停或类加载器替换时必须释放单次 enable 资源。现代 Cloud 的新实例命令恢复由 Paper 描述文件与 COMMANDS 事件契约负责，见[交互规范](interaction-render-persistence.md#paper-描述文件与命令恢复current)；同实例启停与任意管理器兼容性不由此保证。
 
 ### 2. 签名
 
@@ -340,7 +340,7 @@ JavaRailways 依赖独立安装的 `packetevents`，EntityLib 仍重定位在主
 
 ### 3. 契约
 
-`plugin.yml` 声明 `depend: [packetevents]`；编译基线为 2.12.1。启用时检查外部 API 已初始化、未终止，且版本不低于 2.12.1。禁止对共享 API 调用 `setAPI/load/init/terminate/uninject/clearBuildCache/unregisterAllListeners`。关闭只清理本插件的虚拟实体、motion listener 和状态；不得改变其他 consumer 的 listener、在线玩家协议状态或网络 handler。EntityLib 不启用 ViewerEngine、tickTickables、BStats 或更新检查。
+`paper-plugin.yml` 声明必需的 `dependencies.server.packetevents`，加载顺序为 BEFORE 并开放 classpath；编译基线为 2.12.1。启用时检查外部 API 已初始化、未终止，且版本不低于 2.12.1。禁止对共享 API 调用 `setAPI/load/init/terminate/uninject/clearBuildCache/unregisterAllListeners`。关闭只清理本插件的虚拟实体、motion listener 和状态；不得改变其他 consumer 的 listener、在线玩家协议状态或网络 handler。EntityLib 不启用 ViewerEngine、tickTickables、BStats 或更新检查。
 
 ### 4. 校验与错误
 
@@ -352,7 +352,7 @@ JavaRailways 依赖独立安装的 `packetevents`，EntityLib 仍重定位在主
 
 ### 6. 必需测试
 
-覆盖外部 API 状态校验、同实例关闭再启用、部分初始化失败；用真实 EventManager 验证自己的 listener 消失、其他 listener 保留。检查 shadow JAR 不含 PacketEvents 类且 plugin.yml 含硬依赖。实际 Paper/Folia 在线玩家热重载仍需单独验收。
+覆盖外部 API 状态校验、同实例关闭再启用、部分初始化失败；用真实 EventManager 验证自己的 listener 消失、其他 listener 保留。检查 shadow JAR 不含 PacketEvents 类且 paper-plugin.yml 含必需 server 依赖。实际 Paper/Folia 在线玩家热重载仍需单独验收。
 
 ### 7. 错误与正确做法
 

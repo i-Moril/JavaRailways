@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
+import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
@@ -25,6 +27,197 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 class CoreTrainConstructionTest {
+    @Test
+    fun `extension initialization can read detached composition before the initial frame exists`() = withWorld { world, rail ->
+        val car = createCar(world, rail, 40.0, 30.0)
+        var observed: work.art1st.javarailways.core.api.physics.train.TrainComposition? = null
+        val extensions = ExtensionDataContainer<TrainExtension>()
+        extensions.setExtensionDataAt(0, object : TrainExtension {
+            override fun initialize(host: Train, savedExtensionData: Map<String, SerializableExtensionData>) {
+                observed = host.composition
+                assertEquals(listOf(car.id), observed!!.units.single().carIds)
+            }
+            override fun save(): Pair<String, SerializableExtensionData>? = null
+            override fun splitBefore(carId: String, newId: String): TrainExtension = error("unused")
+            override fun prepareLink(masterTrain: Train, removedTrain: Train, counterpart: TrainExtension?): TrainExtension = error("unused")
+        })
+        val train = world.onOwnerForTest { CoreTrain("bootstrap-unit", listOf(car), world, emptyMap(), extensionDataContainer = extensions) }
+        assertEquals(observed, train.composition)
+        assertEquals(observed, train.publishedFrame.composition)
+    }
+
+    @Test
+    fun `default unit is stable across publication reversal and save`() = withWorld { world, rail ->
+        val train = createTrainWithConfig("default-unit", rail, world, listOf(10.0, 10.0))
+        val original = train.composition
+        assertEquals(1, original.units.size)
+        assertEquals(train.id, original.units.single().unitId)
+        assertEquals(train.cars.map { it.id }, original.units.single().carIds)
+        val frame = train.publishedFrame
+        world.onOwnerForTest { train.publishMetadataFrame() }
+        assertSame(original, train.composition, "unchanged composition is reused by each published frame")
+        world.onOwnerForTest { train.reverse() }
+        assertSame(original, train.composition)
+        assertEquals(original, frame.composition)
+        assertEquals(original.units.single().unitId, train.save().composition.single().unitId)
+        assertEquals(original.units.single().carIds, train.save().composition.single().carIds)
+    }
+
+    @Test
+    fun `restoring an unmarked train initializes its unit from the existing saved train identity`() = withWorld { world, rail ->
+        val original = createTrainWithConfig("existing-identity", rail, world, listOf(10.0))
+        val saved = original.save().copy(composition = emptyList())
+        world.onOwnerForTest { original.destroy() }.toCompletableFuture().get(5, TimeUnit.SECONDS)
+        val restored = world.onOwnerForTest { saved.load(world) }
+        assertEquals(saved.id, restored.composition.units.single().unitId)
+        assertEquals(saved.cars.map { it.id }, restored.composition.units.single().carIds)
+        assertEquals(saved.id, restored.save().composition.single().unitId)
+    }
+
+    @Test
+    fun `explicit duplicate unit ownership rejects creation without replacing existing composition`() = withWorld { world, rail ->
+        val first = createTrainWithConfig("existing-unit", rail, world, listOf(10.0))
+        val composition = first.composition
+        assertThrows(IllegalArgumentException::class.java) {
+            createTrainWithConfig("duplicate-unit", rail, world, listOf(10.0), composition = composition)
+        }
+        assertSame(composition, first.composition)
+        assertNull(world.getTrain("duplicate-unit"))
+        assertEquals(1, world.allTrains.size)
+    }
+
+    @ParameterizedTest
+    @CsvSource("false", "true")
+    fun `split at permanent unit boundary preserves both identities and preparation failure is atomic`(fail: Boolean) = withWorld { world, rail ->
+        val composition = work.art1st.javarailways.core.api.physics.train.TrainComposition.create(listOf(
+            work.art1st.javarailways.core.api.physics.train.TrainUnitComposition("front", listOf("car-0", "car-1")),
+            work.art1st.javarailways.core.api.physics.train.TrainUnitComposition("rear", listOf("car-2"))
+        ), listOf("car-0", "car-1", "car-2"))
+        val train = createTrainWithConfig("boundary-source", rail, world, listOf(10.0, 10.0, 10.0), composition = composition)
+        val old = train.composition
+        val initialized = AtomicInteger()
+        train.extensionDataContainer.setExtensionDataAt(3, object : TrainExtension {
+            override fun initialize(host: Train, savedExtensionData: Map<String, SerializableExtensionData>) = Unit
+            override fun save(): Pair<String, SerializableExtensionData>? = null
+            override fun splitBefore(carId: String, newId: String): TrainExtension = object : TrainExtension {
+                override fun initialize(host: Train, savedExtensionData: Map<String, SerializableExtensionData>) {
+                    initialized.incrementAndGet()
+                    val visibleUnits = world.allTrains.flatMap { it.composition.units }
+                    assertEquals(listOf("front", "rear"), visibleUnits.map { it.unitId })
+                    assertEquals(visibleUnits.size, visibleUnits.map { it.unitId }.distinct().size,
+                        "a read-only fixed unit provider must never see two committed owners during initialization")
+                    assertEquals(listOf("rear"), host.composition.units.map { it.unitId })
+                    assertSame(host, world.getTrain(newId), "staging still reserves the exact train identity")
+                    assertEquals(listOf(train), world.allTrains.toList())
+                    if (fail) error("new host initialization failed")
+                }
+                override fun save(): Pair<String, SerializableExtensionData>? = null
+                override fun splitBefore(carId: String, newId: String): TrainExtension = error("unused")
+                override fun prepareLink(masterTrain: Train, removedTrain: Train, counterpart: TrainExtension?): TrainExtension = error("unused")
+            }
+            override fun prepareLink(masterTrain: Train, removedTrain: Train, counterpart: TrainExtension?): TrainExtension = error("unused")
+        })
+        val split = train.splitBefore("car-2", "boundary-separated")
+        world.onOwnerForTest { world.physicsCoordinator.drainBetweenFramesOperations() }
+        assertEquals(1, initialized.get())
+        if (fail) {
+            assertThrows(java.util.concurrent.ExecutionException::class.java) { split.get(5, TimeUnit.SECONDS) }
+            assertSame(old, train.composition)
+            assertNull(world.getTrain("boundary-separated"))
+            assertEquals(listOf("car-0", "car-1", "car-2"), train.cars.map { it.id })
+        } else {
+            val separated = split.get(5, TimeUnit.SECONDS)
+            assertEquals(listOf("front"), train.composition.units.map { it.unitId })
+            assertEquals(listOf("rear"), separated.composition.units.map { it.unitId })
+            assertEquals(listOf("front", "rear"), old.units.map { it.unitId })
+            assertEquals(2, world.allTrains.size)
+            assertEquals(setOf("front", "rear"), world.allTrains.flatMap { it.composition.units }.map { it.unitId }.toSet())
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource("false,false", "false,true", "true,false", "true,true")
+    fun `internal unit split partitions canonical membership and fails without modifying the source`(canonicalReversed: Boolean, fail: Boolean) = withWorld { world, rail ->
+        val canonical = listOf("car-0", "car-1", "car-2").let { if (canonicalReversed) it.asReversed() else it }
+        val composition = work.art1st.javarailways.core.api.physics.train.TrainComposition.single(canonical, "internal-source")
+        val train = createTrainWithConfig("internal-source", rail, world, listOf(10.0, 10.0, 10.0), composition = composition)
+        val original = train.composition
+        if (fail) train.extensionDataContainer.setExtensionDataAt(3, object : TrainExtension {
+            override fun initialize(host: Train, savedExtensionData: Map<String, SerializableExtensionData>) = Unit
+            override fun save(): Pair<String, SerializableExtensionData>? = null
+            override fun splitBefore(carId: String, newId: String): TrainExtension = error("prepare failed")
+            override fun prepareLink(masterTrain: Train, removedTrain: Train, counterpart: TrainExtension?): TrainExtension = error("unused")
+        })
+        val split = train.splitBefore("car-1", "internal-separated")
+        world.onOwnerForTest { world.physicsCoordinator.drainBetweenFramesOperations() }
+        if (fail) {
+            assertThrows(java.util.concurrent.ExecutionException::class.java) { split.get(5, TimeUnit.SECONDS) }
+            assertSame(original, train.composition)
+            assertEquals(listOf("car-0", "car-1", "car-2"), train.cars.map { it.id })
+            assertNull(world.getTrain("internal-separated"))
+        } else {
+            val separated = split.get(5, TimeUnit.SECONDS)
+            assertEquals("internal-source", train.composition.units.single().unitId)
+            assertEquals(listOf("car-0"), train.composition.units.single().carIds)
+            assertEquals("internal-separated", separated.composition.units.single().unitId)
+            assertEquals(canonical.filter { it != "car-0" }, separated.composition.units.single().carIds)
+            assertEquals(canonicalReversed, separated.composition.units.single().isReversedIn(listOf("car-1", "car-2")))
+            assertEquals(original, composition)
+        }
+    }
+
+    @Test
+    fun `staged internal split reserves its new unit identity against reentrant explicit creation`() = withWorld { world, rail ->
+        val source = createTrainWithConfig("reserved-source", rail, world, listOf(10.0, 10.0))
+        val checked = AtomicInteger()
+        source.extensionDataContainer.setExtensionDataAt(3, object : TrainExtension {
+            override fun initialize(host: Train, savedExtensionData: Map<String, SerializableExtensionData>) = Unit
+            override fun save(): Pair<String, SerializableExtensionData>? = null
+            override fun splitBefore(carId: String, newId: String): TrainExtension = object : TrainExtension {
+                override fun initialize(host: Train, savedExtensionData: Map<String, SerializableExtensionData>) {
+                    assertEquals(listOf(source), world.allTrains.toList())
+                    assertEquals(newId, host.composition.units.single().unitId)
+                    val intruderComposition = work.art1st.javarailways.core.api.physics.train.TrainComposition.single(listOf("intruder-0"), newId)
+                    assertThrows(IllegalArgumentException::class.java) {
+                        CoreTrain.createOwned(world) {
+                            val location = RailLocationWithFacing(rail.viewAB, 100.0)
+                            val car = car("intruder-0", bogie(location), bogie(location), length = 10.0,
+                                connectorLengthAtA = 0.0, connectorLengthAtB = 0.0)
+                            train("intruder", listOf(car), composition = intruderComposition)
+                        }
+                    }
+                    assertNull(world.getTrain("intruder"))
+                    checked.incrementAndGet()
+                }
+                override fun save(): Pair<String, SerializableExtensionData>? = null
+                override fun splitBefore(carId: String, newId: String): TrainExtension = error("unused")
+                override fun prepareLink(masterTrain: Train, removedTrain: Train, counterpart: TrainExtension?): TrainExtension = error("unused")
+            }
+            override fun prepareLink(masterTrain: Train, removedTrain: Train, counterpart: TrainExtension?): TrainExtension = error("unused")
+        })
+        val split = source.splitBefore("car-1", "reserved-suffix")
+        world.onOwnerForTest { world.physicsCoordinator.drainBetweenFramesOperations() }
+        val suffix = split.get(5, TimeUnit.SECONDS)
+        assertEquals(1, checked.get())
+        assertEquals("reserved-suffix", suffix.composition.units.single().unitId)
+        assertEquals(2, world.allTrains.size)
+    }
+
+    @Test
+    fun `internal split rejects a new unit identity already owned by another train`() = withWorld { world, rail ->
+        val source = createTrainWithConfig("source", rail, world, listOf(10.0, 10.0))
+        val otherCars = listOf("other-0")
+        val otherComposition = work.art1st.javarailways.core.api.physics.train.TrainComposition.single(otherCars, "new-unit-collision")
+        val other = createTrainWithConfig("other-train", rail, world, listOf(10.0), composition = otherComposition, carIdPrefix = "other-")
+        val before = source.composition
+        val split = source.splitBefore("car-1", "new-unit-collision")
+        world.onOwnerForTest { world.physicsCoordinator.drainBetweenFramesOperations() }
+        assertThrows(java.util.concurrent.ExecutionException::class.java) { split.get(5, TimeUnit.SECONDS) }
+        assertSame(before, source.composition)
+        assertSame(otherComposition.units.single(), other.composition.units.single())
+        assertNull(world.getTrain("new-unit-collision"))
+    }
+
     @Test
     fun `destroy detaches immediately on owner and waits for every child cleanup once`() = withWorld { world, rail ->
         val train = createTrainWithConfig("async-cleanup", rail, world, listOf(10.0))

@@ -65,6 +65,8 @@ class WorldPersistenceRoundTripTest {
                     WorldSnapshotCodec.encodeInfrastructure(roundInfrastructure)
                 )
                 val restoredTrain = restored.getTrain("persist-t1") ?: error("train should load")
+                assertEquals(sourceTrain.composition, restoredTrain.composition)
+                assertEquals(sourceTrain.composition, restoredTrain.publishedFrame.composition)
                 assertEquals(18.0, restoredTrain.publishedFrame.head.arcLengthInAbMeters, 1e-9)
                 assertEquals(10.0, restoredTrain.publishedFrame.tail.arcLengthInAbMeters, 1e-9)
                 assertEquals(14.0, restoredTrain.cars.single().position.x(), 1e-9)

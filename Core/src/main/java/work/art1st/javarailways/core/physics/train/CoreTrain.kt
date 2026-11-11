@@ -53,6 +53,7 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import java.util.UUID
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.train.TrainComposition
 
 /**
  * 列车类
@@ -68,7 +69,20 @@ open class CoreTrain @MainThread internal constructor(
     private val persistedHeadLocation: RailLocationWithFacing? = null,
     private val persistedTailLocation: RailLocationWithFacing? = null,
     initialReversed: Boolean = false,
+    initialComposition: TrainComposition? = null,
+    transferringCompositionFrom: CoreTrain? = null,
 ) : Train, Destroyable, Synchronizable, Extendable<TrainExtension> by extensionDataContainer, PersistentBy<SavedTrainV1> {
+    private var structuralComposition = initialComposition?.let {
+        TrainComposition.create(it.units, cars.map { car -> car.id })
+    } ?: TrainComposition.single(cars.map { it.id }, id)
+
+    override val composition: TrainComposition get() = publishedFrameRef.get()?.composition ?: structuralComposition
+
+    /** A split suffix reserves its train identity before extension initialization, but is not committed yet. */
+    @Volatile
+    internal var compositionTransferPending: Boolean = transferringCompositionFrom != null
+        private set
+
     /** Process-local implementation identity for render handoff; not persistence or `core.api`. */
     val publicationStreamId: UUID = UUID.randomUUID()
 
@@ -207,6 +221,7 @@ open class CoreTrain @MainThread internal constructor(
     init {
         world.physicsCoordinator.ensureBetweenFrames("CoreTrain construction")
         world.validateNewTrainIdentity(id, name)
+        world.validateNewTrainComposition(structuralComposition, transferringCompositionFrom)
         val initialHeadLocation = persistedHeadLocation
             ?: headBogie.location.forward(headCar.headBogieToEndPointOffset)
             ?: throw CannotCreateTrainException(headBogie.location.let { anchor ->
@@ -826,6 +841,12 @@ open class CoreTrain @MainThread internal constructor(
                 check(listenersSucceeded) { "Split decision listener failed: train=$id car=$carId" }
                 check(!decision.isRejected) { "Split rejected: ${decision.rejectionReason}" }
 
+                val splitComposition = structuralComposition.splitAt(cars.map { it.id }, splitIndex, newId)
+                val resultUnitIds = (splitComposition.retained.units + splitComposition.separated.units)
+                    .map { it.unitId }.toSet()
+                require(world.allTrains.none { existing ->
+                    existing !== this && existing.composition.units.any { it.unitId in resultUnitIds }
+                }) { "Split result unit identity belongs to another train" }
                 val retainedCars = cars.take(splitIndex)
                 val separatedCars = cars.drop(splitIndex)
                 val sourcePath = placementSegments(tail.location, head.location)
@@ -833,12 +854,14 @@ open class CoreTrain @MainThread internal constructor(
                     prepareSplitGeometry(retainedCars, sourcePath), decision.retainedReversed,
                     id, name, frameRevision.get() + 1L,
                     if (decision.holdResultMovement) 0.0 else speed, isDerailed,
-                    clearMotion = decision.holdResultMovement || decision.retainedReversed != isReversed
+                    clearMotion = decision.holdResultMovement || decision.retainedReversed != isReversed,
+                    composition = splitComposition.retained
                 )
                 val separatedSourceGeometry = prepareSplitGeometry(separatedCars, sourcePath)
                 val separatedSplit = prepareSplit(
                     separatedSourceGeometry, decision.separatedReversed,
-                    newId, newId, 1L, 0.0, false, clearMotion = true
+                    newId, newId, 1L, 0.0, false, clearMotion = true,
+                    composition = splitComposition.separated
                 )
                 val separatedExtensions = ExtensionDataContainer<TrainExtension>()
                 val controllerUpdates = controller?.prepareConsistChange(retainedCars.toList(), null).orEmpty().toList()
@@ -859,7 +882,9 @@ open class CoreTrain @MainThread internal constructor(
                     extensionDataContainer = separatedExtensions,
                     persistedHeadLocation = separatedSourceGeometry.headLocation,
                     persistedTailLocation = separatedSourceGeometry.tailLocation,
-                    initialReversed = isReversed
+                    initialReversed = isReversed,
+                    initialComposition = splitComposition.separated,
+                    transferringCompositionFrom = this
                 )
                 var retainedHold: work.art1st.javarailways.core.api.physics.train.FormationMovementHold? = null
                 var separatedHold: work.art1st.javarailways.core.api.physics.train.FormationMovementHold? = null
@@ -868,6 +893,7 @@ open class CoreTrain @MainThread internal constructor(
                     if (decision.holdResultMovement) controller?.commitStructuralStop()
                     newTrain.applyPreparedStructure(separatedSplit)
                     applyPreparedStructure(retainedSplit)
+                    newTrain.compositionTransferPending = false
                     if (decision.holdResultMovement) {
                         retainedHold = installFormationMovementHold()
                         separatedHold = newTrain.installFormationMovementHold()
@@ -977,7 +1003,8 @@ open class CoreTrain @MainThread internal constructor(
         revision: Long,
         resultSpeed: Double,
         resultDerailed: Boolean,
-        clearMotion: Boolean
+        clearMotion: Boolean,
+        composition: TrainComposition = structuralComposition
     ): PreparedTrainStructure {
         val changeDirection = reversed != isReversed
         val geometry = if (changeDirection) originalGeometry.copy(
@@ -996,7 +1023,8 @@ open class CoreTrain @MainThread internal constructor(
             geometry.cars.map { car -> car.bogies.map { it.location.reversed } }
         } else emptyList()
         val frame = prepareStructureFrame(
-            geometry, reversed, resultId, resultName, revision, resultSpeed, resultDerailed, clearMotion
+            geometry, reversed, resultId, resultName, revision, resultSpeed, resultDerailed, clearMotion,
+            composition = composition
         )
         return PreparedTrainStructure(geometry, frame, reversedBogieLocations, clearMotion)
     }
@@ -1011,7 +1039,8 @@ open class CoreTrain @MainThread internal constructor(
         resultSpeed: Double = speed,
         resultDerailed: Boolean = isDerailed,
         clearMotion: Boolean = false,
-        preparedCars: Map<CoreCar, CarFrameSnapshot> = emptyMap()
+        preparedCars: Map<CoreCar, CarFrameSnapshot> = emptyMap(),
+        composition: TrainComposition = structuralComposition
     ): TrainFrameSnapshot = captureFrame(
         revision = revision,
         physicsEpoch = publishedFrame.physicsEpoch,
@@ -1031,13 +1060,15 @@ open class CoreTrain @MainThread internal constructor(
         },
         frameReversed = reversed,
         clearFrameMotion = clearMotion,
-        preparedCars = preparedCars
+        preparedCars = preparedCars,
+        frameComposition = composition
     )
 
     internal fun applyPreparedStructure(prepared: PreparedTrainStructure) {
         formationGeometryIdentity = Any()
         val geometry = prepared.geometry
         cars = geometry.cars
+        structuralComposition = prepared.frame.composition
         if (prepared.reversedBogieLocations.isNotEmpty()) {
             cars.forEachIndexed { index, car ->
                 car.applyPreparedOperatingReversal(prepared.reversedBogieLocations[index])
@@ -1134,7 +1165,8 @@ open class CoreTrain @MainThread internal constructor(
         frameDerailState: DerailState = derailStateBuffer.get(),
         frameReversed: Boolean = isReversed,
         clearFrameMotion: Boolean = false,
-        preparedCars: Map<CoreCar, CarFrameSnapshot> = emptyMap()
+        preparedCars: Map<CoreCar, CarFrameSnapshot> = emptyMap(),
+        frameComposition: TrainComposition = structuralComposition
     ): TrainFrameSnapshot = TrainFrameSnapshot.create(
         trainId = frameTrainId,
         trainName = frameTrainName,
@@ -1160,7 +1192,8 @@ open class CoreTrain @MainThread internal constructor(
             SweptRailSpanSnapshot(span.railId, span.minArcAB, span.maxArcAB)
         },
         headTraversal = frameHeadTraversal,
-        tailTraversal = frameTailTraversal
+        tailTraversal = frameTailTraversal,
+        composition = frameComposition
     )
 
     private fun captureFrameState(
@@ -1436,11 +1469,12 @@ open class CoreTrain @MainThread internal constructor(
             cars: List<CoreCar>,
             world: CoreWorld,
             name: String = id,
-            extensionData: Map<String, SerializableExtensionData> = emptyMap()
+            extensionData: Map<String, SerializableExtensionData> = emptyMap(),
+            composition: TrainComposition? = null
         ): CoreTrain {
             require(cars.all { it.train == null }) { "New train creation cannot borrow owned cars" }
             return try {
-                CoreTrain(id, cars, world, extensionData, name)
+                CoreTrain(id, cars, world, extensionData, name, initialComposition = composition)
             } catch (failure: Throwable) {
                 val cleanup = DestructionSteps()
                 cars.forEach { car -> cleanup.await { car.destroyOwnedResources() } }
@@ -1472,7 +1506,8 @@ open class CoreTrain @MainThread internal constructor(
             isReversed,
             savedExtension,
             head.location.save(),
-            tail.location.save()
+            tail.location.save(),
+            structuralComposition.units.map { SavedTrainUnitComposition(it.unitId, it.carIds) }
         )
     }
 

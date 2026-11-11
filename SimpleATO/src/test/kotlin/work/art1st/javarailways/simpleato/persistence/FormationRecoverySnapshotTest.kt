@@ -35,13 +35,11 @@ class FormationRecoverySnapshotTest {
             }
             configure(source)
             val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(200.0, 1))
-            val train = createTrainWithConfig("combined", rail, source, listOf(10.0, 10.0))
+            val train = createTrainWithConfig("combined", rail, source, listOf(10.0, 10.0), composition = work.art1st.javarailways.simpleato.testing.testPerCarComposition(2))
             val cars = train.cars.map { it.id }
             val store = source.simpleAtoWorldData.depots
-            cars.forEachIndexed { index, id -> store.registerFixedUnit(FixedEmuUnit("unit-$index", depot, listOf(id), "emu"), cars) }
-            store.registerRollingStock(RollingStockRecord(train.id, depot, "test/emu", emptySet(), 2, 20.0, 20.0, emptySet()), StablingPointRef(depot, "one"))
-            val allocation = checkNotNull(store.reservePhysicallySelected(train.id, StablingPointRef(depot, "one"), DepotTrainSelector(depot), "incoming", cars))
-            assertTrue(store.confirmInService(allocation)); assertTrue(store.releaseDeparture(allocation))
+            cars.forEachIndexed { index, id -> store.registerUnitControlCompatibility("unit-$index", "emu") }
+            store.claimFixedFormation(train.id, cars, "incoming")
             val change = FixedFormationChange("split-at-station", FixedFormationChangeKind.SPLIT,
                 listOf(FixedFormationOwner(train.id, "incoming", cars)), listOf(
                     FixedFormationOutput(FixedFormationOwner(train.id, "outgoing", cars.take(1)), FixedFormationDisposition.CONTINUE_DUTY),
@@ -59,9 +57,7 @@ class FormationRecoverySnapshotTest {
             if (stage >= 2) {
                 val outputs = change.outputs.map { it.owner }
                 val committed = store.commitFixedFormationChange(change,
-                    source.allTrains.associate { it.id to it.cars.map { car -> car.id } },
-                    outputs.map { owner -> RollingStockRecord(owner.trainId, depot, if (stage == 2) null else "test/emu", emptySet(),
-                        owner.carIds.size, 10.0, 20.0, emptySet()) }, source.allTrains.associate { it.id to it.isReversed })
+                    source.allTrains.associate { it.id to it.cars.map { car -> car.id } },  source.allTrains.associate { it.id to it.isReversed })
                 if (stage == 3 || stage == 5) store.finishFixedFormationChange(committed,
                     source.allTrains.associate { it.id to it.cars.map { car -> car.id } },
                     source.allTrains.associate { it.id to it.isReversed }, outputs,
@@ -105,8 +101,6 @@ class FormationRecoverySnapshotTest {
                         } }
                     } })
                     val ledger = restored.simpleAtoWorldData.depots
-                    if (stage == 2) assertTrue(ledger.allRollingStock().all { it.record.modelPackageId == null },
-                        "mixed aggregate model absence must survive actual Core and operational save/load")
                     if (stage == 3 || stage == 5) {
                         assertTrue(ledger.recoveredFormationHolds().isEmpty())
                         assertEquals(if (stage == 5) change.outputs.map { it.owner } else listOf(change.outputs.last().owner),

@@ -260,6 +260,8 @@ class IsolatedTimetableSimulationWorld private constructor(
             speedSafety: SpeedSafetyMonitor.Config = SpeedSafetyMonitor.Config(false, 0.0, 1),
             preparedFeatures: List<PreparedSimulationFeature> = emptyList(),
             operationResourceFactory: (CoreWorld) -> AutoCloseable? = { null },
+            candidateFacts: (work.art1st.javarailways.core.api.physics.train.Train) ->
+                work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts? = { null },
             dispatcherFactory: (
                 CoreWorld,
                 TimetableRouteAdmissionContextProvider,
@@ -308,6 +310,7 @@ class IsolatedTimetableSimulationWorld private constructor(
                             basicDataFactory = { changes -> basicDataFactory(isolatedWorld, changes) },
                             timetableExtensions = timetableExtensions(isolatedWorld),
                             stationCallResolvers = stationCallResolvers(isolatedWorld),
+                            candidateFacts = candidateFacts,
                             dispatcherFactory = { runtime ->
                                 val admission = SimulationRouteAdmissionHost(isolatedWorld, runtime)
                                 routeAdmissionHost = admission

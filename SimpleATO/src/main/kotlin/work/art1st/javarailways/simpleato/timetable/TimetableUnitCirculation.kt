@@ -6,14 +6,15 @@ import java.util.Collections
 
 /** One coherent owner-captured ledger, not a model-derived source of imaginary vehicles. */
 internal class UnitCirculationLedger(
-    units: List<FixedEmuUnit>, stock: List<RollingStockSnapshot>, points: List<StablingPointSnapshot>,
+    units: List<FixedEmuUnit>, points: List<StablingPointSnapshot>,
     physicalCars: Map<String, List<String>>, directions: Map<String, Boolean>, carLengthsMeters: Map<String, Double>,
+    candidateFacts: Map<String, TrainCandidateFacts>, stoppedPlacements: Map<String, StablingPointRef>,
     claims: List<FixedEmuUnitAssignment> = emptyList(), heldOutputs: List<FixedFormationHeldOutput> = emptyList(),
     unresolvedChanges: List<FixedFormationChange> = emptyList()
 ) {
     val units = java.util.List.copyOf(units)
-    val stock = java.util.List.copyOf(stock.map { it.copy(record = it.record.copy(
-        tags = java.util.Set.copyOf(it.record.tags), capabilities = java.util.Set.copyOf(it.record.capabilities))) })
+    val candidateFacts = java.util.Map.copyOf(candidateFacts)
+    val stoppedPlacements = java.util.Map.copyOf(stoppedPlacements)
     val points = java.util.List.copyOf(points.map { it.copy(point = it.point.copy(allowedTags = java.util.Set.copyOf(it.point.allowedTags))) })
     val physicalCars: Map<String, List<String>> = Collections.unmodifiableMap(physicalCars.mapValues { java.util.List.copyOf(it.value) })
     val directions = java.util.Map.copyOf(directions)
@@ -50,14 +51,18 @@ internal object TimetableUnitCirculation {
             findings += catalogErrors.map { CirculationFinding("INVALID_FIXED_GRAPH", it, blocking = true) }
             return report(CirculationProof.IMPOSSIBLE)
         }
-        if (ledger.stock.any { it.state != RollingStockState.AVAILABLE } || ledger.claims.isNotEmpty() ||
-            ledger.heldOutputs.isNotEmpty() || ledger.unresolvedChanges.isNotEmpty() ||
-            ledger.points.any { it.reservedByAssignmentId != null }) {
+        if (ledger.claims.isNotEmpty() || ledger.heldOutputs.isNotEmpty() || ledger.unresolvedChanges.isNotEmpty()) {
             findings += CirculationFinding("OUTSTANDING_OWNERS", "In-service, held, pending or reserved ownership requires explicit cross-cycle obligations")
             return report(CirculationProof.UNPROVEN)
         }
         if (timetable.initialPositions.isNotEmpty()) {
             findings += CirculationFinding("INITIAL_PLACEMENT_UNPROVEN", "Initial placement must be reconciled with the captured physical depot ledger first")
+            return report(CirculationProof.UNPROVEN)
+        }
+        if (timetable.services.any { service -> service.steps.any {
+                ((it as? TimetableStep.At)?.action as? TimetableAction.TakeFromDepot)?.selector?.minimumSpeedMetersPerSecond != null
+            } } && ledger.candidateFacts.values.any { it.maximumSpeedMetersPerSecond == null }) {
+            findings += CirculationFinding("UNIT_EVIDENCE_MISSING", "A speed-restricted acquisition has unknown candidate speed capability")
             return report(CirculationProof.UNPROVEN)
         }
         val initial = try { initial(ledger) } catch (failure: MissingEvidence) {
@@ -140,8 +145,8 @@ internal object TimetableUnitCirculation {
         return report(CirculationProof.UNPROVEN, explored = search.explored)
     }
 
-    private data class DeclaredClass(val family: String, val units: Int, val model: String?, val tags: Set<String>,
-        val cars: Int, val length: Double, val speed: Double, val capabilities: Set<String>)
+    private data class DeclaredClass(val family: String?, val units: Int, val model: String?, val tags: Set<String>,
+        val cars: Int, val length: Double, val speed: Double?, val capabilities: Set<String>)
     private fun declaredClass(formation: Formation, units: List<FixedEmuUnit>): DeclaredClass {
         val members = unitsFor(formation.cars, units)
         val stock = formation.record
@@ -150,45 +155,33 @@ internal object TimetableUnitCirculation {
     }
 
     private class MissingEvidence(message: String) : IllegalArgumentException(message)
-    private data class Formation(val cars: List<String>, val reversed: Boolean, val record: RollingStockRecord,
+    private data class Formation(val cars: List<String>, val reversed: Boolean, val record: FormationOutputMetadata,
         val trainId: String?, val point: StablingPointRef? = null)
     private data class State(val bank: List<Formation>, val cursors: Map<String, Int>, val active: Map<String, Formation>,
         val outputs: Map<Pair<String, String>, Formation>, val completedEvents: Set<String>, val held: List<Formation>)
 
     private fun initial(ledger: UnitCirculationLedger): List<Formation> {
         require(ledger.units.map { it.id }.distinct().size == ledger.units.size) { "duplicate unit IDs" }
-        val stockIds = ledger.stock.map { it.record.trainId }.toSet()
-        if (ledger.physicalCars.keys.any { it !in stockIds } || ledger.points.any {
-                it.occupantTrainId != null && it.occupantTrainId !in stockIds }) {
-            throw MissingEvidence("Physical formations or point occupants outside the rolling stock ledger may affect acquisition")
-        }
         val unitCars = ledger.units.flatMap { it.carIds }
         require(unitCars.distinct().size == unitCars.size) { "permanent units overlap" }
         val physicalCars = ledger.physicalCars.values.flatten()
         require(physicalCars.distinct().size == physicalCars.size) { "physical cars appear in multiple trains" }
-        if (!unitCars.all(physicalCars::contains)) throw MissingEvidence("Permanent unit cars have no captured physical owner")
-        val stockCars = ledger.stock.flatMap { ledger.physicalCars[it.record.trainId].orEmpty() }
-        if (unitCars.any { it !in stockCars }) throw MissingEvidence("Some physical permanent units have no rolling stock metadata")
-        require(ledger.stock.map { it.record.trainId }.distinct().size == ledger.stock.size) { "duplicate rolling stock" }
+        if (unitCars.toSet() != physicalCars.toSet() || ledger.candidateFacts.keys != ledger.physicalCars.keys ||
+            ledger.stoppedPlacements.keys != ledger.physicalCars.keys) {
+            throw MissingEvidence("Every actual formation requires current unit membership, captured candidate facts and an exact stopped placement")
+        }
         require(ledger.points.map { it.point.ref }.distinct().size == ledger.points.size) { "duplicate physical points" }
-        require(ledger.stock.mapNotNull { it.stablingPointRef }.distinct().size == ledger.stock.count { it.stablingPointRef != null }) { "multiple formations occupy one physical point" }
-        return ledger.stock.map { stock ->
-            val cars = ledger.physicalCars[stock.record.trainId]
-                ?: throw MissingEvidence("Stock has no captured physical membership")
-            if (cars.none { car -> ledger.units.any { car in it.carIds } }) throw MissingEvidence("Legacy physical stock has no permanent unit registration")
+        require(ledger.stoppedPlacements.values.distinct().size == ledger.stoppedPlacements.size) { "multiple formations occupy one physical point" }
+        return ledger.physicalCars.map { (trainId, cars) ->
             unitsFor(cars, ledger.units)
-            require(cars.size == stock.record.carCount && cars.sumOf { id ->
-                val length = requireNotNull(ledger.carLengthsMeters[id]); require(length.isFinite() && length > 0.0); length
-            } == stock.record.lengthMeters) { "stock length/count does not match actual cars" }
-            val point = stock.stablingPointRef
-            if (stock.state == RollingStockState.AVAILABLE) {
-                require(stock.assignmentId == null && point != null) { "available stock has no exact physical point" }
-                val place = requireNotNull(ledger.points.singleOrNull { it.point.ref == point }) { "physical point missing" }
-                require(place.occupantTrainId == stock.record.trainId && accepts(place.point, stock.record)) { "point owner or physical compatibility disagrees" }
-            }
-            Formation(java.util.List.copyOf(cars), requireNotNull(ledger.directions[stock.record.trainId]),
-                stock.record.copy(trainId = key(cars)), stock.record.trainId, point)
-        }.filterIndexed { index, _ -> ledger.stock[index].state == RollingStockState.AVAILABLE }
+            val metadata = FormationOutputMetadata.source(ledger.candidateFacts.getValue(trainId), cars,
+                cars.associateWith { id -> ledger.carLengthsMeters[id] ?: throw MissingEvidence("Missing physical car length") })
+            val point = ledger.stoppedPlacements.getValue(trainId)
+            val place = ledger.points.singleOrNull { it.point.ref == point } ?: throw MissingEvidence("Physical point definition missing")
+            require(metadata.accepts(place.point)) { "physical formation does not fit the stopped point" }
+            Formation(java.util.List.copyOf(cars), ledger.directions[trainId] ?: throw MissingEvidence("Physical direction missing"),
+                metadata, trainId, point)
+        }
     }
 
     private fun unitsFor(cars: List<String>, units: List<FixedEmuUnit>): List<FixedEmuUnit> {
@@ -201,12 +194,10 @@ internal object TimetableUnitCirculation {
             require(slice == unit.carIds || slice == unit.carIds.asReversed()) { "partial or reordered permanent unit" }
             result += unit; at += unit.carIds.size
         }
-        require(result.map { it.controlCompatibilityKey }.distinct().size == 1) { "formation has incompatible declared control families" }
         return result
     }
-    private fun accepts(point: DepotStablingPoint, record: RollingStockRecord) =
-        (point.usableLengthMeters == null || record.lengthMeters <= point.usableLengthMeters) &&
-            (point.allowedTags.isEmpty() || record.tags.any(point.allowedTags::contains))
+    private fun accepts(point: DepotStablingPoint, record: FormationOutputMetadata) = record.accepts(point)
+    private fun DepotTrainSelector.matches(record: FormationOutputMetadata) = matches(record.candidateFacts, record.carCount)
     private fun key(cars: List<String>) = "circulation:" + cars.joinToString(":") { "${it.length}:$it" }
     private fun canonical(bank: Collection<Formation>) = bank.sortedWith(compareBy({ it.point?.toString() }, { key(it.cars) }))
 
@@ -287,10 +278,13 @@ internal object TimetableUnitCirculation {
                         val incoming = if (movingEndB == stationaryEndB) b.cars.asReversed() else b.cars
                         val cars = if (movingEndB) a.cars + incoming else incoming + a.cars
                         unitsFor(cars, ledger.units)
-                        val metadata = FormationOutputMetadata.couple(listOf(a.record, b.record),
-                            mapOf(a.record.trainId to a.cars, b.record.trainId to b.cars), cars,
+                        val members = unitsFor(a.cars + b.cars, ledger.units)
+                        if (members.any { it.controlCompatibilityKey == null }) throw MissingEvidence("Coupling control compatibility is unproven")
+                        require(members.map { it.controlCompatibilityKey }.distinct().size == 1) { "formation has incompatible declared control families" }
+                        val metadata = FormationOutputMetadata.combine(listOf(a.record, b.record),
+                            listOf(a.cars, b.cars), cars,
                             ledger.carLengthsMeters.filterKeys(cars::contains))
-                        mapOf(event.output.id to Formation(cars, a.reversed, metadata.toRecord(key(cars)), a.trainId))
+                        mapOf(event.output.id to Formation(cars, a.reversed, metadata, a.trainId))
                     }
                     is TimetableFormationEvent.Split -> {
                         val source = state.active.getValue(event.coordinatorDutyId)
@@ -301,7 +295,7 @@ internal object TimetableUnitCirculation {
                         val prefix = source.cars.take(cut); val suffix = source.cars.drop(cut)
                         fun form(cars: List<String>, retained: Boolean) = Formation(cars, source.reversed,
                             FormationOutputMetadata.split(source.record, source.cars, cars,
-                                ledger.carLengthsMeters.filterKeys(source.cars::contains)).toRecord(key(cars)),
+                                ledger.carLengthsMeters.filterKeys(source.cars::contains)),
                             if (retained) source.trainId else null)
                         val first = if (source.reversed) form(suffix, false) else form(prefix, true)
                         val rest = if (source.reversed) form(prefix, true) else form(suffix, false)

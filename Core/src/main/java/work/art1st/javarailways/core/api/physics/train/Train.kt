@@ -26,6 +26,10 @@ interface Train : WorldElement, Destroyable, Synchronizable, Extendable<TrainExt
     /** Cars in stable consist and persistence order. Reversing the train does not reorder this list. */
     val cars: List<Car>
 
+    /** Physical fixed-unit partition captured with the same immutable published frame. */
+    val composition: TrainComposition
+        get() = requireNotNull(publishedFrame) { "Train composition requires a published frame" }.composition
+
     /** Whether the operating direction is opposite to the stable [cars] order. */
     val isReversed: Boolean
 

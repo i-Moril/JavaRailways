@@ -29,7 +29,7 @@ SimpleATO拥有的Station聚合、被动StationBerth RailObject、StationCall/Dw
 
 # Package work.art1st.javarailways.simpleato.api.depot
 
-SimpleATO拥有的Depot/StablingPoint、RollingStockRecord、occupancy/reservation、确定性配车和Stall-only原子Depot Reset ledger。
+SimpleATO拥有的Depot/StablingPoint定义、只读候选列车事实、任务单元归属与结构操作保护。车辆事实来自Core及宿主配置，不设独立车辆库存登记；重置位置由时刻表initialPositions定义。
 
 # Package work.art1st.javarailways.simpleato.api.inspection
 

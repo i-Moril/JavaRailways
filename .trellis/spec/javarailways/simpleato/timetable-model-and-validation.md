@@ -22,7 +22,7 @@ data class Timetable(
 
 `periodDays>0`；一天固定`24_000` Tick；`periodTicks=Math.multiplyExact(periodDays,24000)`。`TimetableService.steps`是runtime authority；diagram line/arrival/compiler trace只presentation/authoring；旧 editorRows 模型已移除。分段 service 使用当前 `runSegments.lineId`，无分段时使用 `service.lineId` 作为 infrastructure identity。新增运行段、运营车次及显示动作契约见[停车跨线与单元显示](./through-running-and-unit-displays.md)。
 
-Step token：`Check(wayPointId)`、`At(tick,action)`。Action包括TakeFromDepot/Waypoint、StoreAtDepot、GoTo/GoVia、Stop、Extension/Conditional、Halt、Reverse、DestinationOptions、CallStation。`At.tick`为timetable-relative action/departure tick，nonnegative且period内、非降序。`StoreAtDepot` 的静态校验只证明到物理 StablingPoint 的经路覆盖；注册 rolling stock 的兼容集合为空时必须回退到物理点，实时编组兼容/分配留给运行期，不能用当前 depot 库存拒绝静态时刻表。
+Step token：`Check(wayPointId)`、`At(tick,action)`。Action包括TakeFromDepot/Waypoint、StoreAtDepot、GoTo/GoVia、Stop、Extension/Conditional、Halt、Reverse、DestinationOptions、CallStation。`At.tick`为timetable-relative action/departure tick，nonnegative且period内、非降序。`StoreAtDepot` 的静态路线校验证明到物理 StablingPoint 的经路覆盖；根据实际来源和已知属性检查适配性，不能以缺少库存登记拒绝时刻表。运行期仍须核对实际编组、点位适配与资源准入。
 
 ## 时刻表值的所有权（CURRENT，ATO-06 用户决策）
 
@@ -116,7 +116,7 @@ Validator 在扩展经路的同一次 cursor 遍历中传播车门证据。`Open
 无数据迁移和待决定项。错误实现是单独新建一个约 180 行的门状态 cursor，它会与路由证明的预算、memo、`SelectStop`
 和分支合流漂移。正确实现是在既有 `State` 中增加 `DoorProof`，并让 `process/walk` 成为唯一传播管线。
 
-Manual parser/factory、timetable model、validator、runtime store、extension registry 与 JSON 展示均由 `SimpleATO` 拥有。token `+id` 表示 pass；final 必须 stop。stop JSON strict 且只允许 `minimumDwellTicks/stoppingOffsetMetersBefore/doorSide`；unknown/type error拒绝。Line、Destination、Station、Depot与rolling-stock ledger均由`SimpleATOWorldData`提供。validator先从canonical Destination解析route anchor与approach direction，再把方向显式传给SimpleATO共用`OperationalRoutePlanner`；它和Mission/Station/Line看到相同运行方向及plugin source，不在apply或Dispatcher阶段重新寻路。
+Manual parser/factory、timetable model、validator、runtime store、extension registry 与 JSON 展示均由 `SimpleATO` 拥有。token `+id` 表示 pass；final 必须 stop。stop JSON strict 且只允许 `minimumDwellTicks/stoppingOffsetMetersBefore/doorSide`；unknown/type error拒绝。Line、Destination、Station、Depot与任务归属均由`SimpleATOWorldData`提供，列车事实读取Core与宿主查询。validator先从canonical Destination解析route anchor与approach direction，再把方向显式传给SimpleATO共用`OperationalRoutePlanner`；它和Mission/Station/Line看到相同运行方向及plugin source，不在apply或Dispatcher阶段重新寻路。
 
 ## 项目内正确示例
 
@@ -153,12 +153,12 @@ val periodTicks = runCatching { timetable.periodTicks }.getOrElse {
 
 ## 固定单元周转诊断（库存证明切片）
 
-`CurrentUnitCirculation`在owner边界读取一个Core不可变world frame与一次Depot原子`operationalSnapshot()`；
-捕获后frame身份改变则返回UNPROVEN，不重试拼接多个时刻的库存。未登记物理车、未知点位占用、未完成assignment、
-HOLD或结构恢复事务均不能被当作空点/可用库存；存在未完成owner时先报告跨周期义务尚未证明。
+`CurrentUnitCirculation`在owner边界读取一个Core不可变world frame、一次Depot原子`operationalSnapshot()`与宿主候选属性；
+捕获后frame身份改变则返回UNPROVEN，不重试拼接多个时刻。物理列车不需要登记；候选事实或实际停放位置未知、
+未完成assignment、HOLD或结构恢复事务均不能被当作已证明空闲的列车；缺证据返回UNPROVEN，不能伪装为PROVEN。
 
-内部`TimetableUnitCirculation`只分析真实固定交路/catalog与登记完整单元，有限搜索保留单元顺序、编组、实际库/点和分类。
-完整编组停放占一个点，内部单元不能未经解编被分别取用；解编/重联不创造资产，home不替代实际库。
+内部`TimetableUnitCirculation`只分析真实固定交路/catalog与 Core 完整单元，有限搜索保留单元顺序、编组、实际库/点和分类。
+完整编组停放占一个点，内部单元不能未经解编被分别取用；解编/重联不创造车辆，不存在home代替实际位置的规则。
 允许跨多个周期的库存置换。无结构操作时，持续库净流失或强制兼容类别净流失是独立于行车耗时的矛盾；
 搜索未找到见证或达到状态/深度上限仅为UNPROVEN，不能推导IMPOSSIBLE。
 
@@ -169,6 +169,12 @@ Finding的`code/detail/dutyId/stepIndex/blocking`用于上层诊断；内部搜�
 `At.tick`是最早进入时刻，当前没有完成上界，因此timing和一般capacity仍为UNPROVEN；
 真实点长度绝不适配等独立矛盾可单独给出capacity IMPOSSIBLE。仅明确`blocking=true`的finding可阻止编译，
 不能把未证明的提示伪装为通过或全部转成错误。
+
+普通列车现在默认已有 Core 单元，不能因此自动开启结构编组的循环库存准入。
+Validator 始终返回实际分析的库存状态及诊断 code/detail；仅在 `formationEvents` 非空时将该分析的阻断项加入 errors。
+无结构需求时公开 summary 的 findings 标为非阻断，与 validation errors 一致；直接调用分析器仍保留原始证明及分类。
+例如普通单程服务仍可报告 `inventory=IMPOSSIBLE/RECURRING_DEPOT_DEFICIT`，但不会仅因默认单元新增而无法启动；
+声明结构交路的同一库存矛盾仍阻断准入。此门由实际结构需求决定，不再由是否曾手动登记单元间接决定。
 
 聚焦检查为`TimetableUnitCirculationTest`（库存与有限边界）、`CurrentUnitCirculationTest`
 （实际Core publication/Depot捕获）及`TimetableCirculationSummaryTest`（公开投影和不可变性）。

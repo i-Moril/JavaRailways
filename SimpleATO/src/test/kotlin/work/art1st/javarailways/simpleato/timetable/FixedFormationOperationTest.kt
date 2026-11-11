@@ -34,7 +34,7 @@ class FixedFormationOperationTest {
             assertEquals(claims.map { it.owner to it.footprint.resources },
                 f.world.infrastructureCoordination.claimSnapshots().map { it.owner to it.footprint.resources })
             assertEquals(listOf(f.plan.ledgerChange), f.depots.unresolvedFormationChanges())
-            assertEquals("source-assignment", f.depots.rollingStock("source")!!.assignmentId)
+            assertEquals("source-assignment", f.depots.allFixedUnitAssignments().first().assignmentId)
             assertTrue(f.failures.isEmpty(), f.failures.toString())
         }
     }
@@ -67,7 +67,7 @@ class FixedFormationOperationTest {
             val intents = f.bindOutputs(operation)
             val installed = arrayListOf<String>()
             val handoff = f.owner { FixedFormationOutputHandoff.begin(f.world, f.depots, f.plan.ledgerChange,
-                operation.handle, f.service, f.outputRecords(), { output, grant ->
+                operation.handle, f.service, { output, grant ->
                     assertTrue(f.world.allTrains.all { (it as CoreTrain).movementHeld })
                     assertEquals(output.owner.trainId, grant.trainId)
                     installed += output.owner.trainId
@@ -101,7 +101,7 @@ class FixedFormationOperationTest {
             val claims = f.world.infrastructureCoordination.claimSnapshots().map { it.owner to it.footprint.resources }
             assertThrows(IllegalStateException::class.java) {
                 f.owner { FixedFormationOutputHandoff.begin(f.world, f.depots, f.plan.ledgerChange,
-                    operation.handle, f.service, f.outputRecords(), { _, _ -> error("controller installation failed") }, f.failures::add) }
+                    operation.handle, f.service, { _, _ -> error("controller installation failed") }, f.failures::add) }
             }
             assertEquals(listOf(f.plan.ledgerChange), f.depots.unresolvedFormationChanges())
             assertTrue(f.world.allTrains.all { (it as CoreTrain).movementHeld })
@@ -114,7 +114,7 @@ class FixedFormationOperationTest {
         val fixture = TestWorldFixture.create()
         val world = fixture.world
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(300.0, 1))
-        val train = createTrainWithConfig("source", rail, world, listOf(10.0, 10.0))
+        val train = createTrainWithConfig("source", rail, world, listOf(10.0, 10.0), composition = work.art1st.javarailways.simpleato.testing.testPerCarComposition(2))
         val requester = Any()
         val failures = arrayListOf<String>()
         var preparations = 0
@@ -126,15 +126,13 @@ class FixedFormationOperationTest {
             observation.stamp, RouteSnapshot("test:route", 0, world.topologyState.revision,
                 listOf(RouteSegmentSnapshot(rail.id, ViewDirection.AB, 10.0, 200.0))), RouteBoundary(20.0))
         val grant = owner { (runtime.request(requester, intent) as RouteAdmissionResult.Granted).grant }
-        val depots = DepotStore().also { store ->
+        val depots = DepotStore { world.allTrains.flatMap { train -> train.composition.units.map { FixedEmuUnit(it.unitId, it.carIds) } } }.also { store ->
             val depot = DepotId("D")
             val point = StablingPointRef(depot, "p")
             store.addStablingPoint(depot, "D", DepotStablingPoint(point, "point"))
             val cars = train.cars.map { it.id }
-            cars.forEachIndexed { index, car -> store.registerFixedUnit(FixedEmuUnit("unit-$index", depot, listOf(car), "emu"), cars) }
-            store.registerRollingStock(RollingStockRecord(train.id, depot, "emu", emptySet(), 2, 20.0, 30.0, emptySet()), point)
-            val allocation = checkNotNull(store.reservePhysicallySelected(train.id, point, DepotTrainSelector(depot), "source-assignment", cars))
-            check(store.confirmInService(allocation)); check(store.releaseDeparture(allocation))
+            cars.forEachIndexed { index, car -> store.registerUnitControlCompatibility("unit-$index", "emu") }
+            store.claimFixedFormation(train.id, cars, "source-assignment")
         }
         val event = TimetableFormationEvent.Split("split", "source-duty", 1,
             TimetableFormationOutput("first", FormationOutputDisposition.Duty("source-duty")),
@@ -179,13 +177,6 @@ class FixedFormationOperationTest {
             }
             assertInstanceOf(FormationChangeResult.Accepted::class.java, owner { service.bindFormationOutputs(operation.handle, intents) })
             return intents
-        }
-        fun outputRecords(): List<RollingStockRecord> {
-            val original = depots.rollingStock(train.id)!!.record
-            return plan.ledgerChange.outputs.map { output ->
-                val physical = world.getTrain(output.owner.trainId)!!
-                original.copy(trainId = physical.id, carCount = physical.cars.size, lengthMeters = physical.cars.sumOf { it.length })
-            }
         }
         fun <T> owner(action: () -> T): T = world.onOwnerForTest(action)
         override fun close() { try { runtime.close() } finally { fixture.close() } }

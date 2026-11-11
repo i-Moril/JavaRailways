@@ -31,8 +31,7 @@ import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.simpleato.testing.KinematicTrainActuator
 import work.art1st.javarailways.simpleato.api.depot.DepotId
 import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector
-import work.art1st.javarailways.simpleato.api.depot.RollingStockRecord
-import work.art1st.javarailways.simpleato.api.depot.StablingPointRef
+import work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
@@ -153,7 +152,7 @@ class TimetableDispatcherSharedAdmissionTest {
         val fixture = fixture()
         fixture.service.onRequest = fixture.service::grant
         val world = fixture.world
-        val other = createTrainWithConfig("T2", fixture.rail, world, listOf(10.0))
+        val other = createTrainWithConfig("T2", fixture.rail, world, listOf(10.0), carIdPrefix = "T2/car-")
         val original = world.simpleAtoWorldData.timetables["tt"]!!
         world.simpleAtoWorldData.timetables.add(original.copy(services = original.services +
             original.services.single().copy(id = "idle", trainSelector = TrainSelector.TrainId(other.id))))
@@ -920,19 +919,10 @@ class TimetableDispatcherSharedAdmissionTest {
         ))
         data.wayPoints.add(WayPoint("B", rail.id, origin + 50.0))
         data.wayPoints.add(WayPoint("C", rail.id, origin + 160.0))
-        world.simpleAtoWorldData.depots.registerRollingStock(
-            RollingStockRecord(
-                train.id,
-                depotId,
-                "test/s100",
-                setOf("metro"),
-                1,
-                10.0,
-                20.0,
-                emptySet()
-            ),
-            StablingPointRef(depotId, "out")
-        )
+        TestSimpleATOWorldDataRegistry.setCandidateFacts(world) { candidate ->
+            if (candidate.id == train.id) TrainCandidateFacts("test/s100", setOf("metro"), 20.0, emptySet())
+            else null
+        }
         world.simpleAtoWorldData.timetables.add(Timetable(
             "store",
             services = listOf(TimetableService(

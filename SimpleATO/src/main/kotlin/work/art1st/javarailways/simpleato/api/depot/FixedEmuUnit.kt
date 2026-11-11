@@ -2,21 +2,20 @@ package work.art1st.javarailways.simpleato.api.depot
 
 import java.util.Collections
 
-/** Permanent operating membership, not a second owner of Core train composition. */
+/** Read-only Core composition projection, optionally annotated with an operational control declaration. */
 @ConsistentCopyVisibility
 data class FixedEmuUnit private constructor(
     val id: String,
-    val homeDepotId: DepotId,
     val carIds: List<String>,
     /** Declared control family only; structural operations still require actual actuator preflight. */
-    val controlCompatibilityKey: String
+    val controlCompatibilityKey: String? = null
 ) {
-    constructor(id: String, homeDepotId: DepotId, carIds: Collection<String>, controlCompatibilityKey: String) :
-        this(id, homeDepotId, Collections.unmodifiableList(ArrayList(carIds)), controlCompatibilityKey)
+    constructor(id: String, carIds: Collection<String>, controlCompatibilityKey: String? = null) :
+        this(id, Collections.unmodifiableList(ArrayList(carIds)), controlCompatibilityKey)
 
     init {
         requireStableId("unitId", id)
-        requireStableId("controlCompatibilityKey", controlCompatibilityKey)
+        controlCompatibilityKey?.let { requireStableId("controlCompatibilityKey", it) }
         require(carIds.isNotEmpty() && carIds.distinct().size == carIds.size) { "unit cars must be non-empty and unique" }
         carIds.forEach { requireStableId("carId", it) }
     }

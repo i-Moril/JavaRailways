@@ -7,14 +7,9 @@ import org.bukkit.Bukkit
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.simpleato.api.depot.DepotId
-import work.art1st.javarailways.simpleato.api.depot.RollingStockRecord
-import work.art1st.javarailways.simpleato.api.depot.StablingPointRef
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
-import work.art1st.javarailways.simpleato.depot.DepotResetCoordinator
-import work.art1st.javarailways.simpleato.depot.DepotResetResult
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.simpleato.routing.RouteBuildResult
 import work.art1st.javarailways.simpleato.timetable.ManualNavigationParser
@@ -34,7 +29,6 @@ import work.art1st.javarailways.bukkit.diagnostics.PluginDiagnosticLog
 import work.art1st.javarailways.bukkit.config.TimetableWebUiMode
 import work.art1st.javarailways.bukkit.http.TimetableScriptNormalizer
 import work.art1st.javarailways.simpleatobukkit.diagnostics.AtoStallDiagnostics
-import work.art1st.javarailways.simpleatobukkit.diagnostics.DepotResetDiagnostics
 import work.art1st.javarailways.bukkit.extension.renderChunkManager
 import work.art1st.javarailways.bukkit.control.TrainKeyItem
 import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
@@ -57,7 +51,7 @@ import java.util.concurrent.atomic.AtomicLong
 class JavaRailwaysCommand {
     private val navigationCounter = AtomicLong()
     private val WORLD_COMMANDS = setOf("train", "waypoint", "wp", "stop", "route", "navigate", "nav",
-        "timetable", "tt", "depot", "undo", "redo")
+        "timetable", "tt", "undo", "redo")
 
     fun execute(sender: CommandSender, label: String, args: Array<out String>): Boolean =
         BukkitThreadGuardBridge.runInSimulationContext {
@@ -97,7 +91,6 @@ class JavaRailwaysCommand {
             "route" -> return handleRoute(sender, args.drop(1))
             "navigate", "nav" -> return handleNavigate(sender, args.drop(1))
             "timetable", "tt" -> return handleTimetable(sender, args.drop(1))
-            "depot" -> return handleDepot(sender, args.drop(1))
             "ato" -> return handleAto(sender, args.drop(1))
             "perf", "performance" -> return handlePerf(sender, args.drop(1))
             "resources", "resource" -> return handleResources(sender, args.drop(1))
@@ -155,11 +148,6 @@ class JavaRailwaysCommand {
                 if (args.none { it == "--measure" || it == "-m" }) values += listOf("--measure", "-m")
                 filtered(values)
             }
-            "depot" -> when (args.size) {
-                2 -> filtered(listOf("assign", "register-unit", "list", "reset", "reset-all"))
-                3 -> if (args[1].lowercase() in setOf("assign", "register-unit")) filtered(trains()) else emptyList()
-                else -> emptyList()
-            }
             "ato" -> when (args.size) {
                 2 -> filtered(listOf("status", "dump", "reset"))
                 3 -> filtered(plugin.worldManager.railWorlds.keys.map { it.name })
@@ -181,7 +169,7 @@ class JavaRailwaysCommand {
 
     private companion object {
         val ROOT_COMMANDS = listOf(
-            "train", "wand", "waypoint", "route", "navigate", "timetable", "depot",
+            "train", "wand", "waypoint", "route", "navigate", "timetable",
             "ato", "stop", "perf", "resources", "issues", "undo", "redo", "help"
         )
     }
@@ -560,221 +548,6 @@ class JavaRailwaysCommand {
         }
         return true
     }
-
-    private fun handleDepot(sender: CommandSender, args: List<String>): Boolean {
-        if (sender !is Player) { sender.sendMessage("Player only"); return true }
-        if (!sender.hasPermission("javarailways.admin")) {
-            sender.sendMessage("没有权限管理车辆段")
-            return true
-        }
-        val world = BukkitPlugin.INSTANCE.worldManager.railWorlds[sender.world] ?: run {
-            sender.sendMessage("错误: 无法获取 JavaRailways 世界")
-            return true
-        }
-        val store = world.simpleAtoWorldData.depots
-        when (args.firstOrNull()?.lowercase()) {
-            "register-unit" -> {
-                val trainId = args.getOrNull(1)
-                val unitId = args.getOrNull(2)
-                if (trainId == null || unitId == null || args.size !in 3..4) {
-                    sender.sendMessage("用法: /jr depot register-unit <train> <unitId> [controlFamily]（将整列登记为一个固定动车组单元）")
-                    return true
-                }
-                submitWorldOperation(sender, world, sender.world.uid, "/jr depot register-unit") registerUnit@{
-                    val train = world.getTrain(trainId) as? CoreTrain
-                    val stock = train?.let { store.rollingStock(it.id) }
-                    if (train == null || stock == null) {
-                        return@registerUnit listOf("列车必须先登记到车辆段: $trainId")
-                    }
-                    val frame = train.publishedFrame
-                    val stationary = frame.speedMetersPerSecond == 0.0 && frame.cars.all { car ->
-                        (listOf(car.state) + car.bogies).all {
-                            it.velocityX == 0.0 && it.velocityY == 0.0 && it.velocityZ == 0.0
-                        }
-                    }
-                    if (!stationary || train.controller != null || train.isDerailed || train.movementHeld ||
-                        stock.state != work.art1st.javarailways.simpleato.api.depot.RollingStockState.AVAILABLE ||
-                        stock.assignmentId != null
-                    ) {
-                        return@registerUnit listOf("只能登记配置有效、已停止、未分配任务且无控制器的在库列车")
-                    }
-                    val controlFamily = args.getOrNull(3) ?: stock.record.modelPackageId
-                        ?: return@registerUnit listOf("混合车型不能自动推断控制族，请显式指定 controlFamily")
-                    val carIds = train.cars.map { it.id }
-                    val result = runCatching {
-                        store.registerFixedUnit(
-                            work.art1st.javarailways.simpleato.api.depot.FixedEmuUnit(
-                                unitId, stock.record.homeDepotId, carIds, controlFamily
-                            ), carIds
-                        )
-                    }
-                    listOf(result.fold(
-                        { "已登记固定动车组单元 $unitId，包含 ${carIds.size} 节车厢；归属 ${stock.record.homeDepotId}" },
-                        { "动车组单元登记失败: ${it.message}" }
-                    ))
-                }
-            }
-            "assign" -> {
-                val trainId = args.getOrNull(1)
-                val depotValue = args.getOrNull(2)
-                val pointValue = args.getOrNull(3)
-                if (trainId == null || depotValue == null || pointValue == null) {
-                    sender.sendMessage(
-                        "用法: /jr depot assign <train> <depot> <point> [tagsCsv] [capabilitiesCsv]"
-                    )
-                    return true
-                }
-                val train = world.getTrain(trainId) ?: run {
-                    sender.sendMessage("列车不存在: $trainId")
-                    return true
-                }
-                if (train.speed > 0.05) {
-                    sender.sendMessage("列车必须停止后才能登记到车辆段")
-                    return true
-                }
-                val depotId = runCatching { DepotId(depotValue) }.getOrElse {
-                    sender.sendMessage("Depot ID 无效: ${it.message}")
-                    return true
-                }
-                val pointRef = runCatching { StablingPointRef(depotId, pointValue) }.getOrElse {
-                    sender.sendMessage("StablingPoint ID 无效: ${it.message}")
-                    return true
-                }
-                val point = store.stablingPoint(pointRef) ?: run {
-                    sender.sendMessage("车辆段停车点不存在: $pointRef")
-                    return true
-                }
-                val destination = world.simpleAtoWorldData.destinations[point.point.destinationId] ?: run {
-                    sender.sendMessage("停车点 Destination 不存在: ${point.point.destinationId}")
-                    return true
-                }
-                val location = train.headLocation as? RailLocationWithFacing
-                val arcInAb = location?.arcLengthIn(ViewDirection.AB)
-                if (location == null || location.rail.id != destination.railId ||
-                    destination.approachDirection?.let { location.facing != it } == true ||
-                    arcInAb == null || kotlin.math.abs(arcInAb - destination.arcLengthInAbMeters) > 1.0
-                ) {
-                    sender.sendMessage("列车不在 directed StablingPoint $pointRef")
-                    return true
-                }
-                val packageName = train.rendererOrNull?.modelPackageName() ?: run {
-                    sender.sendMessage("列车没有可解析的模型包")
-                    return true
-                }
-                val maximumSpeed = runCatching {
-                    train.rendererOrNull?.resolveControl()?.maxSpeed
-                        ?: throw IllegalArgumentException("列车没有可解析的模型包")
-                }.getOrElse {
-                    sender.sendMessage("列车控制配置无效: ${it.message}")
-                    return true
-                }
-                val explicitTags = parseCsv(args.getOrNull(4))
-                val explicitCapabilities = parseCsv(args.getOrNull(5))
-                val inferredCapabilities = train.rendererOrNull?.resolveActions().orEmpty()
-                    .keys
-                    .filter { it.startsWith("door-") }
-                    .takeIf { it.isNotEmpty() }
-                    ?.let { setOf("doors") }
-                    .orEmpty()
-                val record = RollingStockRecord(
-                    trainId = train.id,
-                    homeDepotId = depotId,
-                    modelPackageId = packageName,
-                    tags = explicitTags.ifEmpty { setOf(packageName) },
-                    carCount = train.cars.size,
-                    lengthMeters = train.cars.sumOf { it.length },
-                    maximumSpeedMetersPerSecond = maximumSpeed,
-                    capabilities = explicitCapabilities + inferredCapabilities
-                )
-                runCatching { store.registerRollingStock(record, pointRef) }
-                    .onSuccess {
-                        sender.sendMessage(
-                            "已登记列车 ${train.id}: depot=$depotId point=$pointRef " +
-                                "tags=${record.tags.sorted()} capabilities=${record.capabilities.sorted()}"
-                        )
-                    }
-                    .onFailure { sender.sendMessage("车辆段登记失败: ${it.message}") }
-            }
-            "reset" -> {
-                val depotValue = args.getOrNull(1)
-                if (depotValue == null || args.getOrNull(2) != "confirm") {
-                    sender.sendMessage("用法: /jr depot reset <depot> confirm")
-                    return true
-                }
-                val depotId = runCatching { DepotId(depotValue) }.getOrElse {
-                    sender.sendMessage("Depot ID 无效: ${it.message}")
-                    return true
-                }
-                runDepotReset(sender, world, setOf(depotId))
-            }
-            "reset-all" -> {
-                if (args.getOrNull(1) != "confirm") {
-                    sender.sendMessage("用法: /jr depot reset-all confirm")
-                    return true
-                }
-                runDepotReset(sender, world, null)
-            }
-            "list" -> {
-                val requestedDepot = args.getOrNull(1)?.let { value ->
-                    runCatching { DepotId(value) }.getOrNull()
-                }
-                val stock = store.allRollingStock().filter {
-                    requestedDepot == null || it.record.homeDepotId == requestedDepot
-                }
-                if (stock.isEmpty()) sender.sendMessage("没有匹配的车辆段列车")
-                stock.forEach {
-                    sender.sendMessage(
-                        "${it.record.trainId}: depot=${it.record.homeDepotId} " +
-                            "state=${it.state} point=${it.stablingPointRef ?: "-"} " +
-                            "model=${it.record.modelPackageId} tags=${it.record.tags.sorted()} " +
-                            "capabilities=${it.record.capabilities.sorted()}"
-                    )
-                }
-            }
-            else -> sender.sendMessage("用法: /jr depot <assign|register-unit|list|reset|reset-all>")
-        }
-        return true
-    }
-
-    private fun runDepotReset(
-        sender: Player,
-        world: RailWorld,
-        depotIds: Set<DepotId>?
-    ) {
-        submitWorldOperation(sender, world, sender.world.uid, "/jr depot reset") reset@{
-            if (!world.simpleAtoWorldData.atoCoordinator.isStalled) {
-                return@reset listOf("Depot Reset 只允许在当前 World 已 Stall 时执行")
-            }
-            val result = DepotResetCoordinator(world, world.simpleAtoWorldData.dispatcher).reset(depotIds)
-            buildList {
-                val reportFile = runCatching {
-                    DepotResetDiagnostics.write(BukkitPlugin.INSTANCE.dataFolder, result.report)
-                }.onFailure { failure ->
-                    add("Reset 报告写入失败: ${failure.message}")
-                }.getOrNull()
-                add(when (result) {
-                    is DepotResetResult.Succeeded ->
-                        "Depot Reset 成功: trains=${result.report.assignments.size} " +
-                            "runs=${result.report.removedRunCount} " +
-                            "berths=${result.report.releasedBerthCount}；World 仍保持 Stall"
-                    is DepotResetResult.Failed ->
-                        "Depot Reset 失败: stage=${result.report.failureStage} " +
-                            "message=${result.report.message}"
-                    is DepotResetResult.PartiallyCommitted ->
-                        "Depot Reset 部分提交: stage=${result.report.failureStage} " +
-                            "message=${result.report.message}；World 保持 Stall，请检查报告后重试 Reset"
-                })
-                if (reportFile != null) add("报告: ${reportFile.absolutePath}")
-            }
-        }
-    }
-
-    private fun parseCsv(value: String?): Set<String> = value
-        ?.split(',')
-        ?.map(String::trim)
-        ?.filter(String::isNotEmpty)
-        ?.toSet()
-        .orEmpty()
 
     private fun handleTimetable(sender: CommandSender, args: List<String>): Boolean {
         if (args.firstOrNull()?.equals("reload-all", true) == true) {
@@ -1512,8 +1285,6 @@ class JavaRailwaysCommand {
         sender.sendMessage("/jr waypoint list|info|remove - 管理路径点")
         sender.sendMessage("/jr route validate <from> <to> - 验证路径点之间的展开经路")
         sender.sendMessage("/jr navigate [--measure|-m] <waypoints...> - 为驾驶中的列车提交临时 ATO 导航")
-        sender.sendMessage("/jr depot assign|register-unit|list ... - 登记和查看车辆段列车及固定动车组单元")
-        sender.sendMessage("/jr depot reset <depot> confirm | reset-all confirm - Stall 中原子重置")
         sender.sendMessage("/jr timetable replan <id> <service> <current-waypoint> [cycle] - 人工接管后显式重新规划")
         sender.sendMessage("/jr timetable edit - 获取短期有效的 WebUI 登录链接")
         sender.sendMessage("/jr timetable load <file.js> [id] - 在隔离 Worker 中编译并加载 JS 时刻表")

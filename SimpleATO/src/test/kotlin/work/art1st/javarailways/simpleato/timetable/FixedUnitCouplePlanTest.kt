@@ -24,7 +24,7 @@ class FixedUnitCouplePlanTest {
                 val car = CoreCar.create("$id-car", CoreBogie.create(anchor), CoreBogie.create(anchor),
                     length = 10.0, bogieAOffset = 3.0, bogieBOffset = -3.0,
                     connectorLengthAtA = 0.3, connectorLengthAtB = 0.3, world = world)
-                CoreTrain.create(id, listOf(car), world).also { it.setLocation(anchor); it.commitMaintenancePlacement() }
+                CoreTrain.create(id, listOf(car), world, composition = work.art1st.javarailways.simpleato.testing.testTrainComposition("unit-$id" to listOf(car.id))).also { it.setLocation(anchor); it.commitMaintenancePlacement() }
             }
             val moving = train("moving", 99.0)
             val stationary = train("stationary", 110.5)
@@ -35,11 +35,11 @@ class FixedUnitCouplePlanTest {
                         stationary.id, TrainEndSide.B))).proof
             }
             val depot = DepotId("home")
-            fun store(stationaryFamily: String = "emu") = DepotStore().also { store ->
+            fun store(stationaryFamily: String = "emu") = DepotStore { listOf(moving, stationary).flatMap { train -> train.composition.units.map { FixedEmuUnit(it.unitId, it.carIds) } } }.also { store ->
                 store.addStablingPoint(depot, "Home", DepotStablingPoint(StablingPointRef(depot, "p"), "point"))
                 listOf(moving to "emu", stationary to stationaryFamily).forEach { (source, family) ->
                     val cars = source.cars.map { it.id }
-                    store.registerFixedUnit(FixedEmuUnit("unit-${source.id}", depot, cars, family), cars)
+                    store.registerUnitControlCompatibility("unit-${source.id}", family)
                 }
             }
             fun grant(train: CoreTrain) = RouteGrantSnapshot(RouteAdmissionTestFixtures.grantId(),

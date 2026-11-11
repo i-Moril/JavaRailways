@@ -163,7 +163,7 @@ data class SimpleATOInfrastructureSnapshotV1(
         val basicData = world.basicWorldData
         check(data.destinations.all().isEmpty()) { "SimpleATO DestinationStore is not empty" }
         check(data.stations.all().isEmpty()) { "SimpleATO StationStore is not empty" }
-        check(data.depots.allDepots().isEmpty() && data.depots.allRollingStock().isEmpty()) {
+        check(data.depots.allDepots().isEmpty()) {
             "SimpleATO DepotStore is not empty"
         }
         check(data.lines.snapshot().let { it.lines.isEmpty() && it.revision == 0L }) {

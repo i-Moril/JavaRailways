@@ -368,7 +368,6 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     (it.role as? DestinationRole.DepotStablingPointRole)?.depotId
                 }
                 operationalData.depots.allDepots().mapTo(this) { it.id.value }
-                operationalData.depots.allRollingStock().mapTo(this) { it.record.homeDepotId.value }
             }.sorted()
             json.encodeToString(buildJsonObject {
                 put("id", bukkit.name)

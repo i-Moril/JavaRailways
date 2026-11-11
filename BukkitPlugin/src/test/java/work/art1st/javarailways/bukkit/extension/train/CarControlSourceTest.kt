@@ -5,6 +5,9 @@ import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertNull
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+import work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.io.TempDir
@@ -60,6 +63,34 @@ class CarControlSourceTest {
     }
 
     @Test
+    fun `mixed source snapshot facts follow actual cars after structural split`() = withCars { cars ->
+        val first = snapshot("first", 1_000.0, 8.0)
+        val second = snapshot("second", 2_000.0, 12.0)
+        val sources = listOf(first, second).associateBy { it.hash }
+        val bindings = cars.mapIndexed { index, car ->
+            val source = listOf(first, second)[index]
+            car.id to extension(car, "${source.packageName}/head", source.hash)
+        }.toMap()
+        fun facts(selected: List<Car>) = TrainCandidateFacts.fromCars(selected.associate { car ->
+            car.id to requireNotNull(bindings.getValue(car.id).resolveCandidateFacts(
+                TrainModelUpdatePolicy.SNAPSHOT, sources::get) { error("Pinned facts cannot read live packages") })
+        })
+        val combined = facts(cars)
+        assertNull(combined.modelPackageId)
+        assertEquals(8.0, combined.maximumSpeedMetersPerSecond)
+        val train = cars.first().train as work.art1st.javarailways.core.physics.train.CoreTrain
+        val world = train.world as work.art1st.javarailways.core.physics.CoreWorld
+        val pending = train.splitBefore(cars.last().id, "fact-split")
+        world.onOwnerForTest { world.physicsCoordinator.drainBetweenFramesOperations() }
+        val separated = pending.get(5, java.util.concurrent.TimeUnit.SECONDS)
+        assertEquals("first", facts(train.cars).modelPackageId)
+        assertEquals(8.0, facts(train.cars).maximumSpeedMetersPerSecond)
+        assertEquals("second", facts(separated.cars).modelPackageId)
+        assertEquals(12.0, facts(separated.cars).maximumSpeedMetersPerSecond)
+        assertEquals(combined.carFacts, facts(train.cars).carFacts + facts(separated.cars).carFacts)
+    }
+
+    @Test
     fun `missing creation snapshot rejects lookup instead of borrowing current controls`() = withCars { cars ->
         val car = extension(cars[0], "second/head")
         val load: (String) -> SavedTrainPackageSnapshot? = { error("Read-only lookup must not pin a source") }
@@ -109,17 +140,25 @@ class CarControlSourceTest {
             { error("Created binding already owns its captured source snapshot") },
             { error("Creation-time control must not follow live packages") })
         assertEquals(8_000.0, profile!!.mass)
+        val pinnedFacts = binding.resolveCandidateFacts(TrainModelUpdatePolicy.SNAPSHOT,
+            { error("Pinned candidate query already owns source snapshot") }, { error("Do not read live source") })
+        assertEquals("external", pinnedFacts!!.modelPackageId)
+        val changed = source.copy(control = TrainControlConfig(maxSpeed = 7.0))
+        val liveFacts = binding.resolveCandidateFacts(TrainModelUpdatePolicy.FOLLOW_PACKAGE,
+            { error("Live candidate query cannot read pinned source") }) { version.copy(carPackages = mapOf("external/head" to changed)) }
+        assertEquals(7.0, liveFacts!!.maximumSpeedMetersPerSecond)
+
     }
 
     private fun extension(car: Car, name: String, hash: String? = null) = CarExtension().also {
         it.initialize(car, mapOf("BUKKIT" to SavedCarRenderState(carModelName = name, packageSnapshotHash = hash)))
     }
 
-    private fun snapshot(name: String, mass: Double) = SavedTrainPackageSnapshot.build(
+    private fun snapshot(name: String, mass: Double, maximumSpeed: Double = TrainControlConfig().maxSpeed) = SavedTrainPackageSnapshot.build(
         packageName = name,
         actions = emptyMap(),
         behavior = null,
-        control = TrainControlConfig(),
+        control = TrainControlConfig(maxSpeed = maximumSpeed),
         carControls = mapOf("$name/head" to CarControlConfig(mass = mass))
     )
 

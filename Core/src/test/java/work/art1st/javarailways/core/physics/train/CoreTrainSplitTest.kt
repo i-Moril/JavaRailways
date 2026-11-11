@@ -612,20 +612,19 @@ class CoreTrainSplitTest {
     }
 
     @Test
-    fun `duplicate target car identity is rejected without choosing an ambiguous boundary`() =
+    fun `duplicate car identity is rejected before a source consist can be published`() =
         withWorld { world, rail ->
             val cars = listOf(
                 createCar(world, rail, "car-0", headArc = 80.0, tailArc = 75.0),
                 createCar(world, rail, "duplicate", headArc = 70.0, tailArc = 65.0),
                 createCar(world, rail, "duplicate", headArc = 60.0, tailArc = 55.0)
             )
-            val train = world.onOwnerForTest { CoreTrain("duplicate-car-source", cars, world, emptyMap()) }
-            val before = State.capture(world, rail, train)
-
-            val failure = executeFailedSplit(train, "duplicate", "duplicate-car-result")
-
-            assertTrue(failure is CannotCreateTrainException)
-            before.assertUnchanged(world, rail, train)
+            assertThrows(IllegalArgumentException::class.java) {
+                world.onOwnerForTest { CoreTrain("duplicate-car-source", cars, world, emptyMap()) }
+            }
+            assertTrue(world.allTrains.isEmpty())
+            assertNull(world.getTrain("duplicate-car-source"))
+            assertTrue(cars.all { it.train == null })
         }
 
     @Test

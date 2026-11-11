@@ -91,7 +91,10 @@ Core占用包含无controller的脱轨列车，其他列车继续通过既有物
 保留的是尚未释放的路线资源，可能包含未驶入的前方资源，不宣称只保留车身区间。
 真实资源/控制器不变量故障仍走world Stall；本规则不改变Core脱轨本车的物理停止行为。
 
-Train acquisition以live stopped train location/speed/derail/controller/run/geometry为authority；RollingStock只补metadata。First mission confirmed后Depot reservation才IN_SERVICE。Storage full envelope+old resources clear才handoff。
+取车以实际停稳列车的位置、速度、脱轨、controller、任务归属与几何为依据，不要求车辆库存登记。
+候选属性通过宿主只读查询，实际成员取 Core composition；开始任务时准确 claim 完整单元。
+入库使用同一条物理点选择与预约流程，整列车到达且旧资源释放条件满足后才释放准确任务归属。
+时刻表替换或明确 discard/reset 也必须释放其准确 claims；恢复 checkpoint 的身份或结构保护不符时拒绝清理。
 
 普通目的地完成、Stop路径点到达通知和mission完成的提前到达判定均使用单倍`missionStopToleranceMeters`，
 不能隐含放大为两倍；mission最终Stop的`offsetMetersBefore`须从目标进度中扣除。暂时零速但尚未进入既有容差时，

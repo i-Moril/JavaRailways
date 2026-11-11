@@ -33,10 +33,7 @@ import work.art1st.javarailways.simpleato.api.mission.ObservedAtoMissionOrigin
 import work.art1st.javarailways.simpleato.testing.KinematicTrainActuator
 import work.art1st.javarailways.simpleato.api.depot.DepotId
 import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector
-import work.art1st.javarailways.simpleato.api.depot.RollingStockRecord
-import work.art1st.javarailways.simpleato.api.depot.RollingStockState
 import work.art1st.javarailways.simpleato.api.depot.StablingPointRef
-import work.art1st.javarailways.simpleato.depot.DepotResetDispatchSummary
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
@@ -98,7 +95,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
-        val train = createTrainWithConfig("T", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T", rail, world, listOf(10.0), carIdPrefix = "T" + "/car-")
         val origin = "A"
         data.wayPoints.add(WayPoint(origin, rail.id, train.head.location.arcLength))
         val acquisition = TimetableAction.TakeFromWaypoint(listOf(origin))
@@ -145,15 +142,14 @@ class TimetableDispatcherTest {
             val data = BasicWorldData()
             TestSimpleATOWorldDataRegistry.register(world, data)
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
-            val train = createTrainWithConfig("T", rail, world, listOf(10.0))
+            val train = createTrainWithConfig("T", rail, world, listOf(10.0), carIdPrefix = "T" + "/car-")
             val origin = if (depotTake) "A@one" else "A"
             val acquisition = if (depotTake) {
                 val depot = DepotId("A")
                 OperationalDestinationService(world).register(OperationalDestination(origin, rail.id,
                     train.head.location.arcLength, ViewDirection.AB,
                     DestinationRole.DepotStablingPointRole("A", "one", usableLengthMeters = 30.0)))
-                world.simpleAtoWorldData.depots.registerRollingStock(RollingStockRecord(train.id, depot,
-                    "test/emu", emptySet(), 1, 10.0, 20.0, emptySet()), StablingPointRef(depot, "one"))
+                work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry.setCandidateFacts(world, train.id, work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts("test/emu", emptySet(), 20.0, emptySet()))
                 TimetableAction.TakeFromDepot(DepotTrainSelector(depot))
             } else {
                 data.wayPoints.add(WayPoint(origin, rail.id, train.head.location.arcLength))
@@ -209,7 +205,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val (rail, returnRail) = depotLoop(world)
-        val train = createTrainWithConfig("T", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T", rail, world, listOf(10.0), carIdPrefix = "T" + "/car-")
         val actualHead = train.publishedFrame.head
         val actualArc = actualHead.arcLengthInAbMeters
         // The authored route must go around the loop, without overlapping its own intervals.
@@ -258,7 +254,7 @@ class TimetableDispatcherTest {
             val data = BasicWorldData()
             TestSimpleATOWorldDataRegistry.register(world, data)
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
-            val train = createTrainWithConfig("T", rail, world, listOf(10.0))
+            val train = createTrainWithConfig("T", rail, world, listOf(10.0), carIdPrefix = "T" + "/car-")
             val arc = train.head.location.arcLength
             data.wayPoints.add(WayPoint("A", rail.id, arc))
             data.wayPoints.add(WayPoint("B", rail.id, arc + 30.0))
@@ -300,15 +296,14 @@ class TimetableDispatcherTest {
             val data = BasicWorldData()
             TestSimpleATOWorldDataRegistry.register(world, data)
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
-            val train = createTrainWithConfig("T", rail, world, listOf(10.0))
+            val train = createTrainWithConfig("T", rail, world, listOf(10.0), carIdPrefix = "T" + "/car-")
             val origin = if (depotTake) "A@one" else "A"
             val acquisition = if (depotTake) {
                 val depot = DepotId("A")
                 OperationalDestinationService(world).register(OperationalDestination(origin, rail.id,
                     train.head.location.arcLength, ViewDirection.AB,
                     DestinationRole.DepotStablingPointRole("A", "one", usableLengthMeters = 30.0)))
-                world.simpleAtoWorldData.depots.registerRollingStock(RollingStockRecord(train.id, depot,
-                    "test/emu", emptySet(), 1, 10.0, 20.0, emptySet()), StablingPointRef(depot, "one"))
+                work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry.setCandidateFacts(world, train.id, work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts("test/emu", emptySet(), 20.0, emptySet()))
                 TimetableAction.TakeFromDepot(DepotTrainSelector(depot))
             } else {
                 data.wayPoints.add(WayPoint(origin, rail.id, train.head.location.arcLength))
@@ -351,23 +346,25 @@ class TimetableDispatcherTest {
 
     @Test
     fun `physical depot acquisition passes exact Core car membership to fixed unit ledger`() {
-        for (partial in listOf(false, true)) {
+        run {
             val world = TestWorldFixture.create().also(worldFixtures::add).world
             val data = BasicWorldData()
             TestSimpleATOWorldDataRegistry.register(world, data)
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
-            val train = createTrainWithConfig("T", rail, world, listOf(10.0))
+            val train = createTrainWithConfig("T", rail, world, listOf(10.0), carIdPrefix = "T" + "/car-")
             val depot = DepotId("A")
             OperationalDestinationService(world).register(OperationalDestination("A@one", rail.id,
                 train.head.location.arcLength, null,
                 DestinationRole.DepotStablingPointRole("A", "one", usableLengthMeters = 30.0)))
             data.wayPoints.add(WayPoint("B", rail.id, train.head.location.arcLength + 30.0))
             val store = world.simpleAtoWorldData.depots
-            store.registerRollingStock(RollingStockRecord(train.id, depot, "test/emu", emptySet(), 1,
-                10.0, 20.0, emptySet()), StablingPointRef(depot, "one"))
-            val registeredCars = train.cars.map { it.id } + if (partial) listOf("absent-car") else emptyList()
-            store.registerFixedUnit(work.art1st.javarailways.simpleato.api.depot.FixedEmuUnit(
-                "unit", depot, registeredCars, "emu/control"), registeredCars)
+            work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry.setCandidateFacts(world, train.id, work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts("test/emu", emptySet(), 20.0, emptySet()))
+            assertEquals(train.composition.units.single().unitId, store.allFixedUnits().single().id)
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException::class.java) {
+                work.art1st.javarailways.core.api.physics.train.TrainComposition.create(listOf(
+                    work.art1st.javarailways.core.api.physics.train.TrainUnitComposition("invalid", listOf("car-0", "absent-car"))),
+                    train.cars.map { it.id })
+            }
             world.simpleAtoWorldData.timetables.add(Timetable("unit", services = listOf(TimetableService("s",
                 steps = listOf(TimetableStep.At(0L, TimetableAction.TakeFromDepot(DepotTrainSelector(depot))),
                     TimetableStep.At(0L, TimetableAction.GoTo("B")),
@@ -375,14 +372,8 @@ class TimetableDispatcherTest {
                     TimetableStep.At(100L, TimetableAction.StoreAtDepot(depot)))))))
             val dispatcher = dispatcher()
             val result = world.onOwnerForTest { dispatcher.startService(world, "unit", "s") }
-            if (partial) {
-                assertTrue(result is TimetableServiceStartResult.Failure)
-                assertEquals(RollingStockState.AVAILABLE, store.rollingStock(train.id)?.state)
-                assertNull(train.controller)
-            } else {
-                assertTrue(result is TimetableServiceStartResult.Started, result.toString())
-                assertEquals(RollingStockState.IN_SERVICE, store.rollingStock(train.id)?.state)
-            }
+            assertTrue(result is TimetableServiceStartResult.Started, result.toString())
+            assertEquals(train.id, store.allFixedUnitAssignments().single().trainId)
         }
     }
 
@@ -392,7 +383,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         data.wayPoints.add(WayPoint("A", rail.id, train.head.location.arcLength))
         data.wayPoints.add(WayPoint("B", rail.id, train.head.location.arcLength + 30.0))
         world.simpleAtoWorldData.timetables.add(Timetable("wait", services = listOf(TimetableService("s",
@@ -430,7 +421,7 @@ class TimetableDispatcherTest {
             val first = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(50.0, 0.0, 0.0))
             val second = rail(world, Vector3d(50.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
             IsolatedSimulationThreadMarker.run { CoreRail.connect(first, second) }
-            val train = createTrainWithConfig("T1", first, world, listOf(10.0))
+            val train = createTrainWithConfig("T1", first, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
             data.wayPoints.add(WayPoint("A", first.id, train.head.location.arcLength))
             data.wayPoints.add(WayPoint("B", first.id, 30.0))
             world.simpleAtoWorldData.timetables.add(timetable("completed", "s1", train.id, "A", "B"))
@@ -479,7 +470,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(50.0, 1))
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val origin = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, origin))
         data.wayPoints.add(WayPoint("B", rail.id, origin + 20.0))
@@ -542,7 +533,7 @@ class TimetableDispatcherTest {
             val data = BasicWorldData()
             TestSimpleATOWorldDataRegistry.register(world, data)
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(50.0, 1))
-            val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+            val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
             val origin = train.head.location.arcLength
             data.wayPoints.add(WayPoint("A", rail.id, origin))
             data.wayPoints.add(WayPoint("B", rail.id, origin + 20.0))
@@ -634,7 +625,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(50.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val origin = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, origin))
         data.wayPoints.add(WayPoint("B", rail.id, origin + 20.0))
@@ -658,7 +649,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(50.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val origin = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, origin))
         data.wayPoints.add(WayPoint("B", rail.id, origin + 20.0))
@@ -687,7 +678,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(50.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val origin = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, origin))
         data.wayPoints.add(WayPoint("B", rail.id, origin + 20.0))
@@ -703,25 +694,6 @@ class TimetableDispatcherTest {
         assertTrue(world.onOwnerForTest { dispatcher.stopFutureCycles("tt-plan") })
         assertTrue(plans.applied.isNotEmpty())
     }
-
-    @Test
-    fun `depot reset progress preserves completed mutation counts for partial reports`() {
-        val progress = TimetableDepotResetProgress()
-
-        progress.recordBerthRelease()
-        progress.recordRunRemoval()
-        progress.recordStoppedTimetable("tt-a")
-
-        assertEquals(
-            DepotResetDispatchSummary(
-                removedRunCount = 1,
-                releasedBerthCount = 1,
-                stoppedTimetableIds = setOf("tt-a")
-            ),
-            progress.snapshot()
-        )
-    }
-
 
     private val profile = AtoSafetyProfile(
         accelerationMetersPerSecondSquared = 1.0,
@@ -745,7 +717,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(20.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", rail.id, originArc + 30.0))
@@ -768,7 +740,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", rail.id, originArc + 30.0))
@@ -803,7 +775,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         world.onOwnerForTest {
             train.setLocation(RailLocationWithFacing(rail.viewAB, 60.0))
             train.commitMaintenancePlacement()
@@ -883,7 +855,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", rail.id, originArc + 30.0))
@@ -940,7 +912,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         val depotId = DepotId("north")
         OperationalDestinationService(world).register(
@@ -953,19 +925,7 @@ class TimetableDispatcherTest {
             )
         )
         data.wayPoints.add(WayPoint("B", rail.id, originArc + 30.0))
-        world.simpleAtoWorldData.depots.registerRollingStock(
-            RollingStockRecord(
-                trainId = train.id,
-                homeDepotId = depotId,
-                modelPackageId = "test/s100",
-                tags = setOf("metro"),
-                carCount = 1,
-                lengthMeters = 10.0,
-                maximumSpeedMetersPerSecond = 20.0,
-                capabilities = setOf("doors")
-            ),
-            StablingPointRef(depotId, "one")
-        )
+        work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry.setCandidateFacts(world, train.id, work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts("test/s100", setOf("metro"), 20.0, setOf("doors")))
         world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt",
@@ -993,14 +953,14 @@ class TimetableDispatcherTest {
         assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, "tt") } is TimetableEpochStartResult.Started)
         assertTrue(world.onOwnerForTest { dispatcher.scheduleInitialCycle("tt") })
         repeat(4) { world.onOwnerForTest { dispatcher.tick(world) } }
-        assertEquals(RollingStockState.AVAILABLE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
+        assertTrue(world.simpleAtoWorldData.depots.allFixedUnitAssignments().none { it.trainId == train.id })
         assertEquals(null, dispatcher.status(TimetableServiceRunId("tt", "s1")))
         world.onOwnerForTest { dispatcher.tick(world) }
         val started = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
 
         assertEquals(train.id, started.trainId)
-        assertEquals(RollingStockState.IN_SERVICE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
-        assertEquals("tt/s1@cycle-0", world.simpleAtoWorldData.depots.rollingStock(train.id)?.assignmentId)
+        assertEquals(train.id, world.simpleAtoWorldData.depots.allFixedUnitAssignments().single { it.trainId == train.id }.trainId)
+        assertEquals("tt/s1@cycle-0/start-0", world.simpleAtoWorldData.depots.allFixedUnitAssignments().single().assignmentId)
         assertTrue(train.controller is SimpleATO)
     }
 
@@ -1014,7 +974,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("platform-train", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("platform-train", rail, world, listOf(10.0), carIdPrefix = "platform-train" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("platform@1", rail.id, originArc))
         data.wayPoints.add(WayPoint("next", rail.id, originArc + 30.0))
@@ -1061,7 +1021,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(160.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("handoff-train", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("handoff-train", rail, world, listOf(10.0), carIdPrefix = "handoff-train" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("origin", rail.id, originArc))
         data.wayPoints.add(WayPoint("handoff", rail.id, originArc + 40.0))
@@ -1137,7 +1097,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("gate-train", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("gate-train", rail, world, listOf(10.0), carIdPrefix = "gate-train" + "/car-")
         data.wayPoints.add(WayPoint("gate-origin", rail.id, train.head.location.arcLength))
         world.simpleAtoWorldData.timetables.add(
             Timetable(
@@ -1176,7 +1136,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("auto-retry-train", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("auto-retry-train", rail, world, listOf(10.0), carIdPrefix = "auto-retry-train" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("auto-origin", rail.id, originArc))
         data.wayPoints.add(WayPoint("auto-target", rail.id, originArc + 30.0))
@@ -1222,7 +1182,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("auto-disable-train", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("auto-disable-train", rail, world, listOf(10.0), carIdPrefix = "auto-disable-train" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("disable-origin", rail.id, originArc))
         data.wayPoints.add(WayPoint("disable-target", rail.id, originArc + 30.0))
@@ -1295,13 +1255,13 @@ class TimetableDispatcherTest {
     }
 
     @Test
-    fun `takeFromDepot selects an unregistered train physically stopped at a stabling point`() {
+    fun `takeFromDepot claims a default unit and explicit discard clears live and restored task ownership`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val dispatcher = dispatcher()
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(140.0, 0.0, 0.0))
-        val train = createTrainWithConfig("T-physical", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T-physical", rail, world, listOf(10.0), carIdPrefix = "T-physical" + "/car-")
         val originArc = train.head.location.arcLength
         OperationalDestinationService(world).register(
             OperationalDestination(
@@ -1331,12 +1291,37 @@ class TimetableDispatcherTest {
 
         assertTrue(result is TimetableServiceStartResult.Started, result.toString())
         assertEquals(train.id, (result as TimetableServiceStartResult.Started).run.trainId)
-        assertEquals(null, world.simpleAtoWorldData.depots.rollingStock(train.id))
+        assertEquals(train.composition.units.single().unitId, world.simpleAtoWorldData.depots.allFixedUnits().single().id)
         assertTrue(!world.simpleAtoWorldData.atoCoordinator.isStalled)
 
+        val claims = world.simpleAtoWorldData.depots.allFixedUnitAssignments()
+        assertEquals(train.composition.units.single().unitId, claims.single().unitId)
+        val checkpoint = work.art1st.javarailways.simpleato.persistence.DispatcherSnapshotCodec.decode(
+            work.art1st.javarailways.simpleato.persistence.DispatcherSnapshotCodec.encode(dispatcher.saveCheckpoint()))
+        assertEquals(claims.single().assignmentId, checkpoint.runs.single().unitAssignmentId)
         assertEquals(1, world.onOwnerForTest { dispatcher.forceDiscardTimetable(world, "physical-depot") })
         assertEquals(null, dispatcher.status(TimetableServiceRunId("physical-depot", "s1")))
         assertEquals(null, train.controller)
+        assertTrue(world.simpleAtoWorldData.depots.allFixedUnitAssignments().isEmpty())
+
+        // Restart restores ownership and a diagnostic task, never a live controller or route.
+        world.simpleAtoWorldData.depots.restoreFixedUnitAssignments(claims,
+            mapOf(train.id to train.cars.map { it.id }))
+        val mismatched = dispatcher()
+        assertEquals(TimetableCheckpointRestoreResult.Restored, world.onOwnerForTest {
+            mismatched.restoreCheckpoint(world, checkpoint.copy(runs = checkpoint.runs.map { it.copy(unitAssignmentId = "another-task") }))
+        })
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException::class.java) {
+            world.onOwnerForTest { mismatched.forceDiscardTimetable(world, "physical-depot") }
+        }
+        assertEquals(claims, world.simpleAtoWorldData.depots.allFixedUnitAssignments())
+        assertEquals(1, mismatched.recoveryRequiredRuns().size)
+        val recovered = dispatcher()
+        assertEquals(TimetableCheckpointRestoreResult.Restored,
+            world.onOwnerForTest { recovered.restoreCheckpoint(world, checkpoint) })
+        assertEquals(1, world.onOwnerForTest { recovered.forceDiscardTimetable(world, "physical-depot") })
+        assertTrue(world.simpleAtoWorldData.depots.allFixedUnitAssignments().isEmpty())
+        assertEquals(originArc, train.publishedFrame.head.arcLengthInAbMeters, 0.01)
     }
 
     @Test
@@ -1346,7 +1331,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(140.0, 0.0, 0.0))
-        val train = createTrainWithConfig("T-reverse", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T-reverse", rail, world, listOf(10.0), carIdPrefix = "T-reverse" + "/car-")
         val originArc = train.head.location.arcLength
         OperationalDestinationService(world).register(OperationalDestination(
             "north@1",
@@ -1410,7 +1395,7 @@ class TimetableDispatcherTest {
                 val data = BasicWorldData()
                 TestSimpleATOWorldDataRegistry.register(world, data)
                 val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(140.0, 0.0, 0.0))
-                val train = createTrainWithConfig("reference", rail, world, listOf(10.0))
+                val train = createTrainWithConfig("reference", rail, world, listOf(10.0), carIdPrefix = "reference" + "/car-")
                 val initial = train.publishedFrame
                 OperationalDestinationService(world).register(OperationalDestination("origin", rail.id,
                     initial.head.arcLengthInAbMeters, ViewDirection.AB, DestinationRole.Regular))
@@ -1466,7 +1451,7 @@ class TimetableDispatcherTest {
                 val headRail = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(240.0, 0.0, 0.0))
                 val tailRail = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
                 IsolatedSimulationThreadMarker.run { RailView.connect(headRail.viewBA, tailRail.viewBA) }
-                val train = createTrainWithConfig("mixed", headRail, world, listOf(10.0))
+                val train = createTrainWithConfig("mixed", headRail, world, listOf(10.0), carIdPrefix = "mixed" + "/car-")
                 world.onOwnerForTest {
                     train.setLocation(RailLocationWithFacing(headRail.viewAB, 5.0))
                     train.commitMaintenancePlacement()
@@ -1531,7 +1516,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val (rail, inboundRail, returnRail) = depotBranchLoop(world)
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         val destinations = OperationalDestinationService(world)
         destinations.register(
@@ -1562,19 +1547,7 @@ class TimetableDispatcherTest {
         )
         data.wayPoints.add(WayPoint("B", returnRail.id, 50.0))
         val depotId = DepotId("north")
-        world.simpleAtoWorldData.depots.registerRollingStock(
-            RollingStockRecord(
-                train.id,
-                depotId,
-                "test/s100",
-                setOf("metro"),
-                1,
-                10.0,
-                20.0,
-                setOf("doors")
-            ),
-            StablingPointRef(depotId, "out")
-        )
+        work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry.setCandidateFacts(world, train.id, work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts("test/s100", setOf("metro"), 20.0, setOf("doors")))
         world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt",
@@ -1615,11 +1588,9 @@ class TimetableDispatcherTest {
         assertTrue(status.routeGrantActive)
         assertEquals(inboundRail.id, train.head.location.rail.id)
         assertEquals(originArc, train.head.location.arcLength, 0.6)
-        val rolling = world.simpleAtoWorldData.depots.rollingStock(train.id)!!
-        assertEquals(RollingStockState.AVAILABLE, rolling.state)
-        assertEquals(StablingPointRef(depotId, "in"), rolling.stablingPointRef)
-        assertEquals(null, world.simpleAtoWorldData.depots.stablingPoint(StablingPointRef(depotId, "out"))?.occupantTrainId)
-        assertEquals(train.id, world.simpleAtoWorldData.depots.stablingPoint(StablingPointRef(depotId, "in"))?.occupantTrainId)
+        assertTrue(world.simpleAtoWorldData.depots.allFixedUnitAssignments().none { it.trainId == train.id })
+        assertEquals(inboundRail.id, train.publishedFrame.head.railId)
+        assertEquals(originArc, train.publishedFrame.head.arcLengthInAbMeters, 0.6)
         assertTrue(!world.simpleAtoWorldData.atoCoordinator.isStalled)
 
         data.wayPoints.add(WayPoint("C", returnRail.id, 100.0))
@@ -1657,8 +1628,8 @@ class TimetableDispatcherTest {
         )!!
         assertEquals(TimetableServiceRunState.COMPLETED, departureStatus.state)
         assertTrue(departureStatus.routeGrantActive)
-        assertEquals(RollingStockState.IN_SERVICE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
-        assertEquals(null, world.simpleAtoWorldData.depots.stablingPoint(StablingPointRef(depotId, "in"))?.occupantTrainId)
+        assertEquals(train.id, world.simpleAtoWorldData.depots.allFixedUnitAssignments().single { it.trainId == train.id }.trainId)
+        assertTrue(train.publishedFrame.head.railId != inboundRail.id)
         assertTrue(!world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
@@ -1670,7 +1641,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
         TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val (outboundRail, inboundRail, returnRail) = depotBranchLoop(world)
-        val train = createTrainWithConfig("T1", outboundRail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", outboundRail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         val destinations = OperationalDestinationService(world)
         destinations.register(
@@ -1701,32 +1672,9 @@ class TimetableDispatcherTest {
         )
         data.wayPoints.add(WayPoint("B", returnRail.id, 50.0))
         val depotId = DepotId("north")
-        world.simpleAtoWorldData.depots.registerRollingStock(
-            RollingStockRecord(
-                train.id,
-                depotId,
-                "test/s100",
-                setOf("metro"),
-                1,
-                10.0,
-                20.0,
-                emptySet()
-            ),
-            StablingPointRef(depotId, "out")
-        )
-        world.simpleAtoWorldData.depots.registerRollingStock(
-            RollingStockRecord(
-                "blocker",
-                depotId,
-                "test/blocker",
-                setOf("blocker"),
-                1,
-                10.0,
-                20.0,
-                emptySet()
-            ),
-            StablingPointRef(depotId, "in")
-        )
+        work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry.setCandidateFacts(world, train.id, work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts("test/s100", setOf("metro"), 20.0, emptySet()))
+        val blocker = createTrainWithConfig("blocker", inboundRail, world, listOf(10.0), carIdPrefix = "blocker/car-")
+        work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry.setCandidateFacts(world, "blocker", work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts("test/blocker", setOf("blocker"), 20.0, emptySet()))
         world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt-store-capacity",
@@ -1762,15 +1710,9 @@ class TimetableDispatcherTest {
 
         assertTrue(coordinator.isStalled)
         assertEquals("DepotAllocationFailure", coordinator.lastStall?.errorType)
-        assertEquals(
-            "blocker",
-            world.simpleAtoWorldData.depots.stablingPoint(StablingPointRef(depotId, "in"))?.occupantTrainId
-        )
-        assertEquals(
-            null,
-            world.simpleAtoWorldData.depots.stablingPoint(StablingPointRef(depotId, "in"))?.reservedByAssignmentId
-        )
-        assertEquals(RollingStockState.IN_SERVICE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
+        assertEquals(inboundRail.id, blocker.publishedFrame.head.railId)
+        assertEquals(originArc, blocker.publishedFrame.head.arcLengthInAbMeters, 0.01)
+        assertEquals(train.id, world.simpleAtoWorldData.depots.allFixedUnitAssignments().single { it.trainId == train.id }.trainId)
     }
 
     @Test
@@ -1780,7 +1722,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val (outboundRail, returnRail) = depotLoop(world)
-        val train = createTrainWithConfig("T1", outboundRail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", outboundRail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         val destinations = OperationalDestinationService(world)
         destinations.register(
@@ -1813,19 +1755,7 @@ class TimetableDispatcherTest {
             )
         )
         val depotId = DepotId("north")
-        world.simpleAtoWorldData.depots.registerRollingStock(
-            RollingStockRecord(
-                train.id,
-                depotId,
-                "test/s100",
-                setOf("metro"),
-                1,
-                10.0,
-                20.0,
-                emptySet()
-            ),
-            StablingPointRef(depotId, "one")
-        )
+        work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry.setCandidateFacts(world, train.id, work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts("test/s100", setOf("metro"), 20.0, emptySet()))
         world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt-cycle",
@@ -1869,7 +1799,7 @@ class TimetableDispatcherTest {
             world.onOwnerForTest { dispatcher.tick(world) }
         }
         assertEquals(0L, dispatcher.status(TimetableServiceRunId("tt-cycle", "cyclic"))?.cycleIndex)
-        assertEquals(RollingStockState.AVAILABLE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
+        assertTrue(world.simpleAtoWorldData.depots.allFixedUnitAssignments().none { it.trainId == train.id })
 
         tickAndPublish(ato)
         world.onOwnerForTest { dispatcher.tick(world) }
@@ -1878,8 +1808,8 @@ class TimetableDispatcherTest {
         assertEquals(1L, next.cycleIndex)
         assertEquals(0L, next.timetableElapsedTicks)
         assertEquals(train.id, next.trainId)
-        assertEquals(RollingStockState.IN_SERVICE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
-        assertEquals("tt-cycle/cyclic@cycle-1", world.simpleAtoWorldData.depots.rollingStock(train.id)?.assignmentId)
+        assertEquals(train.id, world.simpleAtoWorldData.depots.allFixedUnitAssignments().single { it.trainId == train.id }.trainId)
+        assertTrue(world.simpleAtoWorldData.depots.allFixedUnitAssignments().single().assignmentId.startsWith("tt-cycle/cyclic@cycle-1/start-"))
         assertTrue(!world.simpleAtoWorldData.atoCoordinator.isStalled)
 
         assertTrue(world.onOwnerForTest { dispatcher.stopFutureCycles("tt-cycle") })
@@ -1888,7 +1818,7 @@ class TimetableDispatcherTest {
             world.onOwnerForTest { dispatcher.tick(world) }
         }
         assertEquals(1L, dispatcher.status(TimetableServiceRunId("tt-cycle", "cyclic"))?.cycleIndex)
-        assertEquals(RollingStockState.AVAILABLE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
+        assertTrue(world.simpleAtoWorldData.depots.allFixedUnitAssignments().none { it.trainId == train.id })
         assertTrue(!world.simpleAtoWorldData.atoCoordinator.isStalled, world.simpleAtoWorldData.atoCoordinator.lastStall.toString())
     }
 
@@ -1903,7 +1833,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         OperationalDestinationService(world).register(
             OperationalDestination(
@@ -1916,19 +1846,7 @@ class TimetableDispatcherTest {
         )
         data.wayPoints.add(WayPoint("B", rail.id, originArc + 50.0))
         val depotId = DepotId("north")
-        world.simpleAtoWorldData.depots.registerRollingStock(
-            RollingStockRecord(
-                train.id,
-                depotId,
-                "test/s100",
-                setOf("metro"),
-                1,
-                10.0,
-                20.0,
-                emptySet()
-            ),
-            StablingPointRef(depotId, "one")
-        )
+        work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry.setCandidateFacts(world, train.id, work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts("test/s100", setOf("metro"), 20.0, emptySet()))
         world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt-overlap",
@@ -1957,7 +1875,7 @@ class TimetableDispatcherTest {
         assertTrue(coordinator.isStalled)
         assertEquals("DepotAllocationFailure", coordinator.lastStall?.errorType)
         assertEquals(0L, dispatcher.status(TimetableServiceRunId("tt-overlap", "s1"))?.cycleIndex)
-        assertEquals(RollingStockState.IN_SERVICE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
+        assertEquals(train.id, world.simpleAtoWorldData.depots.allFixedUnitAssignments().single { it.trainId == train.id }.trainId)
     }
 
     @Test
@@ -1971,7 +1889,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         OperationalDestinationService(world).register(
             OperationalDestination(
@@ -2020,7 +1938,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", rail.id, originArc + 30.0))
@@ -2060,7 +1978,7 @@ class TimetableDispatcherTest {
             lateWorld,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val lateTrain = createTrainWithConfig("T2", lateRail, lateWorld, listOf(10.0))
+        val lateTrain = createTrainWithConfig("T2", lateRail, lateWorld, listOf(10.0), carIdPrefix = "T2" + "/car-")
         val lateOrigin = lateTrain.head.location.arcLength
         lateData.wayPoints.add(WayPoint("A", lateRail.id, lateOrigin))
         lateData.wayPoints.add(WayPoint("B", lateRail.id, lateOrigin + 30.0))
@@ -2086,7 +2004,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", rail.id, originArc + 40.0))
@@ -2114,7 +2032,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, originArc))
         data.wayPoints.add(WayPoint("P", rail.id, originArc + 30.0))
@@ -2185,7 +2103,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", rail.id, originArc + 50.0))
@@ -2217,7 +2135,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, originArc))
         data.wayPoints.add(WayPoint("P", rail.id, originArc + 25.0))
@@ -2278,7 +2196,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", rail.id, originArc + 50.0))
@@ -2324,7 +2242,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", rail.id, originArc + 30.0))
@@ -2377,7 +2295,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", rail.id, originArc + 30.0))
@@ -2416,7 +2334,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(140.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         val viaArc = originArc + 30.0
         val targetArc = originArc + 70.0
@@ -2485,7 +2403,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(140.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", rail.id, originArc + 30.0))
@@ -2546,7 +2464,7 @@ class TimetableDispatcherTest {
         IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, straight) }
         IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, branch) }
         approach.viewAB.selectNextRail(straight.viewAB)
-        val train = createTrainWithConfig("near-turnout", approach, world, listOf(10.0))
+        val train = createTrainWithConfig("near-turnout", approach, world, listOf(10.0), carIdPrefix = "near-turnout" + "/car-")
         val origin = train.head.location.arcLength
         assertTrue(30.0 - origin in 5.0..20.0)
         data.wayPoints.add(WayPoint("A", approach.id, origin))
@@ -2574,8 +2492,8 @@ class TimetableDispatcherTest {
         val blockingBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 20.0))
         IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, mainBranch) }
         IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, blockingBranch) }
-        val mainTrain = createTrainWithConfig("main", approach, world, listOf(10.0))
-        val blockingTrain = createTrainWithConfig("blocking", approach, world, listOf(10.0))
+        val mainTrain = createTrainWithConfig("main", approach, world, listOf(10.0), carIdPrefix = "main" + "/car-")
+        val blockingTrain = createTrainWithConfig("blocking", approach, world, listOf(10.0), carIdPrefix = "blocking" + "/car-")
         world.onOwnerForTest {
             blockingTrain.setLocation(mainTrain.head.location.forward(60.0)!!)
             blockingTrain.commit()
@@ -2646,8 +2564,8 @@ class TimetableDispatcherTest {
         val secondBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 20.0))
         IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, firstBranch) }
         IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, secondBranch) }
-        val firstTrain = createTrainWithConfig("T1", approach, world, listOf(10.0))
-        val secondTrain = createTrainWithConfig("T2", approach, world, listOf(10.0))
+        val firstTrain = createTrainWithConfig("T1", approach, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
+        val secondTrain = createTrainWithConfig("T2", approach, world, listOf(10.0), carIdPrefix = "T2" + "/car-")
         val secondOriginArc = firstTrain.head.location.arcLength + 40.0
         world.onOwnerForTest {
             secondTrain.setLocation(RailLocationWithFacing(secondBranch.viewAB, 40.0))
@@ -2710,8 +2628,8 @@ class TimetableDispatcherTest {
         TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val firstRail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
         val secondRail = rail(world, Vector3d(0.0, 0.0, 20.0), Vector3d(200.0, 0.0, 20.0))
-        val failed = createTrainWithConfig("failed", firstRail, world, listOf(10.0))
-        val healthy = createTrainWithConfig("healthy", secondRail, world, listOf(10.0))
+        val failed = createTrainWithConfig("failed", firstRail, world, listOf(10.0), carIdPrefix = "failed" + "/car-")
+        val healthy = createTrainWithConfig("healthy", secondRail, world, listOf(10.0), carIdPrefix = "healthy" + "/car-")
         data.wayPoints.add(WayPoint("F0", firstRail.id, failed.head.location.arcLength))
         data.wayPoints.add(WayPoint("F1", firstRail.id, 180.0))
         data.wayPoints.add(WayPoint("H0", secondRail.id, healthy.head.location.arcLength))
@@ -2779,8 +2697,8 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val firstTrain = createTrainWithConfig("first", firstRail, world, listOf(10.0))
-        val secondTrain = createTrainWithConfig("second", secondRail, world, listOf(10.0))
+        val firstTrain = createTrainWithConfig("first", firstRail, world, listOf(10.0), carIdPrefix = "first" + "/car-")
+        val secondTrain = createTrainWithConfig("second", secondRail, world, listOf(10.0), carIdPrefix = "second" + "/car-")
         data.wayPoints.add(WayPoint("F0", firstRail.id, firstTrain.head.location.arcLength))
         data.wayPoints.add(WayPoint("F1", firstRail.id, 80.0))
         data.wayPoints.add(WayPoint("S0", secondRail.id, secondTrain.head.location.arcLength))
@@ -2820,8 +2738,8 @@ class TimetableDispatcherTest {
         val earlyBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 20.0))
         IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, lateBranch) }
         IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, earlyBranch) }
-        val lateTrain = createTrainWithConfig("late-train", approach, world, listOf(10.0))
-        val earlyTrain = createTrainWithConfig("early-train", approach, world, listOf(10.0))
+        val lateTrain = createTrainWithConfig("late-train", approach, world, listOf(10.0), carIdPrefix = "late-train" + "/car-")
+        val earlyTrain = createTrainWithConfig("early-train", approach, world, listOf(10.0), carIdPrefix = "early-train" + "/car-")
         world.onOwnerForTest {
             earlyTrain.setLocation(lateTrain.head.location.forward(40.0)!!)
             earlyTrain.commit()
@@ -2884,7 +2802,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", rail.id, originArc + 30.0))
@@ -2929,7 +2847,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", rail.id, originArc + 30.0))
@@ -3041,7 +2959,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", rail.id, originArc + 30.0))
@@ -3125,7 +3043,7 @@ class TimetableDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", rail.id, originArc))
         // This fixture deliberately advances physics independently of timetable ticks to test
@@ -3223,7 +3141,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(150.0, 1))
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val origin = train.publishedFrame.head.arcLengthInAbMeters
         listOf("A" to origin, "B" to 50.0, "C" to 60.0, "D" to 100.0).forEach { (id, arc) ->
             data.wayPoints.add(WayPoint(id, rail.id, arc))
@@ -3278,7 +3196,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(150.0, 1))
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         data.wayPoints.add(WayPoint("A", rail.id, train.publishedFrame.head.arcLengthInAbMeters))
         data.wayPoints.add(WayPoint("D", rail.id, 100.0))
         val station = StationId("station")
@@ -3333,7 +3251,7 @@ class TimetableDispatcherTest {
         val longBranch = rail(world, Vector3d(30.0, 0.0, 0.0), Vector3d(150.0, 0.0, 20.0))
         IsolatedSimulationThreadMarker.run { CoreRail.connect(rail, shortBranch) }
         IsolatedSimulationThreadMarker.run { CoreRail.connect(rail, longBranch) }
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         data.wayPoints.add(WayPoint("A", rail.id, train.publishedFrame.head.arcLengthInAbMeters))
         data.wayPoints.add(WayPoint("D", rail.id, 10.0))
         val station = StationId("station")
@@ -3399,7 +3317,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(150.0, 1))
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         data.wayPoints.add(WayPoint("A", rail.id, train.publishedFrame.head.arcLengthInAbMeters))
         data.wayPoints.add(WayPoint("D", rail.id, 100.0))
         val station = StationId("station")
@@ -3443,7 +3361,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(150.0, 1))
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         data.wayPoints.add(WayPoint("A", rail.id, train.publishedFrame.head.arcLengthInAbMeters))
         data.wayPoints.add(WayPoint("D", rail.id, 100.0))
         val station = StationId("station")

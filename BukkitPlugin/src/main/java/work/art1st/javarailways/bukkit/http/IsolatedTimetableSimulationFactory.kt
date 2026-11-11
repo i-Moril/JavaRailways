@@ -4,6 +4,7 @@ import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.extension.train.SimulationTrainExtension
 import work.art1st.javarailways.bukkit.extension.train.simulationTrainProfileOrNull
+import work.art1st.javarailways.bukkit.extension.train.simulationCandidateFacts
 import work.art1st.javarailways.bukkit.operation.simulationBehaviorOrNull
 import work.art1st.javarailways.bukkit.operation.SimulationCarBehaviorExtension
 import work.art1st.javarailways.bukkit.operation.SimulationBehaviorEffect
@@ -13,11 +14,7 @@ import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.basic.control.HandleTrainActuator
 import work.art1st.javarailways.basic.control.TrainDynamics
 import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector
-import work.art1st.javarailways.simpleato.api.depot.FixedEmuUnit
-import work.art1st.javarailways.simpleato.api.depot.FixedEmuUnitAssignment
-import work.art1st.javarailways.simpleato.api.depot.RollingStockSnapshot
-import work.art1st.javarailways.simpleato.api.depot.RollingStockState
-import work.art1st.javarailways.simpleato.api.depot.RollingStockRecord
+import work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts
 import work.art1st.javarailways.simpleato.api.timetable.TimetableSimulationExtensions
 import work.art1st.javarailways.basic.safety.SpeedSafetyMonitor
 import work.art1st.javarailways.simpleato.api.simulation.PreparedSimulationFeature
@@ -67,7 +64,9 @@ internal data class IsolatedTimetableSimulationSnapshot(
     val formationsByService: Map<String, SimulationFormationBlueprint> = emptyMap(),
     val standaloneProgramServiceIds: Set<String> = emptySet(),
     val stationCallResolvers: StationCallSimulationExtensions =
-        work.art1st.javarailways.simpleato.api.station.StationCallResolverRegistry().prepareSimulation()
+        work.art1st.javarailways.simpleato.api.station.StationCallResolverRegistry().prepareSimulation(),
+    val candidateFactsByService: Map<String, TrainCandidateFacts> = emptyMap(),
+    val candidateCarIdsByService: Map<String, List<String>> = emptyMap()
 )
 
 /** Captures static configuration on the live thread, then creates a runtime with no live trains. */
@@ -149,6 +148,15 @@ internal class IsolatedTimetableSimulationFactory(
             val selection = selectionsByService.getValue(service.id)
             service.id to profileResolver.resolve(liveWorld, selection.profileType, selection.profileId)
         }.toMutableMap()
+        val candidateFacts = initialServices.associate { service ->
+            val selection = selectionsByService.getValue(service.id)
+            val profile = profiles.getValue(service.id)
+            val captured = if (selection.profileType == SimulationProfileType.WORLD_TRAIN)
+                liveWorld.getTrain(selection.profileId)?.let(liveWorld.simpleAtoWorldData.candidateFacts) else null
+            service.id to (captured ?: TrainCandidateFacts(
+                profile.id.takeIf { selection.profileType == SimulationProfileType.TRAIN_TEMPLATE },
+                emptySet(), profile.trainControl.maxSpeed, emptySet()))
+        }
         val structuralSources = timetable.formationEvents.flatMapTo(HashSet()) { it.participantDutyIds }
         val structuralSelectors = initialServices.filter {
             it.id in structuralSources || it.id in requireRegisteredUnitsForServices
@@ -186,7 +194,15 @@ internal class IsolatedTimetableSimulationFactory(
             liveWorld.simpleAtoWorldData.dispatcher.admissionRetryTicks,
             formations,
             java.util.Set.copyOf(standaloneProgramServiceIds),
-            liveWorld.simpleAtoWorldData.stationCallResolvers.prepareSimulation()
+            liveWorld.simpleAtoWorldData.stationCallResolvers.prepareSimulation(),
+            candidateFacts,
+            initialServices.mapNotNull { service ->
+                val selection = selectionsByService.getValue(service.id)
+                if (selection.profileType == SimulationProfileType.WORLD_TRAIN)
+                    liveWorld.getTrain(selection.profileId)?.let { train ->
+                        service.id to java.util.List.copyOf(train.cars.map { it.id })
+                    } else null
+            }.toMap()
         )
     }
 
@@ -205,6 +221,7 @@ internal class IsolatedTimetableSimulationFactory(
                     operatingDirections = work.art1st.javarailways.basic.rail.OperatingDirectionStore(directionChanges)
                 )
             },
+            candidateFacts = { train -> train.simulationCandidateFacts },
             timetableExtensions = { world -> snapshot.timetableExtensions.create(world) },
             stationCallResolvers = { world -> snapshot.stationCallResolvers.create(world) },
             speedSafety = snapshot.speedSafety,
@@ -275,9 +292,7 @@ internal class IsolatedTimetableSimulationFactory(
         val occupiedStablingPoints = HashSet<String>()
         val occupiedDynamicWaypoints = HashSet<String>()
         val namedTrains = HashMap<String, CoreTrain>()
-        val stocks = arrayListOf<RollingStockSnapshot>()
-        val units = arrayListOf<FixedEmuUnit>()
-        val claims = arrayListOf<FixedEmuUnitAssignment>()
+        val controlCompatibility = linkedMapOf<String, String>()
         snapshot.timetable.services.filterNot(::takesFormationOutput).forEach { service ->
             val profile = snapshot.profilesByService.getValue(service.id)
             require(profile.cars.isNotEmpty()) { "simulation profile ${profile.id} has no physical car blueprint" }
@@ -289,6 +304,10 @@ internal class IsolatedTimetableSimulationFactory(
                 )
                 return@forEach
             }
+            val formation = snapshot.formationsByService[service.id]
+            val candidateFacts = snapshot.candidateFactsByService[service.id] ?: formation?.candidateFacts ?: TrainCandidateFacts(
+                profile.id.takeIf { profile.type == SimulationProfileType.TRAIN_TEMPLATE },
+                emptySet(), profile.trainControl.maxSpeed, emptySet())
             val acquisition = service.steps.asSequence().filterIsInstance<TimetableStep.At>()
                 .map(TimetableStep.At::action)
                 .firstOrNull { it is TimetableAction.TakeFromDepot || it is TimetableAction.TakeFromWaypoint }
@@ -298,61 +317,48 @@ internal class IsolatedTimetableSimulationFactory(
                     acquisition.selector,
                     profile,
                     occupiedStablingPoints,
-                    snapshot.formationsByService[service.id]?.stock
+                    candidateFacts
                 )
                 is TimetableAction.TakeFromWaypoint -> Placement(
                     acquisition.wayPointIds.firstOrNull(occupiedDynamicWaypoints::add)
-                        ?: error("waypoint selector has insufficient distinct origins for simulation: ${acquisition.wayPointIds.joinToString()}"),
-                    null,
-                    emptySet()
+                        ?: error("waypoint selector has insufficient distinct origins for simulation: ${acquisition.wayPointIds.joinToString()}")
                 )
                 else -> Placement(
                     service.steps.filterIsInstance<TimetableStep.Check>().firstOrNull()?.wayPointId
-                        ?: error("service ${service.id} has no deterministic initial waypoint"),
-                    null,
-                    emptySet()
+                        ?: error("service ${service.id} has no deterministic initial waypoint")
                 )
             }
             val trainName = namedTrainId ?: "simulation-${service.id}"
+            val simulationTrainId = "simulation/${snapshot.timetable.id}/${service.id}"
+            val targetCarIds = profile.cars.indices.map { "$simulationTrainId/car-$it" }
+            val mappedFacts = formation?.candidateFactsFor(targetCarIds) ?: run {
+                val sourceIds = snapshot.candidateCarIdsByService[service.id]
+                require(candidateFacts.carFacts.isEmpty() || sourceIds?.toSet() == candidateFacts.carFacts.keys)
+                val uniform = TrainCandidateFacts(candidateFacts.modelPackageId, candidateFacts.tags,
+                    candidateFacts.maximumSpeedMetersPerSecond, candidateFacts.capabilities)
+                TrainCandidateFacts.fromCars(targetCarIds.mapIndexed { index, target ->
+                    target to (sourceIds?.get(index)?.let(candidateFacts.carFacts::get) ?: uniform)
+                }.toMap())
+            }
             val train = createTrain(
                 world,
-                "simulation/${snapshot.timetable.id}/${service.id}",
+                simulationTrainId,
                 trainName,
                 profile,
-                placement.wayPointId
+                placement.wayPointId,
+                formation,
+                mappedFacts
             )
             if (namedTrainId != null) namedTrains[namedTrainId] = train
             world.basicWorldData.trainSpeedProfiles.put(
                 train.id,
                 TrainSpeedProfile(profile.trainControl.curveSpeedLimitOffset)
             )
-            val formation = snapshot.formationsByService[service.id]
-            val physicalIds = train.cars.map { it.id }
-            val localUnits = formation?.unitsFor(train.id, physicalIds).orEmpty()
-            units += localUnits
-            placement.depotSelector?.let { selector ->
-                val point = requireNotNull(world.simpleAtoWorldData.depots.stablingPoints(selector.depotId)
-                    .firstOrNull { it.point.destinationId == placement.wayPointId })
-                val record = formation?.stock?.copy(trainId = train.id) ?: RollingStockRecord(
-                        train.id,
-                        selector.depotId,
-                        profile.id,
-                        placement.rollingStockTags,
-                        profile.cars.size,
-                        profile.cars.sumOf(SimulationCarBlueprint::length),
-                        profile.trainControl.maxSpeed,
-                        selector.requiredCapabilities
-                    )
-                require(selector.matches(record)) { "structural simulation source does not satisfy its depot selector" }
-                stocks += RollingStockSnapshot(record, RollingStockState.AVAILABLE, point.point.ref)
-            } ?: formation?.let {
-                val assignment = "${train.id}/initial-assignment"
-                stocks += RollingStockSnapshot(it.stock.copy(trainId = train.id), RollingStockState.IN_SERVICE, null, assignment)
-                claims += localUnits.map { unit -> FixedEmuUnitAssignment(unit.id, train.id, assignment) }
-            }
+            formation?.controlCompatibilityFor(train.id)?.let(controlCompatibility::putAll)
         }
-        world.simpleAtoWorldData.depots.restoreOperationalLedger(stocks, units, claims,
-            world.allTrains.associate { it.id to it.cars.map { car -> car.id } })
+        world.simpleAtoWorldData.depots.restoreOperationalLedger(emptyList(),
+            world.allTrains.associate { it.id to it.cars.map { car -> car.id } },
+            controlCompatibility = controlCompatibility)
     }
 
     private fun takesFormationOutput(service: TimetableService): Boolean =
@@ -363,22 +369,17 @@ internal class IsolatedTimetableSimulationFactory(
         selector: DepotTrainSelector,
         profile: SimulationControlProfile,
         occupied: MutableSet<String>,
-        registeredStock: RollingStockRecord? = null
+        facts: TrainCandidateFacts
     ): Placement {
+        require(selector.matches(facts, profile.cars.size)) { "simulation source does not satisfy its depot selector" }
         val trainLength = profile.cars.sumOf(SimulationCarBlueprint::length)
         val point = world.simpleAtoWorldData.depots.stablingPoints(selector.depotId)
             .sortedBy { it.point.ref.pointId }
             .filter { it.point.usableLengthMeters == null || trainLength <= it.point.usableLengthMeters!! }
-            .filter {
-                it.point.allowedTags.isEmpty() || if (registeredStock != null) registeredStock.tags.any(it.point.allowedTags::contains)
-                else selector.requiredTags.isEmpty() || selector.requiredTags.any(it.point.allowedTags::contains)
-            }
+            .filter { it.point.allowedTags.isEmpty() || facts.tags.any(it.point.allowedTags::contains) }
             .firstOrNull { occupied.add(it.point.ref.toString()) }
             ?: error("depot ${selector.depotId} has insufficient stabling points for simulation")
-        val rollingStockTags = selector.requiredTags.ifEmpty {
-            point.point.allowedTags.minOrNull()?.let(::setOf).orEmpty()
-        }
-        return Placement(point.point.destinationId, selector, rollingStockTags)
+        return Placement(point.point.destinationId)
     }
 
     private fun createTrain(
@@ -386,7 +387,9 @@ internal class IsolatedTimetableSimulationFactory(
         trainId: String,
         trainName: String,
         profile: SimulationControlProfile,
-        wayPointId: String
+        wayPointId: String,
+        formation: SimulationFormationBlueprint?,
+        candidateFacts: TrainCandidateFacts
     ): CoreTrain {
         val point = requireNotNull(world.basicWorldData.wayPoints[wayPointId]) {
             "simulation waypoint not found: $wayPointId"
@@ -407,7 +410,8 @@ internal class IsolatedTimetableSimulationFactory(
                         blueprint.bogieAOffset, blueprint.bogieBOffset
                     ).also { car ->
                         if (blueprint.installedReversed) car.reverse()
-                        val behavior = SimulationCarBehaviorExtension(blueprint.behavior, blueprint.control, effectObserver)
+                        val behavior = SimulationCarBehaviorExtension(blueprint.behavior, blueprint.control, effectObserver,
+                            candidateFacts = candidateFacts.carFacts.getValue("$trainId/car-$index"))
                         onFailure(behavior::close)
                         car.registerExtensionData(extensionPlugin, behavior)
                         behavior.initialize(car, emptyMap())
@@ -419,7 +423,7 @@ internal class IsolatedTimetableSimulationFactory(
                     is TrainPlacementResult.Ambiguous -> error("simulation train body has multiple valid placement paths at $wayPointId")
                     is TrainPlacementResult.SearchLimit -> error("simulation train placement could not be proven at $wayPointId: ${prepared.reason}")
                 }
-                train(trainId, cars, trainName, preparedPlacement = placement).also { created ->
+                train(trainId, cars, trainName, preparedPlacement = placement, composition = formation?.compositionFor(trainId, cars.map { it.id })).also { created ->
                     val configuration = SimulationTrainExtension(profile.trainControl)
                     created.registerExtensionData(extensionPlugin, configuration)
                     configuration.initialize(created, emptyMap())
@@ -442,9 +446,7 @@ internal class IsolatedTimetableSimulationFactory(
     }
 
     private data class Placement(
-        val wayPointId: String,
-        val depotSelector: DepotTrainSelector?,
-        val rollingStockTags: Set<String>
+        val wayPointId: String
     )
     private data class NamedSelector(val trainId: String)
     private data class WaypointSelector(val wayPointIds: List<String>)

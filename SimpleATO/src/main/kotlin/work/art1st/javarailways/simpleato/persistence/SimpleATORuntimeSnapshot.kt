@@ -13,68 +13,9 @@ import work.art1st.javarailways.simpleato.api.depot.FixedFormationHeldOutput
 import work.art1st.javarailways.simpleato.api.depot.FixedFormationDisposition
 import work.art1st.javarailways.simpleato.api.depot.FixedEmuUnitAssignment
 import work.art1st.javarailways.simpleato.api.depot.DepotId
-import work.art1st.javarailways.simpleato.api.depot.RollingStockRecord
-import work.art1st.javarailways.simpleato.api.depot.RollingStockSnapshot
-import work.art1st.javarailways.simpleato.api.depot.RollingStockState
 import work.art1st.javarailways.simpleato.api.depot.StablingPointRef
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.timetable.TimetableCheckpointRestoreResult
-
-@Serializable
-data class SavedRollingStockV1(
-    val trainId: String,
-    val homeDepotId: String,
-    val modelPackageId: String?,
-    val tags: Set<String>,
-    val carCount: Int,
-    val lengthMeters: Double,
-    val maximumSpeedMetersPerSecond: Double,
-    val capabilities: Set<String>,
-    val state: String,
-    val stablingPointId: String? = null,
-    val assignmentId: String? = null,
-    val stablingDepotId: String = homeDepotId
-) {
-    fun restore(): RollingStockSnapshot = RollingStockSnapshot(
-        record = RollingStockRecord(
-            trainId, DepotId(homeDepotId), modelPackageId, tags, carCount,
-            lengthMeters, maximumSpeedMetersPerSecond, capabilities
-        ),
-        state = RollingStockState.valueOf(state),
-        stablingPointRef = stablingPointId?.let { StablingPointRef(DepotId(stablingDepotId), it) },
-        assignmentId = assignmentId
-    )
-
-    companion object {
-        fun capture(value: RollingStockSnapshot): SavedRollingStockV1 = SavedRollingStockV1(
-            trainId = value.record.trainId,
-            homeDepotId = value.record.homeDepotId.value,
-            modelPackageId = value.record.modelPackageId,
-            tags = value.record.tags,
-            carCount = value.record.carCount,
-            lengthMeters = value.record.lengthMeters,
-            maximumSpeedMetersPerSecond = value.record.maximumSpeedMetersPerSecond,
-            capabilities = value.record.capabilities,
-            state = value.state.name,
-            stablingPointId = value.stablingPointRef?.pointId,
-            assignmentId = value.assignmentId,
-            stablingDepotId = value.stablingPointRef?.depotId?.value ?: value.record.homeDepotId.value
-        )
-    }
-}
-
-@Serializable
-data class SavedFixedEmuUnit(
-    val id: String,
-    val homeDepotId: String,
-    val carIds: List<String>,
-    val controlCompatibilityKey: String
-) {
-    fun restore() = FixedEmuUnit(id, DepotId(homeDepotId), carIds, controlCompatibilityKey)
-    companion object {
-        fun capture(unit: FixedEmuUnit) = SavedFixedEmuUnit(unit.id, unit.homeDepotId.value, unit.carIds, unit.controlCompatibilityKey)
-    }
-}
 
 @Serializable
 data class SavedFixedEmuUnitAssignment(val unitId: String, val trainId: String, val assignmentId: String) {
@@ -134,8 +75,7 @@ data class SimpleATORuntimeSnapshotV1(
     val physicsEpoch: Long,
     val dispatcher: SavedDispatcherV1,
     val timetables: List<SavedTimetableV1> = emptyList(),
-    val rollingStock: List<SavedRollingStockV1> = emptyList(),
-    val fixedUnits: List<SavedFixedEmuUnit> = emptyList(),
+    val fixedUnitControlCompatibility: Map<String, String> = emptyMap(),
     val fixedUnitAssignments: List<SavedFixedEmuUnitAssignment> = emptyList(),
     val unresolvedFormationChanges: List<SavedFixedFormationChange> = emptyList(),
     val heldFormationOutputs: List<SavedFixedFormationHeldOutput> = emptyList()
@@ -150,15 +90,13 @@ data class SimpleATORuntimeSnapshotV1(
         require(restoredTimetables.map { it.id }.distinct().size == restoredTimetables.size) {
             "SimpleATO runtime snapshot contains duplicate timetable IDs"
         }
-        val restoredRollingStock = rollingStock.map(SavedRollingStockV1::restore)
         runtime.depots.restoreOperationalLedger(
-            restoredRollingStock,
-            fixedUnits.map(SavedFixedEmuUnit::restore),
             fixedUnitAssignments.map(SavedFixedEmuUnitAssignment::restore),
             world.allTrains.associate { train -> train.id to train.cars.map { it.id } },
             unresolvedFormationChanges.map(SavedFixedFormationChange::restore),
             world.allTrains.associate { it.id to it.isReversed },
-            heldFormationOutputs.map { it.restore() }
+            heldFormationOutputs.map { it.restore() },
+            fixedUnitControlCompatibility
         )
         runtime.restoreFormationRecoveryMovementHolds(world)
         restoredTimetables.forEach(runtime.timetables::add)
@@ -184,9 +122,7 @@ data class SimpleATORuntimeSnapshotV1(
                 physicsEpoch = physicsEpoch,
                 dispatcher = world.simpleAtoWorldData.dispatcher.saveCheckpoint(),
                 timetables = world.simpleAtoWorldData.timetables.all().map(SavedTimetableV1::capture),
-                rollingStock = world.simpleAtoWorldData.depots.allRollingStock()
-                    .map(SavedRollingStockV1::capture),
-                fixedUnits = world.simpleAtoWorldData.depots.allFixedUnits().map(SavedFixedEmuUnit::capture),
+                fixedUnitControlCompatibility = world.simpleAtoWorldData.depots.unitControlCompatibility(),
                 fixedUnitAssignments = world.simpleAtoWorldData.depots.allFixedUnitAssignments().map(SavedFixedEmuUnitAssignment::capture),
                 unresolvedFormationChanges = world.simpleAtoWorldData.depots.unresolvedFormationChanges().map(SavedFixedFormationChange::capture),
                 heldFormationOutputs = world.simpleAtoWorldData.depots.heldFormationOutputs().map { SavedFixedFormationHeldOutput.capture(it) }

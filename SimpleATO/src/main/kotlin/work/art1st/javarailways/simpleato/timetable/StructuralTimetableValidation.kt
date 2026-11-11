@@ -92,7 +92,11 @@ internal class StructuralTimetableValidator(private val world: World,
     private val topology = world.topologyState
     private val restrictions: RoutePlanningRestrictions = world.simpleAtoWorldData.routePlanningRestrictions.compile(
         topology, world.basicWorldData.operatingDirections.overlay(topology))
-    private val frames = world.allTrains.filterIsInstance<CoreTrain>().associate { it.id to it.publishedFrame }
+    private val capturedTrains = world.allTrains.filterIsInstance<CoreTrain>().toList()
+    private val frames = capturedTrains.associate { it.id to it.publishedFrame }
+    private val candidateFacts = capturedTrains.mapNotNull { train ->
+        world.simpleAtoWorldData.candidateFacts(train)?.let { train.id to it }
+    }.toMap()
     private val errors = arrayListOf<String>()
     private val routes = linkedMapOf<ValidatedStructuralRouteKey, ValidatedStructuralOutputRoute>()
     private val sources = linkedMapOf<ValidatedStructuralSourceKey, ValidatedStructuralSource>()
@@ -260,6 +264,7 @@ internal class StructuralTimetableValidator(private val world: World,
         val incoming = if (movingEnd == stationaryEnd) b.carIds.asReversed() else b.carIds
         val cars = if (movingEnd == TrainEndSide.B) a.carIds + incoming else incoming + a.carIds
         world.simpleAtoWorldData.depots.fixedUnitsForFormation(cars)
+        world.simpleAtoWorldData.depots.validateFixedUnitCoupling(cars)
         val asource = ValidatedStructuralSource(a.envelope, aw, a.carIds, a.envelope.reversed)
         val bsource = ValidatedStructuralSource(b.envelope, bw, b.carIds, b.envelope.reversed)
         val contact: StructuralContactFeasibility
@@ -377,11 +382,7 @@ internal class StructuralTimetableValidator(private val world: World,
                         "initial source frame is missing: ${selector.trainId}" })
                 }
                 TrainSelector.AnyTrain -> frames.values.filter { frame ->
-                    val stock = world.simpleAtoWorldData.depots.rollingStock(frame.trainId)
-                    action !is TimetableAction.TakeFromDepot || if (stock != null) action.selector.matches(stock.record)
-                    else action.selector.requiredTags.isEmpty() && action.selector.requiredCapabilities.isEmpty() &&
-                        action.selector.minimumSpeedMetersPerSecond == null && frame.cars.size >= (action.selector.minimumCars ?: 0) &&
-                        (action.selector.maximumCars == null || frame.cars.size <= action.selector.maximumCars)
+                    action !is TimetableAction.TakeFromDepot || action.selector.matches(candidateFacts[frame.trainId], frame.cars.size)
                 }
             }.filter { frame ->
                 frame.head.railId == point.railId && abs(frame.head.arcLengthInAbMeters - point.arcLength) <= TIMETABLE_ORIGIN_TOLERANCE_METERS &&
@@ -399,7 +400,7 @@ internal class StructuralTimetableValidator(private val world: World,
                 Candidate(StructuralSourceCandidateKey(frame.trainId, frame.revision, origin),
                     CertifiedStructuralCorridor.fromInitial(frame, incoming, topology,
                         StoppedBodyGeometry.capture(requireNotNull(world.getTrain(frame.trainId)))), frame.cars.map { it.carId }, eligibility, origin,
-                    classification = world.simpleAtoWorldData.depots.rollingStock(frame.trainId)?.record?.let {
+                    classification = candidateFacts[frame.trainId]?.let {
                         FormationOutputMetadata.source(it, frame.cars.map { car -> car.carId },
                             frame.cars.associate { car -> car.carId to car.lengthMeters }) })
             }

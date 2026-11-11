@@ -3,57 +3,55 @@ package work.art1st.javarailways.simpleato.api.depot
 import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.simpleato.persistence.SavedFixedEmuUnit
 import work.art1st.javarailways.simpleato.persistence.SavedFixedEmuUnitAssignment
 
 class FixedEmuUnitLedgerTest {
     private val a = DepotId("A")
     private val b = DepotId("B")
-    private val first = FixedEmuUnit("U1", a, listOf("a", "b"), "emu/control")
-    private val second = FixedEmuUnit("U2", b, listOf("c", "d"), "emu/control")
+    private val first = FixedEmuUnit("U1", listOf("a", "b"), "emu/control")
+    private val second = FixedEmuUnit("U2", listOf("c", "d"), "emu/control")
     private val cars = listOf("a", "b", "c", "d")
-    private fun empty() = DepotStore().also { store ->
+    private fun empty(units: List<FixedEmuUnit> = listOf(first, second)) = DepotStore { units }.also { store ->
         listOf(a, b).forEach { depot -> store.addStablingPoint(depot, depot.value, DepotStablingPoint(StablingPointRef(depot, "one"), "${depot.value}@one")) }
     }
-    private fun registered() = empty().also { store ->
-        store.registerFixedUnit(first, cars)
-        store.registerFixedUnit(second, cars)
-    }
+    private fun registered() = empty()
 
-    @Test fun `fixed unit identity and home survive reordered whole reversed units`() {
-        val store = registered()
+    @Test fun `Core supplied unit identity survives reordered whole reversed units without depot membership`() {
+        val store = DepotStore { listOf(first, second) }
         assertEquals(listOf(first, second), store.fixedUnitsForFormation(cars))
         assertEquals(listOf(second, first), store.fixedUnitsForFormation(listOf("d", "c", "b", "a")))
-        assertEquals(setOf(a, b), store.fixedUnitsForFormation(cars).map { it.homeDepotId }.toSet())
-        assertEquals(first, SavedFixedEmuUnit.capture(first).restore())
-        val encoded = Json.encodeToString(SavedFixedEmuUnit.serializer(), SavedFixedEmuUnit.capture(second))
-        assertEquals(second, Json.decodeFromString(SavedFixedEmuUnit.serializer(), encoded).restore())
+        assertEquals(listOf("U1", "U2"), store.allFixedUnits().map { it.id })
     }
 
     @Test fun `caller and Java list mutations cannot alter fixed unit membership`() {
         val input = mutableListOf("a", "b")
-        val unit = FixedEmuUnit("immutable", a, input, "emu/control")
-        val store = empty(); store.registerFixedUnit(unit, input)
+        val unit = FixedEmuUnit("immutable", input, "emu/control")
+        val store = empty(listOf(unit))
         input[0] = "changed"
         assertEquals(listOf("a", "b"), store.allFixedUnits().single().carIds)
         assertThrows(UnsupportedOperationException::class.java) { (unit.carIds as MutableList<String>).clear() }
         assertEquals(listOf("a", "b"), store.allFixedUnits().single().carIds)
     }
 
-    @Test fun `registration rejects overlapping or noncontiguous permanent car memberships before mutation`() {
-        val store = registered(); val before = store.allFixedUnits()
-        assertThrows(IllegalArgumentException::class.java) { store.registerFixedUnit(FixedEmuUnit("overlap", a, listOf("b", "c"), "emu/control"), cars) }
-        assertThrows(IllegalArgumentException::class.java) { store.registerFixedUnit(FixedEmuUnit("gap", a, listOf("x", "z"), "emu/control"), listOf("x", "y", "z")) }
+    @Test fun `Core projection rejects overlapping or incomplete membership without editable registration`() {
+        val store = registered()
+        val before = store.allFixedUnits()
+        val overlap = DepotStore { listOf(first, FixedEmuUnit("overlap", listOf("b", "c"))) }
+        assertThrows(IllegalArgumentException::class.java) { overlap.allFixedUnits() }
         assertEquals(before, store.allFixedUnits())
         listOf(listOf("a"), listOf("a", "c", "b", "d"), listOf("a", "b", "unknown"), listOf("a", "a")).forEach { incomplete ->
             assertThrows(IllegalArgumentException::class.java) { store.fixedUnitsForFormation(incomplete) }
         }
     }
 
-    @Test fun `declared incompatible control families cannot claim a formation`() {
-        val store = empty(); store.registerFixedUnit(first, cars)
-        store.registerFixedUnit(FixedEmuUnit(second.id, second.homeDepotId, second.carIds, "different/control"), cars)
-        assertThrows(IllegalArgumentException::class.java) { store.claimFixedFormation("T", cars, "duty") }
+    @Test fun `unknown control families allow ordinary claims but do not prove coupling compatibility`() {
+        val store = empty(listOf(FixedEmuUnit(first.id, first.carIds), FixedEmuUnit(second.id, second.carIds)))
+        assertEquals(2, store.claimFixedFormation("T", cars, "duty").size)
+        assertThrows(IllegalArgumentException::class.java) { store.validateFixedUnitCoupling(cars) }
+        assertTrue(store.releaseFixedFormation("T", "duty"))
+        store.registerUnitControlCompatibility(first.id, "emu")
+        store.registerUnitControlCompatibility(second.id, "different")
+        assertThrows(IllegalArgumentException::class.java) { store.validateFixedUnitCoupling(cars) }
         assertEquals(emptyList<FixedEmuUnitAssignment>(), store.allFixedUnitAssignments())
     }
 
@@ -83,63 +81,38 @@ class FixedEmuUnitLedgerTest {
 
     @Test fun `restore preserves whole formation claims and rejects missing or partially assigned Core membership`() {
         val claims = listOf(FixedEmuUnitAssignment("U1", "T", "duty"), FixedEmuUnitAssignment("U2", "T", "duty"))
-        val store = empty(); store.restoreFixedUnits(listOf(first, second), claims, mapOf("T" to cars))
+        val store = empty(); store.restoreFixedUnitAssignments(claims, mapOf("T" to cars))
         assertEquals(claims, store.allFixedUnitAssignments())
         val saved = SavedFixedEmuUnitAssignment.capture(claims.first())
         assertEquals(claims.first(), Json.decodeFromString(SavedFixedEmuUnitAssignment.serializer(), Json.encodeToString(SavedFixedEmuUnitAssignment.serializer(), saved)).restore())
         val invalid = empty()
-        assertThrows(IllegalArgumentException::class.java) { invalid.restoreFixedUnits(listOf(first, second), claims.take(1), mapOf("T" to cars)) }
-        assertThrows(IllegalArgumentException::class.java) { invalid.restoreFixedUnits(listOf(first, second), claims, mapOf("T" to first.carIds)) }
-        assertEquals(emptyList<FixedEmuUnit>(), invalid.allFixedUnits())
+        assertThrows(IllegalArgumentException::class.java) { invalid.restoreFixedUnitAssignments(claims.take(1), mapOf("T" to cars)) }
+        assertThrows(IllegalArgumentException::class.java) { invalid.restoreFixedUnitAssignments(claims, mapOf("T" to first.carIds)) }
+        assertEquals(listOf(first, second), invalid.allFixedUnits())
         assertEquals(emptyList<FixedEmuUnitAssignment>(), invalid.allFixedUnitAssignments())
     }
 
-    @Test fun `real depot reservation and storage own registered unit claims atomically`() {
-        val store = registered()
-        val record = RollingStockRecord("T", a, "model/emu", emptySet(), 4, 80.0, 30.0, emptySet())
-        val atA = StablingPointRef(a, "one")
-        store.registerRollingStock(record, atA)
-        assertThrows(IllegalArgumentException::class.java) { store.reservePhysicallySelected("T", atA, DepotTrainSelector(a), "duty", listOf("a")) }
-        assertEquals(RollingStockState.AVAILABLE, store.rollingStock("T")!!.state)
-        assertEquals(emptyList<FixedEmuUnitAssignment>(), store.allFixedUnitAssignments())
-        val allocation = checkNotNull(store.reservePhysicallySelected("T", atA, DepotTrainSelector(a), "duty", cars))
-        assertEquals(2, store.allFixedUnitAssignments().size)
-        assertTrue(store.confirmInService(allocation)); assertTrue(store.releaseDeparture(allocation))
-        assertEquals(2, store.allFixedUnitAssignments().size)
-        val storage = (store.reserveStorage("T", b, emptySet(), "duty", "seed") as DepotStorageReservationResult.Reserved).reservation
-        assertTrue(store.completeStorage(storage))
-        assertEquals(emptyList<FixedEmuUnitAssignment>(), store.allFixedUnitAssignments())
-        val next = checkNotNull(store.reservePhysicallySelected("T", storage.stablingPointRef, DepotTrainSelector(b), "next", cars))
-        assertEquals(2, store.allFixedUnitAssignments().size)
-        assertTrue(store.cancelReservation(next))
-        assertEquals(emptyList<FixedEmuUnitAssignment>(), store.allFixedUnitAssignments())
+
+
+
+
+    @Test fun `ordinary unit claims round trip without any depot or control declaration`() {
+        val unit = FixedEmuUnit("ordinary", listOf("ordinary-car"))
+        val source = DepotStore { listOf(unit) }
+        val claims = source.claimFixedFormation("ordinary-train", unit.carIds, "ordinary-duty")
+        val restored = DepotStore { listOf(unit) }
+        restored.restoreOperationalLedger(claims, mapOf("ordinary-train" to unit.carIds))
+        assertEquals(claims, restored.allFixedUnitAssignments())
+        assertEquals(listOf(unit), restored.allFixedUnits())
+        assertThrows(IllegalArgumentException::class.java) { restored.validateFixedUnitCoupling(unit.carIds) }
     }
 
-    @Test fun `registered metadata and unit claims cannot be omitted on recovery or reused before reset`() {
-        val stock = RollingStockSnapshot(RollingStockRecord("T", a, "model/emu", emptySet(), 4, 80.0, 30.0, emptySet()), RollingStockState.RESERVED, StablingPointRef(a, "one"), "duty")
-        val claims = listOf(FixedEmuUnitAssignment("U1", "T", "duty"), FixedEmuUnitAssignment("U2", "T", "duty"))
-        val store = empty()
-        assertThrows(IllegalArgumentException::class.java) { store.restoreOperationalLedger(listOf(stock), listOf(first, second), emptyList(), mapOf("T" to cars)) }
-        assertThrows(IllegalArgumentException::class.java) { store.restoreOperationalLedger(emptyList(), listOf(first, second), claims, mapOf("T" to cars)) }
-        assertEquals(emptyList<RollingStockSnapshot>(), store.allRollingStock())
-        assertEquals(emptyList<FixedEmuUnit>(), store.allFixedUnits())
-        store.restoreOperationalLedger(listOf(stock), listOf(first, second), claims, mapOf("T" to cars))
-        assertThrows(IllegalArgumentException::class.java) { store.reservePhysicallySelected("T", StablingPointRef(a, "one"), DepotTrainSelector(a), "duty", cars) }
-        assertEquals(claims, store.allFixedUnitAssignments())
-        val reset = (store.planReset(setOf(a)) as DepotResetPlanningResult.Planned).plan
-        assertTrue(store.applyReset(reset))
-        assertEquals(emptyList<FixedEmuUnitAssignment>(), store.allFixedUnitAssignments())
-    }
 
-    @Test fun `operational restore validates rolling stock and units before either ledger is published`() {
+    @Test fun `operational restore validates every claim before publishing any ownership`() {
         val store = empty()
-        val stock = RollingStockSnapshot(RollingStockRecord("T", a, "model/emu", emptySet(), 4, 80.0, 30.0, emptySet()), RollingStockState.IN_SERVICE, null, "other-duty")
-        val claims = listOf(FixedEmuUnitAssignment("U1", "T", "duty"), FixedEmuUnitAssignment("U2", "T", "duty"))
-        assertThrows(IllegalArgumentException::class.java) { store.restoreOperationalLedger(listOf(stock), listOf(first, second), claims, mapOf("T" to cars)) }
-        assertEquals(emptyList<FixedEmuUnit>(), store.allFixedUnits())
-        assertEquals(emptyList<RollingStockSnapshot>(), store.allRollingStock())
-        store.restoreOperationalLedger(listOf(stock.copy(assignmentId = "duty")), listOf(first, second), claims, mapOf("T" to cars))
-        assertEquals(claims, store.allFixedUnitAssignments())
-        assertEquals("duty", store.rollingStock("T")!!.assignmentId)
+        val claims = listOf(FixedEmuUnitAssignment("U1", "T", "duty"), FixedEmuUnitAssignment("U2", "T", "other"))
+        assertThrows(IllegalArgumentException::class.java) { store.restoreOperationalLedger(claims, mapOf("T" to cars)) }
+        assertTrue(store.allFixedUnitAssignments().isEmpty())
+        assertEquals(listOf(first, second), store.allFixedUnits())
     }
 }

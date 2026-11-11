@@ -5,7 +5,6 @@ import org.bukkit.entity.Player
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.javarailways.simpleato.controller.SimpleATO
-import work.art1st.javarailways.simpleato.api.depot.RollingStockState
 import work.art1st.javarailways.simpleato.simpleAtoWorldDataOrNull
 import work.art1st.javarailways.basic.control.RealisticManualController
 import work.art1st.javarailways.basic.basicWorldDataOrNull
@@ -240,10 +239,9 @@ object TrainCommand {
                 require(train.controller == null) {
                     "列车 ${train.name} 正被控制或分配给 service，不能重命名"
                 }
-                val rollingStock = world.simpleAtoWorldDataOrNull?.depots?.rollingStock(train.id)
-                require(rollingStock?.state != RollingStockState.RESERVED &&
-                    rollingStock?.state != RollingStockState.IN_SERVICE) {
-                    "列车 ${train.name} 当前 Depot 状态为 ${rollingStock?.state}，不能重命名"
+                require(world.simpleAtoWorldDataOrNull?.depots?.allFixedUnitAssignments()
+                    .orEmpty().none { it.trainId == train.id }) {
+                    "列车 ${train.name} 的实际单元仍由运行任务占用，不能重命名"
                 }
                 val oldName = train.name
                 world.renameTrain(train, newName)

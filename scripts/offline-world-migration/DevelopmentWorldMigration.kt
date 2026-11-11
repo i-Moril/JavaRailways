@@ -110,7 +110,7 @@ object DevelopmentWorldMigration {
         require(dispatcher.getValue("clocks").jsonArray.isEmpty() && dispatcher.getValue("runs").jsonArray.isEmpty()) {
             "Non-empty legacy dispatcher checkpoints are outside this migration"
         }
-        val ato = SimpleATORuntimeSnapshotCodec.decode(JsonObject(oldBasic + ("formatVersion" to JsonPrimitive(1))).toString())
+        val ato = SimpleATORuntimeSnapshotCodec.decode(JsonObject((oldBasic - "rollingStock") + ("formatVersion" to JsonPrimitive(1))).toString())
         val targetRuntime = SplitWorldSnapshotCodec.runtime(
             work.art1st.javarailways.core.persistence.WorldSnapshotCodec.decodeRuntime(oldCore.toString()),
             BasicRuntimeSnapshotV3.capture(revision, epoch), ato)

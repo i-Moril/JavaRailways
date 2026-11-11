@@ -40,7 +40,8 @@ internal sealed interface SimulationBehaviorEffect {
 internal class SimulationCarBehaviorExtension(
     val definition: CapturedCarBehavior,
     val carProfile: TrainDynamics.CarProfile,
-    private val effectObserver: ((Car, SimulationBehaviorEffect) -> Unit)? = null
+    private val effectObserver: ((Car, SimulationBehaviorEffect) -> Unit)? = null,
+    val candidateFacts: work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts? = null
 ) : RenderableExtension<Car>, AutoCloseable {
     private lateinit var self: Car
     private var closed = false

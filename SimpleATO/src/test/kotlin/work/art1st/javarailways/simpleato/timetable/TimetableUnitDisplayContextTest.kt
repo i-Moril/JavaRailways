@@ -8,7 +8,7 @@ import work.art1st.javarailways.simpleato.api.depot.DepotId
 import work.art1st.javarailways.simpleato.api.depot.FixedEmuUnit
 
 class TimetableUnitDisplayContextTest {
-    private fun unit(id: String, vararg cars: String) = FixedEmuUnit(id, DepotId("depot"), cars.toList(), "family")
+    private fun unit(id: String, vararg cars: String) = FixedEmuUnit(id, cars.toList(), "family")
 
     @Test fun `current run capture requires exact entered range and freezes metadata`() {
         val metadata = linkedMapOf<String, JsonElement>("notice" to JsonPrimitive("limited"))
@@ -39,6 +39,46 @@ class TimetableUnitDisplayContextTest {
         assertNull(captureTimetableRunDisplayContext("service", segment("missing", "B", TimetableServiceStopStatus.STOP), 2)!!.terminalStationId)
         assertNull(captureTimetableRunDisplayContext("service", TimetableRunSegment("empty",
             work.art1st.javarailways.simpleato.api.line.LineId("line"), 2, 5), 2)!!.terminalStationId)
+    }
+
+    @Test fun `train progress preserves PASS repeated occurrence identity and refuses invented arrival`() {
+        fun stop(id: String, station: String, status: TimetableServiceStopStatus, completed: Boolean) =
+            TimetableUnitStopSnapshot("service", "run", TimetableRunCall(id, station, "$station@one", status), completed)
+        val stops = listOf(stop("origin", "A", TimetableServiceStopStatus.ORIGIN, true),
+            stop("pass", "B", TimetableServiceStopStatus.PASS, true),
+            stop("first", "C", TimetableServiceStopStatus.STOP, true),
+            stop("second", "C", TimetableServiceStopStatus.TERMINAL, false))
+        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN),
+            captureTimetableTrainDisplayProgress(stops, null, false), "Completed calls alone are not arrival evidence")
+        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.AT_STATION, 2),
+            captureTimetableTrainDisplayProgress(stops, Triple("service", "run", "first"), false))
+        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.IN_TRANSIT, 3),
+            captureTimetableTrainDisplayProgress(stops, null, true))
+        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN),
+            captureTimetableTrainDisplayProgress(stops, Triple("service", "run", "pass"), false))
+        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN),
+            captureTimetableTrainDisplayProgress(stops, Triple("service", "future", "first"), false))
+        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN),
+            captureTimetableTrainDisplayProgress(stops.mapIndexed { index, value -> if (index == 1) value.copy(completed = false) else value }, null, true))
+        assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.FINISHED),
+            captureTimetableTrainDisplayProgress(stops.map { it.copy(completed = true) }, null, true))
+    }
+
+    @Test fun `ordinary train context freezes car stop and via collections without creating unit identity`() {
+        val cars = mutableListOf("car")
+        val vias = mutableListOf("via")
+        val stops = mutableListOf(TimetableUnitStopSnapshot("service", "run",
+            TimetableRunCall("call", "A", "A@one", TimetableServiceStopStatus.STOP, viaIds = vias), false))
+        val context = TimetableTrainDisplayContext("train", cars, "table", 1,
+            TimetableRunDisplayContext("service", "run", "line", JsonObject(emptyMap())), stops, null)
+        cars.clear(); vias.clear(); stops.clear()
+        assertEquals(listOf("car"), context.carIds)
+        assertEquals(listOf("via"), context.stops.single().call.viaIds)
+        assertThrows(UnsupportedOperationException::class.java) { (context.stops as java.util.List<*>).clear() }
+        assertThrows(IllegalArgumentException::class.java) {
+            TimetableTrainDisplayContext("train", listOf("car"), "table", 1, context.currentRun,
+                context.stops, null, doorSide = DoorSide.LEFT)
+        }
     }
 
     @Test fun `only complete actual contiguous units map to cars including reversal and ordinary neighbours`() {

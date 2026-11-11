@@ -184,9 +184,8 @@ class StructuralTimetableValidationTest {
     }
 
     private fun registerSource(world: CoreWorld, train: CoreTrain) {
-        world.simpleAtoWorldData.depots.registerRollingStock(RollingStockRecord(train.id, DepotId("home"),
-            "metro/model", setOf("metro"), train.cars.size, train.cars.sumOf { it.length }, 22.0, setOf("doors")),
-            StablingPointRef(DepotId("home"), "point"))
+        val facts = TrainCandidateFacts("metro/model", setOf("metro"), 22.0, setOf("doors"))
+        TestSimpleATOWorldDataRegistry.setCandidateFacts(world) { candidate -> facts.takeIf { candidate.id == train.id } }
     }
     private fun storagePoint(world: CoreWorld, id: String, target: String, length: Double? = 30.0,
         tags: Set<String> = setOf("metro")): StablingPointRef {
@@ -207,7 +206,7 @@ class StructuralTimetableValidationTest {
         return Timetable("storage", services = services, formationEvents = TimetableFormationCatalog(listOf(event)))
     }
 
-    @Test fun `store depot falls back to physical points when no rolling stock is registered`() {
+    @Test fun `store depot uses actual point definitions without inventory registration`() {
         fixture { world, _, _ ->
             storagePoint(world, "point", "end")
             val plan = Timetable("storage", services = listOf(TimetableService("source", steps = listOf(
@@ -219,14 +218,12 @@ class StructuralTimetableValidationTest {
         }
     }
 
-    @Test fun `output storage proves every compatible finite target including currently occupied alternatives`() {
+    @Test fun `output storage proves every compatible finite physical target without a stock registry`() {
         fixture { world, rail, train ->
             registerSource(world, train)
             val end = storagePoint(world, "end", "end")
             world.basicWorldData.wayPoints.add(WayPoint("later", rail.id, 200.0))
             val later = storagePoint(world, "later", "later")
-            world.simpleAtoWorldData.depots.registerRollingStock(RollingStockRecord("parked", DepotId("storage"),
-                "metro/model", setOf("metro"), 2, 20.0, 22.0, emptySet()), later)
             val before = world.simpleAtoWorldData.depots.stablingPoints(DepotId("storage"))
             val result = TimetableValidator(world).validate(storagePlan())
             assertTrue(result.isSuccess, result.errors.toString())
@@ -239,7 +236,7 @@ class StructuralTimetableValidationTest {
                 assertEquals(2, key.stepIndex)
                 assertEquals(20.0, storage.metadata.lengthMeters)
                 assertEquals(setOf("doors"), storage.metadata.capabilities)
-                assertEquals("metro/model", storage.metadata.toRecord(train.id).modelPackageId)
+                assertEquals("metro/model", storage.metadata.modelPackageId)
                 assertDoesNotThrow { storage.movement.proof.resolve(train.publishedFrame, world.topologyState,
                     storage.movement.outputCarIds, storage.movement.expectedReversed) }
             }
@@ -319,7 +316,7 @@ class StructuralTimetableValidationTest {
                     val car = CoreCar.create("$id-car", CoreBogie.create(anchor), CoreBogie.create(anchor),
                         length = 10.0, bogieAOffset = 3.0, bogieBOffset = -3.0,
                         connectorLengthAtA = 0.3, connectorLengthAtB = 0.3, world = world)
-                    CoreTrain.create(id, listOf(car), world).also { it.setLocation(anchor); it.commitMaintenancePlacement() }
+                    CoreTrain.create(id, listOf(car), world, composition = work.art1st.javarailways.simpleato.testing.testTrainComposition("unit-$id" to listOf(car.id))).also { it.setLocation(anchor); it.commitMaintenancePlacement() }
                 }
                 val moving = train("moving", 99.0)
                 val stationary = train("stationary", if (stationaryReversed) 120.5 else 110.5)
@@ -330,7 +327,7 @@ class StructuralTimetableValidationTest {
                 listOf(moving to "approach", stationary to "meeting").forEach { (train, point) ->
                     world.basicWorldData.wayPoints.add(WayPoint(point, rail.id, train.publishedFrame.head.arcLengthInAbMeters))
                     val ids = train.cars.map { it.id }
-                    store.registerFixedUnit(FixedEmuUnit("unit-${train.id}", home, ids, "emu"), ids)
+                    store.registerUnitControlCompatibility("unit-${train.id}", "emu")
                 }
                 val event = TimetableFormationEvent.Couple("join", "a", "a", "b",
                     if (stationaryReversed) FormationStationaryEnd.HEAD else FormationStationaryEnd.TAIL,
@@ -535,7 +532,7 @@ class StructuralTimetableValidationTest {
             TestSimpleATOWorldDataRegistry.getOrCreate(world)
             try {
                 val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(220.0, 1))
-                val train = createTrainWithConfig("physical", rail, world, List(cars) { 10.0 }, connectorLength = 0.25)
+                val train = createTrainWithConfig("physical", rail, world, List(cars) { 10.0 }, connectorLength = 0.25, composition = work.art1st.javarailways.simpleato.testing.testGroupedComposition(cars, 2))
                 world.onOwnerForTest { train.setLocation(rail.viewAB.getRailLocationAt(head)); train.commit() }
                 listOf("origin" to head, "stop" to 100.0, "end" to 200.0, "later" to 180.0,
                     "back" to 20.0, "inside" to 60.0).filter { it.first in setOf("origin", "end", "back") + points }.forEach { (id, arc) -> world.basicWorldData.wayPoints.add(WayPoint(id,rail.id,arc)) }
@@ -543,7 +540,7 @@ class StructuralTimetableValidationTest {
                 val store = world.simpleAtoWorldData.depots
                 store.addStablingPoint(home, "Home", DepotStablingPoint(StablingPointRef(home,"point"), "origin"))
                 val carIds = train.cars.map { it.id }
-                carIds.chunked(2).forEachIndexed { index, ids -> store.registerFixedUnit(FixedEmuUnit("unit-$index", home, ids, "emu"), carIds) }
+                carIds.chunked(2).forEachIndexed { index, ids -> store.registerUnitControlCompatibility("unit-$index", "emu") }
                 body(world, rail, train)
             } finally { TestSimpleATOWorldDataRegistry.unregister(world) }
         }

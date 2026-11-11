@@ -1,6 +1,7 @@
 package work.art1st.javarailways.bukkit.extension.train
 
 import work.art1st.javarailways.basic.control.TrainDynamics
+import work.art1st.javarailways.bukkit.operation.simulationBehaviorOrNull
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.TrainExtension
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
@@ -25,3 +26,9 @@ internal val Train.simulationTrainProfileOrNull: TrainDynamics.TrainProfile?
         }
         return configuration?.trainProfile
     }
+
+internal val Train.simulationCandidateFacts: work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts
+    get() = work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts.fromCars(
+        cars.associate { car -> car.id to (car.simulationBehaviorOrNull?.candidateFacts
+            ?: work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts(null, emptySet(), null, emptySet())) }
+    )

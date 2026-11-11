@@ -111,8 +111,8 @@ class RollingStationAdmissionTest {
                 BasicWorldData(safetyInterlock = coordinator.safetyInterlock), coordinator)
         }
         private val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(1000.0, 1))
-        val front = createTrainWithConfig("101N", rail, world, listOf(10.0))
-        val rear = createTrainWithConfig("103P", rail, world, listOf(10.0))
+        val front = createTrainWithConfig("101N", rail, world, listOf(10.0), carIdPrefix = "101N/car-")
+        val rear = createTrainWithConfig("103P", rail, world, listOf(10.0), carIdPrefix = "103P/car-")
         init {
             world.onOwnerForTest {
                 front.setLocation(RailLocationWithFacing(rail.viewAB, 600.0))

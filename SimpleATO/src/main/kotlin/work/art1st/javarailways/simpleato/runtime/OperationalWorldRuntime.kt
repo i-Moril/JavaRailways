@@ -88,6 +88,8 @@ class OperationalWorldRuntime private constructor(
             timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry(),
             stationCallResolvers: StationCallResolverRegistry = StationCallResolverRegistry(),
             reportStall: (AtoStallReport) -> Unit = {},
+            candidateFacts: (work.art1st.javarailways.core.api.physics.train.Train) ->
+                work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts? = { null },
             dispatcherFactory: (OperationalWorldRuntime) -> TimetableDispatcher
         ): OperationalWorldRuntime {
             val restrictions = TrainRestrictionSnapshotStore(worldId)
@@ -105,6 +107,12 @@ class OperationalWorldRuntime private constructor(
                 runtime.data = SimpleATOWorldData(
                     runtime.atoCoordinator, dispatcherFactory(runtime), signal, restrictions, inspection,
                     basic.railObjects, basic.safetyInterlock,
+                    depots = work.art1st.javarailways.simpleato.api.depot.DepotStore {
+                        world.allTrains.flatMap { train -> train.composition.units.map { unit ->
+                            work.art1st.javarailways.simpleato.api.depot.FixedEmuUnit(unit.unitId, unit.carIds)
+                        } }
+                    },
+                    candidateFacts = candidateFacts,
                     timetableExtensions = timetableExtensions, stationCallResolvers = stationCallResolvers, operationalRuntime = runtime
                 )
                 world.registerExtensionData(SimpleATOPlugin.INSTANCE, runtime.data)

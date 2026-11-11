@@ -41,8 +41,9 @@ internal class FixedUnitCouplePlan private constructor(
             depots.fixedUnitsForFormation(stationaryCars)
             val incoming = if (movingEnd == stationaryEnd) stationaryCars.asReversed() else stationaryCars
             val outputCars = if (movingEnd == TrainEndSide.B) movingCars + incoming else incoming + movingCars
-            // Also rejects overlapping units and incompatible control families across both sources.
+            // Actual membership and independently declared operating compatibility are separate proofs.
             depots.fixedUnitsForFormation(outputCars)
+            depots.validateFixedUnitCoupling(outputCars)
             val output = FixedFormationOwner(moving.trainId, outputAssignmentId, outputCars, moving.reversed)
             val disposition = when (event.output.disposition) {
                 is FormationOutputDisposition.Duty -> FixedFormationDisposition.CONTINUE_DUTY

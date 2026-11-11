@@ -140,6 +140,23 @@ class CarExtension : TrainComponentExtension<Car>() {
         savedPackageSnapshotHash = source.hash
     }
 
+    /** Read declarations from this exact car's existing source package, without initializing behavior. */
+    @Synchronized
+    internal fun resolveCandidateFacts(): work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts? =
+        operationalSnapshot()?.let(::candidateFactsFromSource)
+
+    @Synchronized
+    internal fun resolveCandidateFacts(
+        policy: TrainModelUpdatePolicy,
+        loadPackage: (String) -> SavedTrainPackageSnapshot?,
+        liveVersion: (String) -> TrainResourceVersion
+    ): work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts? =
+        operationalSnapshot(policy, loadPackage, liveVersion)?.let(::candidateFactsFromSource)
+
+    private fun candidateFactsFromSource(source: SavedTrainPackageSnapshot) =
+        work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts(
+            source.packageName, emptySet(), source.control.maxSpeed, emptySet())
+
     /** Read-only profile lookup; structure preparation must not pin or save source packages. */
     @Synchronized
     fun resolveCarControl(): CarControlConfig? {

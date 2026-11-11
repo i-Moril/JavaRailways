@@ -131,6 +131,12 @@ object RailWorldFactory {
         }
         OperationalWorldRuntime.create(
             coreWorld, bukkitWorld.uid.toString(),
+            candidateFacts = { train ->
+                work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts.fromCars(
+                    train.cars.associate { car -> car.id to (car.carRendererOrNull?.resolveCandidateFacts()
+                        ?: work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts(null, emptySet(), null, emptySet())) }
+                )
+            },
             basicDataFactory = { directionChanges ->
                 BasicWorldData(
                     operatingDirections = OperatingDirectionStore(directionChanges)

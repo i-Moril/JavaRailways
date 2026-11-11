@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit.http
 
+import work.art1st.javarailways.core.api.physics.train.TrainComposition
+import work.art1st.javarailways.core.api.physics.train.TrainUnitComposition
 import kotlinx.serialization.json.jsonPrimitive
 
 import org.junit.jupiter.api.Assertions.assertSame
@@ -568,7 +570,6 @@ class IsolatedTimetableSimulationFactoryTest {
                     DestinationRole.DepotStablingPointRole("home", pointId, "Home depot", usableLengthMeters = 30.0)))
                 val original = source.simpleAtoWorldData.destinations[id]
                 val sourcePoints = source.simpleAtoWorldData.depots.stablingPoints(DepotId("home"))
-                val sourceStock = source.simpleAtoWorldData.depots.allRollingStock()
                 assertEquals(id, source.basicWorldData.wayPoints[id]!!.id)
                 assertTrue(sourcePoints.any { it.point.destinationId == id })
                 // Point direction wins for seeding; it does not override permission to reverse.
@@ -616,7 +617,6 @@ class IsolatedTimetableSimulationFactoryTest {
                 assertTrue(source.allTrains.isEmpty())
                 assertSame(original, source.simpleAtoWorldData.destinations[id])
                 assertEquals(sourcePoints, source.simpleAtoWorldData.depots.stablingPoints(DepotId("home")))
-                assertEquals(sourceStock, source.simpleAtoWorldData.depots.allRollingStock())
                 assertEquals(sourceDirections, source.basicWorldData.operatingDirections.entries())
             }
         } finally {
@@ -824,6 +824,48 @@ class IsolatedTimetableSimulationFactoryTest {
     }
 
     @Test
+    fun `formation clone preserves reversed canonical unit boundaries under synthetic identity mapping`() {
+        val source = createTestWorld()
+        registerWorldData(source)
+        try {
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+            val home = DepotId("clone-home")
+            OperationalDestinationService(source).register(OperationalDestination("clone-home@one", rail.id, 100.0,
+                ViewDirection.AB, DestinationRole.DepotStablingPointRole(home.value, "one")))
+            val sourceIds = listOf("car-0", "car-1", "car-2")
+            val original = TrainComposition.create(listOf(
+                TrainUnitComposition("pair", listOf("car-1", "car-0")),
+                TrainUnitComposition("single", listOf("car-2"))), sourceIds)
+            val train = createTrainWithConfig("clone-source", rail, source, List(3) { 10.0 }, composition = original)
+            source.onOwnerForTest {
+                train.setLocation(work.art1st.javarailways.core.physics.rail.RailLocationWithFacing(rail.viewAB, 100.0))
+                train.commitMaintenancePlacement()
+                val depots = source.simpleAtoWorldData.depots
+                depots.registerUnitControlCompatibility("pair", "emu")
+                train.reverse()
+                val base = profile()
+                val profile = base.copy(cars = List(3) { base.cars.single() },
+                    carControls = List(3) { base.carControls.single() })
+                val (blueprint, _) = SimulationFormationBlueprint.capture(source,
+                    TimetableProfileSelection("duty", SimulationProfileType.WORLD_TRAIN, train.id), profile)
+                assertEquals(sourceIds.reversed(), blueprint.sourceCarIds)
+                val targetIds = listOf("synthetic-0", "synthetic-1", "synthetic-2")
+                val mapped = blueprint.compositionFor("synthetic", targetIds)
+                assertEquals(listOf("synthetic/unit-1", "synthetic/unit-0"), mapped.units.map { it.unitId })
+                assertEquals(listOf("synthetic-1", "synthetic-2"), mapped.units.last().carIds)
+                assertFalse(mapped.units.last().isReversedIn(targetIds))
+                assertEquals(mapOf("synthetic/unit-0" to "emu"), blueprint.controlCompatibilityFor("synthetic"))
+                assertEquals(original, train.composition, "Capture and mapping cannot mutate source unit membership")
+                assertEquals(mapped.units.map { it.carIds }, blueprint.compositionFor("another", targetIds).units.map { it.carIds })
+                assertTrue(blueprint.compositionFor("another", targetIds).units.none { it.unitId.startsWith("synthetic/") })
+            }
+        } finally {
+            source.physicsCoordinator.close()
+            (source.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
     fun `standalone fixed-unit actions capture exact registered units without requiring a formation event`() {
         val source = createTestWorld()
         registerWorldData(source)
@@ -832,15 +874,13 @@ class IsolatedTimetableSimulationFactoryTest {
             val home = DepotId("home")
             OperationalDestinationService(source).register(OperationalDestination("home@one", rail.id, 100.0,
                 ViewDirection.AB, DestinationRole.DepotStablingPointRole("home", "one")))
-            val train = createTrainWithConfig("reference", rail, source, listOf(10.0))
+            val train = createTrainWithConfig("reference", rail, source, listOf(10.0),
+                composition = TrainComposition.single(listOf("car-0"), "original-unit"))
             source.onOwnerForTest {
                 train.setLocation(work.art1st.javarailways.core.physics.rail.RailLocationWithFacing(rail.viewAB, 100.0))
                 train.commitMaintenancePlacement()
                 val depots = source.simpleAtoWorldData.depots
-                depots.registerFixedUnit(FixedEmuUnit("original-unit", home, train.cars.map { car -> car.id }, "emu"),
-                    train.cars.map { car -> car.id })
-                depots.registerRollingStock(RollingStockRecord(train.id, home, "emu", emptySet(), 1, 10.0, 10.0, emptySet()),
-                    StablingPointRef(home, "one"))
+                depots.registerUnitControlCompatibility("original-unit", "emu")
             }
             val timetable = standaloneCall(listOf(TimetableAction.Extension(
                 work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionCall("test:train-info"),
@@ -871,6 +911,8 @@ class IsolatedTimetableSimulationFactoryTest {
                 val seeded = simulation.world.allTrains.single()
                 val units = simulation.world.simpleAtoWorldData.depots.fixedUnitsForFormation(seeded.cars.map { it.id })
                 assertEquals(1, units.size)
+                assertEquals("emu", units.single().controlCompatibilityKey)
+                assertEquals(seeded.composition.units.single().unitId, units.single().id)
                 assertEquals(seeded.cars.map { it.id }, units.single().carIds)
                 assertFalse(units.single().carIds.any { it in train.cars.map { car -> car.id } })
                 val result = simulation.simulate(IsolatedTimetableSimulationRequest(timetable))
@@ -1112,7 +1154,12 @@ class IsolatedTimetableSimulationFactoryTest {
 
     private fun simulateCoupleMoveSplit(withDisplays: Boolean) {
         val source = createTestWorld()
-        registerWorldData(source)
+        registerWorldData(source) { train ->
+            TrainCandidateFacts.fromCars(train.cars.associate { car ->
+                car.id to TrainCandidateFacts("model/${train.id}", emptySet(),
+                    if (train.id == "one") 8.0 else 9.0, emptySet())
+            })
+        }
         val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1))
         val home = DepotId("home")
         val depots = source.simpleAtoWorldData.depots
@@ -1124,14 +1171,14 @@ class IsolatedTimetableSimulationFactoryTest {
                     work.art1st.javarailways.core.physics.train.CoreBogie.create(head), length = 10.0,
                     floorHeight = 0.0, connectorLengthAtA = 0.0, connectorLengthAtB = 0.0,
                     bogieAOffset = 3.5, bogieBOffset = -3.5, world = source)
-                work.art1st.javarailways.core.physics.train.CoreTrain.create(id, listOf(car), source).also {
+                work.art1st.javarailways.core.physics.train.CoreTrain.create(id, listOf(car), source,
+                    composition = TrainComposition.single(listOf(car.id), "unit-$id")).also {
                     it.setLocation(head); it.commitMaintenancePlacement()
                     OperationalDestinationService(source).register(OperationalDestination(id, rail.id, arc,
                         ViewDirection.AB, DestinationRole.Regular))
                     OperationalDestinationService(source).register(OperationalDestination("home@$id", rail.id, arc,
                         ViewDirection.AB, role = DestinationRole.DepotStablingPointRole(home.value, id)))
-                    depots.registerFixedUnit(FixedEmuUnit("unit-$id", home, listOf(car.id), "emu"), listOf(car.id))
-                    depots.registerRollingStock(RollingStockRecord(id, home, "emu", emptySet(), 1, 10.0, 10.0, emptySet()), StablingPointRef(home, id))
+                    depots.registerUnitControlCompatibility("unit-$id", "emu")
                 }
             }
         }
@@ -1185,7 +1232,28 @@ class IsolatedTimetableSimulationFactoryTest {
                 factory.create(captured, workerThreads = 1).use { simulation ->
                     val initialCars = simulation.world.allTrains.flatMap { it.cars }.map { it.id }.toSet()
                     val initialUnits = simulation.world.simpleAtoWorldData.depots.allFixedUnits()
-                    val result = simulation.simulate(IsolatedTimetableSimulationRequest(timetable, delayThresholdTicks = 4000))
+                    val initialFacts = simulation.world.allTrains.flatMap { train ->
+                        simulation.world.simpleAtoWorldData.candidateFacts(train)!!.carFacts.entries
+                    }.associate { it.key to it.value }
+                    var linkedFacts: TrainCandidateFacts? = null
+                    val listener = work.art1st.javarailways.core.api.event.processor.MainRailEventBus.register(object :
+                        work.art1st.javarailways.core.api.event.processor.EventListener {
+                        @work.art1st.javarailways.core.api.event.processor.HandlesEvent
+                        fun linked(event: work.art1st.javarailways.core.api.event.TrainLinkSuccessEvent) {
+                            if (event.train.world === simulation.world)
+                                linkedFacts = simulation.world.simpleAtoWorldData.candidateFacts(event.train)
+                        }
+                    })
+                    val result = try {
+                        simulation.simulate(IsolatedTimetableSimulationRequest(timetable, delayThresholdTicks = 4000))
+                    } finally { listener.close() }
+                    assertEquals(TrainCandidateFacts.fromCars(initialFacts), linkedFacts)
+                    assertNull(linkedFacts!!.modelPackageId)
+                    assertEquals(8.0, linkedFacts!!.maximumSpeedMetersPerSecond)
+                    simulation.world.allTrains.forEach { train ->
+                        assertEquals(TrainCandidateFacts.fromCars(train.cars.associate { it.id to initialFacts.getValue(it.id) }),
+                            simulation.world.simpleAtoWorldData.candidateFacts(train))
+                    }
                     assertTrue(result is IsolatedTimetableSimulationResult.Completed, result.toString())
                     completedAt?.let { assertEquals(it, result.simulatedTicks) }
                     completedAt = result.simulatedTicks
@@ -1226,7 +1294,7 @@ class IsolatedTimetableSimulationFactoryTest {
     }
 
     @Test
-    fun `split output stores in another depot without changing unit home affiliation`() {
+    fun `split output stores at a physical depot point without registered inventory`() {
         simulateSplitOutput(storeOutput = true)
     }
 
@@ -1238,7 +1306,10 @@ class IsolatedTimetableSimulationFactoryTest {
             ViewDirection.AB, DestinationRole.Regular))
         source.basicWorldData.wayPoints.add(WayPoint("end", rail.id, 180.0))
         source.basicWorldData.wayPoints.add(WayPoint("child-end", rail.id, 120.0))
-        val train = createTrainWithConfig("live-source", rail, source, listOf(10.0, 10.0))
+        val train = createTrainWithConfig("live-source", rail, source, listOf(10.0, 10.0),
+            composition = TrainComposition.create(listOf(
+                TrainUnitComposition("unit-0", listOf("car-0")),
+                TrainUnitComposition("unit-1", listOf("car-1"))), listOf("car-0", "car-1")))
         val depot = DepotId("home")
         val point = StablingPointRef(depot, "point")
         val depots = source.simpleAtoWorldData.depots
@@ -1250,8 +1321,7 @@ class IsolatedTimetableSimulationFactoryTest {
                 role = DestinationRole.DepotStablingPointRole(destinationDepot.value, "point", "Other")))
         }
         val ids = train.cars.map { it.id }
-        ids.forEachIndexed { index, id -> depots.registerFixedUnit(FixedEmuUnit("unit-$index", depot, listOf(id), "emu"), ids) }
-        depots.registerRollingStock(RollingStockRecord(train.id, depot, "emu", emptySet(), 2, 20.0, 10.0, emptySet()), point)
+        ids.indices.forEach { depots.registerUnitControlCompatibility("unit-$it", "emu") }
         val base = profile()
         val profile = base.copy(type = SimulationProfileType.WORLD_TRAIN, id = train.id,
             carControls = List(2) { base.carControls.single() }, cars = List(2) { base.cars.single() })
@@ -1277,22 +1347,22 @@ class IsolatedTimetableSimulationFactoryTest {
                 assertEquals(1, simulation.world.allTrains.size)
                 val simDepots = simulation.world.simpleAtoWorldData.depots
                 assertEquals(2, simDepots.allFixedUnits().size)
-                assertEquals(2, simDepots.allFixedUnitAssignments().size)
+                assertTrue(simDepots.allFixedUnitAssignments().isEmpty(), "Seeds do not invent task ownership")
                 assertTrue(simDepots.allFixedUnits().all { unit -> unit.carIds.none(ids::contains) })
                 val result = simulation.simulate(IsolatedTimetableSimulationRequest(timetable))
                 assertTrue(result is IsolatedTimetableSimulationResult.Completed, result.toString())
                 assertEquals(2, simulation.world.allTrains.size)
                 assertEquals(2, simDepots.allFixedUnits().size)
                 assertEquals(if (storeOutput) 1 else 2, simDepots.allFixedUnitAssignments().size)
-                assertTrue(simDepots.allFixedUnits().all { it.homeDepotId == depot })
                 if (storeOutput) {
-                    val stored = simDepots.allRollingStock().filter { it.state == RollingStockState.AVAILABLE }
-                    assertEquals(1, stored.size)
-                    assertEquals(StablingPointRef(destinationDepot, "point"), stored.single().stablingPointRef)
+                    val stored = simulation.world.allTrains.single { candidate ->
+                        kotlin.math.abs(candidate.publishedFrame.head.arcLengthInAbMeters - 240.0) < 1.0
+                    }
+                    assertEquals(rail.id, stored.publishedFrame.head.railId)
+                    assertEquals(0.0, stored.publishedFrame.speedMetersPerSecond)
                 }
             }
             assertEquals(ids, train.cars.map { it.id })
-            assertEquals(RollingStockState.AVAILABLE, depots.rollingStock(train.id)?.state)
         } finally {
             source.physicsCoordinator.close()
             (source.tickManager as? AutoCloseable)?.close()
@@ -1856,7 +1926,8 @@ class IsolatedTimetableSimulationFactoryTest {
         )
     }
 
-    private fun registerWorldData(world: CoreWorld) {
+    private fun registerWorldData(world: CoreWorld,
+        candidateFacts: (work.art1st.javarailways.core.api.physics.train.Train) -> TrainCandidateFacts? = { null }) {
         val basicData = BasicWorldData()
         world.registerExtensionData(BasicPlugin.INSTANCE, basicData)
         val atoCoordinator = AtoWorldCoordinator(safetyInterlock = basicData.safetyInterlock)
@@ -1894,7 +1965,13 @@ class IsolatedTimetableSimulationFactoryTest {
                 restrictions,
                 inspection,
                 basicData.railObjects,
-                basicData.safetyInterlock
+                basicData.safetyInterlock,
+                candidateFacts = candidateFacts,
+                depots = DepotStore {
+                    world.allTrains.flatMap { train ->
+                        train.composition.units.map { FixedEmuUnit(it.unitId, it.carIds) }
+                    }
+                }
             )
         )
     }

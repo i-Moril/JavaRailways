@@ -28,8 +28,8 @@ BukkitPlugin.onEnable
 按实现类复用slot并替换旧实例，因此adapter每次安装创建当前实例，然后把完全相同的实例同时
 发布给`SimpleATOPlugin.INSTANCE`和registry。任何Core world创建都必须发生在此步骤之后。
 
-当前模块还拥有SimpleATO的ATO stall与Depot reset诊断文件适配。它们分别消费SimpleATO拥有的
-`AtoStallReport`与`DepotResetReport`，把报告写入主插件提供的数据目录。world composition、通用车辆
+当前模块还拥有SimpleATO的ATO stall诊断文件适配，消费SimpleATO拥有的
+`AtoStallReport`，把报告写入主插件提供的数据目录。独立库存Depot reset及其诊断已撤除，摆位遵循时刻表initialPositions。world composition、通用车辆
 渲染、最终启动/停止顺序、RailWand和手动驾驶仍由`BukkitPlugin`拥有。
 
 ## 运营目标编辑界面归属

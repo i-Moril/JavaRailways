@@ -202,7 +202,7 @@ class TimetableFormationDispatcherTest {
             repeat(1200) { f.tick() }
             assertTrue(output.publishedFrame.head.arcLengthInAbMeters > start.arcLengthInAbMeters + 10.0)
             assertEquals(1, f.preparations)
-            assertEquals(2, f.world.simpleAtoWorldData.depots.allRollingStock().size)
+            assertEquals(2, f.world.allTrains.size)
             assertEquals(2, f.world.simpleAtoWorldData.depots.allFixedUnitAssignments().map { it.assignmentId }.distinct().size)
         }
     }
@@ -298,7 +298,33 @@ class TimetableFormationDispatcherTest {
                         assertEquals(savedHeads, restored.allTrains.associate { it.id to it.publishedFrame!!.head })
                         assertEquals(f.world.simpleAtoWorldData.depots.allFixedUnitAssignments(),
                             restored.simpleAtoWorldData.depots.allFixedUnitAssignments())
+                        val retainedClaims = restored.simpleAtoWorldData.depots.allFixedUnitAssignments()
+                        val retainedOutputs = restored.simpleAtoWorldData.depots.heldFormationOutputs()
+                        val retainedChanges = restored.simpleAtoWorldData.depots.unresolvedFormationChanges()
+                        val protectedTrains = retainedOutputs.map { it.owner.trainId }.toSet() +
+                            retainedChanges.flatMap { change -> change.sources.map { it.trainId } +
+                                change.outputs.map { it.owner.trainId } }
+                        val disposedAssignments = dispatcher.recoveryRequiredRuns().map {
+                            it.trainId to it.unitAssignmentId
+                        }.toSet()
+                        val ordinaryDisposedClaims = retainedClaims.filter {
+                            it.trainId !in protectedTrains && (it.trainId to it.assignmentId) in disposedAssignments
+                        }
                         restored.onOwnerForTest { dispatcher.forceDiscardTimetable(restored, "split") }
+                        val afterDisposal = restored.simpleAtoWorldData.depots.allFixedUnitAssignments()
+                        assertEquals(retainedClaims.filter { it.trainId in protectedTrains },
+                            afterDisposal.filter { it.trainId in protectedTrains },
+                            "diagnostic disposal must preserve structural recovery ownership")
+                        assertTrue(ordinaryDisposedClaims.none { it in afterDisposal },
+                            "disposed ordinary continuation tasks must release their exact unit claims")
+                        assertEquals(retainedChanges, restored.simpleAtoWorldData.depots.unresolvedFormationChanges())
+                        assertEquals(retainedOutputs, restored.simpleAtoWorldData.depots.heldFormationOutputs())
+                        retainedOutputs.forEach { held ->
+                            assertThrows(IllegalArgumentException::class.java) {
+                                restored.onOwnerForTest { restored.simpleAtoWorldData.depots.claimFixedFormation(
+                                    held.owner.trainId, held.owner.carIds, "replacement-task") }
+                            }
+                        }
                         assertEquals(TimetableApplicationState.UNAPPLIED, dispatcher.applicationState("split"))
                         assertTrue(dispatcher.recoveryRequiredTimetableDefinitions().isEmpty())
                         assertTrue(dispatcher.recoveryRequiredRuns().isEmpty())
@@ -590,10 +616,15 @@ class TimetableFormationDispatcherTest {
     }
 
     @Test
-    fun `an unrelated run without trip metadata does not require registered units`() {
+    fun `an unrelated run uses its default Core unit without explicit trip metadata`() {
         Fixture(false,separateDutyCaps=true).use { f ->
             val otherRail=createStraightRailFromSegments(f.world,PrimeCurveGenerator.buildStraight(100.0,1))
-            val other=createTrainWithConfig("unregistered",otherRail,f.world,listOf(10.0))
+            val other = f.world.onOwnerForTest {
+                val head = RailLocationWithFacing(otherRail.viewAB, 20.0)
+                val car = CoreCar.create("other-car", CoreBogie.create(head), CoreBogie.create(head), length = 10.0,
+                    bogieAOffset = 5.0, bogieBOffset = -5.0, connectorLengthAtA = 0.0, connectorLengthAtB = 0.0, world = f.world)
+                CoreTrain.create("unregistered", listOf(car), f.world).also { it.setLocation(head); it.commitMaintenancePlacement() }
+            }
             f.world.onOwnerForTest {
                 f.world.basicWorldData.wayPoints.add(WayPoint("other-origin",otherRail.id,other.publishedFrame.head.arcLengthInAbMeters))
                 f.world.basicWorldData.wayPoints.add(WayPoint("other-end",otherRail.id,80.0))
@@ -628,7 +659,7 @@ class TimetableFormationDispatcherTest {
         val rail = createStraightRailFromSegments(world,
             PrimeCurveGenerator.buildStraight(if (marginCrossesRail) 500.0 else 250.0, if (marginCrossesRail) 2 else 1))
         val stoppingMarginRail = if (marginCrossesRail) getViewsInOrder(rail, false)[1].rail else null
-        val train = createTrainWithConfig("source-train", rail, world, listOf(10.0, 10.0))
+        val train = createTrainWithConfig("source-train", rail, world, listOf(10.0, 10.0), composition = work.art1st.javarailways.simpleato.testing.testPerCarComposition(2))
         init { world.onOwnerForTest {
             if (orientationCase) {
                 train.setLocation(RailLocationWithFacing(rail.viewAB, 130.0))
@@ -641,7 +672,7 @@ class TimetableFormationDispatcherTest {
             val car = CoreCar.create("peer-car", CoreBogie.create(head), CoreBogie.create(head), length = 10.0,
                 floorHeight = 0.0, connectorLengthAtA = 0.0, connectorLengthAtB = 0.0,
                 bogieAOffset = 5.0, bogieBOffset = -5.0, world = world)
-            CoreTrain.create("stationary", listOf(car), world).also { it.setLocation(head); it.commitMaintenancePlacement() }
+            CoreTrain.create("stationary", listOf(car), world, composition = work.art1st.javarailways.simpleato.testing.testTrainComposition("unit-peer" to listOf(car.id))).also { it.setLocation(head); it.commitMaintenancePlacement() }
         } else null
         private var observation = RailwayObservation.fromCore(WORLD, world.latestWorldFrame())
         private val requester = Any()
@@ -697,10 +728,8 @@ class TimetableFormationDispatcherTest {
             val depots = world.simpleAtoWorldData.depots
             depots.addStablingPoint(depot, "home", DepotStablingPoint(point, "origin"))
             val cars = train.cars.map { it.id }
-            cars.forEachIndexed { index, id -> depots.registerFixedUnit(FixedEmuUnit("unit-$index", depot, listOf(id), "emu"), cars) }
-            depots.registerRollingStock(RollingStockRecord(train.id, depot, "emu", emptySet(), 2, 20.0, 2.0, emptySet()), point)
-            val allocation = checkNotNull(depots.reservePhysicallySelected(train.id, point, DepotTrainSelector(depot), "source-assignment", cars))
-            check(depots.confirmInService(allocation)); check(depots.releaseDeparture(allocation))
+            cars.forEachIndexed { index, id -> depots.registerUnitControlCompatibility("unit-$index", "emu") }
+            work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry.setCandidateFacts(world, train.id, work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts("emu", emptySet(), 2.0, emptySet()))
             world.basicWorldData.wayPoints.add(WayPoint("origin", rail.id, train.publishedFrame.head.arcLengthInAbMeters))
             world.basicWorldData.wayPoints.add(WayPoint("end", rail.id, if (orientationCase) { if (sourceReversed xor outputReversed) 50.0 else 200.0 } else if (marginCrossesRail) 248.0 else if (newDuty) 180.0 else if (reverseOutputBranch) 2.0 else 120.0))
             world.basicWorldData.wayPoints.add(WayPoint("branch-end", rail.id, if (orientationCase) { if (sourceReversed xor outputReversed) 2.0 else 248.0 } else if (marginCrossesRail) 248.0 else 120.0))
@@ -774,10 +803,8 @@ class TimetableFormationDispatcherTest {
                 val peerPoint = StablingPointRef(peerHome, "p")
                 depots.addStablingPoint(peerHome, "peer-home", DepotStablingPoint(peerPoint, "peer-origin"))
                 val ids = peer.cars.map { it.id }
-                depots.registerFixedUnit(FixedEmuUnit("unit-peer", peerHome, ids, "emu"), ids)
-                depots.registerRollingStock(RollingStockRecord(peer.id, peerHome, "emu", emptySet(), 1, 10.0, 2.0, emptySet()), peerPoint)
-                val peerAllocation = checkNotNull(depots.reservePhysicallySelected(peer.id, peerPoint, DepotTrainSelector(peerHome), "peer-assignment", ids))
-                check(depots.confirmInService(peerAllocation)); check(depots.releaseDeparture(peerAllocation))
+                depots.registerUnitControlCompatibility("unit-peer", "emu")
+                work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry.setCandidateFacts(world, peer.id, work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts("emu", emptySet(), 2.0, emptySet()))
                 world.basicWorldData.wayPoints.add(WayPoint("peer-origin", rail.id, peer.publishedFrame.head.arcLengthInAbMeters))
                 val joinAction = if (measureTasks) listOf(TimetableStep.At(0, TimetableAction.TaskStart("join-task")),
                     TimetableStep.At(0, TimetableAction.Couple("join")), TimetableStep.At(0, TimetableAction.TaskEnd("join-task")))

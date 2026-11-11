@@ -1,6 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
 import kotlinx.serialization.Serializable
+import work.art1st.javarailways.core.api.physics.train.TrainUnitComposition
 import work.art1st.configLib.persistence.Loads
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
 import work.art1st.javarailways.core.api.util.plugin.ExtensionDataMapSerializer
@@ -16,7 +17,8 @@ data class SavedTrainV1(
     @Serializable(with = ExtensionDataMapSerializer::class)
     val extension: Map<String, SerializableExtensionData>,
     val headLocation: RailLocationWithFacing.SavedRailLocationWithFacingV1,
-    val tailLocation: RailLocationWithFacing.SavedRailLocationWithFacingV1
+    val tailLocation: RailLocationWithFacing.SavedRailLocationWithFacingV1,
+    val composition: List<SavedTrainUnitComposition> = emptyList()
 ) : Loads<CoreTrain, CoreWorld> {
     override fun load(dependency: CoreWorld): CoreTrain {
         dependency.physicsCoordinator.ensureBetweenFrames("SavedTrainV1.load")
@@ -33,6 +35,11 @@ data class SavedTrainV1(
         }
     }
 
+}
+
+@Serializable
+data class SavedTrainUnitComposition(val unitId: String, val carIds: List<String>) {
+    fun restore(): TrainUnitComposition = TrainUnitComposition(unitId, carIds)
 }
 
 @Serializable

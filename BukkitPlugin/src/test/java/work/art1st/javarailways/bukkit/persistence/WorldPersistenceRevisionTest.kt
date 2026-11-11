@@ -86,6 +86,6 @@ class WorldPersistenceRevisionTest {
         BasicRuntimeSnapshotV3(3, revision, epoch),
         SimpleATORuntimeSnapshotV1(1, revision, epoch,
             dispatcher = SavedDispatcherV1(1, 0L, 0L, emptyList(), emptyList()),
-            timetables = emptyList(), rollingStock = emptyList())
+            timetables = emptyList())
     ).encode()
 }

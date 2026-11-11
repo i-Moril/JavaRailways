@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
+import work.art1st.javarailways.core.api.physics.train.TrainComposition
+
 import work.art1st.javarailways.core.api.util.DestructionSteps
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
@@ -82,7 +84,8 @@ class TrainCreation internal constructor(private val world: CoreWorld) {
         cars: List<CoreCar>,
         name: String = id,
         extensionData: Map<String, SerializableExtensionData> = emptyMap(),
-        preparedPlacement: PreparedTrainPlacement? = null
+        preparedPlacement: PreparedTrainPlacement? = null,
+        composition: TrainComposition? = null
     ): CoreTrain {
         validateCars(cars)
         preparedPlacement?.let { prepared ->
@@ -92,7 +95,7 @@ class TrainCreation internal constructor(private val world: CoreWorld) {
         }
         return CoreTrain(id, cars, world, extensionData, name,
             persistedHeadLocation = preparedPlacement?.head,
-            persistedTailLocation = preparedPlacement?.tail).also {
+            persistedTailLocation = preparedPlacement?.tail, initialComposition = composition).also {
                 train = it
                 preparedPlacement?.validateInstalled(it)
             }
@@ -110,7 +113,10 @@ class TrainCreation internal constructor(private val world: CoreWorld) {
         return CoreTrain(saved.id, cars, world, saved.extension, saved.name,
             persistedHeadLocation = saved.headLocation.load(world),
             persistedTailLocation = saved.tailLocation.load(world),
-            initialReversed = saved.reversed).also { train = it }
+            initialReversed = saved.reversed,
+            initialComposition = saved.composition.takeIf { it.isNotEmpty() }?.let { units ->
+                TrainComposition.create(units.map { it.restore() }, cars.map { it.id })
+            }).also { train = it }
     }
 
     fun onFailure(cleanup: () -> Unit) {

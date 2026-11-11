@@ -50,7 +50,7 @@ class WorldSnapshotExtensionDataTest {
         val basicRuntime = BasicRuntimeSnapshotV3(3, 7L, 9L)
         val simpleAtoRuntime = SimpleATORuntimeSnapshotV1(1, 7L, 9L,
             dispatcher = SavedDispatcherV1(1, 0L, 0L, emptyList(), emptyList()),
-            timetables = emptyList(), rollingStock = emptyList())
+            timetables = emptyList())
         val encoded = WorldSnapshotCapture(core, basic, simpleAto, coreRuntime, basicRuntime, simpleAtoRuntime).encode()
         val infrastructure = SplitWorldSnapshotCodec.decodeInfrastructure(SplitWorldSnapshotCodec.encode(encoded.infrastructure))
         val runtime = SplitWorldSnapshotCodec.decodeRuntime(SplitWorldSnapshotCodec.encode(encoded.runtime))
@@ -106,8 +106,7 @@ class WorldSnapshotExtensionDataTest {
             infrastructureRevision = 7L,
             physicsEpoch = 9L,
             dispatcher = SavedDispatcherV1(1, 0L, 0L, emptyList(), emptyList()),
-            timetables = emptyList(),
-            rollingStock = emptyList()
+            timetables = emptyList()
         )
 
         val capture = WorldSnapshotCapture(

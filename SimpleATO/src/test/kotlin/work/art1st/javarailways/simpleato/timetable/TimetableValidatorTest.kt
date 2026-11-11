@@ -20,8 +20,7 @@ import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.simpleato.testing.KinematicTrainActuator
 import work.art1st.javarailways.simpleato.api.depot.DepotId
 import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector
-import work.art1st.javarailways.simpleato.api.depot.RollingStockRecord
-import work.art1st.javarailways.simpleato.api.depot.StablingPointRef
+import work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
@@ -290,9 +289,10 @@ class TimetableValidatorTest {
             destinations.register(OperationalDestination("$id@one", rail.id, arc, ViewDirection.AB,
                 DestinationRole.DepotStablingPointRole(id, "one", usableLengthMeters = 20.0)))
         }
-        world.simpleAtoWorldData.depots.registerRollingStock(
-            RollingStockRecord("T", DepotId("A"), "test/emu", emptySet(), 1, 10.0, 20.0, emptySet()),
-            StablingPointRef(DepotId("A"), "one"))
+        createTrainWithConfig("T", rail, world, listOf(10.0))
+        TestSimpleATOWorldDataRegistry.setCandidateFacts(world) {
+            TrainCandidateFacts("test/emu", emptySet(), 20.0, emptySet())
+        }
         val take = TimetableStep.At(0L, TimetableAction.TakeFromDepot(DepotTrainSelector(DepotId("A"))))
         val store = TimetableStep.At(1L, TimetableAction.StoreAtDepot(DepotId("B")))
         fun validate(steps: List<TimetableStep>) = TimetableValidator(world).validate(
@@ -564,32 +564,13 @@ class TimetableValidatorTest {
             )
         )
         data.wayPoints.add(WayPoint("B", metroRail.id, 90.0))
-        world.simpleAtoWorldData.depots.registerRollingStock(
-            RollingStockRecord(
-                metroTrain.id,
-                depotId,
-                "test/metro",
-                setOf("metro"),
-                1,
-                10.0,
-                20.0,
-                emptySet()
-            ),
-            StablingPointRef(depotId, "metro")
-        )
-        world.simpleAtoWorldData.depots.registerRollingStock(
-            RollingStockRecord(
-                freightTrain.id,
-                depotId,
-                "test/freight",
-                setOf("freight"),
-                1,
-                10.0,
-                20.0,
-                emptySet()
-            ),
-            StablingPointRef(depotId, "freight")
-        )
+        TestSimpleATOWorldDataRegistry.setCandidateFacts(world) { train ->
+            when (train.id) {
+                metroTrain.id -> TrainCandidateFacts("test/metro", setOf("metro"), 20.0, emptySet())
+                freightTrain.id -> TrainCandidateFacts("test/freight", setOf("freight"), 20.0, emptySet())
+                else -> null
+            }
+        }
         val timetable = Timetable(
             "metro-only",
             services = listOf(

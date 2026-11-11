@@ -251,7 +251,7 @@ internal object TimetableMetadataValidator {
                     when(val selector=service.trainSelector) {
                         is TrainSelector.TrainId -> selector.trainId==train.id
                         TrainSelector.AnyTrain -> when(take) {
-                            is TimetableAction.TakeFromDepot -> store.rollingStock(train.id)?.record?.let(take.selector::matches)==true
+                            is TimetableAction.TakeFromDepot -> take.selector.matches(world.simpleAtoWorldData.candidateFacts(train),train.cars.size)
                             is TimetableAction.TakeFromWaypoint -> take.wayPointIds.any { id ->
                                 val point=world.simpleAtoWorldData.destinations[id]
                                 point != null && point.railId==train.publishedFrame.head.railId && kotlin.math.abs(point.arcLengthInAbMeters-train.publishedFrame.head.arcLengthInAbMeters)<=0.5

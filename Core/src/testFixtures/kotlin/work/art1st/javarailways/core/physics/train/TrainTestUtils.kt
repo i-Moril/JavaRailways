@@ -98,7 +98,9 @@ fun createStraightRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>)
  * @return 创建的列车
  */
 fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengths: List<Double>, isLoop: Boolean = false,
-    connectorLength: Double = 0.0): CoreTrain {
+    connectorLength: Double = 0.0,
+    composition: work.art1st.javarailways.core.api.physics.train.TrainComposition? = null,
+    carIdPrefix: String = "car-"): CoreTrain {
     // 计算列车总长度（所有车厢长度之和）
     val totalTrainLength = carLengths.sum()
 
@@ -116,7 +118,7 @@ fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengt
         val bogieA = CoreBogie.create(headLocation)
         val bogieB = CoreBogie.create(headLocation)
         CoreCar(
-            id = "car-$index",
+            id = "$carIdPrefix$index",
             bogies = listOf(bogieA, bogieB),
             bogiesOffsets = listOf(len / 2, -len / 2),
             length = len,
@@ -128,7 +130,7 @@ fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengt
         )
     }
     return world.onOwnerForTest {
-        CoreTrain(id, cars, world, emptyMap()).also { train ->
+        CoreTrain(id, cars, world, emptyMap(), initialComposition = composition).also { train ->
             train.setLocation(headLocation)
             train.commit()
         }

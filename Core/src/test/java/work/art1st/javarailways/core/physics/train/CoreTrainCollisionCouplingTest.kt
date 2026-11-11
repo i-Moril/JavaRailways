@@ -339,6 +339,8 @@ class CoreTrainCollisionCouplingTest {
                                 moveControlledTrain(0.0, 1.0)
                             }
                         })
+                        val originalMovingComposition = moving.composition
+                        val originalFixedComposition = fixed.composition
                         val originalMovingCars = moving.cars.toList()
                         val originalFixedCars = fixed.cars.toList()
                         val fixedBefore = fixed.publishedFrame
@@ -441,6 +443,8 @@ class CoreTrainCollisionCouplingTest {
                                 if (rejectedBeforeDecision) assertNull(observedEnds)
                                 else assertEquals(movingEnd to fixedEnd, observedEnds)
                                 if (failPreparation || rejectedBeforeDecision || veto) {
+                                    assertSame(originalMovingComposition, moving.composition)
+                                    assertSame(originalFixedComposition, fixed.composition)
                                     assertEquals(0, successes)
                                     assertEquals(2, world.allTrains.size)
                                     assertEquals(frozenMoving.head, moving.publishedFrame.head)
@@ -461,6 +465,11 @@ class CoreTrainCollisionCouplingTest {
                                     }
                                 } else {
                                     val master = if (movingMaster) moving else fixed
+                                    val sourceUnits = originalMovingComposition.units + originalFixedComposition.units
+                                    assertEquals(sourceUnits.toSet(), master.composition.units.toSet())
+                                    assertEquals(master.composition.units, master.composition.unitsFor(master.cars.map { it.id }))
+                                    master.composition.units.forEach { unit -> unit.isReversedIn(master.cars.map { it.id }) }
+                                    assertEquals(master.composition, master.publishedFrame.composition)
                                     assertEquals(1, successes)
                                     assertTrue(coherentAtSuccess, "success listener must observe complete shared publication")
                                     if (renameOnSuccess) {

@@ -67,6 +67,9 @@ class TimetableStationCallDispatcherTest {
     @Test fun `display progress captures exact origin arrival and departure despite prepared future missions`() =
         assertDisplayProgressDoorSide(DoorSide.NONE,DoorSide.NONE)
 
+    @Test fun `ordinary train run displays capture actual progress without registered units or operational trips`() =
+        assertDisplayProgressDoorSide(DoorSide.NONE, DoorSide.NONE, explicitUnitTrip = false)
+
     @Test fun `explicit OPEN_DOORS override is captured instead of inherited berth side`() =
         assertDisplayProgressDoorSide(DoorSide.LEFT,DoorSide.RIGHT,
             initialActions=listOf(TimetableAction.OpenDoors(DoorSide.RIGHT),TimetableAction.CloseDoors))
@@ -79,7 +82,8 @@ class TimetableStationCallDispatcherTest {
             StationPreparationLead.constant(40L),100L,"origin@one",DoorSide.RIGHT))
 
     private fun assertDisplayProgressDoorSide(originSide: DoorSide, expectedOriginSide: DoorSide,
-        initialActions: List<TimetableAction> = emptyList(), originPrograms: StationStopPrograms? = null) {
+        initialActions: List<TimetableAction> = emptyList(), originPrograms: StationStopPrograms? = null,
+        explicitUnitTrip: Boolean = true) {
         val gateway = ControllableOperationGateway()
         val f = fixture(firstTargetOffsetMeters = 40.0, nextTargetOffsetMeters = 100.0,
             canonicalOriginDoorSide = originSide, canonicalTarget = true,
@@ -87,13 +91,6 @@ class TimetableStationCallDispatcherTest {
             initialActions=initialActions,originPrograms=originPrograms,operationGateway=gateway)
         val world = f.world
         world.onOwnerForTest {
-            val depot = work.art1st.javarailways.simpleato.api.depot.DepotId("progress-home")
-            val ref = work.art1st.javarailways.simpleato.api.depot.StablingPointRef(depot,"one")
-            world.simpleAtoWorldData.depots.addStablingPoint(depot,"Progress home",
-                work.art1st.javarailways.simpleato.api.depot.DepotStablingPoint(ref,"origin@one"))
-            val cars = f.train.publishedFrame.cars.map { it.carId }
-            world.simpleAtoWorldData.depots.registerFixedUnit(
-                work.art1st.javarailways.simpleato.api.depot.FixedEmuUnit("unit",depot,cars,"family"),cars)
             val end = checkNotNull(f.data.wayPoints["D"])
             work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService(world).register(
                 work.art1st.javarailways.simpleato.api.destination.OperationalDestination("end@one",end.railId,
@@ -113,11 +110,24 @@ class TimetableStationCallDispatcherTest {
                 TimetableRunCall("end-call","end","end@one",TimetableServiceStopStatus.TERMINAL)))
             world.simpleAtoWorldData.timetables.add(table.copy(services=listOf(source.copy(steps=steps,runSegments=listOf(segment))),
                 lineSpeedLimits=listOf(TimetableLineSpeedLimit(lineId,8.0)),
-                operationalTrips=listOf(TimetableOperationalTrip("trip",segments=listOf(
-                    TimetableOperationalTripSegment("service","run",listOf(1)))))))
+                operationalTrips=if (explicitUnitTrip) listOf(TimetableOperationalTrip("trip",segments=listOf(
+                    TimetableOperationalTripSegment("service","run",listOf(1))))) else emptyList()))
+            assertTrue(f.dispatcher.captureTrainDisplays(world).isEmpty(), "No entered run exists before service start")
             val result = f.dispatcher.startService(world,"tt","service")
             assertTrue(result is TimetableServiceStartResult.Started,result.toString())
-            val origin = f.dispatcher.captureUnitDisplays(world).single()
+            val origin = f.dispatcher.captureTrainDisplays(world).single()
+            assertEquals("end", origin.currentRun.terminalStationId)
+            assertEquals(listOf("origin-call", "central-call", "end-call"), origin.stops.map { it.call.id })
+            assertEquals(f.train.publishedFrame.cars.map { it.carId }, origin.carIds)
+            if (explicitUnitTrip) {
+                val unit = f.dispatcher.captureUnitDisplays(world).single()
+                assertEquals(unit.progress, origin.progress)
+                assertEquals(unit.doorSide, origin.doorSide)
+            } else {
+                assertEquals(f.train.composition.units.map { it.unitId }, world.simpleAtoWorldData.depots.allFixedUnits().map { it.id })
+                assertTrue(world.simpleAtoWorldData.timetables["tt"]!!.operationalTrips.isEmpty())
+                assertNull(f.dispatcher.captureUnitDisplays(world).single().display)
+            }
             assertEquals(TimetableDisplayProgress(TimetableDisplayPhase.AT_STATION,0),origin.progress)
             assertEquals(expectedOriginSide,origin.doorSide)
             if (initialActions.isEmpty() && originPrograms == null)
@@ -132,7 +142,12 @@ class TimetableStationCallDispatcherTest {
             gateway.tickets.toList().forEach { it.succeed() }
             f.tick()
             world.onOwnerForTest {
-                val context = f.dispatcher.captureUnitDisplays(world).single()
+                val context = f.dispatcher.captureTrainDisplays(world).single()
+                if (explicitUnitTrip) {
+                    val unit = f.dispatcher.captureUnitDisplays(world).single()
+                    assertEquals(unit.progress, context.progress)
+                    assertEquals(unit.doorSide, context.doorSide)
+                }
                 if (context.progress == TimetableDisplayProgress(TimetableDisplayPhase.AT_STATION,0))
                     assertEquals(expectedOriginSide,context.doorSide)
                 if (context.progress == TimetableDisplayProgress(TimetableDisplayPhase.IN_TRANSIT,1)) {
@@ -151,6 +166,16 @@ class TimetableStationCallDispatcherTest {
         assertTrue(departedOrigin,"real movement establishes en-route progress")
         assertTrue(arrivedCentralWithFutureMission,"preparing the next mission does not erase arrived occurrence")
         assertTrue(departedCentral,"only physical departure advances the visible station cursor")
+        world.onOwnerForTest {
+            assertTrue(f.dispatcher.stopService(world, TimetableServiceRunId("tt", "service")))
+        }
+        repeat(1_000) {
+            if (f.dispatcher.status(TimetableServiceRunId("tt", "service"))?.state != TimetableServiceRunState.STOPPED) f.tick()
+        }
+        world.onOwnerForTest {
+            assertEquals(TimetableServiceRunState.STOPPED, f.dispatcher.status(TimetableServiceRunId("tt", "service"))?.state)
+            assertTrue(f.dispatcher.captureTrainDisplays(world).isEmpty(), "Stopped run withdraws ordinary train context")
+        }
     }
 
     @Test fun `owner batch resolves registered current berth proof then removes it on actual departure movement`() {
@@ -161,14 +186,9 @@ class TimetableStationCallDispatcherTest {
             initialActions = listOf(TimetableAction.OpenDoors(), TimetableAction.CloseDoors))
         val world = fixture.world
         world.onOwnerForTest {
-            assertTrue(fixture.dispatcher.captureUnitDisplays(world).isEmpty(), "ordinary unregistered train has no claimed fixed unit")
-            val depot = work.art1st.javarailways.simpleato.api.depot.DepotId("display-home")
-            val ref = work.art1st.javarailways.simpleato.api.depot.StablingPointRef(depot, "one")
-            world.simpleAtoWorldData.depots.addStablingPoint(depot, "Display home",
-                work.art1st.javarailways.simpleato.api.depot.DepotStablingPoint(ref, "origin@one"))
             val carIds = fixture.train.publishedFrame.cars.map { it.carId }
-            world.simpleAtoWorldData.depots.registerFixedUnit(
-                work.art1st.javarailways.simpleato.api.depot.FixedEmuUnit("display-unit",depot,carIds,"family"),carIds)
+            assertEquals(fixture.train.composition.units.single().unitId,
+                fixture.dispatcher.captureUnitDisplays(world).single().unitId)
             val contextless = fixture.dispatcher.captureUnitDisplays(world).single()
             assertEquals(carIds, contextless.carIds)
             assertNull(contextless.display); assertNull(contextless.timetableId); assertNull(contextless.currentBerth)
@@ -190,7 +210,7 @@ class TimetableStationCallDispatcherTest {
         assertTrue(fixture.train.publishedFrame.speedMetersPerSecond > 0.0, "real controller must have departed the origin")
         world.onOwnerForTest {
             val moved = fixture.dispatcher.captureUnitDisplays(world).single()
-            assertEquals("display-unit",moved.unitId)
+            assertEquals(fixture.train.composition.units.single().unitId,moved.unitId)
             assertNull(moved.currentBerth, "previous confirmed berth must not survive movement")
         }
     }
@@ -1879,8 +1899,8 @@ class TimetableStationCallDispatcherTest {
         val blockingBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 20.0))
         IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, mainBranch) }
         IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, blockingBranch) }
-        val mainTrain = createTrainWithConfig("main", approach, world, listOf(10.0))
-        val blockingTrain = createTrainWithConfig("blocking", approach, world, listOf(10.0))
+        val mainTrain = createTrainWithConfig("main", approach, world, listOf(10.0), carIdPrefix = "main" + "/car-")
+        val blockingTrain = createTrainWithConfig("blocking", approach, world, listOf(10.0), carIdPrefix = "blocking" + "/car-")
         world.onOwnerForTest {
             blockingTrain.setLocation(mainTrain.head.location.forward(60.0)!!)
             blockingTrain.commit()
@@ -1983,8 +2003,8 @@ class TimetableStationCallDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(180.0, segmentCount = 1)
         )
-        val firstTrain = createTrainWithConfig("T1", rail, world, listOf(10.0))
-        val secondTrain = createTrainWithConfig("T2", rail, world, listOf(10.0))
+        val firstTrain = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
+        val secondTrain = createTrainWithConfig("T2", rail, world, listOf(10.0), carIdPrefix = "T2" + "/car-")
         world.onOwnerForTest {
             secondTrain.setLocation(firstTrain.head.location.forward(20.0)!!)
             secondTrain.commit()
@@ -2131,7 +2151,7 @@ class TimetableStationCallDispatcherTest {
             world,
             PrimeCurveGenerator.buildStraight(180.0, segmentCount = 1)
         )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength
         val firstTargetArc = originArc + firstTargetOffsetMeters
         val targetArc = originArc + (nextTargetOffsetMeters ?: firstTargetOffsetMeters)

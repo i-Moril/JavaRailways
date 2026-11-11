@@ -136,7 +136,7 @@ class AdmittedCouplingPhysicalIntegrationTest {
             val car = CoreCar.create("$id-car", CoreBogie.create(anchor), CoreBogie.create(anchor),
                 length = 10.0, bogieAOffset = 3.0, bogieBOffset = -3.0,
                 connectorLengthAtA = 0.3, connectorLengthAtB = 0.3, world = world)
-            CoreTrain.create(id, listOf(car), world).also {
+            CoreTrain.create(id, listOf(car), world, composition = work.art1st.javarailways.simpleato.testing.testTrainComposition("unit-$id" to listOf(car.id))).also {
                 it.setLocation(anchor)
                 it.commitMaintenancePlacement()
             }
@@ -162,18 +162,14 @@ class AdmittedCouplingPhysicalIntegrationTest {
             Any(), { observation }, { emptyList() }, { _, _ -> null }, { _, _ -> null },
             authorizeFormationRoute = { _, _ -> FormationRoutePolicyResult.Accepted(emptyList()) },
             stallWorld = { reason, _ -> stalls += reason })
-        val depots = DepotStore().also { store ->
+        val depots = DepotStore { listOf(moving, target).flatMap { train -> train.composition.units.map { FixedEmuUnit(it.unitId, it.carIds) } } }.also { store ->
             listOf(moving, target).forEach { source ->
                 val depot = DepotId("home-${source.id}")
                 val point = StablingPointRef(depot, "p")
                 store.addStablingPoint(depot, depot.value, DepotStablingPoint(point, "point-${source.id}"))
                 val cars = source.cars.map { it.id }
-                store.registerFixedUnit(FixedEmuUnit("unit-${source.id}", depot, cars, "emu"), cars)
-                store.registerRollingStock(RollingStockRecord(source.id, depot, "emu", emptySet(), cars.size,
-                    source.cars.sumOf { it.length }, 2.0, emptySet()), point)
-                val allocation = checkNotNull(store.reservePhysicallySelected(source.id, point,
-                    DepotTrainSelector(depot), "assignment-${source.id}", cars))
-                check(store.confirmInService(allocation)); check(store.releaseDeparture(allocation))
+                store.registerUnitControlCompatibility("unit-${source.id}", "emu")
+                store.claimFixedFormation(source.id, cars, "assignment-${source.id}")
             }
         }
         private val service = object : RouteResourceAdmissionService {

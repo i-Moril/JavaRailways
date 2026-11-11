@@ -164,6 +164,6 @@ class EndpointWorldMigrationTest {
         put("formatVersion", 2); put("infrastructureRevision", 7); put("physicsEpoch", 9)
         put("coreSnapshotJson", """{"formatVersion":1,"infrastructureRevision":7,"physicsEpoch":9,"trains":[]}""")
         put("basicSnapshotJson", """{"formatVersion":3,"infrastructureRevision":7,"physicsEpoch":9}""")
-        put("simpleAtoSnapshotJson", """{"formatVersion":1,"infrastructureRevision":7,"physicsEpoch":9,"dispatcher":{"formatVersion":1,"dispatcherTick":12,"missionRevision":0,"clocks":[],"runs":[]},"timetables":[],"rollingStock":[]}""")
+        put("simpleAtoSnapshotJson", """{"formatVersion":1,"infrastructureRevision":7,"physicsEpoch":9,"dispatcher":{"formatVersion":1,"dispatcherTick":12,"missionRevision":0,"clocks":[],"runs":[]},"timetables":[]}""")
     }.toString()
 }

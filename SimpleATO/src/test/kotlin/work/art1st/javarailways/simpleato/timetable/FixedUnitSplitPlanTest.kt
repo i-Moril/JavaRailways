@@ -17,15 +17,15 @@ class FixedUnitSplitPlanTest {
         TestWorldFixture.create().use { fixture ->
             val world = fixture.world
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
-            val train = createTrainWithConfig("source", rail, world, List(6) { 10.0 })
+            val train = createTrainWithConfig("source", rail, world, List(6) { 10.0 }, composition = work.art1st.javarailways.simpleato.testing.testTrainComposition("unit-0" to listOf("car-0"), "unit-1" to listOf("car-1", "car-2"), "unit-2" to listOf("car-3", "car-4", "car-5")))
             if (reversed) world.onOwnerForTest { train.reverse() }
             val frame = train.publishedFrame
             val cars = frame.cars.map { it.carId }
             val depot = DepotId("home")
-            val store = DepotStore().also {
+            val store = DepotStore { train.composition.units.map { FixedEmuUnit(it.unitId, it.carIds) } }.also {
                 it.addStablingPoint(depot, "Home", DepotStablingPoint(StablingPointRef(depot, "p"), "point"))
                 listOf(cars.take(1), cars.drop(1).take(2), cars.drop(3)).forEachIndexed { index, group ->
-                    it.registerFixedUnit(FixedEmuUnit("unit-$index", depot, group, "emu"), cars)
+                    it.registerUnitControlCompatibility("unit-$index", "emu")
                 }
             }
             val event = TimetableFormationEvent.Split("divide", "source-duty", 1,

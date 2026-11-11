@@ -117,7 +117,8 @@ data class TrainFrameSnapshot private constructor(
     val sweptSpans: List<SweptRailSpanSnapshot>,
     val headTraversal: List<RailTraversalSegmentSnapshot>,
     val tailTraversal: List<RailTraversalSegmentSnapshot>,
-    val derailReason: String? = null
+    val derailReason: String? = null,
+    val composition: TrainComposition
 ) {
     init {
         require(trainId.isNotBlank()) { "TrainFrameSnapshot trainId must not be blank" }
@@ -146,7 +147,9 @@ data class TrainFrameSnapshot private constructor(
             sweptSpans: Collection<SweptRailSpanSnapshot>,
             headTraversal: Collection<RailTraversalSegmentSnapshot>,
             tailTraversal: Collection<RailTraversalSegmentSnapshot>,
-            derailReason: String? = null
+            derailReason: String? = null,
+            composition: TrainComposition = if (cars.isEmpty()) TrainComposition.create(emptyList(), emptyList())
+                else TrainComposition.single(cars.map { it.carId }, trainId)
         ): TrainFrameSnapshot = TrainFrameSnapshot(
             trainId = trainId,
             trainName = trainName,
@@ -163,7 +166,8 @@ data class TrainFrameSnapshot private constructor(
             sweptSpans = java.util.List.copyOf(sweptSpans),
             headTraversal = java.util.List.copyOf(headTraversal),
             tailTraversal = java.util.List.copyOf(tailTraversal),
-            derailReason = derailReason
+            derailReason = derailReason,
+            composition = composition.also { it.requireMatches(cars.map { car -> car.carId }) }
         )
     }
 }

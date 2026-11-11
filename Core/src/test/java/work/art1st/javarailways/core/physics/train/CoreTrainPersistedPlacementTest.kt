@@ -50,7 +50,7 @@ class CoreTrainPersistedPlacementTest {
         val rail = world.createRailForTest(straight(0.0, 300.0))
         val coincident = world.createRailForTest(straight(0.0, 300.0))
         val original = configuredTrain(world, rail, "original")
-        val saved = original.save().copy(id = "invalid", name = "Invalid")
+        val saved = original.save().copy(id = "invalid", name = "Invalid", composition = emptyList())
         val car = saved.cars.last()
         val invalid = when (corruption) {
             "swapped-bogies" -> saved.copy(cars = saved.cars.dropLast(1) + car.copy(
@@ -104,7 +104,7 @@ class CoreTrainPersistedPlacementTest {
     fun `an interior car gap is rejected even when axle spacing and path order remain valid`() = withWorld { world ->
         val rail = world.createRailForTest(straight(0.0, 300.0))
         val original = configuredTrain(world, rail, "original")
-        val saved = original.save().copy(id = "invalid", name = "Invalid")
+        val saved = original.save().copy(id = "invalid", name = "Invalid", composition = emptyList())
         val middle = saved.cars[1]
         fun shifted(bogie: SavedBogieV1) = bogie.copy(location = bogie.location.copy(
             arcLengthInCurveAB = bogie.location.arcLengthInCurveAB + 0.1

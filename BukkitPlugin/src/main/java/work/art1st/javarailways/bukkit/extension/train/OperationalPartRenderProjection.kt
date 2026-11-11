@@ -6,6 +6,11 @@ import work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus
 import work.art1st.javarailways.simpleato.timetable.TimetableDisplayPhase
 import work.art1st.javarailways.simpleato.timetable.TimetableUnitDisplayContext
 import work.art1st.javarailways.simpleato.timetable.TimetableUnitStopSnapshot
+import work.art1st.javarailways.simpleato.timetable.TimetableTrainDisplayContext
+import work.art1st.javarailways.simpleato.timetable.TimetableRunDisplayContext
+import work.art1st.javarailways.simpleato.timetable.TimetableDisplayProgress
+import work.art1st.javarailways.simpleato.api.station.StationBerthRef
+import work.art1st.javarailways.basic.api.operation.DoorSide
 
 /** Detached operational values only; neither domain objects nor the owner-side name resolver escape. */
 internal class OperationalPartRenderProjection(unit: JsonElement, operational: JsonElement, aliases: JsonObject) {
@@ -44,6 +49,46 @@ internal fun projectOperationalPartRender(
         it.active && it.unitId == context.unitId && context.timetableId != null
     } ?: return OperationalPartRenderProjection(unit, JsonNull, emptyOperationalAliases())
 
+    return projectOperationalFacts(unit, checkNotNull(context.timetableId), display.operationalTripId,
+        display.cycleIndex, display.values, display.plannedStops, display.completedStops.size,
+        display.unresolvedRuns, context.currentBerth, context.currentRun, context.progress, context.doorSide,
+        stationMetadata, stationName)
+}
+
+/** Basic actual-run facts do not require or invent a registered unit or an authored trip. */
+internal fun projectTrainOperationalPartRender(
+    context: TimetableTrainDisplayContext,
+    stationMetadata: (String) -> JsonObject = { JsonObject(emptyMap()) },
+    stationName: (String) -> String?,
+): OperationalPartRenderProjection = projectOperationalFacts(
+    JsonNull, context.timetableId, null, context.cycleIndex, JsonObject(emptyMap()), context.stops,
+    context.stops.count { it.completed }, emptyList(), context.currentBerth, context.currentRun,
+    context.progress, context.doorSide, stationMetadata, stationName
+)
+
+/** Explicit active trip content wins; a registered idle unit adds identity without hiding the actual run. */
+internal fun combineUnitOperationalPartRender(
+    unit: OperationalPartRenderProjection,
+    train: OperationalPartRenderProjection?,
+): OperationalPartRenderProjection = if (unit.operational != JsonNull || train == null) unit
+    else OperationalPartRenderProjection(unit.unit, train.operational, train.aliases)
+
+private fun projectOperationalFacts(
+    unit: JsonElement,
+    timetableId: String,
+    operationalTripId: String?,
+    cycleIndex: Long,
+    values: JsonObject,
+    stops: List<TimetableUnitStopSnapshot>,
+    completedStopCount: Int,
+    unresolvedRuns: List<String>,
+    currentBerth: StationBerthRef?,
+    currentRun: TimetableRunDisplayContext?,
+    progress: TimetableDisplayProgress,
+    doorSide: DoorSide?,
+    stationMetadata: (String) -> JsonObject,
+    stationName: (String) -> String?,
+): OperationalPartRenderProjection {
     fun stop(value: TimetableUnitStopSnapshot): JsonObject = buildJsonObject {
         put("serviceId", value.serviceId)
         put("runId", value.runId)
@@ -57,26 +102,25 @@ internal fun projectOperationalPartRender(
         put("departureTick", value.call.departureTick?.toString()?.let(::JsonPrimitive) ?: JsonNull)
         put("completed", value.completed)
     }
-    val currentBerth = context.currentBerth
     val current = currentBerth?.let { berth -> buildJsonObject {
         put("stationId", berth.stationId.value)
         put("stationName", stationName(berth.stationId.value)?.let(::JsonPrimitive) ?: JsonNull)
         put("metadata", stationMetadata(berth.stationId.value))
         put("berthId", berth.berthId)
     } }
-    val nextStart = when (context.progress.phase) {
-        TimetableDisplayPhase.IN_TRANSIT -> context.progress.stationIndex
-        TimetableDisplayPhase.AT_STATION -> context.progress.stationIndex?.plus(1)
+    val nextStart = when (progress.phase) {
+        TimetableDisplayPhase.IN_TRANSIT -> progress.stationIndex
+        TimetableDisplayPhase.AT_STATION -> progress.stationIndex?.plus(1)
         TimetableDisplayPhase.FINISHED, TimetableDisplayPhase.UNKNOWN -> null
     }
-    val next = nextStart?.takeIf { display.unresolvedRuns.isEmpty() }?.let { start ->
-        display.plannedStops.drop(start).firstOrNull {
+    val next = nextStart?.takeIf { unresolvedRuns.isEmpty() }?.let { start ->
+        stops.drop(start).firstOrNull {
             it.call.status == TimetableServiceStopStatus.STOP || it.call.status == TimetableServiceStopStatus.TERMINAL
         }?.let(::stop)
     }
     // Presence, rather than value/type/truthiness, defines an authored destination override.
     // This is a presentation default; the captured operational values remain untouched.
-    val defaultTerminal = context.currentRun?.terminalStationId?.takeIf { "destination" !in display.values }
+    val defaultTerminal = currentRun?.terminalStationId?.takeIf { "destination" !in values }
     val defaultStationName = defaultTerminal?.let(stationName)?.takeIf { it.isNotBlank() }
     val defaultDestination = defaultTerminal?.let { id ->
         when (val name = stationMetadata(id)["name"]) {
@@ -98,29 +142,29 @@ internal fun projectOperationalPartRender(
         else -> ""
     }
     val effectiveValues = if (defaultDestination != null) buildJsonObject {
-        display.values.forEach { (key, value) -> put(key, value) }
+        values.forEach { (key, value) -> put(key, value) }
         put("destination", defaultDestination)
-    } else display.values
+    } else values
     val operational = buildJsonObject {
-        put("timetableId", checkNotNull(context.timetableId))
-        put("operationalTripId", display.operationalTripId)
-        put("cycleIndex", display.cycleIndex.toString())
-        put("doorSide", context.doorSide?.name?.let(::JsonPrimitive) ?: JsonNull)
+        put("timetableId", timetableId)
+        put("operationalTripId", operationalTripId?.let(::JsonPrimitive) ?: JsonNull)
+        put("cycleIndex", cycleIndex.toString())
+        put("doorSide", doorSide?.name?.let(::JsonPrimitive) ?: JsonNull)
         put("values", effectiveValues)
-        put("stops", JsonArray(display.plannedStops.map(::stop)))
-        put("stationIndex", context.progress.stationIndex?.let(::JsonPrimitive) ?: JsonNull)
-        put("phase", when (context.progress.phase) {
+        put("stops", JsonArray(stops.map(::stop)))
+        put("stationIndex", progress.stationIndex?.let(::JsonPrimitive) ?: JsonNull)
+        put("phase", when (progress.phase) {
             TimetableDisplayPhase.AT_STATION -> "at_station"
             TimetableDisplayPhase.IN_TRANSIT -> "in_transit"
             TimetableDisplayPhase.FINISHED -> "finished"
             TimetableDisplayPhase.UNKNOWN -> "unknown"
         })
-        put("plannedStopCount", display.plannedStops.size)
-        put("completedStopCount", display.completedStops.size)
-        put("unresolvedRuns", JsonArray(display.unresolvedRuns.map(::JsonPrimitive)))
+        put("plannedStopCount", stops.size)
+        put("completedStopCount", completedStopCount)
+        put("unresolvedRuns", JsonArray(unresolvedRuns.map(::JsonPrimitive)))
         put("currentStation", current ?: JsonNull)
         put("nextStation", next ?: JsonNull)
-        put("currentRun", context.currentRun?.let { run -> buildJsonObject {
+        put("currentRun", currentRun?.let { run -> buildJsonObject {
             put("serviceId", run.serviceId)
             put("runId", run.runId)
             put("lineId", run.lineId)
@@ -128,7 +172,7 @@ internal fun projectOperationalPartRender(
             put("metadata", run.metadata)
         } } ?: JsonNull)
     }
-    fun authoredString(key: String): String = (display.values[key] as? JsonPrimitive)
+    fun authoredString(key: String): String = (values[key] as? JsonPrimitive)
         ?.takeIf { it.isString }?.content.orEmpty()
     fun stationString(value: JsonObject?): String = (value?.get("stationName") as? JsonPrimitive)
         ?.takeIf { it.isString }?.content.orEmpty()

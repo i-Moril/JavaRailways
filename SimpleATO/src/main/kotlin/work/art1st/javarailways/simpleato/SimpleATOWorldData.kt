@@ -34,6 +34,8 @@ data class SimpleATOWorldData(
     val destinations: OperationalDestinationStore = OperationalDestinationStore(),
     val stations: StationStore = StationStore(sharedRailObjects),
     val depots: DepotStore = DepotStore(),
+    val candidateFacts: (work.art1st.javarailways.core.api.physics.train.Train) ->
+        work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts? = { null },
     val lines: LineStore = LineStore(),
     val timetables: TimetableStore = TimetableStore(),
     val timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry(),

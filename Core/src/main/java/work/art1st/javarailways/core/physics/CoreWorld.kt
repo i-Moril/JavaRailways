@@ -302,6 +302,18 @@ class CoreWorld(
     }
 
     @MainThread
+    /** Unit identities are reserved by staged train registrations as well as committed trains. */
+    internal fun validateNewTrainComposition(
+        composition: work.art1st.javarailways.core.api.physics.train.TrainComposition,
+        transferringFrom: CoreTrain? = null
+    ) {
+        physicsCoordinator.ensureBetweenFrames("CoreWorld.validateNewTrainComposition")
+        val unitIds = composition.units.map { it.unitId }.toSet()
+        require(trains.values.none { existing ->
+            existing !== transferringFrom && existing.composition.units.any { it.unitId in unitIds }
+        }) { "A fixed unit cannot belong to two trains in the same world" }
+    }
+
     internal fun addTrain(train: CoreTrain) {
         physicsCoordinator.ensureBetweenFrames("CoreWorld.addTrain")
         if (trains[train.id] === train && trainsByName[train.name] === train) return
@@ -345,7 +357,9 @@ class CoreWorld(
     }
 
     override val allTrains: Collection<CoreTrain>
-        get() = trains.values
+        // A staged split suffix still shares source unit identities until both structures commit.
+        // Identity lookups remain registered so preparation cannot reuse its train ID or name.
+        get() = trains.values.filterNot { it.compositionTransferPending }
 
     /** Low-frequency maintenance boundary; callers must stop affected operations before awaiting. */
     @MainThread

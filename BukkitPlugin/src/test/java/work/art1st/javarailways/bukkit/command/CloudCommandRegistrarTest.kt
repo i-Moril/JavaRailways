@@ -44,7 +44,7 @@ class CloudCommandRegistrarTest {
         assertTrue("resources reload" in routes)
         assertTrue("train create" in routes)
         assertTrue("timetable replan" in routes)
-        assertTrue("depot register-unit" in routes)
+        assertFalse(routes.any { it == "depot" || it.startsWith("depot ") })
         assertTrue("wand rail" in routes)
         assertTrue("wand turnout" in routes)
         assertFalse(routes.any { it == "rail" || it.startsWith("rail ") })

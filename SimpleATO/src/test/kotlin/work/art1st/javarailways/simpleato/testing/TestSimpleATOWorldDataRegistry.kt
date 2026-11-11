@@ -16,6 +16,21 @@ import work.art1st.javarailways.simpleato.timetable.acceptingInfrastructureDepen
 
 /** Installs the Basic and SimpleATO world-local stores needed by SimpleATO tests. */
 internal object TestSimpleATOWorldDataRegistry {
+    private val candidateFactQueries = java.util.IdentityHashMap<World,
+        (work.art1st.javarailways.core.api.physics.train.Train) ->
+            work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts?>()
+
+    fun setCandidateFacts(world: World, query: (work.art1st.javarailways.core.api.physics.train.Train) ->
+        work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts?) {
+        candidateFactQueries[world] = query
+    }
+
+    fun setCandidateFacts(world: World, trainId: String,
+        facts: work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts) {
+        val previous = candidateFactQueries[world]
+        candidateFactQueries[world] = { train -> if (train.id == trainId) facts else previous?.invoke(train) }
+    }
+
     fun getOrCreate(world: World): BasicWorldData {
         val basicData = TestBasicWorldDataRegistry.getOrCreate(world)
         if (world.simpleAtoWorldDataOrNull == null) {
@@ -36,6 +51,7 @@ internal object TestSimpleATOWorldDataRegistry {
     }
 
     fun unregister(world: World) {
+        candidateFactQueries.remove(world)
         TestBasicWorldDataRegistry.unregister(world)
     }
 
@@ -75,7 +91,13 @@ internal object TestSimpleATOWorldDataRegistry {
                 restrictions,
                 inspection,
                 basicData.railObjects,
-                basicData.safetyInterlock
+                basicData.safetyInterlock,
+                candidateFacts = { train -> candidateFactQueries[world]?.invoke(train) },
+                depots = work.art1st.javarailways.simpleato.api.depot.DepotStore {
+                    world.allTrains.flatMap { train -> train.composition.units.map { unit ->
+                        work.art1st.javarailways.simpleato.api.depot.FixedEmuUnit(unit.unitId, unit.carIds)
+                    } }
+                }
             )
         )
     }

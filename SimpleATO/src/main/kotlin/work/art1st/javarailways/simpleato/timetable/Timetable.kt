@@ -489,8 +489,14 @@ class TimetableValidator(
         }
         errors += structural.errors
         if (structural.errors.isEmpty()) errors += TimetableMetadataValidator.validatePhysical(world,circulationTimetable,structural)
-        val circulation = CurrentUnitCirculation.analyze(world, circulationTimetable).summary()
-        errors += circulation.findings.filter { it.blocking }.map { "[${timetable.id}] circulation ${it.code}: ${it.detail}" }
+        val requiresCirculationAdmission = circulationTimetable.formationEvents.isNotEmpty()
+        val circulation = CurrentUnitCirculation.analyze(world, circulationTimetable)
+            .summary(blockingInventoryFindings = requiresCirculationAdmission)
+        // Ordinary physical trains now have Core units too. That does not opt a nonstructural
+        // service into recurring inventory admission; retain the complete diagnostic report.
+        if (requiresCirculationAdmission) {
+            errors += circulation.findings.filter { it.blocking }.map { "[${timetable.id}] circulation ${it.code}: ${it.detail}" }
+        }
         return TimetableValidationResult(errors, routes, routeStoppingOffsets, retainedRoutes, structural, circulation)
     }
 
@@ -1172,14 +1178,28 @@ class TimetableValidator(
                         it.point.ref.pointId in action.stablingPointIds
                 }
                 val routePoints = depotSelector?.let {
-                    world.simpleAtoWorldData.depots.compatibleStablingPoints(it.copy(depotId = action.depotId))
+                    val selector = it
+                    val origins = depotValidationOrigins(selector).map { point -> point.point.destinationId }.toSet()
+                    val candidates = world.allTrains.filter { train ->
+                        val frame = train.publishedFrame ?: return@filter false
+                        selector.matches(world.simpleAtoWorldData.candidateFacts(train), train.cars.size) &&
+                            origins.any { id -> world.basicWorldData.wayPoints[id]?.let { origin ->
+                                frame.head.railId == origin.railId &&
+                                    abs(frame.head.arcLengthInAbMeters - origin.arcLength) <= 0.5
+                            } == true }
+                    }
+                    allPoints.filter { point -> candidates.any { train ->
+                        val facts = world.simpleAtoWorldData.candidateFacts(train)
+                        (point.point.usableLengthMeters == null || train.cars.sumOf { car -> car.length } <= point.point.usableLengthMeters) &&
+                            (point.point.allowedTags.isEmpty() || facts?.tags?.any(point.point.allowedTags::contains) == true)
+                    } }
                 }?.filter {
                     it.point.ref.depotId == action.depotId &&
                         (action.stablingPointIds.isEmpty() ||
                             it.point.ref.pointId in action.stablingPointIds)
                 }
-                // Static validation proves route coverage. Live rolling-stock compatibility is an
-                // allocation concern; an empty registered set must not hide physical points.
+                // Prove route coverage for current physical candidates. Runtime rechecks their
+                // current classification and exact physical storage availability.
                 val candidatePoints = routePoints?.takeIf { it.isNotEmpty() } ?: points
                 if (allPoints.isEmpty()) {
                     errors.add("$prefix step#$stepIndex Depot 不存在或没有 StablingPoint: ${action.depotId}")
@@ -1372,23 +1392,17 @@ class TimetableValidator(
         }
     }
 
-    /** Include the existing physical-only acquisition path in static route coverage. */
-    private fun depotValidationOrigins(selector: DepotTrainSelector): List<work.art1st.javarailways.simpleato.api.depot.StablingPointSnapshot> {
-        val store = world.simpleAtoWorldData.depots
-        val registered = store.compatibleStablingPoints(selector)
-        if (selector.requiredTags.isNotEmpty() || selector.requiredCapabilities.isNotEmpty() ||
-            selector.minimumSpeedMetersPerSecond != null) return registered
-        val physical = store.stablingPoints(selector.depotId).filter { point ->
+    /** Acquisition candidates use actual physical placement and the host's detached facts. */
+    private fun depotValidationOrigins(selector: DepotTrainSelector): List<work.art1st.javarailways.simpleato.api.depot.StablingPointSnapshot> =
+        world.simpleAtoWorldData.depots.stablingPoints(selector.depotId).filter { point ->
             val waypoint = world.basicWorldData.wayPoints[point.point.destinationId] ?: return@filter false
-            world.allTrains.filterIsInstance<work.art1st.javarailways.core.physics.train.CoreTrain>().any { train ->
-                store.rollingStock(train.id) == null && train.headLocation.rail.id == waypoint.railId &&
-                    abs(train.headLocation.arcLengthIn(ViewDirection.AB) - waypoint.arcLength) <= 0.5 &&
-                    train.cars.size >= (selector.minimumCars ?: 0) &&
-                    (selector.maximumCars == null || train.cars.size <= selector.maximumCars)
+            world.allTrains.any { train ->
+                val frame = train.publishedFrame ?: return@any false
+                frame.head.railId == waypoint.railId &&
+                    abs(frame.head.arcLengthInAbMeters - waypoint.arcLength) <= 0.5 &&
+                    selector.matches(world.simpleAtoWorldData.candidateFacts(train), train.cars.size)
             }
-        }
-        return (registered + physical).distinctBy { it.point.ref }.sortedBy { it.point.ref.pointId }
-    }
+        }.sortedBy { it.point.ref.pointId }
 
     private fun wayPointExists(id: String): Boolean = world.basicWorldData.wayPoints[id] != null
 

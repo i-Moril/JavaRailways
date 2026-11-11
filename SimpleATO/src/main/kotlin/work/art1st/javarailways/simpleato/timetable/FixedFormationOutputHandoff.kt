@@ -122,7 +122,6 @@ internal class FixedFormationOutputHandoff private constructor(
         /** Install every disposition while all Core output fences remain held, then commit owners. */
         fun begin(world: World, depots: DepotStore, change: FixedFormationChange,
             handle: FormationChangeHandle, admission: RouteResourceAdmissionService,
-            outputRecords: List<RollingStockRecord>,
             install: (FixedFormationOutput, RouteGrantSnapshot) -> Unit,
             failClosed: (String) -> Unit
         ): FixedFormationOutputHandoff {
@@ -142,7 +141,7 @@ internal class FixedFormationOutputHandoff private constructor(
                     install(output, state.snapshot.outputGrants.single { it.trainId == output.owner.trainId })
                 }
                 val committed = depots.commitFixedFormationChange(change,
-                    world.allTrains.associate { it.id to it.cars.map { car -> car.id } }, outputRecords,
+                    world.allTrains.associate { it.id to it.cars.map { car -> car.id } },
                     world.allTrains.associate { it.id to it.isReversed })
                 depots.finishFixedFormationChange(committed,
                     world.allTrains.associate { it.id to it.cars.map { car -> car.id } },

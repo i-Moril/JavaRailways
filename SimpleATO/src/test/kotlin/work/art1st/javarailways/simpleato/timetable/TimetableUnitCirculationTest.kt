@@ -6,24 +6,20 @@ import work.art1st.javarailways.simpleato.api.depot.*
 
 class TimetableUnitCirculationTest {
     private val a = DepotId("A"); private val b = DepotId("B")
-    private val u = FixedEmuUnit("U", b, listOf("u"), "emu")
-    private val v = FixedEmuUnit("V", a, listOf("v"), "emu")
+    private val u = FixedEmuUnit("U", listOf("u"), "emu")
+    private val v = FixedEmuUnit("V", listOf("v"), "emu")
     private fun point(depot: DepotId, id: String = "one", length: Double = 50.0) =
         DepotStablingPoint(StablingPointRef(depot, id), "${depot.value}-$id", length)
-    private fun stock(id: String, cars: List<String>, at: StablingPointRef, tags: Set<String> = setOf("passenger")) =
-        RollingStockSnapshot(RollingStockRecord(id, b, "emu", tags, cars.size, cars.size * 10.0, 20.0, setOf("electric")),
-            RollingStockState.AVAILABLE, at)
-    private fun ledger(stock: List<RollingStockSnapshot> = listOf(stock("T", u.carIds, StablingPointRef(a, "one"))),
+    private data class CapturedFormation(val trainId: String, val cars: List<String>, val at: StablingPointRef,
+        val facts: TrainCandidateFacts)
+    private fun formation(id: String, cars: List<String>, at: StablingPointRef, tags: Set<String> = setOf("passenger")) =
+        CapturedFormation(id, cars, at, TrainCandidateFacts("emu", tags, 20.0, setOf("electric")))
+    private fun ledger(formations: List<CapturedFormation> = listOf(formation("T", u.carIds, StablingPointRef(a, "one"))),
         units: List<FixedEmuUnit> = listOf(u), places: List<DepotStablingPoint> = listOf(point(a), point(b)),
-        claims: List<FixedEmuUnitAssignment> = emptyList(), held: List<FixedFormationHeldOutput> = emptyList()): UnitCirculationLedger {
-        val cars = stock.associate { record -> record.record.trainId to when (record.record.carCount) {
-            2 -> u.carIds + v.carIds
-            else -> if (record.record.trainId == "V") v.carIds else u.carIds
-        } }
-        return UnitCirculationLedger(units, stock, places.map { p -> StablingPointSnapshot(p,
-            stock.singleOrNull { it.stablingPointRef == p.ref }?.record?.trainId, null) }, cars,
-            cars.keys.associateWith { false }, units.flatMap { it.carIds }.associateWith { 10.0 }, claims, held)
-    }
+        claims: List<FixedEmuUnitAssignment> = emptyList(), held: List<FixedFormationHeldOutput> = emptyList()): UnitCirculationLedger =
+        UnitCirculationLedger(units, places.map(::StablingPointSnapshot), formations.associate { it.trainId to it.cars },
+            formations.associate { it.trainId to false }, formations.flatMap { it.cars }.associateWith { 10.0 },
+            formations.associate { it.trainId to it.facts }, formations.associate { it.trainId to it.at }, claims, held)
     private fun at(tick: Long, action: TimetableAction) = TimetableStep.At(tick, action)
     private fun trip(id: String, from: DepotId, to: DepotId, selector: DepotTrainSelector = DepotTrainSelector(from),
         takeTick: Long = 0, storeTick: Long = 100) = TimetableService(id, steps = listOf(
@@ -31,18 +27,17 @@ class TimetableUnitCirculationTest {
     private fun analyze(vararg duties: TimetableService, ledger: UnitCirculationLedger = ledger()) =
         TimetableUnitCirculation.analyze(Timetable("circulation", services = duties.toList()), ledger)
 
-    @Test fun `cross depot return preserves permanent home and proves inventory only`() {
+    @Test fun `cross depot return follows physical placement and proves inventory only`() {
         val result = analyze(trip("out", a, b), trip("back", b, a))
         assertEquals(CirculationProof.PROVEN, result.inventory)
         assertNotNull(result.periodicInventoryCycles)
         assertEquals(CirculationProof.UNPROVEN, result.timing)
         assertEquals(CirculationProof.UNPROVEN, result.capacity)
-        assertEquals(b, u.homeDepotId, "home is affiliation, not acquisition location")
     }
 
     @Test fun `spare initial formations cannot cure recurring physical depot deficit`() {
-        val spare = stock("V", v.carIds, StablingPointRef(a, "two"))
-        val supplied = ledger(listOf(stock("T", u.carIds, StablingPointRef(a, "one")), spare), listOf(u, v),
+        val spare = formation("V", v.carIds, StablingPointRef(a, "two"))
+        val supplied = ledger(listOf(formation("T", u.carIds, StablingPointRef(a, "one")), spare), listOf(u, v),
             listOf(point(a), point(a, "two"), point(b), point(b, "two")))
         val result = analyze(trip("leak", a, b), ledger = supplied)
         assertEquals(CirculationProof.IMPOSSIBLE, result.inventory)
@@ -64,14 +59,14 @@ class TimetableUnitCirculationTest {
     }
 
     @Test fun `one parked coupled formation cannot satisfy separate single unit acquisitions`() {
-        val together = ledger(listOf(stock("T", u.carIds + v.carIds, StablingPointRef(a, "one"))), listOf(u, v))
+        val together = ledger(listOf(formation("T", u.carIds + v.carIds, StablingPointRef(a, "one"))), listOf(u, v))
         val result = analyze(trip("one", a, b, DepotTrainSelector(a, maximumCars = 1)), trip("back", b, a), ledger = together)
         assertEquals(CirculationProof.IMPOSSIBLE, result.inventory)
         assertTrue(result.findings.any { it.code == "NO_COMPATIBLE_FORMATION" })
     }
 
     @Test fun `coupled group occupies one real point and may circulate intact`() {
-        val together = ledger(listOf(stock("T", u.carIds + v.carIds, StablingPointRef(a, "one"))), listOf(u, v))
+        val together = ledger(listOf(formation("T", u.carIds + v.carIds, StablingPointRef(a, "one"))), listOf(u, v))
         assertEquals(CirculationProof.PROVEN, analyze(trip("out", a, b), trip("back", b, a), ledger = together).inventory)
     }
 
@@ -98,15 +93,15 @@ class TimetableUnitCirculationTest {
     }
 
     @Test fun `registered permanent cars cannot overlap or split internally in source evidence`() {
-        val overlapping = FixedEmuUnit("bad", a, u.carIds, "emu")
+        val overlapping = FixedEmuUnit("bad", u.carIds, "emu")
         val result = analyze(trip("out", a, b), ledger = ledger(units = listOf(u, overlapping)))
         assertEquals(CirculationProof.IMPOSSIBLE, result.inventory)
         assertTrue(result.findings.any { it.code == "INVALID_LEDGER" })
     }
 
     @Test fun `balanced depot totals cannot hide forced recurring class loss`() {
-        val supplied = ledger(listOf(stock("T", u.carIds, StablingPointRef(a, "one")),
-            stock("V", v.carIds, StablingPointRef(b, "one"), setOf("freight"))), listOf(u, v))
+        val supplied = ledger(listOf(formation("T", u.carIds, StablingPointRef(a, "one")),
+            formation("V", v.carIds, StablingPointRef(b, "one"), setOf("freight"))), listOf(u, v))
         val result = analyze(trip("passenger", a, b, DepotTrainSelector(a, requiredTags = setOf("passenger"))),
             trip("freight", b, a, DepotTrainSelector(b, requiredTags = setOf("freight"))), ledger = supplied)
         assertEquals(CirculationProof.IMPOSSIBLE, result.inventory)
@@ -114,20 +109,18 @@ class TimetableUnitCirculationTest {
     }
 
     @Test fun `interrupted owner may name retired source without becoming an impossible ledger`() {
-        val original = stock("T", u.carIds, StablingPointRef(a, "one"))
-        val interrupted = UnitCirculationLedger(listOf(u), listOf(original.copy(state = RollingStockState.IN_SERVICE,
-            stablingPointRef = null, assignmentId = "duty")), emptyList(), mapOf("published-output" to u.carIds),
-            mapOf("published-output" to false), mapOf("u" to 10.0), listOf(FixedEmuUnitAssignment(u.id, "T", "duty")))
+        val interrupted = UnitCirculationLedger(listOf(u), emptyList(), mapOf("published-output" to u.carIds),
+            mapOf("published-output" to false), mapOf("u" to 10.0), emptyMap(), emptyMap(),
+            listOf(FixedEmuUnitAssignment(u.id, "retired-source", "duty")))
         val result = analyze(trip("out", a, b), ledger = interrupted)
         assertEquals(CirculationProof.UNPROVEN, result.inventory)
         assertTrue(result.findings.any { it.code == "OUTSTANDING_OWNERS" })
     }
 
     @Test fun `unclassified physical permanent unit is missing evidence rather than imaginary available stock`() {
-        val original = stock("T", u.carIds, StablingPointRef(a, "one"))
-        val incomplete = UnitCirculationLedger(listOf(u, v), listOf(original),
-            listOf(StablingPointSnapshot(point(a), "T", null)), mapOf("T" to u.carIds, "V" to v.carIds),
-            mapOf("T" to false, "V" to false), mapOf("u" to 10.0, "v" to 10.0))
+        val incomplete = UnitCirculationLedger(listOf(u, v), listOf(StablingPointSnapshot(point(a))),
+            mapOf("T" to u.carIds, "V" to v.carIds), mapOf("T" to false, "V" to false), mapOf("u" to 10.0, "v" to 10.0),
+            mapOf("T" to formation("T", u.carIds, StablingPointRef(a, "one")).facts), mapOf("T" to StablingPointRef(a, "one")))
         val result = analyze(trip("out", a, b), ledger = incomplete)
         assertEquals(CirculationProof.UNPROVEN, result.inventory)
         assertTrue(result.findings.any { it.code == "UNIT_EVIDENCE_MISSING" })
@@ -135,9 +128,9 @@ class TimetableUnitCirculationTest {
 
     @Test fun `metadata absent from physical publication cannot prove inventory impossible`() {
         for (registered in listOf(emptyList(), listOf(u))) {
-            val unavailable = UnitCirculationLedger(registered,
-                listOf(stock("T", u.carIds, StablingPointRef(a, "one"))),
-                listOf(StablingPointSnapshot(point(a), "T", null)), emptyMap(), emptyMap(), emptyMap())
+            val unavailable = UnitCirculationLedger(registered, listOf(StablingPointSnapshot(point(a))),
+                emptyMap(), emptyMap(), emptyMap(), mapOf("T" to formation("T", u.carIds, StablingPointRef(a, "one")).facts),
+                mapOf("T" to StablingPointRef(a, "one")))
             val result = analyze(trip("out", a, b), ledger = unavailable)
             assertEquals(CirculationProof.UNPROVEN, result.inventory)
             assertTrue(result.findings.any { it.code == "UNIT_EVIDENCE_MISSING" })
@@ -145,14 +138,12 @@ class TimetableUnitCirculationTest {
         }
     }
 
-    @Test fun `unmodeled physical point occupant is not a free point or absent supply proof`() {
-        val original = stock("T", u.carIds, StablingPointRef(a, "one"))
-        val open = UnitCirculationLedger(listOf(u), listOf(original), listOf(StablingPointSnapshot(point(a), "T", null),
-            StablingPointSnapshot(point(b), "legacy", null)), mapOf("T" to u.carIds, "legacy" to listOf("legacy-car")),
-            mapOf("T" to false, "legacy" to false), mapOf("u" to 10.0, "legacy-car" to 10.0))
-        val result = analyze(trip("out", a, b), ledger = open)
-        assertEquals(CirculationProof.UNPROVEN, result.inventory)
-        assertTrue(result.findings.any { it.code == "UNIT_EVIDENCE_MISSING" })
+    @Test fun `unmodeled physical formation is not a free point or absent supply proof`() {
+        val open = UnitCirculationLedger(listOf(u), listOf(StablingPointSnapshot(point(a)), StablingPointSnapshot(point(b))),
+            mapOf("T" to u.carIds, "unclassified" to listOf("foreign-car")), mapOf("T" to false, "unclassified" to false),
+            mapOf("u" to 10.0, "foreign-car" to 10.0), mapOf("T" to formation("T", u.carIds, StablingPointRef(a, "one")).facts),
+            mapOf("T" to StablingPointRef(a, "one"), "unclassified" to StablingPointRef(b, "one")))
+        assertEquals(CirculationProof.UNPROVEN, analyze(trip("out", a, b), ledger = open).inventory)
     }
 
     @Test fun `deep finite action graph reaches explicit ceiling without overflowing recursion`() {
@@ -165,10 +156,7 @@ class TimetableUnitCirculationTest {
 
     @Test fun `captured physical membership is immutable against caller list changes`() {
         val cars = arrayListOf("u")
-        val original = stock("T", cars, StablingPointRef(a, "one"))
-        val captured = UnitCirculationLedger(listOf(u), listOf(original),
-            listOf(StablingPointSnapshot(point(a), "T", null), StablingPointSnapshot(point(b), null, null)),
-            mapOf("T" to cars), mapOf("T" to false), mapOf("u" to 10.0))
+        val captured = ledger(listOf(formation("T", cars, StablingPointRef(a, "one"))))
         cars[0] = "invented"
         assertEquals(CirculationProof.PROVEN, analyze(trip("out", a, b), trip("back", b, a), ledger = captured).inventory)
     }
@@ -184,11 +172,20 @@ class TimetableUnitCirculationTest {
         val left = TimetableService("left", steps = listOf(at(1, TimetableAction.TakeFromFormationOutput("split", "first")),
             at(2, TimetableAction.Couple("join")), at(3, TimetableAction.StoreAtDepot(a))))
         val right = TimetableService("right", steps = listOf(at(1, TimetableAction.TakeFromFormationOutput("split", "rest")), at(2, TimetableAction.Couple("join"))))
-        val supplied = ledger(listOf(stock("T", u.carIds + v.carIds, StablingPointRef(a, "one"))), listOf(u, v))
+        val supplied = ledger(listOf(formation("T", u.carIds + v.carIds, StablingPointRef(a, "one"))), listOf(u, v))
         val result = TimetableUnitCirculation.analyze(Timetable("split-join", services = listOf(incoming, left, right),
             formationEvents = TimetableFormationCatalog(listOf(split, couple))), supplied)
         assertEquals(CirculationProof.PROVEN, result.inventory, result.toString())
         assertEquals(CirculationProof.UNPROVEN, result.timing)
         assertEquals(2, result.periodicInventoryCycles, "compatible units may permute over more than one period")
     }
+    @Test fun `unknown speed capability cannot prove a speed restricted acquisition impossible`() {
+        val base = formation("T", u.carIds, StablingPointRef(a, "one"))
+        val unknown = base.copy(facts = TrainCandidateFacts("emu", setOf("passenger"), null, setOf("electric")))
+        val result = analyze(trip("out", a, b, DepotTrainSelector(a, minimumSpeedMetersPerSecond = 10.0)),
+            ledger = ledger(listOf(unknown)))
+        assertEquals(CirculationProof.UNPROVEN, result.inventory)
+        assertFalse(result.findings.any { it.blocking })
+    }
+
 }

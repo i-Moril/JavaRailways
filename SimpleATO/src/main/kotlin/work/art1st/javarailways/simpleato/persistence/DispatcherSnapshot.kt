@@ -44,7 +44,8 @@ data class SavedActiveRunCheckpointV1(
     val atoPermittedSpeedMetersPerSecond: Double? = null,
     val atoConstraints: List<String> = emptyList(),
     val stationCallSubmittedToAto: Boolean? = null,
-    val berthHeld: Boolean? = null
+    val berthHeld: Boolean? = null,
+    val unitAssignmentId: String? = null
 )
 
 @Serializable

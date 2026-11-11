@@ -21,6 +21,7 @@ import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.RailSegment
 import work.art1st.javarailways.core.physics.rail.RailSegments
 import work.art1st.javarailways.core.physics.train.CoreTrain.PreparedTrainStructure
+import work.art1st.javarailways.core.api.physics.train.TrainComposition
 
 internal class CouplingRejectedException(message: String) : RuntimeException(message)
 
@@ -625,7 +626,9 @@ internal object TrainCoupling {
                 else listOf(corrected.bogieALocation, corrected.bogieBLocation)
             if (desired != car.isReversed) car to locations.map { it.reversed } else null
         }
+        val composition = TrainComposition.create(this.composition.units + other.composition.units, joinedCars.map { it.id })
         val frame = prepareStructureFrame(geometry, reversed, resultSpeed = 0.0, clearMotion = true,
+            composition = composition,
             preparedCars = corrections.mapValues { (car, placement) -> car.prepareStationaryFrame(placement) })
         return PreparedCoupling(PreparedTrainStructure(geometry, frame, emptyList(), true), reversals, corrections)
     }

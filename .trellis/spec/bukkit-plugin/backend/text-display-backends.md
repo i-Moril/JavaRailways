@@ -19,3 +19,40 @@ setText 在已销毁后无副作用；未销毁的 Item/Block visual 明确拒�
 TextModel 的 CompactTransform 表示 `T * R * S`：glyph 在本地平面缩放，再随屏幕/车厢旋转。映射至 Bukkit Transformation 必须将 rotation 放在leftRotation、rightRotation置identity。不能使用 `T * S * R`：当矩形X/Y缩放不等且屏幕有Y=90或倾角时，实际平面法向会随矩形宽高比变化，色块不再共面。统一缩放可交换，容易掩盖此错误。该要求属于扩展文字叶节点，不在本修正中重写普通ItemDisplay路径。
 
 回归需经过真实TextModel→DisplayVisual，重建客户端 `T * L * S * R` 矩阵，验证倾斜屏幕/车体旋转下的glyph四角、法向和边长，并覆盖统一缩放与旧行为等价。只验证未旋转二维框或SDL逻辑坐标不充分。宿主矩阵验证仍不能代替真实客户端画面验收。
+
+## Packet 显示挂载的发送顺序与去重
+
+CURRENT：Bukkit 的 EntityLib display 后端负责本节；普通模型和动态屏幕共用它。客户端出现
+`Received passengers for unknown entity` 时须检查载具根实体是否已生成，不能直接认定是座椅。
+Minecraft26.1.2 对相同挂载列表也会先卸下再重挂，因此重复发送会增加实际客户端工作量。
+
+正常显示仍由 CompositeModel 先显示子节点再显示根节点。仅用于 Item/Block/TextDisplay 的
+`PassengerManagedDisplayEntity` 保留 EntityLib 的 riding/passenger 关系维护，关闭库内逐叶自动广播，
+将 Spawn、Metadata、Destroy 和显式挂载都交给已有 `TrainPacketBundleCoordinator`。元数据保留原有
+每观看者的文字翻译与编辑器描边过滤。不得新增网络发送器或将原生座椅纳入这个 display adapter。
+
+`EntityLibDisplayVisual.refreshPassengersFor(player: Player)` 只接受已在 wrapper viewers 中、
+且已记录有效客户端 chunk generation 的根实体；当前 anchor 区块未发送时也直接返回。
+每个根节点保存实际子 visual 引用，过滤掉已退休、已换挂、未向该玩家显示或 generation 过期的子节点。
+按玩家保存最近发布的有序实体 ID 列表；相同列表不发包。初始空列表无需发包，非空变为空则必须发送空列表。
+`showTo` 在根节点 Spawn 之后刷新自己的挂载，保证无 extension 的普通模型也能正确挂载。
+
+观众退出、隐藏、根实体重新生成和销毁清除对应去重状态。真正的区块重发必须重新生成并重发挂载；
+普通跨区块移动仍不触发反复重建。每位玩家使用独立状态，室内距离隐藏的文字不能出现在另一玩家的列表中。
+原始 PacketEvents wrapper 状态、实际 visual 关系和待发送数据在现有 owner 内捕获；同一帧的
+Spawn→Mount→Destroy 必须由同一个 coordinator 顺序发出，不能将 Mount 延后而立即直发 Destroy。
+关闭仍沿用现有 destruction 完成结果，不引入持久化字段或 schema version。
+
+无当前观看者或失效根节点的刷新是无副作用 no-op；不是重试发送旧挂载。空 eager packet 在
+EntityLib forceBundles 设置下也不能产生空 delimiter bundle。每次刷新遍历本根节点的 N 个子节点，
+时间 O(N)，去重状态最坏 O(观看者数×N)；状态随观众/visual 生命周期释放。未变化刷新发送0个挂载包，
+一次显式完成的动态节点增删批次只发送1个最终列表，避免逐叶广播导致 O(N²) 的 ID 传输量。
+
+例如等待区块时反复刷新100次不发挂载；区块到达后按子→根→挂载显示；再刷新100次不重挂。
+90个文字节点替换为146个，须先生成所有新节点，再发布最终可见列表；隐藏最后一组文字必须清空旧列表。
+禁止用“关掉客户端日志”替代修复，也不能只 guard 手动刷新而留下 EntityLib 的自动广播出口。
+
+必需回归：真实生产 wrapper/backend 加最小客户端实体表，覆盖未生成根、稳定刷新计数、动态增删/EMPTY、
+隐藏观众、可见/隐藏/重显、换挂及库内 riding 关系、区块卸载/重发、同帧隐藏/销毁、普通模型，
+并验证每玩家翻译不串值与描边过滤保留。旧实现必须先复现错误，修复后未知实体计数为0。
+这些测试验证协议机制；现场实体丢失原因和实际客户端帧率仍须另行验收，无数据迁移或待定产品决策。

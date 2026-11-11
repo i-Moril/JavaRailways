@@ -207,7 +207,7 @@ class TextDisplayBackendTest {
     }
 
     @Test
-    fun `packet late passenger refresh uses captured IDs and child retirement also clears actual wrapper passengers`() = withEntityLibMetadata {
+    fun `packet passenger refresh stays silent before spawn and child retirement also clears actual wrapper passengers`() = withEntityLibMetadata {
         val sent = mutableListOf<WrapperPlayServerSetPassengers>()
         withHost(TrainPacketBundleCoordinator { _, packets -> sent += packets.map { it as WrapperPlayServerSetPassengers } }) {
             val parentWrapper = WrapperEntity(42, UUID.randomUUID(), EntityTypes.ITEM_DISPLAY, ItemDisplayMeta(42, Metadata(42)))
@@ -218,12 +218,11 @@ class TextDisplayBackendTest {
             assertTrue(parent.addPassenger(child))
             assertTrue(parentWrapper.passengers.contains(43))
             parent.refreshPassengersFor(player)
-            assertEquals(42, sent.single().entityId)
-            assertArrayEquals(intArrayOf(43), sent.single().passengers)
+            assertTrue(sent.isEmpty(), "A parent never shown to this viewer cannot receive mount packets")
             child.destroy().toCompletableFuture().join()
             assertFalse(parentWrapper.passengers.contains(43), "cached packet IDs alone do not repair EntityLib's own parent state")
             parent.refreshPassengersFor(player)
-            assertArrayEquals(intArrayOf(), sent.last().passengers)
+            assertTrue(sent.isEmpty())
             parent.destroy().toCompletableFuture().join()
         }
     }

@@ -9,11 +9,13 @@ import com.github.retrooper.packetevents.manager.server.ServerManager
 import com.github.retrooper.packetevents.manager.server.ServerVersion
 import com.github.retrooper.packetevents.netty.NettyManager
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes
+import com.github.retrooper.packetevents.protocol.entity.type.EntityType
 import com.github.retrooper.packetevents.protocol.world.Location as PacketLocation
 import com.github.retrooper.packetevents.wrapper.PacketWrapper
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerDestroyEntities
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetPassengers
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnEntity
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityMetadata
 import me.tofaa.entitylib.APIConfig
 import me.tofaa.entitylib.EntityLib
 import me.tofaa.entitylib.EntityLibAPI
@@ -22,6 +24,12 @@ import me.tofaa.entitylib.UserLocaleProvider
 import me.tofaa.entitylib.container.EntityContainer
 import me.tofaa.entitylib.event.EventHandler
 import me.tofaa.entitylib.wrapper.WrapperEntity
+import me.tofaa.entitylib.meta.display.TextDisplayMeta
+import net.kyori.adventure.key.Key
+import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.TranslatableComponent
+import net.kyori.adventure.translation.GlobalTranslator
+import net.kyori.adventure.translation.TranslationStore
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.joml.Vector3d
@@ -34,6 +42,10 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.bukkit.render.backend.DisplayVisual
 import work.art1st.javarailways.bukkit.render.backend.EntityLibDisplayVisual
 import work.art1st.javarailways.bukkit.render.backend.PacketDisplayChunks
+import work.art1st.javarailways.bukkit.render.backend.TrainPacketBundleCoordinator
+import work.art1st.javarailways.bukkit.render.backend.PassengerManagedDisplayEntity
+import work.art1st.javarailways.bukkit.BukkitPlugin
+import sun.misc.Unsafe
 import io.papermc.paper.event.packet.PlayerChunkLoadEvent
 import io.papermc.paper.event.packet.PlayerChunkUnloadEvent
 import org.bukkit.Chunk
@@ -70,6 +82,7 @@ class TrainVisibilitySimulationTest {
     private val container = EntityContainer.basic()
     private val chunks = PacketDisplayChunks()
     private val unsentChunks = mutableMapOf<UUID, MutableSet<Long>>()
+    private val locales = mutableMapOf<UUID, Locale>()
     private val worldId = UUID.randomUUID()
     private val bukkitWorld = proxy<org.bukkit.World> { name, _ ->
         when (name) {
@@ -80,20 +93,28 @@ class TrainVisibilitySimulationTest {
     private var previousPacketApi: PacketEventsAPI<*>? = null
     private var previousEntityApi: Any? = null
     private var previousPlatform: Any? = null
+    private var previousHost: Any? = null
+    private lateinit var settings: APIConfig
+    private val bundles = TrainPacketBundleCoordinator { viewer, batch -> batch.forEach { deliver(viewer, it) } }
 
     @BeforeEach
     fun setUp() {
         previousPacketApi = PacketEvents.getAPI()
         previousEntityApi = entityLibField("api").get(null)
         previousPlatform = entityLibField("platform").get(null)
+        val hostField = BukkitPlugin::class.java.getDeclaredField("currentInstance").also { it.isAccessible = true }
+        previousHost = hostField.get(null)
+        val unsafeField = Unsafe::class.java.getDeclaredField("theUnsafe").also { it.isAccessible = true }
+        val host = (unsafeField.get(null) as Unsafe).allocateInstance(BukkitPlugin::class.java) as BukkitPlugin
+        BukkitPlugin::class.java.getDeclaredField("trainPacketBundles").also { it.isAccessible = true }.set(host, bundles)
+        hostField.set(null, host)
         val protocol = proxy<ProtocolManager> { name, args ->
             when (name) {
                 "getChannel" -> args[0]
                 "sendPacket" -> {
                     val viewer = args[0] as UUID
                     val packet = args[1] as PacketWrapper<*>
-                    packets.getOrPut(viewer, ::mutableListOf).add(packet)
-                    clients.getOrPut(viewer, ::ClientEntityTable).receive(packet)
+                    deliver(viewer, packet)
                     null
                 }
                 else -> error("Unexpected protocol call: $name")
@@ -101,14 +122,14 @@ class TrainVisibilitySimulationTest {
         }
         val packetApi = TestPacketApi(protocol)
         PacketEvents.setAPI(packetApi)
-        val settings = APIConfig(packetApi).disableBStats()
+        settings = APIConfig(packetApi).disableBStats()
         val api = proxy<EntityLibAPI<Any>> { name, args ->
             when (name) {
                 "getSettings" -> settings
                 "getPacketEvents" -> packetApi
                 "getEntity" -> entities[args[0]]
                 "getDefaultContainer" -> container
-                "getUserLocaleProvider" -> UserLocaleProvider { Locale.US }
+                "getUserLocaleProvider" -> UserLocaleProvider { locales[it] ?: Locale.US }
                 else -> error("Unexpected EntityLib API call: $name")
             }
         }
@@ -131,6 +152,160 @@ class TrainVisibilitySimulationTest {
         entityLibField("api").set(null, previousEntityApi)
         entityLibField("platform").set(null, previousPlatform)
         PacketEvents.setAPI(previousPacketApi)
+        BukkitPlugin::class.java.getDeclaredField("currentInstance").also { it.isAccessible = true }.set(null, previousHost)
+    }
+
+    @Test
+    fun `unspawned roots receive no passenger packets and repeated audience refresh is idempotent`() {
+        val train = train()
+        val player = player()
+        unsentChunks.getOrPut(player.uniqueId, ::mutableSetOf).add(Chunk.getChunkKey(0, 0))
+        repeat(100) {
+            train.model.showTo(player)
+            train.rootVisual.refreshPassengersFor(player)
+        }
+        assertEquals(0, client(player).unknownVehicles, "The client warning means the vehicle itself is absent")
+        assertTrue(mounts(player).isEmpty())
+
+        unsentChunks.getValue(player.uniqueId).clear()
+        train.model.showTo(player)
+        train.rootVisual.refreshPassengersFor(player)
+        assertEquals(listOf(CHILD), client(player).passengers[ROOT])
+        assertEquals(1, mounts(player).size)
+        repeat(100) {
+            train.model.showTo(player)
+            train.rootVisual.refreshPassengersFor(player)
+        }
+        assertEquals(1, mounts(player).size, "An unchanged list must not eject and reattach every client passenger")
+    }
+
+    @Test
+    fun `dynamic screen grow shrink and EMPTY publish one complete visible passenger list per replacement`() {
+        settings.forceBundles()
+        val player = player()
+        val observer = player()
+        val root = visual(entity(ROOT))
+        root.showTo(player)
+        root.showTo(observer)
+        var nextId = 200
+        var current = emptyList<DisplayVisual>()
+        for (count in listOf(90, 146, 90, 0)) {
+            val before = mounts(player).size
+            val observerBefore = packets[observer.uniqueId].orEmpty().size
+            bundles.frame {
+                val next = List(count) { visual(entity(nextId++)).also { assertTrue(root.addPassenger(it)) } }
+                current.forEach { it.destroy().toCompletableFuture().join() }
+                current = next
+                next.forEach { it.showTo(player) }
+                root.refreshPassengersFor(player)
+                root.refreshPassengersFor(observer)
+            }
+            assertEquals(before + 1, mounts(player).size, "Replace a screen as a batch, without per-glyph mount broadcasts")
+            assertEquals(count, client(player).passengers[ROOT]?.size)
+            assertEquals(0, client(player).unknownVehicles)
+            assertEquals(0, client(player).unknownPassengers, "The complete list must follow all child spawns")
+            assertTrue(mounts(observer).isEmpty(), "Hidden interior leaves must never enter another viewer's mount list")
+            assertEquals(observerBefore, packets[observer.uniqueId].orEmpty().size,
+                "Suppress null mount broadcasts even when EntityLib forceBundles is enabled")
+            assertEquals(setOf(ROOT), client(observer).entities)
+        }
+        root.destroy().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `hide or destroy in an existing packet frame cannot flush passenger packets after the root is gone`() {
+        for (destroy in listOf(false, true)) {
+            val train = train()
+            val player = player()
+            bundles.frame {
+                train.model.showTo(player)
+                train.rootVisual.refreshPassengersFor(player)
+                if (destroy) train.model.destroy().toCompletableFuture().join() else train.model.hideFrom(player)
+            }
+            assertTrue(client(player).entities.isEmpty())
+            assertEquals(0, client(player).unknownVehicles)
+            train.rootVisual.refreshPassengersFor(player)
+            assertEquals(0, client(player).unknownVehicles)
+        }
+    }
+
+    @Test
+    fun `child visibility changes and reparenting update exact viewer lists and real riding bookkeeping`() {
+        val player = player()
+        val observer = player()
+        val firstWrapper = entity(ROOT)
+        val secondWrapper = entity(ROOT + 2)
+        val childWrapper = entity(CHILD)
+        val first = visual(firstWrapper)
+        val second = visual(secondWrapper)
+        val child = visual(childWrapper)
+        assertTrue(first.addPassenger(child))
+        child.showTo(player)
+        first.showTo(player)
+        first.showTo(observer)
+        assertEquals(listOf(CHILD), client(player).passengers[ROOT])
+        assertTrue(mounts(observer).isEmpty())
+
+        child.hideFrom(player)
+        first.refreshPassengersFor(player)
+        assertEquals(emptyList<Int>(), client(player).passengers[ROOT])
+        child.showTo(player)
+        first.refreshPassengersFor(player)
+        assertEquals(listOf(CHILD), client(player).passengers[ROOT])
+
+        bundles.frame {
+            assertTrue(second.addPassenger(child))
+            second.showTo(player)
+            first.refreshPassengersFor(player)
+        }
+        assertTrue(firstWrapper.passengers.isEmpty())
+        assertEquals(setOf(CHILD), secondWrapper.passengers)
+        assertEquals(ROOT + 2, childWrapper.ridingId)
+        assertEquals(emptyList<Int>(), client(player).passengers[ROOT])
+        assertEquals(listOf(CHILD), client(player).passengers[ROOT + 2])
+        child.destroy().toCompletableFuture().join()
+        second.refreshPassengersFor(player)
+        assertTrue(secondWrapper.passengers.isEmpty())
+        assertEquals(emptyList<Int>(), client(player).passengers[ROOT + 2])
+        assertEquals(0, client(player).unknownVehicles)
+        assertEquals(0, client(player).unknownPassengers)
+        first.destroy().toCompletableFuture().join()
+        second.destroy().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `display lifecycle retains per-viewer initial and broadcast metadata translation without changing source`() {
+        val english = player()
+        val chinese = player()
+        locales[chinese.uniqueId] = Locale.SIMPLIFIED_CHINESE
+        val store = TranslationStore.component(Key.key("javarailways:display-passenger-test"))
+        store.register("test.display.passenger", Locale.US, Component.text("English"))
+        store.register("test.display.passenger", Locale.SIMPLIFIED_CHINESE, Component.text("中文"))
+        GlobalTranslator.translator().addSource(store)
+        val wrapper = entity(ROOT, EntityTypes.TEXT_DISPLAY)
+        val visual = visual(wrapper)
+        val meta = wrapper.getEntityMeta(TextDisplayMeta::class.java)
+        meta.text = Component.translatable("test.display.passenger")
+        fun expect(viewer: Player, expected: String) {
+            val metadata = packets[viewer.uniqueId].orEmpty().filterIsInstance<WrapperPlayServerEntityMetadata>()
+            assertTrue(metadata.last().entityMetadata.any { it.value == Component.text(expected) })
+        }
+        try {
+            bundles.frame {
+                visual.showTo(english)
+                visual.showTo(chinese)
+            }
+            expect(english, "English")
+            expect(chinese, "中文")
+            assertTrue(meta.text is TranslatableComponent)
+            bundles.frame { wrapper.refresh() }
+            expect(english, "English")
+            expect(chinese, "中文")
+            assertTrue(meta.text is TranslatableComponent)
+        } finally {
+            visual.destroy().toCompletableFuture().join()
+            GlobalTranslator.translator().removeSource(store)
+        }
     }
 
     @Test
@@ -413,11 +588,12 @@ class TrainVisibilitySimulationTest {
         val child = entity(CHILD)
         val world = UnusedWorld()
         val childModel = DisplayModel(world, ModelState(CompactTransform()), emptyList(), emptyMap(), visual(child), EmptyItem())
-        val model = CompositeModel(world, listOf(childModel), visual(root))
-        return TrainFixture(model, childModel, root, child)
+        val rootVisual = visual(root)
+        val model = CompositeModel(world, listOf(childModel), rootVisual)
+        return TrainFixture(model, childModel, root, child, rootVisual)
     }
 
-    private fun entity(id: Int): WrapperEntity = WrapperEntity(id, UUID.randomUUID(), EntityTypes.ITEM_DISPLAY).also {
+    private fun entity(id: Int, type: EntityType = EntityTypes.ITEM_DISPLAY): WrapperEntity = PassengerManagedDisplayEntity(id, UUID.randomUUID(), type).also {
         entities[id] = it
         assertTrue(it.spawn(PacketLocation(0.0, 64.0, 0.0, 0f, 0f), container))
     }
@@ -448,9 +624,14 @@ class TrainVisibilitySimulationTest {
 
     private fun client(player: Player) = clients.getOrPut(player.uniqueId, ::ClientEntityTable)
     private fun spawns(player: Player) = packets[player.uniqueId].orEmpty().filterIsInstance<WrapperPlayServerSpawnEntity>()
+    private fun mounts(player: Player) = packets[player.uniqueId].orEmpty().filterIsInstance<WrapperPlayServerSetPassengers>()
+    private fun deliver(viewer: UUID, packet: PacketWrapper<*>) {
+        packets.getOrPut(viewer, ::mutableListOf).add(packet)
+        clients.getOrPut(viewer, ::ClientEntityTable).receive(packet)
+    }
     private fun entityLibField(name: String) = EntityLib::class.java.getDeclaredField(name).also { it.isAccessible = true }
 
-    private data class TrainFixture(val model: CompositeModel, val childModel: DisplayModel, val root: WrapperEntity, val child: WrapperEntity)
+    private data class TrainFixture(val model: CompositeModel, val childModel: DisplayModel, val root: WrapperEntity, val child: WrapperEntity, val rootVisual: DisplayVisual)
 
     // Item content is irrelevant to audience/position tests; no Bukkit item factory is needed.
     private class EmptyItem : ItemStack() {
@@ -477,6 +658,8 @@ class TrainVisibilitySimulationTest {
         val entities = mutableSetOf<Int>()
         val passengers = mutableMapOf<Int, List<Int>>()
         var dropSpawns = false
+        var unknownVehicles = 0
+        var unknownPassengers = 0
 
         fun receive(packet: PacketWrapper<*>) {
             when (packet) {
@@ -486,8 +669,9 @@ class TrainVisibilitySimulationTest {
                     passengers.remove(it)
                 }
                 is WrapperPlayServerSetPassengers -> if (packet.entityId in entities) {
+                    unknownPassengers += packet.passengers.count { it !in entities }
                     passengers[packet.entityId] = packet.passengers.filter { it in entities }
-                }
+                } else unknownVehicles++
             }
         }
     }

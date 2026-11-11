@@ -4,6 +4,10 @@ import java.util.concurrent.CompletionStage
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetPassengers
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerDestroyEntities
+import com.github.retrooper.packetevents.wrapper.PacketWrapper
+import com.github.retrooper.packetevents.protocol.entity.type.EntityType
+import com.github.retrooper.packetevents.protocol.entity.data.EntityData
 import work.art1st.javarailways.core.api.util.Destruction
 import work.art1st.javarailways.core.api.util.DestructionSteps
 
@@ -21,6 +25,7 @@ import me.tofaa.entitylib.meta.display.ItemDisplayMeta
 import me.tofaa.entitylib.meta.display.TextDisplayMeta
 import net.kyori.adventure.text.Component
 import me.tofaa.entitylib.wrapper.WrapperEntity
+import me.tofaa.entitylib.utils.PacketUtil
 import org.bukkit.Location
 import org.bukkit.World
 import org.bukkit.entity.Player
@@ -37,19 +42,19 @@ class EntityLibDisplayRenderBackend internal constructor(
         }
 
         val wrapper = when (val content = descriptor.content) {
-            is DisplayVisualContent.Item -> WrapperEntity(EntityTypes.ITEM_DISPLAY).also { entity ->
+            is DisplayVisualContent.Item -> PassengerManagedDisplayEntity(EntityTypes.ITEM_DISPLAY).also { entity ->
                 val meta = entity.getEntityMeta(ItemDisplayMeta::class.java)
                 configureCommon(meta, descriptor)
                 meta.setDisplayType(ItemDisplayMeta.DisplayType.NONE)
                 meta.setItem(SpigotConversionUtil.fromBukkitItemStack(content.itemStack))
             }
 
-            is DisplayVisualContent.Block -> WrapperEntity(EntityTypes.BLOCK_DISPLAY).also { entity ->
+            is DisplayVisualContent.Block -> PassengerManagedDisplayEntity(EntityTypes.BLOCK_DISPLAY).also { entity ->
                 val meta = entity.getEntityMeta(BlockDisplayMeta::class.java)
                 configureCommon(meta, descriptor)
                 meta.setBlockState(SpigotConversionUtil.fromBukkitBlockData(content.blockData))
             }
-            is DisplayVisualContent.Text -> WrapperEntity(EntityTypes.TEXT_DISPLAY).also { entity ->
+            is DisplayVisualContent.Text -> PassengerManagedDisplayEntity(EntityTypes.TEXT_DISPLAY).also { entity ->
                 val meta = entity.getEntityMeta(TextDisplayMeta::class.java)
                 configureCommon(meta, descriptor)
                 configureText(meta, content.text)
@@ -103,6 +108,64 @@ class EntityLibDisplayRenderBackend internal constructor(
     private fun org.joml.Quaternionf.toPacketQuaternion(): Quaternion4f = Quaternion4f(x(), y(), z(), w())
 }
 
+/**
+ * Display mounts have viewer-specific children. EntityLib still owns riding bookkeeping, but its
+ * automatic full passenger broadcasts would expose hidden/unspawned glyphs once per added leaf.
+ * Keep spawn/removal in the same existing frame as the explicit, filtered mount packet as well.
+ */
+internal class PassengerManagedDisplayEntity : WrapperEntity {
+    constructor(type: EntityType) : super(type) { requireDisplay(type) }
+    constructor(id: Int, uuid: UUID, type: EntityType) : super(id, uuid, type) { requireDisplay(type) }
+
+    private fun requireDisplay(type: EntityType) {
+        require(type == EntityTypes.ITEM_DISPLAY || type == EntityTypes.BLOCK_DISPLAY || type == EntityTypes.TEXT_DISPLAY)
+    }
+
+    override fun createPassengerPacket(): WrapperPlayServerSetPassengers? = null
+
+    override fun addViewer(uuid: UUID) {
+        if (hasViewer(uuid)) return
+        addViewerSilently(uuid)
+        if (!isSpawned) return
+        val bundles = BukkitPlugin.INSTANCE.trainPacketBundles
+        bundles.enqueue(listOf(uuid)) { createSpawnPacket() }
+        val entries = entityMeta.createPacket().entityMetadata.toList()
+        queueViewerMetadata(listOf(uuid), entityId, entries)
+    }
+
+    override fun removeViewer(uuid: UUID) {
+        if (!hasViewer(uuid)) return
+        removeViewerSilently(uuid)
+        BukkitPlugin.INSTANCE.trainPacketBundles.enqueue(listOf(uuid)) { WrapperPlayServerDestroyEntities(entityId) }
+    }
+
+    override fun sendPacketToViewers(packet: PacketWrapper<*>?) {
+        // The library can wrap null packets in delimiters when forceBundles is enabled.
+        if (packet == null || viewers.isEmpty()) return
+        val capturedViewers = viewers.toList()
+        val bundles = BukkitPlugin.INSTANCE.trainPacketBundles
+        if (packet is WrapperPlayServerEntityMetadata) {
+            val entries = packet.entityMetadata.toList()
+            queueViewerMetadata(capturedViewers, packet.entityId, entries)
+        } else {
+            bundles.enqueue(capturedViewers) { packet }
+        }
+    }
+
+    private fun queueViewerMetadata(viewerIds: List<UUID>, id: Int, entries: List<EntityData<*>>) {
+        val bundles = BukkitPlugin.INSTANCE.trainPacketBundles
+        viewerIds.forEach { viewer ->
+            bundles.enqueue(listOf(viewer)) {
+                WrapperPlayServerEntityMetadata(id, entries).also { packet ->
+                    // Preserve EntityLib's initial name/text translation. Its helper copies each
+                    // EntityData before adapting, so another viewer and the source remain intact.
+                    PacketUtil.renderPacket(viewer, packet)
+                }
+            }
+        }
+    }
+}
+
 internal class EntityLibDisplayVisual(
     private val entity: WrapperEntity,
     private val chunks: PacketDisplayChunks
@@ -114,17 +177,37 @@ internal class EntityLibDisplayVisual(
     private var destroyed = false
     private val destruction = Destruction()
     private val shownChunks = ConcurrentHashMap<UUID, PacketDisplayChunks.State>()
-    @Volatile private var passengerIds: List<Int> = emptyList()
+    @Volatile private var passengers: List<EntityLibDisplayVisual> = emptyList()
     @Volatile private var passengerParent: EntityLibDisplayVisual? = null
+    private val sentPassengers = ConcurrentHashMap<UUID, List<Int>>()
 
-    @Synchronized private fun rememberPassenger(id: Int) { if (id !in passengerIds) passengerIds = passengerIds + id }
-    @Synchronized private fun forgetPassenger(id: Int) { passengerIds = passengerIds.filter { it != id } }
+    @Synchronized private fun rememberPassenger(child: EntityLibDisplayVisual) {
+        if (passengers.none { it === child }) passengers = passengers + child
+    }
+    @Synchronized private fun forgetPassenger(id: Int) { passengers = passengers.filter { it.packetEntityId != id } }
 
+    @Synchronized
     override fun refreshPassengersFor(player: Player) {
         if (destroyed) return
-        val captured = passengerIds.toIntArray()
-        BukkitPlugin.INSTANCE.trainPacketBundles.enqueue(listOf(player.uniqueId)) {
-            WrapperPlayServerSetPassengers(packetEntityId, captured)
+        val viewer = player.uniqueId
+        val shown = shownChunks[viewer]
+        if (shown == null || !entity.hasViewer(viewer) || !chunks.isCurrent(player, shown) ||
+            chunks.state(player, entity.location) == null) {
+            sentPassengers.remove(viewer)
+            return
+        }
+        // Every mounted display shares the root anchor. Cache repeated chunk-state checks only
+        // within this refresh; no player or entity state escapes its existing owner boundary.
+        val currentStates = mutableMapOf(shown to true)
+        val captured = passengers.filter { child ->
+            val childChunk = child.shownChunks[viewer]
+            !child.destroyed && child.passengerParent === this && child.entity.hasViewer(viewer) && childChunk != null &&
+                currentStates.getOrPut(childChunk) { chunks.isCurrent(player, childChunk) }
+        }.map { it.packetEntityId }
+        val previous = sentPassengers.put(viewer, captured)
+        if (previous == captured || previous == null && captured.isEmpty()) return
+        BukkitPlugin.INSTANCE.trainPacketBundles.enqueue(listOf(viewer)) {
+            WrapperPlayServerSetPassengers(packetEntityId, captured.toIntArray())
         }
     }
 
@@ -146,9 +229,14 @@ internal class EntityLibDisplayVisual(
         val previous = shownChunks[player.uniqueId]
         if (previous != null && state != previous && !chunks.isCurrent(player, previous)) {
             entity.removeViewer(player.uniqueId)
+            sentPassengers.remove(player.uniqueId)
         }
+        if (!entity.hasViewer(player.uniqueId)) sentPassengers.remove(player.uniqueId)
         entity.addViewer(player.uniqueId)
         shownChunks[player.uniqueId] = state
+        // Ordinary composites have no extension replay callback. Their initial mount belongs here,
+        // after the root's spawn and after CompositeModel has shown its children.
+        refreshPassengersFor(player)
     }
 
     @Synchronized
@@ -156,6 +244,7 @@ internal class EntityLibDisplayVisual(
         if (!destroyed) {
             entity.removeViewer(player.uniqueId)
             shownChunks.remove(player.uniqueId)
+            sentPassengers.remove(player.uniqueId)
         }
     }
 
@@ -231,12 +320,18 @@ internal class EntityLibDisplayVisual(
         val packetPassenger = passenger as? EntityLibDisplayVisual
             ?: throw IllegalArgumentException("Cannot mix native and packet display passengers")
         if (packetPassenger.destroyed) return false
+        val previousParent = packetPassenger.passengerParent
+        if (previousParent !== this) {
+            previousParent?.forgetPassenger(packetPassenger.packetEntityId)
+            if (previousParent != null && previousParent.entity.hasPassenger(packetPassenger.packetEntityId)) {
+                previousParent.entity.removePassenger(packetPassenger.packetEntityId)
+            }
+        }
         if (!entity.hasPassenger(packetPassenger.entity)) {
             entity.addPassenger(packetPassenger.entity)
         }
-        packetPassenger.passengerParent?.forgetPassenger(packetPassenger.packetEntityId)
         packetPassenger.passengerParent = this
-        rememberPassenger(packetPassenger.packetEntityId)
+        rememberPassenger(packetPassenger)
         return true
     }
 
@@ -244,10 +339,11 @@ internal class EntityLibDisplayVisual(
     override fun destroy(): CompletionStage<Void> = destruction.run {
         destroyed = true
         shownChunks.clear()
+        sentPassengers.clear()
         val oldParent = passengerParent
         oldParent?.forgetPassenger(packetEntityId)
         passengerParent = null
-        passengerIds = emptyList()
+        passengers = emptyList()
         val steps = DestructionSteps()
         steps.action {
             if (oldParent != null && oldParent.entity.hasPassenger(packetEntityId)) oldParent.entity.removePassenger(packetEntityId)

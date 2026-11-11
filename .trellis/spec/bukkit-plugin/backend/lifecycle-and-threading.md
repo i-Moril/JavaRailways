@@ -243,15 +243,15 @@ SimpleSignals的`SignalReplacementContinuityTest`覆盖；不为同一机制重�
 ### 构造失败资源归还（CURRENT）
 
 1. **范围、触发与owner**：`RailWorldFactory.createForBukkit`拥有尚未返回的world构造；从第一个tick executor创建成功起，到完整world返回前，调用方没有对象可清理，因此factory不能把失败归责给`WorldManager`。
-2. **正常流程**：创建顺序为tick→physics→Core world/DI attach→render listener→共同领域runtime→restore/materialize/render metadata；全部成功后清空构造资源栈并返回world，此刻资源所有权一次性移交给已发布world lifecycle。
+2. **正常流程**：创建顺序为tick→physics→显式 Core world→render listener→共同领域runtime→restore/materialize/render metadata；全部成功后清空构造资源栈并返回world，此刻资源所有权一次性移交给已发布world lifecycle。
 3. **内部机制**：`WorldConstructionResources`只记录本factory已成功取得的close动作，使用LIFO执行，因此共同领域runtime先于render、runtime binding、physics和tick关闭。它不是公共API、通用事务或extension rollback框架。
 4. **构造器边界**：`RenderChunkManager`可能在注册listener后、完成initial-player refresh前抛出，此时factory尚未取得对象；构造器自身调用`close`，最终注销listener。`close`保留首个异常、继续清理其他player并把注销异常记为suppressed。
 5. **接口与数据**：正式factory签名、split snapshot、revision/epoch及world map均不变；未新增schema version、兼容输入、自动重试或空world fallback。
-6. **失败矩阵**：tick创建失败时无资源；physics创建失败只关tick；Core load或DI attach失败关physics/tick；render构造内部失败由其自身撤listener，再由factory关physics/tick；共同领域runtime取得后任一步失败先关闭它，再逐项关render/runtime binding/physics/tick。构造主异常始终保留，清理异常按发生顺序suppressed。
+6. **失败矩阵**：tick创建失败时无资源；physics创建失败只关tick；Core load失败关physics/tick；render构造内部失败由其自身撤listener，再由factory关physics/tick；共同领域runtime取得后任一步失败先关闭它，再逐项关render/runtime binding/physics/tick。构造主异常始终保留，清理异常按发生顺序suppressed。
 7. **线程与发布**：入口仍要求simulation main owner。失败world从未进入`WorldManager`可见map，也不得start/wake physics；清理不发布替代world，不吞掉坏snapshot诊断。
 8. **性能与退化**：构造资源栈只含固定数量的本world资源，为O(1)；正常成功路径为固定次数注册及一次clear。失败不扫描其他world、不重试I/O，也不增加常驻线程或锁。
 9. **必需测试**：验证render→physics→tick逆序、主异常与suppressed顺序、成功移交后不误关；验证render listener已注册后initial refresh失败会注销，且注销失败只作为suppressed。模块完整测试与`shadowJar`仍是最终门禁。
-10. **开放项与错误示例**：world context registration现由Core返回并加入同一构造栈；它只关闭DI binding。错误做法是在调用方包围factory、只关闭最后一个资源、用清理异常覆盖restore异常，或让render构造器注册副作用后抛出而无人持有；正确做法是各owner在对象可见性边界内归还自己已取得的资源。
+10. **开放项与错误示例**：Core world不再拥有DI binding；构造栈只保留当前显式取得的runtime资源。错误做法是在调用方包围factory、只关闭最后一个资源、用清理异常覆盖restore异常，或让render构造器注册副作用后抛出而无人持有；正确做法是各owner在对象可见性边界内归还自己已取得的资源。
 
 ### 卸载失败隔离（CURRENT）
 
@@ -293,8 +293,8 @@ BukkitPlugin、WorldManager、dispatcher、模型/工具和 add-on 在同实例�
 ### 2. 签名
 
 - `PhysicsCoordinator.stopAndAwait(timeoutMillis = 10_000)` 永久停止新 epoch，成功后允许读最终 ticket。
-- `WorldManager.quiescePhysics()` 在 simulation context 中调用；控制会话必须在 world map 移除前释放。
-- `PlatformCleanup.runAndAwait(timeoutMillis = 10_000, action)` 追踪跨 owner 及其嵌套任务；等待时不得持 simulation lock。
+- `WorldManager.unregisterRailWorld()` 先在仍可进入的物理帧边界恢复控制会话，再 stopAndAwait，成功后捕获最终快照；不得全局先停止 physics 再进入 processBetweenFrames。
+- `PlatformCleanup.runAndAwait(timeoutMillis = 10_000, action)` 追踪跨 owner 及其嵌套任务；等待时不得持 simulation lock。当前 destroy 返回 CompletionStage，通过 awaitCompletion 将完成/失败接入同一 batch，不把提交成功当作删除完成；Folia整服停止跳过临时owner动作时 completion 立即完成且不访问Bukkit。
 - `PaperPlatformDispatcher.stopAndAwait()` 封住旧 enable 的正常回调，新 enable 使用新 dispatcher。
 - `AbstractWand.close()` 保存在线玩家绑定状态、释放预览/会话并停止周期任务；不可读 PDC 不被内存默认值覆盖。
 

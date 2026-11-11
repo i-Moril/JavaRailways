@@ -477,11 +477,6 @@ class BukkitPlugin : Plugin, JavaPlugin() {
                     val worldsStopped = runShutdownStep("world manager stop") {
                         if (::worldManager.isInitialized) worldManager.stop()
                     }
-                    val physicsStopped = runShutdownStep("world physics quiescence") {
-                        if (::worldManager.isInitialized) {
-                            BukkitThreadGuardBridge.runInSimulationContext { worldManager.quiescePhysics() }
-                        }
-                    }
                     runShutdownStep("part extension registrations") {
                         if (::partExtensions.isInitialized) partExtensions.close()
                     }
@@ -499,7 +494,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
                                 runShutdownStep("world ${world.uid} save/unregister") {
                                     worldManager.unregisterRailWorld(
                                         world, saveSnapshot = runtimeActionsDrained && servicesRetired &&
-                                            httpStopped && worldsStopped && physicsStopped
+                                            httpStopped && worldsStopped
                                     )
                                 }
                             }

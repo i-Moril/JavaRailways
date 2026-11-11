@@ -1467,6 +1467,10 @@ class PhysicsCoordinatorTest {
             }
         })
         val sibling = createTrainWithConfig("b-blocks", rail, world, listOf(10.0))
+        world.onOwnerForTest {
+            sibling.setLocation(RailLocationWithFacing(rail.viewAB, 75.0))
+            sibling.commit()
+        }
         sibling.setControllerForTest(object : TrainController(sibling) {
             override fun tick(deltaT: Double) {
                 siblingEntered.countDown()

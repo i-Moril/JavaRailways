@@ -23,14 +23,14 @@ import work.art1st.javarailways.bukkit.behavior.TrainBehaviorActionDefinition
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 
 class TrainControlDialog(
-    plugin: BukkitPlugin,
+    private val plugin: BukkitPlugin,
     private val manager: TrainControlManager
 ) {
     private val dispatcher = plugin.platformDispatcher
 
     fun show(player: Player, train: Train) {
         BukkitThreadGuardBridge.runInSimulationContext(train.world) { train.renderer.loadBehaviorActions() }.whenComplete { actions, failure ->
-            plugin.platformDispatcher.runForEntity(player, action = {
+            dispatcher.runForEntity(player, action = {
                 if (failure != null) player.sendMessage(Component.text("动作列表加载失败: ${failure.message}", NamedTextColor.RED))
                 else BukkitThreadGuardBridge.runInSimulationContext(train.world) { showLoaded(player, train, actions) }
             })
@@ -69,7 +69,7 @@ class TrainControlDialog(
         if (ownedByPlayer) {
             buttons.add(actionButton("释放控制权", NamedTextColor.YELLOW) { p ->
                 manager.releaseManualControl(p).whenComplete { _, failure ->
-                    plugin.platformDispatcher.runForEntity(p, action = {
+                    dispatcher.runForEntity(p, action = {
                         p.sendActionBar(Component.text(
                             failure?.message ?: "已释放列车控制权；需要显式 replan", NamedTextColor.YELLOW
                         ))
@@ -79,7 +79,7 @@ class TrainControlDialog(
             if (manager.sessionFor(train)?.timetableMode == TimetableControlMode.MANUAL_ROUTED) {
                 buttons.add(actionButton("关闭时刻表进路辅助", NamedTextColor.RED) { p ->
                     manager.switchToFullManual(p).whenComplete { result, failure ->
-                        plugin.platformDispatcher.runForEntity(p, action = {
+                        dispatcher.runForEntity(p, action = {
                             if (failure != null) {
                                 p.sendActionBar(Component.text(failure.message.orEmpty(), NamedTextColor.RED))
                                 return@runForEntity
@@ -102,7 +102,7 @@ class TrainControlDialog(
         } else {
             buttons.add(actionButton("获取控制权", NamedTextColor.GREEN) { p ->
                 manager.acquireManualControl(p, train).whenComplete { result, failure ->
-                    plugin.platformDispatcher.runForEntity(p, action = {
+                    dispatcher.runForEntity(p, action = {
                         if (failure != null) {
                             p.sendActionBar(Component.text(failure.message.orEmpty(), NamedTextColor.RED))
                             return@runForEntity
@@ -146,7 +146,7 @@ class TrainControlDialog(
                 BukkitThreadGuardBridge.runInSimulationContext(train.world) {
                     train.renderer.executeModelAction(action.name, hasControl = manager.ownerOf(train) == p.uniqueId)
                 }.whenComplete { _, failure ->
-                    plugin.platformDispatcher.runForEntity(p, action = {
+                    dispatcher.runForEntity(p, action = {
                         p.sendActionBar(Component.text(
                             if (failure == null) "已执行: ${action.displayName}" else "动作失败: ${failure.message}",
                             if (failure == null) NamedTextColor.GREEN else NamedTextColor.YELLOW
@@ -174,7 +174,7 @@ class TrainControlDialog(
         return actionButton(label, NamedTextColor.LIGHT_PURPLE) { p ->
             controller.coast()
             controller.setDirection(direction).whenComplete { _, failure ->
-                plugin.platformDispatcher.runForEntity(p, action = {
+                dispatcher.runForEntity(p, action = {
                     p.sendActionBar(Component.text(
                         failure?.message ?: "方向已切换为 ${direction.label}",
                         if (failure == null) NamedTextColor.GREEN else NamedTextColor.RED

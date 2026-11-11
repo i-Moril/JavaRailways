@@ -19,7 +19,6 @@ import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.plugin.Plugin
 import org.bukkit.util.Transformation
-import work.art1st.javarailways.bukkit.util.PlatformDispatcher
 
 class NativeDisplayRenderBackend(
     private val plugin: Plugin,

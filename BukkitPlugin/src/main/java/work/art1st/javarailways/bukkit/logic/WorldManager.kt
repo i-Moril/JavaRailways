@@ -160,22 +160,6 @@ class WorldManager internal constructor(
         }
     }
 
-    /** Stop fallback physics before releasing controllers or capturing the final world state. */
-    fun quiescePhysics() {
-        ThreadGuard.ensureMainThread("WorldManager.quiescePhysics")
-        val failures = mutableListOf<Exception>()
-        railWorlds.values.forEach { world ->
-            try {
-                (world as? CoreWorld)?.physicsCoordinator?.stopAndAwait()
-            } catch (failure: Exception) {
-                failures.add(failure)
-            }
-        }
-        if (failures.isNotEmpty()) throw IllegalStateException("Failed to stop world physics").also {
-            failures.forEach(it::addSuppressed)
-        }
-    }
-
     fun latestServerTickMetrics(): JavaRailwaysServerTickMetrics? = latestServerTickMetricsSnapshot
 
     fun carFrameDispatchMetrics(): CarFrameDispatchMetrics {
@@ -430,6 +414,8 @@ class WorldManager internal constructor(
         unregisterRailWorld(
             bukkitWorld = bukkitWorld,
             captureAndSave = { coreWorld ->
+                // unregister restores manual control at a live frame boundary before entering
+                // terminal physics shutdown. Only a fully stopped coordinator may be captured.
                 coreWorld.physicsCoordinator.stopAndAwait()
                 if (saveSnapshot) {
                     val ticket = coreWorld.physicsCoordinator.captureCurrentTicket()

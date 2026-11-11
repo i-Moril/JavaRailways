@@ -27,8 +27,6 @@ import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.util.Transformation
 import work.art1st.javarailways.bukkit.BukkitPlugin
-import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 class EntityLibDisplayRenderBackend internal constructor(
     private val chunks: PacketDisplayChunks

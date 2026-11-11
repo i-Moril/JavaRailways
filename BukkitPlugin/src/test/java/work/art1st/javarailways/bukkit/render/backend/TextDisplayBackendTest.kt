@@ -62,7 +62,7 @@ class TextDisplayBackendTest {
         }
         val text = styledText()
         val transformation = transformation(2f)
-        val visual = NativeDisplayRenderBackend(host).create(world, DisplayVisualDescriptor(
+        val visual = NativeDisplayRenderBackend(host, EntityCleanupDispatcher().apply { immediate = true }).create(world, DisplayVisualDescriptor(
             Location(world, 1.0, 2.0, 3.0), DisplayVisualContent.Text(text), transformation, 4f, 5, 6))
         try {
             assertSame(text, state["text"])
@@ -294,7 +294,7 @@ class TextDisplayBackendTest {
     /** Only supplies the existing global backend dependencies; no plugin/server lifecycle is simulated. */
     private fun withHost(bundles: TrainPacketBundleCoordinator = TrainPacketBundleCoordinator { _, _ -> }, block: (BukkitPlugin) -> Unit) =
         synchronized(BukkitPlugin::class.java) {
-            val field = BukkitPlugin::class.java.getDeclaredField("INSTANCE").also { it.isAccessible = true }
+            val field = BukkitPlugin::class.java.getDeclaredField("currentInstance").also { it.isAccessible = true }
             val previous = field.get(null)
             val unsafe = Unsafe::class.java.getDeclaredField("theUnsafe").also { it.isAccessible = true }.get(null) as Unsafe
             val host = (unsafe.allocateInstance(BukkitPlugin::class.java) as BukkitPlugin).also {

@@ -138,6 +138,40 @@ class WorldManagerUnloadTest {
     }
 
     @Test
+    fun `plugin stop keeps frame boundary open until manual control is restored before final capture`() {
+        val events = mutableListOf<String>()
+        val fixture = Fixture(onRelease = { events += "restore-manual-control" })
+        try {
+            val world = fixture.oldCoreWorld()
+            world.physicsCoordinator.start()
+            world.physicsCoordinator.stepSimulation(50.0).await()
+            fixture.manager.stop()
+            fixture.manager.unregisterRailWorld(
+                bukkitWorld = fixture.oldBukkitWorld,
+                captureAndSave = { owned ->
+                    assertSame(world, owned)
+                    assertEquals(listOf("restore-manual-control"), events)
+                    owned.physicsCoordinator.stopAndAwait()
+                    // This is the terminal fence: restoring the controller here would be too late.
+                    assertThrows(IllegalStateException::class.java) {
+                        owned.physicsCoordinator.processBetweenFrames { error("closed admission must reject") }
+                    }
+                    owned.physicsCoordinator.captureCurrentTicket().await()
+                    events += "capture-final-snapshot"
+                },
+                clearAbnormalMarkers = {},
+                closeRender = {},
+                closeModelOperations = { fixture.closeModelOperations() },
+                closeTick = {}
+            )
+            assertEquals(listOf("restore-manual-control", "capture-final-snapshot"), events)
+            fixture.assertOldOwnerRemovedAndReloadable()
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
     fun `unavailable physics still retires exact local manual references before teardown`() {
         val released = mutableListOf<CoreWorld>()
         val retired = mutableListOf<CoreWorld>()

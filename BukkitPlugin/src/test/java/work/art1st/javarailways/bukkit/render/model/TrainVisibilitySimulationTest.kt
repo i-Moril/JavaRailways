@@ -356,17 +356,18 @@ class TrainVisibilitySimulationTest {
 
     @OptIn(ExtensionData::class)
     private class UnusedWorld : World {
+        override val executionMode: work.art1st.javarailways.core.api.physics.WorldExecutionMode get() = error("Not used")
+        override val maximumPhysicsDeltaSeconds: Double get() = error("Not used")
+        override val topologyState: work.art1st.javarailways.core.api.physics.rail.topology.TopologyState get() = error("Not used")
         override val tickManager: TickManager get() = error("Not used")
         override val allTrains: Collection<Train> get() = error("Not used")
         override fun getTrain(name: String): Train? = error("Not used")
-        override fun removeTrain(train: Train) = error("Not used")
         override fun getRail(id: UUID): Rail? = error("Not used")
         override fun removeRail(rail: Rail) = error("Not used")
         override fun <T : Any> getExtensionDataOrNull(plugin: Plugin): T? = error("Not used")
         override fun <T : Any> requireExtensionData(plugin: Plugin): T = error("Not used")
         override fun <T : Any> registerExtensionData(plugin: Plugin, data: T) = error("Not used")
         override fun forEachExtensionData(action: (Any) -> Unit) = error("Not used")
-        override fun <T> forEachExtensionData(action: (Any) -> T): List<T> = error("Not used")
     }
 
     private class ClientEntityTable {

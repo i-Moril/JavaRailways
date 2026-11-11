@@ -7,6 +7,7 @@ import org.bukkit.NamespacedKey
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
+import org.bukkit.event.HandlerList
 import org.bukkit.event.block.Action
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerItemHeldEvent
@@ -60,18 +61,53 @@ abstract class AbstractWand<S, M>(
 
     protected open val modeHandlesSneakLeftClickAir: Boolean = false
 
-    private var initialized = false
+    @Volatile private var initialized = false
+    protected val isRunning: Boolean get() = initialized
+    @Volatile protected var generation: Long = 0L
+        private set
     private val playerStates = ConcurrentHashMap<UUID, BoundState<S>>()
     private val itemIdKey by lazy { NamespacedKey(plugin, "wand_instance_id") }
     private val itemStateKey by lazy { NamespacedKey(plugin, "wand_state") }
 
     fun init() {
         if (initialized) return
+        generation++
         initialized = true
         onBeforeRegisterEvents()
         plugin.server.pluginManager.registerEvents(this, plugin)
         onAfterRegisterEvents()
     }
+
+    /** Must run while owner tasks may still be scheduled; the plugin awaits their cleanup barrier. */
+    fun close() {
+        if (!initialized) return
+        initialized = false
+        generation++
+        HandlerList.unregisterAll(this)
+        val failures = mutableListOf<Exception>()
+        try { onClose() } catch (failure: Exception) { failures.add(failure) }
+        val states = playerStates.toMap()
+        playerStates.clear()
+        plugin.server.onlinePlayers.forEach { player ->
+            val bound = states[player.uniqueId]
+            try {
+                plugin.platformDispatcher.runForEntity(player, action = {
+                    try {
+                        if (bound != null) persistBoundState(player, bound)
+                    } finally {
+                        onPlayerQuit(player, bound?.state ?: createDefaultState())
+                    }
+                })
+            } catch (failure: Exception) {
+                failures.add(failure)
+            }
+        }
+        if (failures.isNotEmpty()) throw IllegalStateException("Wand cleanup did not finish cleanly").also {
+            failures.forEach(it::addSuppressed)
+        }
+    }
+
+    protected open fun onClose() {}
 
     protected open fun onBeforeRegisterEvents() {}
 
@@ -172,7 +208,10 @@ abstract class AbstractWand<S, M>(
 
     @EventHandler
     fun onInteract(event: PlayerInteractEvent) {
-        BukkitThreadGuardBridge.runInPlayerWorldContext(event.player) { handleInteract(event) }
+        if (!isRunning) return
+        BukkitThreadGuardBridge.runInPlayerWorldContext(event.player) {
+            if (isRunning) handleInteract(event)
+        }
     }
 
     private fun handleInteract(event: PlayerInteractEvent) {

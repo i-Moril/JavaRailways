@@ -25,6 +25,9 @@ class WebUiLoginTokens(
     private val random = SecureRandom()
     private val grants = ConcurrentHashMap<String, Grant>()
 
+    /** A login grant issued by an old enable generation must not survive its shutdown. */
+    fun clear() = grants.clear()
+
     fun issue(playerId: UUID, playerName: String, worldName: String): Pair<String, Grant> {
         val now = clock()
         grants.entries.removeIf { it.value.expiresAtEpochMillis <= now }

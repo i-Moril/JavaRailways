@@ -52,6 +52,7 @@ import work.art1st.javarailways.bukkit.util.LiveWorldManagement
 import work.art1st.javarailways.bukkit.util.BukkitThreadOwnership
 import work.art1st.javarailways.bukkit.util.LatestAffinityTaskDispatcher
 import work.art1st.javarailways.bukkit.util.PlatformCommitAffinity
+import work.art1st.javarailways.bukkit.util.PlatformCleanup
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt
@@ -69,6 +70,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
 import java.util.logging.Level
 import kotlin.system.measureNanoTime
 
@@ -138,10 +140,12 @@ class WorldManager internal constructor(
 
     fun finishStopping() {
         loadedWorlds.clearLookup()
+        val failures = mutableListOf<Exception>()
         snapshotWrites.forEach { (world, write) ->
             try {
                 write.get()
             } catch (failure: Exception) {
+                failures.add(failure)
                 BukkitPlugin.INSTANCE.logger.log(
                     Level.SEVERE,
                     "Failed to finish snapshot write for world ${world.uid} (${world.name})",
@@ -150,6 +154,26 @@ class WorldManager internal constructor(
             }
         }
         snapshotWriter.shutdown()
+        check(snapshotWriter.awaitTermination(10L, TimeUnit.SECONDS)) { "World snapshot writer did not terminate" }
+        if (failures.isNotEmpty()) throw IllegalStateException("World snapshot writes failed").also {
+            failures.forEach(it::addSuppressed)
+        }
+    }
+
+    /** Stop fallback physics before releasing controllers or capturing the final world state. */
+    fun quiescePhysics() {
+        ThreadGuard.ensureMainThread("WorldManager.quiescePhysics")
+        val failures = mutableListOf<Exception>()
+        railWorlds.values.forEach { world ->
+            try {
+                (world as? CoreWorld)?.physicsCoordinator?.stopAndAwait()
+            } catch (failure: Exception) {
+                failures.add(failure)
+            }
+        }
+        if (failures.isNotEmpty()) throw IllegalStateException("Failed to stop world physics").also {
+            failures.forEach(it::addSuppressed)
+        }
     }
 
     fun latestServerTickMetrics(): JavaRailwaysServerTickMetrics? = latestServerTickMetricsSnapshot
@@ -297,10 +321,7 @@ class WorldManager internal constructor(
                     }
                     if (coreWorld != null) {
                         attemptCleanup {
-                            RailVisualBootstrap.retireWorld(coreWorld).whenComplete { _, cleanupFailure ->
-                                if (cleanupFailure != null) BukkitPlugin.instanceOrNull()?.logger?.log(java.util.logging.Level.SEVERE,
-                                    "Rail visual cleanup failed for world ${bukkitWorld.uid}", cleanupFailure)
-                            }
+                            PlatformCleanup.awaitCompletion(RailVisualBootstrap.retireWorld(coreWorld))
                         }
                     }
                     attemptCleanup { railWorld.renderChunkManager.close() }
@@ -405,17 +426,31 @@ class WorldManager internal constructor(
             }
     }
 
-    fun unregisterRailWorld(bukkitWorld: BukkitWorld) {
+    fun unregisterRailWorld(bukkitWorld: BukkitWorld, saveSnapshot: Boolean = true) {
         unregisterRailWorld(
             bukkitWorld = bukkitWorld,
             captureAndSave = { coreWorld ->
-                val ticket = coreWorld.physicsCoordinator.beginShutdown()
-                ticket.await()
-                val snapshots = captureSnapshots(coreWorld, ticket.epoch)
-                snapshotWrites.remove(bukkitWorld)?.get()
-                snapshotWriter.submit {
-                    WorldPersistence.saveSplitSnapshots(bukkitWorld.uid, snapshots)
-                }.get()
+                coreWorld.physicsCoordinator.stopAndAwait()
+                if (saveSnapshot) {
+                    val ticket = coreWorld.physicsCoordinator.captureCurrentTicket()
+                    ticket.await()
+                    val snapshots = captureSnapshots(coreWorld, ticket.epoch)
+                    snapshotWrites.remove(bukkitWorld)?.let { write ->
+                        runCatching { write.get() }.onFailure { failure ->
+                            BukkitPlugin.INSTANCE.logger.log(Level.WARNING, "Previous snapshot write failed", failure)
+                        }
+                    }
+                    pendingPeriodicSnapshots.remove(bukkitWorld)
+                    snapshotWriter.submit {
+                        WorldPersistence.saveSplitSnapshots(bukkitWorld.uid, snapshots)
+                    }.get()
+                } else {
+                    pendingPeriodicSnapshots.remove(bukkitWorld)
+                    BukkitPlugin.INSTANCE.logger.severe(
+                        "Skipped final snapshot for ${bukkitWorld.uid}: runtime producers did not stop cleanly; " +
+                            "preserving the existing snapshots and backups"
+                    )
+                }
             },
             clearAbnormalMarkers = AbnormalTrainMarker::clearWorld,
             closeRender = { world -> world.renderChunkManager.close() },
@@ -482,10 +517,7 @@ class WorldManager internal constructor(
                     attempt { coreWorld?.physicsCoordinator?.close() }
                     if (coreWorld != null) {
                         attempt {
-                            RailVisualBootstrap.retireWorld(coreWorld).whenComplete { _, cleanupFailure ->
-                                if (cleanupFailure != null) BukkitPlugin.instanceOrNull()?.logger?.log(java.util.logging.Level.SEVERE,
-                                    "Rail visual cleanup failed for world ${bukkitWorld.uid}", cleanupFailure)
-                            }
+                            PlatformCleanup.awaitCompletion(RailVisualBootstrap.retireWorld(coreWorld))
                         }
                     }
                     attempt { closeRender(ownedWorld) }
@@ -521,7 +553,7 @@ class WorldManager internal constructor(
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onWorldUnload(event: WorldUnloadEvent) {
-        withSimulationContext { unregisterRailWorld(event.world) }
+        PlatformCleanup.runAndAwait { withSimulationContext { unregisterRailWorld(event.world) } }
     }
 
     private fun tick() {

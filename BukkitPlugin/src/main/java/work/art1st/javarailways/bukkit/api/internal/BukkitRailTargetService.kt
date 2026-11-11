@@ -13,15 +13,34 @@ import java.util.Optional
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
+import java.util.concurrent.ConcurrentHashMap
 
 internal class BukkitRailTargetService(
     private val worldManager: () -> WorldManager,
-    private val platformDispatcher: () -> PlatformDispatcher
+    private val platformDispatcher: () -> PlatformDispatcher,
+    private val isRuntimeActive: () -> Boolean = { true }
 ) : RailTargetService {
-    constructor(plugin: BukkitPlugin) : this({ plugin.worldManager }, { plugin.platformDispatcher })
+    constructor(plugin: BukkitPlugin) : this(
+        plugin.worldManager.let { captured -> { captured } },
+        plugin.platformDispatcher.let { captured -> { captured } },
+        { plugin.isRuntimeActive }
+    )
+
+    // Freeze this generation even when the plugin instance is enabled again later.
+    private val worlds = worldManager()
+    private val dispatcher by lazy(platformDispatcher)
+    @Volatile private var closed = false
+    private val pending = ConcurrentHashMap.newKeySet<CompletableFuture<Optional<RailTarget>>>()
+
+    fun close() {
+        closed = true
+        pending.forEach { it.completeExceptionally(IllegalStateException("JavaRailways rail target service is closed")) }
+        pending.clear()
+    }
 
     override fun findCurve(worldId: UUID, railId: UUID): Optional<PrimeCurve> {
-        val railWorld = worldManager().loadedRailWorld(worldId)
+        check(!closed && isRuntimeActive()) { "JavaRailways rail target service is not active" }
+        val railWorld = worlds.loadedRailWorld(worldId)
             ?: throw IllegalStateException("JavaRailways world $worldId is not loaded")
         return Optional.ofNullable(railWorld.getRail(railId)?.curve)
     }
@@ -37,11 +56,12 @@ internal class BukkitRailTargetService(
         require(hitRadius.isFinite() && hitRadius >= 0.0) {
             "hitRadius must be finite and non-negative"
         }
-        check(platformDispatcher().owns(player)) {
+        check(!closed && isRuntimeActive()) { "JavaRailways rail target service is not active" }
+        check(dispatcher.owns(player)) {
             "findLookedAtRail must be called from the player's owning thread/region"
         }
 
-        val railWorld = worldManager().railWorlds[player.world] as? CoreWorld
+        val railWorld = worlds.railWorlds[player.world] as? CoreWorld
             ?: return CompletableFuture.completedFuture(Optional.empty())
         val eye = player.eyeLocation
         val origin = Vector3d(eye.x, eye.y, eye.z)
@@ -56,8 +76,15 @@ internal class BukkitRailTargetService(
         }
         val candidatesById = candidates.associateBy { it.id }
         val result = CompletableFuture<Optional<RailTarget>>()
-        platformDispatcher().runAsync {
+        pending.add(result)
+        result.whenComplete { _, _ -> pending.remove(result) }
+        if (closed) {
+            result.completeExceptionally(IllegalStateException("JavaRailways rail target service is closed"))
+            return result
+        }
+        dispatcher.runAsync {
             try {
+                check(!closed && isRuntimeActive()) { "JavaRailways rail target service is not active" }
                 val match = HeavyRailQueries.findLookedAtRailPoint(
                     candidates,
                     origin,

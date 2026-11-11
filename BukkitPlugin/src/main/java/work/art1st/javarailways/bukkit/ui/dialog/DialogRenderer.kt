@@ -13,6 +13,7 @@ import net.kyori.adventure.text.event.ClickCallback
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.entity.Player
 import work.art1st.javarailways.bukkit.api.wand.config.*
+import work.art1st.javarailways.bukkit.util.PlatformDispatcher
 
 internal const val DIALOG_NUMBER_TEXT_MAX_LENGTH = 32
 
@@ -48,7 +49,8 @@ internal fun formatDialogNumberText(value: Double): String {
  * action buttons；点击后立即保存当前输入并重建 Dialog，因此角色相关字段会即时更新。
  */
 class DialogRenderer(
-    private val configUI: ConfigUI
+    private val configUI: ConfigUI,
+    private val dispatcher: PlatformDispatcher
 ) {
     companion object {
         /** ClickCallback 默认生命周期 */
@@ -76,7 +78,7 @@ class DialogRenderer(
     fun showMenu(player: Player, title: String, description: String, entries: List<MenuEntry>) {
         val buttons = entries.map { entry ->
             val action = DialogAction.customClick(
-                { _, audience -> if (audience is Player) entry.onSelected(audience) },
+                playerDialogCallback(dispatcher, { Unit }) { _, player -> entry.onSelected(player) },
                 ClickCallback.Options.builder().uses(1).lifetime(DEFAULT_LIFETIME).build()
             )
             ActionButton.builder(Component.text(entry.label, NamedTextColor.YELLOW))
@@ -149,10 +151,8 @@ class DialogRenderer(
 
         // 确认按钮回调
         val confirmAction = DialogAction.customClick(
-            { view, audience ->
-                if (audience is Player) {
-                    onConfirm(view, builtGroup, session, audience, textResolver, additionalBody, isCurrent, onConfirmed)
-                }
+            playerDialogCallback(dispatcher, { captureResponse(it, builtGroup) }) { inputs, audience ->
+                onConfirm(inputs, builtGroup, session, audience, textResolver, additionalBody, isCurrent, onConfirmed)
             },
             ClickCallback.Options.builder()
                 .uses(1)
@@ -217,9 +217,9 @@ class DialogRenderer(
                     append(textResolver(displayName))
                 }
                 val action = DialogAction.customClick(
-                    { view, audience ->
-                        if (audience is Player && isCurrent(audience)) {
-                            captureInputs(view, builtGroup, session, textResolver, setOf(key.id))
+                    playerDialogCallback(dispatcher, { captureResponse(it, builtGroup) }) { inputs, audience ->
+                        if (isCurrent(audience)) {
+                            captureInputs(inputs, builtGroup, session, textResolver, setOf(key.id))
                             @Suppress("UNCHECKED_CAST")
                             session.setValue(key as ConfigKey<Any?>, option)
                             reportCommitFailures(audience, session.commit(), textResolver)
@@ -273,7 +273,7 @@ class DialogRenderer(
 
     /** 处理确认按钮回调：读取所有 Dialog 输入值并写入 session。 */
     private fun onConfirm(
-        view: io.papermc.paper.dialog.DialogResponseView,
+        view: DialogInputValues,
         builtGroup: BuiltGroup,
         session: PlayerConfigSession,
         player: Player,
@@ -313,9 +313,43 @@ class DialogRenderer(
         onConfirmed?.invoke(player)
     }
 
+    // Copy response primitives before handing work to the player's owner; do not retain Paper's view.
+    private fun captureResponse(
+        view: io.papermc.paper.dialog.DialogResponseView,
+        builtGroup: BuiltGroup
+    ): DialogInputValues {
+        val text = mutableMapOf<String, String>()
+        val booleans = mutableMapOf<String, Boolean>()
+        val numbers = mutableMapOf<String, Float>()
+        builtGroup.effectiveItems.forEach { item ->
+            val key = toInputKey(item.key.id)
+            when (item.key.valueType) {
+                ConfigValueType.BOOLEAN -> view.getBoolean(key)?.let { booleans[key] = it }
+                ConfigValueType.NUMBER, ConfigValueType.INTEGER -> view.getFloat(key)?.let { numbers[key] = it }
+                ConfigValueType.NUMBER_TEXT, ConfigValueType.STRING, ConfigValueType.ENUM ->
+                    view.getText(key)?.let { text[key] = it }
+                ConfigValueType.VECTOR3D -> listOf("x", "y", "z").forEach { axis ->
+                    val axisKey = "${key}_$axis"
+                    view.getFloat(axisKey)?.let { numbers[axisKey] = it }
+                }
+            }
+        }
+        return DialogInputValues(text.toMap(), booleans.toMap(), numbers.toMap())
+    }
+
+    private data class DialogInputValues(
+        val text: Map<String, String>,
+        val booleans: Map<String, Boolean>,
+        val numbers: Map<String, Float>
+    ) {
+        fun getText(key: String) = text[key]
+        fun getBoolean(key: String) = booleans[key]
+        fun getFloat(key: String) = numbers[key]
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun captureInputs(
-        view: io.papermc.paper.dialog.DialogResponseView,
+        view: DialogInputValues,
         builtGroup: BuiltGroup,
         session: PlayerConfigSession,
         textResolver: (String) -> String,

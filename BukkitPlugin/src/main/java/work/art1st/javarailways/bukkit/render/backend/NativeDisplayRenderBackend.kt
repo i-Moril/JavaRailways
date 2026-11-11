@@ -19,9 +19,11 @@ import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.plugin.Plugin
 import org.bukkit.util.Transformation
+import work.art1st.javarailways.bukkit.util.PlatformDispatcher
 
 class NativeDisplayRenderBackend(
-    private val plugin: Plugin
+    private val plugin: Plugin,
+    private val dispatcher: PlatformDispatcher
 ) : DisplayRenderBackend {
     override fun create(world: World, descriptor: DisplayVisualDescriptor): DisplayVisual {
         val entity = when (val content = descriptor.content) {
@@ -49,7 +51,7 @@ class NativeDisplayRenderBackend(
                 configureText(display, content.text)
             }
         }
-        return NativeDisplayVisual(plugin, entity)
+        return NativeDisplayVisual(plugin, entity, dispatcher)
     }
 
     private fun configureText(display: TextDisplay, text: Component) {

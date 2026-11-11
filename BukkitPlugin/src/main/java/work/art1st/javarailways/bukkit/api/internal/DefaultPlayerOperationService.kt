@@ -13,6 +13,7 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.logging.Level
 import java.util.logging.Logger
 
@@ -35,12 +36,15 @@ internal class DefaultPlayerOperationService(
 
     private val sequence = AtomicLong()
     private val histories = ConcurrentHashMap<UUID, PlayerHistory>()
+    private val closed = AtomicBoolean()
+    private val lifecycleLock = Any()
 
     init {
         require(historyLimit > 0) { "historyLimit must be positive" }
     }
 
-    override fun record(playerId: UUID, owner: Plugin, operation: UndoableOperation): Long {
+    override fun record(playerId: UUID, owner: Plugin, operation: UndoableOperation): Long = synchronized(lifecycleLock) {
+        check(!closed.get()) { "JavaRailways operation service is closed" }
         check(owner.isEnabled) { "Cannot record an operation for disabled plugin ${owner.name}" }
         val entry = Entry(sequence.incrementAndGet(), owner, operation)
         val history = histories.computeIfAbsent(playerId) { PlayerHistory() }
@@ -53,7 +57,7 @@ internal class DefaultPlayerOperationService(
                 history.redo.clear()
             }
         }
-        return entry.sequence
+        entry.sequence
     }
 
     override fun undo(player: Player): CompletionStage<OperationResult> = execute(player, undo = true)
@@ -87,19 +91,31 @@ internal class DefaultPlayerOperationService(
         histories.clear()
     }
 
+    fun close() = synchronized(lifecycleLock) {
+        closed.set(true)
+        clear()
+    }
+
     private fun execute(player: Player, undo: Boolean): CompletionStage<OperationResult> {
-        val history = histories[player.uniqueId]
-            ?: return CompletableFuture.completedFuture(emptyResult(undo))
-        val entry: Entry
-        synchronized(history) {
-            if (history.inFlight != null) {
-                return CompletableFuture.completedFuture(
-                    OperationResult.busy(Component.text("已有撤销或重做操作正在执行", NamedTextColor.YELLOW))
-                )
-            }
-            entry = (if (undo) history.undo else history.redo).peekLast()
+        // Admission and history lookup share close's lock. External operation code runs outside
+        // it: add-ons may hold their own service-generation fence while calling record().
+        val (history, entry) = synchronized(lifecycleLock) {
+            if (closed.get()) return CompletableFuture.completedFuture(
+                OperationResult.failed(Component.text("JavaRailways operation service is closed", NamedTextColor.RED))
+            )
+            val history = histories[player.uniqueId]
                 ?: return CompletableFuture.completedFuture(emptyResult(undo))
-            history.inFlight = entry
+            synchronized(history) {
+                if (history.inFlight != null) {
+                    return CompletableFuture.completedFuture(
+                        OperationResult.busy(Component.text("已有撤销或重做操作正在执行", NamedTextColor.YELLOW))
+                    )
+                }
+                val entry = (if (undo) history.undo else history.redo).peekLast()
+                    ?: return CompletableFuture.completedFuture(emptyResult(undo))
+                history.inFlight = entry
+                history to entry
+            }
         }
 
         val resultFuture = CompletableFuture<OperationResult>()

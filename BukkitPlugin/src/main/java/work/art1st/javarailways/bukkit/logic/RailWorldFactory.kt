@@ -31,6 +31,8 @@ import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.api.util.annotation.Heavy
 import work.art1st.javarailways.core.api.threading.ThreadGuard
+import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
+import work.art1st.javarailways.bukkit.util.PlatformCleanup
 import work.art1st.javarailways.core.util.TickManagerImpl
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import java.util.concurrent.Executors
@@ -232,14 +234,23 @@ internal class WorldConstructionResources {
     }
 
     fun fail(primary: Throwable): Nothing {
-        cleanup.forEach { close ->
-            try {
-                close()
-            } catch (cleanupFailure: Throwable) {
-                if (cleanupFailure !== primary) primary.addSuppressed(cleanupFailure)
+        try {
+            BukkitThreadGuardBridge.runOutsideSimulationContext {
+                PlatformCleanup.runAndAwait {
+                    cleanup.forEach { close ->
+                        try {
+                            close()
+                        } catch (cleanupFailure: Throwable) {
+                            if (cleanupFailure !== primary) primary.addSuppressed(cleanupFailure)
+                        }
+                    }
+                }
             }
+        } catch (cleanupFailure: Throwable) {
+            if (cleanupFailure !== primary) primary.addSuppressed(cleanupFailure)
+        } finally {
+            cleanup.clear()
         }
-        cleanup.clear()
         throw primary
     }
 }

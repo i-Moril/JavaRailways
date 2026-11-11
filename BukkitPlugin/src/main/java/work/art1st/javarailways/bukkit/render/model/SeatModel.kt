@@ -9,6 +9,7 @@ import org.bukkit.entity.Player
 import org.bukkit.event.EventPriority
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
+import org.bukkit.event.HandlerList
 import org.bukkit.event.entity.EntityDismountEvent
 import org.bukkit.event.entity.PlayerDeathEvent
 import org.bukkit.event.player.PlayerInteractAtEntityEvent
@@ -74,8 +75,9 @@ class SeatModel internal constructor(
             try {
                 synchronized(this@SeatModel) {
                     if (retired || activePlayers.isEmpty() || entity != null) return@synchronized
-                    val hitbox = bukkitWorld.spawn(spawnLocation, Interaction::class.java)
-                    configureSeatHitbox(hitbox, occupied = false)
+                    val hitbox = bukkitWorld.spawn(spawnLocation, Interaction::class.java) {
+                        configureSeatHitbox(it, occupied = false)
+                    }
                     entity = hitbox
                     seatBinding = SeatBinding(
                         hitbox = hitbox,
@@ -224,7 +226,7 @@ class SeatModel internal constructor(
     private fun alignAfterDismount(player: Player) {
         val target = latestCarrierLocation?.clone() ?: return
         BukkitPlugin.INSTANCE.platformDispatcher.runForEntityLater(player, 1L, action = {
-            if (!player.isOnline) return@runForEntityLater
+            if (retired || !player.isOnline) return@runForEntityLater
             val current = player.location
             target.yaw = current.yaw
             target.pitch = current.pitch
@@ -336,6 +338,16 @@ class SeatModel internal constructor(
             registered = true
         }
 
+        /** Called after model destruction has queued owner cleanup, before releasing the runtime. */
+        @Synchronized
+        fun close() {
+            HandlerList.unregisterAll(this)
+            registered = false
+            seatsByHitbox.clear()
+            seatsByCarrier.clear()
+            driverSeatVacatedHandlers.clear()
+        }
+
         fun register(hitboxId: UUID, binding: SeatBinding) {
             seatsByHitbox[hitboxId] = binding
         }
@@ -355,8 +367,13 @@ class SeatModel internal constructor(
             seatsByCarrier.remove(carrier.uniqueId)
         }
 
-        fun addDriverSeatVacatedHandler(handler: (Player, Train) -> Unit) {
+        fun addDriverSeatVacatedHandler(handler: (Player, Train) -> Unit): AutoCloseable {
             driverSeatVacatedHandlers.add(handler)
+            return AutoCloseable { driverSeatVacatedHandlers.remove(handler) }
+        }
+
+        internal fun notifyDriverSeatVacated(player: Player, train: Train) {
+            driverSeatVacatedHandlers.forEach { handler -> handler(player, train) }
         }
 
         fun drivingTrainFor(player: Player): Train? = driverSeatFor(player)?.train
@@ -398,7 +415,7 @@ class SeatModel internal constructor(
             if (!binding.driverSeat) return
             val ownerCar = binding.ownerCar ?: return
             val train = ownerCar.world.allTrains.firstOrNull { train -> train.cars.any { it === ownerCar } } ?: return
-            driverSeatVacatedHandlers.forEach { handler -> handler(player, train) }
+            notifyDriverSeatVacated(player, train)
         }
 
         @EventHandler
@@ -424,6 +441,7 @@ class SeatModel internal constructor(
             setSeatOccupied(binding, occupied = true)
             BukkitPlugin.INSTANCE.platformDispatcher.runForEntityLater(carrier, 1L, action = action@{
                 if (
+                    seatsByCarrier[carrier.uniqueId] !== binding ||
                     !carrier.isValid ||
                     carrier.passengers.isNotEmpty() ||
                     !BukkitThreadOwnership.isOwnedByCurrentRegion(player) ||
@@ -448,6 +466,7 @@ class SeatModel internal constructor(
         }
 
         private fun restoreIfEmpty(binding: SeatBinding) {
+            if (seatsByHitbox[binding.hitbox.uniqueId] !== binding) return
             val carrier = binding.carrier
             if (carrier == null) {
                 setSeatOccupied(binding, occupied = false)

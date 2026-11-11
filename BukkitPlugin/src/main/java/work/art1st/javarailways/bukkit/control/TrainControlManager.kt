@@ -5,6 +5,7 @@ import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
+import org.bukkit.event.HandlerList
 import org.bukkit.event.block.Action
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerJoinEvent
@@ -64,9 +65,14 @@ class TrainControlManager internal constructor(
     private inline fun <T> withPlayer(playerId: UUID, action: () -> T): T =
         synchronized(playerTransactions.computeIfAbsent(playerId) { Any() }) { action() }
 
+    @Volatile private var running = false
+    private var driverSeatVacatedRegistration: AutoCloseable? = null
+
     fun start() {
+        if (running) return
+        running = true
         plugin.server.pluginManager.registerEvents(this, plugin)
-        SeatModel.SeatInteractionListener.addDriverSeatVacatedHandler { player, train ->
+        driverSeatVacatedRegistration = SeatModel.SeatInteractionListener.addDriverSeatVacatedHandler { player, train ->
             pendingAcquisitions.remove(player.uniqueId)
             val session = sessionsByPlayer[player.uniqueId] ?: return@addDriverSeatVacatedHandler
             if (session.controller.controlledTrain === train) releaseManualControl(player.uniqueId)
@@ -75,6 +81,10 @@ class TrainControlManager internal constructor(
     }
 
     fun stop() {
+        running = false
+        HandlerList.unregisterAll(this)
+        driverSeatVacatedRegistration?.close()
+        driverSeatVacatedRegistration = null
         bindingScanTasks.values.forEach(ScheduledTask::cancel)
         bindingScanTasks.clear()
         pendingAcquisitions.clear()
@@ -356,12 +366,13 @@ class TrainControlManager internal constructor(
     }
 
     private fun ensureBindingScan(player: Player) {
+        if (!running) return
         if (bindingScanTasks.containsKey(player.uniqueId)) return
         val task = plugin.platformDispatcher.runForEntityAtFixedRate(
             entity = player,
             initialDelayTicks = 20L,
             periodTicks = 20L,
-            action = { scanBoundKeys(player) },
+            action = { if (running) scanBoundKeys(player) },
             retired = { bindingScanTasks.remove(player.uniqueId) }
         ) ?: return
         val previous = bindingScanTasks.putIfAbsent(player.uniqueId, task)

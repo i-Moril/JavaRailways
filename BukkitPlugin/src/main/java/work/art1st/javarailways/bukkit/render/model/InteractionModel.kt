@@ -52,10 +52,11 @@ class InteractionModel internal constructor(
             try {
                 synchronized(this@InteractionModel) {
                     if (retired || entity != null) return@synchronized
-                    val interaction = bukkitWorld.spawn(spawnLocation, Interaction::class.java)
-                    interaction.isPersistent = false
-                    interaction.setInteractionWidth(interactionConfig.width.toFloat())
-                    interaction.setInteractionHeight(interactionConfig.height.toFloat())
+                    val interaction = bukkitWorld.spawn(spawnLocation, Interaction::class.java) {
+                        it.isPersistent = false
+                        it.setInteractionWidth(interactionConfig.width.toFloat())
+                        it.setInteractionHeight(interactionConfig.height.toFloat())
+                    }
                     entity = interaction
                 }
             } finally {

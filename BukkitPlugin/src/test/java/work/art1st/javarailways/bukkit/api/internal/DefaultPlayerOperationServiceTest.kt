@@ -6,6 +6,7 @@ import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.bukkit.api.operation.OperationResult
 import work.art1st.javarailways.bukkit.api.operation.UndoableOperation
@@ -16,6 +17,28 @@ import java.util.concurrent.CompletionStage
 import java.util.logging.Logger
 
 class DefaultPlayerOperationServiceTest {
+    @Test
+    fun `a retired service rejects writes and cannot execute retained undo operations`() {
+        val service = DefaultPlayerOperationService(Logger.getAnonymousLogger())
+        val player = player(UUID.randomUUID())
+        val owner = plugin("owner")
+        val calls = mutableListOf<String>()
+        service.record(player.uniqueId, owner, operation("before shutdown", calls))
+        service.close()
+        service.close()
+        assertThrows(IllegalStateException::class.java) {
+            service.record(player.uniqueId, owner, operation("late completion", calls))
+        }
+        assertEquals(OperationResult.Status.FAILED, service.undo(player).toCompletableFuture().join().status())
+        assertEquals(OperationResult.Status.FAILED, service.redo(player).toCompletableFuture().join().status())
+        assertTrue(calls.isEmpty())
+
+        val fresh = DefaultPlayerOperationService(Logger.getAnonymousLogger())
+        fresh.record(player.uniqueId, owner, operation("new generation", calls))
+        assertEquals(OperationResult.Status.SUCCESS, fresh.undo(player).toCompletableFuture().join().status())
+        assertEquals(listOf("undo:new generation"), calls)
+    }
+
     @Test
     fun `uses one chronological history across owners`() {
         val service = DefaultPlayerOperationService(Logger.getAnonymousLogger())

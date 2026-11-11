@@ -1,6 +1,8 @@
 package work.art1st.javarailways.bukkit.render.backend
 
 import java.util.concurrent.CompletionStage
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetPassengers
 import work.art1st.javarailways.core.api.util.Destruction
 import work.art1st.javarailways.core.api.util.DestructionSteps
@@ -26,7 +28,9 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.util.Transformation
 import work.art1st.javarailways.bukkit.BukkitPlugin
 
-class EntityLibDisplayRenderBackend : DisplayRenderBackend {
+class EntityLibDisplayRenderBackend internal constructor(
+    private val chunks: PacketDisplayChunks
+) : DisplayRenderBackend {
     override fun create(world: World, descriptor: DisplayVisualDescriptor): DisplayVisual {
         require(descriptor.location.world == world) {
             "Display visual location must belong to the backend world"
@@ -56,7 +60,7 @@ class EntityLibDisplayRenderBackend : DisplayRenderBackend {
             check(wrapper.spawn(SpigotConversionUtil.fromBukkitLocation(descriptor.location))) {
                 "EntityLib refused to spawn a newly-created display visual"
             }
-            return EntityLibDisplayVisual(wrapper)
+            return EntityLibDisplayVisual(wrapper, chunks)
         } catch (failure: Throwable) {
             try { wrapper.remove() } catch (cleanup: Throwable) {
                 failure.addSuppressed(cleanup)
@@ -99,8 +103,9 @@ class EntityLibDisplayRenderBackend : DisplayRenderBackend {
     private fun org.joml.Quaternionf.toPacketQuaternion(): Quaternion4f = Quaternion4f(x(), y(), z(), w())
 }
 
-private class EntityLibDisplayVisual(
-    private val entity: WrapperEntity
+internal class EntityLibDisplayVisual(
+    private val entity: WrapperEntity,
+    private val chunks: PacketDisplayChunks
 ) : DisplayVisual {
     override val packetEntityId = entity.entityId
     override val packetGlowBaseline = entity.entityMeta.getMask(me.tofaa.entitylib.meta.EntityMeta.OFFSET) to
@@ -108,6 +113,7 @@ private class EntityLibDisplayVisual(
     @Volatile
     private var destroyed = false
     private val destruction = Destruction()
+    private val shownChunks = ConcurrentHashMap<UUID, PacketDisplayChunks.State>()
     @Volatile private var passengerIds: List<Int> = emptyList()
     @Volatile private var passengerParent: EntityLibDisplayVisual? = null
 
@@ -129,12 +135,28 @@ private class EntityLibDisplayVisual(
 
     @Synchronized
     override fun showTo(player: Player) {
-        if (!destroyed) entity.addViewer(player.uniqueId)
+        if (destroyed) return
+        // Mounted children must spawn at their live root anchor, not their construction location.
+        passengerParent?.let { entity.setLocation(it.entity.location) }
+        val state = chunks.state(player, entity.location)
+        if (state == null) {
+            hideFrom(player)
+            return
+        }
+        val previous = shownChunks[player.uniqueId]
+        if (previous != null && state != previous && !chunks.isCurrent(player, previous)) {
+            entity.removeViewer(player.uniqueId)
+        }
+        entity.addViewer(player.uniqueId)
+        shownChunks[player.uniqueId] = state
     }
 
     @Synchronized
     override fun hideFrom(player: Player) {
-        if (!destroyed) entity.removeViewer(player.uniqueId)
+        if (!destroyed) {
+            entity.removeViewer(player.uniqueId)
+            shownChunks.remove(player.uniqueId)
+        }
     }
 
     override fun teleport(location: Location) {
@@ -221,6 +243,7 @@ private class EntityLibDisplayVisual(
     @Synchronized
     override fun destroy(): CompletionStage<Void> = destruction.run {
         destroyed = true
+        shownChunks.clear()
         val oldParent = passengerParent
         oldParent?.forgetPassenger(packetEntityId)
         passengerParent = null

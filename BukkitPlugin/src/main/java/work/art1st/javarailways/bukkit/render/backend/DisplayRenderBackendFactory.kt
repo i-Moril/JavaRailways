@@ -6,8 +6,8 @@ import work.art1st.javarailways.bukkit.config.DisplayRendererBackend
 object DisplayRenderBackendFactory {
     fun create(plugin: BukkitPlugin): DisplayRenderBackend {
         return when (plugin.javaRailwaysConfig.displayRenderer.backend) {
-            DisplayRendererBackend.NATIVE -> NativeDisplayRenderBackend(plugin)
-            DisplayRendererBackend.ENTITYLIB -> EntityLibDisplayRenderBackend()
+            DisplayRendererBackend.NATIVE -> NativeDisplayRenderBackend(plugin, plugin.platformDispatcher)
+            DisplayRendererBackend.ENTITYLIB -> EntityLibDisplayRenderBackend(plugin.packetDisplayChunks)
         }
     }
 }

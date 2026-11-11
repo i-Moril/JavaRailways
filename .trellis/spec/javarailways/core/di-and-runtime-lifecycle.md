@@ -93,3 +93,10 @@ CoreWorld.load(
 ./gradlew :Core:test --tests '*WorldPersistenceRoundTripTest' --tests '*PhysicsCoordinatorTest'
 ./gradlew :Basic:test :BukkitPlugin:test
 ```
+
+
+## 热关闭的物理静止屏障
+
+`PhysicsCoordinator.stopAndAwait(timeoutMillis = 10_000)` 在当前 `beginShutdown` 入口封住新 epoch，等待准确 in-flight ticket 及所有 owned executors。成功后可捕获最终 ticket；失败/超时进入 STALLED，禁止将旧成功帧作为新最终快照。现有 close 保留取消语义，closeAndAwaitTermination 保留完整退出等待。不得从 worker 或 state lock 内等待自身。
+
+当前 CoreWorld 不持有 Koin world context；合并热重载修复不得恢复 JavaRailwaysKoin/WorldParentContext 或相应释放路径。`PluginRegistry.unregister(owner)` 保留稳定 identifier 槽位且不保留退休 Class/classloader，扩展继续按 plugin.identifier 定位，不把 active plugins 列表下标当 identifier。

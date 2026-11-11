@@ -112,6 +112,7 @@ private data class LineSimulationSnapshot(
 )
 
 class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
+    @Volatile private var stopped = false
     private val logReader = DiskLogReader(linkedMapOf(
         "host-errors" to DiskLogReader.Location("JavaRailways errors", plugin.dataFolder.toPath().resolve("logs/errors.log")),
         "simplesignals-errors" to DiskLogReader.Location("SimpleSignals errors", (plugin.server.pluginManager.getPlugin("SimpleSignals")?.dataFolder?.toPath()
@@ -156,12 +157,15 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
     fun onWorldUnload(event:WorldUnloadEvent)=railMapPreview.invalidate(event.world.name)
 
     fun stop() {
+        stopped = true
         HandlerList.unregisterAll(this)
         server?.stop(0)
         server = null
         executor.shutdownNow()
         simulationExecutor.shutdownNow()
         railMapPreview.close()
+        check(executor.awaitTermination(10, TimeUnit.SECONDS)) { "Timetable HTTP executor did not terminate" }
+        check(simulationExecutor.awaitTermination(10, TimeUnit.SECONDS)) { "Timetable simulation executor did not terminate" }
     }
 
     private inner class Handler(
@@ -187,6 +191,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
         }
 
         private fun route(exchange: HttpExchange) {
+            if (stopped) throw HttpFailure(503, "JavaRailways is stopping")
             val parts = timetablePathSegments(exchange.requestURI)
             when {
                 exchange.requestMethod == "GET" && parts == listOf("health") -> exchange.respond(200, "{\"ok\":true}")
@@ -319,7 +324,10 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
         private fun <T> await(action: () -> T): T = awaitDomainHttpRequest(
             plugin.platformDispatcher, timeoutMillis,
             expired = { HttpFailure(504, "request expired before entering the simulation context", "REQUEST_TIMEOUT") },
-            action = action
+            action = {
+                if (stopped) throw HttpFailure(503, "JavaRailways is stopping")
+                action()
+            }
         )
 
         private fun exchangeLoginToken(body: String): String {

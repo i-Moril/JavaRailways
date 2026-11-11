@@ -7,6 +7,7 @@ import work.art1st.javarailways.core.physics.train.onOwnerForTest
 import work.art1st.javarailways.core.physics.train.setControllerForTest
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -1374,6 +1375,181 @@ class PhysicsCoordinatorTest {
             } finally {
                 coordinator.close()
             }
+        }
+    }
+
+    @Test
+    fun `stop seals new epochs and awaits publication before final snapshot`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            automaticFallback = false,
+            epochOverloadThresholdMillis = 1_000_000L
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val train = createTrainWithConfig("stop-in-flight", rail, world, listOf(10.0))
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        train.setControllerForTest(BlockingController(train, entered, release))
+        val shutdownExecutor = Executors.newSingleThreadExecutor()
+        coordinator.start()
+        try {
+            val ticket = coordinator.stepSimulation(50.0)
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val stopped = shutdownExecutor.submit { coordinator.stopAndAwait() }
+            awaitWakeRejection(coordinator)
+            assertFalse(stopped.isDone, "stop must await the running epoch")
+            assertFalse(ticket.isDone)
+            release.countDown()
+            stopped.get(5, TimeUnit.SECONDS)
+
+            assertEquals(ticket.epoch, coordinator.captureCurrentTicket().await().epoch)
+            assertEquals(ticket.epoch, train.publishedFrame.physicsEpoch)
+            assertEquals(PhysicsCoordinatorStatus.RUNNING, coordinator.status)
+            coordinator.stopAndAwait()
+            assertThrows(IllegalStateException::class.java) { coordinator.start() }
+            assertThrows(IllegalStateException::class.java) { coordinator.stepSimulation(50.0) }
+            coordinator.close()
+            coordinator.close()
+            assertEquals(PhysicsCoordinatorStatus.CLOSED, coordinator.status)
+        } finally {
+            release.countDown()
+            shutdownExecutor.shutdownNow()
+            coordinator.close()
+        }
+    }
+
+    @Test
+    @IsolateGlobalHalt
+    fun `stop preserves failed epoch instead of returning previous successful ticket`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            automaticFallback = false,
+            epochOverloadThresholdMillis = 1_000_000L
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val train = createTrainWithConfig("stop-failed", rail, world, listOf(10.0))
+        coordinator.start()
+        try {
+            coordinator.stepSimulation(50.0).await()
+            train.setControllerForTest(object : TrainController(train) {
+                override fun tick(deltaT: Double) { error("controller failed") }
+            })
+            val ticket = coordinator.stepSimulation(50.0)
+            assertThrows(ExecutionException::class.java) { ticket.await() }
+            assertThrows(PhysicsStalledException::class.java) { coordinator.stopAndAwait() }
+            assertThrows(PhysicsStalledException::class.java) { coordinator.captureCurrentTicket() }
+            assertEquals(PhysicsCoordinatorStatus.STALLED, coordinator.status)
+            assertEquals(1L, train.publishedFrame.physicsEpoch)
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    @Test
+    @IsolateGlobalHalt
+    fun `stop joins sibling workers after one controller fails`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 2,
+            automaticFallback = false,
+            epochOverloadThresholdMillis = 1_000_000L
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val siblingEntered = CountDownLatch(1)
+        val siblingExited = CountDownLatch(1)
+        val failing = createTrainWithConfig("a-fails", rail, world, listOf(10.0))
+        failing.setControllerForTest(object : TrainController(failing) {
+            override fun tick(deltaT: Double) {
+                check(siblingEntered.await(5, TimeUnit.SECONDS))
+                error("controller failed while sibling is running")
+            }
+        })
+        val sibling = createTrainWithConfig("b-blocks", rail, world, listOf(10.0))
+        sibling.setControllerForTest(object : TrainController(sibling) {
+            override fun tick(deltaT: Double) {
+                siblingEntered.countDown()
+                try {
+                    CountDownLatch(1).await()
+                } finally {
+                    siblingExited.countDown()
+                }
+            }
+        })
+        coordinator.start()
+        try {
+            val ticket = coordinator.stepSimulation(50.0)
+            assertTrue(siblingEntered.await(5, TimeUnit.SECONDS))
+            // Modern awaitWorkers deliberately joins all siblings before settling the ticket.
+            // Wait for its global failure signal, then shutdown must interrupt the blocked sibling.
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            while (!RailwaySimulationHalt.isHalted) {
+                check(System.nanoTime() < deadline) { "controller failure did not halt physics" }
+                Thread.yield()
+            }
+            assertEquals(1L, siblingExited.count)
+            assertThrows(PhysicsStalledException::class.java) { coordinator.stopAndAwait() }
+            assertThrows(ExecutionException::class.java) { ticket.await() }
+            assertEquals(0L, siblingExited.count)
+            assertEquals(0L, failing.publishedFrame.physicsEpoch)
+            assertEquals(0L, sibling.publishedFrame.physicsEpoch)
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    @Test
+    @IsolateGlobalHalt
+    fun `stop timeout interrupts worker and cannot publish abandoned frame`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            automaticFallback = false,
+            epochOverloadThresholdMillis = 1_000_000L
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val train = createTrainWithConfig("stop-timeout", rail, world, listOf(10.0))
+        val entered = CountDownLatch(1)
+        val interrupted = CountDownLatch(1)
+        train.setControllerForTest(object : TrainController(train) {
+            override fun tick(deltaT: Double) {
+                entered.countDown()
+                try {
+                    CountDownLatch(1).await()
+                } catch (_: InterruptedException) {
+                    interrupted.countDown()
+                }
+            }
+        })
+        coordinator.start()
+        try {
+            val initialFrame = train.publishedFrame
+            val ticket = coordinator.stepSimulation(50.0)
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            assertThrows(java.util.concurrent.TimeoutException::class.java) {
+                coordinator.stopAndAwait(timeoutMillis = 1)
+            }
+            assertTrue(interrupted.await(5, TimeUnit.SECONDS))
+            assertThrows(ExecutionException::class.java) { ticket.await() }
+            coordinator.close()
+            assertEquals(initialFrame, train.publishedFrame)
+            assertEquals(PhysicsCoordinatorStatus.CLOSED, coordinator.status)
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    private fun awaitWakeRejection(coordinator: PhysicsCoordinator) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (true) {
+            try {
+                coordinator.stepSimulation(50.0)
+            } catch (_: IllegalStateException) {
+                return
+            }
+            check(System.nanoTime() < deadline) { "shutdown did not seal new epochs" }
+            Thread.yield()
         }
     }
 

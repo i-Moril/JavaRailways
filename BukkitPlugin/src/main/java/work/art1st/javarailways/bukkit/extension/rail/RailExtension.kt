@@ -104,8 +104,8 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
     @MainThread
     @Synchronized
     override fun sendTo(player: Player) {
-        BukkitThreadOwnership.ensureEntity(player, "RailExtension.sendTo")
         if (retired) return
+        BukkitThreadOwnership.ensureEntity(player, "RailExtension.sendTo")
         audience.add(player.uniqueId)
         buildModel()
         displayVisuals.forEach { it.showTo(player) }

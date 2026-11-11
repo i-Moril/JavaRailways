@@ -25,6 +25,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicLong
 import java.util.logging.Level
 import java.util.logging.Logger
@@ -156,6 +157,7 @@ class PhysicsCoordinator(
 
     internal val executionOwner = work.art1st.javarailways.core.physics.WorldExecutionOwner()
     private val stateLock = Any()
+    private val stopLock = Any()
     private val betweenFramesQueue = ArrayDeque<BetweenFramesOperation<*>>()
     private val pendingBetweenFrames = linkedSetOf<BetweenFramesOperation<*>>()
     private val betweenFramesDepth = ThreadLocal.withInitial { 0 }
@@ -218,14 +220,14 @@ class PhysicsCoordinator(
             check(world != null) { "PhysicsCoordinator must be attached to a world before start" }
             world!!.rebuildSweptOccupancyIndex(0L)
             started = true
-        }
-        if (automaticFallback) {
-            fallbackTimer.scheduleAtFixedRate(
-                ::timerWake,
-                fallbackPeriodMillis,
-                fallbackPeriodMillis,
-                TimeUnit.MILLISECONDS
-            )
+            if (automaticFallback) {
+                fallbackTimer.scheduleAtFixedRate(
+                    ::timerWake,
+                    fallbackPeriodMillis,
+                    fallbackPeriodMillis,
+                    TimeUnit.MILLISECONDS
+                )
+            }
         }
     }
 
@@ -596,10 +598,9 @@ class PhysicsCoordinator(
 
             ticket = PhysicsTicket(nextEpoch++, CompletableFuture())
             inFlight = ticket
-        }
-
-        coordinatorExecutor.execute {
-            runEpoch(ticket, source, startNanos, rawDeltaMillis, deltaMillis)
+            coordinatorExecutor.execute {
+                runEpoch(ticket, source, startNanos, rawDeltaMillis, deltaMillis)
+            }
         }
         return ticket
     }
@@ -901,6 +902,57 @@ class PhysicsCoordinator(
         operations.forEach { it.result.completeExceptionally(failure) }
     }
 
+    /**
+     * Stops new epochs and waits for the exact publication plus every owned executor.
+     * The host must stop external producers first. Failure prevents final snapshot capture;
+     * [close] remains nonblocking cancellation for existing callers.
+     */
+    fun stopAndAwait(timeoutMillis: Long = STOP_TIMEOUT_MILLIS) {
+        require(timeoutMillis > 0) { "timeoutMillis must be > 0" }
+        check(!ThreadGuard.isAsyncTickThread()) { "Physics shutdown must not wait on its own worker" }
+        check(!Thread.holdsLock(stateLock)) { "Physics shutdown must run outside the state lock" }
+        synchronized(stopLock) {
+            val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+            try {
+                val ticket = beginShutdown()
+                fallbackTimer.shutdownNow()
+                ticket.completion.get(remainingNanos(deadline), TimeUnit.NANOSECONDS)
+                coordinatorExecutor.shutdown()
+                workerPool.shutdown()
+                awaitTermination(coordinatorExecutor, deadline)
+                awaitTermination(workerPool, deadline)
+                awaitTermination(fallbackTimer, deadline)
+                synchronized(stateLock) { ensureUsableLocked() }
+            } catch (failure: Throwable) {
+                val pending = synchronized(stateLock) {
+                    acceptingWakes = false
+                    if (status != PhysicsCoordinatorStatus.CLOSED) status = PhysicsCoordinatorStatus.STALLED
+                    inFlight?.completion?.completeExceptionally(failure)
+                    inFlight = null
+                    removePendingBetweenFramesLocked()
+                }
+                failBetweenFrames(pending, failure)
+                fallbackTimer.shutdownNow()
+                coordinatorExecutor.shutdownNow()
+                workerPool.shutdownNow()
+                listOf(coordinatorExecutor, workerPool, fallbackTimer).forEach { executor ->
+                    try { awaitTermination(executor, deadline) }
+                    catch (terminationFailure: Throwable) { failure.addSuppressed(terminationFailure) }
+                }
+                throw failure
+            }
+        }
+    }
+
+    private fun remainingNanos(deadline: Long): Long =
+        (deadline - System.nanoTime()).coerceAtLeast(0L)
+
+    private fun awaitTermination(executor: ExecutorService, deadline: Long) {
+        if (!executor.awaitTermination(remainingNanos(deadline), TimeUnit.NANOSECONDS)) {
+            throw TimeoutException("Physics executor did not terminate during shutdown")
+        }
+    }
+
     override fun close() {
         RailwaySimulationHalt.unregister(this)
         val pending = synchronized(stateLock) {
@@ -991,6 +1043,7 @@ class PhysicsCoordinator(
         const val DEFAULT_MAX_PHYSICS_DELTA_MILLIS = 200.0
         const val OVERLOAD_WINDOW_MILLIS = 10_000L
         const val OVERLOADS_BEFORE_STALL = 3
+        private const val STOP_TIMEOUT_MILLIS = 10_000L
         private const val CLAMP_LOG_INTERVAL_MILLIS = 10_000L
 
         private val WORKER_SEQUENCE = AtomicLong()

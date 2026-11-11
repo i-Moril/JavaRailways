@@ -2,8 +2,7 @@ package work.art1st.javarailways.tunnelbridgebuilder
 
 import work.art1st.javarailways.diagnostics.PluginErrorLog
 import org.bukkit.plugin.java.JavaPlugin
-import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
-import work.art1st.javarailways.bukkit.api.rail.RailTargetService
+import work.art1st.javarailways.tunnelbridgebuilder.rail.JavaRailwaysServices
 import work.art1st.javarailways.tunnelbridgebuilder.rail.RailSweepService
 import work.art1st.javarailways.tunnelbridgebuilder.wand.BlockWandCommand
 import work.art1st.javarailways.tunnelbridgebuilder.wand.BlockWandItem
@@ -18,34 +17,39 @@ class TunnelBridgeBuilderPlugin : JavaPlugin() {
         private set
 
     private var errorLog: PluginErrorLog? = null
+    private var serviceBinding: JavaRailwaysServices? = null
 
     override fun onLoad() {
         errorLog = PluginErrorLog(dataFolder.toPath().resolve("logs/errors.log"), logger, "TunnelBridgeBuilder")
     }
 
     override fun onDisable() {
-        errorLog?.close()
-        errorLog = null
+        try { serviceBinding?.close() }
+        finally {
+            serviceBinding = null
+            errorLog?.close()
+            errorLog = null
+        }
     }
 
     override fun onEnable() {
-        try {
-            enable()
-        } catch (failure: Throwable) {
+        if (errorLog == null) onLoad()
+        try { enable() }
+        catch (failure: Throwable) {
+            serviceBinding?.close()
+            serviceBinding = null
             errorLog?.reportFailure("TunnelBridgeBuilder enable failed", failure)
             throw failure
         }
     }
 
     private fun enable() {
-        val railTargets = requireNotNull(server.servicesManager.load(RailTargetService::class.java)) {
-            "JavaRailways did not register RailTargetService"
-        }
-        val playerOperations = requireNotNull(server.servicesManager.load(PlayerOperationService::class.java)) {
-            "JavaRailways did not register PlayerOperationService"
-        }
+        val services = JavaRailwaysServices(this)
+        serviceBinding = services
+        requireNotNull(services.acquire()) { "JavaRailways did not register its required services" }
+        server.pluginManager.registerEvents(services, this)
         blockWandItem = BlockWandItem(this)
-        railSweepService = RailSweepService(this, railTargets, playerOperations)
+        railSweepService = RailSweepService(this, services)
         val menu = BlockWandMenu(this, blockWandItem)
         server.pluginManager.registerEvents(menu, this)
         server.pluginManager.registerEvents(BlockWandListener(blockWandItem, menu, railSweepService), this)

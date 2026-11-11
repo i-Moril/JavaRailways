@@ -61,6 +61,10 @@ class JavaRailwaysCommand {
 
     fun execute(sender: CommandSender, label: String, args: Array<out String>): Boolean =
         BukkitThreadGuardBridge.runInSimulationContext {
+        if (BukkitPlugin.instanceOrNull()?.isRuntimeActive != true) {
+            sender.sendMessage("JavaRailways 正在启动或停止，暂不接受操作")
+            return@runInSimulationContext true
+        }
         try {
             if (sender is Player && args.firstOrNull()?.lowercase() in WORLD_COMMANDS &&
                 !(args.firstOrNull().equals("train", true) && args.getOrNull(1).equals("list", true))) {

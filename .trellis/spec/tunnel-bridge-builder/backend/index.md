@@ -46,3 +46,10 @@
 - [ ] 运行 `git diff --check`。
 
 证据：`TunnelBridgeBuilder/build.gradle`、`TunnelBridgeBuilderPlugin.kt`、`RailSweepService.kt`、`BlockWandState.kt`、`SweepPlannerTest.kt`。
+
+
+## 主插件服务生命周期
+
+`JavaRailwaysServices.acquire()` 每次操作取得当前配对服务的 lease，服务 unregister、register 或 owner disable 都使旧 lease 失效。`ServiceGeneration.Lease.use` 在每个 region mutation group 与 undo record 边界验证；异步 targeting/planning 回调也验证 lease，不能用上一代结果清除下一代的 per-player operation slot。
+
+同实例主插件恢复后重新查 registry；跨类加载器 API 替换必须共同重载 add-on。关闭可能在多个 region group 之间发生，此时明确报告部分修改，不宣称已自动回滚。测试 `ServiceGenerationTest` 断言 owner 禁用、替换 fencing 和失效等待当前 mutation；实际服务事件顺序仍需实服验收。

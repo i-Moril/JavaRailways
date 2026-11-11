@@ -277,12 +277,10 @@ class TextDisplayBackendTest {
 
     private fun configurePacketText(meta: TextDisplayMeta, text: Component) {
         EntityLibDisplayRenderBackend::class.java.getDeclaredMethod("configureText", TextDisplayMeta::class.java, Component::class.java)
-            .also { it.isAccessible = true }.invoke(EntityLibDisplayRenderBackend(), meta, text)
+            .also { it.isAccessible = true }.invoke(EntityLibDisplayRenderBackend(PacketDisplayChunks()), meta, text)
     }
 
-    private fun packetVisual(wrapper: WrapperEntity): DisplayVisual = Class.forName(
-        "work.art1st.javarailways.bukkit.render.backend.EntityLibDisplayVisual"
-    ).getDeclaredConstructor(WrapperEntity::class.java).also { it.isAccessible = true }.newInstance(wrapper) as DisplayVisual
+    private fun packetVisual(wrapper: WrapperEntity): DisplayVisual = EntityLibDisplayVisual(wrapper, PacketDisplayChunks())
 
     private fun styledText() = Component.text("下一站", NamedTextColor.AQUA)
         .font(Key.key("example:display"))

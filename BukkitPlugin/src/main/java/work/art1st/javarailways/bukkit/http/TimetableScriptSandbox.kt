@@ -167,6 +167,13 @@ class TimetableScriptSandbox private constructor(
             deadlineExecutor.shutdownNow()
             executor.shutdownNow()
         }
+        for ((name, service) in listOf("script deadline" to deadlineExecutor, "script" to executor)) {
+            try {
+                check(service.awaitTermination(10, TimeUnit.SECONDS)) { "Timetable $name executor did not terminate" }
+            } catch (error: Throwable) {
+                if (failure == null) failure = error else failure!!.addSuppressed(error)
+            }
+        }
         failure?.let { throw it }
     }
 

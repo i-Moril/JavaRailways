@@ -1,6 +1,9 @@
 package work.art1st.javarailways.bukkit.render.chunk
 
 import org.bukkit.Bukkit
+import io.papermc.paper.event.packet.PlayerChunkLoadEvent
+import io.papermc.paper.event.packet.PlayerChunkUnloadEvent
+import work.art1st.javarailways.bukkit.util.PlatformCleanup
 import org.bukkit.World
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
@@ -60,6 +63,7 @@ class RenderChunkManager(
     private val processedUpdates = AtomicLong()
     private val authoritativePassengerRefreshRequests = AtomicLong()
     private val authoritativePassengerRefreshes = AtomicLong()
+    @Volatile private var closed = false
 
     init {
         try {
@@ -79,7 +83,21 @@ class RenderChunkManager(
     }
 
     fun close() {
+        if (closed) return
+        closed = true
         var failure: Throwable? = null
+        // Models without viewers also own native entities and behavior runtimes.
+        val renderables = renderableObjects.values.flatMap { it.toList() }.toSet() + renderablePositions.keys
+        renderables.forEach { renderable ->
+            try {
+                when (renderable) {
+                    is Car -> PlatformCleanup.awaitCompletion(renderable.renderer.destroy())
+                    is RailArcVisualSegment -> PlatformCleanup.awaitCompletion(renderable.renderer.destroy())
+                }
+            } catch (cleanupFailure: Throwable) {
+                failure = accumulateFailure(failure, cleanupFailure)
+            }
+        }
         visibleByPlayer.keys.toList().forEach { playerId ->
             try {
                 val player = playerLookup(playerId)
@@ -93,6 +111,9 @@ class RenderChunkManager(
             }
         }
         pendingAudienceUpdates.clear()
+        renderableObjects.clear()
+        visibleByPlayer.clear()
+        refreshStateByPlayer.clear()
         renderablePositions.clear()
         audienceIndex.clear()
         try {
@@ -117,6 +138,27 @@ class RenderChunkManager(
             }
         }
         return selected
+    }
+
+    @EventHandler
+    fun onPlayerChunkLoad(event: PlayerChunkLoadEvent) {
+        if (event.world == world) refreshChunkAudience(event.player, RenderChunk(event.chunk.x, event.chunk.z))
+    }
+
+    @EventHandler
+    fun onPlayerChunkUnload(event: PlayerChunkUnloadEvent) {
+        if (event.world == world) refreshChunkAudience(event.player, RenderChunk(event.chunk.x, event.chunk.z))
+    }
+
+    private fun refreshChunkAudience(player: Player, chunk: RenderChunk) {
+        if (closed) return
+        // Bogies can occupy a sent chunk even while the car centre is in a neighbouring chunk.
+        val affected = LinkedHashSet<Renderable>()
+        renderableObjects[chunk]?.let(affected::addAll)
+        visibleByPlayer[player.uniqueId]?.let(affected::addAll)
+        affected.forEach { renderable ->
+            renderablePositions[renderable]?.let { queueAudienceUpdate(player.uniqueId, renderable, it) }
+        }
     }
 
     @EventHandler
@@ -219,6 +261,7 @@ class RenderChunkManager(
     }
 
     private fun setVisible(player: Player, renderable: Renderable, visible: Boolean, refreshExisting: Boolean = false) {
+        if (closed && visible) return
         if (visible) {
             val renderables = visibleByPlayer.computeIfAbsent(player.uniqueId) { ConcurrentHashMap.newKeySet() }
             audienceIndex.markVisible(player.uniqueId, renderable)
@@ -318,6 +361,7 @@ class RenderChunkManager(
     }
 
     internal fun update(renderable: Renderable, oldPosition: Vector3dc?, newPosition: Vector3dc) {
+        if (closed) return
         val newChunk = RenderChunk(newPosition)
         val oldChunk = oldPosition?.let(::RenderChunk)
         val positionSnapshot = Vector3Snapshot.capture(newPosition)

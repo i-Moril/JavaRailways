@@ -8,9 +8,7 @@ import org.bukkit.block.data.BlockData
 import org.bukkit.block.data.type.Slab
 import org.bukkit.entity.Player
 import work.art1st.javarailways.bukkit.api.operation.OperationResult
-import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
 import work.art1st.javarailways.bukkit.api.operation.UndoableOperation
-import work.art1st.javarailways.bukkit.api.rail.RailTargetService
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.rail.resolveLogicalRailLaneIds
 import work.art1st.javarailways.core.api.physics.rail.Rail
@@ -47,22 +45,37 @@ internal fun railSweepSampleArcLengths(totalArcLength: Double, sampleSpacing: Do
     }
 }
 
-class RailSweepService(
+class RailSweepService internal constructor(
     private val plugin: TunnelBridgeBuilderPlugin,
-    private val railTargets: RailTargetService,
-    private val playerOperations: PlayerOperationService
+    private val services: JavaRailwaysServices
 ) {
     private data class BlockUndo(val worldId: UUID, val blocks: List<FullBlockSnapshot>)
     private data class BlockPlacement(val blockData: BlockData, val rule: PlacementRule)
 
-    private val operationsInProgress = ConcurrentHashMap.newKeySet<UUID>()
+    private val operationsInProgress = ConcurrentHashMap<UUID, ServiceGeneration<JavaRailwaysServices.Services>.Lease>()
+
+    private fun beginOperation(playerId: UUID, lease: ServiceGeneration<JavaRailwaysServices.Services>.Lease): Boolean {
+        var accepted = false
+        operationsInProgress.compute(playerId) { _, previous ->
+            if (previous == null || !previous.isCurrent()) {
+                accepted = true
+                lease
+            } else previous
+        }
+        return accepted
+    }
 
     fun replaceLookedAtRail(player: Player, state: BlockWandState) {
         if (state.primaryRailCell == null) {
             player.sendActionBar(Component.text("请先在 GUI 中设置基准轨道格", NamedTextColor.RED))
             return
         }
-        if (!operationsInProgress.add(player.uniqueId)) {
+        val lease = services.acquire()
+        if (lease == null) {
+            player.sendActionBar(Component.text("JavaRailways 服务暂不可用", NamedTextColor.YELLOW))
+            return
+        }
+        if (!beginOperation(player.uniqueId, lease)) {
             player.sendActionBar(Component.text("已有隧道/桥梁操作正在执行", NamedTextColor.YELLOW))
             return
         }
@@ -70,49 +83,62 @@ class RailSweepService(
         val worldId = player.world.uid
         player.sendActionBar(Component.text("正在查找轨道...", NamedTextColor.GRAY))
         val targetStage = try {
-            railTargets.findLookedAtRail(player, TARGET_MAX_DISTANCE, TARGET_HIT_RADIUS)
+            lease.use { it.railTargets.findLookedAtRail(player, TARGET_MAX_DISTANCE, TARGET_HIT_RADIUS) }
         } catch (failure: Throwable) {
-            operationsInProgress.remove(player.uniqueId)
+            operationsInProgress.remove(player.uniqueId, lease)
             plugin.logger.log(Level.WARNING, "Rail targeting failed for ${player.name}", failure)
             player.sendActionBar(Component.text("轨道查找失败", NamedTextColor.RED))
             return
         }
 
         targetStage.whenComplete { selected, targetingFailure ->
+            if (!lease.isCurrent()) {
+                operationsInProgress.remove(player.uniqueId, lease)
+                return@whenComplete
+            }
             if (targetingFailure != null) {
-                operationsInProgress.remove(player.uniqueId)
+                operationsInProgress.remove(player.uniqueId, lease)
                 plugin.logger.log(Level.WARNING, "Rail targeting failed for ${player.name}", targetingFailure)
                 sendToPlayer(player, Component.text("轨道查找失败", NamedTextColor.RED))
                 return@whenComplete
             }
             val target = selected?.orElse(null)
             if (target == null) {
-                operationsInProgress.remove(player.uniqueId)
+                operationsInProgress.remove(player.uniqueId, lease)
                 sendToPlayer(player, Component.text("没有指向轨道", NamedTextColor.RED))
                 return@whenComplete
             }
 
             sendToPlayer(player, Component.text("正在计算逻辑段横断面扫掠...", NamedTextColor.GRAY))
-            plugin.server.asyncScheduler.runNow(plugin) {
-                val result = runCatching { plan(resolveLogicalRails(target.rail()), state) }
-                runForPlayer(
-                    player,
-                    retired = { operationsInProgress.remove(player.uniqueId) }
-                ) { livePlayer ->
-                    if (livePlayer.world.uid != worldId) {
-                        operationsInProgress.remove(livePlayer.uniqueId)
-                        livePlayer.sendActionBar(Component.text("世界已改变，操作已取消", NamedTextColor.YELLOW))
-                        return@runForPlayer
-                    }
-                    result.fold(
-                        onSuccess = { changes -> applyChanges(livePlayer, changes) },
-                        onFailure = { failure ->
-                            operationsInProgress.remove(livePlayer.uniqueId)
-                            plugin.logger.log(Level.WARNING, "Rail sweep failed for ${livePlayer.name}", failure)
-                            livePlayer.sendActionBar(Component.text("横断面扫掠失败", NamedTextColor.RED))
+            try {
+                plugin.server.asyncScheduler.runNow(plugin) {
+                    val result = runCatching { lease.use { plan(resolveLogicalRails(target.rail()), state) } }
+                    runForPlayer(
+                        player,
+                        retired = { operationsInProgress.remove(player.uniqueId, lease) }
+                    ) { livePlayer ->
+                        if (!lease.isCurrent()) {
+                            operationsInProgress.remove(livePlayer.uniqueId, lease)
+                            return@runForPlayer
                         }
-                    )
+                        if (livePlayer.world.uid != worldId) {
+                            operationsInProgress.remove(livePlayer.uniqueId, lease)
+                            livePlayer.sendActionBar(Component.text("世界已改变，操作已取消", NamedTextColor.YELLOW))
+                            return@runForPlayer
+                        }
+                        result.fold(
+                            onSuccess = { changes -> applyChanges(livePlayer, changes, lease) },
+                            onFailure = { failure ->
+                                operationsInProgress.remove(livePlayer.uniqueId, lease)
+                                plugin.logger.log(Level.WARNING, "Rail sweep failed for ${livePlayer.name}", failure)
+                                livePlayer.sendActionBar(Component.text("横断面扫掠失败", NamedTextColor.RED))
+                            }
+                        )
+                    }
                 }
+            } catch (failure: Throwable) {
+                operationsInProgress.remove(player.uniqueId, lease)
+                plugin.logger.log(Level.WARNING, "Could not schedule rail sweep", failure)
             }
         }
     }
@@ -216,9 +242,13 @@ class RailSweepService(
         return SampledCenterLine(frames)
     }
 
-    private fun applyChanges(player: Player, changes: List<BlockPositionChange<BlockData>>) {
+    private fun applyChanges(
+        player: Player,
+        changes: List<BlockPositionChange<BlockData>>,
+        lease: ServiceGeneration<JavaRailwaysServices.Services>.Lease
+    ) {
         if (changes.isEmpty()) {
-            operationsInProgress.remove(player.uniqueId)
+            operationsInProgress.remove(player.uniqueId, lease)
             player.sendActionBar(Component.text("模板没有需要替换的方块", NamedTextColor.GRAY))
             return
         }
@@ -241,18 +271,21 @@ class RailSweepService(
         }
         val before = ArrayList<FullBlockSnapshot>(changes.size)
         runRegionTasks(
+            lease = lease,
             world = world,
             tasks = groups,
             onGroupApplied = before::addAll,
             onDone = {
                 val recordFailure = runCatching {
-                    playerOperations.record(
-                        player.uniqueId,
-                        plugin,
-                        BlockUndoOperation(BlockUndo(world.uid, before.toList()))
-                    )
+                    lease.use { bound ->
+                        bound.playerOperations.record(
+                            player.uniqueId,
+                            plugin,
+                            BlockUndoOperation(BlockUndo(world.uid, before.toList()), lease)
+                        )
+                    }
                 }.exceptionOrNull()
-                operationsInProgress.remove(player.uniqueId)
+                operationsInProgress.remove(player.uniqueId, lease)
                 if (recordFailure == null) {
                     sendToPlayer(
                         player,
@@ -267,7 +300,7 @@ class RailSweepService(
                 }
             },
             onFailure = { failure ->
-                operationsInProgress.remove(player.uniqueId)
+                operationsInProgress.remove(player.uniqueId, lease)
                 plugin.logger.log(Level.SEVERE, "Block sweep failed after ${before.size} changes", failure)
                 sendToPlayer(player, Component.text("方块替换中途失败", NamedTextColor.RED))
             }
@@ -275,27 +308,37 @@ class RailSweepService(
     }
 
     private inner class BlockUndoOperation(
-        private val undo: BlockUndo
+        private val undo: BlockUndo,
+        private val lease: ServiceGeneration<JavaRailwaysServices.Services>.Lease
     ) : UndoableOperation {
         override fun description(): Component = Component.text("隧道/桥梁方块替换")
 
         override fun undo(player: Player): CompletionStage<OperationResult> {
-            if (!operationsInProgress.add(player.uniqueId)) {
+            if (!lease.isCurrent()) {
+                return CompletableFuture.completedFuture(
+                    OperationResult.failed(Component.text("JavaRailways 服务已重启，无法执行旧撤销", NamedTextColor.RED))
+                )
+            }
+            if (!beginOperation(player.uniqueId, lease)) {
                 return CompletableFuture.completedFuture(
                     OperationResult.busy(Component.text("已有隧道/桥梁操作正在执行", NamedTextColor.YELLOW))
                 )
             }
             if (undo.worldId != player.world.uid) {
-                operationsInProgress.remove(player.uniqueId)
+                operationsInProgress.remove(player.uniqueId, lease)
                 return CompletableFuture.completedFuture(
                     OperationResult.failed(Component.text("请回到执行方块替换的世界后再撤销", NamedTextColor.RED))
                 )
             }
-            return restoreBlocks(player, undo)
+            return restoreBlocks(player, undo, lease)
         }
     }
 
-    private fun restoreBlocks(player: Player, undo: BlockUndo): CompletionStage<OperationResult> {
+    private fun restoreBlocks(
+        player: Player,
+        undo: BlockUndo,
+        lease: ServiceGeneration<JavaRailwaysServices.Services>.Lease
+    ): CompletionStage<OperationResult> {
         val result = CompletableFuture<OperationResult>()
         val world = player.world
         val groups = undo.blocks.groupBy { it.x shr 4 to (it.z shr 4) }.values.map { group ->
@@ -305,11 +348,12 @@ class RailSweepService(
             }
         }
         runRegionTasks(
+            lease = lease,
             world = world,
             tasks = groups,
             onGroupApplied = {},
             onDone = {
-                operationsInProgress.remove(player.uniqueId)
+                operationsInProgress.remove(player.uniqueId, lease)
                 result.complete(
                     OperationResult.success(
                         Component.text("已撤销 ${undo.blocks.size} 个方块", NamedTextColor.GREEN)
@@ -317,7 +361,7 @@ class RailSweepService(
                 )
             },
             onFailure = { failure ->
-                operationsInProgress.remove(player.uniqueId)
+                operationsInProgress.remove(player.uniqueId, lease)
                 plugin.logger.log(Level.SEVERE, "Block sweep undo failed", failure)
                 result.complete(
                     OperationResult.failed(Component.text("方块撤销中途失败", NamedTextColor.RED))
@@ -328,6 +372,7 @@ class RailSweepService(
     }
 
     private fun runRegionTasks(
+        lease: ServiceGeneration<JavaRailwaysServices.Services>.Lease,
         world: World,
         tasks: List<RegionBlockTask>,
         index: Int = 0,
@@ -335,6 +380,10 @@ class RailSweepService(
         onDone: () -> Unit,
         onFailure: (Throwable) -> Unit
     ) {
+        if (!lease.isCurrent()) {
+            onFailure(IllegalStateException("JavaRailways services stopped during block operation"))
+            return
+        }
         if (index >= tasks.size) {
             onDone()
             return
@@ -345,8 +394,8 @@ class RailSweepService(
         try {
             plugin.server.regionScheduler.execute(plugin, location) {
                 try {
-                    onGroupApplied(task.action())
-                    runRegionTasks(world, tasks, index + 1, onGroupApplied, onDone, onFailure)
+                    onGroupApplied(lease.use { task.action() })
+                    runRegionTasks(lease, world, tasks, index + 1, onGroupApplied, onDone, onFailure)
                 } catch (failure: Throwable) {
                     onFailure(failure)
                 }
@@ -361,12 +410,22 @@ class RailSweepService(
     }
 
     private fun runForPlayer(player: Player, retired: () -> Unit, action: (Player) -> Unit) {
-        player.scheduler.execute(
-            plugin,
-            Runnable { action(player) },
-            Runnable(retired),
-            0L
-        )
+        if (!plugin.isEnabled) {
+            retired()
+            return
+        }
+        try {
+            val scheduled = player.scheduler.execute(
+                plugin,
+                Runnable { if (plugin.isEnabled) action(player) else retired() },
+                Runnable(retired),
+                0L
+            )
+            if (!scheduled) retired()
+        } catch (failure: Throwable) {
+            retired()
+            plugin.logger.log(Level.WARNING, "Could not schedule player callback", failure)
+        }
     }
 
     private data class RegionBlockTask(

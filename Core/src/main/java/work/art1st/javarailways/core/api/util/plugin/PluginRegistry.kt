@@ -1,27 +1,41 @@
 package work.art1st.javarailways.core.api.util.plugin
 
 /**
- * 各 [Plugin] 在启动时注册一次，顺序决定 [Plugin.identifier] 与 [Extendable] 中扩展槽位下标。
- * 在创建任何带扩展数据的宿主（例如物理世界 CoreWorld）之前必须先完成注册。
+ * Registers extension namespaces before creating hosts such as physics worlds.
+ * Registration order assigns stable [Plugin.identifier] extension slots, including retired slots.
  */
 object PluginRegistry {
-    private val _plugins = mutableListOf<Plugin>()
+    // Retired entries retain only a name, never an implementation Class or its classloader.
+    private class Slot(val implementationName: String, var owner: Plugin?)
+    private val slots = mutableListOf<Slot>()
+
+    /** Active owners in slot order. List indices are not extension slot identifiers. */
     val plugins: List<Plugin>
-        @Synchronized get() = _plugins.toList()
+        @Synchronized get() = slots.mapNotNull { it.owner }
 
     /**
-     * Registers one extension namespace per plugin implementation class.
-     * Re-registering after a host lifecycle restart reuses the stable slot and replaces the stale instance.
+     * Registers one extension namespace per plugin implementation name.
+     * Re-registering after a host lifecycle restart reuses its slot and replaces the stale instance.
      */
     @Synchronized
     fun register(plugin: Plugin) {
-        val existingIndex = _plugins.indexOfFirst { it::class == plugin::class }
+        val implementationName = plugin.javaClass.name
+        val existingIndex = slots.indexOfFirst { it.implementationName == implementationName }
         if (existingIndex >= 0) {
             plugin.identifier = existingIndex
-            _plugins[existingIndex] = plugin
+            slots[existingIndex].owner = plugin
             return
         }
-        plugin.identifier = _plugins.size
-        _plugins.add(plugin)
+        plugin.identifier = slots.size
+        slots.add(Slot(implementationName, plugin))
+    }
+
+    /**
+     * Releases this exact owner after its extension hosts have stopped. Slots never shift, and a
+     * delayed cleanup from an older instance cannot unregister its replacement. Repeated calls are safe.
+     */
+    @Synchronized
+    fun unregister(owner: Plugin) {
+        slots.firstOrNull { it.owner === owner }?.owner = null
     }
 }

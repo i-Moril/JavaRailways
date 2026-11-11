@@ -1,14 +1,17 @@
 package work.art1st.javarailways.core.api.util.plugin
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 @OptIn(ExtensionData::class)
 class ExtensionDataContainerTest {
     private class TestPlugin(override var identifier: Int) : Plugin
+    private class OtherPlugin(override var identifier: Int = -1) : Plugin
+    private class LastPlugin(override var identifier: Int = -1) : Plugin
 
     @Test
     fun `optional lookup returns null when extension data is absent`() {
@@ -37,7 +40,51 @@ class ExtensionDataContainerTest {
         PluginRegistry.register(second)
 
         assertEquals(first.identifier, second.identifier)
-        assertEquals(second, PluginRegistry.plugins[second.identifier])
+        assertTrue(PluginRegistry.plugins.any { it === second })
+        PluginRegistry.unregister(first)
+        assertTrue(PluginRegistry.plugins.any { it === second })
+        PluginRegistry.unregister(second)
+    }
+
+    @Test
+    fun `retiring owner releases active reference without shifting or reusing other slots`() {
+        val first = TestPlugin(-1)
+        val other = OtherPlugin()
+        PluginRegistry.register(first)
+        PluginRegistry.register(other)
+        val firstSlot = first.identifier
+        val otherSlot = other.identifier
+        val container = ExtensionDataContainer<Any>()
+        container.registerExtensionData(other, "other-data")
+        try {
+            PluginRegistry.unregister(first)
+            PluginRegistry.unregister(first)
+            assertFalse(PluginRegistry.plugins.any { it === first })
+            assertEquals(otherSlot, other.identifier)
+            assertEquals("other-data", container.requireExtensionData<String>(other))
+
+            val replacement = TestPlugin(-1)
+            PluginRegistry.register(replacement)
+            try {
+                assertEquals(firstSlot, replacement.identifier)
+                assertEquals(otherSlot, other.identifier)
+                PluginRegistry.unregister(first)
+                assertTrue(PluginRegistry.plugins.any { it === replacement })
+            } finally {
+                PluginRegistry.unregister(replacement)
+            }
+            val last = LastPlugin()
+            PluginRegistry.register(last)
+            try {
+                assertTrue(last.identifier > otherSlot)
+                assertTrue(last.identifier > firstSlot)
+            } finally {
+                PluginRegistry.unregister(last)
+            }
+        } finally {
+            PluginRegistry.unregister(first)
+            PluginRegistry.unregister(other)
+        }
     }
 
     @Test

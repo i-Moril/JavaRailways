@@ -43,7 +43,7 @@
 
 - 根、`Core`、`Basic`、`SimpleATO`、`ConfigLib`、`Annotation` 和 `WebUI` 使用 Java/Kotlin 17 toolchain/target。
 - 当前 `SimpleATOBukkit`、`SimpleSignals`、`Decorations`、`BukkitPlugin`、`BukkitPluginDev`、`TunnelBridgeBuilder` build 使用 JVM 25；根 CI 也安装 JDK 25。以 build 文件为准，不依赖可能滞后的说明文档。
-- `BukkitPlugin:shadowJar` 合并 runtime、重定位 PacketEvents/EntityLib/Cloud，并嵌入 `WebUI:shadowJar`。
+- `BukkitPlugin:shadowJar` 合并 runtime、重定位 EntityLib/Cloud，并嵌入 `WebUI:shadowJar`。PacketEvents 使用 compileOnly，由独立安装的 packetevents 插件提供；主插件声明硬依赖，EntityLib 传递依赖不得重新引入。打包检查原始与重定位 PacketEvents 类均不得进入主 JAR。
 - `SimpleATOBukkit`只生成普通library JAR供Gradle组合；该JAR不得包含`plugin.yml`，最终class由`BukkitPlugin:shadowJar`合入JavaRailways主插件，不作为独立服务器插件发布。
 - `SimpleSignals`生成带独立`plugin.yml`的普通部署JAR；该JAR不shadow Core、Basic、SimpleATO或BukkitPlugin class。
 - `Decorations`也是独立普通插件JAR，hard-depend JavaRailways、soft-depend SimpleDisplays；只通过宿主公开 extension API 注册部件，display校验/资源语义/可选服务连接由其拥有，不能打入宿主或provider API/runtime类。

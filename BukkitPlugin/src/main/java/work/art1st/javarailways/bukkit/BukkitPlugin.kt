@@ -284,7 +284,6 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         INSTANCE = this
         threadGuardRegistration = ThreadGuardHost.registerPlatformBridge(BukkitThreadGuardBridge)
         viewDistanceManager = ViewDistanceManager(javaRailwaysConfig.displayRenderer.playerDistance.maxBlocks)
-        railTargetService = BukkitRailTargetService(this)
         playerOperationServiceImpl = DefaultPlayerOperationService(logger)
         playerOperationService = playerOperationServiceImpl
         railwayObservationServiceImpl = DefaultRailwayObservationService(logger)
@@ -322,6 +321,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
                 if (::trainControlManager.isInitialized) trainControlManager.retireWorld(world)
             }
         )
+        railTargetService = BukkitRailTargetService(this)
         server.pluginManager.registerEvents(worldManager, this)
         server.servicesManager.register(work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService::class.java,
             worldIssues, this, org.bukkit.plugin.ServicePriority.Normal)

@@ -11,6 +11,7 @@ import org.joml.Vector3dc
 import org.joml.Vector3f
 import work.art1st.javarailways.bukkit.api.internal.DefaultPartExtensionService
 import work.art1st.javarailways.bukkit.api.internal.PartExtensionAttachment
+import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionText
 import work.art1st.javarailways.bukkit.api.model.extension.PartExtensionRenderContext
 import work.art1st.javarailways.bukkit.render.Animation
 import work.art1st.javarailways.bukkit.render.backend.*
@@ -38,6 +39,8 @@ internal class ExtensionPartModel(
 ) : AbstractModel(world, state, children, animations) {
     private var root: DisplayVisual? = null
     private var texts: List<TextModel> = emptyList()
+    private var keyedTexts: Map<String, GeneratedText> = emptyMap()
+    private class GeneratedText(val model: TextModel, val content: PartExtensionText)
     private var lastRoot: CompactTransform? = null
     private var lastVelocity: Vector3dc = Vector3d()
     private var destroyed = false
@@ -169,51 +172,66 @@ internal class ExtensionPartModel(
         val frame = active.poll() ?: return
         obsoleteCleanup.removeAll { it.toCompletableFuture().let { future -> future.isDone && !future.isCompletedExceptionally } }
         val latestRoot = oldRoot.copy(position = Vector3d(location.x, location.y, location.z))
-        if (frame.texts.size == texts.size) {
-            try {
-                texts.zip(frame.texts).forEach { (model, text) ->
-                    if (!active.isActive || destroyed) throw CancellationException("Extension attachment was retired")
-                    model.updateContent(text)
-                    if (!active.isActive || destroyed) throw CancellationException("Extension attachment was retired")
-                    model.updateState(state.rootRelativeTransform, latestRoot, lastVelocity, true)
-                }
-                applyFailed = false
-            } catch (failure: Throwable) { if (failure !is CancellationException) reportApplyFailure(failure) }
-            return
-        }
         val applyingCompletion = CompletableFuture<Void>()
         applying = applyingCompletion
         try {
+            val changed = mutableListOf<GeneratedText>()
+            val added = mutableListOf<TextModel>()
             val prepared = ModelConstruction.build { construction ->
-                val generated = frame.texts.map { text ->
+                try {
+                    // Finish every fallible allocation before mutating the last successful frame.
+                    val generated = frame.texts.associate { text ->
+                        if (!active.isActive || destroyed) throw CancellationException("Extension attachment was retired")
+                        val previous = keyedTexts[text.key]
+                        val model = previous?.model ?: run {
+                            val visual = backend.create(requireNotNull(location.world), DisplayVisualDescriptor(
+                                location.clone(), DisplayVisualContent.Text(text.text),
+                                Transformation(Vector3f(), Quaternionf(), Vector3f(1f), Quaternionf()), viewRange,
+                                TRAIN_DISPLAY_INTERPOLATION_TICKS, TRAIN_DISPLAY_TELEPORT_TICKS))
+                            construction.own(visual, visual::destroy)
+                            val created = TextModel(world, ModelState(text.pose.toCompactTransform(text.scale)), visual, text)
+                            construction.own(created, created::destroy)
+                            construction.transfer(visual)
+                            created.mountTo(mountedRoot)
+                            created.updateState(state.rootRelativeTransform, latestRoot, lastVelocity, true)
+                            added += created
+                            created
+                        }
+                        text.key to GeneratedText(model, text)
+                    }
+                    generated.forEach { (key, next) ->
+                        val previous = keyedTexts[key] ?: return@forEach
+                        if (!active.isActive || destroyed) throw CancellationException("Extension attachment was retired")
+                        changed += previous
+                        next.model.updateContent(next.content)
+                        next.model.updateState(state.rootRelativeTransform, latestRoot, lastVelocity, true)
+                    }
                     if (!active.isActive || destroyed) throw CancellationException("Extension attachment was retired")
-                    val visual = backend.create(requireNotNull(location.world), DisplayVisualDescriptor(
-                        location.clone(), DisplayVisualContent.Text(text.text),
-                        Transformation(Vector3f(), Quaternionf(), Vector3f(1f), Quaternionf()), viewRange,
-                        TRAIN_DISPLAY_INTERPOLATION_TICKS, TRAIN_DISPLAY_TELEPORT_TICKS))
-                    construction.own(visual, visual::destroy)
-                    val model = TextModel(world, ModelState(text.pose.toCompactTransform(text.scale)), visual, text)
-                    construction.own(model, model::destroy)
-                    construction.transfer(visual)
-                    model.mountTo(mountedRoot)
-                    model.updateState(state.rootRelativeTransform, latestRoot, lastVelocity, true)
-                    model
+                    added.forEach(construction::transfer)
+                    generated
+                } catch (failure: Throwable) {
+                    // Provider retirement already owns the old frame; do not resurrect its content.
+                    if (active.isActive && !destroyed) changed.asReversed().forEach { previous ->
+                        try {
+                            previous.model.updateContent(previous.content)
+                            previous.model.updateState(state.rootRelativeTransform, latestRoot, lastVelocity, true)
+                        } catch (rollback: Throwable) { if (rollback !== failure) failure.addSuppressed(rollback) }
+                    }
+                    throw failure
                 }
-                if (!active.isActive || destroyed) throw CancellationException("Extension attachment was retired")
-                generated.forEach(construction::transfer)
-                generated
             }
-            val old = texts
-            texts = prepared
+            val removed = keyedTexts.filterKeys { it !in prepared }.values
+            keyedTexts = prepared
+            texts = prepared.values.map { it.model }
             val retirement = DestructionSteps()
-            old.forEach { model -> retirement.await { model.destroy() } }
+            removed.forEach { old -> retirement.await { old.model.destroy() } }
             val retired = retirement.finish()
             obsoleteCleanup += retired
             retired.whenComplete { _, failure ->
                 if (failure == null) applyingCompletion.complete(null) else applyingCompletion.completeExceptionally(failure)
             }
             applyFailed = false
-            viewers.values.toList().forEach { viewer -> replay(viewer, prepared, active) }
+            if (added.isNotEmpty()) viewers.values.toList().forEach { viewer -> replay(viewer, added, active) }
         } catch (failure: Throwable) {
             val cleanup = if (failure is DisplayCleanupException) failure.cleanup else CompletableFuture.completedFuture(null)
             cleanup.whenComplete { _, cleanupFailure ->
@@ -255,7 +273,7 @@ internal class ExtensionPartModel(
         val changed = viewer.visible != visible
         viewer.visible = visible
         if (changed || visible && replay != null) bundles.frame {
-            if (visible) (replay ?: texts).forEach { it.showVisualsTo(viewer.player) }
+            if (visible) (if (changed) texts else replay ?: texts).forEach { it.showVisualsTo(viewer.player) }
             else texts.forEach { it.hideVisualsFrom(viewer.player) }
             root?.refreshPassengersFor(viewer.player)
         }
@@ -311,8 +329,9 @@ internal class ExtensionPartModel(
         try {
             dispatcher.runForEntity(viewer.player, action = {
                 synchronized(this) {
-                    if (destroyed || !active.isActive || viewers[viewer.id] !== viewer || texts !== prepared) return@runForEntity
-                    refreshViewer(viewer, prepared)
+                    if (destroyed || !active.isActive || viewers[viewer.id] !== viewer) return@runForEntity
+                    val current = prepared.filter { it in texts }
+                    if (current.isNotEmpty()) refreshViewer(viewer, current)
                 }
             }, retired = { synchronized(this) { removeViewer(viewer) } })
         } catch (failure: RuntimeException) { service.reportRuntimeFailure("Could not expose extension text to its existing viewer", failure) }
@@ -344,6 +363,7 @@ internal class ExtensionPartModel(
         obsoleteCleanup.clear()
         val old = texts
         texts = emptyList()
+        keyedTexts = emptyMap()
         old.forEach { text -> steps.await { text.destroy() } }
         return steps.finish()
     }

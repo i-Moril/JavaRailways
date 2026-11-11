@@ -131,7 +131,7 @@ class ExtensionPartModelTest {
             f.pendingCleanup = cleanup
             f.failCreateAt = if (failMount) -1 else 2
             f.root.failMount = failMount
-            val registration = f.register { PartExtensionFrame(listOf(f.frame().texts.single(), f.frame().texts.single())) }
+            val registration = f.register { PartExtensionFrame(listOf(f.text("fixed"), f.text("second"))) }
             val composite = f.composite(f.group())
             try {
                 composite.updateState(CompactTransform())
@@ -173,7 +173,7 @@ class ExtensionPartModelTest {
             assertEquals(listOf(0L), f.inputs.map { it.elapsedTicks })
             composite.updateExtensionInput(JsonObject(emptyMap()), 109)
             assertEquals(1, f.inputs.size)
-            next.set(PartExtensionFrame(listOf(PartExtensionText(Component.text("updated"), ModelPose(4.0,0.0,0.0,0.0,0.0,0.0,1.0)))))
+            next.set(PartExtensionFrame(listOf(PartExtensionText(Component.text("updated"), ModelPose(4.0,0.0,0.0,0.0,0.0,0.0,1.0), key = "fixed"))))
             composite.updateExtensionInput(JsonObject(emptyMap()), 110)
             f.driveUntil(composite) { f.visuals.single().textUpdates == 1 }
             assertEquals(Component.text("updated"), f.visuals.single().textValue)
@@ -199,10 +199,10 @@ class ExtensionPartModelTest {
             composite.updateExtensionInput(JsonObject(emptyMap()), 0)
             composite.updateState(CompactTransform()); f.awaitApplied(composite)
             f.pendingCleanup = null
-            next.set(PartExtensionFrame(listOf(f.frame().texts.single(), f.frame().texts.single())))
+            next.set(PartExtensionFrame(listOf(f.text("fixed"), f.text("second"))))
             composite.updateExtensionInput(JsonObject(emptyMap()), 10)
-            f.driveUntil(composite) { f.descriptors.size == 3 }
-            assertEquals(1, f.visuals.first().destroys)
+            f.driveUntil(composite) { f.descriptors.size == 2 }
+            assertEquals(0, f.visuals.first().destroys)
             assertEquals(0, f.child.destroyed)
             next.set(PartExtensionFrame.EMPTY)
             composite.updateExtensionInput(JsonObject(emptyMap()), 20)
@@ -222,7 +222,7 @@ class ExtensionPartModelTest {
             composite.updateExtensionInput(JsonObject(emptyMap()), 0)
             composite.updateState(CompactTransform()); f.awaitApplied(composite)
             f.failCreateAt = 3
-            next.set(PartExtensionFrame(listOf(f.frame().texts.single(), f.frame().texts.single())))
+            next.set(PartExtensionFrame(listOf(f.text("fixed"), f.text("second"), f.text("third"))))
             composite.updateExtensionInput(JsonObject(emptyMap()), 10)
             f.driveUntil(composite) { f.attempts == 3 }
             assertEquals(0, f.visuals.first().destroys)
@@ -230,7 +230,7 @@ class ExtensionPartModelTest {
             f.failCreateAt = -1
             composite.updateExtensionInput(JsonObject(emptyMap()), 20)
             f.driveUntil(composite) { f.descriptors.size == 4 }
-            assertEquals(1, f.visuals.first().destroys)
+            assertEquals(0, f.visuals.first().destroys)
             assertEquals(0, f.visuals.last().destroys)
         } finally { composite.destroy().toCompletableFuture().join(); registration.close() }
     }
@@ -325,6 +325,7 @@ class ExtensionPartModelTest {
         val composite = f.composite(f.group())
         try {
             composite.updateExtensionInput(JsonObject(emptyMap()), 100)
+            composite.updateState(CompactTransform())
             f.awaitApplied(composite)
             registration.refreshRendering()
             assertEquals(0, f.visuals.first().destroys, "same effective revision must keep output")
@@ -336,6 +337,114 @@ class ExtensionPartModelTest {
             assertEquals(1, f.opens.get())
             assertEquals(0, f.child.destroyed)
         } finally { composite.destroy().toCompletableFuture().join(); registration.close() }
+    }
+
+    @Test fun `stable keys preserve visual identities across blink reorder growth and shrink`() = fixture { f ->
+        val next = java.util.concurrent.atomic.AtomicReference(PartExtensionFrame(listOf(
+            f.text("background"), f.text("label"), f.text("dot", "●"))))
+        val registration = f.register { next.get() }
+        val composite = f.composite(f.group())
+        try {
+            composite.updateExtensionInput(JsonObject(emptyMap()), 0)
+            composite.updateState(CompactTransform())
+            f.driveUntil(composite) { f.visuals.size == 3 }
+            f.dispatcher.drain()
+            val original = f.visuals.toList()
+            f.calls.clear()
+            next.set(PartExtensionFrame(listOf(f.text("background"), f.text("label"), f.text("dot", ""))))
+            composite.updateExtensionInput(JsonObject(emptyMap()), 10)
+            f.driveUntil(composite) { original[2].textUpdates == 1 }
+            f.dispatcher.drain()
+            assertEquals(Component.empty(), original[2].textValue)
+            assertEquals(listOf(0, 0, 1), original.map { it.textUpdates })
+            assertTrue(f.calls.none { it.startsWith("text-") || it == "root-mount" || it == "root-passengers" },
+                "blink only changes the dot metadata; no mount, show, transform or destruction: ${f.calls}")
+
+            next.set(PartExtensionFrame(listOf(f.text("dot", ""), f.text("new"), f.text("label"), f.text("background"))))
+            composite.updateExtensionInput(JsonObject(emptyMap()), 20)
+            f.driveUntil(composite) { f.visuals.size == 4 }
+            f.dispatcher.drain()
+            assertEquals(listOf(0, 0, 0), original.map { it.destroys })
+            assertEquals(1, f.calls.count { it == "text-show" }, "only the new visual is published")
+            val addition = f.visuals.last()
+            f.calls.clear()
+
+            next.set(PartExtensionFrame(listOf(f.text("label"), f.text("dot", ""), f.text("new"))))
+            composite.updateExtensionInput(JsonObject(emptyMap()), 30)
+            f.driveUntil(composite) { original[0].destroys == 1 }
+            f.dispatcher.drain()
+            assertEquals(4, f.visuals.size)
+            assertEquals(listOf(1, 0, 0), original.map { it.destroys })
+            assertEquals(0, addition.destroys)
+            assertEquals(listOf(0, 0, 1), original.map { it.textUpdates })
+            assertFalse(f.calls.contains("root-mount"))
+            assertFalse(f.calls.contains("text-show"))
+            assertFalse(f.calls.contains("text-transform"))
+        } finally { composite.destroy().toCompletableFuture().join(); registration.close() }
+    }
+
+    @Test fun `failed metadata mutation rolls back reused texts and retains successful frame while addition cleanup completes`() = fixture { f ->
+        val next = java.util.concurrent.atomic.AtomicReference(PartExtensionFrame(listOf(f.text("first"), f.text("second"))))
+        val registration = f.register { next.get() }
+        val composite = f.composite(f.group())
+        val cleanup = CompletableFuture<Void>()
+        try {
+            composite.updateExtensionInput(JsonObject(emptyMap()), 0)
+            composite.updateState(CompactTransform())
+            f.driveUntil(composite) { f.visuals.size == 2 }
+            f.dispatcher.drain()
+            val first = f.visuals[0]; val second = f.visuals[1]
+            second.failTextOnce = true
+            f.pendingCleanup = cleanup
+            next.set(PartExtensionFrame(listOf(f.text("first", "changed"), f.text("second", "changed"), f.text("new"))))
+            composite.updateExtensionInput(JsonObject(emptyMap()), 10)
+            f.driveUntil(composite) { f.visuals.size == 3 && f.visuals.last().destroys == 1 }
+            assertEquals(Component.text("first"), first.textValue, "successful earlier mutations are rolled back")
+            assertEquals(0, first.destroys)
+            assertEquals(0, second.destroys)
+            val closed = registration.closeAsync().toCompletableFuture()
+            assertFalse(closed.isDone, "rollback cleanup remains in the real retirement barrier")
+            cleanup.complete(null)
+            closed.get(2, TimeUnit.SECONDS)
+        } finally { cleanup.complete(null); composite.destroy().toCompletableFuture().join(); registration.close() }
+    }
+
+    @Test fun `queued addition replay survives a newer frame retaining the same element`() = fixture { f ->
+        val next = java.util.concurrent.atomic.AtomicReference(PartExtensionFrame(listOf(f.text("retained", "old"))))
+        val registration = f.register { next.get() }
+        val composite = f.composite(f.group())
+        try {
+            composite.updateExtensionInput(JsonObject(emptyMap()), 0)
+            composite.updateState(CompactTransform())
+            f.awaitApplied(composite)
+            val retained = f.visuals.single()
+            assertFalse(f.calls.contains("text-show"))
+            assertTrue(f.dispatcher.actions.isNotEmpty())
+
+            next.set(PartExtensionFrame(listOf(f.text("other"), f.text("retained", "latest"))))
+            composite.updateExtensionInput(JsonObject(emptyMap()), 10)
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (f.visuals.size < 2 && System.nanoTime() < deadline) {
+                composite.updateRootPosition(Vector3d())
+                Thread.sleep(2) // Deliberately leave the first frame's player replay queued.
+            }
+            assertEquals(2, f.visuals.size)
+            assertEquals(Component.text("latest"), retained.textValue)
+            assertFalse(f.calls.contains("text-show"))
+            f.calls.clear()
+            f.dispatcher.drain()
+            assertEquals(2, f.calls.count { it == "text-show" }, "both retained pending and new elements must be shown")
+            assertEquals(0, retained.destroys)
+            assertEquals(Component.text("latest"), retained.textValue)
+        } finally { composite.destroy().toCompletableFuture().join(); registration.close() }
+    }
+
+    @Test fun `frame rejects duplicate and invalid stable keys before any rendering`() {
+        assertThrows(IllegalArgumentException::class.java) { PartExtensionText(Component.empty(), key = " ") }
+        assertThrows(IllegalArgumentException::class.java) { PartExtensionText(Component.empty(), key = "x".repeat(1025)) }
+        val text = PartExtensionText(Component.empty(), key = "same")
+        assertThrows(IllegalArgumentException::class.java) { PartExtensionFrame(listOf(text, text)) }
+        assertEquals(1024, PartExtensionText(Component.empty(), key = "x".repeat(1024)).key.length)
     }
 
     private fun fixture(block: (Fixture) -> Unit) {
@@ -398,7 +507,9 @@ class ExtensionPartModelTest {
                 }
             }
         })
-        fun frame() = PartExtensionFrame(listOf(PartExtensionText(Component.text("fixed"), ModelPose(2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0))))
+        fun text(key: String, value: String = key) = PartExtensionText(Component.text(value),
+            ModelPose(2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0), key = key)
+        fun frame() = PartExtensionFrame(listOf(text("fixed")))
         fun group() = ExtensionPartModel(world, ModelState(CompactTransform(position = Vector3d(3.0, 0.0, 0.0))),
             listOf(child), listOf(PartAnimationConfig("position", keyframes = listOf(
                 PartAnimationKeyframeConfig(0.0, "base"), PartAnimationKeyframeConfig(1.0, "raised", offset = Vec3Config(y = 1.0)))))
@@ -442,7 +553,11 @@ class ExtensionPartModelTest {
         override fun setItemStack(itemStack: ItemStack) = error("Not an item test")
         var textValue: Component? = null
         var textUpdates = 0
-        override fun setText(text: Component) { textValue = text; textUpdates++ }
+        var failTextOnce = false
+        override fun setText(text: Component) {
+            if (failTextOnce) { failTextOnce = false; error("text mutation failed") }
+            textValue = text; textUpdates++
+        }
         override fun setBrightness(blockLight: Int, skyLight: Int) = Unit
         override fun clearBrightness() = Unit
         override fun addPassenger(passenger: DisplayVisual): Boolean { calls += "$name-mount"; return !failMount }

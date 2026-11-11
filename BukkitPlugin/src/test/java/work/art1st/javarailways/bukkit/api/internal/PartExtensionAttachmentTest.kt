@@ -21,7 +21,7 @@ class PartExtensionAttachmentTest {
         var received: PartExtensionRenderContext? = null
         val registration = service.register(owner(), renderer { context ->
             received = context; worker = Thread.currentThread(); prepared.countDown()
-            PartExtensionFrame(listOf(PartExtensionText(Component.text("prepared"))))
+            PartExtensionFrame(listOf(PartExtensionText(Component.text("prepared"), key = "label")))
         })
         val context = context()
         val attachment = service.createAttachment(TYPE, context) { CompletableFuture.completedFuture(null) }!!
@@ -46,7 +46,7 @@ class PartExtensionAttachmentTest {
         val cleanup = CompletableFuture<Void>()
         val registration = service.register(owner(), renderer {
             entered.countDown(); awaitIgnoringInterrupt(release)
-            PartExtensionFrame(listOf(PartExtensionText(Component.text("late"))))
+            PartExtensionFrame(listOf(PartExtensionText(Component.text("late"), key = "label")))
         })
         val attachment = service.createAttachment(TYPE, context()) { cleanup }!!
         try {
@@ -122,7 +122,7 @@ class PartExtensionAttachmentTest {
                         ticks += input.elapsedTicks
                         if (ticks.size == 1) { entered.countDown(); awaitIgnoringInterrupt(release) }
                         else { nextEntered.countDown(); awaitIgnoringInterrupt(nextRelease) }
-                        return PartExtensionFrame(listOf(PartExtensionText(Component.text(input.elapsedTicks))))
+                        return PartExtensionFrame(listOf(PartExtensionText(Component.text(input.elapsedTicks), key = "clock")))
                     }
                     override fun close() { closes.incrementAndGet() }
                 }
@@ -295,7 +295,7 @@ class PartExtensionAttachmentTest {
                         inputs += input.elapsedTicks
                         if (inputs.size == 1) { oldEntered.countDown(); awaitIgnoringInterrupt(oldRelease) }
                         else { newEntered.countDown(); awaitIgnoringInterrupt(newRelease) }
-                        return PartExtensionFrame(listOf(PartExtensionText(Component.text(input.elapsedTicks))))
+                        return PartExtensionFrame(listOf(PartExtensionText(Component.text(input.elapsedTicks), key = "clock")))
                     }
                     override fun close() = Unit
                 }

@@ -11,31 +11,33 @@
         return typeof m[lang] === "string" ? m[lang] : typeof m.zh === "string" ? m.zh : typeof m.en === "string" ? m.en : (fallback || "");
     }
     function color(v, fallback) { return typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v) ? v : fallback; }
-    function span(parent, text, x, y, size, ink, font) {
-        if (!text) return;
+    function span(parent, key, text, x, y, size, ink, font, layer, keepEmpty) {
+        if (!text && !keepEmpty) return;
         const node = document.createElement("span");
+        node.setAttribute("id", key);
         if (font) node.setAttribute("font", font);
         // Ring/dot bitmap ink is one native font pixel right of the text origin.
         if (font === FONT) x -= size / 9;
-        node.setAttribute("style", "left:" + x + ";top:" + y + ";font-size:" + size + ";color:" + ink);
+        node.setAttribute("style", "left:" + x + ";top:" + y + ";font-size:" + size + ";color:" + ink + ";z-index:" + (layer === undefined ? 30 : layer));
         node.textContent = String(text);
         parent.appendChild(node);
     }
-    function rect(parent, left, top, width, height, ink) {
+    function rect(parent, key, left, top, width, height, ink, layer) {
         const node = document.createElement("rect");
-        node.setAttribute("style", "left:" + left + ";top:" + top + ";width:" + width + ";height:" + height + ";color:" + ink);
+        node.setAttribute("id", key);
+        node.setAttribute("style", "left:" + left + ";top:" + top + ";width:" + width + ";height:" + height + ";color:" + ink + ";z-index:" + (layer === undefined ? 0 : layer));
         parent.appendChild(node);
     }
     function textUnits(text) {
         return Array.from(text).reduce((n, c) => n + (c.codePointAt(0) > 255 ? 1 : 0.7), 0);
     }
-    function label(parent, text, x, y, maxSize, width, ink) {
+    function label(parent, key, text, x, y, maxSize, width, ink) {
         if (!text) return;
         // Conservative default-font fit; no browser metrics or implicit clipping.
         const size = Math.min(maxSize, width / Math.max(1, textUnits(text)));
-        span(parent, text, x, y + (maxSize - size) / 2, size, ink);
+        span(parent, key, text, x, y + (maxSize - size) / 2, size, ink);
     }
-    function readableLabel(parent, text, x, y, maxSize, minSize, width, ink, ticks) {
+    function readableLabel(parent, key, text, x, y, maxSize, minSize, width, ink, ticks) {
         if (!text) return;
         const size = Math.max(minSize, Math.min(maxSize, width / Math.max(1, textUnits(text))));
         const capacity = width / size;
@@ -59,7 +61,7 @@
         if (!pages.length) return;
         // Five readable 3-second pages per language period; continue long values next cycle.
         const page = Math.floor(ticks / 600) * 5 + Math.floor((ticks % 300) / 60);
-        span(parent, pages[page % pages.length], x, y + (maxSize - size) / 2, size, ink);
+        span(parent, key, pages[page % pages.length], x, y + (maxSize - size) / 2, size, ink);
     }
     function data(ctx) {
         const op = object(ctx.data.operational);
@@ -90,7 +92,7 @@
         return explicit || transferLines(station, d, ctx).map(line => localized(object(line.metadata).badge, d.lang,
             localized(object(line.metadata).name, d.lang, line.displayName || line.id || ""))).join(" · ");
     }
-    function vertical(parent, text, x, y, size, rowsPerColumn, ink) {
+    function vertical(parent, key, text, x, y, size, rowsPerColumn, ink) {
         const chars = Array.from(text), capacity = rowsPerColumn * 2;
         const shown = chars.slice(0, capacity);
         if (chars.length > capacity) shown[capacity - 1] = "…";
@@ -98,7 +100,7 @@
         shown.forEach((char, i) => {
             const column = Math.floor(i / rowsPerColumn), row = i % rowsPerColumn;
             // Center the whole block; retain right-to-left column order for vertical names.
-            span(parent, char, x + ((columns - 1) / 2 - column) * pitch,
+            span(parent, key + "/character/" + i, char, x + ((columns - 1) / 2 - column) * pitch,
                 y + row * size, size, ink);
         });
     }
@@ -109,24 +111,24 @@
         root.appendChild(left); root.appendChild(right);
         // Fixed 42/58 split; readable principal text takes priority over excess whitespace.
         const panelWidth = 336;
-        rect(left, 0, 0, panelWidth, 200, d.theme);
-        rect(right, panelWidth, 0, 800 - panelWidth, 200, "#FFFFFF");
+        rect(left, "left-background", 0, 0, panelWidth, 200, d.theme);
+        rect(right, "right-background", panelWidth, 0, 800 - panelWidth, 200, "#FFFFFF");
         const lineName = localized(d.rm.line, d.lang, localized(d.lm.name, d.lang, d.line.displayName || ""));
-        readableLabel(left, lineName, d.service ? 108 : 168, 4, 28, 24,
+        readableLabel(left, "line-name", lineName, d.service ? 108 : 168, 4, 28, 24,
             d.service ? 184 : 304, "#FFFFFF", ctx.elapsedTicks);
-        readableLabel(left, d.service, 264, 7, 22, 20, 112, "#FFFFFF", ctx.elapsedTicks);
-        label(left, d.lang === "zh" ? "开往" : "For", 46, 44, 18, 60, "#D6EDFF");
-        readableLabel(left, d.destination, 206, 38, 32, 28, 228, "#FFFFFF", ctx.elapsedTicks);
+        readableLabel(left, "service-class", d.service, 264, 7, 22, 20, 112, "#FFFFFF", ctx.elapsedTicks);
+        label(left, "destination-caption", d.lang === "zh" ? "开往" : "For", 46, 44, 18, 60, "#D6EDFF");
+        readableLabel(left, "destination", d.destination, 206, 38, 32, 28, 228, "#FFFFFF", ctx.elapsedTicks);
         const at = op.phase === "at_station";
         const station = at ? op.currentStation : op.nextStation;
-        label(left, d.lang === "zh" ? (at ? "本站" : "下一站") : (at ? "This station" : "Next station"),
+        label(left, "station-caption", d.lang === "zh" ? (at ? "本站" : "下一站") : (at ? "This station" : "Next station"),
             168, 76, 18, 304, "#D6EDFF");
-        readableLabel(left, stationName(station, d.lang), 168, 96, 48, 40, 304, "#FFFFFF", ctx.elapsedTicks);
+        readableLabel(left, "station-name", stationName(station, d.lang), 168, 96, 48, 40, 304, "#FFFFFF", ctx.elapsedTicks);
         const side = object(ctx.data.display).openingSide;
         const zh = {this:"本侧开门", opposite:"对侧开门", both:"两侧开门", none:"不开门"};
         const en = {this:"Doors: this side", opposite:"Doors: other side", both:"Doors: both sides", none:"Doors stay closed"};
-        readableLabel(left, (d.lang === "zh" ? zh : en)[side] || "", 168, 148, 24, 22, 304, "#FFFFFF", ctx.elapsedTicks);
-        readableLabel(left, transferCaption(station, d, ctx), 168, 178, 20, 20, 304, "#FFFFFF", ctx.elapsedTicks);
+        readableLabel(left, "door-side", (d.lang === "zh" ? zh : en)[side] || "", 168, 148, 24, 22, 304, "#FFFFFF", ctx.elapsedTicks);
+        readableLabel(left, "transfer-caption", transferCaption(station, d, ctx), 168, 178, 20, 20, 304, "#FFFFFF", ctx.elapsedTicks);
         const calls = Array.isArray(op.stops) ? op.stops : [];
         const index = op.stationIndex;
         const known = (op.phase === "at_station" || op.phase === "in_transit") &&
@@ -143,26 +145,28 @@
             if (calls[i].status === "STOP" || calls[i].status === "TERMINAL") { nextStop = i; break; }
         }
         // Stubs are visible only for genuinely omitted ordered occurrences; unresolved future is explicit too.
-        if (start > 0) rect(right, x0 - 28, railY - 2, 28, 4, gray);
+        if (start > 0) rect(right, "route-before", x0 - 28, railY - 2, 28, 4, gray, 10);
         if (start + shown.length < calls.length || (Array.isArray(op.unresolvedRuns) && op.unresolvedRuns.length))
-            rect(right, x0 + (shown.length - 1) * spacing, railY - 2, 28, 4, routeColor);
+            rect(right, "route-after", x0 + (shown.length - 1) * spacing, railY - 2, 28, 4, routeColor, 10);
         shown.forEach((call, slot) => {
+            const key = "call/" + JSON.stringify([call.serviceId, call.runId, call.callId]);
             const absolute = start + slot, x = x0 + slot * spacing, passed = absolute < index;
             const ink = passed ? gray : routeColor;
-            if (slot + 1 < shown.length) rect(right, x, railY - 2, spacing, 4,
-                absolute < index ? gray : routeColor);
+            if (slot + 1 < shown.length) rect(right, key + "/route-after", x, railY - 2, spacing, 4,
+                absolute < index ? gray : routeColor, 10);
             const transfers = transferLines(call, d, ctx), maxBadges = 3;
             transfers.slice(0, maxBadges).forEach((line, n) => {
                 const lm = object(line.metadata), badgeY = railY - 30 - n * 22;
-                rect(right, x - 14, badgeY, 28, 18, color(lm.themeColor, color(line.color, "#555555")));
-                label(right, localized(lm.badge, d.lang, line.displayName || line.id || ""), x, badgeY + 3, 12, 24, "#FFFFFF");
+                rect(right, key + "/transfer/" + line.id + "/background", x - 14, badgeY, 28, 18, color(lm.themeColor, color(line.color, "#555555")), 20);
+                label(right, key + "/transfer/" + line.id + "/text", localized(lm.badge, d.lang, line.displayName || line.id || ""), x, badgeY + 3, 12, 24, "#FFFFFF");
             });
-            if (transfers.length > maxBadges) span(right, "+", x + 19, railY - 72, 11, "#333333");
-            span(right, G.ring, x, railY - 10, 20, ink, FONT);
+            if (transfers.length > maxBadges) span(right, key + "/transfer-overflow", "+", x + 19, railY - 72, 11, "#333333");
+            span(right, key + "/ring", G.ring, x, railY - 10, 20, ink, FONT, 20);
             const stopping = call.status !== "PASS";
-            if (stopping && (absolute !== nextStop || Math.floor(ctx.elapsedTicks / 10) % 2 === 0))
-                span(right, G.dot, x, railY - 4, 8, ink, FONT);
-            vertical(right, stationName(call, d.lang), x, 108, d.lang === "zh" ? 22 : 20,
+            if (stopping)
+                span(right, key + "/dot", absolute !== nextStop || Math.floor(ctx.elapsedTicks / 10) % 2 === 0 ? G.dot : "",
+                    x, railY - 4, 8, ink, FONT, 21, true);
+            vertical(right, key + "/name", stationName(call, d.lang), x, 108, d.lang === "zh" ? 22 : 20,
                 4, passed || !stopping ? gray : "#202830");
         });
     }

@@ -28,7 +28,7 @@ close/eviction 逐一尝试释放并聚合报告，不能因一个失败跳过�
 
 连接追踪拥有的sessions；退休立即disposed，拒绝late open/late draw，活动draw的finally承担延迟close，idle close在锁外执行。宿主串行worker上的session.close可以观察已开始的close完成或终态失败；生命周期caller不等待活动guest退出。每个模板实际close一次，保留原异常及suppressed清理失败，不关闭共享DisplayService。已退休session输出EMPTY；重新连接仍需重启Decorations。
 
-等比居中：u=min(physicalWidth/logicalWidth,physicalHeight/logicalHeight)，x=(draw.x-logicalWidth/2)*u，y=(logicalHeight/2-draw.y-draw.size)*u，z=0；glyph scale=draw.size*u*40/9（三轴一致）。logical/derived geometry必须有限且尺寸为正；最多1024文字。换算属于适配层，不由backend猜测。draw错误不关闭仍有效的session，后续输入可恢复。
+等比居中：u=min(physicalWidth/logicalWidth,physicalHeight/logicalHeight)，x=(draw.x-logicalWidth/2)*u，y=(logicalHeight/2-draw.y-draw.size)*u，z=draw.zIndex/63*min(physicalWidth,physicalHeight)*0.01；glyph scale=draw.size*u*40/9（三轴一致）。logical/derived geometry必须有限且尺寸为正；最多1024文字。换算属于适配层，不由backend猜测。draw错误不关闭仍有效的session，后续输入可恢复。
 
 宿主当前每10source ticks至多请求一次，ctx.data.train/car为同physics frame的基础值；XML使用trainId/trainName/trainType/carId/carNumber顶层string aliases。精确字段见Decorations/README。运营停站通过宿主只读投影提供。逐观看者挂载内容仍待实现；Bukkit PlaceholderAPI移出本任务。
 
@@ -81,4 +81,4 @@ Provider在validate/open把该启用期catalog与owning-car captured资源合并
 
 矩形改用SimpleDisplays `<rect>` 输出的原版U+2588字形（`minecraft:include/default`），不用自定义矩形PNG。该原版ASCII字形可见8×8、advance9、ascent7，原生TextDisplay墨迹X[-0.0875,0.1125]、Y[0.025,0.225]格；尺寸0.2×0.2、中心偏移(0.0125,0.125)。SDL计算非等比scaleX/scaleY及原点补偿；Decorations保留这些独立轴缩放，不再强制XYZ一致。旧库缺少scale getters明确报告ABI不兼容，不静默压缩。普通span保持现有名义字号语义。圆环/圆点仍用自定义字体，中心偏移必须以size/9补偿，不能把provider advance当作墨迹宽度。详细原版证据见主任务research/vanilla-rectangle-metrics.md。
 
-适配层按XML顺序增加屏面正z，整个帧总厚度不超过屏幕较小尺寸的1%，以实际draw数均分。客户端字体覆盖、最终深度精度、字形可读性和方向仍需游戏验收。构建脚本 `scripts/display-assets/package.py` 生成车包、独立样式包和保留客户端overlay的完整资源包，不部署服务器。
+适配层透传draw.key，并按固定CSS z-index映射屏面正z，范围0..63；深度只由层级与屏幕尺寸决定，与帧元素数量/次序无关。同层重叠由模板作者处理。原始静态XML图元使用显式id或原始DOM路径，脚本新增图元必须有显式id；帧key必须唯一。typed ABI同时检查getKey/getZIndex，旧库应报告不兼容。车内下一站圆点持续保留节点，仅切换空文字；背景、线路、圆环、圆点和文字使用固定层级。客户端字体覆盖、最终深度精度、字形可读性和方向仍需游戏验收。构建脚本 `scripts/display-assets/package.py` 生成车包、独立样式包和保留客户端overlay的完整资源包，不部署服务器。

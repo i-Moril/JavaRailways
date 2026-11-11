@@ -49,12 +49,19 @@ class PartExtensionRenderContext(
 
 class PartExtensionFrame(texts: List<PartExtensionText>) {
     val texts: List<PartExtensionText> = Collections.unmodifiableList(ArrayList(texts))
-    init { require(this.texts.size <= 1024) { "An extension frame may contain at most 1024 text primitives" } }
+    init {
+        require(this.texts.size <= 1024) { "An extension frame may contain at most 1024 text primitives" }
+        require(this.texts.map { it.key }.toSet().size == this.texts.size) { "Extension text keys must be unique within a frame" }
+    }
     companion object { val EMPTY = PartExtensionFrame(emptyList()) }
 }
 
 class PartExtensionText(
     val text: Component,
     val pose: ModelPose = ModelPose.IDENTITY,
-    val scale: ModelScale = ModelScale.UNIT
-)
+    val scale: ModelScale = ModelScale.UNIT,
+    /** Stable logical identity within one attachment, independent of content and draw order. */
+    val key: String
+) {
+    init { require(key.isNotBlank() && key.length <= 1024) { "Extension text key must be nonblank and at most 1024 characters" } }
+}

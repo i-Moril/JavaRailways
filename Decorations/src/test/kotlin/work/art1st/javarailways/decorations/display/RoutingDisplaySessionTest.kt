@@ -42,7 +42,7 @@ class RoutingDisplaySessionTest {
             assertEquals("exact $id", source.source)
             opens += id
             object : PartExtensionRenderSession {
-                override fun draw(input: PartExtensionRenderInput) = PartExtensionFrame(listOf(PartExtensionText(Component.text(id))))
+                override fun draw(input: PartExtensionRenderInput) = PartExtensionFrame(listOf(PartExtensionText(Component.text(id), key = "fixture-" + id)))
                 override fun close() { closes += id }
             }
         }, interiorAudiencePolicy = policy, runtimeStyles = styles)
@@ -73,7 +73,7 @@ class RoutingDisplaySessionTest {
         val styles = RuntimeDisplayStyles()
         val provider = DisplayPartProvider(openTemplate = { _, _, id, _ ->
             object : PartExtensionRenderSession {
-                override fun draw(input: PartExtensionRenderInput) = PartExtensionFrame(listOf(PartExtensionText(Component.text(id))))
+                override fun draw(input: PartExtensionRenderInput) = PartExtensionFrame(listOf(PartExtensionText(Component.text(id), key = "fixture-" + id)))
                 override fun close() {}
             }
         }, runtimeStyles = styles)

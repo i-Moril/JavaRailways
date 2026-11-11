@@ -80,7 +80,7 @@ class TextModelTransformTest {
         } as DisplayVisual
         try {
             val text = PartExtensionText(Component.text("\u2588"), ModelPose.IDENTITY,
-                ModelScale(local.scale.x(), local.scale.y(), local.scale.z()))
+                ModelScale(local.scale.x(), local.scale.y(), local.scale.z()), key = "rectangle")
             val model = TextModel(world, ModelState(local), visual, text)
             model.updateState(parent, CompactTransform(position = Vector3d(100.0, 64.0, 200.0)), Vector3d(), true)
             check(requireNotNull(captured))

@@ -9,27 +9,29 @@
         return typeof m[lang] === "string" ? m[lang] : typeof m.zh === "string" ? m.zh : typeof m.en === "string" ? m.en : (fallback || "");
     }
     function color(v, fallback) { return typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v) ? v : fallback; }
-    function span(parent, text, x, y, size, ink, font) {
-        if (!text) return;
+    function span(parent, key, text, x, y, size, ink, font, layer, keepEmpty) {
+        if (!text && !keepEmpty) return;
         const node = document.createElement("span");
+        node.setAttribute("id", key);
         if (font) node.setAttribute("font", font);
-        node.setAttribute("style", "left:" + x + ";top:" + y + ";font-size:" + size + ";color:" + ink);
+        node.setAttribute("style", "left:" + x + ";top:" + y + ";font-size:" + size + ";color:" + ink + ";z-index:" + (layer === undefined ? 30 : layer));
         node.textContent = String(text);
         parent.appendChild(node);
     }
-    function rect(parent, left, top, width, height, ink) {
+    function rect(parent, key, left, top, width, height, ink, layer) {
         const node = document.createElement("rect");
-        node.setAttribute("style", "left:" + left + ";top:" + top + ";width:" + width + ";height:" + height + ";color:" + ink);
+        node.setAttribute("id", key);
+        node.setAttribute("style", "left:" + left + ";top:" + top + ";width:" + width + ";height:" + height + ";color:" + ink + ";z-index:" + (layer === undefined ? 0 : layer));
         parent.appendChild(node);
     }
     function textUnits(text) {
         return Array.from(text).reduce((n, c) => n + (c.codePointAt(0) > 255 ? 1 : 0.7), 0);
     }
-    function label(parent, text, x, y, maxSize, width, ink) {
+    function label(parent, key, text, x, y, maxSize, width, ink) {
         if (!text) return;
         // Conservative default-font fit; no browser metrics or implicit clipping.
         const size = Math.min(maxSize, width / Math.max(1, textUnits(text)));
-        span(parent, text, x, y + (maxSize - size) / 2, size, ink);
+        span(parent, key, text, x, y + (maxSize - size) / 2, size, ink);
     }
     function data(ctx) {
         const op = object(ctx.data.operational);
@@ -48,21 +50,21 @@
         const d = data(ctx);
         const root = document.getElementById("content");
         const w = ctx.width, h = ctx.height;
-        rect(root, 0, 0, w, h, "#101820");
+        rect(root, "background", 0, 0, w, h, "#101820");
         const pad = w * 0.02, contentWidth = w - 2 * pad;
         const badgeWidth = d.service ? contentWidth * 0.30 : 0;
         const gap = d.service ? w * 0.03 : 0;
         if (d.service) {
-            rect(root, pad, h * 0.12, badgeWidth, h * 0.76,
-                color(d.rm.classColor, d.theme));
+            rect(root, "class-background", pad, h * 0.12, badgeWidth, h * 0.76,
+                color(d.rm.classColor, d.theme), 20);
             const classSize = h * (d.lang === "zh" ? 0.60 : 0.40);
-            label(root, d.service, pad + badgeWidth / 2, (h - classSize) / 2, classSize,
+            label(root, "class", d.service, pad + badgeWidth / 2, (h - classSize) / 2, classSize,
                 badgeWidth - 2 * pad, "#FFFFFF");
         }
         const destinationLeft = pad + badgeWidth + gap;
         const destinationWidth = w - pad - destinationLeft;
         const destinationSize = h * 0.70;
-        label(root, d.destination, destinationLeft + destinationWidth / 2,
+        label(root, "destination", d.destination, destinationLeft + destinationWidth / 2,
             (h - destinationSize) / 2, destinationSize, destinationWidth, "#FFFFFF");
     }
   ]]></script>

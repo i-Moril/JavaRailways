@@ -158,6 +158,21 @@ class OptionalSimpleDisplaysTest {
     }
 
     @Test
+    fun `installed API missing keyed frame getters is rejected before service retention`() {
+        for (method in listOf("getKey", "getZIndex")) {
+            val fixture = Fixture()
+            val loader = IsolatedIntegrationLoader(blockApi = false, incompatibleDrawMethod = method)
+            assertThrows(NoSuchMethodException::class.java) { loader.loadClass("simpledisplays.api.TextDraw").getMethod(method) }
+            val optional = loader.loadClass(OptionalSimpleDisplays::class.java.name)
+                .getConstructor(Plugin::class.java).newInstance(fixture.host)
+            assertDoesNotThrow { optional.javaClass.getMethod("start").invoke(optional) }
+            assertTrue(loader.apiAttempts > 0)
+            assertEquals(0, fixture.listeners)
+            (optional as AutoCloseable).close()
+        }
+    }
+
+    @Test
     fun `connection compiles exact captured sources reuses them across identities and closes on host exit`() {
         val fixture = Fixture()
         val output = mutableListOf<Template>()
@@ -233,7 +248,7 @@ class OptionalSimpleDisplaysTest {
         // Native block ink: X[-0.0875,0.1125], Y[0.025,0.225] blocks.
         // SDL rectangle left=10, top=5, width=60, height=20 on 100x50 canvas.
         fixture.compileTemplate = { Template(width = 100.0, height = 50.0, contexts = {
-            listOf(TextDraw(36.25, 5.0, 22.5, Component.text("█").font(Key.key("minecraft:include/default")), false, 3.0, 1.0))
+            listOf(TextDraw("fixture", 36.25, 5.0, 22.5, Component.text("█").font(Key.key("minecraft:include/default")), false, 3.0, 1.0))
         }) }
         val optional = OptionalSimpleDisplays(fixture.host)
         optional.start()
@@ -257,7 +272,7 @@ class OptionalSimpleDisplaysTest {
         val contexts = mutableListOf<DisplayContext>()
         val compiled = Template(width = 256.0, height = 128.0, contexts = { ctx ->
             contexts.add(ctx)
-            listOf(TextDraw(64.0, 16.0, 16.0, styled, false))
+            listOf(TextDraw("fixture", 64.0, 16.0, 16.0, styled, false))
         })
         val sources = mutableListOf<String>()
         fixture.compileTemplate = { sources.add(it); compiled }
@@ -278,6 +293,7 @@ class OptionalSimpleDisplaysTest {
         assertNull(contexts[0].placeholderResolver)
         val text = frame.texts.single()
         assertEquals(styled, text.text)
+        assertEquals("fixture", text.key)
         assertEquals(-0.5, text.pose.x(), 1e-12); assertEquals(0.25, text.pose.y(), 1e-12)
         val expected = 16.0 * (2.0 / 256.0) * 40.0 / 9.0
         assertEquals(expected,text.scale.x(),1e-12); assertEquals(expected,text.scale.y(),1e-12); assertEquals(expected,text.scale.z(),1e-12)
@@ -291,13 +307,51 @@ class OptionalSimpleDisplaysTest {
     }
 
     @Test
+    fun `draw identities and layer depths survive reorder growth shrink and blinking`() {
+        val fixture = Fixture()
+        val ring = TextDraw("id:ring", 32.0, 12.0, 9.0, Component.text("○"), false, zIndex = 20)
+        val dot = TextDraw("id:dot", 32.0, 12.0, 9.0, Component.text("●"), false, zIndex = 21)
+        val caption = TextDraw("id:caption", 64.0, 24.0, 9.0, Component.text("本站"), false, zIndex = 30)
+        var draws = listOf(ring, dot)
+        fixture.compileTemplate = { Template(width = 128.0, height = 64.0, contexts = { draws }) }
+        val optional = OptionalSimpleDisplays(fixture.host)
+        optional.start()
+        val session = requireNotNull(optional.openTemplate(renderContext(), DisplayPartConfig("cabin", true, 4.0, 2.0),
+            "main", DisplayTemplateSource("main.xml", "source")))
+        try {
+            val first = session.draw(PartExtensionRenderInput()).texts.associateBy { it.key }
+            draws = listOf(caption, dot.copy(text = Component.empty()), ring)
+            val second = session.draw(PartExtensionRenderInput(elapsedTicks = 10)).texts.associateBy { it.key }
+            assertEquals(ring.key, first.getValue(ring.key).key)
+            assertEquals(first.getValue(ring.key).text, second.getValue(ring.key).text)
+            assertEquals(first.getValue(ring.key).pose, second.getValue(ring.key).pose)
+            assertEquals(first.getValue(ring.key).scale, second.getValue(ring.key).scale)
+            assertEquals(first.getValue(dot.key).pose, second.getValue(dot.key).pose)
+            assertEquals(first.getValue(dot.key).scale, second.getValue(dot.key).scale)
+            assertEquals(Component.empty(), second.getValue(dot.key).text)
+            assertEquals(20 / 63.0 * 2.0 * 0.01, second.getValue(ring.key).pose.z(), 1e-12)
+            assertEquals(21 / 63.0 * 2.0 * 0.01, second.getValue(dot.key).pose.z(), 1e-12)
+            assertEquals(30 / 63.0 * 2.0 * 0.01, second.getValue(caption.key).pose.z(), 1e-12)
+            draws = listOf(caption)
+            val last = session.draw(PartExtensionRenderInput(elapsedTicks = 20)).texts.single()
+            assertEquals(caption.key, last.key)
+            assertEquals(second.getValue(caption.key).pose, last.pose)
+            assertEquals(second.getValue(caption.key).scale, last.scale)
+            assertEquals(second.getValue(caption.key).text, last.text)
+        } finally {
+            session.close()
+            optional.close()
+        }
+    }
+
+    @Test
     fun `failed draw retains reusable session and original contextual cause`() {
         val fixture = Fixture()
         val original = IllegalArgumentException("missing train name")
         var tries = 0
         val compiled = Template(contexts = {
             if (++tries == 1) throw original
-            listOf(TextDraw(0.0,0.0,1.0,Component.text("recovered"),false))
+            listOf(TextDraw("fixture", 0.0,0.0,1.0,Component.text("recovered"),false))
         })
         fixture.compileTemplate = { compiled }
         val optional = OptionalSimpleDisplays(fixture.host); optional.start()
@@ -315,9 +369,11 @@ class OptionalSimpleDisplaysTest {
         val fixture = Fixture(); val optional = OptionalSimpleDisplays(fixture.host); optional.start()
         val templates = listOf(
             Template(width=Double.NaN), Template(width=0.0), Template(width=Double.MIN_VALUE,height=Double.MIN_VALUE),
-            Template(contexts={listOf(TextDraw(Double.NaN,0.0,1.0,Component.empty(),false))}),
-            Template(contexts={listOf(TextDraw(0.0,0.0,-1.0,Component.empty(),false))}),
-            Template(contexts={(0..1024).map{TextDraw(0.0,0.0,1.0,Component.empty(),false)}}),
+            Template(contexts={listOf(TextDraw("fixture", Double.NaN,0.0,1.0,Component.empty(),false))}),
+            Template(contexts={listOf(TextDraw("fixture", 0.0,0.0,-1.0,Component.empty(),false))}),
+            Template(contexts={(0..1024).map{TextDraw("fixture-$it", 0.0,0.0,1.0,Component.empty(),false)}}),
+            Template(contexts={listOf(TextDraw("duplicate",0.0,0.0,1.0,Component.empty(),false),
+                TextDraw("duplicate",1.0,0.0,1.0,Component.text("other"),false))}),
         )
         templates.forEach { compiled ->
             fixture.compileTemplate={compiled}
@@ -338,7 +394,7 @@ class OptionalSimpleDisplaysTest {
     @Test
     fun `connection retirement during drawing defers cleanup and suppresses late output`() {
         val fixture=Fixture();val entered=java.util.concurrent.CountDownLatch(1);val proceed=java.util.concurrent.CountDownLatch(1)
-        val compiled=Template(contexts={entered.countDown();check(proceed.await(5,java.util.concurrent.TimeUnit.SECONDS));listOf(TextDraw(0.0,0.0,1.0,Component.text("late"),false))})
+        val compiled=Template(contexts={entered.countDown();check(proceed.await(5,java.util.concurrent.TimeUnit.SECONDS));listOf(TextDraw("fixture", 0.0,0.0,1.0,Component.text("late"),false))})
         fixture.compileTemplate={compiled};val optional=OptionalSimpleDisplays(fixture.host);optional.start()
         val session=requireNotNull(optional.openTemplate(renderContext(),DisplayPartConfig("cabin",true,1.0,1.0),"main",DisplayTemplateSource("main.xml","source")))
         val worker=java.util.concurrent.Executors.newSingleThreadExecutor()
@@ -422,7 +478,7 @@ class OptionalSimpleDisplaysTest {
     }
 
     /** Child defines real production integration bytecode and selectively hides/mutates the real API artifact. */
-    private class IsolatedIntegrationLoader(private val blockApi: Boolean, private val incompatibleAbi: Boolean = false, private val incompatibleTemplateAbi: Boolean = false) : ClassLoader(OptionalSimpleDisplaysTest::class.java.classLoader) {
+    private class IsolatedIntegrationLoader(private val blockApi: Boolean, private val incompatibleAbi: Boolean = false, private val incompatibleTemplateAbi: Boolean = false, private val incompatibleDrawMethod: String? = null) : ClassLoader(OptionalSimpleDisplaysTest::class.java.classLoader) {
         var apiAttempts = 0
         override fun loadClass(name: String, resolve: Boolean): Class<*> {
             if (incompatibleTemplateAbi && name == "simpledisplays.api.DisplayService") {
@@ -432,18 +488,36 @@ class OptionalSimpleDisplaysTest {
                 }
             }
             if ((incompatibleAbi && name == "simpledisplays.api.DisplayService") ||
-                (incompatibleTemplateAbi && name == "simpledisplays.api.DisplayTemplate")) {
+                (incompatibleTemplateAbi && name == "simpledisplays.api.DisplayTemplate") ||
+                (incompatibleDrawMethod != null && name == "simpledisplays.api.TextDraw")) {
                 apiAttempts++
                 return findLoadedClass(name) ?: parent.getResourceAsStream(name.replace('.', '/') + ".class")!!.use {
-                    // Rename the real artifact's compile method in its UTF-8 constant pool entry.
+                    // Rename the selected real API method in its UTF-8 constant pool entry.
                     // This is an incompatible binary fixture, not a substitute API implementation.
                     val bytes = it.readBytes()
-                    val methodName = (if (incompatibleTemplateAbi) "close" else "compile").toByteArray()
-                    val offset = (2..bytes.size - methodName.size).first { index ->
-                        bytes[index - 2] == 0.toByte() && bytes[index - 1] == methodName.size.toByte() &&
-                            methodName.indices.all { bytes[index + it] == methodName[it] }
+                    val methodName = (incompatibleDrawMethod ?: if (incompatibleTemplateAbi) "close" else "compile").toByteArray()
+                    val constants = java.nio.ByteBuffer.wrap(bytes).also { it.position(8) }
+                    val count = constants.short.toInt() and 0xffff
+                    var constant = 1
+                    var offset = -1
+                    while (constant < count) {
+                        when (val tag = constants.get().toInt() and 0xff) {
+                            1 -> {
+                                val length = constants.short.toInt() and 0xffff
+                                val start = constants.position()
+                                if (length == methodName.size && methodName.indices.all { bytes[start + it] == methodName[it] }) offset = start
+                                constants.position(start + length)
+                            }
+                            3, 4, 9, 10, 11, 12, 17, 18 -> constants.position(constants.position() + 4)
+                            5, 6 -> { constants.position(constants.position() + 8); constant++ }
+                            7, 8, 16, 19, 20 -> constants.position(constants.position() + 2)
+                            15 -> constants.position(constants.position() + 3)
+                            else -> error("Unexpected constant pool tag $tag")
+                        }
+                        constant++
                     }
-                    bytes[offset + methodName.lastIndex] = 'x'.code.toByte()
+                    check(offset >= 0) { "Missing method constant $incompatibleDrawMethod" }
+                    bytes[offset + methodName.lastIndex] = if (methodName.last() == 'x'.code.toByte()) 'y'.code.toByte() else 'x'.code.toByte()
                     defineClass(name, bytes, 0, bytes.size)
                 }
             }

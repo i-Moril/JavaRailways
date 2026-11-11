@@ -1,5 +1,7 @@
 # Design
 
+> 2026-11-11 current approved design: SimpleDisplays supplies stable key and inherited absolute z-index; Decorations passes identity and computes fixed physical depth; the host reconciles keyed primitives. See [cross-module boundary](research/keyed-display-frames-20261111.md). Existing actual-run shutdown/context retirement remains authoritative.
+
 > Current: [interior screen viewing distance](research/interior-distance-contract.md), with eye-to-transformed-screen distance explicitly required by the user. Integrated verification is deferred until all work is complete. [Culling assessment](research/interior-display-culling-assessment.md) is advisory; no extra culling enabled. Operational data batch remains implemented/uncommitted; PAPI is excluded.
 
 > Completed milestones: Decorations foundation `95935639`, template compilation `84b804fc`, native/packet text backends `3aaa3af3`, static mounting `a4604a43`, dynamic sessions/basic train input `09da5fbc`. Independent SimpleDisplays XML/document JS is at `410af2e`. Current module boundaries and contracts supersede historical built-in screen/loading notes below; schema consistency remains a separate child before acceptance.
@@ -227,3 +229,5 @@ Current implementation: SimpleDisplays `410af2e`, XML → invocation-local docum
 ## 本侧/对侧开门接口
 
 用户确认复用实际开门的折返与逐车安装方向语义，按[本批合同](research/door-side-display-contract.md)实现。原始开门侧由SimpleATO拥有，逐车操纵端换算由宿主复用已有helper，Decorations只比较固定安装侧。继续仅编译/静态检查，测试及服务器验收后置。
+
+> 2026-11-11 keyed-display slice locally complete:23 library +78 host +73 Decorations tests pass; current3 XML templates verified through real JS, bundles and spec synchronized, independent source review clear. No commit/deployment/client acceptance. See [result and limits](research/keyed-display-frames-20261111.md#result--local-implementation-complete-not-committeddeployed).

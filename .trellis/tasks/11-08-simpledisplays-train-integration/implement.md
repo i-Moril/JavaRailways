@@ -1,5 +1,7 @@
 # Implementation Plan
 
+> 2026-11-11 current batch: implement keyed library output/preview, keyed host reconciliation, adapter and template keys/layers, then serial library+host/addon tests, actual template draw verification, packaging and independent review. See [scope and assertions](research/keyed-display-frames-20261111.md). Keep work uncommitted and undeployed.
+
 > Current: [interior distance](research/interior-distance-contract.md), implemented with compilation only; user defers integrated testing until the remaining work is complete. Operational data changes remain uncommitted. Culling is assessment only; fixed-unit style overrides are implemented with compilation only.
 
 ## 1. Baseline and optional API loading
@@ -322,3 +324,5 @@ SDL fe2898d、Decorations/模板 c1508bc9，9项更新配套部署至测试服�
 用户反馈色块和角度错误。实际根因是TextModel输出T*S*R，安装旋转后才按非等比轴缩放；已修为T*R*S。定向JOML矩阵诊断复现旧法向偏差（白底约21°、连线约56°），修正后0°；新增真实TextModel四角/法向/尺寸/统一缩放回归源码，生产与测试源码编译通过12s，未运行统一测试。详见research/text-transform-order.md。此修复与独立9KB overlay一并准备提交部署，实际客户端画面仍待用户确认。
 
 宿主矩阵修正已提交15937c7b并部署：只换主JAR，保留其他9插件及车包；18:57:14正常启动，18:57:37资源重载成功、Bridge/WebUI本机200，新增恢复点displays-20261110-twqrjru1。独立overlay打包修正同提交已包含，9,075字节包无须为本矩阵修复重换。详见research/text-transform-order.md，实际客户端画面仍待确认。
+
+> 2026-11-11 keyed-display slice locally complete:23 library +78 host +73 Decorations tests pass; current3 XML templates verified through real JS, bundles and spec synchronized, independent source review clear. No commit/deployment/client acceptance. See [result and limits](research/keyed-display-frames-20261111.md#result--local-implementation-complete-not-committeddeployed).

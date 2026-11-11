@@ -1,5 +1,7 @@
 # Train-mounted displays through Decorations
 
+> 2026-11-11 user-approved current edit: stable screen element keys, incremental visual reuse and fixed inherited z-index. Dot blinking and language changes must preserve unaffected entity IDs and depths. See [current boundary](research/keyed-display-frames-20261111.md); no commit or deployment in this edit slice.
+
 > 2026-11-11 display passenger regression repaired and deployed as `97fe8de1`:56 renderer tests/build/independent review pass, server ATO/HTTP health pass. Client warning/FPS acceptance remains pending. See [regression and deployment evidence](research/display-passenger-order-20261111.md).
 
 > 2026-11-11 current slice: requirements 2/3 implemented in source. Every declared RUN has a separate default operational trip; explicit cross-run/per-unit definitions retain priority. Ordinary-train display fallback removed. Decorations returns EMPTY outside actual `currentRun`, including static template output. SimpleATO848, host-related127, Decorations71 and SimpleATOBukkit2 tests passed; independent review and Decorations JAR boundary check passed. Committed as `be8b75ec` and deployed to JavaRailwaysTest2026-11-11 with verified backup/offline conversion. Automatic save confirms5 original trains,16 RUNs/16 defaults and5 dispatcher checkpoints; ATO RUNNING and both health endpoints200. See [deployment evidence](research/trips-and-units-deployment-20261111.md). Game-client acceptance remains pending. The prior UUID implementation is unchanged and included in this submission.
@@ -100,3 +102,5 @@ User confirmed per-viewer mounted content can be done later, alongside Placehold
 - 车内两语言共用固定画布、相同线路图几何；车外轮播也不得改变物理屏幕尺寸。
 
 - 车外版式细化：目的地在种别以外的右侧区域居中；未配置种别时移除整个左侧色块和占位，目的地整屏居中。优先使用较大字体，长目的地按可用区域处理；语言/种别有无不改变屏幕物理尺寸，游戏内可读性仍待客户端验收。
+
+> 2026-11-11 keyed-display slice locally complete:23 library +78 host +73 Decorations tests pass; current3 XML templates verified through real JS, bundles and spec synchronized, independent source review clear. No commit/deployment/client acceptance. See [result and limits](research/keyed-display-frames-20261111.md#result--local-implementation-complete-not-committeddeployed).

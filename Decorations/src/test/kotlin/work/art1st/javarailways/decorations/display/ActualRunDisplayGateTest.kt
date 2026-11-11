@@ -44,8 +44,8 @@ class ActualRunDisplayGateTest {
                     draws++
                     // Both a literal label and script-produced content would remain visible
                     // if the provider merely cleared the destination binding.
-                    return PartExtensionFrame(listOf(PartExtensionText(Component.text("fixed label")),
-                        PartExtensionText(Component.text("script:${input.elapsedTicks}"))))
+                    return PartExtensionFrame(listOf(PartExtensionText(Component.text("fixed label"), key = "fixed-label"),
+                        PartExtensionText(Component.text("script:${input.elapsedTicks}"), key = "script-label")))
                 }
                 override fun close() { closes++ }
             }
@@ -88,7 +88,7 @@ class ActualRunDisplayGateTest {
             opened += id
             object : PartExtensionRenderSession {
                 override fun draw(input: PartExtensionRenderInput) =
-                    PartExtensionFrame(listOf(PartExtensionText(Component.text(id))))
+                    PartExtensionFrame(listOf(PartExtensionText(Component.text(id), key = "fixture-" + id)))
                 override fun close() { closed += id }
             }
         }, runtimeStyles = styles)

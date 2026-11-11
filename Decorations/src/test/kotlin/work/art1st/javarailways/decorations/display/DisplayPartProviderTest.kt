@@ -162,7 +162,7 @@ class DisplayPartProviderTest {
         ))
         val context = PartExtensionRenderContext("car-source-package", "pinned-hash", part(), resources)
         val expected = object : PartExtensionRenderSession {
-            override fun draw(input: PartExtensionRenderInput) = PartExtensionFrame(listOf(PartExtensionText(Component.text("prepared"))))
+            override fun draw(input: PartExtensionRenderInput) = PartExtensionFrame(listOf(PartExtensionText(Component.text("prepared"), key = "prepared")))
             override fun close() {}
         }
         var calls = 0
@@ -190,7 +190,7 @@ class DisplayPartProviderTest {
         settings.set(first, 0.0)
         settings.set(second, 8.0)
         var closes = 0
-        val frame = PartExtensionFrame(listOf(PartExtensionText(Component.text("same rendered content"))))
+        val frame = PartExtensionFrame(listOf(PartExtensionText(Component.text("same rendered content"), key = "content")))
         val provider = DisplayPartProvider(
             openTemplate = { _, _, _, _ -> object : PartExtensionRenderSession {
                 override val audiencePolicy = PartExtensionAudiencePolicy { 1.0 }

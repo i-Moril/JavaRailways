@@ -56,3 +56,16 @@ EntityLib forceBundles 设置下也不能产生空 delimiter bundle。每次刷�
 隐藏观众、可见/隐藏/重显、换挂及库内 riding 关系、区块卸载/重发、同帧隐藏/销毁、普通模型，
 并验证每玩家翻译不串值与描边过滤保留。旧实现必须先复现错误，修复后未知实体计数为0。
 这些测试验证协议机制；现场实体丢失原因和实际客户端帧率仍须另行验收，无数据迁移或待定产品决策。
+
+
+## 稳定图元与增量文字更新（CURRENT）
+
+公开 `PartExtensionText` 的 `key: String` 必填，非空白且最长1024字符；同一 `PartExtensionFrame` 不允许重复key。它仅在当前挂载的生成文字内唯一，不是实体ID或持久化身份。SimpleDisplays的静态XML使用 `id:<id>` 或 `path:<original element-index path>`，原始路径跨每次DOM克隆及移动保留；JS新建drawable必须声明显式id。不得使用当前帧扁平索引、随机值或可见顺序作为身份。
+
+宿主在既有owner提交路径按key对照上次成功帧，复用仍存在的TextModel，仅新建缺失项并退休删除项。Component和pose未变化不产生元数据或变换更新；空Component仍是存在的图元。新增先通过ModelConstruction成功构造，再更新复用项；失败回滚复用项并清理部分新项，保持旧帧。所有退休/部分清理仍被closeAsync跟踪。准备的show回放只能显示当前map仍持有的实体；较新帧保留相同实体时不能仅因list对象变化丢弃它。
+
+语义上下文、模板revision、attachment退休与EMPTY沿用已有失效边界。普通动画不借此扩大为全屏重建。没有第二条调度/发包路径，图元增删继续遵守同一coordinator的Spawn、Mount、Destroy顺序。每帧对照时间和附加状态为O(N)，受1024文字上限约束。
+
+SimpleDisplays CSS `z-index` 为0..63整数，默认0，容器向后代绝对继承，子节点显式值覆盖而非相加。Decorations将其映射为 `zIndex/63 * min(width,height) * 0.01`，单机预览使用相同固定比例。不能用当前图元数量或帧顺序重新分配深度；同层重叠由模板指定层级解决。无持久化结构或schema版本改变。
+
+必需回归：重排、增加/删除、空圆点连续闪烁时仍存在的实体身份与深度不变；只有新增/删除项创建销毁，失败保留旧帧，较新帧保留尚未回放的新增项仍能显示。真实模板须经过实际XML/JS绘制验证稳定key与层级，再与宿主实体复用测试相结合。上述本地证据不能替代客户端对闪烁、深度精度和最终可读性的验收。

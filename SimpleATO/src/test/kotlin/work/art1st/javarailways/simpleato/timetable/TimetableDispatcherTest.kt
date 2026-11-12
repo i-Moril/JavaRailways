@@ -799,7 +799,7 @@ class TimetableDispatcherTest {
             lineId, listOf(originStation, terminalStation),
             listOf(terminalStation, originStation)
         ), 0L)
-        val segment = TimetableRunSegment("152P", lineId, 2, 4, calls = listOf(
+        val segment = TimetableRunSegment("152P", lineId, 2, 4, true, calls = listOf(
             TimetableRunCall("152P-origin", originStation.value, "origin@metadata", TimetableServiceStopStatus.ORIGIN),
             TimetableRunCall("152P-terminal", terminalStation.value, "terminal@one", TimetableServiceStopStatus.TERMINAL)
         ))

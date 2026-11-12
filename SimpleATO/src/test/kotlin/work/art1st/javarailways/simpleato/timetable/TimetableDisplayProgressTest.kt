@@ -21,8 +21,8 @@ class TimetableDisplayProgressTest {
     private val pass = call("pass",TimetableServiceStopStatus.PASS,"A")
     private val end = call("end",TimetableServiceStopStatus.TERMINAL,"C")
     private fun scenario(): Triple<TimetableDisplayRuntime,Timetable,TimetableService> {
-        val first = TimetableRunSegment("first",LineId("line"),0,1,calls=listOf(origin,pass,end))
-        val second = TimetableRunSegment("second",LineId("line"),1,2,calls=listOf(
+        val first = TimetableRunSegment("first",LineId("line"),0,1, true,calls=listOf(origin,pass,end))
+        val second = TimetableRunSegment("second",LineId("line"),1,2, true,calls=listOf(
             call("origin2",TimetableServiceStopStatus.ORIGIN,"C"),call("end2",TimetableServiceStopStatus.TERMINAL,"A")))
         val service = TimetableService("service",steps=listOf(TimetableStep.Check("A"),TimetableStep.Check("C")),runSegments=listOf(first,second))
         val trip = TimetableOperationalTrip("trip",segments=listOf(

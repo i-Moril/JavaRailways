@@ -11,7 +11,7 @@ class DefaultOperationalTripScriptTest {
         executeScript("function main(timetable) { timetable.setPeriodDays(1); $body }", "default-trips"))
 
     @Test fun `an ordinary run has its own default trip without authored metadata`() {
-        val result = run("timetable.service('s','train',t=>{t.check('A');t.runSegment({runId:'main',lineId:'line'},r=>r.at(10).destination('C'));});")
+        val result = run("timetable.service('s','train',t=>{t.check('A');t.runSegment({isInService:true,runId:'main',lineId:'line'},r=>r.at(10).destination('C'));});")
         val trip = result.operationalTrips.single()
         assertEquals("default-run/1:s/4:main", trip.id)
         assertTrue(trip.defaults.isEmpty())
@@ -25,9 +25,9 @@ class DefaultOperationalTripScriptTest {
               {serviceId:'s',runId:'main',unitSlots:[2]},{serviceId:'s',runId:'branch',unitSlots:[1]}]});
             timetable.service('s','train',t=>{
               t.check('A');
-              t.runSegment({runId:'main',lineId:'A'},r=>r.at(10).destination('C'));
+              t.runSegment({isInService:true,runId:'main',lineId:'A'},r=>r.at(10).destination('C'));
               t.at(20).reverse();
-              t.runSegment({runId:'branch',lineId:'B'},r=>r.at(30).destination('E'));
+              t.runSegment({isInService:true,runId:'branch',lineId:'B'},r=>r.at(30).destination('E'));
             });
         """)
         assertEquals(listOf("through", "default-run/1:s/4:main", "default-run/1:s/6:branch"), result.operationalTrips.map { it.id })
@@ -42,7 +42,7 @@ class DefaultOperationalTripScriptTest {
             timetable.service('s','train',t=>{
               t.check('A'); t.at(5).reverse();
               t.origin('station-display',p=>p.at(5).setDisplay([],{destination:'C'}));
-              t.runSegment({runId:'main',lineId:'line'},r=>r.at(10).destination('C'));
+              t.runSegment({isInService:true,runId:'main',lineId:'line'},r=>r.at(10).destination('C'));
             });
         """)
         val service = result.services.single()
@@ -63,8 +63,8 @@ class DefaultOperationalTripScriptTest {
             timetable.operationalTrip('default-run/1:s/4:main',{segments:[{serviceId:'s',runId:'main',unitSlots:[1]}]});
             timetable.operationalTrip('default-run/1:s/4:main#1',{segments:[{serviceId:'s',runId:'main',unitSlots:[2]}]});
             timetable.service('s','train',t=>{
-              t.runSegment({runId:'main',lineId:'A'},r=>r.at(10).destination('C'));
-              t.runSegment({runId:'branch',lineId:'B'},r=>r.at(20).destination('E'));
+              t.runSegment({isInService:true,runId:'main',lineId:'A'},r=>r.at(10).destination('C'));
+              t.runSegment({isInService:true,runId:'branch',lineId:'B'},r=>r.at(20).destination('E'));
             });
         """)
         assertEquals(listOf("default-run/1:s/4:main", "default-run/1:s/4:main#1",
@@ -91,7 +91,7 @@ class DefaultOperationalTripScriptTest {
 
     @Test fun `public begin and explicit operational trip still require nonempty slots`() {
         for (body in listOf(
-            "timetable.service('s','train',t=>{t.beginOperationalTrip('trip','main',[]);t.runSegment({runId:'main',lineId:'A'},r=>r.destination('C'));});",
+            "timetable.service('s','train',t=>{t.beginOperationalTrip('trip','main',[]);t.runSegment({isInService:true,runId:'main',lineId:'A'},r=>r.destination('C'));});",
             "timetable.operationalTrip('trip',{segments:[{serviceId:'s',runId:'main',unitSlots:[]}]});",
             "timetable.operationalTrip('trip',{segments:[{serviceId:'s',runId:'main',unitSlots:[],unassignedUnits:true}]});")) {
             assertThrows(Throwable::class.java) { run(body) }

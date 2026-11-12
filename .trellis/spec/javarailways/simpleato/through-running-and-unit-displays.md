@@ -24,7 +24,7 @@ CURRENT：一份时刻表内的多线路停车跨线、整编组物理运行、�
 
 ## 接口与字段
 
-`TimetableService.runSegments` 缺省空；每段包含 `runId,lineId,startStepIndex,endStepIndexExclusive,diagramLineId?,lineDirection?,calls`。`calls` 为 `{id,stationId,destinationId,status,arrivalTick?,departureTick?}`；status 为 ORIGIN/STOP/PASS/TERMINAL，计划 tick 不代替实际执行。
+`TimetableService.runSegments` 缺省空；每段包含 `runId,lineId,isInService,startStepIndex,endStepIndexExclusive,diagramLineId?,lineDirection?,calls`。`isInService` 为必填 Boolean，来自运行线的载客运营开关。`calls` 为 `{id,stationId,destinationId,status,arrivalTick?,departureTick?}`；status 为 ORIGIN/STOP/PASS/TERMINAL，计划 tick 不代替实际执行。
 
 `Timetable.operationalTrips` 是构造时归一化的完整车次列表；每项 `{id,defaults,segments:[{serviceId,runId,unitSlots,unassignedUnits:false}]}`。显式段选择 1..128 个不重复正整数槽位；defaults 是受限 JSON object，最多 128 个非空顶层字段，JSON 深度/节点/文本预算分别为 16/4096/65536 UTF-16 单元。嵌套 key/string 遵守共享 JSON 输入预算。
 
@@ -88,7 +88,7 @@ U1/U2 同行时可分别设置 `{"destination":"D"}` / `{"destination":"E"}`。U
 
 TimetableRunSegment新增metadata:JsonObject={}，JsonMetadata深度分离并校验；equals/hash包含metadata。SavedTimetableRunSegmentV1默认字段、capture/restore保留，未改变版本或添加旧reader。它属于具体service/run，不与Line.metadata或operational.values隐式合并。WebUI AuthoringRunV1→generated runSegment→scriptworker mirror DTO→authoritative Saved DTO→runtime必须保留字段，边界不只更新一份DTO。
 
-TimetableUnitDisplayContext可携带TimetableRunDisplayContext(serviceId,runId,lineId,metadata,terminalStationId)。Dispatcher仅从实际train身份、匹配timetable/cycle、unit membership且非terminal的ActiveRun中取currentSegment，并验证activeStepAddress/next step在其[start,end)内；缺失/段间/歧义null。禁止以remainingStops首项或segmentAtOrBefore声明活动运行线。运行线已进入但终态/其他cycle不能泄漏到当前画面。源上下文和metadata在跨worker前保持immutable。
+TimetableUnitDisplayContext可携带TimetableRunDisplayContext(serviceId,runId,lineId,isInService,metadata,terminalStationId)。Dispatcher仅从实际train身份、匹配timetable/cycle、unit membership且非terminal的ActiveRun中取currentSegment，并验证activeStepAddress/next step在其[start,end)内；缺失/段间/歧义null。禁止以remainingStops首项或segmentAtOrBefore声明活动运行线。运行线已进入但终态/其他cycle不能泄漏到当前画面。源上下文和metadata在跨worker前保持immutable。
 
 ## 完整停站序列与实际进度（2026-11-10，源码／测试源码编译阶段）
 
@@ -155,3 +155,31 @@ remainingStops、下一段或基础设施线路的终点推测。其生命周期
 一致，不提前进入下一运行线、不延长上一段显示，也不写回 displayRuntime 的 authored values。
 宿主将其解析为显示默认目的地；明确设置的 destination（包括空串、null）优先。此字段不属于
 持久化边界，不改 schema version。
+
+## 实际运行线的载客运营标志（2026-11-12）
+
+CURRENT：运行线“载客运营”开关由 WebUI `AuthoringRunV1.type` 保存；
+`PASSENGER` 编译为 `isInService:true`，`DEADHEAD` 编译为 false。
+`TimetableRunSegment.isInService: Boolean`、scriptworker 与 SimpleATO 的
+`SavedTimetableRunSegmentV1.isInService: Boolean` 均为必填值；capture/restore 与 equals/hashCode 保留该值。
+这是同一 run 的事实，不能用是否有 currentRun、是否开门、metadata 或 displayRuntime values 代替。
+
+正常链路为 authoring.ts 生成 runSegment → scriptworker 严格解码/保存 → SimpleATO 恢复领域段 →
+Dispatcher 依现有 entered scope 捕获 `TimetableRunDisplayContext.isInService` →
+Bukkit 分离投影 `operational.currentRun.isInService`。actual scope 选择、线程 owner、单元/周期证明
+与 null 生命周期保持不变，false 不会使 currentRun 消失。该布尔进入已有语义 contextKey，旧 worker 输出
+失去发布资格，已有成功画面由新帧替换。显示规则属于 XML，SimpleATO 不替模板统一关屏。
+
+两个 JSON DTO 的当前字段都无默认值。DSL 入口用 `Value.isBoolean` 拒绝缺失/null/字符串/数字；
+这项检查必要，因为 kotlinx 的 tree decoder 会接受字符串 `"true"`。保存恢复沿用既有 serializer，缺字段拒绝；
+不补 true、不识别旧形状、不放宽 decoder。作者文档仍用现有 type，不改 localStorage 格式。
+当前未发布开发契约直接修正，保留所属持久化版本；生产 tick 只额外复制一个布尔，查段和投影复杂度不变，
+不增加查库/观众扫描。无 currentRun 时按既有规则输出 null，而不是构造占位运营/回送段。
+
+必须覆盖 PASSENGER/DEADHEAD 编译、真实 worker JSON、两种布尔 capture→序列化→restore、
+segment equality、actual run display capture、Bukkit currentRun 投影及 contextKey 变化；无 scope 不泄漏
+下一段标志。模板实际回送及语言边界测试归 Decorations 规范。
+
+已有编译 JS、编译 timetable 或 runtime snapshot 的 runSegments 缺少字段时，应由 authoring 原文重新编译，
+或在列清准确文件与处理方式后取得用户许可进行一次性处理；不得因开发服存在旧数据添加 runtime fallback。
+本任务不修改线上存档，也不自动迁移。

@@ -235,35 +235,122 @@ class ExtensionPartModelTest {
         } finally { composite.destroy().toCompletableFuture().join(); registration.close() }
     }
 
-    @Test fun `context reset clears old labels and queued audience replay before failed draw and bypasses cadence`() = fixture { f ->
+    @Test fun `context reset retains successful labels and their queued replay while replacement waits fails and recovers`() = fixture { f ->
         val cleanup = CompletableFuture<Void>(); f.pendingCleanup = cleanup
         val fail = java.util.concurrent.atomic.AtomicBoolean(false)
-        val registration = f.register { if (fail.get()) error("new context draw failed") else f.frame() }
+        val block = java.util.concurrent.atomic.AtomicBoolean(false)
+        val entered = CountDownLatch(1); val release = CountDownLatch(1); val failed = CountDownLatch(1)
+        val next = java.util.concurrent.atomic.AtomicReference(f.frame())
+        val registration = f.register {
+            if (block.get()) { entered.countDown(); release.await() }
+            if (fail.get()) {
+                failed.countDown()
+                error("new context draw failed")
+            }
+            next.get()
+        }
         val composite = f.composite(f.group())
         try {
             composite.showTo(f.player)
             composite.updateExtensionInput(JsonObject(emptyMap()), 100)
             composite.updateState(CompactTransform()); f.awaitApplied(composite)
+            val retained = f.visuals.single()
             composite.invalidateExtensionContext()
-            assertEquals(1, f.visuals.single().destroys)
+            assertEquals(0, retained.destroys)
             f.calls.clear(); f.dispatcher.drain()
-            assertFalse(f.calls.contains("text-show"), "old queued viewer replay must be invalidated")
-            fail.set(true)
+            assertTrue(f.calls.contains("text-show"), "queued replay must still expose the retained current entity")
+            block.set(true); fail.set(true)
             composite.updateExtensionInput(JsonObject(emptyMap()), 101)
-            f.driveUntil(composite) { f.inputs.size == 2 }
+            assertTrue(entered.await(2, TimeUnit.SECONDS))
             assertEquals(1L, f.inputs.last().elapsedTicks)
-            assertEquals(1, f.descriptors.size, "failed new context must leave the group blank")
-            fail.set(false); f.pendingCleanup = null
+            assertEquals(0, retained.destroys, "waiting for new context must keep the last successful frame")
+            release.countDown()
+            assertTrue(failed.await(2, TimeUnit.SECONDS))
+            composite.updateRootPosition(Vector3d())
+            assertEquals(0, retained.destroys, "failed new context must keep the last successful frame")
+            assertEquals(1, f.descriptors.size)
+            fail.set(false); block.set(false); f.pendingCleanup = null
+            next.set(PartExtensionFrame(listOf(f.text("fixed", "new context"), f.text("second"))))
             composite.invalidateExtensionContext()
             composite.updateExtensionInput(JsonObject(emptyMap()), 102)
             f.driveUntil(composite) { f.descriptors.size == 2 }
+            assertEquals(Component.text("new context"), retained.textValue)
+            assertEquals(0, retained.destroys, "replacement must reconcile the existing stable key")
             assertEquals(2L, f.inputs.last().elapsedTicks, "semantic reset preserves original clock origin")
             assertEquals(1, f.opens.get(), "semantic reset must reuse the private compiled session")
             val retired = registration.closeAsync().toCompletableFuture()
-            assertFalse(retired.isDone, "old context cleanup remains owned")
+            assertEquals(listOf(1, 1), f.visuals.map { it.destroys }, "retirement still immediately removes all generated visuals")
+            assertFalse(retired.isDone, "retained frame cleanup remains owned")
             cleanup.complete(null); retired.get(2, TimeUnit.SECONDS)
             assertEquals(0, f.child.destroyed)
-        } finally { cleanup.complete(null); composite.destroy().toCompletableFuture().join(); registration.close() }
+        } finally { release.countDown(); cleanup.complete(null); composite.destroy().toCompletableFuture().join(); registration.close() }
+    }
+
+    @Test fun `context and style refresh reject obsolete completed queued and running frames while preserving successful output`() {
+        for (styleChange in listOf(false, true)) fixture { f ->
+            val prepared = CountDownLatch(1)
+            val oldEntered = CountDownLatch(1); val oldRelease = CountDownLatch(1)
+            val currentEntered = CountDownLatch(1); val currentRelease = CountDownLatch(1)
+            val draws = java.util.concurrent.atomic.AtomicInteger()
+            val registration = f.register {
+                when (draws.getAndIncrement()) {
+                    0 -> f.frame()
+                    1 -> PartExtensionFrame(listOf(f.text("obsolete-completed"))).also { prepared.countDown() }
+                    2 -> {
+                        oldEntered.countDown(); oldRelease.await()
+                        PartExtensionFrame(listOf(f.text("obsolete-running")))
+                    }
+                    3 -> {
+                        currentEntered.countDown(); currentRelease.await()
+                        PartExtensionFrame(listOf(f.text("fixed", "current")))
+                    }
+                    else -> error("Unexpected extra draw")
+                }
+            }
+            val composite = f.composite(f.group())
+            try {
+                composite.updateExtensionInput(JsonObject(emptyMap()), 100)
+                composite.updateState(CompactTransform()); f.awaitApplied(composite)
+                f.dispatcher.drain()
+                val retained = f.visuals.single()
+                composite.updateExtensionInput(JsonObject(emptyMap()), 110)
+                assertTrue(prepared.await(2, TimeUnit.SECONDS))
+                composite.updateExtensionInput(JsonObject(emptyMap()), 120)
+                // This serial callback proves the prior result was published; deliberately do not
+                // run a model commit until the completed result has been invalidated.
+                assertTrue(oldEntered.await(2, TimeUnit.SECONDS))
+                composite.updateExtensionInput(JsonObject(emptyMap()), 130) // Queued obsolete request.
+                if (styleChange) {
+                    f.renderRevision.incrementAndGet()
+                    registration.refreshRendering()
+                } else {
+                    composite.invalidateExtensionContext()
+                    composite.updateExtensionInput(JsonObject(emptyMap()), 131)
+                }
+                composite.updateRootPosition(Vector3d())
+                assertEquals(1, f.descriptors.size, "completed obsolete generation must not replace the retained frame")
+                assertEquals(0, retained.destroys)
+
+                oldRelease.countDown()
+                assertTrue(currentEntered.await(2, TimeUnit.SECONDS))
+                assertEquals(if (styleChange) 30L else 31L, f.inputs.last().elapsedTicks,
+                    "the obsolete queued request must be discarded in favor of the current generation")
+                composite.updateRootPosition(Vector3d())
+                assertEquals(1, f.descriptors.size, "running obsolete generation must not replace the retained frame")
+                assertEquals(0, retained.textUpdates)
+                assertEquals(0, retained.destroys)
+
+                currentRelease.countDown()
+                f.driveUntil(composite) { retained.textUpdates == 1 }
+                assertEquals(Component.text("current"), retained.textValue)
+                assertEquals(1, f.descriptors.size)
+                assertEquals(0, retained.destroys)
+                assertEquals(4, draws.get())
+            } finally {
+                oldRelease.countDown(); currentRelease.countDown()
+                composite.destroy().toCompletableFuture().join(); registration.close()
+            }
+        }
     }
 
     @Test fun `hidden group warms without drawing then resumes latest source time and settings refresh needs no movement`() = fixture { f ->
@@ -320,23 +407,44 @@ class ExtensionPartModelTest {
         } finally { registration.close(); composite.destroy().toCompletableFuture().join() }
     }
 
-    @Test fun `style revision retires old frame and redraws same source tick without rebuilding session`() = fixture { f ->
-        val registration = f.register { f.frame() }
+    @Test fun `style revision retains old frame until successful replacement and EMPTY explicitly clears it`() = fixture { f ->
+        val block = java.util.concurrent.atomic.AtomicBoolean(false)
+        val entered = CountDownLatch(1); val release = CountDownLatch(1)
+        val next = java.util.concurrent.atomic.AtomicReference(f.frame())
+        val registration = f.register {
+            if (block.get()) { entered.countDown(); release.await() }
+            next.get()
+        }
         val composite = f.composite(f.group())
         try {
             composite.updateExtensionInput(JsonObject(emptyMap()), 100)
             composite.updateState(CompactTransform())
             f.awaitApplied(composite)
+            val retained = f.visuals.single()
             registration.refreshRendering()
-            assertEquals(0, f.visuals.first().destroys, "same effective revision must keep output")
+            assertEquals(0, retained.destroys, "same effective revision must keep output")
+            block.set(true)
+            next.set(PartExtensionFrame(listOf(f.text("fixed", "new style"))))
             f.renderRevision.incrementAndGet()
             registration.refreshRendering()
-            assertEquals(1, f.visuals.first().destroys, "changed selection must clear old output immediately")
-            f.driveUntil(composite) { f.descriptors.size == 2 }
+            assertTrue(entered.await(2, TimeUnit.SECONDS))
+            composite.updateRootPosition(Vector3d())
+            assertEquals(0, retained.destroys, "changed selection must keep output while its replacement is pending")
+            assertEquals(0, retained.textUpdates)
+            release.countDown()
+            f.driveUntil(composite) { retained.textUpdates == 1 }
+            assertEquals(Component.text("new style"), retained.textValue)
+            assertEquals(1, f.descriptors.size, "successful replacement must reuse matching keys")
             assertEquals(0L, f.inputs.last().elapsedTicks, "style selection preserves source clock")
             assertEquals(1, f.opens.get())
+
+            block.set(false); next.set(PartExtensionFrame.EMPTY)
+            f.renderRevision.incrementAndGet()
+            registration.refreshRendering()
+            f.driveUntil(composite) { retained.destroys == 1 }
+            assertEquals(1, f.descriptors.size, "successful EMPTY removes the retained frame without creating visuals")
             assertEquals(0, f.child.destroyed)
-        } finally { composite.destroy().toCompletableFuture().join(); registration.close() }
+        } finally { release.countDown(); composite.destroy().toCompletableFuture().join(); registration.close() }
     }
 
     @Test fun `stable keys preserve visual identities across blink reorder growth and shrink`() = fixture { f ->

@@ -37,7 +37,7 @@ class OperationalPartRenderProjectionTest {
         val stops = listOf(stop("past", "A", TimetableServiceStopStatus.STOP, "actual-run", completed = true),
             stop("pass", "B", TimetableServiceStopStatus.PASS, "actual-run"),
             stop("terminal", "C", TimetableServiceStopStatus.TERMINAL, "actual-run"))
-        val actualRun = TimetableRunDisplayContext("duty", "actual-run", "line",
+        val actualRun = TimetableRunDisplayContext("duty", "actual-run", "line", true,
             buildJsonObject { put("notice", "actual") }, "C")
         fun capture(tripId: String) = TimetableUnitDisplayContext(
             "actual-train", "unit", listOf("car-a", "car-b"), "table",
@@ -68,7 +68,7 @@ class OperationalPartRenderProjectionTest {
     @Test fun `withdrawing actual run changes context key and never borrows another train projection`() {
         val display = snapshot(values = JsonObject(emptyMap()))
         fun current(terminal: String) = TimetableUnitDisplayContext("train", "unit", listOf("car-a", "car-b"),
-            "table", display, currentBerth = null, currentRun = TimetableRunDisplayContext("duty", "run", "line", JsonObject(emptyMap()), terminal))
+            "table", display, currentBerth = null, currentRun = TimetableRunDisplayContext("duty", "run", "line", true, JsonObject(emptyMap()), terminal))
         val old = projectOperationalPartRender(current("B"), stationMetadata = ::stationMetadata)
         val updated = projectOperationalPartRender(current("C"), stationMetadata = ::stationMetadata)
         val outsideRun = projectOperationalPartRender(context(display), stationMetadata = ::stationMetadata)
@@ -86,7 +86,7 @@ class OperationalPartRenderProjectionTest {
     @Test fun `actual current run metadata is separate from authored values and missing scope stays null`() {
         val captured = context(snapshot())
         val actual = TimetableUnitDisplayContext(captured.trainId,captured.unitId,captured.carIds,captured.timetableId,
-            captured.display,null,TimetableRunDisplayContext("service","run","line",buildJsonObject { put("notice","run-specific") }))
+            captured.display,null,TimetableRunDisplayContext("service","run","line", true,buildJsonObject { put("notice","run-specific") }))
         val result = projectOperationalPartRender(actual, stationMetadata = ::stationMetadata)
         val run = result.operational.jsonObject.getValue("currentRun").jsonObject
         assertEquals(JsonPrimitive("service"),run["serviceId"])
@@ -96,6 +96,22 @@ class OperationalPartRenderProjectionTest {
         assertFalse(result.operational.jsonObject.getValue("values").jsonObject.containsKey("notice"))
     }
 
+    @Test fun `current run carries boolean service status and changing it invalidates the rendering context`() {
+        val captured = context(snapshot())
+        fun project(isInService: Boolean) = projectOperationalPartRender(TimetableUnitDisplayContext(
+            captured.trainId, captured.unitId, captured.carIds, captured.timetableId, captured.display, null,
+            TimetableRunDisplayContext("service", "run", "line", isInService,
+                buildJsonObject { put("isInService", "authored metadata") })))
+        val passenger = project(true)
+        val deadhead = project(false)
+        for ((isInService, result) in listOf(true to passenger, false to deadhead)) {
+            assertEquals(JsonPrimitive(isInService), result.operational.jsonObject.getValue("currentRun").jsonObject["isInService"])
+            assertEquals(JsonPrimitive("Express"), result.aliases["runType"], "authored display strings retain their meaning")
+        }
+        assertNotEquals(passenger.contextKey, deadhead.contextKey)
+        assertEquals(passenger.operational.jsonObject - "currentRun", deadhead.operational.jsonObject - "currentRun")
+    }
+
     @Test fun `missing destination defaults to actual run terminal with localized metadata without mutating author values`() {
         val authored = buildJsonObject { put("notice", "retain") }
         val display = snapshot(values = authored, planned = listOf(
@@ -103,7 +119,7 @@ class OperationalPartRenderProjectionTest {
             stop("future-end", "C", TimetableServiceStopStatus.TERMINAL, run = "future")),
             unresolved = listOf("later/unknown"))
         val actual = TimetableUnitDisplayContext("train", "unit", listOf("car"), "table", display, null,
-            TimetableRunDisplayContext("service", "run", "line", JsonObject(emptyMap()), "B"))
+            TimetableRunDisplayContext("service", "run", "line", true, JsonObject(emptyMap()), "B"))
         val names = linkedMapOf<String, JsonElement>("zh" to JsonPrimitive("乙站"), "en" to JsonPrimitive("Beta Station"))
         fun project() = projectOperationalPartRender(actual,
             stationMetadata = { id -> if (id == "B") buildJsonObject { put("name", JsonObject(names)) } else JsonObject(emptyMap()) })
@@ -123,7 +139,7 @@ class OperationalPartRenderProjectionTest {
             currentRun: Boolean = true, active: Boolean = true): OperationalPartRenderProjection =
             projectOperationalPartRender(TimetableUnitDisplayContext("train", "unit", listOf("car"), "table",
                 snapshot(values = values, active = active), null,
-                if (currentRun) TimetableRunDisplayContext("service", "run", "line", JsonObject(emptyMap()), terminal) else null),
+                if (currentRun) TimetableRunDisplayContext("service", "run", "line", true, JsonObject(emptyMap()), terminal) else null),
                 stationMetadata = { buildJsonObject { if (name != null) put("name", name) } })
         for (name in listOf<JsonElement?>(null, JsonNull, JsonPrimitive(42), JsonPrimitive(""), JsonArray(emptyList()),
             buildJsonObject { put("zh", false); put("en", ""); put("foreign", "ignored") })) {
@@ -180,7 +196,7 @@ class OperationalPartRenderProjectionTest {
         fun withSide(side: work.art1st.javarailways.basic.api.operation.DoorSide?) = projectOperationalPartRender(
             TimetableUnitDisplayContext("train", "unit", listOf("car-a"), "table", display,
                 StationBerthRef(StationId("C"), "one"),
-                TimetableRunDisplayContext("service", "run", "line", JsonObject(emptyMap())),
+                TimetableRunDisplayContext("service", "run", "line", true, JsonObject(emptyMap())),
                 TimetableDisplayProgress(TimetableDisplayPhase.AT_STATION, 0), doorSide = side), stationMetadata = ::stationMetadata)
         val unknown = withSide(null)
         assertEquals(JsonNull, unknown.operational.jsonObject["doorSide"])

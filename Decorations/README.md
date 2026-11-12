@@ -96,7 +96,7 @@ Eviction, service unregister, provider disable and Decorations disable close own
 
 ## Dynamic train rendering
 
-The host opens each mounted extension session on its worker pool, then requests frames every10 source ticks (nominally2Hz), with an immediate refresh when operational context changes. One in-flight draw and one overwritten latest request prevent unbounded backlog. Decorations resolves the effective template from the owning car’s captured source package, lazily compiles that exact XML, and returns immutable text values. Each draw receives an isolated document/JS invocation. The canvas fits physical part dimensions with preserved aspect ratio and centered margins.
+The host opens each mounted extension session on its worker pool, then requests frames every10 source ticks (nominally2Hz), with an immediate refresh when operational context changes. One in-flight draw and one overwritten latest request prevent unbounded backlog. Context or style refresh invalidates obsolete worker output while retaining the last successful frame until its replacement succeeds; a successful EMPTY frame clears it. Decorations resolves the effective template from the owning car’s captured source package, lazily compiles that exact XML, and returns immutable text values. Each draw receives an isolated document/JS invocation. The canvas fits physical part dimensions with preserved aspect ratio and centered margins.
 
 Simple XML bindings use top-level strings: `trainId`, `trainName`, `trainType` (empty when unknown), `carId`, `carNumber` (1-based physical car order), `destination`, `runType`, `currentStationName` and `nextStationName`. Operational aliases are empty strings when unknown; runType comes only from authored string values. Destination uses an authored string when present; when the destination key is absent, it uses the actual current run’s terminal station `metadata.name`, if supplied. JS additionally receives typed objects:
 
@@ -126,7 +126,7 @@ const cells = visible.map((stop, slot) => ({
 // At arrival, the indexed station is still current, not passed.
 ```
 
-The list may include only the proven parts of a future trip; its final known call is not a destination source. `currentRun` is null or `{serviceId, runId, lineId, metadata, terminalStationId}`. When the destination key is absent, `values.destination` defaults to that actual run’s terminal station: valid station `metadata.name` string or `{zh,en}`, then canonical station name. Explicit values, including empty strings and null, suppress this default. This only changes detached render values; domain values are unchanged. An unknown terminal/name remains unset. Unknown/finished cursors are null, not an end index or a guessed first station. This is a template-input change only; the timetable HTTP diagnostic API retains its separate planned/completed/remaining lists.
+The list may include only the proven parts of a future trip; its final known call is not a destination source. `currentRun` is null or `{serviceId, runId, lineId, isInService, metadata, terminalStationId}`. When the destination key is absent, `values.destination` defaults to that actual run’s terminal station: valid station `metadata.name` string or `{zh,en}`, then canonical station name. Explicit values, including empty strings and null, suppress this default. This only changes detached render values; domain values are unchanged. An unknown terminal/name remains unset. Unknown/finished cursors are null, not an end index or a guessed first station. This is a template-input change only; the timetable HTTP diagnostic API retains its separate planned/completed/remaining lists.
 
 
 Use `bind` for a simple alias, for example `<span bind="destination">Unknown</span>`. A nonempty binding takes precedence over that span’s fallback/textContent; leave it off a node whose text is computed by JS. For example:
@@ -222,7 +222,7 @@ const currentRun = ctx.data.operational && ctx.data.operational.currentRun;
 const runNotice = currentRun ? currentRun.metadata.notice : null;
 ```
 
-`currentRun` is `null` outside an unambiguous actual run scope; otherwise it contains `{serviceId, runId, lineId, metadata}`. Its timetable and cycle are those of the enclosing operational context. It is captured from the active physical service/entered segment, not guessed from the first remaining stop or `diagramLineId`. Line metadata and run metadata are independent of operational display `values`; templates decide which values to use. Updates use existing sampled refresh and immutable data; no live-world query is made by JS. The complete catalog and stop data remain subject to the library's existing aggregate input limits.
+`currentRun` is `null` outside an unambiguous actual run scope; otherwise it contains `{serviceId, runId, lineId, isInService, metadata}`. Its timetable and cycle are those of the enclosing operational context. It is captured from the active physical service/entered segment, not guessed from the first remaining stop or `diagramLineId`. `isInService` is the compiled authoring passenger-service switch: PASSENGER is true and DEADHEAD is false. A deadhead run still has a `currentRun`; the template decides how to display it. Line metadata and run metadata are independent of operational display `values`; templates decide which values to use. Updates use existing sampled refresh and immutable data; no live-world query is made by JS. The complete catalog and stop data remain subject to the library's existing aggregate input limits.
 
 
 ### This-side and opposite-side opening
@@ -241,10 +241,10 @@ ctx.data.display.openingSide;  // "this" | "opposite" | "both" | "none" | null
 
 LEFT/RIGHT flips when the car's operating end is tail, then compares to the fixed installation side. For example, raw LEFT + head + left installation is `this`; after reversal raw RIGHT + tail + the same left installation is still `this`, preserving the physical platform side. A screen on the opposite wall reports `opposite`. Missing installation/end facts suppress directional hints (null). Known BOTH/NONE produce `both`/`none` even without a side association; neither is conflated with unknown.
 
-Templates translate these stable values into their15-second shared language pages, for example:
+The cabin template translates these stable values into its 9-second language pages, for example:
 
 ```js
-const english = Math.floor(ctx.elapsedTicks / 300) % 2 === 1;
+const english = Math.floor(ctx.elapsedTicks / 180) % 2 === 1;
 const labels = english
   ? {this:"Doors open on this side", opposite:"Doors open on the opposite side", both:"Doors open on both sides", none:""}
   : {this:"本侧开门", opposite:"对侧开门", both:"两侧开门", none:""};
@@ -253,3 +253,5 @@ document.getElementById("door").textContent = side === null ? "" : (labels[side]
 ```
 
 The host captures these values on its simulation owner and invalidates old-direction output when the operating end/side changes. Workers perform no live train/player lookups. Actual template/glyph rendering and game-client door-indicator acceptance remain separate from this data integration.
+
+The S100 example XML uses `minecraft:default` for ordinary labels, retaining the ring/dot geometry font. Cabin language changes every 180 source ticks (9 seconds), and exterior language every 120 ticks (6 seconds). When `currentRun.isInService` is false, cabin output is empty and exterior labels alternate between “回送” and “Out of Service” without a service-class badge. The existing provider gate still returns EMPTY when no actual current run exists.

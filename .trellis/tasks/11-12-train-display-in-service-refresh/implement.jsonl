@@ -1,0 +1,11 @@
+{"file": ".trellis/spec/guides/cross-layer.md", "reason": "跨层producer consumer及恢复边界"}
+{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "开发格式不虚构升版"}
+{"file": ".trellis/spec/javarailways/shared/persistence.md", "reason": "当前严格DTO与保存恢复"}
+{"file": ".trellis/spec/javarailways/simpleato/timetable-model-and-validation.md", "reason": "run segment领域契约"}
+{"file": ".trellis/spec/javarailways/simpleato/through-running-and-unit-displays.md", "reason": "actual run显示事实"}
+{"file": ".trellis/spec/javarailways/simpleato/persistence.md", "reason": "SimpleATO snapshot恢复"}
+{"file": ".trellis/spec/webui/frontend/components-state-contracts.md", "reason": "authoring与wire contract"}
+{"file": ".trellis/spec/webui/frontend/studio-authoring.md", "reason": "authoring编译owner"}
+{"file": ".trellis/spec/bukkit-plugin/backend/screen-parts.md", "reason": "generation与host会话生命周期，保帧合同需更新"}
+{"file": ".trellis/spec/bukkit-plugin/backend/text-display-backends.md", "reason": "稳定key事务更新和清理"}
+{"file": ".trellis/spec/decorations/backend/index.md", "reason": "保留无actual run gate，XML显示和几何字体"}

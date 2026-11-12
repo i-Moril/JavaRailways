@@ -21,13 +21,13 @@ class MetadataModelsTest {
         listOf(StationId("b"), StationId("a")), metadata = metadata
     )
     private fun run(metadata: JsonObject = empty) = TimetableRunSegment(
-        "run", LineId("metro"), 0, 2, metadata = metadata
+        "run", LineId("metro"), 0, 2, true, metadata = metadata
     )
 
     @Test
     fun `fixed missing field inputs default to empty without changing persisted boundaries`() {
         val oldLine = """{"id":"metro","upStationIds":["a","b"],"downStationIds":["b","a"]}"""
-        val oldRun = """{"runId":"run","lineId":"metro","startStepIndex":0,"endStepIndexExclusive":2}"""
+        val oldRun = """{"runId":"run","lineId":"metro","startStepIndex":0,"endStepIndexExclusive":2,"isInService":true}"""
         assertEquals(empty, Json.decodeFromString<SavedLineV1>(oldLine).restore().metadata)
         assertEquals(empty, Json.decodeFromString<SavedTimetableRunSegmentV1>(oldRun).restore().metadata)
     }

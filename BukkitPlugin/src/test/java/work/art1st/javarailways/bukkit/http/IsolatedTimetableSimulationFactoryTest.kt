@@ -109,7 +109,7 @@ class IsolatedTimetableSimulationFactoryTest {
                     TimetableStep.At(100, TimetableAction.DestinationOptions("c@one", stopPrograms = program("c", "TERMINAL", 0))),
                     TimetableStep.At(100, TimetableAction.GoTo("c@one")))
                 return Timetable("door-measurement", services = listOf(TimetableService("duty", TrainSelector.TrainId("scheduled"), steps,
-                    lineId = line, runSegments = listOf(work.art1st.javarailways.simpleato.timetable.TimetableRunSegment("run", line, 0, steps.size,
+                    lineId = line, runSegments = listOf(work.art1st.javarailways.simpleato.timetable.TimetableRunSegment("run", line, 0, steps.size, true,
                         calls = calls.map { work.art1st.javarailways.simpleato.timetable.TimetableRunCall(it.callId, it.stationId,
                             it.destinationId, work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.valueOf(it.kind)) })))),
                     lineSpeedLimits = listOf(TimetableLineSpeedLimit(line, 6.0)))
@@ -187,7 +187,7 @@ class IsolatedTimetableSimulationFactoryTest {
                     stopPrograms = program("d", "TERMINAL", null))),
                 TimetableStep.At(100, TimetableAction.GoTo("d@one")))
             val timetable = Timetable("line-test", services = listOf(TimetableService("duty", TrainSelector.TrainId("scheduled"), steps,
-                lineId = line, runSegments = listOf(work.art1st.javarailways.simpleato.timetable.TimetableRunSegment("run", line, 0, steps.size,
+                lineId = line, runSegments = listOf(work.art1st.javarailways.simpleato.timetable.TimetableRunSegment("run", line, 0, steps.size, true,
                     calls = calls.map { work.art1st.javarailways.simpleato.timetable.TimetableRunCall(it.callId, it.stationId,
                         it.destinationId, work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.valueOf(it.kind)) })))),
                 lineSpeedLimits = listOf(TimetableLineSpeedLimit(line, 6.0)))
@@ -1055,12 +1055,12 @@ class IsolatedTimetableSimulationFactoryTest {
                 TimetableStep.At(500, TimetableAction.DestinationOptions("$end@one", minimumDwellTicks = 0)),
                 TimetableStep.At(500, if (returning) TimetableAction.GoVia(listOf("b@one", "a@one")) else TimetableAction.GoVia(listOf("d@one", "e@one")))),
             runSegments = listOf(
-                work.art1st.javarailways.simpleato.timetable.TimetableRunSegment("first-run", firstLine, 1, 3,
+                work.art1st.javarailways.simpleato.timetable.TimetableRunSegment("first-run", firstLine, 1, 3, true,
                     diagramLineId = firstLine.value, lineDirection = direction,
                     calls = listOf(call(start, work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.ORIGIN, departure = 0)) +
                         (if (returning) emptyList() else listOf(call("b", work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.PASS))) +
                         call("c", work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.TERMINAL, via = if (returning) listOf("d@one") else emptyList())),
-                work.art1st.javarailways.simpleato.timetable.TimetableRunSegment("second-run", secondLine, 3, 5,
+                work.art1st.javarailways.simpleato.timetable.TimetableRunSegment("second-run", secondLine, 3, 5, true,
                     diagramLineId = secondLine.value, lineDirection = direction,
                     calls = listOf(call("c", work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.ORIGIN, departure = 500)) +
                         (if (returning) listOf(call("b", work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus.PASS)) else emptyList()) +
@@ -1210,7 +1210,7 @@ class IsolatedTimetableSimulationFactoryTest {
                     TimetableFormationOutput("first", FormationOutputDisposition.Hold),
                     TimetableFormationOutput("rest", FormationOutputDisposition.Hold)))))
         val timetable = if (!withDisplays) definition else {
-            val segment = work.art1st.javarailways.simpleato.timetable.TimetableRunSegment("joined-run", LineId("joined-line"), 2, 3,
+            val segment = work.art1st.javarailways.simpleato.timetable.TimetableRunSegment("joined-run", LineId("joined-line"), 2, 3, true,
                 diagramLineId = "joined-line", lineDirection = work.art1st.javarailways.simpleato.api.line.LineDirection.UP,
                 calls = listOf(
                     work.art1st.javarailways.simpleato.timetable.TimetableRunCall("joined-c", "c", "c@one",

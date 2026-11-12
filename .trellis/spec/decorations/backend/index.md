@@ -40,8 +40,8 @@ close/eviction 逐一尝试释放并聚合报告，不能因一个失败跳过�
 仅有 active 运营车次或预先 BEGIN 的显示字段不足以亮屏；不通过模板自行判空实现这项规则。
 
 关屏保持 session、unit 样式绑定、revision、视距策略及关闭委托；隐藏/off 时仍转交轻量 `update`，
-再次进入 RUN 可复用 session。宿主在接收新的运营上下文采样时通过既有 context invalidation 清除旧生成叶子、
-取消旧 generation 的发布资格；Decoration 不新增取消机制，不修改 SimpleDisplays 库、车身或原始子树。
+再次进入 RUN 可复用 session。宿主在接收新的运营上下文采样时通过既有 context invalidation
+取消旧 generation 的发布资格，保留成功画面至新的 EMPTY/正常帧提交；Decoration 不新增取消机制，不修改 SimpleDisplays 库、车身或原始子树。
 清屏沿用现有采样/owner 应用时序，不承诺命令发出瞬间即完成。
 
 回归必须同时覆盖 direct/routing 两条路径、静态和脚本式输出、active trip 保留而 currentRun 消失、
@@ -82,3 +82,17 @@ Provider在validate/open把该启用期catalog与owning-car captured资源合并
 矩形改用SimpleDisplays `<rect>` 输出的原版U+2588字形（`minecraft:include/default`），不用自定义矩形PNG。该原版ASCII字形可见8×8、advance9、ascent7，原生TextDisplay墨迹X[-0.0875,0.1125]、Y[0.025,0.225]格；尺寸0.2×0.2、中心偏移(0.0125,0.125)。SDL计算非等比scaleX/scaleY及原点补偿；Decorations保留这些独立轴缩放，不再强制XYZ一致。旧库缺少scale getters明确报告ABI不兼容，不静默压缩。普通span保持现有名义字号语义。圆环/圆点仍用自定义字体，中心偏移必须以size/9补偿，不能把provider advance当作墨迹宽度。详细原版证据见主任务research/vanilla-rectangle-metrics.md。
 
 适配层透传draw.key，并按固定CSS z-index映射屏面正z，范围0..63；深度只由层级与屏幕尺寸决定，与帧元素数量/次序无关。同层重叠由模板作者处理。原始静态XML图元使用显式id或原始DOM路径，脚本新增图元必须有显式id；帧key必须唯一。typed ABI同时检查getKey/getZIndex，旧库应报告不兼容。车内下一站圆点持续保留节点，仅切换空文字；背景、线路、圆环、圆点和文字使用固定层级。客户端字体覆盖、最终深度精度、字形可读性和方向仍需游戏验收。构建脚本 `scripts/display-assets/package.py` 生成车包和独立样式包；客户端 overlay 由独立资源仓库构建，不部署服务器。
+
+## 运营班次与模板语言周期（2026-11-12）
+
+CURRENT：`operational.currentRun.isInService` 为 SimpleATO actual run 的必填 Boolean；
+true/false 来自 WebUI 运行线“载客运营”开关，不从 run 是否存在、门动作或 display values 推断。
+完整字段传递及持久化合同归[停车跨线与单元显示](../../javarailways/simpleato/through-running-and-unit-displays.md)。
+provider 仍只针对缺少 currentRun 统一返回 EMPTY；存在但 isInService=false 的运行线必须执行 XML。
+
+现有 S100 XML 决定显示：非运营内屏直接返回无输出，外屏隐藏种别并显示回送／Out of Service。
+内屏语言周期180source ticks（9秒），外屏120（6秒）；内屏长文分页60ticks不变。普通文字使用
+`minecraft:default` 及已有保守宽度估算，圆环/圆点继续使用 `javarailways:display_geometry`，
+矩形继续使用原版图元字体。不能替换几何字体造成图元消失，也不能保留 Roboto 专用 advance 表估算默认字体。
+真实 SimpleDisplays 模板探针覆盖上述周期边界、运营/回送/恢复、几何字体和稳定blink keys。
+模板编译与逻辑探针不能证明客户端启用光影后的实际可读性；启用期 captured 资源仍需对应重载才激活。

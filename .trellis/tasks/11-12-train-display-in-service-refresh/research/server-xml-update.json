@@ -1,0 +1,21 @@
+{
+  "backup": "/home/user/javarailways-backups/display-xml-20261112T153647Z",
+  "files": [
+    {
+      "path": "/opt/mcsmanager/daemon/data/InstanceData/836082a48c4f48fcb1fea4e83c57dc96/plugins/Decorations/styles/cabin-route/displays/cabin-route.xml",
+      "beforeSha256": "9018241fec84eca9b1cd7632ac22b226a472595e3db24009f6fe507478177337",
+      "afterSha256": "a7734f7ff6b6e7fa689a3877bc8771e2786b7f332867d59466959a67018c2978"
+    },
+    {
+      "path": "/opt/mcsmanager/daemon/data/InstanceData/836082a48c4f48fcb1fea4e83c57dc96/plugins/JavaRailways/trains/s100/decorations/displays/front-destination.xml",
+      "beforeSha256": "2af8fc88fbea00c37f2ee85a959919d4b0da076c88deca3b2f2406728983dc4e",
+      "afterSha256": "fa9af6d014699f51767e4376c9b402fa07f94b7c6dcd155c13a320687cb28784"
+    },
+    {
+      "path": "/opt/mcsmanager/daemon/data/InstanceData/836082a48c4f48fcb1fea4e83c57dc96/plugins/JavaRailways/trains/s100/decorations/displays/side-destination.xml",
+      "beforeSha256": "f27575861d45d98637fd8db9abe88a519850025bea8e2c05690a9441ef065938",
+      "afterSha256": "ddb832ff025e4b4e17bf9c05b2304f3730ed51fa71eaf2ccb92540d3b448ec36"
+    }
+  ],
+  "activation": "XML on disk only; no plugin reload, JAR replacement or saved-data change"
+}

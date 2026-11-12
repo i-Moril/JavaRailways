@@ -131,6 +131,7 @@ private fun projectOperationalFacts(
             put("serviceId", run.serviceId)
             put("runId", run.runId)
             put("lineId", run.lineId)
+            put("isInService", run.isInService)
             put("terminalStationId", run.terminalStationId?.let(::JsonPrimitive) ?: JsonNull)
             put("metadata", run.metadata)
         } } ?: JsonNull)

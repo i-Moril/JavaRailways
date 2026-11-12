@@ -55,6 +55,7 @@ class TimetableRunDisplayContext(
     val serviceId: String,
     val runId: String,
     val lineId: String,
+    val isInService: Boolean,
     metadata: JsonObject,
     /** Exact terminal of this entered run, independent of later operational-trip legs. */
     val terminalStationId: String? = null,
@@ -71,7 +72,7 @@ internal fun captureTimetableRunDisplayContext(
 ): TimetableRunDisplayContext? = segment?.takeIf {
     stepIndex >= it.startStepIndex && stepIndex < it.endStepIndexExclusive
 }?.let { segment ->
-    TimetableRunDisplayContext(serviceId, segment.runId, segment.lineId.value, segment.metadata,
+    TimetableRunDisplayContext(serviceId, segment.runId, segment.lineId.value, segment.isInService, segment.metadata,
         segment.calls.lastOrNull()?.takeIf { it.status == TimetableServiceStopStatus.TERMINAL }?.stationId)
 }
 

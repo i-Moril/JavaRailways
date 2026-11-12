@@ -2,7 +2,8 @@
   <div id="content"/>
   <script><![CDATA[
 
-    const FONT = "javarailways:display_geometry";
+    const GEOMETRY_FONT = "javarailways:display_geometry";
+    const TEXT_FONT = "minecraft:default";
     const G = { ring:"\uE004", dot:"\uE005" };
     function object(v) { return v && typeof v === "object" && !Array.isArray(v) ? v : {}; }
     function localized(v, lang, fallback) {
@@ -15,9 +16,9 @@
         if (!text && !keepEmpty) return;
         const node = document.createElement("span");
         node.setAttribute("id", key);
-        if (font) node.setAttribute("font", font);
-        // Ring/dot bitmap ink is one native font pixel right of the text origin.
-        if (font === FONT) x -= size / 9;
+        node.setAttribute("font", font || TEXT_FONT);
+        // Centered TextDisplay adds one native font pixel to the line origin.
+        x -= size / 9;
         node.setAttribute("style", "left:" + x + ";top:" + y + ";font-size:" + size + ";color:" + ink + ";z-index:" + (layer === undefined ? 30 : layer));
         node.textContent = String(text);
         parent.appendChild(node);
@@ -33,14 +34,14 @@
     }
     function label(parent, key, text, x, y, maxSize, width, ink) {
         if (!text) return;
-        // Conservative default-font fit; no browser metrics or implicit clipping.
         const size = Math.min(maxSize, width / Math.max(1, textUnits(text)));
         span(parent, key, text, x, y + (maxSize - size) / 2, size, ink);
     }
-    function readableLabel(parent, key, text, x, y, maxSize, minSize, width, ink, ticks) {
+    function readableLabel(parent, key, text, x, y, maxSize, minSize, width, ink, page, alignLeft = false, prefix = "") {
         if (!text) return;
-        const size = Math.max(minSize, Math.min(maxSize, width / Math.max(1, textUnits(text))));
-        const capacity = width / size;
+        const prefixUnits = textUnits(prefix);
+        const size = Math.max(minSize, Math.min(maxSize, width / Math.max(1, textUnits(text) + prefixUnits)));
+        const capacity = width / size - prefixUnits;
         const pages = [];
         let rest = String(text).trim();
         while (rest) {
@@ -59,9 +60,10 @@
             rest = chars.slice(count).join("").trim();
         }
         if (!pages.length) return;
-        // Five readable 3-second pages per language period; continue long values next cycle.
-        const page = Math.floor(ticks / 600) * 5 + Math.floor((ticks % 300) / 60);
-        span(parent, key, pages[page % pages.length], x, y + (maxSize - size) / 2, size, ink);
+        const visible = prefix + pages[page % pages.length];
+        // Estimate the centered default-font line width for left-aligned labels.
+        if (alignLeft) x += Math.ceil(textUnits(visible) * 9) * size / 18;
+        span(parent, key, visible, x, y + (maxSize - size) / 2, size, ink);
     }
     function data(ctx) {
         const op = object(ctx.data.operational);
@@ -69,7 +71,7 @@
         const rm = object(run.metadata);
         const line = object(object(ctx.data.lines)[run.lineId]);
         const lm = object(line.metadata);
-        const lang = Math.floor(ctx.elapsedTicks / 300) % 2 === 0 ? "zh" : "en";
+        const lang = Math.floor(ctx.elapsedTicks / 180) % 2 === 0 ? "zh" : "en";
         return {op:op, run:run, rm:rm, line:line, lm:lm, lang:lang,
             theme:color(lm.themeColor, color(line.color, "#126EAA")),
             destination:localized(object(op.values).destination, lang, ""),
@@ -93,10 +95,36 @@
         return ids.filter(id => typeof id === "string" && id !== d.run.lineId && catalog[id])
             .filter((id, i, all) => all.indexOf(id) === i).map(id => object(catalog[id]));
     }
-    function transferCaption(station, d, ctx) {
-        const explicit = localized(object(object(station).metadata).transfer, d.lang, "");
-        return explicit || transferLines(station, d, ctx).map(line => localized(object(line.metadata).badge, d.lang,
-            localizedName(object(line.metadata).name, d.lang) || line.id || "")).join(" · ");
+    function transferBadge(parent, key, line, lang, x, y, width, height, size) {
+        const metadata = object(line.metadata);
+        const ink = color(metadata.themeColor, color(line.color, "#555555"));
+        const text = localized(metadata.badge, lang, localizedName(metadata.name, lang) || line.id || "");
+        rect(parent, key + "/background", x, y, width, height, ink, 20);
+        label(parent, key + "/text", text, x + width / 2, y + (height - size) / 2 + 1, size, width - 4, "#FFFFFF");
+    }
+    function doorIcon(parent, side, right, bottom, theme, ticks) {
+        if (!side) return;
+        const x = right - 42, y = bottom - 40;
+        const opensHere = side === "this" || side === "both";
+        const ink = opensHere ? "#FFFFFF" : "#D6EDFF";
+        const leafWidth = opensHere ? 6 : 17;
+
+        rect(parent, "door/frame-top", x, y, 42, 3, ink, 20);
+        rect(parent, "door/frame-bottom", x, y + 37, 42, 3, ink, 20);
+        rect(parent, "door/frame-left", x, y + 3, 3, 34, ink, 20);
+        rect(parent, "door/frame-right", x + 39, y + 3, 3, 34, ink, 20);
+        rect(parent, "door/leaf-left", x + 3, y + 4, leafWidth, 32, ink, 20);
+        rect(parent, "door/leaf-right", x + 39 - leafWidth, y + 4, leafWidth, 32, ink, 20);
+
+        if (opensHere) {
+            // Animate the exit cue while the door panels stay fully open.
+            const spread = 4 + 4 * Math.min((ticks % 30) / 12, 1);
+            span(parent, "door/arrow-left", "‹", x + 21 - spread, y + 8, 23, ink);
+            span(parent, "door/arrow-right", "›", x + 21 + spread, y + 8, 23, ink);
+        } else {
+            rect(parent, "door/window-left", x + 6, y + 8, 11, 13, theme, 21);
+            rect(parent, "door/window-right", x + 25, y + 8, 11, 13, theme, 21);
+        }
     }
     function vertical(parent, key, text, x, y, size, rowsPerColumn, ink) {
         const chars = Array.from(text), capacity = rowsPerColumn * 2;
@@ -110,8 +138,33 @@
                 y + row * size, size, ink);
         });
     }
+    function englishStation(parent, key, text, x, railY, slot, width, ink) {
+        if (!text) return;
+        const nominalSize = 18;
+        let lines = [text], widest = textUnits(text);
+        if (widest * nominalSize > width) {
+            // Pick the word break that leaves the smallest maximum line width.
+            const words = text.split(/\s+/);
+            for (let split = 1; split < words.length; split++) {
+                const first = words.slice(0, split).join(" ");
+                const second = words.slice(split).join(" ");
+                const candidate = Math.max(textUnits(first), textUnits(second));
+                if (candidate < widest) {
+                    widest = candidate;
+                    lines = [first, second];
+                }
+            }
+        }
+        const top = railY + (slot % 2 === 0 ? 25 : 70);
+        const stemTop = railY + 11;
+        rect(parent, key + "/leader", x - 0.75, stemTop, 1.5, top - stemTop - 4, "#CBD3DA", 10);
+        const size = Math.min(nominalSize, width / widest);
+        lines.forEach((line, row) =>
+            span(parent, key + "/line/" + row, line, x, top + row * 20, size, ink));
+    }
     function render(ctx) {
         const d = data(ctx), op = d.op;
+        if (d.run.isInService === false) return;
         const root = document.getElementById("content");
         const left = document.createElement("div"), right = document.createElement("div");
         root.appendChild(left); root.appendChild(right);
@@ -119,29 +172,52 @@
         const panelWidth = 336;
         rect(left, "left-background", 0, 0, panelWidth, 200, d.theme);
         rect(right, "right-background", panelWidth, 0, 800 - panelWidth, 200, "#FFFFFF");
+        const inset = 22;
+        const contentWidth = panelWidth - 2 * inset;
+        const badgeWidth = 102, badgeLeft = panelWidth - inset - badgeWidth;
+        const ticks = ctx.elapsedTicks;
+        const interval = Math.floor(ticks / 60);
+        const languageWindow = interval % 3;
+        const languageCycle = Math.floor(interval / 6);
+        const page = languageCycle * 3 + languageWindow;
         const lineName = localizedName(d.rm.line, d.lang) || localizedName(d.lm.name, d.lang);
-        readableLabel(left, "line-name", lineName, d.service ? 108 : 168, 4, 28, 24,
-            d.service ? 184 : 304, "#FFFFFF", ctx.elapsedTicks);
-        readableLabel(left, "service-class", d.service, 264, 7, 22, 20, 112, "#FFFFFF", ctx.elapsedTicks);
-        label(left, "destination-caption", d.lang === "zh" ? "开往" : "For", 46, 44, 18, 60, "#D6EDFF");
-        readableLabel(left, "destination", d.destination, 206, 38, 32, 28, 228, "#FFFFFF", ctx.elapsedTicks);
+        const alternates = Boolean(lineName && d.destination);
+        const showDestination = Boolean(d.destination) && (!lineName || interval % 2 === 1);
+        // A 9-second language block gives the first field two slots and the other one.
+        const firstField = showDestination === (d.lang === "en");
+        const headerPage = alternates ? languageCycle * (firstField ? 2 : 1) + Math.floor(languageWindow / 2) : page;
+        const headerPrefix = showDestination ? (d.lang === "zh" ? "开往 " : "For ") : "";
+        readableLabel(left, "header", showDestination ? d.destination : lineName, inset, 15, 23, 23,
+            d.service ? badgeLeft - inset - 12 : contentWidth, "#FFFFFF", headerPage, true, headerPrefix);
+        if (d.service) {
+            rect(left, "service-class-background", badgeLeft, 10, badgeWidth, 32, "#FFFFFF", 20);
+            readableLabel(left, "service-class", d.service, badgeLeft + badgeWidth / 2, 15, 23, 23,
+                badgeWidth - 12, "#183247", page);
+        }
         const at = op.phase === "at_station";
         const station = at ? op.currentStation : op.nextStation;
-        label(left, "station-caption", d.lang === "zh" ? (at ? "本站" : "下一站") : (at ? "This station" : "Next station"),
-            168, 76, 18, 304, "#D6EDFF");
-        readableLabel(left, "station-name", stationName(station, d.lang), 168, 96, 48, 40, 304, "#FFFFFF", ctx.elapsedTicks);
-        const side = object(ctx.data.display).openingSide;
-        const zh = {this:"本侧开门", opposite:"对侧开门", both:"两侧开门", none:"不开门"};
-        const en = {this:"Doors: this side", opposite:"Doors: other side", both:"Doors: both sides", none:"Doors stay closed"};
-        readableLabel(left, "door-side", (d.lang === "zh" ? zh : en)[side] || "", 168, 148, 24, 22, 304, "#FFFFFF", ctx.elapsedTicks);
-        readableLabel(left, "transfer-caption", transferCaption(station, d, ctx), 168, 178, 20, 20, 304, "#FFFFFF", ctx.elapsedTicks);
+        const stationCaption = d.lang === "zh" ? (at ? "本站" : "下一站") : (at ? "This station" : "Next station");
+        readableLabel(left, "station-caption", stationCaption, inset, 60, 18, 18, contentWidth,
+            "#D6EDFF", page, true);
+        readableLabel(left, "station-name", stationName(station, d.lang), inset, 84, 46, 40, contentWidth,
+            "#FFFFFF", page, true);
+        const transfers = transferLines(station, d, ctx);
+        if (transfers.length) {
+            readableLabel(left, "transfer-caption", d.lang === "zh" ? "换乘" : "Transfer",
+                inset, 137, 15, 15, contentWidth, "#D6EDFF", page, true);
+            const perPage = 5, transferStart = page % Math.ceil(transfers.length / perPage) * perPage;
+            transfers.slice(transferStart, transferStart + perPage).forEach((line, slot) => {
+                transferBadge(left, "transfer/" + line.id, line, d.lang, inset + slot * 40, 158, 34, 26, 17);
+            });
+        }
+        doorIcon(left, object(ctx.data.display).openingSide, panelWidth - inset, 184, d.theme, ticks);
         const calls = Array.isArray(op.stops) ? op.stops : [];
         const index = op.stationIndex;
         const known = (op.phase === "at_station" || op.phase === "in_transit") &&
             Number.isInteger(index) && index >= 0 && index < calls.length;
         if (!known) return;
         const slots = 8, start = Math.max(0, index - 2), shown = calls.slice(start, start + slots);
-        const railY = 91, routeCenter = panelWidth + (800 - panelWidth) / 2;
+        const railY = 77, routeCenter = panelWidth + (800 - panelWidth) / 2;
         const spacing = Math.min(48, (800 - panelWidth - 64) / slots);
         const x0 = routeCenter - (shown.length - 1) * spacing / 2;
         const routeColor = color(d.line.color, d.theme), gray = "#A6ADB4";
@@ -162,18 +238,20 @@
                 absolute < index ? gray : routeColor, 10);
             const transfers = transferLines(call, d, ctx), maxBadges = 3;
             transfers.slice(0, maxBadges).forEach((line, n) => {
-                const lm = object(line.metadata), badgeY = railY - 30 - n * 22;
-                rect(right, key + "/transfer/" + line.id + "/background", x - 14, badgeY, 28, 18, color(lm.themeColor, color(line.color, "#555555")), 20);
-                label(right, key + "/transfer/" + line.id + "/text", localized(lm.badge, d.lang, localizedName(lm.name, d.lang) || line.id || ""), x, badgeY + 3, 12, 24, "#FFFFFF");
+                transferBadge(right, key + "/transfer/" + line.id, line, d.lang, x - 14, railY - 30 - n * 22, 28, 18, 12);
             });
             if (transfers.length > maxBadges) span(right, key + "/transfer-overflow", "+", x + 19, railY - 72, 11, "#333333");
-            span(right, key + "/ring", G.ring, x, railY - 10, 20, ink, FONT, 20);
+            span(right, key + "/line-mask", G.dot, x, railY - 10, 20, "#FFFFFF", GEOMETRY_FONT, 19);
+            span(right, key + "/ring", G.ring, x, railY - 10, 20, ink, GEOMETRY_FONT, 20);
             const stopping = call.status !== "PASS";
             if (stopping)
                 span(right, key + "/dot", absolute !== nextStop || Math.floor(ctx.elapsedTicks / 10) % 2 === 0 ? G.dot : "",
-                    x, railY - 4, 8, ink, FONT, 21, true);
-            vertical(right, key + "/name", stationName(call, d.lang), x, 108, d.lang === "zh" ? 22 : 20,
-                4, passed || !stopping ? gray : "#202830");
+                    x, railY - 4, 8, ink, GEOMETRY_FONT, 21, true);
+            const name = stationName(call, d.lang), muted = passed || !stopping;
+            if (d.lang === "zh")
+                vertical(right, key + "/name", name, x, railY + 17, 22, 4, muted ? gray : "#202830");
+            else
+                englishStation(right, key + "/name", name, x, railY, slot, 2 * spacing - 10, muted ? "#626C76" : "#202830");
         });
     }
   ]]></script>

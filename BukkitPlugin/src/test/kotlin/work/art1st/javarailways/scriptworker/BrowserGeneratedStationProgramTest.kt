@@ -85,6 +85,8 @@ class BrowserGeneratedStationProgramTest {
 
         val segment = service.runSegments.single()
         assertEquals("R1", segment.runId)
+        assertTrue(segment.isInService)
+        assertEquals(segment.isInService, worker.services.single().runSegments.single().isInService)
         assertEquals(5, segment.startStepIndex)
         assertEquals(segment.startStepIndex, worker.services.single().runSegments.single().startStepIndex)
         assertEquals("duty:D1/element:run/run:R1", worker.compilationTrace.single {

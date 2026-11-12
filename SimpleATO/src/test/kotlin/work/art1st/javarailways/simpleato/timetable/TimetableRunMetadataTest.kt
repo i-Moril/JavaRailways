@@ -15,9 +15,27 @@ import work.art1st.javarailways.simpleato.api.station.StationId
 
 class TimetableRunMetadataTest {
     private fun values(destination: String) = buildJsonObject { put("destination",destination) }
-    private fun segment(id: String, start: Int, end: Int) = TimetableRunSegment(id,LineId(id),start,end,
+    private fun segment(id: String, start: Int, end: Int) = TimetableRunSegment(id,LineId(id),start,end, true,
         calls = listOf(TimetableRunCall("$id-origin","C","C",TimetableServiceStopStatus.ORIGIN),
             TimetableRunCall("$id-end","E","E",TimetableServiceStopStatus.TERMINAL)))
+
+    @Test fun `service status survives strict segment JSON capture restore and participates in value identity`() {
+        val segments = listOf(true, false).map { TimetableRunSegment("run", LineId("line"), 0, 1, it) }
+        for (source in segments) {
+            val encoded = Json.encodeToString(SavedTimetableRunSegmentV1.serializer(), SavedTimetableRunSegmentV1.capture(source))
+            assertEquals(JsonPrimitive(source.isInService), Json.parseToJsonElement(encoded).jsonObject["isInService"])
+            val restored = Json.decodeFromString(SavedTimetableRunSegmentV1.serializer(), encoded).restore()
+            assertEquals(source.isInService, restored.isInService)
+            assertEquals(source, restored)
+            assertEquals(source.hashCode(), restored.hashCode())
+        }
+        assertNotEquals(segments[0], segments[1])
+        assertNotEquals(segments[0].hashCode(), segments[1].hashCode())
+        assertThrows(kotlinx.serialization.SerializationException::class.java) {
+            Json.decodeFromString(SavedTimetableRunSegmentV1.serializer(),
+                """{"runId":"run","lineId":"line","startStepIndex":0,"endStepIndexExclusive":1}""")
+        }
+    }
 
     @Test fun `runtime owned lookup preserves held peer cycles and revision observes fresh SET reset and retire`() {
         val segment = segment("run",0,1)
@@ -203,10 +221,10 @@ class TimetableRunMetadataTest {
 
     @Test
     fun `merged interchange retains arrival and next departure without removing later visits`() {
-        val first=TimetableRunSegment("main",LineId("main"),0,1,calls=listOf(
+        val first=TimetableRunSegment("main",LineId("main"),0,1, true,calls=listOf(
             TimetableRunCall("a","A","A@1",TimetableServiceStopStatus.ORIGIN,departureTick=0),
             TimetableRunCall("c-in","C","C@1",TimetableServiceStopStatus.TERMINAL,arrivalTick=100)))
-        val next=TimetableRunSegment("branch",LineId("branch"),1,2,calls=listOf(
+        val next=TimetableRunSegment("branch",LineId("branch"),1,2, true,calls=listOf(
             TimetableRunCall("c-out","C","C@1",TimetableServiceStopStatus.ORIGIN,departureTick=150),
             TimetableRunCall("a-back","A","A@1",TimetableServiceStopStatus.TERMINAL,arrivalTick=250)))
         val service=TimetableService("d",steps=listOf(TimetableStep.Check("A@1"),TimetableStep.Check("C@1")),runSegments=listOf(first,next))
@@ -224,7 +242,7 @@ class TimetableRunMetadataTest {
 
     @Test
     fun `fixed split projects each units own onward stations before physical separation`() {
-        fun scope(id:String,start:String,end:String,from:Int,to:Int)=TimetableRunSegment(id,LineId("L"),from,to,calls=listOf(
+        fun scope(id:String,start:String,end:String,from:Int,to:Int)=TimetableRunSegment(id,LineId("L"),from,to, true,calls=listOf(
             TimetableRunCall("$id-origin",start,start,TimetableServiceStopStatus.ORIGIN),
             TimetableRunCall("$id-end",end,end,TimetableServiceStopStatus.TERMINAL)))
         val joint=scope("joint","A","C",0,2)
@@ -262,19 +280,19 @@ class TimetableRunMetadataTest {
                         DestinationRole.StationBerthRole(StationId(id),berthId="1",doorSide=work.art1st.javarailways.basic.api.operation.DoorSide.NONE,usableLengthMeters=30.0))) }
                 fun call(id:String,status:TimetableServiceStopStatus)=TimetableRunCall(id,id,"$id@1",status)
                 val calls=listOf(call("A",TimetableServiceStopStatus.ORIGIN),call("C",TimetableServiceStopStatus.PASS),call("E",TimetableServiceStopStatus.TERMINAL))
-                val first=TimetableRunSegment("first",LineId("L"),1,2,calls=calls)
-                val next=TimetableRunSegment("next",LineId("L"),2,3)
+                val first=TimetableRunSegment("first",LineId("L"),1,2, true,calls=calls)
+                val next=TimetableRunSegment("next",LineId("L"),2,3, true)
                 val service=TimetableService("d",steps=listOf(TimetableStep.Check("A@1"),TimetableStep.At(0,TimetableAction.GoVia(listOf("C@1","E@1"))),TimetableStep.At(1,TimetableAction.WaitUntil)),runSegments=listOf(first,next))
                 val table=Timetable("t",services=listOf(service))
                 assertTrue(TimetableMetadataValidator.validate(world,table).isEmpty())
                 val viaCalls = listOf(calls.first(), calls.last().copy(viaIds = listOf("C@1")))
-                val viaSegment = TimetableRunSegment("first", LineId("L"), 1, 2, calls = viaCalls)
+                val viaSegment = TimetableRunSegment("first", LineId("L"), 1, 2, true, calls = viaCalls)
                 val viaTable = table.copy(services = listOf(service.copy(runSegments = listOf(viaSegment, next))))
                 assertTrue(TimetableMetadataValidator.validate(world,viaTable).isEmpty())
                 assertEquals(viaCalls, SavedTimetableV1.capture(viaTable).restore().services.single().runSegments.first().calls)
-                val missingVia = TimetableRunSegment("first", LineId("L"), 1, 2, calls = listOf(calls.first(),calls.last()))
+                val missingVia = TimetableRunSegment("first", LineId("L"), 1, 2, true, calls = listOf(calls.first(),calls.last()))
                 assertTrue(TimetableMetadataValidator.validate(world,table.copy(services=listOf(service.copy(runSegments=listOf(missingVia,next))))).any { "ordered via" in it })
-                val wrong=TimetableRunSegment("first",LineId("L"),1,2,calls=calls.map { if(it.stationId=="C")it.copy(stationId="E",status=TimetableServiceStopStatus.STOP) else it })
+                val wrong=TimetableRunSegment("first",LineId("L"),1,2, true,calls=calls.map { if(it.stationId=="C")it.copy(stationId="E",status=TimetableServiceStopStatus.STOP) else it })
                 val errors=TimetableMetadataValidator.validate(world,table.copy(services=listOf(service.copy(runSegments=listOf(wrong,next)))))
                 assertTrue(errors.any { "does not own canonical berth" in it },errors.toString())
                 assertTrue(errors.any { "PASS/STOP" in it },errors.toString())

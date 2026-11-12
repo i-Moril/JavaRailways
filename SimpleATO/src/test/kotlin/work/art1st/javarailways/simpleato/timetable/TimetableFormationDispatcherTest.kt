@@ -492,7 +492,7 @@ class TimetableFormationDispatcherTest {
                     trainInfo = if(dynamic) mapOf("destination" to TrainInfoField.NAME, "cars" to TrainInfoField.CAR_COUNT) else emptyMap()))
                 val steps=listOf(source.steps[0],branch)+source.steps.drop(1)
                 val line=checkNotNull(source.lineId)
-                val updated=source.copy(steps=steps,runSegments=listOf(TimetableRunSegment("before",line,0,2),TimetableRunSegment("after",line,3,4)))
+                val updated=source.copy(steps=steps,runSegments=listOf(TimetableRunSegment("before",line,0,2, true),TimetableRunSegment("after",line,3,4, true)))
                 val d=TimetableOperationalTrip("D",kotlinx.serialization.json.buildJsonObject { put("destination",kotlinx.serialization.json.JsonPrimitive("D")) },
                     listOf(TimetableOperationalTripSegment("source","before",listOf(1)),TimetableOperationalTripSegment("source","after",listOf(1))))
                 val e=TimetableOperationalTrip("E",kotlinx.serialization.json.buildJsonObject { put("destination",kotlinx.serialization.json.JsonPrimitive("E")) },
@@ -557,7 +557,7 @@ class TimetableFormationDispatcherTest {
                 val steps = listOf(source.steps[0], TimetableStep.At(0, TimetableAction.BeginStationStop(program))) + source.steps.drop(1)
                 val line = checkNotNull(source.lineId)
                 val updated = source.copy(steps = steps, runSegments = listOf(
-                    TimetableRunSegment("before", line, 0, 2, metadata = kotlinx.serialization.json.buildJsonObject { put("notice", kotlinx.serialization.json.JsonPrimitive("current-only")) }), TimetableRunSegment("after", line, 3, 4)))
+                    TimetableRunSegment("before", line, 0, 2, false, metadata = kotlinx.serialization.json.buildJsonObject { put("notice", kotlinx.serialization.json.JsonPrimitive("current-only")) }), TimetableRunSegment("after", line, 3, 4, true)))
                 val trips = (1..2).map { slot -> TimetableOperationalTrip("trip-$slot",
                     kotlinx.serialization.json.buildJsonObject { put("destination", kotlinx.serialization.json.JsonPrimitive("default-$slot")) },
                     listOf(TimetableOperationalTripSegment("source", "before", listOf(slot)))) }
@@ -574,6 +574,8 @@ class TimetableFormationDispatcherTest {
                     "batch capture inside the following station action must see the just-executed SET or RESET")
                 assertTrue(captured.all { it.timetableId == "split" && it.display!!.active })
                 assertTrue(captured.all { it.currentRun?.runId == "before" && it.currentRun.serviceId == "source" })
+                assertTrue(captured.all { it.currentRun?.isInService == false },
+                    "a non-passenger current run remains present and cannot borrow the next run's service status")
                 assertTrue(captured.all { it.currentRun?.metadata?.get("notice") == kotlinx.serialization.json.JsonPrimitive("current-only") })
             }
         }
@@ -585,7 +587,7 @@ class TimetableFormationDispatcherTest {
             f.world.onOwnerForTest {
                 val table=checkNotNull(f.world.simpleAtoWorldData.timetables["split"])
                 val source=table.services.single()
-                val updated=source.copy(runSegments=listOf(TimetableRunSegment("before",checkNotNull(source.lineId),0,1)))
+                val updated=source.copy(runSegments=listOf(TimetableRunSegment("before",checkNotNull(source.lineId),0,1, true)))
                 val trip=TimetableOperationalTrip("bad",JsonObject(emptyMap()),listOf(TimetableOperationalTripSegment("source","before",listOf(3))))
                 val invalid=table.copy(services=listOf(updated),operationalTrips=listOf(trip))
                 val result=TimetableValidator(f.world).validate(invalid)
@@ -603,7 +605,7 @@ class TimetableFormationDispatcherTest {
                 val table=checkNotNull(f.world.simpleAtoWorldData.timetables["split"])
                 val source=table.services.single()
                 val line=checkNotNull(source.lineId)
-                val updated=source.copy(runSegments=listOf(TimetableRunSegment("before",line,0,1),TimetableRunSegment("after",line,2,3)))
+                val updated=source.copy(runSegments=listOf(TimetableRunSegment("before",line,0,1, true),TimetableRunSegment("after",line,2,3, true)))
                 val trip=TimetableOperationalTrip("bad",JsonObject(emptyMap()),listOf(
                     TimetableOperationalTripSegment("source","before",listOf(2)),
                     TimetableOperationalTripSegment("source","after",listOf(1))))
@@ -632,9 +634,9 @@ class TimetableFormationDispatcherTest {
                 val source=table.services.single()
                 val line=checkNotNull(source.lineId)
                 val updated=source.copy(steps=listOf(TimetableStep.Check("origin"),TimetableStep.At(0,TimetableAction.GoTo("end"))),
-                    runSegments=listOf(TimetableRunSegment("before",line,0,2)))
+                    runSegments=listOf(TimetableRunSegment("before",line,0,2, true)))
                 val unrelated=TimetableService("unrelated",TrainSelector.TrainId(other.id),listOf(TimetableStep.Check("other-origin"),TimetableStep.At(0,TimetableAction.GoTo("other-end"))),
-                    runSegments=listOf(TimetableRunSegment("unrelated-run",line,0,2)))
+                    runSegments=listOf(TimetableRunSegment("unrelated-run",line,0,2, true)))
                 val trip=TimetableOperationalTrip("trip",JsonObject(emptyMap()),listOf(TimetableOperationalTripSegment("source","before",listOf(1))))
                 f.world.simpleAtoWorldData.timetables.add(table.copy(services=listOf(updated,unrelated),formationEvents=TimetableFormationCatalog(emptyList()),operationalTrips=listOf(trip)))
             }

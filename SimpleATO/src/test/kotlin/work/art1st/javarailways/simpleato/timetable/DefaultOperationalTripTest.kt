@@ -10,7 +10,7 @@ import work.art1st.javarailways.simpleato.persistence.TimetableSnapshotCodec
 
 class DefaultOperationalTripTest {
     private fun segment(id: String, start: Int, from: String, to: String) =
-        TimetableRunSegment(id, LineId("line"), start, start + 1, calls = listOf(
+        TimetableRunSegment(id, LineId("line"), start, start + 1, true, calls = listOf(
             TimetableRunCall("$id-origin", from, "$from@one", TimetableServiceStopStatus.ORIGIN),
             TimetableRunCall("$id-end", to, "$to@one", TimetableServiceStopStatus.TERMINAL)))
     private val first = segment("first", 0, "A", "C")

@@ -41,6 +41,8 @@ interface JavaRailwaysServiceOptions {
 interface JavaRailwaysServiceBuilder {
   /** Groups generated actions under a presentation-only compiler trace origin. */
   origin(originId: string, build: JavaRailwaysServiceCallback): this;
+  /** Declares the exact compiled run scope and its passenger-service status. */
+  runSegment(options: JavaRailwaysRunSegmentOptions, build: JavaRailwaysServiceCallback): this;
   check(wayPointId: string): this;
   at(departureTick: number): JavaRailwaysTimedActionBuilder;
   pass(target: string | readonly string[]): this;
@@ -49,6 +51,25 @@ interface JavaRailwaysServiceBuilder {
   wait(ticks: number): this;
   reverse(): this;
   halt(): this;
+}
+interface JavaRailwaysRunSegmentOptions {
+  readonly runId: string;
+  readonly lineId: string;
+  /** True for passenger service; false for a non-passenger run. */
+  readonly isInService: boolean;
+  readonly diagramLineId?: string;
+  readonly lineDirection?: 'UP' | 'DOWN';
+  readonly calls?: readonly JavaRailwaysRunCall[];
+  readonly metadata?: Readonly<Record<string, unknown>>;
+}
+interface JavaRailwaysRunCall {
+  readonly id: string;
+  readonly stationId: string;
+  readonly destinationId: string;
+  readonly status: 'ORIGIN' | 'STOP' | 'PASS' | 'TERMINAL';
+  readonly arrivalTick?: number;
+  readonly departureTick?: number;
+  readonly viaIds?: readonly string[];
 }
 interface JavaRailwaysDepotSelectorOptions { readonly tags?: readonly string[]; readonly minimumCars?: number; readonly maximumCars?: number; readonly minimumSpeedMetersPerSecond?: number; readonly capabilities?: readonly string[] }
 interface JavaRailwaysDepotStorageOptions { readonly stablingPoints?: readonly string[] }

@@ -90,8 +90,8 @@ class TimetableValidatorTest {
             }
             return Timetable("door-handoff", services = listOf(TimetableService("circulation", TrainSelector.TrainId("train"),
                 steps, lineId = lineId, runSegments = listOf(
-                    TimetableRunSegment("106P", lineId, 0, 4),
-                    TimetableRunSegment("115N", lineId, 4, steps.size)
+                    TimetableRunSegment("106P", lineId, 0, 4, true),
+                    TimetableRunSegment("115N", lineId, 4, steps.size, true)
                 ))), lineSpeedLimits = listOf(TimetableLineSpeedLimit(lineId, 20.0)))
         }
 

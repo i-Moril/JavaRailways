@@ -1,0 +1,11 @@
+{
+  "baselineCommit": "81c098232608fb9c15732ff6cfe26f10334b93a9",
+  "test": "CarAnimationPlaybackTest.packaged S100 behavior matches its action declarations and preserves real door durations",
+  "assertionLine": 85,
+  "sourceUnchanged": true,
+  "zipUnchanged": true,
+  "mismatchAlreadyInBaseline": true,
+  "sourceBehaviorSha256": "1396c14bd3141ac362d1579fa740597622f45e53867cd02c888568cfeeb99588",
+  "archivedBehaviorSha256": "d7362b1f60329e020c8b07946889814b46737342c3f0569ed71eaa00515346ab",
+  "action": "No out-of-scope behavior.js or ZIP edits"
+}

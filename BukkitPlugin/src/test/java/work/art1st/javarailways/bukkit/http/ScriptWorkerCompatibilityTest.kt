@@ -16,7 +16,7 @@ class ScriptWorkerCompatibilityTest {
               timetable.operationalTrip('outbound',{defaults:{destination:'E'},segments:[{serviceId:'s',runId:'main',unitSlots:[1]}]});
               timetable.service('s','train',t=>{
                 t.check('A');
-                t.runSegment({runId:'main',lineId:'A',metadata:{notice:'airport service',custom:[true,null]},diagramLineId:'plot',lineDirection:'UP',calls:[
+                t.runSegment({isInService:true,runId:'main',lineId:'A',metadata:{notice:'airport service',custom:[true,null]},diagramLineId:'plot',lineDirection:'UP',calls:[
                   {id:'a',stationId:'A',destinationId:'A@1',status:'ORIGIN',departureTick:10},
                   {id:'c',stationId:'C',destinationId:'C@1',status:'TERMINAL',arrivalTick:20}]},r=>{
                     r.at(10).setDisplay([1],{kind:'rapid'},['old']);r.at(20).destination('C@1');r.resetDisplay([1]);
@@ -43,14 +43,17 @@ class ScriptWorkerCompatibilityTest {
               timetable.operationalTrip('default-run/1:s/4:main',{defaults:{destination:'Authored'},segments:[{serviceId:'s',runId:'main',unitSlots:[1]}]});
               timetable.service('s','train',t=>{
                 t.check('A'); t.at(5).setDisplay([],{kind:'rapid'});
-                t.runSegment({runId:'main',lineId:'A'},r=>r.at(10).destination('C'));
-                t.runSegment({runId:'branch',lineId:'B'},r=>r.at(20).destination('E'));
+                t.runSegment({isInService:true,runId:'main',lineId:'A'},r=>r.at(10).destination('C'));
+                t.runSegment({isInService:false,runId:'branch',lineId:'B'},r=>r.at(20).destination('E'));
               });
             }
         """.trimIndent(), "defaults")
         val saved = TimetableSnapshotCodec.decode(output)
         val restored = saved.restore()
         val captured = work.art1st.javarailways.simpleato.persistence.SavedTimetableV1.capture(restored)
+        assertEquals(listOf(true, false), saved.services.single().runSegments.map { it.isInService })
+        assertEquals(listOf(true, false), restored.services.single().runSegments.map { it.isInService })
+        assertEquals(saved.services.single().runSegments, captured.services.single().runSegments)
         assertEquals(listOf("default-run/1:s/4:main", "default-run/1:s/4:main#1", "default-run/1:s/6:branch"),
             saved.operationalTrips.map { it.id })
         assertEquals(saved.operationalTrips, captured.operationalTrips)

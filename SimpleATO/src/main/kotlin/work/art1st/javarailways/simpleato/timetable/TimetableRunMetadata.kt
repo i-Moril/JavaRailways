@@ -16,7 +16,7 @@ import java.util.Collections
 
 /** A compiled physical run scope. Address ranges include every nested child of the top-level step. */
 class TimetableRunSegment(val runId: String, val lineId: LineId, val startStepIndex: Int,
-    val endStepIndexExclusive: Int, val diagramLineId: String? = null,
+    val endStepIndexExclusive: Int, val isInService: Boolean, val diagramLineId: String? = null,
     val lineDirection: LineDirection? = null, calls: List<TimetableRunCall> = emptyList(),
     metadata: JsonObject = JsonObject(emptyMap())) {
     val metadata: JsonObject = JsonMetadata.immutableCopy(metadata)
@@ -28,9 +28,9 @@ class TimetableRunSegment(val runId: String, val lineId: LineId, val startStepIn
         require(calls.map { it.id }.distinct().size == calls.size)
     }
     override fun equals(other: Any?) = other is TimetableRunSegment && runId == other.runId && lineId == other.lineId &&
-        startStepIndex == other.startStepIndex && endStepIndexExclusive == other.endStepIndexExclusive &&
+        startStepIndex == other.startStepIndex && endStepIndexExclusive == other.endStepIndexExclusive && isInService == other.isInService &&
         diagramLineId == other.diagramLineId && lineDirection == other.lineDirection && calls == other.calls && metadata == other.metadata
-    override fun hashCode() = java.util.Objects.hash(runId, lineId, startStepIndex, endStepIndexExclusive, diagramLineId, lineDirection, calls, metadata)
+    override fun hashCode() = java.util.Objects.hash(runId, lineId, startStepIndex, endStepIndexExclusive, isInService, diagramLineId, lineDirection, calls, metadata)
 }
 
 data class TimetableRunCall(val id: String, val stationId: String, val destinationId: String,

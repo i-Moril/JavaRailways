@@ -590,6 +590,17 @@ it('preserves run metadata through save, copy, route resize and generated segmen
  expect(generateTimetableSource({...document,runs:document.runs.map((value,index)=>index?value:{...value,metadata:{label:'Local'}})}).documentHashInput).not.toBe(result.documentHashInput);
 });
 
+it('compiles the run service switch into required boolean segment values',()=>{
+ const document=valid();document.runs[1].type='DEADHEAD';
+ const generated=generateTimetableSource(document);expect(generated.issues).toEqual([]);
+ const segments=[...generated.source.matchAll(/runSegment\(JSON\.parse\(("(?:[^"\\]|\\.)*")\)/g)].map(match=>JSON.parse(JSON.parse(match[1])));
+ expect(segments.map(segment=>({runId:segment.runId,isInService:segment.isInService}))).toEqual([
+   {runId:'up-01',isInService:true},{runId:'down-01',isInService:false},
+ ]);
+ const passenger=generateTimetableSource({...document,runs:document.runs.map(run=>({...run,type:'PASSENGER'}))});
+ expect(passenger.documentHashInput).not.toBe(generated.documentHashInput);
+});
+
 it('rejects nonobject and nonfinite run metadata before generation',()=>{
  for(const metadata of [null,[],2,'invalid',{bad:Infinity}]){
    const document=valid();Object.assign(document.runs[0],{metadata});

@@ -1,0 +1,49 @@
+{
+  "Core": {
+    "tests": 599,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "suites": 69
+  },
+  "Basic": {
+    "tests": 494,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "suites": 68
+  },
+  "SimpleATO": {
+    "tests": 850,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "suites": 90
+  },
+  "BukkitPlugin": {
+    "tests": 936,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 1,
+    "suites": 180
+  },
+  "WebUI": {
+    "tests": 71,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "suites": 21
+  },
+  "Decorations": {
+    "tests": 73,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "suites": 13
+  },
+  "artifact": {
+    "path": "/workspace/minecraft/JavaRailways/BukkitPlugin/build/libs/JavaRailways-1.0-SNAPSHOT-all.jar",
+    "sha256": "16d735cd55e453169db30233cc4569a09d4497bde5a25a9d447394c3bf56b001",
+    "bytes": 62808575
+  }
+}

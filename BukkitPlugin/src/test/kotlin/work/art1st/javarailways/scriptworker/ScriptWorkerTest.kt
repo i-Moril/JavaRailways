@@ -14,8 +14,8 @@ class ScriptWorkerTest {
             timetable.operationalTrip('trip', {defaults:{destination:'E'},segments:[{serviceId:'s',runId:'branch',unitSlots:[2]}]});
             timetable.service('s','train',t=>{
               t.check('A');
-              t.runSegment({runId:'main',lineId:'A',calls:[]},r=>r.origin('run:main',a=>a.at(10).destination('C')));
-              t.runSegment({runId:'branch',lineId:'B',diagramLineId:'diagram-B',lineDirection:'DOWN',calls:[
+              t.runSegment({isInService:true,runId:'main',lineId:'A',calls:[]},r=>r.origin('run:main',a=>a.at(10).destination('C')));
+              t.runSegment({isInService:false,runId:'branch',lineId:'B',diagramLineId:'diagram-B',lineDirection:'DOWN',calls:[
                 {id:'origin',stationId:'C',destinationId:'C@1',status:'ORIGIN',departureTick:20},
                 {id:'end',stationId:'E',destinationId:'E@1',status:'TERMINAL',arrivalTick:40}]},r=>{
                   r.at(20).setDisplay([2],{kind:'express'},['old']);r.at(40).destination('E');r.resetDisplay([2]);
@@ -25,6 +25,7 @@ class ScriptWorkerTest {
         val service = result.services.single()
         assertEquals(listOf(1,3), service.runSegments.map { it.startStepIndex })
         assertEquals(listOf(3,7), service.runSegments.map { it.endStepIndexExclusive })
+        assertEquals(listOf(true, false), service.runSegments.map { it.isInService })
         assertEquals("E", service.runSegments.last().calls.last().stationId)
         assertEquals(listOf(2), result.operationalTrips.single { !it.segments.single().unassignedUnits }.segments.single().unitSlots)
         assertEquals(SavedTimetableActionTypeV1.SET_DISPLAY, service.steps[3].action!!.type)
@@ -32,12 +33,20 @@ class ScriptWorkerTest {
         assertEquals(1, result.compilationTrace.first().stepIndex)
     }
 
+    @Test fun `run service status requires an explicit boolean`() {
+        for (field in listOf("", ",isInService:null", ",isInService:1", ",isInService:'true'")) {
+            assertThrows(Throwable::class.java) {
+                run("timetable.setPeriodDays(1);timetable.service('s','train',t=>t.runSegment({runId:'run',lineId:'A'$field},r=>r.halt()));")
+            }
+        }
+    }
+
     @Test fun `nested and empty segments and invalid display slots fail closed`() {
         listOf(
-            "t.runSegment({runId:'r',lineId:'A'},r=>{});",
-            "t.runSegment({runId:'r',lineId:'A',metadata:[]},r=>r.halt());",
-            "t.runSegment({runId:'r',lineId:'A',metadata:null},r=>r.halt());",
-            "t.runSegment({runId:'r',lineId:'A'},r=>r.runSegment({runId:'nested',lineId:'A'},a=>a.halt()));",
+            "t.runSegment({isInService:true,runId:'r',lineId:'A'},r=>{});",
+            "t.runSegment({isInService:true,runId:'r',lineId:'A',metadata:[]},r=>r.halt());",
+            "t.runSegment({isInService:true,runId:'r',lineId:'A',metadata:null},r=>r.halt());",
+            "t.runSegment({isInService:true,runId:'r',lineId:'A'},r=>r.runSegment({isInService:true,runId:'nested',lineId:'A'},a=>a.halt()));",
             "t.setDisplay([0],{});", "t.resetDisplay([1,1]);", "t.setDisplay(['1'],{});"
         ).forEach { body -> assertThrows(Throwable::class.java) {
             run("timetable.setPeriodDays(1);timetable.service('s','train',t=>{t.check('A');$body});")
@@ -50,7 +59,7 @@ class ScriptWorkerTest {
             timetable.service('s','train',t=>{
               t.check('A'); t.at(5).reverse();
               t.origin('duty:s/program:display',p=>p.at(5).setDisplay([1],{destination:'E'}));
-              t.runSegment({runId:'branch',lineId:'B',calls:[]},r=>r.at(10).destination('E'));
+              t.runSegment({isInService:true,runId:'branch',lineId:'B',calls:[]},r=>r.at(10).destination('E'));
             });
             timetable.operationalTrip('next', {defaults:{destination:'D'},segments:[{serviceId:'s',runId:'branch',unitSlots:[1]}]});
         """)

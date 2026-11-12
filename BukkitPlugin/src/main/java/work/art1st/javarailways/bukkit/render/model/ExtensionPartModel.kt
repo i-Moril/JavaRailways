@@ -68,7 +68,7 @@ internal class ExtensionPartModel(
 
     @Synchronized fun bindRoot(root: DisplayVisual) { check(this.root == null); this.root = root }
 
-    /** A semantic context change must go blank before attempting replacement data. */
+    /** Reject obsolete work while retaining the last successful frame until its replacement commits. */
     @Synchronized fun invalidateContext() {
         if (destroyed) return
         attachment?.invalidateContext()
@@ -77,12 +77,9 @@ internal class ExtensionPartModel(
         latestSourceTick = null
         lastSourceData = null
         applyFailed = false
-        // Preserve observers of every obsolete/in-flight cleanup until real model retirement.
-        val cleanup = retireGenerated()
-        obsoleteCleanup += cleanup
     }
 
-    /** Unit/style changes invalidate only this group's generated frame, not the car model/session. */
+    /** Unit/style changes invalidate pending work while retaining this group's successful frame and session. */
     @Synchronized private fun refreshRendering() {
         if (destroyed) return
         val active = attachment ?: return
@@ -98,7 +95,6 @@ internal class ExtensionPartModel(
         active.invalidateContext()
         lastRequestedTick = null
         applyFailed = false
-        obsoleteCleanup += retireGenerated()
         requestLatest(force = true)
     }
 

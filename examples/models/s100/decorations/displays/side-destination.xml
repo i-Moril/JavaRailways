@@ -13,7 +13,7 @@
         if (!text && !keepEmpty) return;
         const node = document.createElement("span");
         node.setAttribute("id", key);
-        if (font) node.setAttribute("font", font);
+        node.setAttribute("font", font || "minecraft:default");
         node.setAttribute("style", "left:" + x + ";top:" + y + ";font-size:" + size + ";color:" + ink + ";z-index:" + (layer === undefined ? 30 : layer));
         node.textContent = String(text);
         parent.appendChild(node);
@@ -39,11 +39,12 @@
         const rm = object(run.metadata);
         const line = object(object(ctx.data.lines)[run.lineId]);
         const lm = object(line.metadata);
-        const lang = Math.floor(ctx.elapsedTicks / 300) % 2 === 0 ? "zh" : "en";
+        const lang = Math.floor(ctx.elapsedTicks / 120) % 2 === 0 ? "zh" : "en";
+        const outOfService = run.isInService === false;
         return {op:op, run:run, rm:rm, line:line, lm:lm, lang:lang,
             theme:color(lm.themeColor, color(line.color, "#126EAA")),
-            destination:localized(object(op.values).destination, lang, ""),
-            service:localized(rm.class, lang, "")};
+            destination:outOfService ? (lang === "zh" ? "回送" : "Out of Service") : localized(object(op.values).destination, lang, ""),
+            service:outOfService ? "" : localized(rm.class, lang, "")};
     }
 
     function render(ctx) {

@@ -742,7 +742,7 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1,in
         const run=document.runs.find((candidate)=>candidate.id===element.runId);
         if(!run) continue;
         const scoped='runScope';
-        const segment={metadata:run.metadata??{},runId:run.id,lineId:run.lineId,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,calls:run.calls.map(authoringCallForSave).map(({targetId,berthId:_,stoppingOffsetMetersBefore:__,doorSide:___,...call})=>({...call,destinationId:targetId,arrivalTick:document.arrivalOverrides.find((o)=>o.runId===run.id&&o.callId===call.id)?.tick??call.arrivalTick}))};
+        const segment={metadata:run.metadata??{},runId:run.id,lineId:run.lineId,isInService:run.type==='PASSENGER',diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,calls:run.calls.map(authoringCallForSave).map(({targetId,berthId:_,stoppingOffsetMetersBefore:__,doorSide:___,...call})=>({...call,destinationId:targetId,arrivalTick:document.arrivalOverrides.find((o)=>o.runId===run.id&&o.callId===call.id)?.tick??call.arrivalTick}))};
         lines.push(`        t.origin(${quote(origin(duty.id,element.id,run.id))}, scoped => {`, `          scoped.runSegment(JSON.parse(${quote(JSON.stringify(segment))}), ${scoped} => {`);
         if(!emittedCheck&&duty.selector.type==='TRAIN_NAME'&&run.calls[0]?.targetId) {
           lines.push(`            ${scoped}.check(${quote(run.calls[0].targetId)})`);

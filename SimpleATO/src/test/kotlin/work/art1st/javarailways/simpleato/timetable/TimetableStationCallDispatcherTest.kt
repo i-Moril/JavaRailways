@@ -104,7 +104,7 @@ class TimetableStationCallDispatcherTest {
             val table = checkNotNull(world.simpleAtoWorldData.timetables["tt"])
             val source = table.services.single()
             val steps = source.steps.dropLast(1) + TimetableStep.At(1_000L,TimetableAction.GoTo("end@one"))
-            val segment = TimetableRunSegment("run",lineId,0,steps.size,calls=listOf(
+            val segment = TimetableRunSegment("run",lineId,0,steps.size, true,calls=listOf(
                 TimetableRunCall("origin-call","origin","origin@one",TimetableServiceStopStatus.ORIGIN),
                 TimetableRunCall("central-call","central","central@one",TimetableServiceStopStatus.STOP),
                 TimetableRunCall("end-call","end","end@one",TimetableServiceStopStatus.TERMINAL)))

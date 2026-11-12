@@ -29,7 +29,7 @@ WorldManager 仅将视觉发布移动到 dispatcher/postTick 之后，仍处同�
 
 每个位置 envelope 携带最近一次同 publication stream 的不可变采样引用，避免 latest-only 区域任务合并丢失未消费的 SET/reset。stream 不同则未知并重建，不能复用旧采样；每次新采样释放移除车厢的缓存，unload/stop 清除。静止强制刷新仅对 active extension cars。
 
-TrainPartRenderSnapshot.contextKey 由 unit+operational 事实构成，不含速度/时钟。经过 exact stream/revision gate 后，语义键变化先调用 Composite.invalidateExtensionContext：清空旧生成文字、使 attachment 私有 generation 过时、拒绝旧 queued/completed 输出、重置本次10tick throttle。保留 session 和 elapsed clock origin。普通同上下文失败保留成功画面，新上下文失败保持空白。所有旧/部分清理仍纳入退休完成；worker/输入预算失败不能影响领域 simulation 或悄悄截断停站。
+TrainPartRenderSnapshot.contextKey 由 unit+operational 事实构成，不含速度/时钟。经过 exact stream/revision gate 后，语义键变化先调用 Composite.invalidateExtensionContext：使 attachment 私有 generation 过时、拒绝旧 queued/completed/running 输出、重置本次10tick throttle。保留 session、elapsed clock origin 和上一成功的 keyed 文字帧。新输入成功后沿既有事务 reconciliation 替换；新上下文 draw 或构造失败仍保留上一成功画面，直到下一成功帧。只有成功 EMPTY 帧或 attachment/model 退休才清除旧文字，避免刷新等待窗口瞬时黑屏。所有旧/部分清理仍纳入退休完成；worker/输入预算失败不能影响领域 simulation 或悄悄截断停站。
 
 
 ## 生成内容观众策略（已实现，整体验证待统一执行）
@@ -41,7 +41,7 @@ ExtensionPartModel 保留候选观众与可见子集，entity owner 捕获 eye/w
 无可见观众时不请求 draw；warm start 只 open 不执行默认 draw。最新输入仍可通过 serial session.update 更新便宜 detached 元数据，禁止在 update 执行脚本。最后一位退出使待处理 generation 失效，保留最新输入与时钟，返回时立即补最新请求。旧/增长画面的异步 replay 也在玩家 owner 重算可见性。隐藏实体可继续分配并跟随共享 root，不宣称清除了 native tick 成本。本阶段按用户要求只编译，测试和真实双后端/Folia/客户端验收待统一执行。
 
 
-公开 render context 附带 nullable world UUID；session.renderRevision 是便宜/thread-safe 的非负选择 revision。registration.refreshRendering 锁外通知其 attachments；group 比较自身 revision，只在变化时使 generation 失效、退休旧生成文字、保留最新输入和 source clock 并立即补帧。commit 消费结果前再次检查 revision，不能仅依赖通知。宿主不解释 unit/category/template。旧 generation 的 running/completed frame 不可重新发布。session.update 与 draw/close 在同一串行 worker；仅 update 的隐藏请求不发布 frame。
+公开 render context 附带 nullable world UUID；session.renderRevision 是便宜/thread-safe 的非负选择 revision。registration.refreshRendering 锁外通知其 attachments；group 比较自身 revision，只在变化时使 generation 失效、保留上一成功生成文字及最新输入和 source clock 并立即补帧。commit 消费结果前再次检查 revision，不能仅依赖通知。宿主不解释 unit/category/template。旧 generation 的 running/completed frame 不可重新发布。session.update 与 draw/close 在同一串行 worker；仅 update 的隐藏请求不发布 frame。
 
 
 ## 模型配置包装一致性（2026-11-10）
@@ -56,7 +56,7 @@ projectOperationalPartRender 从simulation owner的StationStore捕获current/nex
 
 simulation owner在每次fresh sample构建一份当前world全部已知线路索引ctx.data.lines，record为{id,metadata,color?}；train snapshot/sample cache与geometry coalescing一起保留该数据，不跨world或publication stream借用。JS可按actual LineId查询非当前线路（例如换乘），没有record则无条目。全部线路/站点输入仍受SimpleDisplays aggregate limits约束，不静默截断。无需给SimpleDisplays加入铁路API或让JS读取live store。
 
-operational.currentRun为领域捕获的actual scope或null，携带serviceId/runId/lineId/metadata/terminalStationId；与同一outer timetable/cycle一起使用，变化进入现有contextKey并清旧帧。line metadata HTTP读写和scriptworker严格参数/镜像run DTO需同时同步，metadata缺失默认{}，显式非object拒绝；权威restore执行共同JSON限额校验。
+operational.currentRun为领域捕获的actual scope或null，携带serviceId/runId/lineId/isInService/metadata/terminalStationId；与同一outer timetable/cycle一起使用，变化进入现有contextKey并使旧worker结果失效。line metadata HTTP读写和scriptworker严格参数/镜像run DTO需同时同步，metadata缺失默认{}，显式非object拒绝；权威restore执行共同JSON限额校验。
 
 
 ## 站点序列与进度输入
@@ -78,4 +78,17 @@ stationName，仍未知则不添加 destination。语言映射只保留有效非
 显式存在的 destination（对象、空串、null、其他类型）均阻止默认值；原有 exact-string alias
 行为不变。自动默认时，标量 alias 使用 metadata.name 字符串，否则 canonical stationName，
 再否则已知 zh/en；没有运行线／终点时不猜测，inactive context 清空。终点 ID 和最终值进入
-contextKey，修改终点 metadata 或实际切换运行线会清除旧画面。
+contextKey，修改终点 metadata 或实际切换运行线会使旧worker结果失效，已有成功画面等待新帧替换。
+
+## 刷新期间保留成功画面（2026-11-12）
+
+CURRENT：`ExtensionPartModel.invalidateContext()` 与 `refreshRendering()` 只失效 attachment 的旧请求/结果代际，
+不调用 `retireGenerated()`。实体由稳定 key 表持有，正常 owner commit 用新成功帧事务更新、增删；
+新帧为 EMPTY 时才删除全部旧叶子。该机制复用现有两 worker、有界 latest/pending 槽和按 key 线性 reconciliation，
+不增加画面缓存、定时器、重试或持久化字段。没有成功过的画面仍为空；上下文改变后 draw 失败会显示
+上次内容，后续正常采样可恢复。provider 失效、unregister、destroy 仍立即退休生成内容并等待真实清理完成。
+
+必须覆盖的回归：慢 draw 等待期间实体仍存在；新上下文／样式 draw 失败保留内容；旧 queued/completed/running
+结果不能发布；保留实体的排队观众回放仍有效；新帧成功复用同 key；EMPTY 清屏；退休/部分构造失败完成清理。
+先销毁旧帧再异步生成新帧会产生黑屏，不能为防止旧结果发布而恢复该顺序；代际负责拒绝旧结果，
+成功帧提交负责切换画面。具体断言在 `ExtensionPartModelTest`，不以这些服务端测试代替真实客户端画面验收。

@@ -12,12 +12,13 @@ class TimetableUnitDisplayContextTest {
 
     @Test fun `current run capture requires exact entered range and freezes metadata`() {
         val metadata = linkedMapOf<String, JsonElement>("notice" to JsonPrimitive("limited"))
-        val segment = TimetableRunSegment("run", work.art1st.javarailways.simpleato.api.line.LineId("line"), 2, 5,
+        val segment = TimetableRunSegment("run", work.art1st.javarailways.simpleato.api.line.LineId("line"), 2, 5, true,
             metadata = JsonObject(metadata))
         val current = captureTimetableRunDisplayContext("service", segment, 2)!!
         assertEquals("service", current.serviceId)
         assertEquals("run", current.runId)
         assertEquals("line", current.lineId)
+        assertTrue(current.isInService)
         metadata.clear()
         assertEquals(JsonPrimitive("limited"), current.metadata["notice"])
         assertNotNull(captureTimetableRunDisplayContext("service", segment, 4))
@@ -26,9 +27,20 @@ class TimetableUnitDisplayContextTest {
         assertNull(captureTimetableRunDisplayContext("service", null, 2))
     }
 
+    @Test fun `entered run service status is captured from its segment independent of display metadata`() {
+        for (isInService in listOf(true, false)) {
+            val segment = TimetableRunSegment("run", work.art1st.javarailways.simpleato.api.line.LineId("line"),
+                2, 5, isInService, metadata = buildJsonObject { put("isInService", !isInService) })
+            assertEquals(isInService, captureTimetableRunDisplayContext("service", segment, 2)!!.isInService)
+            assertEquals(isInService, captureTimetableRunDisplayContext("service", segment, 4)!!.isInService)
+            assertNull(captureTimetableRunDisplayContext("service", segment, 1))
+            assertNull(captureTimetableRunDisplayContext("service", segment, 5))
+        }
+    }
+
     @Test fun `terminal capture uses only last TERMINAL of the entered run and changes with actual scope`() {
         fun segment(run: String, station: String, status: TimetableServiceStopStatus = TimetableServiceStopStatus.TERMINAL,
-            start: Int = 2) = TimetableRunSegment(run, work.art1st.javarailways.simpleato.api.line.LineId("line"), start, start + 3,
+            start: Int = 2) = TimetableRunSegment(run, work.art1st.javarailways.simpleato.api.line.LineId("line"), start, start + 3, true,
                 calls = listOf(TimetableRunCall("end", station, "$station@one", status)))
         val current = segment("current", "B")
         val future = segment("future", "C", start = 5)
@@ -38,7 +50,7 @@ class TimetableUnitDisplayContextTest {
         assertEquals("C", captureTimetableRunDisplayContext("service", future, 5)!!.terminalStationId)
         assertNull(captureTimetableRunDisplayContext("service", segment("missing", "B", TimetableServiceStopStatus.STOP), 2)!!.terminalStationId)
         assertNull(captureTimetableRunDisplayContext("service", TimetableRunSegment("empty",
-            work.art1st.javarailways.simpleato.api.line.LineId("line"), 2, 5), 2)!!.terminalStationId)
+            work.art1st.javarailways.simpleato.api.line.LineId("line"), 2, 5, true), 2)!!.terminalStationId)
     }
 
     @Test fun `default trip progress preserves PASS repeated occurrence identity and refuses invented arrival`() {
@@ -49,7 +61,7 @@ class TimetableUnitDisplayContextTest {
             stop("first", "C", TimetableServiceStopStatus.STOP, true),
             stop("second", "C", TimetableServiceStopStatus.TERMINAL, false))
         val segment = TimetableRunSegment("run", work.art1st.javarailways.simpleato.api.line.LineId("line"),
-            0, 1, calls = stops.map { it.call })
+            0, 1, true, calls = stops.map { it.call })
         val service = TimetableService("service", steps = listOf(TimetableStep.Check("A@one")), runSegments = listOf(segment))
         val table = Timetable("table", services = listOf(service))
         fun reachedRuntime(reached: List<TimetableUnitStopSnapshot>) = TimetableDisplayRuntime().also { runtime ->
@@ -110,7 +122,7 @@ class TimetableUnitDisplayContextTest {
     @Test fun `door side requires current entered run and actual stopping occurrence while NONE is known`() {
         val stop = TimetableUnitStopSnapshot("service","run",TimetableRunCall("origin","A","A@one",TimetableServiceStopStatus.ORIGIN),true)
         val display = TimetableUnitDisplaySnapshot("unit","trip",0,JsonObject(emptyMap()),listOf(stop),listOf(stop),emptyList())
-        val run = TimetableRunDisplayContext("service","run","line",JsonObject(emptyMap()))
+        val run = TimetableRunDisplayContext("service","run","line", true,JsonObject(emptyMap()))
         val arrived = TimetableDisplayProgress(TimetableDisplayPhase.AT_STATION,0)
         val context = TimetableUnitDisplayContext("train","unit",listOf("car"),"table",display,null,run,arrived,DoorSide.NONE)
         assertEquals(DoorSide.NONE,context.doorSide)

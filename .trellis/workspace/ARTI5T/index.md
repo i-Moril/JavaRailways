@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 39
+- **Total Sessions**: 40
 - **Last Active**: 2026-11-12
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1294 | Active |
+| `journal-1.md` | ~1331 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 40 | 2026-11-12 | 显示修复数据补齐与测试服部署 | `192a4d00` | `codex/train-display-in-service-refresh` |
 | 39 | 2026-11-12 | 列车显示保帧与运营班次标志 | `61963c90` | `codex/train-display-in-service-refresh` |
 | 38 | 2026-11-07 | Correct SimpleSignals host ABI deployment | `31e4cf17` | `codex/ato-per-car-rebuild` |
 | 37 | 2026-11-07 | Deploy SimpleATO physical-frame and authority fixes | `31e4cf17` | `codex/ato-per-car-rebuild` |

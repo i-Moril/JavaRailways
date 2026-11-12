@@ -1292,3 +1292,40 @@ Diagnosed the post-deployment NoSuchMethodError as an old SimpleSignals JAR link
 ### Next Steps
 
 - 先取得旧new-timetable.js及指定runtime.json的16个运营字段处理、JAR部署和正常重启/资源重载许可，再做客户端验收。
+
+
+## Session 40: 显示修复数据补齐与测试服部署
+<!-- trellis-session: v=2 fp=8ed006190ac945cd -->
+
+**Date**: 2026-11-12
+**Task**: 显示修复数据补齐与测试服部署
+**Package**: javarailways
+**Branch**: `codex/train-display-in-service-refresh`
+
+### Summary
+
+用户批准后正常停服备份，按作者开关为脚本和快照各16段补isInService，严格恢复后部署61963c90产物并正常启动、重载资源。
+
+### Main Changes
+
+- 仅安装JAR、指定脚本与runtime三文件，停服清单其余1913文件不变，完整恢复归档已校验。
+- 5列车25车厢均已自动保存到含新XML的包引用，13运营/3回送字段正确；11个其他插件JAR未变。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `192a4d00` | docs(displays): record verified test server deployment |
+
+### Testing
+
+- [OK] 三个一次性迁移测试及独立审查通过，生产OperationalWorldRuntime装配严格恢复6世界、5单位/5认领、16段；旧离线工具漏接provider已用临时生产装配验证替代，未修范围外源码。
+- [OK] 新进程、健康端口HTTP200、ATO world RUNNING、命令帮助与资源重载1列车包/3轨道包成功；实际JS/CSS匹配新WebUI sidecar，无新恢复或显示失败。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 用户在实际光影客户端确认默认字体、9/6秒切换、回送规则和刷新无黑屏；未替代玩家操作或自动重置班次。

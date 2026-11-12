@@ -22,7 +22,9 @@
 主插件卸载顺序：先卸载依赖 JavaRailways 的附属插件，完成它们提交的显示清理，再卸载 JavaRailways。
 附属插件必须声明对主插件的依赖，但依赖声明和 `onDisable` 返回本身不能证明跨区域删除任务已经完成。
 通用模型显示服务的清理完成结果及强制停用边界见[模型生命周期契约](model-presentation-api.md#5-线程关闭和世界重载的规则)。
-不在已禁用的主插件 `onDisable` 中阻塞等待区域任务，也不把整服停止误报为信号资源故障。
+不在已禁用的主插件 `onDisable` 中阻塞等待区域任务，也不把整服停止误报为信号资源故障。整服stop时
+`Bukkit.isStopping()`只允许当前明确非持久化/packet-only显示后端执行terminal retirement；热卸载仍要求实际删除，
+具体线性化、失败矩阵与测试归上述模型生命周期契约。
 
 独立信号/ATO附属插件的正常停用必须先显式unapply其计划依赖，再调用唯一的
 `InfrastructureResourceService.unregisterOwner`。该调用同时负责插件的基础资源注册和信号source全集；

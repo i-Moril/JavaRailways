@@ -308,6 +308,10 @@ class DefaultModelPresentationServiceTest {
         val first = f.service.closeOwner(f.owner.plugin).toCompletableFuture()
         assertThrows(CompletionException::class.java) { first.join() }
         assertThrows(CompletionException::class.java) { f.service.closeOwner(f.owner.plugin).toCompletableFuture().join() }
+        f.stopping = true
+        f.host.enabled = false
+        f.service.close()
+        assertThrows(CompletionException::class.java) { f.service.closeOwner(f.owner.plugin).toCompletableFuture().join() }
     }
 
     @Test
@@ -368,6 +372,97 @@ class DefaultModelPresentationServiceTest {
     }
 
     @Test
+    fun `terminal server stop retires transient model ownership without scheduling deletion`(): Unit = Fixture().use { f ->
+        val handle = f.create()
+        handle.submit(state(1))
+        f.dispatcher.drain()
+        handle.close()
+        val completion = f.service.closeOwner(f.owner.plugin).toCompletableFuture()
+        assertFalse(completion.isDone)
+
+        f.stopping = true
+        f.host.enabled = false
+        f.service.close()
+
+        completion.join()
+        f.dispatcher.drain()
+        assertTrue(f.service.closeOwner(f.owner.plugin).toCompletableFuture().isDone)
+        assertTrue(f.backend.visuals.all { it.destroyCalls == 0 }, "terminal teardown owns transient visual disappearance")
+        assertTrue(f.dispatcher.queue.isEmpty())
+        assertFalse(f.logs.any { it.thrown?.message?.contains("before model cleanup completed") == true })
+    }
+
+    @Test
+    fun `in flight model build terminally retires before service close without physical deletion`(): Unit = Fixture().use { f ->
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val executor = Executors.newSingleThreadExecutor()
+        val handle = f.create()
+        try {
+            f.backend.beforeCreate = { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
+            handle.submit(state(1))
+            f.dispatcher.runNext("async")
+            val render = executor.submit { f.dispatcher.runNext("location") }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val completion = f.service.closeOwner(f.owner.plugin).toCompletableFuture()
+            assertFalse(completion.isDone)
+            f.stopping = true
+            f.host.enabled = false
+            release.countDown()
+            render.get(5, TimeUnit.SECONDS)
+            completion.join()
+            f.service.close()
+            f.dispatcher.drain()
+            assertEquals(2, f.backend.visuals.size, "accepted construction may finish before terminal teardown")
+            assertTrue(f.backend.visuals.all { it.destroyCalls == 0 })
+            assertTrue(f.service.closeOwner(f.owner.plugin).toCompletableFuture().isDone)
+            assertFalse(f.logs.any { it.thrown?.message?.contains("scheduler host is disabled") == true })
+        } finally {
+            release.countDown()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `persistent-capability backend cannot inherit terminal retirement`(): Unit = Fixture(terminalRetirementSafe = false).use { f ->
+        val handle = f.create()
+        handle.submit(state(1))
+        f.dispatcher.drain()
+        handle.close()
+        val completion = f.service.closeOwner(f.owner.plugin).toCompletableFuture()
+        f.stopping = true
+        f.host.enabled = false
+        f.service.close()
+        assertThrows(CompletionException::class.java) { completion.join() }
+        assertTrue(f.backend.visuals.all { it.destroyCalls == 0 })
+    }
+
+    @Test
+    fun `server stop beginning at cleanup claim wins disabled-host failure`(): Unit = Fixture().use { f ->
+        val handle = f.create()
+        handle.submit(state(1))
+        val completion = f.service.closeOwner(f.owner.plugin).toCompletableFuture()
+        var stoppingChecks = 0
+        f.stoppingProbe = { ++stoppingChecks >= 2 }
+        f.host.enabled = false
+
+        f.dispatcher.runNext("async")
+        f.dispatcher.drain()
+
+        completion.join()
+        assertEquals(2, stoppingChecks)
+        assertTrue(f.service.closeOwner(f.owner.plugin).toCompletableFuture().isDone)
+        assertFalse(f.logs.any { it.thrown?.message?.contains("Model scheduler host is disabled") == true })
+    }
+
+    @Test
+    fun `production display backends explicitly declare terminal retirement safety`() {
+        val owner = Owner("JavaRailways")
+        assertTrue(NativeDisplayRenderBackend(owner.plugin, ControlledDispatcher()).supportsTerminalServerStopRetirement)
+        assertTrue(EntityLibDisplayRenderBackend(PacketDisplayChunks()).supportsTerminalServerStopRetirement)
+    }
+
+    @Test
     fun `blocked backend creation cannot block value submission or close`(): Unit = Fixture().use { f ->
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
@@ -391,12 +486,14 @@ class DefaultModelPresentationServiceTest {
         } finally { release.countDown(); executor.shutdownNow() }
     }
 
-    private class Fixture(native: Boolean = true) : AutoCloseable {
+    private class Fixture(native: Boolean = true, terminalRetirementSafe: Boolean = true) : AutoCloseable {
         val worldId = UUID.randomUUID()
         val bukkitWorld = bukkitWorld(worldId)
         val railWorld = createTestWorld()
         val host = Owner("JavaRailways")
         val owner = Owner("Addon")
+        @Volatile var stopping = false
+        var stoppingProbe: () -> Boolean = { stopping }
         val dispatcher = ControlledDispatcher()
         val logs = mutableListOf<LogRecord>()
         val logger = Logger.getLogger("model-service-${UUID.randomUUID()}").apply {
@@ -413,8 +510,8 @@ class DefaultModelPresentationServiceTest {
             bukkitWorld, dispatcher = dispatcher, playerLookup = { if (it == player.uniqueId) player else null },
             settingsFor = { ViewDistanceSettings(64.0, 16.0) }, registerListener = {}, initialPlayers = listOf(player)
         )
-        val backend = RecordingBackend(dispatcher, native)
-        val service = DefaultModelPresentationService(host.plugin, dispatcher, backend, 1.0f, logger)
+        val backend = RecordingBackend(dispatcher, native, terminalRetirementSafe)
+        val service = DefaultModelPresentationService(host.plugin, dispatcher, backend, 1.0f, logger) { stoppingProbe() }
         init { dispatcher.entityLocations[player] = player.location; dispatcher.drain(); service.registerWorld(worldId, bukkitWorld, railWorld, audiences) }
         fun create() = service.create(owner.plugin, worldId, "signal", definition())
         override fun close() {
@@ -477,7 +574,11 @@ class DefaultModelPresentationServiceTest {
         override fun metrics() = PlatformDispatchMetrics(0, 0, 0, 0, 0, 0, 0, 0)
     }
 
-    private class RecordingBackend(val dispatcher: ControlledDispatcher, val native: Boolean) : DisplayRenderBackend {
+    private class RecordingBackend(
+        val dispatcher: ControlledDispatcher,
+        val native: Boolean,
+        override val supportsTerminalServerStopRetirement: Boolean
+    ) : DisplayRenderBackend {
         val visuals = mutableListOf<Visual>()
         val events = mutableListOf<String>()
         var attempts = 0

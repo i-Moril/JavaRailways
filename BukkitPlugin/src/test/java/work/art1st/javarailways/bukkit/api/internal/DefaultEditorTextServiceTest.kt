@@ -269,6 +269,10 @@ class DefaultEditorTextServiceTest {
         assertEquals(1, f.visuals.last().removals)
         assertThrows(CompletionException::class.java) { f.service.closeOwner(f.owner.plugin).toCompletableFuture().join() }
         assertTrue(f.logs.any { it.message.contains("object object") && it.thrown != null })
+        f.stopping = true
+        f.host.enabled = false
+        f.service.close()
+        assertThrows(CompletionException::class.java) { f.service.closeOwner(f.owner.plugin).toCompletableFuture().join() }
     }
 
     @Test
@@ -287,6 +291,74 @@ class DefaultEditorTextServiceTest {
             assertThrows(CompletionException::class.java) { cleanup.join() }
             assertThrows(CompletionException::class.java) { f.service.closeOwner(f.owner.plugin).toCompletableFuture().join() }
         }
+    }
+
+    @Test
+    fun `terminal server stop retires editor text without scheduling entity removal`() = Fixture().use { f ->
+        val handle = f.create()
+        handle.submit(0, listOf(label("a")))
+        f.dispatcher.drain()
+        handle.close()
+        val completion = f.service.closeOwner(f.owner.plugin).toCompletableFuture()
+        assertFalse(completion.isDone)
+
+        f.stopping = true
+        f.host.enabled = false
+        f.service.close()
+
+        completion.join()
+        f.dispatcher.drain()
+        assertTrue(f.service.closeOwner(f.owner.plugin).toCompletableFuture().isDone)
+        assertEquals(0, f.visuals.single().removals)
+        assertTrue(f.dispatcher.queue.isEmpty())
+        assertFalse(f.logs.any { it.thrown?.message?.contains("before editor text cleanup completed") == true })
+    }
+
+    @Test
+    fun `in flight editor spawn terminally retires before service close`() = Fixture().use { f ->
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val executor = Executors.newSingleThreadExecutor()
+        val handle = f.create()
+        try {
+            f.beforeSpawn = { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
+            handle.submit(0, listOf(label("a")))
+            f.dispatcher.runNext("async")
+            f.dispatcher.runNext("viewer")
+            val spawn = executor.submit { f.dispatcher.runNext("location") }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val completion = f.service.closeOwner(f.owner.plugin).toCompletableFuture()
+            assertFalse(completion.isDone)
+            f.stopping = true
+            f.host.enabled = false
+            release.countDown()
+            spawn.get(5, TimeUnit.SECONDS)
+            completion.join()
+            f.service.close()
+            f.dispatcher.drain()
+            assertEquals(1, f.visuals.size, "accepted nonpersistent spawn may finish before teardown")
+            assertEquals(0, f.visuals.single().removals)
+            assertTrue(f.service.closeOwner(f.owner.plugin).toCompletableFuture().isDone)
+            assertFalse(f.logs.any { it.thrown?.message?.contains("scheduler host is disabled") == true })
+        } finally {
+            release.countDown()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `server stop beginning at cleanup claim wins async rejection`() = Fixture().use { f ->
+        val handle = f.create()
+        f.dispatcher.rejectAsync = true
+        f.host.enabled = false
+        var stoppingChecks = 0
+        f.stoppingProbe = { ++stoppingChecks >= 5 }
+
+        handle.close()
+
+        f.service.closeOwner(f.owner.plugin).toCompletableFuture().join()
+        assertEquals(5, stoppingChecks)
+        assertFalse(f.logs.any { it.thrown?.message?.contains("scripted async rejection") == true })
     }
 
     @Test
@@ -336,6 +408,8 @@ class DefaultEditorTextServiceTest {
         val events = mutableListOf<String>()
         var world = world(UUID.randomUUID())
         var loadedWorld = world
+        @Volatile var stopping = false
+        var stoppingProbe: () -> Boolean = { stopping }
         var online = true
         var failShow = false
         var failInitialize = false
@@ -376,7 +450,7 @@ class DefaultEditorTextServiceTest {
                 override fun close() = Unit
             })
         }
-        val service = DefaultEditorTextService(host.plugin, dispatcher, logger)
+        val service = DefaultEditorTextService(host.plugin, dispatcher, logger) { stoppingProbe() }
         val listener = EditorTextLifecycleListener(service, host.plugin)
         init { dispatcher.viewer = viewer }
         fun create() = ownerContext { service.create(owner.plugin, viewer, "object") }

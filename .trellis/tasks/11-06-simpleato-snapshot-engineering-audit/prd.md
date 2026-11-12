@@ -70,6 +70,15 @@ A5首轮模块检查3306通过、1个原有opt-in跳过，但回放在Tick2002�
 
 本追加只增加现有validator的静态提示与测试，不自动插入关门动作、不改变StationStopProgramRuntime或Dispatcher车门执行语义，不提交部署。
 
+## 追加修复：整服停机时的模型终止接管（用户已批准）
+
+- F10：当且仅当 Paper/Folia 已进入不可逆整服停机（`Bukkit.isStopping()==true`）且 JavaRailways 宿主已禁用时，普通模型与编辑文字服务必须通过现有 `closeOwner` future 完成 terminal retirement：同步撤销服务内 owner/handle/task/显示意图，把当前仅有的非持久化 native display、非持久化 `TextDisplay` 与 packet-only EntityLib visual 的物理消失交给紧随其后的 server/client/JVM teardown；不得继续跨 region 调度删除，也不得把该正常停机误报为模型清理顺序异常。
+- 非整服停机的附属插件停用、宿主热卸载或 reload 仍要求目标 owner 上的实际删除完成；宿主先失效时继续明确失败，不能用 terminal retirement 放宽热卸载合同。
+- terminal retirement 必须覆盖 service `close()` 前已经接受的 model dispatch/editor reconcile 竞态，幂等复用既有 cleanup future，不新增 pre-stop 命令拦截、第二套 owner unregister、阻塞 `onDisable` 或持久化兼容路径。
+- [ ] A10：model/editor 的 normal cleanup、hot-disable failure、terminal retirement 及 in-flight race 回归通过；真实 Folia 正常 stop/restart 时不再出现 `disabled before model/editor cleanup completed`，SimpleSignals 汇总清理成功，重启后无残留显示实体。
+
+设计证据与被排除方案见 `research/model-cleanup-shutdown-order.md`。
+
 ## 范围外
 
-除已批准的 F1–F8 外，不包含 T02–T05、D1–D4、I01、C02 或其他待验证候选，它们保留在审查总结作为后续批次；不能为通过本批测试顺手扩大修复。尤其不改条件解释器、选站策略、扩展任务清理、车库模型或无关性能缓存。提交、部署、测试服操作另等明确授权。
+除已批准的 F1–F10 外，不包含 T02–T05、D1–D4、I01、C02 或其他待验证候选，它们保留在审查总结作为后续批次；不能为通过本批测试顺手扩大修复。尤其不改条件解释器、选站策略、扩展任务清理、车库模型或无关性能缓存。提交、部署、测试服操作另等明确授权。

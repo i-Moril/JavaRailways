@@ -1,5 +1,6 @@
 package work.art1st.javarailways.bukkit.api.internal
 
+import org.bukkit.Bukkit
 import org.bukkit.entity.Player
 import com.github.retrooper.packetevents.PacketEvents
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityMetadata
@@ -35,7 +36,8 @@ internal class DefaultModelPresentationService(
     private val dispatcher: PlatformDispatcher,
     private val backend: DisplayRenderBackend,
     private val viewRange: Float,
-    private val logger: Logger
+    private val logger: Logger,
+    private val serverStopping: () -> Boolean = { Bukkit.isStopping() }
 ) : ModelPresentationService, AutoCloseable {
     private val registryLock = Any()
     private val worlds = mutableMapOf<UUID, WorldBinding>()
@@ -206,13 +208,20 @@ internal class DefaultModelPresentationService(
             outstanding.toList()
         }
         for (handle in handles) {
-            if (host.isEnabled) handle.close() else handle.unavailable(
-                IllegalStateException("JavaRailways was disabled before model cleanup completed; " +
-                    "stop add-ons and observe closeOwner completion before disabling the host")
-            )
+            when {
+                host.isEnabled -> handle.close()
+                terminalServerStop() -> handle.retireForServerStop()
+                else -> handle.unavailable(IllegalStateException(
+                    "JavaRailways was disabled before model cleanup completed; " +
+                        "stop add-ons and observe closeOwner completion before disabling the host"
+                ))
+            }
         }
         if (!host.isEnabled) tasks.clear()
     }
+
+    private fun terminalServerStop(): Boolean = !host.isEnabled &&
+        backend.supportsTerminalServerStopRetirement && serverStopping()
 
     private class WorldBinding(val bukkitWorld: BukkitWorld, val railWorld: World, val audiences: RenderChunkManager) {
         @Volatile var available = true
@@ -232,6 +241,8 @@ internal class DefaultModelPresentationService(
     ) : ModelHandle {
         private val stateLock = Any()
         @Volatile private var stopped = false
+        @Volatile private var terminallyRetired = false
+        private var completionClaimed = false
         private var revision = -1L
         private var pending: Pending? = null
         // Selection follows accepted submissions even while rendering is queued/coalesced.
@@ -257,6 +268,10 @@ internal class DefaultModelPresentationService(
         }
 
         override fun close() {
+            if (terminallyRetired || terminalServerStop()) {
+                retireForServerStop()
+                return
+            }
             synchronized(stateLock) {
                 if (stopped) return
                 stopped = true
@@ -289,7 +304,11 @@ internal class DefaultModelPresentationService(
 
         fun dispatch(complete: () -> Unit) {
             if (cleanup.isDone) { complete(); return }
-            if (!host.isEnabled) { unavailable(IllegalStateException("Model scheduler host is disabled")); complete(); return }
+            if (!host.isEnabled) {
+                unavailable(IllegalStateException("Model scheduler host is disabled"))
+                complete()
+                return
+            }
             val current = model
             val action = { execute(complete) }
             try {
@@ -313,10 +332,19 @@ internal class DefaultModelPresentationService(
         private fun execute(complete: () -> Unit) {
             var completingAsynchronously = false
             try {
+                if (terminallyRetired) return
+                if (terminalServerStop()) {
+                    retireForServerStop()
+                    return
+                }
+                if (!host.isEnabled) {
+                    unavailable(IllegalStateException("Model scheduler host is disabled"))
+                    return
+                }
                 if (stopped || !identity.world.available || !identity.owner.isEnabled) {
                     completingAsynchronously = true
                     destroyModel().whenComplete { _, failure ->
-                        try { finish(failure) } finally { complete() }
+                        try { finishCleanup(failure) } finally { complete() }
                     }
                     return
                 }
@@ -333,7 +361,7 @@ internal class DefaultModelPresentationService(
                     destroyModel().whenComplete { _, failure ->
                         try {
                             if (failure != null) {
-                                finish(failure)
+                                finishCleanup(failure)
                             } else {
                                 // Rebuild only after the old model's resources have been removed.
                                 synchronized(stateLock) { if (!stopped && pending == null) pending = next }
@@ -365,10 +393,19 @@ internal class DefaultModelPresentationService(
                 }
                 model!!.submit(state.transform(), next.selection)
                 applied = state
+                if (terminallyRetired) return
+                if (terminalServerStop()) {
+                    retireForServerStop()
+                    return
+                }
+                if (!host.isEnabled) {
+                    unavailable(IllegalStateException("Model scheduler host is disabled"))
+                    return
+                }
                 if (stopped || !identity.world.available || !identity.owner.isEnabled) {
                     completingAsynchronously = true
                     destroyModel().whenComplete { _, failure ->
-                        try { finish(failure) } finally { complete() }
+                        try { finishCleanup(failure) } finally { complete() }
                     }
                     return
                 }
@@ -382,6 +419,10 @@ internal class DefaultModelPresentationService(
                     identity.world.audiences.update(published, null, published.position)
                 }
             } catch (failure: Throwable) {
+                if (terminallyRetired || terminalServerStop()) {
+                    retireForServerStop()
+                    return
+                }
                 completingAsynchronously = true
                 val steps = DestructionSteps()
                 if (failure is DisplayCleanupException) steps.await { failure.cleanup }
@@ -390,7 +431,7 @@ internal class DefaultModelPresentationService(
                     try {
                         if (cleanupFailure != null && cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
                         report(failure)
-                        finish(cleanupFailure)
+                        finishCleanup(cleanupFailure)
                     } finally { complete() }
                 }
             } finally { if (!completingAsynchronously) complete() }
@@ -413,19 +454,54 @@ internal class DefaultModelPresentationService(
         }
 
         fun unavailable(failure: Throwable) {
+            if (terminallyRetired || terminalServerStop()) {
+                retireForServerStop()
+                return
+            }
             audience?.withdraw()
             finish(failure)
         }
 
-        private fun finish(failure: Throwable?) {
-            synchronized(stateLock) { stopped = true; pending = null; accepted = null }
-            synchronized(registryLock) {
-                active.remove(identity, this)
-                // A failed cleanup remains observable to closeOwner; never report its absence as success.
-                if (failure == null) outstanding.remove(this)
+        fun retireForServerStop() {
+            if (terminallyRetired) return
+            if (!terminalServerStop()) return
+            finish(null, terminalRetirement = true)
+        }
+
+        private fun finishCleanup(failure: Throwable?) {
+            if (terminallyRetired || terminalServerStop()) retireForServerStop()
+            else finish(failure)
+        }
+
+        private fun finish(failure: Throwable?, terminalRetirement: Boolean = false) {
+            var completionFailure = failure
+            var retired = false
+            val claimed = synchronized(stateLock) {
+                stopped = true
+                pending = null
+                accepted = null
+                if (completionClaimed) false else {
+                    // The completion claim is the lifecycle linearization point. A disabled-host
+                    // failure may have observed isStopping=false just before the irreversible stop
+                    // began; recheck while claiming so only failures completed before that point
+                    // remain observable.
+                    if (terminalRetirement || (completionFailure != null && terminalServerStop())) {
+                        terminallyRetired = true
+                        completionFailure = null
+                        retired = true
+                    }
+                    completionClaimed = true
+                    true
+                }
             }
-            if (failure == null) cleanup.complete(null) else if (cleanup.completeExceptionally(failure)) {
-                report(failure)
+            if (!claimed) return
+            if (retired) audience?.withdraw()
+            synchronized(registryLock) { active.remove(identity, this) }
+            if (completionFailure == null) {
+                cleanup.complete(null)
+                synchronized(registryLock) { outstanding.remove(this) }
+            } else if (cleanup.completeExceptionally(completionFailure)) {
+                report(completionFailure)
             }
         }
 

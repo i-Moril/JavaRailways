@@ -36,6 +36,8 @@ import work.art1st.javarailways.bukkit.BukkitPlugin
 class EntityLibDisplayRenderBackend internal constructor(
     private val chunks: PacketDisplayChunks
 ) : DisplayRenderBackend {
+    override val supportsTerminalServerStopRetirement = true
+
     override fun create(world: World, descriptor: DisplayVisualDescriptor): DisplayVisual {
         require(descriptor.location.world == world) {
             "Display visual location must belong to the backend world"

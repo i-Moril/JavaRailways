@@ -14,6 +14,12 @@
 - [x] C5：在现有TimetableValidator有限传播中加入最小车门状态证明；真实18402模式静态失败，显式关门修正后通过；不改运行期执行语义。
 - [x] C6：独立trellis-check复核终到/始发/NONE/有限后继传播语义，运行validator聚焦测试及完整SimpleATO测试；同步validation规范，不提交部署。
 
+## 追加执行 F10（已批准）
+
+- [x] C7：在 `DefaultModelPresentationService` 与 `DefaultEditorTextService` 复用现有 cleanup future 增加整服停机 terminal retirement；同时覆盖 service close 与已接受 dispatch/reconcile 抢先观察 disabled host 的竞态。不得增加 pre-stop 命令拦截、阻塞等待或第二套 owner 卸载协议。
+- [x] C8：拆分回归证明 `isStopping=false` 的热卸载仍失败、`isStopping=true` 的普通模型/editor text 正常退休且不调度物理删除；覆盖 in-flight model build/editor spawn。独立check补修预检→claim线性化竞态后，最终BukkitPlugin全量735项通过、1项既有opt-in跳过；consumer编译、shadowJar和`git diff --check`通过。
+- [ ] C9：模型/editor/lifecycle规范已同步；仍待真实 Folia active SimpleSignals 模型执行正常 stop/restart，检查不再出现cleanup-order异常、SimpleSignals汇总完成、重启后无残留。部署仍需单独用户授权。
+
 实现证据见research/door-state-static-validation.md。优先复用TimetableValidator当前State和分支合流，不引入跨世界缓存、WebUI副本或自动关门。
 
 ## 进入实施前

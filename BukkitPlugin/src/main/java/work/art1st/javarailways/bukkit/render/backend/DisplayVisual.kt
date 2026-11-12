@@ -50,6 +50,11 @@ interface DisplayVisual {
 }
 
 interface DisplayRenderBackend {
+    /**
+     * True only when every visual owned by this backend is non-persistent or packet-only, so an
+     * irreversible whole-server stop may hand physical disappearance to server/client teardown.
+     */
+    val supportsTerminalServerStopRetirement: Boolean get() = false
     fun create(world: World, descriptor: DisplayVisualDescriptor): DisplayVisual
 }
 

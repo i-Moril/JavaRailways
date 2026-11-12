@@ -1,7 +1,8 @@
 package work.art1st.javarailways.bukkit.api.internal
 
-import org.bukkit.Location
+import org.bukkit.Bukkit
 import org.bukkit.Color
+import org.bukkit.Location
 import org.bukkit.World
 import org.bukkit.entity.Display
 import org.bukkit.entity.Entity
@@ -27,7 +28,8 @@ import java.util.logging.Logger
 internal class DefaultEditorTextService(
     private val host: Plugin,
     private val dispatcher: PlatformDispatcher,
-    private val logger: Logger
+    private val logger: Logger,
+    private val serverStopping: () -> Boolean = { Bukkit.isStopping() }
 ) : EditorTextService, AutoCloseable {
     private val registryLock = Any()
     private val active = mutableMapOf<Identity, Handle>()
@@ -81,11 +83,18 @@ internal class DefaultEditorTextService(
             outstanding.toList()
         }
         handles.forEach {
-            if (host.isEnabled) it.close() else it.finish(IllegalStateException(
-                "JavaRailways was disabled before editor text cleanup completed; observe closeOwner before disabling the host"
-            ))
+            when {
+                host.isEnabled -> it.close()
+                terminalServerStop() -> it.retireForServerStop()
+                else -> it.finish(IllegalStateException(
+                    "JavaRailways was disabled before editor text cleanup completed; observe closeOwner before disabling the host"
+                ))
+            }
         }
+        if (!host.isEnabled) tasks.clear()
     }
+
+    private fun terminalServerStop(): Boolean = !host.isEnabled && serverStopping()
 
     private class Identity(val owner: Plugin, val viewer: Player, val world: World, val objectId: String) {
         override fun equals(other: Any?) = other is Identity && owner === other.owner &&
@@ -100,6 +109,8 @@ internal class DefaultEditorTextService(
     private inner class Handle(val identity: Identity) : EditorTextHandle {
         private val stateLock = Any()
         @Volatile private var stopped = false
+        @Volatile private var terminallyRetired = false
+        private var completionClaimed = false
         private var revision = -1L
         private var pending: List<EditorTextLabel>? = null
         // Accessed only in the serial reconciliation chain, never under the state lock.
@@ -122,6 +133,10 @@ internal class DefaultEditorTextService(
         }
 
         override fun close() {
+            if (terminallyRetired || terminalServerStop()) {
+                retireForServerStop()
+                return
+            }
             synchronized(stateLock) {
                 if (stopped) return
                 stopped = true
@@ -132,16 +147,23 @@ internal class DefaultEditorTextService(
         }
 
         private fun offer() {
-            try { tasks.offer(this, this) } catch (failure: Throwable) { finish(failure) }
+            try { tasks.offer(this, this) } catch (failure: Throwable) { failOrRetire(failure) }
         }
 
         private fun live() = !stopped && !closed && host.isEnabled && identity.owner.isEnabled
 
         fun rejected(failure: Throwable, complete: () -> Unit) {
-            report(failure)
+            if (retireIfServerStopping()) {
+                complete()
+                return
+            }
             synchronized(stateLock) { stopped = true; pending = null }
             // This is still the serial dispatcher slot: rejection must not abandon existing entities.
             clearAll().whenComplete { _, cleanupFailure ->
+                if (retireIfServerStopping()) {
+                    complete()
+                    return@whenComplete
+                }
                 if (cleanupFailure != null) failure.addSuppressed(cleanupFailure)
                 finish(failure)
                 complete()
@@ -150,6 +172,7 @@ internal class DefaultEditorTextService(
 
         fun reconcile(complete: () -> Unit) {
             if (cleanup.isDone) { complete(); return }
+            if (retireIfServerStopping()) { complete(); return }
             val next = synchronized(stateLock) { pending.also { pending = null } }
             val work = if (!live()) clearAll() else onViewer {
                 if (!identity.viewer.isOnline || identity.viewer.world !== identity.world) close()
@@ -157,6 +180,10 @@ internal class DefaultEditorTextService(
                 if (!live()) clearAll() else apply(next)
             }
             work.whenComplete { _, failure ->
+                if (retireIfServerStopping()) {
+                    complete()
+                    return@whenComplete
+                }
                 if (failure == null) {
                     if (!live()) finish(null)
                     complete()
@@ -254,6 +281,7 @@ internal class DefaultEditorTextService(
         }
 
         private fun clearAll(): CompletableFuture<Void> {
+            if (retireIfServerStopping()) return CompletableFuture.completedFuture(null)
             var chain = CompletableFuture.completedFuture<Void>(null)
             var failure: Throwable? = null
             for ((id, old) in shown.toMap()) chain = chain.thenCompose {
@@ -288,27 +316,73 @@ internal class DefaultEditorTextService(
                 Unit
             }
             try {
+                if (retireIfServerStopping()) {
+                    result.complete(null)
+                    return result
+                }
                 check(host.isEnabled) { "Editor text scheduler host is disabled" }
                 schedule({
                     if (claimed.compareAndSet(false, true)) {
                         try {
-                            check(host.isEnabled) { "Editor text scheduler host is disabled" }
-                            action()
-                            result.complete(null)
-                        } catch (failure: Throwable) { result.completeExceptionally(failure) }
+                            if (retireIfServerStopping()) {
+                                result.complete(null)
+                            } else {
+                                check(host.isEnabled) { "Editor text scheduler host is disabled" }
+                                action()
+                                result.complete(null)
+                            }
+                        } catch (failure: Throwable) {
+                            if (retireIfServerStopping()) result.complete(null)
+                            else result.completeExceptionally(failure)
+                        }
                     }
                 }, failed)
-            } catch (failure: Throwable) { failed(failure) }
+            } catch (failure: Throwable) {
+                if (retireIfServerStopping()) result.complete(null) else failed(failure)
+            }
             return result
         }
 
-        fun finish(failure: Throwable?) {
-            synchronized(stateLock) { stopped = true; pending = null }
-            synchronized(registryLock) {
-                active.remove(identity, this)
-                if (failure == null) outstanding.remove(this)
+        private fun retireIfServerStopping(): Boolean {
+            if (terminallyRetired) return true
+            if (!terminalServerStop()) return false
+            retireForServerStop()
+            return true
+        }
+
+        private fun failOrRetire(failure: Throwable) {
+            if (!retireIfServerStopping()) finish(failure)
+        }
+
+        fun retireForServerStop() {
+            if (terminallyRetired) return
+            if (!terminalServerStop()) return
+            finish(null, terminalRetirement = true)
+        }
+
+        fun finish(failure: Throwable?, terminalRetirement: Boolean = false) {
+            var completionFailure = failure
+            val claimed = synchronized(stateLock) {
+                stopped = true
+                pending = null
+                if (completionClaimed) false else {
+                    // Claiming the existing cleanup future is the lifecycle linearization point.
+                    // Recheck here so a stop that begins after an earlier precheck, but before the
+                    // failure is completed, terminally retires the transient editor entities.
+                    if (terminalRetirement || (completionFailure != null && terminalServerStop())) {
+                        terminallyRetired = true
+                        completionFailure = null
+                    }
+                    completionClaimed = true
+                    true
+                }
             }
-            if (failure == null) cleanup.complete(null) else if (cleanup.completeExceptionally(failure)) report(failure)
+            if (!claimed) return
+            synchronized(registryLock) { active.remove(identity, this) }
+            if (completionFailure == null) {
+                cleanup.complete(null)
+                synchronized(registryLock) { outstanding.remove(this) }
+            } else if (cleanup.completeExceptionally(completionFailure)) report(completionFailure)
         }
 
         private fun report(failure: Throwable) = logger.log(Level.SEVERE,

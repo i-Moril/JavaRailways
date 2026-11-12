@@ -72,11 +72,11 @@ record EditorTextAppearance(ModelPose transform, double scaleX, double scaleY, M
 
 内部复用现有`PlatformDispatcher`、`LatestAffinityTaskDispatcher`及RailWand中默认隐藏/仅对指定玩家显示的方式，不公开其私有对象。每handle只保存一份最新待显示列表及一个调度工作，不能堆积历史画面；实体操作不在状态锁内执行。这里要求复用实际机制，不要求为提取通用基类而重构整个模型服务。
 
-调用方负责离手/权限或编辑上下文失效时close；服务兜住玩家退出/换世界、世界卸载及owner停用。关闭立即撤销显示意图，未开始或迟到的创建必须检查同一handle与世界实例并清理，不重新显示。实体调度使用仍启用的JavaRailways平台owner；附属插件停用后仍可执行清理，而不是借用外部插件对象自行排任务。close不阻塞；closeOwner合并该owner全部尚未完成的清理（含此前单独关闭的handle），失败保留可观察的异常结果，不能因移出活动表而误报成功。先完成附属显示清理再停用主插件，沿用现有模型服务的顺序，不新建停用管理器。
+调用方负责离手/权限或编辑上下文失效时close；服务兜住玩家退出/换世界、世界卸载及owner停用。关闭立即撤销显示意图，未开始或迟到的创建必须检查同一handle与世界实例并清理，不重新显示。实体调度使用仍启用的JavaRailways平台owner；附属插件停用后仍可执行清理，而不是借用外部插件对象自行排任务。close不阻塞；closeOwner合并该owner全部尚未完成的清理（含此前单独关闭的handle），失败保留可观察的异常结果，不能因移出活动表而误报成功。先完成附属显示清理再停用主插件，沿用现有模型服务的顺序，不新建停用管理器。整服不可逆停机时，非持久化`TextDisplay`与普通模型一样走[terminal retirement](model-presentation-api.md#整服停机的-terminal-retirementcurrent)：撤销handle/调度状态并完成原future，不跨region调用实体删除；热卸载、停机前已完成失败和非整服scheduler拒绝仍保持异常。terminal判断必须在cleanup future的唯一claim点重检，不能只在service close入口检查。
 
 未加载/失效世界、离线viewer、已停用owner或宿主均拒绝创建；调度、生成或显示失败清理本次实体并报告所属对象，清理失败由完成结果异常报告，不影响铁路授权。提交的列表比较及内存为O(N)，N为本次标签数；真实实体操作随变化标签数增长，首次创建仍为O(N)，closeOwner低频遍历未完成handle。服务不扫描世界轨道、列车或全体玩家，不加入周期性业务重算或额外标签数量上限。
 
-必需验收：独立Java消费者只通过公开API编译；同一玩家以外不可见；标签增删改/空列表/相同内容无操作；暂停创建或显隐后关闭不复活；旧序号拒绝；换世界/同UUID世界重载不复用旧handle；附属停用后清理继续完成，主插件提前停用或删除失败不能伪称成功；既有普通模型服务行为不变。模拟调度测试与真实Paper/Folia、客户端验收分别记录。无持久化变化或版本升级。
+必需验收：独立Java消费者只通过公开API编译；同一玩家以外不可见；标签增删改/空列表/相同内容无操作；暂停创建或显隐后关闭不复活；旧序号拒绝；换世界/同UUID世界重载不复用旧handle；附属停用后清理继续完成，热卸载中主插件提前停用或删除失败不能伪称成功；整服stop时已接受spawn/reconcile及预检→claim竞态均terminally retire且不调度实体删除。既有普通模型服务行为不变。模拟调度测试与真实Paper/Folia、客户端验收分别记录。无持久化变化或版本升级。
 源码入口为`api/editor/*.java`、`api/internal/DefaultEditorTextService.kt`及`EditorTextLifecycleListener.kt`；BukkitPlugin创建服务并在停用时关闭，统一registration helper发布服务。`DefaultEditorTextServiceTest`使用受控dispatcher和记录实体验证串行操作及实际spawn/show暂停；沿用`BukkitServiceTestSupport`构造平台事件，不更改Bukkit生命周期标志。Java消费示例只编译公开接口，不声称实际启用插件或客户端已验证。
 例如边界A/B仍存在时只改A文字，B不重建；关闭后旧计算再次submit不能恢复任一文字。应提交准备好的完整标签值，不应暴露TextDisplay让调用方跨线程修改或将进路校验放入通用文字服务。接口评审和实现均属于当前Stage 2的独立小批次，不启动后续SimpleSignals平台拆分任务。
 

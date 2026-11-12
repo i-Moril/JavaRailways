@@ -12,6 +12,14 @@ F9 在现有 `TimetableValidator.validateService` 的 `State/process/walk` 有�
 
 若现有validator无法在不重做完整跨service车辆分配的情况下证明某种结构/动态交接，保持UNKNOWN并交给运行期，不扩大为全局数据流框架。本批不自动修时刻表、不执行terminal departure preparation、不把NONE解释成关闭。
 
+## 已批准追加：整服停机模型 terminal retirement
+
+Paper 只保证附属插件与宿主 `onDisable` 的调用顺序，不等待附属插件跨 region 的异步模型删除；精确依赖版本也没有可等待的 pre-stop 事件。实现因此不拦截 `stop` 命令、不在 disable callback 阻塞，也不新增卸载协调器。
+
+现有 `closeOwner` future 继续是唯一完成信号。正常插件停用和热卸载保持“实际实体删除完成”语义；仅在 `Bukkit.isStopping()` 已为真、整服 teardown 不可逆时，service/handle 进入 terminal retirement：撤销内部 owner/active/outstanding/task 与显示意图，正常完成原 cleanup future，不调用 region/entity scheduler。安全性只建立在当前生产后端全集上：native ordinary display 与 editor text 均非持久化，EntityLib visual 仅存在于 packet/container 内存；未来持久化后端不得自动继承此路径。
+
+terminal 判断必须进入 handle 的 host-disabled/rejection 公共终点，而不能只写在 service `close()`：已接受回调可能在 host flag 清除后、service close 前运行。真正早于整服停机完成的清理错误仍保留；停机开始后仅因无法调度物理删除产生的失败转为 terminal retirement。完整证据见 `research/model-cleanup-shutdown-order.md`。
+
 状态：已获用户批准，首批实施中。依据 `prd.md` F1–F5 和已有审查报告。首批范围是 K01–K03、T01、C01，其余发现明确后置；执行结果另记 research/implementation-validation.md。
 
 ## 1. 架构与责任

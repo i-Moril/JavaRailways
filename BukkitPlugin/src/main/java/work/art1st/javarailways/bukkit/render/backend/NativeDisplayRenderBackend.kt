@@ -24,6 +24,8 @@ class NativeDisplayRenderBackend(
     private val plugin: Plugin,
     private val dispatcher: PlatformDispatcher
 ) : DisplayRenderBackend {
+    override val supportsTerminalServerStopRetirement = true
+
     override fun create(world: World, descriptor: DisplayVisualDescriptor): DisplayVisual {
         val entity = when (val content = descriptor.content) {
             is DisplayVisualContent.Item -> world.spawn(

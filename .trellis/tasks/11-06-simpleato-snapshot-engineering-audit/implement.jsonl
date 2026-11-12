@@ -16,3 +16,9 @@
 {"file":".trellis/spec/javarailways/simpleato/dispatcher-runtime.md","reason":"Actual terminal station program and door-state execution semantics must remain unchanged"}
 {"file":".trellis/spec/javarailways/simpleato/stations.md","reason":"DoorSide.NONE means no door operation and runtime door safety gate remains authoritative"}
 {"file":".trellis/tasks/11-06-simpleato-snapshot-engineering-audit/research/door-state-static-validation.md","reason":"Approved F9 real Tick18402 chain, minimal static proof and regressions"}
+{"file":".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md","reason":"F10 host/add-on disable ordering, Folia ownership and whole-server stop boundary"}
+{"file":".trellis/spec/bukkit-plugin/backend/model-presentation-api.md","reason":"F10 closeOwner completion and terminal retirement semantics"}
+{"file":".trellis/spec/bukkit-plugin/backend/editor-markers.md","reason":"F10 editor text owner cleanup and nonpersistent display boundary"}
+{"file":".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md","reason":"F10 shared model/editor cleanup and persistence boundary"}
+{"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"F10 SimpleSignals combined cleanup observation without a second unload gate"}
+{"file":".trellis/tasks/11-06-simpleato-snapshot-engineering-audit/research/model-cleanup-shutdown-order.md","reason":"Approved F10 exact Paper/Folia shutdown evidence, races and minimal terminal-retirement design"}

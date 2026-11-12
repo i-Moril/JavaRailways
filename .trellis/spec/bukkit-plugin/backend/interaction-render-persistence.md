@@ -196,7 +196,7 @@ worker的record比较、JSON编码、旧文件复制均为`O(render record count
 内部 `ModelTreeBuilder.buildModel(ModelDefinition, Location)` 复用部件树和渲染后端，
 `OrdinaryModel` 完整选择场景、恢复基础外观，且不启动列车动画 tick。它们仍不是附属插件可直接调用的显示 API；
 附属插件使用 `ModelHandle` 提交状态和关闭模型，不直接取得 `CompositeModel` 或模型管理器。
-卸载主插件前，先卸载附属插件并确认 `closeOwner` 返回的模型清理结果成功；不能把排入区域线程队列当成删除完成。
+服务器继续运行的正常卸载中，卸载主插件前先卸载附属插件并确认 `closeOwner` 返回的实际模型清理结果成功；不能把排入区域线程队列当成删除完成。不可逆整服stop没有跨插件future屏障，当前非持久化/packet-only后端按[terminal retirement合同](model-presentation-api.md#整服停机的-terminal-retirementcurrent)撤销逻辑owner并由server/client/JVM teardown接管物理消失；此例外不能用于热卸载或未来未显式声明安全的后端。
 普通模型使用零插值，列车保持三 tick；
 旧部件引用/命名空间普通入口已删除，不增加草稿兼容路径。
 

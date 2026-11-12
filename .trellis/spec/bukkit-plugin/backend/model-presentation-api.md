@@ -285,6 +285,32 @@ null 表示自然光。帧 appearance 为 null 时使用物品基础外观；帧
 主插件停用后不能依赖它的调度器继续删除实体。绕过顺序的强制停用应报告未完成的清理，
 不能将被平台取消的任务当成清理成功；普通模型实体保持不持久化，但这不替代正常清理。
 
+### 整服停机的 terminal retirement（CURRENT）
+
+上述“实际删除完成”合同适用于服务器仍会继续运行的正常owner停用、热卸载和reload。Paper/Folia整服停机没有可等待的
+pre-stop事件：它先把`Bukkit.isStopping()`设为true，再依次禁用附属插件与宿主，且不会在两个`onDisable`之间等待
+跨region future。此时不得在宿主`onDisable`阻塞区域任务，也不得拦截`stop`命令建立第二套关闭状态机。
+
+`DefaultModelPresentationService`仍以原`closeOwner(Plugin): CompletionStage<Void>`作为唯一完成信号，但在同时满足下列条件时
+执行terminal retirement：宿主已禁用、`Bukkit.isStopping()==true`、当前`DisplayRenderBackend`明确声明
+`supportsTerminalServerStopRetirement=true`。当前NATIVE后端只创建`isPersistent=false`的显示实体，ENTITYLIB后端只持有
+packet/container对象，二者可以把物理消失交给紧随其后的world/client/JVM teardown；未来后端默认值为false，持久化或无法
+证明终止安全的后端继续失败，不能自动继承该路径。
+
+terminal retirement同步停止handle、丢弃待提交显示意图、撤回只读audience发布、移除active/outstanding与调度登记，并正常完成
+原cleanup future；它不调用`DisplayVisual.destroy`、`Entity.remove`、region/entity scheduler或另一个owner unregister API。
+已经被平台接受的任务不能由`LatestAffinityTaskDispatcher.clear()`取消，因此迟到任务仍检查同一terminal状态且不得重新建立
+owner记录。`completionClaimed`在handle状态锁内提供唯一线性化点：若清理失败在整服停机前已经完成，后来的停机不能把它改成成功；
+若停机已经开始而disabled-host/rejection失败尚未claim future，则在线性化点重检并转为terminal retirement。一次终止处理为
+`O(M)`，M是尚未完成的handle数，不扫描世界、轨道或实体。
+
+失败矩阵如下：正常owner停用且宿主可调度→等待实际删除；热卸载时宿主先失效→future异常并保留诊断；整服停机且后端明确安全
+→terminal retirement成功；整服停机但后端未声明安全→仍异常。正常场景是附属插件先完成实际删除；基础场景是整服stop交给
+teardown；错误场景是在`onDisable`中`join()`区域任务或仅吞掉异常而不撤销owner状态。必需测试分别覆盖上述四项、停机恰好发生在
+预检与future claim之间、已接受的模型构造/删除回调、重复`closeOwner`、停机前真实失败不被覆盖，以及真实Folia stop/restart后
+无`disabled before model cleanup completed`和无持久化残留。本机制不改公开API、存档或schema；新增后端前必须先证明终止安全，
+再显式选择能力，不增加旧实现兼容分支。
+
 关闭显示模型不等于释放列车占用的资源；插件能否停用仍由既有资源管理规则检查，这里不增加另一套停用协议。
 显示失败只记录所属插件和对象的错误，不改变行车授权，也不能让信号计算回调因为显示错误而失败。
 本批不改变存档格式，不新增旧数据兼容逻辑。

@@ -473,6 +473,7 @@ JS 明确设置速度和不透明模型名，物理／下游变化只触发受�
   不应为未发布开发服组合增加 runtime 兼容 alias；应修正部署组合并用真实跨插件调用验收。
 - 当前 `onDisable` 使本地 runtime/显示绑定失效，异步关闭模型并观察 host `closeOwner` 完成结果；
   `modelCleanupCompletion()` 返回同一完成结果，不在停用回调等待实体操作。
+  不可逆整服stop时由host对当前非持久化/packet-only显示执行terminal retirement；SimpleSignals不建立第二个停机判断或清理future。
   Bukkit已经强制禁用时由host现有`PluginDisableEvent`路径删除失效
   planning callback。尚未实现planned-disable UI/state machine；未来正常停用仍必须先移除infrastructure dependency并调用
   宿主唯一owner-unregister gate，不能新增第二套卸载协议。

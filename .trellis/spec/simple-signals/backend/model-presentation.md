@@ -346,7 +346,8 @@ manager 提交锁和物理线程不等待模型树构造或实体清理。
 
 删除设备只关闭其对应 handle；世界卸载使旧绑定立即失效，然后在提交锁外关闭世界内全部 handles。插件停用不等待正在创建模型的
 工作线程；异步收尾先关闭这些 handles，再合并观察主插件模型与编辑文字服务各自 `closeOwner` 的完成结果。记录完成或失败，
-不能把“已请求清理”报告为“实体已删完”。不新增另一套资源卸载门禁。
+不能把“已请求清理”报告为“实体已删完”。不可逆整服stop时，宿主可按其模型生命周期合同对当前非持久化/packet-only显示执行
+terminal retirement，原`closeOwner` future仍是唯一完成信号；SimpleSignals不另判`Bukkit.isStopping()`、不新增另一套资源卸载门禁。
 
 实际私有入口是 `SimpleSignalsModelPackages.load(Path): Map<String, LoadedPackageModel>`、
 `SignalPackLoader.load(Path): SignalPackCatalog`、
@@ -431,7 +432,8 @@ variants:
 强制停用仍按已有安全规则处理。删除模型实体与释放列车资源是两个不同操作，不能用前者代替后者。
 停用 JavaRailways 主插件前，必须先停用 SimpleSignals 等附属插件并完成其显示清理。
 区域线程删除模型可能晚于 `onDisable` 返回；应使用主插件显示服务的清理完成结果确认，
-不能在物理或区域线程上阻塞等待。完整规则由上述主插件模型契约维护。
+不能在物理或区域线程上阻塞等待。整服stop没有跨插件future屏障时，当前瞬态显示由宿主terminal retirement与平台teardown接管；
+热卸载仍必须等待实际删除。完整规则由上述主插件模型契约维护。
 
 ## 6. 配置或显示失败时怎么办
 

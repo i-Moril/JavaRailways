@@ -1255,3 +1255,40 @@ Diagnosed the post-deployment NoSuchMethodError as an old SimpleSignals JAR link
 ### Next Steps
 
 - User reruns the WebUI global simulation; startup health alone does not exercise the complete timetable simulation path.
+
+
+## Session 39: 列车显示保帧与运营班次标志
+<!-- trellis-session: v=2 fp=6424b3d18f64d82b -->
+
+**Date**: 2026-11-12
+**Task**: 列车显示保帧与运营班次标志
+**Package**: javarailways
+**Branch**: `codex/train-display-in-service-refresh`
+
+### Summary
+
+完成 isInService 全链、显示刷新保帧、默认字体及9/6秒语言XML；服务器仅备份替换XML，JAR与旧运行数据激活等待单独许可。
+
+### Main Changes
+
+- PASSENGER/DEADHEAD编译为必填Boolean，保存恢复与实际run投影保持；无currentRun关屏gate不变。
+- 语义/样式刷新保留成功帧，新EMPTY及退休仍清理；三份XML在仓库和测试服一致。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `61963c90` | fix(displays): retain frames and honor run service status |
+
+### Testing
+
+- [OK] 前端537、Core599、Basic494、SimpleATO850、WebUI71、Decorations73通过；真实模板和受影响回归通过。
+- [OK] Bukkit936项保留1个基线ZIP/behavior.js不一致失败与1个既有skip；已用git show基线核实，不改范围外ZIP。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 先取得旧new-timetable.js及指定runtime.json的16个运营字段处理、JAR部署和正常重启/资源重载许可，再做客户端验收。

@@ -116,19 +116,16 @@ gradle-app.setting
 .*/
 # Project-local operational notes and credentials.
 .local/
-# Trellis project state and Pi integration are repository-owned.
+# Trellis project state is repository-owned.
 !.agents/
 !.agents/**
-!.pi/
-!.pi/**
 !.trellis/
 !.trellis/**
 !.github/
 !.github/workflows/
 !.github/workflows/*.yml
-!.vscode/
-.vscode/*
-!.vscode/settings.json
+/.pi/
+/.vscode/
 .worktree/
 .codeabs/
 

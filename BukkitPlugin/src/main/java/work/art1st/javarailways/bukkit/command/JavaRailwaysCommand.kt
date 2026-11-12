@@ -1220,10 +1220,10 @@ class JavaRailwaysCommand {
                     "capacityDrops=${metrics.droppedCapacityFrames}"
             )
         }
-        plugin.worldManager.carFrameDispatchMetrics().let { metrics ->
+        plugin.worldManager.trainFrameDispatchMetrics().let { metrics ->
             sender.sendMessage(
-                "visual region dispatch pendingCars=${metrics.pendingCars} " +
-                    "coalesced=${metrics.coalescedFrames} tasks=${metrics.scheduledTasks}"
+                "visual train dispatch pendingTrains=${metrics.pendingTrains} " +
+                    "coalesced=${metrics.coalescedFrames} frames=${metrics.scheduledFrames}"
             )
         }
         coreWorld.renderChunkManager.audienceMetrics().let { metrics ->

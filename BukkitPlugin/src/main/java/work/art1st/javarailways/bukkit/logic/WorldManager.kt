@@ -67,6 +67,7 @@ import work.art1st.javarailways.core.physics.train.CoreCar
 import work.art1st.javarailways.core.api.threading.ThreadGuard
 import java.util.ArrayDeque
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -75,10 +76,10 @@ import java.util.concurrent.TimeUnit
 import java.util.logging.Level
 import kotlin.system.measureNanoTime
 
-data class CarFrameDispatchMetrics(
-    val pendingCars: Int,
+data class TrainFrameDispatchMetrics(
+    val pendingTrains: Int,
     val coalescedFrames: Long,
-    val scheduledTasks: Long
+    val scheduledFrames: Long
 )
 
 class WorldManager internal constructor(
@@ -99,7 +100,7 @@ class WorldManager internal constructor(
     private val unloadingWorlds: MutableSet<BukkitWorld> = ConcurrentHashMap.newKeySet()
     @Volatile
     private var stopping: Boolean = false
-    private val carFrameDispatcher = LatestAffinityTaskDispatcher<CoreCar, PendingCarFrame>(::scheduleCarFrame)
+    private val trainFrameDispatcher = LatestAffinityTaskDispatcher<UUID, PendingTrainFrame>(::scheduleTrainFrame)
     private val platformCommitDispatcher =
         LatestAffinityTaskDispatcher<Synchronizable, PendingPlatformCommit>(::schedulePlatformCommit)
     @Volatile
@@ -148,7 +149,7 @@ class WorldManager internal constructor(
         worldTickRunners.close()
         partRenderClocks.clear()
         partRenderSamples.clear()
-        carFrameDispatcher.clear()
+        trainFrameDispatcher.clear()
         platformCommitDispatcher.clear()
     }
 
@@ -176,12 +177,12 @@ class WorldManager internal constructor(
 
     fun latestServerTickMetrics(): JavaRailwaysServerTickMetrics? = latestServerTickMetricsSnapshot
 
-    fun carFrameDispatchMetrics(): CarFrameDispatchMetrics {
-        val metrics = carFrameDispatcher.metrics()
-        return CarFrameDispatchMetrics(
-            pendingCars = metrics.activeKeys,
+    fun trainFrameDispatchMetrics(): TrainFrameDispatchMetrics {
+        val metrics = trainFrameDispatcher.metrics()
+        return TrainFrameDispatchMetrics(
+            pendingTrains = metrics.activeKeys,
             coalescedFrames = metrics.coalescedValues,
-            scheduledTasks = metrics.scheduledTasks
+            scheduledFrames = metrics.scheduledTasks
         )
     }
 
@@ -729,7 +730,7 @@ class WorldManager internal constructor(
         )
     }
 
-    /** Keeps at most one in-flight and one latest pending region task per car. */
+    /** Keeps at most one in-flight and one latest pending frame per train stream. */
     private fun dispatchPublishedTrainFrames(bukkitWorld: BukkitWorld, coreWorld: CoreWorld, tickIndex: Long) {
         val data = coreWorld.simpleAtoWorldData
         val sampleInputs = partRenderClocks.getOrPut(coreWorld, ::PartRenderSamplingClock)
@@ -759,53 +760,54 @@ class WorldManager internal constructor(
             val controlTail = if (sampleInputs)
                 BukkitPlugin.INSTANCE.trainControlManager.operatingControlEndFor(train) == DriverControlEnd.TAIL
             else null
-            for (index in indices) {
-                queueCarFrame(
-                    PendingCarFrame(
-                        bukkitWorld = bukkitWorld,
-                        publicationStreamId = train.publicationStreamId,
-                        car = train.cars[index],
-                        frame = trainFrame.cars[index],
-                        revision = trainFrame.revision,
-                        partRenderSnapshot = if (sampleInputs) samples.capture(
-                            trainFrame, index, trainType, tickIndex,
-                            operationalByCar[trainFrame.cars[index].carId] ?: OperationalPartRenderProjection.EMPTY,
-                            train.publicationStreamId, displayLines,
-                            operatingTail = train.behaviorRelativeTail(train.cars[index], checkNotNull(controlTail))
-                        ) else samples.latest(trainFrame, index, train.publicationStreamId)
-                    )
+            val cars = indices.map { index ->
+                CarRenderFrame(
+                    train.cars[index], trainFrame.cars[index],
+                    if (sampleInputs) samples.capture(
+                        trainFrame, index, trainType, tickIndex,
+                        operationalByCar[trainFrame.cars[index].carId] ?: OperationalPartRenderProjection.EMPTY,
+                        train.publicationStreamId, displayLines,
+                        operatingTail = train.behaviorRelativeTail(train.cars[index], checkNotNull(controlTail))
+                    ) else samples.latest(trainFrame, index, train.publicationStreamId)
                 )
             }
+            trainFrameDispatcher.offer(train.publicationStreamId, PendingTrainFrame(
+                bukkitWorld, train.publicationStreamId, trainFrame.revision, cars
+            ))
         }
     }
 
-    private fun queueCarFrame(pending: PendingCarFrame) {
-        carFrameDispatcher.offer(pending.car, pending)
-    }
-
-    private fun scheduleCarFrame(pending: PendingCarFrame, complete: () -> Unit) {
-        val frame = pending.frame
-        val location = Location(
-            pending.bukkitWorld,
-            frame.state.positionX,
-            frame.state.positionY,
-            frame.state.positionZ
-        )
-        BukkitPlugin.INSTANCE.platformDispatcher.runAt(location) {
-            try {
-                if (!stopping &&
-                    pending.bukkitWorld !in unloadingWorlds &&
-                    pending.car.isOwnedByPublicationStream(pending.publicationStreamId)
-                ) {
-                    pending.car.carRendererOrNull?.applyPublishedFrame(
-                        frame,
-                        pending.publicationStreamId,
-                        pending.revision,
-                        pending.partRenderSnapshot
-                    )
+    private fun scheduleTrainFrame(pending: PendingTrainFrame, complete: () -> Unit) {
+        if (stopping || pending.world in unloadingWorlds) {
+            complete()
+            return
+        }
+        val plugin = BukkitPlugin.INSTANCE
+        dispatchTrainFrameChunks(
+            pending.cars,
+            locationOf = { (_, frame) ->
+                Location(pending.world, frame.state.positionX, frame.state.positionY, frame.state.positionZ)
+            },
+            schedule = plugin.platformDispatcher::runAt,
+        ) { cars ->
+            plugin.trainPacketBundles.frame {
+                for ((car, frame, partRenderSnapshot) in cars) {
+                    if (stopping || pending.world in unloadingWorlds) break
+                    if (!car.isOwnedByPublicationStream(pending.streamId)) continue
+                    try {
+                        car.carRendererOrNull?.applyPublishedFrame(frame, pending.streamId, pending.revision, partRenderSnapshot)
+                    } catch (failure: Exception) {
+                        plugin.logger.log(Level.SEVERE, "Failed to render car ${car.id} at revision ${pending.revision}", failure)
+                    }
                 }
+            }
+        }.whenComplete { _, failure ->
+            try {
+                if (failure != null) plugin.logger.log(
+                    Level.SEVERE, "Failed to dispatch train render frame ${pending.streamId}/${pending.revision}", failure
+                )
             } finally {
-                complete.invoke()
+                complete()
             }
         }
     }
@@ -912,12 +914,16 @@ class WorldManager internal constructor(
         const val PERIODIC_SNAPSHOT_TICKS = 1_200L
     }
 
-    private data class PendingCarFrame(
-        val bukkitWorld: BukkitWorld,
-        val publicationStreamId: UUID,
+    private data class PendingTrainFrame(
+        val world: BukkitWorld,
+        val streamId: UUID,
+        val revision: Long,
+        val cars: List<CarRenderFrame>
+    )
+
+    private data class CarRenderFrame(
         val car: CoreCar,
         val frame: CarFrameSnapshot,
-        val revision: Long,
         val partRenderSnapshot: TrainPartRenderSnapshot?
     )
 
@@ -1083,3 +1089,32 @@ internal fun isPhysicsOverloadFailure(failure: Throwable): Boolean =
     generateSequence(failure) { it.cause }.any {
         it is work.art1st.javarailways.core.physics.tick.PhysicsOverloadException
     }
+
+/** A train frame spans one world. Each chunk runs on its owner, and all chunks settle before the next frame. */
+internal fun <T> dispatchTrainFrameChunks(
+    cars: List<T>,
+    locationOf: (T) -> Location,
+    schedule: (Location, () -> Unit) -> Unit,
+    render: (List<T>) -> Unit
+): CompletableFuture<Void> {
+    val chunks = cars.map { it to locationOf(it) }.groupBy { (_, location) ->
+        (location.blockX shr 4) to (location.blockZ shr 4)
+    }
+    val completions = chunks.values.map { targets ->
+        val completion = CompletableFuture<Void>()
+        try {
+            schedule(targets.first().second) {
+                try {
+                    render(targets.map { it.first })
+                    completion.complete(null)
+                } catch (failure: Throwable) {
+                    completion.completeExceptionally(failure)
+                }
+            }
+        } catch (failure: Throwable) {
+            completion.completeExceptionally(failure)
+        }
+        completion
+    }
+    return CompletableFuture.allOf(*completions.toTypedArray())
+}

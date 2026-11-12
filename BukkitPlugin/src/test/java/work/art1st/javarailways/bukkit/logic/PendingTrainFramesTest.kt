@@ -1,5 +1,6 @@
 package work.art1st.javarailways.bukkit.logic
 
+import org.bukkit.Location
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertSame
@@ -7,6 +8,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import work.art1st.javarailways.bukkit.util.LatestAffinityTaskDispatcher
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -57,6 +59,39 @@ class PendingTrainFramesTest {
                 assertTrue(calls.isEmpty(), "retired or ordinary models need no region heartbeat")
             }
         }
+    }
+
+    @Test
+    fun `train frame coalescing waits for every chunk and skips the same frame for all cars`() {
+        data class Car(val id: Int, val x: Double, val revision: Int)
+        val scheduled = mutableListOf<Pair<Int, () -> Unit>>()
+        val rendered = mutableListOf<Car>()
+        val dispatcher = LatestAffinityTaskDispatcher<String, List<Car>> { cars, complete ->
+            dispatchTrainFrameChunks(
+                cars,
+                locationOf = { Location(null, it.x, 0.0, 0.0) },
+                schedule = { location, action -> scheduled += (location.blockX shr 4) to action }
+            ) { rendered.addAll(it) }.thenRun(complete)
+        }
+        fun frame(revision: Int) = listOf(Car(1, 0.0, revision), Car(2, 10.0, revision), Car(3, -1.0, revision))
+
+        dispatcher.offer("train", frame(1))
+        dispatcher.offer("train", frame(2))
+        dispatcher.offer("train", frame(3))
+        assertEquals(listOf(0, -1), scheduled.map { it.first })
+
+        scheduled[0].second()
+        assertEquals(frame(1).take(2), rendered)
+        assertEquals(2, scheduled.size, "a faster chunk must wait for the rest of the frame")
+
+        scheduled[1].second()
+        assertEquals(frame(1), rendered)
+        assertEquals(listOf(0, -1, 0, -1), scheduled.map { it.first })
+        scheduled[2].second()
+        scheduled[3].second()
+        assertEquals(frame(1) + frame(3), rendered)
+        assertEquals(1L, dispatcher.metrics().coalescedValues)
+        assertEquals(0, dispatcher.metrics().activeKeys)
     }
 
     @ParameterizedTest

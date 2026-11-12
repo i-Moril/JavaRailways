@@ -2,7 +2,7 @@
 
 `standard-railonly/` 是从本地 Folia 测试服复制的无路基普通钢轨包；`standard/` 和 `standard-ballastless/` 为配套合并路基配置。
 
-这里保存可部署到 JavaRailways 轨道包目录的模型配置。配套客户端资源由独立的 JavaRailwaysReources 仓库维护。
+这里保存可部署到 JavaRailways 轨道包目录的模型配置。配套客户端资源由独立的 JavaRailwaysResources 仓库维护。
 
 - `standard/rail_model.yml`：合并沙砾路基，Custom Model Data `730001`。
 - `standard-ballastless/rail_model.yml`：合并石质路基，Custom Model Data `730002`。

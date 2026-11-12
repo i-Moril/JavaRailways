@@ -92,7 +92,7 @@ record EditorTextAppearance(ModelPose transform, double scaleX, double scaleY, M
 
 当前字形为8字体像素高、ascent 7、advance 9；26.1.2实际TextDisplay客户端矩阵使其中心落在局部(+0.5,+5)像素，需沿横向补偿`-width/16`、沿切线补偿`-5*length/8`。尺寸换算采用每字体像素0.025米，不能仅凭位图中心猜偏移。矩阵组合回归同时验证世界中心和宽/长边；客户端字体布局变化时须先核对目标renderer，不能调整业务边界或选轨容差来抵消显示偏差。
 
-字体`javarailways:editor_markers`的U+E100/E101/E102分别为方向箭头、双横边界和实心覆盖矩形，Component负责染色。实心矩形可拉伸为首尾相接的细线段；旧双侧虚线已移除，方向与边界字形不变。客户端资源源码及其Node纹理生成脚本由独立的JavaRailwaysReources仓库维护，不覆写minecraft:default字体或现有物品/模型。26.1.2/84.0客户端资源包由资源仓库维护；本次需客户端替换旧编辑资源包，不能只更新服务端。元数据是Minecraft资源格式而非世界schema，不修改服务器持久化。缺少客户端包不会自动退回粒子，也不能宣称该客户端能正确显示私有字形；安装/合并说明由示例README负责。
+字体`javarailways:editor_markers`的U+E100/E101/E102分别为方向箭头、双横边界和实心覆盖矩形，Component负责染色。实心矩形可拉伸为首尾相接的细线段；旧双侧虚线已移除，方向与边界字形不变。客户端资源源码及其Node纹理生成脚本由独立的JavaRailwaysResources仓库维护，不覆写minecraft:default字体或现有物品/模型。26.1.2/84.0客户端资源包由资源仓库维护；本次需客户端替换旧编辑资源包，不能只更新服务端。元数据是Minecraft资源格式而非世界schema，不修改服务器持久化。缺少客户端包不会自动退回粒子，也不能宣称该客户端能正确显示私有字形；安装/合并说明由示例README负责。
 
 RailObjectWand在worker准备运行方向和到达方向图案，按轨道实例、不可变曲线、方向及目的地参数缓存；玩家移动只筛选缓存，不导致重复采样。每玩家一个显示会话，切模式/离手/换世界或关闭时令旧会话失效，迟到计算不能向新会话提交；原WayPoint标记不迁移。准备及筛选随候选轨道/标记数量增长，不增加物理tick工作或轨道业务缓存。
 

@@ -11,13 +11,13 @@ private class ModelEffectRejectedException(message: String) : RuntimeException(m
 internal class CarBehavior(
     private val script: () -> TrainBehaviorScript?,
     private val actions: () -> Map<String, TrainActionConfig>,
-    private val animate: (String, String?) -> java.util.concurrent.CompletableFuture<Unit>,
+    private val animate: (String, String?, Boolean) -> java.util.concurrent.CompletableFuture<Unit>,
     private val sound: (String, Double, Double) -> Unit,
     private val schedule: (Double, () -> Unit) -> AutoCloseable,
     private val log: (String) -> Unit,
     private val scriptFailed: (TrainBehaviorScriptException) -> Unit,
     private val hasAnimation: (String, String?) -> Boolean,
-    private val closeDuration: (List<String>, List<String>, Map<String, TrainActionConfig>) -> Long,
+    private val planDoorClose: (List<List<TrainActionConfig>>) -> CarAnimationPlayback.DoorClosePlan,
     private val planningEnvironment: () -> Any
 ) : AutoCloseable {
     private var runtime: TrainBehaviorRuntime? = null
@@ -48,17 +48,39 @@ internal class CarBehavior(
     }
 
     fun door(side: DoorSide, opening: Boolean, tail: Boolean, done: (Result<Unit>) -> Unit): TrainModelOperationResult =
-        execute(tail, done, requireEffects = true) {
+        execute(tail, done, requireEffects = opening) {
             require(side != DoorSide.NONE) { "door side is NONE" }
-            val success = doorPlan(side, opening, tail).map(::action).all { it }
+            val names = if (opening) doorPlan(side, true, tail) else {
+                val plan = currentDoorClosePlan(side, tail)
+                plan.inProgress.forEach { completion -> effect(0.0) { completion } }
+                plan.actions.map { it.name }
+            }
+            val success = names.map { action(it, continueClosing = !opening) }.all { it }
             TrainBehaviorCallResult.Success("door", success)
         }
 
-    /** Isolated declarative planning cannot observe or perturb the persistent behavior Context. */
     fun estimateDoorCloseDurationTicks(side: DoorSide, tail: Boolean): Long {
         check(!closed) { "car behavior is closed" }
         if (side == DoorSide.NONE) return 0L
-        return closeDuration(doorPlan(side, true, tail), doorPlan(side, false, tail), actions())
+        return currentDoorClosePlan(side, tail).durationTicks
+    }
+
+    private fun currentDoorClosePlan(side: DoorSide, tail: Boolean): CarAnimationPlayback.DoorClosePlan {
+        val actions = actions()
+        val sides = doorSides(side).filter { candidate ->
+            side != DoorSide.BOTH || script() != null ||
+                defaultDoorAction(candidate, true, tail) in actions || defaultDoorAction(candidate, false, tail) in actions
+        }
+        if (sides.isEmpty()) throw TrainBehaviorScriptException("car has no door actions")
+        return planDoorClose(sides.map { doorPlan(it, false, tail).map(actions::getValue) })
+    }
+
+    private fun doorSides(side: DoorSide): List<DoorSide> =
+        if (side == DoorSide.BOTH) listOf(DoorSide.LEFT, DoorSide.RIGHT) else listOf(side)
+
+    private fun defaultDoorAction(side: DoorSide, opening: Boolean, tail: Boolean): String {
+        val physical = if ((side == DoorSide.LEFT) != tail) "left" else "right"
+        return "door-$physical-${if (opening) "open" else "close"}"
     }
 
     private fun doorPlan(side: DoorSide, opening: Boolean, tail: Boolean): List<String> {
@@ -72,11 +94,7 @@ internal class CarBehavior(
         val key = Triple(side, opening, tail)
         doorPlans[key]?.let { return it }
         val names = if (source == null) {
-            val sides = if (side == DoorSide.BOTH) listOf("left", "right") else listOf(side.name.lowercase())
-            sides.map { semantic ->
-                val physical = if (!tail) semantic else if (semantic == "left") "right" else "left"
-                "door-$physical-${if (opening) "open" else "close"}"
-            }
+            doorSides(side).map { defaultDoorAction(it, opening, tail) }
         } else {
             val bindings = object : TrainBehaviorBindings {
                 private fun prohibited(): Nothing = throw TrainBehaviorScriptException("door planning cannot produce host effects")
@@ -155,7 +173,7 @@ internal class CarBehavior(
         } else TrainModelOperationResult.Accepted
     }
 
-    private fun action(name: String): Boolean {
+    private fun action(name: String, continueClosing: Boolean = false): Boolean {
         if (initializing) throw TrainBehaviorScriptException("model effects are not allowed during behavior initialization")
         if (collecting == null) throw TrainBehaviorScriptException("model effects are not allowed while reading action metadata")
         val config = actions()[name] ?: run {
@@ -165,7 +183,7 @@ internal class CarBehavior(
         var applied = false
         config.animations.forEach { animation ->
             applied = effect(animation.at) {
-                animate(animation.name, animation.scene)
+                animate(animation.name, animation.scene, continueClosing)
             } || applied
         }
         config.sounds.forEach { value ->

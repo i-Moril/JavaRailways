@@ -1619,7 +1619,7 @@ class TimetableDispatcher(
                             beginStationOperation(
                                 run,
                                 stationCall,
-                                TrainOperation.CloseDoors(stationCall.resolved.doorSide),
+                                TrainOperation.CloseDoors(DoorSide.BOTH),
                                 TimetableServiceRunState.DOORS_CLOSING
                             )
                         }
@@ -1641,7 +1641,7 @@ class TimetableDispatcher(
                                 world,
                                 run,
                                 destinationStop,
-                                TrainOperation.CloseDoors(side),
+                                TrainOperation.CloseDoors(DoorSide.BOTH),
                                 TimetableServiceRunState.DOORS_CLOSING
                             )
                         }
@@ -4195,7 +4195,7 @@ class TimetableDispatcher(
         execution.runtime = StationStopProgramRuntime(programs, arrivedAtDispatcherTick, programs.minimumDwellTicks ?: minimumDwellTicks,
             effectiveSide == DoorSide.NONE, operationTimeoutTicks, StationProgramActionHost { action, taskId, instruction ->
                 startStationProgramAction(world, run, execution, action, taskId, instruction)
-            }, { operationGateway.estimateDoorCloseDurationTicks(run.train.id, effectiveSide) })
+            }, { operationGateway.estimateDoorCloseDurationTicks(run.train.id, DoorSide.BOTH) })
         run.confirmedDoorStop = run.confirmedDoorStop?.copy(side = effectiveSide)
         if (run.displayPosition.updateDoorSide(effectiveSide,run.train.publishedFrame)) displayRuntime.progressChanged()
         run.ato.setSpeedLimit(stationProgramHoldKey(run), 0.0)
@@ -4265,7 +4265,7 @@ class TimetableDispatcher(
     ): StationProgramTicket? = when (action) {
         StationProgramAction.OpenDoors, StationProgramAction.CloseDoors -> {
             val operation = if (action == StationProgramAction.OpenDoors) TrainOperation.OpenDoors(execution.operatingDoorSide)
-                else TrainOperation.CloseDoors(execution.operatingDoorSide)
+                else TrainOperation.CloseDoors(DoorSide.BOTH)
             val request = TrainOperationRequest(
                 "${execution.invocationId}/$taskId/$instruction",
                 run.instanceId, execution.invocationId, run.train.id, run.missionRevision, operation)

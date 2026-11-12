@@ -96,9 +96,10 @@ internal class StationStopProgramRuntime(
         lastTick = dispatcherTick
         var executingTask: Task? = null
         try {
-            resolvePreparationLead(dispatcherTick)
             fun startPreparationIfEligible(): Task? {
-                if (!preparationStarted && definition.role != StationStopRole.TERMINAL && arrivalMainComplete &&
+                if (!arrivalMainComplete) return null
+                resolvePreparationLead(dispatcherTick)
+                if (!preparationStarted && definition.role != StationStopRole.TERMINAL &&
                     preparationLeadTicks != null && elapsedTimetableTick >= preparationDueTick() &&
                     dispatcherTick >= dwellDeadline - checkNotNull(preparationLeadTicks)) {
                     preparationStarted = true

@@ -46,14 +46,14 @@ class CapturedCarBehaviorTest {
             val capabilities = SavedCarModelTree.build(model, loaded.partRegistry).captureAnimationCapabilities()
             val effects = mutableListOf<Pair<String, String?>>()
             val results = mutableListOf<Result<Unit>>()
-            CarBehavior({ loaded.behavior }, { loaded.actions }, { name, scene ->
+            CarBehavior({ loaded.behavior }, { loaded.actions }, { name, scene, _ ->
                 if (capabilities.supportsAnimation(name, scene)) {
                     effects.add(name to scene)
                     java.util.concurrent.CompletableFuture.completedFuture(Unit)
                 } else java.util.concurrent.CompletableFuture.failedFuture(IllegalStateException("animation unavailable"))
             }, { _, _, _ -> fail<Unit>("light actions must not play sound") },
                 { _, _ -> error("light actions must not schedule delayed effects") }, {},
-                { throw it }, capabilities::supportsAnimation, { _, _, _ -> 0L }, { capabilities }).use { behavior ->
+                { throw it }, capabilities::supportsAnimation, { sides -> CarAnimationPlayback.DoorClosePlan(sides.flatten(), emptySet(), 0L) }, { capabilities }).use { behavior ->
                 val lightNames = capabilities.keys.filter { it.endsWith("_end_light") }.toSet()
                 val metadata = behavior.metadata(false)
                 assertTrue(effects.isEmpty(), "metadata must not start effects: $modelName")

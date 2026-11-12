@@ -38,9 +38,9 @@ class CarAnimationPlaybackTest {
             val results = mutableListOf<Result<Unit>>()
             CarBehavior({ source.behavior }, { source.actions }, clock.playback::play, { _, _, _ -> },
                 { at, run -> delayed.add(at to run); AutoCloseable {} }, {}, { throw it }, capabilities::supportsAnimation,
-                clock.playback::closeDurationTicks, { parts }).use { behavior ->
+                clock.playback::planDoorClose, { parts }).use { behavior ->
                 for (tail in listOf(false, true)) for (side in listOf(DoorSide.LEFT, DoorSide.RIGHT, DoorSide.BOTH)) {
-                    assertEquals(38L, behavior.estimateDoorCloseDurationTicks(side, tail), "$name $tail $side")
+                    assertEquals(0L, behavior.estimateDoorCloseDurationTicks(side, tail), "$name $tail $side")
                 }
                 assertTrue(clock.active.isEmpty(), "duration query must not start effects")
                 behavior.door(DoorSide.LEFT, true, false, results::add)
@@ -51,7 +51,9 @@ class CarAnimationPlaybackTest {
                 clock.tick(1.0); clock.commit()
                 assertTrue(results.single().isSuccess)
                 results.clear()
-                behavior.door(DoorSide.LEFT, false, false, results::add)
+                assertEquals(38L, behavior.estimateDoorCloseDurationTicks(DoorSide.RIGHT, true), name)
+                assertEquals(0L, behavior.estimateDoorCloseDurationTicks(DoorSide.LEFT, true), name)
+                behavior.door(DoorSide.BOTH, false, true, results::add)
                 assertTrue(results.isEmpty())
                 clock.tick(600.0); clock.commit()
                 delayed.sortedBy { it.first }.forEach { it.second() }; delayed.clear()
@@ -88,8 +90,8 @@ class CarAnimationPlaybackTest {
                 val clock = Clock(parts)
                 CarBehavior({ source.behavior }, { source.actions }, clock.playback::play, { _, _, _ -> },
                     { _, _ -> error("query must not schedule effects") }, {}, { throw it }, capabilities::supportsAnimation,
-                    clock.playback::closeDurationTicks, { parts }).use { behavior ->
-                    assertEquals(38L, behavior.estimateDoorCloseDurationTicks(DoorSide.BOTH, false))
+                    clock.playback::planDoorClose, { parts }).use { behavior ->
+                    assertEquals(0L, behavior.estimateDoorCloseDurationTicks(DoorSide.BOTH, false))
                     assertTrue(clock.active.isEmpty())
                 }
                 clock.playback.close()
@@ -136,10 +138,21 @@ class CarAnimationPlaybackTest {
         val animation = Animation(listOf(Animation.AnimationCommand(CompactTransform(), 0.0, "closed"),
             Animation.AnimationCommand(CompactTransform(position = Vector3d(1.0, 0.0, 0.0)), 1.0, "open")))
         val clock = Clock(listOf(mapOf("door" to animation)), mapOf("door" to "open"))
+        val actions = listOf(listOf(TrainActionConfig("close", animations = listOf(TrainActionAnimationConfig("door", "closed")))))
+        val openPlan = clock.playback.planDoorClose(actions)
+        assertEquals(listOf("close"), openPlan.actions.map { it.name })
+        assertEquals(20L, openPlan.durationTicks)
         val close = clock.playback.play("door", "closed")
         assertFalse(close.isDone)
-        clock.tick(999.0); clock.commit(); assertFalse(close.isDone)
+        clock.tick(500.0); clock.commit()
+        val closingPlan = clock.playback.planDoorClose(actions)
+        assertTrue(closingPlan.actions.isEmpty())
+        assertEquals(10L, closingPlan.durationTicks)
+        assertFalse(closingPlan.inProgress.single().isDone)
+        clock.tick(499.0); clock.commit(); assertFalse(close.isDone)
         clock.tick(1.0); clock.commit(); assertTrue(close.isDone)
+        assertTrue(closingPlan.inProgress.single().isDone)
+        assertEquals(0L, clock.playback.planDoorClose(actions).durationTicks)
         clock.playback.close()
     }
 

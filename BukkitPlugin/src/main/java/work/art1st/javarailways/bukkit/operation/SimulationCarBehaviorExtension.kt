@@ -53,11 +53,11 @@ internal class SimulationCarBehaviorExtension(
     private val behavior = CarBehavior(
         script = { definition.script },
         actions = { definition.actions },
-        animate = { name, scene ->
+        animate = { name, scene, continueClosing ->
             if (!definition.animations.supportsAnimation(name, scene)) CompletableFuture.failedFuture(IllegalStateException("animation unavailable: $name"))
             else {
                 effectObserver?.invoke(self, SimulationBehaviorEffect.AnimationStarted(name, Animation.normalizeSceneName(scene)))
-                playback.play(name, scene)
+                playback.play(name, scene, continueClosing)
             }
         },
         sound = { key, volume, pitch ->
@@ -68,7 +68,7 @@ internal class SimulationCarBehaviorExtension(
         log = { message -> LOGGER.log(System.Logger.Level.INFO, "[simulation ${(self.world as CoreWorld).runtimeId} car ${self.id}] $message") },
         scriptFailed = ::stopTrainForScriptFailure,
         hasAnimation = { name, scene -> definition.animations.supportsAnimation(name, scene) },
-        closeDuration = playback::closeDurationTicks,
+        planDoorClose = playback::planDoorClose,
         planningEnvironment = { definition }
     )
 

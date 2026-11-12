@@ -79,13 +79,13 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
     private val behavior by lazy {
         CarBehavior(::resolveBehavior, ::resolveActions,
-            { name, scene -> ensureBehaviorOwned(); playBehaviorAnimation(name, scene) },
+            { name, scene, continueClosing -> ensureBehaviorOwned(); playback.play(name, scene, continueClosing) },
             { key, volume, pitch ->
                 val location = behaviorLocation()
                 BukkitThreadOwnership.ensureLocation(location, "CarExtension.sound")
                 location.world!!.playSound(location, key, volume.toFloat(), pitch.toFloat())
             }, { delay, action -> behaviorClock.schedule(delay, action) },
-            { BukkitPlugin.INSTANCE.logger.info("[CarBehavior:${self.id}] $it") }, ::stopTrainForScriptFailure, ::hasAnimation, playback::closeDurationTicks, { resolveModelSnapshot() to resolveActions() })
+            { BukkitPlugin.INSTANCE.logger.info("[CarBehavior:${self.id}] $it") }, ::stopTrainForScriptFailure, ::hasAnimation, playback::planDoorClose, { resolveModelSnapshot() to resolveActions() })
     }
     private var behaviorModelNodes: List<work.art1st.javarailways.bukkit.render.model.AbstractModel> = emptyList()
     private var bodyModel: CompositeModel? = null
@@ -287,7 +287,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     @Synchronized
     internal fun executeAnimationTracked(name: String, scene: String?): CompletableFuture<Unit> {
         ensureBehaviorOwned()
-        return playBehaviorAnimation(name, scene)
+        return playback.play(name, scene)
     }
 
     @Synchronized
@@ -444,12 +444,6 @@ class CarExtension : TrainComponentExtension<Car>() {
         if (bodyModel != null || bogieModels.isNotEmpty())
             behaviorModelNodes.getOrNull(index)?.projectAnimationFrame(frame.name, frame.scene, frame.transform, frame.display)
         if (frame.name != null && frame.scene != null) pendingHeldScenes = pendingHeldScenes + (frame.name to frame.scene)
-    }
-
-    private fun playBehaviorAnimation(name: String, scene: String?): CompletableFuture<Unit> {
-        val future = playback.play(name, scene)
-        if (!future.isCompletedExceptionally && scene != null) pendingHeldScenes = pendingHeldScenes + (name to scene)
-        return future
     }
 
     private fun hasAnimation(name: String, scene: String?): Boolean {
@@ -630,12 +624,12 @@ class CarExtension : TrainComponentExtension<Car>() {
 
     override fun applyAnimation(name: String): Boolean {
         ensureBehaviorOwned()
-        return !playBehaviorAnimation(name, null).isCompletedExceptionally
+        return !playback.play(name, null).isCompletedExceptionally
     }
 
     override fun applyAnimation(name: String, sceneName: String): Boolean {
         ensureBehaviorOwned()
-        return !playBehaviorAnimation(name, sceneName).isCompletedExceptionally
+        return !playback.play(name, sceneName).isCompletedExceptionally
     }
 
     private fun snapshotHeldScenesForReload() {

@@ -15,6 +15,11 @@ internal class CarAnimationPlayback(
 ) : AutoCloseable {
     data class Frame(val name: String?, val scene: String?, val transform: CompactTransform?,
         val display: work.art1st.javarailways.bukkit.render.AnimationDisplayState?)
+    data class DoorClosePlan(
+        val actions: List<TrainActionConfig>,
+        val inProgress: Set<CompletableFuture<Unit>>,
+        val durationTicks: Long
+    )
     private class Slot {
         var name: String? = null
         var scene: String? = null
@@ -25,7 +30,7 @@ internal class CarAnimationPlayback(
     private val slots = mutableMapOf<Int, Slot>()
     private var closed = false
 
-    fun play(name: String, scene: String?): CompletableFuture<Unit> {
+    fun play(name: String, scene: String?, continueClosing: Boolean = false): CompletableFuture<Unit> {
         check(!closed) { "car animation owner is closed" }
         val calls = mutableListOf<CompletableFuture<Unit>>()
         parts().forEachIndexed { index, animations ->
@@ -33,12 +38,24 @@ internal class CarAnimationPlayback(
             if (scene != null && !prototype.hasScene(scene)) return@forEachIndexed
             val slot = slots.getOrPut(index) { Slot().also { state ->
                 // Same ordered overwrite rule as CompositeModel.setAnimationScenes: last matching key wins.
-                initialScenes().entries.lastOrNull { (key, value) -> animations[key]?.hasScene(value) == true }?.let { (key, value) ->
+                initialScene(animations)?.let { (key, value) ->
                     val frame = requireNotNull(animations[key]?.stateAtScene(value))
                     state.name = key; state.scene = value; state.transform = frame.first; state.display = frame.second
                 }
             } }
             val same = slot.name == name
+            if (continueClosing && same && scene != null) {
+                val target = Animation.normalizeSceneName(scene)
+                val active = slot.active
+                if (active != null && active.targetScene == target) {
+                    calls.add(active.completion)
+                    return@forEachIndexed
+                }
+                if (active == null && Animation.normalizeSceneName(slot.scene) == target) {
+                    calls.add(CompletableFuture.completedFuture(Unit))
+                    return@forEachIndexed
+                }
+            }
             val sourceScene = if (same && slot.active == null) slot.scene else null
             val sourceTransform = if (same) slot.active?.currentTransform ?: slot.transform else null
             slot.active?.destroy()?.toCompletableFuture()?.getNow(null)
@@ -82,35 +99,63 @@ internal class CarAnimationPlayback(
         }
     }
 
-    /** Closing follows a completed opening plan, even if queried before arrival opens the doors. */
-    fun closeDurationTicks(open: List<String>, close: List<String>, actions: Map<String, TrainActionConfig>): Long {
+    private fun initialScene(animations: Map<String, Animation>) =
+        initialScenes().entries.lastOrNull { (key, value) -> animations[key]?.hasScene(value) == true }
+
+    /** Inspect actual slots first, including animations running while the car is hidden. */
+    fun planDoorClose(sides: List<List<TrainActionConfig>>): DoorClosePlan {
         check(!closed) { "car animation owner is closed" }
         val parts = parts()
-        val scenes = mutableMapOf<Int, Pair<String, String?>>()
-        fun measure(plan: List<String>): Double {
-            var end = 0.0
-            val effects = plan.flatMap { requireNotNull(actions[it]).animations }.sortedBy { it.at }
-            effects.forEach { effect ->
-                var matched = false
+        val actions = linkedSetOf<TrainActionConfig>()
+        val inProgress = linkedSetOf<CompletableFuture<Unit>>()
+        var end = 0.0
+        for (side in sides) {
+            var hasDoorScene = false
+            var needsClose = false
+            var playbackEnd = 0.0
+            val closing = linkedSetOf<Animation.ActiveAnimation>()
+            for (effect in side.flatMap { it.animations }) {
+                val target = Animation.normalizeSceneName(effect.scene)
                 parts.forEachIndexed { index, animations ->
                     val prototype = animations[effect.name] ?: return@forEachIndexed
-                    if (effect.scene != null && !prototype.hasScene(effect.scene)) return@forEachIndexed
-                    matched = true
-                    val source = scenes[index]?.takeIf { it.first == effect.name }?.second
-                    val duration = prototype.durationSeconds(effect.scene, source)
-                    // Launch and playback each cross an owner-commit boundary on 20 Hz ticks.
-                    end = maxOf(end, ceil(effect.at * 20.0) + ceil(duration * 20.0))
-                    scenes[index] = effect.name to if (prototype.keepFinalState) Animation.normalizeSceneName(effect.scene) else null
+                    if (target != null && !prototype.hasScene(target)) return@forEachIndexed
+                    val slot = slots[index]
+                    val seed = if (slot == null) initialScene(animations) else null
+                    val active = slot?.active
+                    val source = (slot?.scene ?: seed?.value)?.takeIf {
+                        active == null && (slot?.name ?: seed?.key) == effect.name
+                    }
+                    if (target != null) {
+                        hasDoorScene = true
+                        if (active != null && slot.name == effect.name && active.targetScene == target) {
+                            closing.add(active)
+                            playbackEnd = maxOf(playbackEnd, ceil(effect.at * 20.0), ceil(active.remainingSeconds() * 20.0))
+                            return@forEachIndexed
+                        }
+                        val atDefault = slot?.transform == null && seed == null && prototype.isDefaultScene(target)
+                        if (active != null || (Animation.normalizeSceneName(source) != target && !atDefault)) {
+                            needsClose = true
+                        }
+                    }
+                    val hasCurrentTransform = slot?.name == effect.name &&
+                        (active != null || slot.transform != null) && source == null
+                    val duration = prototype.durationSeconds(target, source, hasCurrentTransform)
+                    playbackEnd = maxOf(playbackEnd, ceil(effect.at * 20.0) + ceil(duration * 20.0))
                 }
-                require(matched) { "animation unavailable: ${effect.name}" }
             }
-            plan.flatMap { requireNotNull(actions[it]).sounds }.forEach { end = maxOf(end, ceil(it.at * 20.0)) }
-            return end
+            if (needsClose || !hasDoorScene) {
+                actions.addAll(side)
+                end = maxOf(end, playbackEnd)
+                side.flatMap { it.sounds }.forEach { end = maxOf(end, ceil(it.at * 20.0)) }
+            } else {
+                closing.forEach { active ->
+                    inProgress.add(active.completion)
+                    end = maxOf(end, ceil(active.remainingSeconds() * 20.0))
+                }
+            }
         }
-        measure(open)
-        val ticks = measure(close)
-        require(ticks.isFinite() && ticks >= 0.0 && ticks <= 9_007_199_254_740_991.0) { "door duration is invalid" }
-        return ticks.toLong()
+        require(end.isFinite() && end >= 0.0 && end <= 9_007_199_254_740_991.0) { "door duration is invalid" }
+        return DoorClosePlan(actions.toList(), inProgress, end.toLong())
     }
 
     /** A changed model tree is a distinct resource boundary, unlike visibility-only reconstruction. */

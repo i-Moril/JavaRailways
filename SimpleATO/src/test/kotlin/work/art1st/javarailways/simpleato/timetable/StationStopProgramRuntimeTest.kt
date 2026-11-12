@@ -381,16 +381,19 @@ class StationStopProgramRuntimeTest {
     @Test fun `dynamic lead starts at computed deadline but arrival main still gates preparation`() {
         val opened = Ticket()
         var closes = 0
+        var queries = 0
         val runtime = StationStopProgramRuntime(dynamicDefinition(StationStopRole.STOP, listOf(StationProgramAction.OpenDoors, end)),
             0, 0, false, 1000, StationProgramActionHost { action, _, _ ->
                 if (action == StationProgramAction.OpenDoors) opened else { closes++; null }
-            }, { java.util.concurrent.CompletableFuture.completedFuture(80L) })
+            }, { queries++; java.util.concurrent.CompletableFuture.completedFuture(80L) })
         runtime.tick(0, 0)
         runtime.tick(20, 20)
         assertEquals(0, closes)
+        assertEquals(0, queries)
         opened.result = StationProgramTicketResult.Succeeded
         runtime.tick(30, 30)
         assertEquals(1, closes)
+        assertEquals(1, queries)
         assertFalse(runtime.finalGateSatisfied(99, 99))
         assertTrue(runtime.finalGateSatisfied(100, 100))
     }

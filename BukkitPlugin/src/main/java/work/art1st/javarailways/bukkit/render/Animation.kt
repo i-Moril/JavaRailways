@@ -122,10 +122,16 @@ class Animation(
     }
 
     /** Real converted timeline duration; scene transitions share activateToScene's source rules. */
-    internal fun durationSeconds(scene: String? = null, currentScene: String? = null): Double =
-        if (scene == null) lastTime - firstTime else kotlin.math.abs(
-            requireNotNull(sceneTimes[normalizeSceneName(scene)]) { "Animation scene not found: $scene" } -
-                (sceneTimes[normalizeSceneName(currentScene)] ?: firstTime))
+    internal fun durationSeconds(scene: String? = null, currentScene: String? = null, fromTransform: Boolean = false): Double {
+        if (scene == null) return lastTime - firstTime
+        val targetTime = requireNotNull(sceneTimes[normalizeSceneName(scene)]) { "Animation scene not found: $scene" }
+        val sourceTime = sceneTimes[normalizeSceneName(currentScene)]
+        val span = abs(targetTime - (sourceTime ?: firstTime))
+        return if (sourceTime == null && fromTransform) max(MIN_SCENE_DURATION_SECONDS, span) else span
+    }
+
+    internal fun isDefaultScene(scene: String): Boolean =
+        stateAtScene(scene) == (INITIAL_TRANSFORM to null)
 
     private val firstTime: Double get() = timeline.first().timeSeconds
     private val lastTime: Double get() = timeline.last().timeSeconds
@@ -255,6 +261,9 @@ class Animation(
 
         internal val durationSeconds: Double
             get() = frames.lastOrNull()?.timeSeconds ?: 0.0
+
+        @Synchronized
+        internal fun remainingSeconds(): Double = (durationSeconds - elapsedSeconds).coerceAtLeast(0.0)
 
         private fun updateTransform() {
             if (frames.isEmpty()) return

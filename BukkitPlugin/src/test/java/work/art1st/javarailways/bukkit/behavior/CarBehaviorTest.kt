@@ -196,13 +196,13 @@ class CarBehaviorTest {
         val animations = mutableListOf<String>()
         val completions = mutableListOf<Result<Unit>>()
         val delayed = mutableListOf<Delayed>()
-        val behavior = CarBehavior({ currentScript }, { actions }, { name, scene ->
+        val behavior = CarBehavior({ currentScript }, { actions }, { name, scene, _ ->
             animations.add("$name:$scene")
             if (name != "missing") java.util.concurrent.CompletableFuture.completedFuture(Unit)
             else java.util.concurrent.CompletableFuture.failedFuture(IllegalStateException("animation unavailable"))
         }, { key, _, _ -> sounds.add(key) }, { _, effect ->
             Delayed(effect).also { delayed.add(it) }
-        }, {}, {}, { name, _ -> name != "missing" }, { _, _, _ -> 0L }, { actions })
+        }, {}, {}, { name, _ -> name != "missing" }, { sides -> CarAnimationPlayback.DoorClosePlan(sides.flatten(), emptySet(), 0L) }, { actions })
         fun call(method: String) = behavior.call(method, emptyList(), false, completions::add)
         override fun close() = behavior.close()
     }

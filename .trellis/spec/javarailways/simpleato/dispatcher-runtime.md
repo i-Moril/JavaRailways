@@ -298,7 +298,7 @@ A branch selected against a published child can reverse a still-held body before
 
 `StationStopPrograms` 包含 stationId、callId、role、arrival、departurePreparation、preparationLead、plannedDepartureTick、destinationId、doorSide、minimumDwellTicks。时间为 timetable tick，1 day=24000 tick。正常停车确认后启动 arrival；ORIGIN 不执行 arrival，PASS 不建立停站程序。只有STOP使用minimum：从真实到站起算到关门完成的总预算，开门时间已包含，晚到仍适用。STATION使用已记录的BERTHED tick，不用下一tick创建程序的时间；DESTINATION使用实际检测停车tick。截止创建后固定，开门完成不重置。Dispatcher与timetable时间分别比较，不混合epoch。
 
-默认准备时序等价于`max(plannedDeparture, actualArrival + minimum) - preparationLead`，且必须等arrival **主序列**完成，不等待arrival非阻塞子任务；最终发车仍等待全部后代。ORIGIN不加minimum；TERMINAL永不启动准备入口，缺省保持开门，亦无minimum。自定义程序可以提前关门，但不能提前发车；不新增门当前状态查询、prepared close或动作提交前复核。既有关门时长查询仅用于准备估计，真实操作ticket继续决定是否完成。查询超时从查询发出时计，不从早一tick的到站计。
+默认准备时序等价于`max(plannedDeparture, actualArrival + minimum) - preparationLead`，且必须等arrival **主序列**完成，不等待arrival非阻塞子任务；最终发车仍等待全部后代。ORIGIN不加minimum；TERMINAL永不启动准备入口，缺省保持开门，亦无minimum。自定义程序可以提前关门，但不能提前发车；到达主序列完成后通过既有关门时长查询估计准备时间。时刻表关门请求覆盖两侧，车辆执行时逐车读取当前播放状态并选侧，真实操作 ticket 决定是否完成。查询超时从查询发出时计，不从早一tick的到站计。
 
 `preparationLead` 是有界数字表达式：`{value:N}`、既有数字 operation，或 `{doorCloseTicks:true}`。缺省使用实际列车关门耗时，允许 ADD 等组合额外准备时间；不是按参考车辆或统一20tick冻结。`StationPreparationLead` 只解析数值时序，不开放动态动作、条件或一般JS。动态叶子通过现有 TrainOperationGateway 只读查询当前列车及实际门侧，同车并行动画、整列各车均取最长完成时间，绝不在查询时关门。每站查询一次，pending有界超时，失败/非法值保持停车，停止取消查询；普通固定表达式、无门停站、终到不查询。准备仍等待 arrival主分支，最终发车仍等真实操作ticket及所有既有门禁。编辑/编译/运行快照均写当前表达式字段；旧数值仅在离线工具中保留为字面量，不能把所有手填20猜成自动值。
 

@@ -384,7 +384,7 @@ class SimulationTrainOperationGatewayTest {
             SavedCarModelTree.build(model, loaded.partRegistry).captureAnimationParts()) }
         fixture(definitions).use { f ->
             f.advance(0)
-            assertEquals(38L, f.world.onOwnerForTest {
+            assertEquals(0L, f.world.onOwnerForTest {
                 f.gateway.estimateDoorCloseDurationTicks(f.train.id, DoorSide.BOTH).join()
             })
             assertTrue(f.effectSnapshots().all { it.isEmpty() })
@@ -392,6 +392,9 @@ class SimulationTrainOperationGatewayTest {
             assertEquals(TrainOperationTicketState.PENDING, open.snapshot().state)
             f.advance(1299); assertEquals(TrainOperationTicketState.PENDING, open.snapshot().state)
             f.advance(1); assertSucceeded(open)
+            assertEquals(38L, f.world.onOwnerForTest {
+                f.gateway.estimateDoorCloseDurationTicks(f.train.id, DoorSide.BOTH).join()
+            })
             val close = f.execute(TrainOperation.CloseDoors(DoorSide.BOTH))
             f.advance(600)
             assertEquals(TrainOperationTicketState.PENDING, close.snapshot().state)
@@ -417,10 +420,10 @@ class SimulationTrainOperationGatewayTest {
             listOf(mapOf("motion" to animation)))
         fixture(listOf(definition)).use { f ->
             f.advance(0)
-            assertEquals(4L, f.world.onOwnerForTest { f.gateway.estimateDoorCloseDurationTicks(f.train.id, DoorSide.LEFT).join() })
             val open = f.execute(TrainOperation.OpenDoors(DoorSide.LEFT))
             f.advance(50); assertEquals(TrainOperationTicketState.PENDING, open.snapshot().state)
             f.advance(50); assertSucceeded(open)
+            assertEquals(4L, f.world.onOwnerForTest { f.gateway.estimateDoorCloseDurationTicks(f.train.id, DoorSide.LEFT).join() })
             val close = f.execute(TrainOperation.CloseDoors(DoorSide.LEFT))
             repeat(3) { f.advance(50); assertEquals(TrainOperationTicketState.PENDING, close.snapshot().state) }
             f.advance(50); assertSucceeded(close)
@@ -428,21 +431,39 @@ class SimulationTrainOperationGatewayTest {
     }
 
     @Test
-    fun `origin first close uses real clock without needing any preceding open operation`() {
+    fun `after reversal close only the physical side left open on each car`() {
         val loaded = requireNotNull(PackageLoader(java.io.File("../models/s100")).loadTrainPackage())
         val model = requireNotNull(loaded.cars["head"])
         val source = CapturedCarBehavior(loaded.behavior, loaded.actions,
             SavedCarModelTree.build(model, loaded.partRegistry).captureAnimationParts())
-        fixture(listOf(source)).use { f ->
-            f.advance(0) // Initialize the existing generic clock, not an animation or behavior call.
-            assertEquals(38L, f.world.onOwnerForTest { f.gateway.estimateDoorCloseDurationTicks(f.train.id, DoorSide.LEFT).join() })
-            assertTrue(f.effects(0).isEmpty())
-            val close = f.execute(TrainOperation.CloseDoors(DoorSide.LEFT))
+        fixture(listOf(source, source)).use { f ->
+            f.advance(0)
+            f.world.onOwnerForTest {
+                f.extensions[0].action("door-left-open", tail = false) { assertTrue(it.isSuccess) }
+            }
+            f.advance(1300)
+            f.world.onOwnerForTest { f.train.reverse() }
+            assertEquals(38L, f.world.onOwnerForTest {
+                f.gateway.estimateDoorCloseDurationTicks(f.train.id, DoorSide.BOTH).join()
+            })
+            val close = f.execute(TrainOperation.CloseDoors(DoorSide.BOTH))
             f.advance(600)
-            assertTrue(f.effects(0).filterIsInstance<SimulationBehaviorEffect.SoundStarted>().any { it.key == "minecraft:block.iron_door.close" })
-            assertEquals(TrainOperationTicketState.PENDING, close.snapshot().state, "warning animation still playing")
-            f.advance(699); assertEquals(TrainOperationTicketState.PENDING, close.snapshot().state)
-            f.advance(1); assertSucceeded(close)
+            assertEquals(TrainOperationTicketState.PENDING, close.snapshot().state)
+            f.advance(1300)
+            assertSucceeded(close)
+
+            val doorAnimations = f.effectSnapshots().map { effects ->
+                effects.filterIsInstance<SimulationBehaviorEffect.AnimationStarted>()
+                    .filter { it.name == "doors_l" || it.name == "doors_r" }
+                    .map { it.name to it.scene }
+            }
+            assertEquals(listOf(listOf("doors_l" to "open", "doors_l" to "closed"), emptyList()), doorAnimations)
+            assertEquals(0L, f.world.onOwnerForTest {
+                f.gateway.estimateDoorCloseDurationTicks(f.train.id, DoorSide.BOTH).join()
+            })
+            val before = f.effectSnapshots()
+            assertSucceeded(f.execute(TrainOperation.CloseDoors(DoorSide.BOTH)))
+            assertEquals(before, f.effectSnapshots())
         }
     }
 

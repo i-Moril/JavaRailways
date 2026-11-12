@@ -509,7 +509,7 @@ class TimetableStationCallDispatcherTest {
         val id = TimetableServiceRunId("tt", "service")
         fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
         repeat(30) { fixture.tick(); assertTrue(gateway.requests.isEmpty()) }
-        assertEquals(listOf(fixture.train.id to DoorSide.LEFT), gateway.durationRequests)
+        assertEquals(listOf(fixture.train.id to DoorSide.BOTH), gateway.durationRequests)
         gateway.duration!!.complete(40L)
         var closeTick: Long? = null
         repeat(80) {

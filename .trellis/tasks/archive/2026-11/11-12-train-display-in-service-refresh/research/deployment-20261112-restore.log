@@ -1,0 +1,81 @@
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.11' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.12' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+> Task :Basic:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :ConfigLib:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :ConfigLib:compileKotlin UP-TO-DATE
+> Task :ConfigLib:compileJava NO-SOURCE
+> Task :ConfigLib:processResources NO-SOURCE
+> Task :ConfigLib:classes UP-TO-DATE
+> Task :ConfigLib:jar UP-TO-DATE
+> Task :Core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :Core:compileKotlin UP-TO-DATE
+> Task :Core:compileJava NO-SOURCE
+> Task :Core:processResources NO-SOURCE
+> Task :Core:classes UP-TO-DATE
+> Task :Core:jar UP-TO-DATE
+> Task :Basic:compileKotlin UP-TO-DATE
+> Task :Basic:compileJava NO-SOURCE
+> Task :Basic:processResources NO-SOURCE
+> Task :Basic:classes UP-TO-DATE
+> Task :Basic:jar UP-TO-DATE
+> Task :BukkitPlugin:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :BukkitPlugin:paperweightUserdevSetup UP-TO-DATE
+> Task :Diagnostics:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :Diagnostics:compileKotlin UP-TO-DATE
+> Task :Diagnostics:compileJava UP-TO-DATE
+> Task :SimpleATO:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :SimpleATO:compileKotlin UP-TO-DATE
+> Task :SimpleATO:compileJava NO-SOURCE
+> Task :SimpleATO:processResources NO-SOURCE
+> Task :SimpleATO:classes UP-TO-DATE
+> Task :SimpleATO:jar UP-TO-DATE
+> Task :SimpleATOBukkit:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :SimpleATOBukkit:compileKotlin UP-TO-DATE
+> Task :SimpleATOBukkit:compileJava NO-SOURCE
+> Task :BukkitPlugin:compileKotlin UP-TO-DATE
+> Task :BukkitPlugin:compileJava UP-TO-DATE
+> Task :BukkitPlugin:mainResourceFactory UP-TO-DATE
+> Task :Diagnostics:processResources NO-SOURCE
+> Task :Diagnostics:classes UP-TO-DATE
+> Task :Diagnostics:jar UP-TO-DATE
+> Task :WebUI:compileJava UP-TO-DATE
+> Task :WebUI:installFrontend UP-TO-DATE
+> Task :WebUI:buildFrontend UP-TO-DATE
+> Task :WebUI:processResources UP-TO-DATE
+> Task :WebUI:classes UP-TO-DATE
+> Task :WebUI:shadowJar UP-TO-DATE
+> Task :BukkitPlugin:processResources UP-TO-DATE
+> Task :BukkitPlugin:classes UP-TO-DATE
+> Task :BukkitPlugin:offlineMigrationResourceFactory UP-TO-DATE
+> Task :BukkitPlugin:processOfflineMigrationResources NO-SOURCE
+> Task :SimpleATOBukkit:processResources NO-SOURCE
+> Task :SimpleATOBukkit:classes UP-TO-DATE
+> Task :SimpleATOBukkit:jar UP-TO-DATE
+
+> Task :BukkitPlugin:compileOfflineMigrationKotlin
+w: file:///tmp/jr-display-service-deploy-20261112/validation-src/DisplayDeploymentRestoreProbe.kt:42:45 The corresponding parameter in the supertype 'InfrastructureDependencyService' is named 'owner'. This may cause problems when calling this function with named arguments.
+w: file:///tmp/jr-display-service-deploy-20261112/validation-src/DisplayDeploymentRestoreProbe.kt:42:45 The corresponding parameter in the supertype 'InfrastructureDependencyService' is named 'owner'. This may cause problems when calling this function with named arguments.
+
+> Task :BukkitPlugin:compileOfflineMigrationJava NO-SOURCE
+> Task :BukkitPlugin:offlineMigrationClasses UP-TO-DATE
+
+> Task :BukkitPlugin:displayDeploymentStrictRestore
+RESTORE_PASS world=2952ad2c-41ce-40bc-b83b-1b578ae7af12 trains=5 units=5 claims=5 segments=16
+RESTORE_PASS world=48531d55-8f7b-4d23-8134-34300e91b459 trains=0 units=0 claims=0 segments=0
+RESTORE_PASS world=6b4a8321-6116-4743-89cf-75ae3dfd24b0 trains=0 units=0 claims=0 segments=0
+RESTORE_PASS world=9a826ffd-0e87-4341-b544-9d466ed5551e trains=0 units=0 claims=0 segments=0
+RESTORE_PASS world=9bc83aa0-a554-4434-8389-7af2285366ec trains=0 units=0 claims=0 segments=0
+RESTORE_PASS world=f9c49e70-b02c-4d3b-8f70-7ed51cdf3fb0 trains=0 units=0 claims=0 segments=0
+STRICT_RESTORE_PASS worlds=6 segments=16 inService=13 outOfService=3
+
+[Incubating] Problems report is available at: file:///workspace/minecraft/JavaRailways/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.0.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 5s
+26 actionable tasks: 2 executed, 24 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.0.0/userguide/configuration_cache_enabling.html

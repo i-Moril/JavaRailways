@@ -1,0 +1,135 @@
+{
+  "candidate": {
+    "sourceCommit": "61963c90",
+    "baselineSha256": "fea988e3fc87e752365f0bf8eb023a89f49195908f1a69b631e60dc2404865e6",
+    "candidateSha256": "16d735cd55e453169db30233cc4569a09d4497bde5a25a9d447394c3bf56b001",
+    "scope": "JavaRailways.jar plus explicit isInService in existing generated script and saved current run segments only"
+  },
+  "install": {
+    "sourceCommit": "61963c90",
+    "installedFiles": {
+      "plugins/JavaRailways.jar": "16d735cd55e453169db30233cc4569a09d4497bde5a25a9d447394c3bf56b001",
+      "plugins/JavaRailways/timetables/new-timetable.js": "1bb679929f984ea3754340c1621961c7088b6e0cc651dd16b64a5416254d7418",
+      "plugins/JavaRailways/worlds/2952ad2c-41ce-40bc-b83b-1b578ae7af12-runtime.json": "8e32357489180eb32dbc7d3f42a5afa308c2ba17ac3de27bd17adab67df7aa9c"
+    },
+    "retainedFiles": 1913,
+    "backup": "/opt/mcsmanager/backups/javarailways/display-is-in-service-61963c90-20261112-2g1sa4zv",
+    "migration": {
+      "fieldsAdded": {
+        "script": 16,
+        "runtime": 16
+      },
+      "values": {
+        "true": 13,
+        "false": 3
+      },
+      "sourceAuthoringSha256": "4fd124c8838d2d4c2cd51fcb6196987b4987c024b5c234465eb7c1237fe75259",
+      "beforeSha256": {
+        "plugins/JavaRailways/timetables/new-timetable.js": "108fad055c9cb11176b1bbc61afc961fc00b861d3c226dc112ce6051255c641e",
+        "plugins/JavaRailways/worlds/2952ad2c-41ce-40bc-b83b-1b578ae7af12-runtime.json": "d79aa67700f062c8210619baa34ac9dc29528b0243a543e95663f08810ed2fff"
+      },
+      "afterSha256": {
+        "plugins/JavaRailways/timetables/new-timetable.js": "1bb679929f984ea3754340c1621961c7088b6e0cc651dd16b64a5416254d7418",
+        "plugins/JavaRailways/worlds/2952ad2c-41ce-40bc-b83b-1b578ae7af12-runtime.json": "8e32357489180eb32dbc7d3f42a5afa308c2ba17ac3de27bd17adab67df7aa9c"
+      },
+      "onlyExplicitFieldInsertions": true,
+      "validationArchiveSha256": "02cc7c7560624be2183aa76edc4581713de0178f7c1aed3ac18a7c1c4da87d18"
+    },
+    "installedAt": "2026-11-12T16:08:00.287335+00:00"
+  },
+  "migration": {
+    "fieldsAdded": {
+      "script": 16,
+      "runtime": 16
+    },
+    "values": {
+      "true": 13,
+      "false": 3
+    },
+    "sourceAuthoringSha256": "4fd124c8838d2d4c2cd51fcb6196987b4987c024b5c234465eb7c1237fe75259",
+    "beforeSha256": {
+      "plugins/JavaRailways/timetables/new-timetable.js": "108fad055c9cb11176b1bbc61afc961fc00b861d3c226dc112ce6051255c641e",
+      "plugins/JavaRailways/worlds/2952ad2c-41ce-40bc-b83b-1b578ae7af12-runtime.json": "d79aa67700f062c8210619baa34ac9dc29528b0243a543e95663f08810ed2fff"
+    },
+    "afterSha256": {
+      "plugins/JavaRailways/timetables/new-timetable.js": "1bb679929f984ea3754340c1621961c7088b6e0cc651dd16b64a5416254d7418",
+      "plugins/JavaRailways/worlds/2952ad2c-41ce-40bc-b83b-1b578ae7af12-runtime.json": "8e32357489180eb32dbc7d3f42a5afa308c2ba17ac3de27bd17adab67df7aa9c"
+    },
+    "onlyExplicitFieldInsertions": true,
+    "validationArchiveSha256": "02cc7c7560624be2183aa76edc4581713de0178f7c1aed3ac18a7c1c4da87d18"
+  },
+  "recovery": {
+    "directory": "/opt/mcsmanager/backups/javarailways/display-is-in-service-61963c90-20261112-2g1sa4zv",
+    "archiveSha256": "c47464a0a91a420a5d65d1a90d19f86388f0244d78b54a8d89690c964080bcf9",
+    "manifestSha256": "ddca65817d2230b4f9a0aa6f4502f5f585b5a8d5331f21d08d1a206cad4a1a64"
+  },
+  "health": {
+    "sourceCommit": "61963c90",
+    "newPid": 1081210,
+    "mainJarSha256": "16d735cd55e453169db30233cc4569a09d4497bde5a25a9d447394c3bf56b001",
+    "backup": "/opt/mcsmanager/backups/javarailways/display-is-in-service-61963c90-20261112-2g1sa4zv",
+    "backupArchiveSha256": "c47464a0a91a420a5d65d1a90d19f86388f0244d78b54a8d89690c964080bcf9",
+    "unchangedOtherPluginJars": 11,
+    "health": {
+      "8765": {
+        "status": 200,
+        "body": {
+          "ok": true
+        }
+      },
+      "29002": {
+        "status": 200,
+        "body": {
+          "status": "ok"
+        }
+      }
+    },
+    "newWebUiAssets": [
+      {
+        "path": "/assets/index-89ID4whG.js",
+        "sha256": "168fca19534649cd7ab981e0587cf8c73d464ce419b32b2c9a8387f128075bbe"
+      },
+      {
+        "path": "/assets/index-D6zAD6V2.css",
+        "sha256": "b8c9d6433aae7ff70eaa79e95bf95eec408d494d37197e472fa31c641bc2935f"
+      }
+    ],
+    "commandsRegistered": true,
+    "atoWorldRunning": true,
+    "resourcesReloaded": {
+      "trainPackages": 1,
+      "railPackages": 3,
+      "typeFailures": 0
+    },
+    "persisted": {
+      "trains": 5,
+      "cars": 25,
+      "segments": 16,
+      "inService": 13,
+      "outOfService": 3,
+      "currentCarPackageSnapshotHash": "63397f53aeb1cb9b74c213f85d7520af4e0787890e57b6836a581eccc2f7228b"
+    },
+    "noRestoreOrDisplayFailuresInStartupLog": true,
+    "clientVisualAcceptance": "not performed",
+    "checkedAt": "2026-11-12T16:15:04.500354+00:00"
+  },
+  "validation-gate": {
+    "strictRestorePassed": true,
+    "validationArchiveSha256": "02cc7c7560624be2183aa76edc4581713de0178f7c1aed3ac18a7c1c4da87d18",
+    "restoreLogSha256": "01d75d54648f290210e05121dfabe71cd2dc127409cb30a5cbdb4e4bb755f28b",
+    "productionAssembly": "OperationalWorldRuntime.create",
+    "worlds": 6,
+    "trains": 5,
+    "fixedUnits": 5,
+    "claims": 5,
+    "segments": 16,
+    "inService": 13,
+    "outOfService": 3
+  },
+  "toolSha256": {
+    "deploy.py": "eaafed706c4e1a5f997ea5860825d3f269d6c226604f40b5b6cdc0de2842362b",
+    "test_migration.py": "f86d76a8e5071e73c7f33d929298772184da51584e51d9f0b046531872359cd3",
+    "validation-src/DisplayDeploymentRestoreProbe.kt": "c526408f729204bc14c89c7468ce1a04030345bea2c70b2d03859a9a2fb57f99"
+  },
+  "onlyInsertionsAndPriorCodeDeployment": true
+}

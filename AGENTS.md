@@ -1,3 +1,21 @@
+# Repository agent rules
+## Avoid unwanted actions
+- Do not guess or speculate my requirements without checking with me first.
+- Do not implement anything I didn't ask for without checking with me first.
+- Do not add compatibility shims, legacy aliases, migrations, old-shape detection or rejection, fallback paths, dual behavior, or stale overrides. Unless explicitly required.
+- Always try to reuse existing code. Do not repeatedly implement something that is already implemented.
+
+## Avoid speculative defenses
+- Do not add sanitization, redaction, validation, or fallback logic for hypothetical problems. State the concrete failure it fixes.
+- When extending an existing command, preserve its output behavior. Do not introduce a new sanitization policy for names, paths, or status messages.
+- Keep existing protections for credential access, storage, and configuration, unsafe paths, and scan integrity. Do not extend them to unrelated values without a demonstrated need.
+- Do not invent a restriction and then add tests whose only purpose is to enforce that restriction.
+
+## Version Rules
+
+涉及世界存档、配置文件、extension payload、WebUI 本地恢复数据或其他持久化格式时，必须先阅读[版本号与发布基线](.trellis/spec/javarailways/shared/versioning.md)，再遵守 [`ai_tasks/persistence_schema_evolution_rules.md`](ai_tasks/persistence_schema_evolution_rules.md)
+
+
 <!-- TRELLIS:START -->
 # Trellis Instructions
 
@@ -19,18 +37,3 @@ If you're using Codex or another agent-capable tool, additional project-scoped h
 Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
 
 <!-- TRELLIS:END -->
-
-# Repository agent rules
-
-当前代码库是开发中的插件。默认不要在运行时代码中兼容任意旧开发数据；这通常属于过度设计。开发服中存在的数据应使用可审计、可 dry-run、保留恢复点的一次性迁移。只有用户、任务合同或已发布兼容政策明确要求时，才新增或保留 runtime compatibility path。
-
-涉及世界存档、配置文件、extension payload、WebUI 本地恢复数据或其他持久化格式时，必须先阅读[版本号与发布基线](.trellis/spec/javarailways/shared/versioning.md)，再遵守 [`ai_tasks/persistence_schema_evolution_rules.md`](ai_tasks/persistence_schema_evolution_rules.md)：
-
-- 未发布格式直接修正当前模型并保持约定版本，不按开发提交递增；没有发布/冻结基线证据时先确认，不得猜测升版。
-- 只给独立持久化边界编号；revision/epoch 不是 schema version。
-- 增加有明确默认值的兼容字段不升级版本。
-- 对已发布或用户明确冻结的兼容基线，字段改名/删除、类型或语义改变、结构重排等破坏性变化，才升级最小独立边界。
-- 旧输入只在 decode/migration 边界单向 upcast；业务层只处理 current model，writer 只写 current version。
-- 并存能力使用稳定 `kind/type`，不要用 `V1/V2` 表示实现新旧或功能变体。
-- extension 使用稳定 namespaced type ID；禁止根据存档字符串反射加载类。
-- 新增兼容路径前必须写明支持窗口和移除条件，并用固定 fixture 验证；不要只做 current round-trip。

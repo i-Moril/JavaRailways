@@ -45,6 +45,23 @@ Lifecycle：`attachWorld` 仅一次 → composition注册静态railway-epoch pro
 同一真实配置值。它不是当前delta或固定控制周期，控制器不得在制动证明中自行假定50 ms或硬编码默认200 ms。
 Wall-clock delta首 epoch 50 ms，默认 clamp 200 ms；drop计入 `droppedDeltaMillis`，不补跑 catch-up epochs。`stepSimulation(deltaMillis)` 要求 finite、`0 < delta <= maxPhysicsDeltaMillis` 且 `automaticFallback=false`。
 
+
+### 手动物理超时恢复
+
+`PhysicsCoordinator.resetStall(): CompletableFuture<Boolean>` 在 coordinator executor 上排在失败 epoch 完整退出之后执行。
+仅本 World 的 overload STALL 可恢复；已有进程级 `RailwaySimulationHalt`、shutdown 和 CLOSED 保护继续生效。
+正常 RUNNING 返回 false；实际恢复返回 true。调用方异步消费结果，不经拒绝 STALLED 的帧间提交入口。
+
+超时发生于 controller/processor 已完成、train frame 已发布而 world frame 尚未提交时，保留该完整候选。
+手动恢复按 topology read lock → state lock 发布候选并创建新的成功边界 ticket；原失败 exact ticket 永远保持失败，
+不重跑失败 epoch，不重置列车位置、controller 或碰撞决定。恢复清空 overload 时间窗和旧墙钟起点，暂停时长不计入下一帧 delta。
+恢复发布复用物理 epoch 的锁顺序，不在 coordinator executor 等待 World owner，避免 unload 持 owner 等待 executor 的反向等待。
+关闭时排队的 reset future 必须明确失败，不能因 executor 取消而永久 pending。
+`PhysicsOverloadException` 标识超时 epoch 及其后被拒绝的 wake；宿主沿 cause 链判断迟到错误，不能因为 reset 已将当前状态改为 RUNNING 而把旧超时升级成进程级故障。
+
+Bukkit 管理入口为 `/jr physics status [world]` 与 `/jr physics reset <world>`，使用 `javarailways.admin`；
+ATO reset 仍只管理 ATO，不兼任物理 reset。
+
 ## Epoch 顺序与结果矩阵
 
 ```text

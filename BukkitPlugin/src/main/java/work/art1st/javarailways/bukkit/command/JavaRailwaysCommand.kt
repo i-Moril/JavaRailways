@@ -92,6 +92,7 @@ class JavaRailwaysCommand {
             "navigate", "nav" -> return handleNavigate(sender, args.drop(1))
             "timetable", "tt" -> return handleTimetable(sender, args.drop(1))
             "ato" -> return handleAto(sender, args.drop(1))
+            "physics" -> return handlePhysics(sender, args.drop(1))
             "perf", "performance" -> return handlePerf(sender, args.drop(1))
             "resources", "resource" -> return handleResources(sender, args.drop(1))
             "undo" -> return handleUndo(sender)
@@ -148,6 +149,11 @@ class JavaRailwaysCommand {
                 if (args.none { it == "--measure" || it == "-m" }) values += listOf("--measure", "-m")
                 filtered(values)
             }
+            "physics" -> when (args.size) {
+                2 -> filtered(listOf("status", "reset"))
+                3 -> filtered(plugin.worldManager.railWorlds.keys.map { it.name })
+                else -> emptyList()
+            }
             "ato" -> when (args.size) {
                 2 -> filtered(listOf("status", "dump", "reset"))
                 3 -> filtered(plugin.worldManager.railWorlds.keys.map { it.name })
@@ -170,7 +176,7 @@ class JavaRailwaysCommand {
     private companion object {
         val ROOT_COMMANDS = listOf(
             "train", "wand", "waypoint", "route", "navigate", "timetable",
-            "ato", "stop", "perf", "resources", "issues", "undo", "redo", "help"
+            "ato", "physics", "stop", "perf", "resources", "issues", "undo", "redo", "help"
         )
     }
 
@@ -187,12 +193,24 @@ class JavaRailwaysCommand {
             return
         }
         val senderName = sender.name
-        coreWorld.physicsCoordinator.submitBetweenFrames {
+        val result = coreWorld.physicsCoordinator.submitBetweenFrames {
             check(plugin.worldManager.loadedRailWorld(worldId) === coreWorld) {
                 "目标世界已卸载或被替换"
             }
             action()
-        }.whenComplete { messages, failure ->
+        }
+        sendWorldOperationResult(sender, senderName, worldId, operation, result)
+    }
+
+    private fun sendWorldOperationResult(
+        sender: CommandSender,
+        senderName: String,
+        worldId: UUID,
+        operation: String,
+        result: java.util.concurrent.CompletionStage<List<String>>
+    ) {
+        val plugin = BukkitPlugin.INSTANCE
+        result.whenComplete { messages, failure ->
             val response = if (failure == null) {
                 messages
             } else {
@@ -1016,6 +1034,51 @@ class JavaRailwaysCommand {
         }
     }
 
+    private fun handlePhysics(sender: CommandSender, args: List<String>): Boolean {
+        if (!sender.hasPermission("javarailways.admin")) {
+            sender.sendMessage(Component.text("没有权限管理物理引擎"))
+            return true
+        }
+        val plugin = BukkitPlugin.INSTANCE
+        when (args.firstOrNull()?.lowercase()) {
+            "status" -> {
+                val requestedWorld = args.getOrNull(1)
+                val worlds = if (requestedWorld == null) {
+                    plugin.worldManager.railWorlds.entries.toList()
+                } else listOfNotNull(resolveRailWorld(requestedWorld))
+                if (worlds.isEmpty()) {
+                    sender.sendMessage("没有匹配的 JavaRailways 世界${requestedWorld?.let { ": $it" }.orEmpty()}")
+                    return true
+                }
+                worlds.forEach { (bukkitWorld, railWorld) ->
+                    sender.sendMessage("Physics ${bukkitWorld.name}: ${(railWorld as CoreWorld).physicsCoordinator.status}")
+                }
+            }
+            "reset" -> {
+                val requestedWorld = args.getOrNull(1)
+                if (requestedWorld == null) {
+                    sender.sendMessage(Component.text("用法: /jr physics reset <world>"))
+                    return true
+                }
+                val selection = resolveRailWorld(requestedWorld)
+                if (selection == null) {
+                    sender.sendMessage("JavaRailways 世界不存在: $requestedWorld")
+                    return true
+                }
+                val world = selection.value as CoreWorld
+                val worldId = selection.key.uid
+                val worldName = selection.key.name
+                val result = world.physicsCoordinator.resetStall().thenApply { reset ->
+                    listOf(if (reset) "已解除世界 $worldName 的物理 STALL；列车位置保持不变"
+                        else "世界 $worldName 的物理引擎已处于 RUNNING")
+                }
+                sendWorldOperationResult(sender, sender.name, worldId, "/jr physics reset", result)
+            }
+            else -> sender.sendMessage("用法: /jr physics <status [world]|reset <world>>")
+        }
+        return true
+    }
+
     private fun handleAto(sender: CommandSender, args: List<String>): Boolean {
         if (!sender.hasPermission("javarailways.admin")) {
             sender.sendMessage("没有权限管理 ATO")
@@ -1295,6 +1358,8 @@ class JavaRailwaysCommand {
         sender.sendMessage("/jr ato status [world] - 查看 World-local ATO 状态")
         sender.sendMessage("/jr ato dump <world> - 写出最近一次 ATO Stall 报告")
         sender.sendMessage("/jr ato reset <world> - 手动解除 ATO Stall（不恢复列车位置）")
+        sender.sendMessage("/jr physics status [world] - 查看物理引擎状态")
+        sender.sendMessage("/jr physics reset <world> - 手动解除物理超时 STALL（保持列车位置）")
         sender.sendMessage("/jr perf [world] - 查看 Tick、物理和渲染耗时")
         sender.sendMessage("/jr issues [世界] [编号] - 当前世界问题与详情")
         sender.sendMessage("/jr resources reload - 事务式重载外部列车与轨道资源")

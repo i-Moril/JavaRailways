@@ -8,6 +8,7 @@ import org.bukkit.World as BukkitWorld
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
+import org.bukkit.event.server.ServerLoadEvent
 import org.bukkit.event.world.WorldLoadEvent
 import org.bukkit.event.world.WorldUnloadEvent
 import work.art1st.javarailways.basic.basicWorldData
@@ -96,7 +97,6 @@ class WorldManager internal constructor(
 
     private var serverTickIndex: Long = 0L
     private val unloadingWorlds: MutableSet<BukkitWorld> = ConcurrentHashMap.newKeySet()
-    private var tickTask: ScheduledTask? = null
     @Volatile
     private var stopping: Boolean = false
     private val carFrameDispatcher = LatestAffinityTaskDispatcher<CoreCar, PendingCarFrame>(::scheduleCarFrame)
@@ -116,21 +116,35 @@ class WorldManager internal constructor(
     private val worldTickRunners = WorldTickRunnerRegistry<World>()
     private val worldTickMetrics = ConcurrentHashMap<BukkitWorld, JavaRailwaysServerTickMetrics>()
 
-    fun start() {
-        check(tickTask == null) { "WorldManager is already started" }
-        stopping = false
-        tickTask = BukkitPlugin.INSTANCE.platformDispatcher.runGlobalAtFixedRate(1L, 1L) {
-            tick()
-        }
+    private val startup = ServerPhysicsStartup(
+        scheduleTicks = { action ->
+            BukkitPlugin.INSTANCE.platformDispatcher.runGlobalAtFixedRate(1L, 1L, action)
+        },
+        startWorlds = {
+            railWorlds.values.forEach { (it as? CoreWorld)?.physicsCoordinator?.start() }
+            BukkitPlugin.INSTANCE.logger.info("Physics ticks started after server startup")
+        },
+        tick = ::tick
+    )
+
+    /** Preparing worlds does not start their fallback timers before server startup completes. */
+    fun start(serverAlreadyStarted: Boolean) = startup.prepare(serverAlreadyStarted)
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    fun onServerLoad(event: ServerLoadEvent) {
+        if (event.type == ServerLoadEvent.LoadType.STARTUP) startup.serverLoaded()
+    }
+
+    private fun startRegisteredWorldPhysics(railWorld: World) = startup.startWorld {
+        (railWorld as? CoreWorld)?.physicsCoordinator?.start()
     }
 
     fun stop() {
+        startup.stop()
         stopping = true
         loadedWorlds.clearLookup()
         railWorlds.keys.toList().forEach { modelPresentationService?.removeWorld(it.uid, it) }
         unloadingWorlds.addAll(railWorlds.keys)
-        tickTask?.cancel()
-        tickTask = null
         worldTickRunners.close()
         partRenderClocks.clear()
         partRenderSamples.clear()
@@ -273,9 +287,9 @@ class WorldManager internal constructor(
                     refreshTrainSpeedProfiles(railWorld)
                     markSkippedPersistedTrains(bukkitWorld, railWorld, restoredTrains)
                 }
-                (railWorld as? CoreWorld)?.physicsCoordinator?.start()
                 loadedWorlds.publish(bukkitWorld, railWorld)
                 modelPresentationService?.registerWorld(bukkitWorld.uid, bukkitWorld, railWorld, railWorld.renderChunkManager)
+                startRegisteredWorldPhysics(railWorld)
             } catch (failure: Throwable) {
                 fun attemptCleanup(action: () -> Unit) {
                     try {
@@ -543,7 +557,7 @@ class WorldManager internal constructor(
     }
 
     private fun tick() {
-        if (stopping || RailwaySimulationHalt.isHalted) return
+        if (stopping || !startup.isRunning || RailwaySimulationHalt.isHalted) return
         serverTickIndex += 1L
         val wake = WorldTickWake(serverTickIndex, System.currentTimeMillis())
         railWorlds.forEach { (bukkitWorld, railWorld) ->
@@ -561,8 +575,9 @@ class WorldManager internal constructor(
                     }, { failure ->
                         val coordinator = (railWorld as? CoreWorld)?.physicsCoordinator
                         if (stopping || bukkitWorld in unloadingWorlds ||
-                            (!RailwaySimulationHalt.isHalted && coordinator?.status ==
-                                work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus.STALLED)) {
+                            (!RailwaySimulationHalt.isHalted && (coordinator?.status ==
+                                work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus.STALLED ||
+                                isPhysicsOverloadFailure(failure)))) {
                             // Normal retirement and the explicit per-world overload budget are
                             // not breaches of shared Core state.
                             BukkitPlugin.INSTANCE.logger.log(Level.SEVERE,
@@ -1006,3 +1021,65 @@ internal fun consumeTrainRenderFrames(
         if (indices.isNotEmpty()) consume(train, frame, indices)
     }
 }
+
+/** Owns the one-way server-ready barrier shared by initial worlds and later world loads. */
+internal class ServerPhysicsStartup(
+    private val scheduleTicks: (() -> Unit) -> ScheduledTask,
+    private val startWorlds: () -> Unit,
+    private val tick: () -> Unit
+) {
+    private val lock = Any()
+    private var prepared = false
+    private var ready = false
+    private var stopped = false
+    private var task: ScheduledTask? = null
+    @Volatile
+    var isRunning = false
+        private set
+
+    fun prepare(serverAlreadyStarted: Boolean) = synchronized(lock) {
+        check(!prepared && !stopped) { "WorldManager is already started or stopped" }
+        prepared = true
+        ready = ready || serverAlreadyStarted
+        armTicksWhenReady()
+    }
+
+    fun serverLoaded() = synchronized(lock) {
+        ready = true
+        armTicksWhenReady()
+    }
+
+    private fun armTicksWhenReady() {
+        if (!prepared || !ready || stopped || task != null) return
+        // First real global tick runs after the complete ServerLoadEvent callback chain.
+        // Starting inside the event would let fallback timers race later plugin callbacks.
+        task = scheduleTicks {
+            if (!isRunning) LiveWorldManagement.run {
+                synchronized(lock) {
+                    if (!stopped && !isRunning) {
+                        startWorlds()
+                        isRunning = true
+                    }
+                }
+            }
+            if (isRunning) tick()
+        }
+    }
+
+    fun startWorld(start: () -> Unit) = synchronized(lock) {
+        if (isRunning && !stopped) start()
+    }
+
+    fun stop() = synchronized(lock) {
+        stopped = true
+        isRunning = false
+        task?.cancel()
+        task = null
+    }
+}
+
+/** An old failed epoch can reach the owner after a manual reset has already resumed physics. */
+internal fun isPhysicsOverloadFailure(failure: Throwable): Boolean =
+    generateSequence(failure) { it.cause }.any {
+        it is work.art1st.javarailways.core.physics.tick.PhysicsOverloadException
+    }

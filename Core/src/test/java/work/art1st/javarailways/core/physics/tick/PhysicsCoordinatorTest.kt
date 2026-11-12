@@ -1379,6 +1379,183 @@ class PhysicsCoordinatorTest {
     }
 
     @Test
+    fun `manual reset preserves movement and restores exact publication without replaying failed ticket`() {
+        val clock = AtomicLong(1_000_000_000L)
+        val slow = AtomicBoolean(true)
+        PhysicsCoordinator(1, nanoTime = clock::get, automaticFallback = false,
+            epochOverloadThresholdMillis = 1L, overloadWindowMillis = 1_000_000L,
+            overloadsBeforeStall = 2).use { coordinator ->
+            val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+            val train = createTrainWithConfig("reset-moving", rail, world, listOf(10.0))
+            val controller = object : TrainController(train) {
+                override fun tick(deltaT: Double) {
+                    speed = 10.0
+                    super.tick(deltaT)
+                    if (slow.get()) clock.addAndGet(2_000_000L)
+                }
+            }
+            train.setControllerForTest(controller)
+            coordinator.start()
+            assertFalse(coordinator.resetStall().get(5, TimeUnit.SECONDS))
+            coordinator.wakeFromMainThread().completion.get(5, TimeUnit.SECONDS)
+            val previousWorldFrame = world.latestWorldFrame()
+            clock.addAndGet(50_000_000L)
+            val failed = coordinator.wakeFromMainThread()
+            val failedEpoch = assertThrows(ExecutionException::class.java) {
+                failed.completion.get(5, TimeUnit.SECONDS)
+            }
+            assertTrue(failedEpoch.cause is PhysicsOverloadException)
+            val stalledWake: PhysicsStalledException =
+                assertThrows(PhysicsOverloadException::class.java) { coordinator.wakeFromMainThread() }
+            val stalledFrame = train.publishedFrame
+            assertSame(previousWorldFrame, world.latestWorldFrame())
+            clock.addAndGet(TimeUnit.SECONDS.toNanos(30))
+
+            assertTrue(coordinator.resetStall().get(5, TimeUnit.SECONDS))
+            assertEquals(PhysicsCoordinatorStatus.RUNNING, coordinator.status)
+            val boundary = coordinator.captureCurrentTicket()
+            assertTrue(boundary !== failed)
+            assertEquals(failed.epoch, boundary.completion.get(5, TimeUnit.SECONDS).epoch)
+            assertEquals(failed.epoch, world.latestWorldFrame().physicsEpoch)
+            assertSame(stalledFrame, world.latestWorldFrame().trains.single())
+            assertEquals(failed.epoch, world.latestWorldFrame().occupancy.physicsEpoch)
+            assertSame(controller, train.controller)
+            assertEquals(stalledFrame.head, train.publishedFrame.head)
+            val afterResetFailure = assertThrows(ExecutionException::class.java) {
+                failed.completion.get(5, TimeUnit.SECONDS)
+            }
+            assertSame(failedEpoch.cause, afterResetFailure.cause)
+            assertTrue(afterResetFailure.cause is PhysicsOverloadException)
+            assertTrue(stalledWake is PhysicsOverloadException)
+
+            val resumed = coordinator.wakeFromMainThread().completion.get(5, TimeUnit.SECONDS)
+            assertEquals(50.0, resumed.rawDeltaMillis)
+            assertFalse(resumed.deltaClamped)
+            assertEquals(1, resumed.overloadCountInWindow)
+            assertEquals(stalledFrame.head.arcLengthInAbMeters + 0.5, train.publishedFrame.head.arcLengthInAbMeters, 1.0e-9)
+            assertEquals(resumed.epoch, train.publishedFrame.physicsEpoch)
+            slow.set(false)
+            clock.addAndGet(50_000_000L)
+            coordinator.wakeFromMainThread().completion.get(5, TimeUnit.SECONDS)
+            assertEquals(PhysicsCoordinatorStatus.RUNNING, coordinator.status)
+            assertFalse(coordinator.resetStall().get(5, TimeUnit.SECONDS))
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `reset waits for stalled epoch callbacks to exit and close settles queued reset`(close: Boolean) {
+        val clock = AtomicLong(1_000_000_000L)
+        PhysicsCoordinator(1, nanoTime = { clock.addAndGet(2_000_000L) },
+            automaticFallback = false, epochOverloadThresholdMillis = 1L,
+            overloadsBeforeStall = 1).use { coordinator ->
+            CoreWorld.createEmpty(DummyTickManager, coordinator)
+            val entered = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            val pending = coordinator.submitBetweenFrames { }
+            pending.whenComplete { _, _ ->
+                entered.countDown()
+                var waiting = true
+                while (waiting) {
+                    try { waiting = !release.await(5, TimeUnit.SECONDS) }
+                    catch (_: InterruptedException) { /* keep the epoch tail held through close */ }
+                }
+            }
+            coordinator.start()
+            try {
+                val failed = coordinator.wakeFromMainThread()
+                assertThrows(ExecutionException::class.java) { failed.completion.get(5, TimeUnit.SECONDS) }
+                assertTrue(entered.await(5, TimeUnit.SECONDS))
+                val reset = coordinator.resetStall()
+                assertFalse(reset.isDone, "reset must remain behind the stalled epoch's callbacks")
+                if (close) {
+                    coordinator.close()
+                    assertThrows(ExecutionException::class.java) { reset.get(5, TimeUnit.SECONDS) }
+                    assertEquals(PhysicsCoordinatorStatus.CLOSED, coordinator.status)
+                } else {
+                    release.countDown()
+                    assertTrue(reset.get(5, TimeUnit.SECONDS))
+                    assertEquals(PhysicsCoordinatorStatus.RUNNING, coordinator.status)
+                }
+            } finally { release.countDown() }
+        }
+    }
+
+    @Test
+    fun `reset queued behind epoch tail can complete and teardown while host holds world owner`() {
+        val clock = AtomicLong(1_000_000_000L)
+        PhysicsCoordinator(1, nanoTime = { clock.addAndGet(2_000_000L) },
+            automaticFallback = false, epochOverloadThresholdMillis = 1L,
+            overloadsBeforeStall = 1).use { coordinator ->
+            val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
+            val entered = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            coordinator.submitBetweenFrames { }.whenComplete { _, _ ->
+                entered.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+            }
+            coordinator.start()
+            try {
+                val failed = coordinator.wakeFromMainThread()
+                assertThrows(ExecutionException::class.java) { failed.completion.get(5, TimeUnit.SECONDS) }
+                assertTrue(entered.await(5, TimeUnit.SECONDS))
+                withMainThread {
+                    world.executionOwner.run {
+                        val reset = coordinator.resetStall()
+                        assertFalse(reset.isDone)
+                        release.countDown()
+                        assertTrue(reset.get(5, TimeUnit.SECONDS), "reset must not acquire the held host owner")
+                        coordinator.closeAndAwaitTermination()
+                        assertEquals(PhysicsCoordinatorStatus.CLOSED, coordinator.status)
+                    }
+                }
+            } finally { release.countDown() }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["shutdown", "close", "halt"])
+    @IsolateGlobalHalt("halt")
+    fun `reset cannot reopen shutdown close or process halt`(transition: String) {
+        PhysicsCoordinator(1, automaticFallback = false).use { coordinator ->
+            CoreWorld.createEmpty(DummyTickManager, coordinator)
+            coordinator.start()
+            when (transition) {
+                "shutdown" -> coordinator.beginShutdown()
+                "close" -> coordinator.close()
+                "halt" -> RailwaySimulationHalt.halt("test invariant failure")
+            }
+            assertThrows(ExecutionException::class.java) { coordinator.resetStall().get(5, TimeUnit.SECONDS) }
+            if (transition == "halt") assertTrue(RailwaySimulationHalt.isHalted)
+            assertThrows(IllegalStateException::class.java) { coordinator.wakeFromMainThread() }
+        }
+    }
+
+    @Test
+    fun `reset preserves frozen collision decision for next owner boundary`() {
+        val clock = AtomicLong(1_000_000_000L)
+        PhysicsCoordinator(1, nanoTime = { clock.addAndGet(2_000_000L) },
+            automaticFallback = false, epochOverloadThresholdMillis = 1L,
+            overloadsBeforeStall = 1).use { coordinator ->
+            val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+            val first = createTrainWithConfig("reset-A", rail, world, listOf(10.0))
+            val second = createTrainWithConfig("reset-B", rail, world, listOf(10.0))
+            first.setControllerForTest(MockTrainController(first, 10.0))
+            coordinator.start()
+            val failed = coordinator.wakeFromMainThread()
+            assertThrows(ExecutionException::class.java) { failed.completion.get(5, TimeUnit.SECONDS) }
+            assertFalse(first.isDerailed)
+            assertFalse(second.isDerailed)
+            assertTrue(coordinator.resetStall().get(5, TimeUnit.SECONDS))
+            world.onOwnerForTest { coordinator.drainBetweenFramesOperations() }
+            assertTrue(first.isDerailed)
+            assertTrue(second.isDerailed)
+        }
+    }
+
+    @Test
     fun `stop seals new epochs and awaits publication before final snapshot`() {
         val coordinator = PhysicsCoordinator(
             workerThreads = 1,

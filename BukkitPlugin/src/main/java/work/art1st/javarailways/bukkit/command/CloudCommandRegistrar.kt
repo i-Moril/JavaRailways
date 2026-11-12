@@ -85,6 +85,7 @@ class CloudCommandRegistrar(plugin: BukkitPlugin) {
                 parent(name, "list")
             }
             parent("ato"); args("ato", "status"); args("ato", "dump"); args("ato", "reset")
+            parent("physics"); args("physics", "status"); args("physics", "reset")
             args("perf"); args("performance"); args("issues")
             parent("resources"); parent("resources", "reload")
             parent("resource"); parent("resource", "reload")

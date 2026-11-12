@@ -6,6 +6,7 @@ import work.art1st.javarailways.core.api.event.PreTickEvent
 import work.art1st.javarailways.core.api.event.PostTickEvent
 import work.art1st.javarailways.core.api.event.CollisionResolution
 import work.art1st.javarailways.core.api.event.processor.PhysicsRailEventBus
+import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.RailwayEpochProcessor
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.threading.ThreadGuard
@@ -99,7 +100,10 @@ data class PhysicsEpochMetrics(
     val overloadCountInWindow: Int
 )
 
-class PhysicsStalledException(message: String, cause: Throwable? = null) : IllegalStateException(message, cause)
+open class PhysicsStalledException(message: String, cause: Throwable? = null) : IllegalStateException(message, cause)
+
+/** Recoverable local overload; its cause remains identifiable after a manual reset. */
+class PhysicsOverloadException(message: String) : PhysicsStalledException(message)
 
 /**
  * A handle for one concrete physics epoch. Tickets never silently resolve to an older epoch.
@@ -202,6 +206,8 @@ class PhysicsCoordinator(
     private var lastMainWakeNanos = nanoTime()
     private var inFlight: PhysicsTicket? = null
     private var latestCompleted: PhysicsTicket = completedBootstrapTicket()
+    private var overloadRecoveryFrame: RailwayWorldFrameSnapshot? = null
+    private val pendingResets = linkedSetOf<CompletableFuture<Boolean>>()
 
     init { RailwaySimulationHalt.register(this) }
 
@@ -229,6 +235,62 @@ class PhysicsCoordinator(
                 )
             }
         }
+    }
+
+    /**
+     * Resumes a local overload stall after its epoch has fully left the coordinator executor.
+     * Train/controller/collision state is preserved. The failed ticket stays exceptional; a new
+     * boundary ticket represents the recovered world publication, without replaying that epoch.
+     * Shutdown, close and the process-wide invariant halt cannot be reset here.
+     */
+    fun resetStall(): CompletableFuture<Boolean> {
+        val result = CompletableFuture<Boolean>()
+        synchronized(stateLock) { pendingResets.add(result) }
+        try {
+            coordinatorExecutor.execute {
+                try {
+                    result.complete(resetOverloadStall())
+                } catch (failure: Throwable) {
+                    result.completeExceptionally(failure)
+                } finally {
+                    synchronized(stateLock) { pendingResets.remove(result) }
+                }
+            }
+        } catch (failure: java.util.concurrent.RejectedExecutionException) {
+            synchronized(stateLock) { pendingResets.remove(result) }
+            result.completeExceptionally(failure)
+        }
+        return result
+    }
+
+    // Like ordinary epoch publication, recovery takes topology before state and never takes
+    // the host owner: world teardown may hold that owner while awaiting this executor's exit.
+    private fun resetOverloadStall(): Boolean {
+        val attachedWorld = synchronized(stateLock) {
+            RailwaySimulationHalt.ensureRunning()
+            check(localStatus != PhysicsCoordinatorStatus.CLOSED) { "PhysicsCoordinator is closed" }
+            check(acceptingWakes) { "PhysicsCoordinator shutdown has begun" }
+            if (localStatus == PhysicsCoordinatorStatus.RUNNING) return false
+            checkNotNull(world)
+        }
+        attachedWorld.withRailTopologyReadLock {
+            synchronized(stateLock) {
+                RailwaySimulationHalt.ensureRunning()
+                check(localStatus != PhysicsCoordinatorStatus.CLOSED) { "PhysicsCoordinator is closed" }
+                check(acceptingWakes) { "PhysicsCoordinator shutdown has begun" }
+                val frame = checkNotNull(overloadRecoveryFrame) { "Physics stall is not recoverable" }
+                attachedWorld.publishCapturedWorldFrame(frame)
+                latestCompleted = PhysicsTicket(frame.physicsEpoch,
+                    CompletableFuture.completedFuture(checkNotNull(lastMetrics)))
+                overloadRecoveryFrame = null
+                overloadTimesNanos.clear()
+                previousPhysicsStartNanos = 0L
+                lastMainWakeNanos = nanoTime()
+                status = PhysicsCoordinatorStatus.RUNNING
+                applyPendingCollisionDecisions(frame.physicsEpoch)
+            }
+        }
+        return true
     }
 
     /** Owner-side replacement, or physics-origin retirement at the publication barrier. */
@@ -761,7 +823,7 @@ class PhysicsCoordinator(
                 overloadCountInWindow = overloadCount
             )
             if (overloadCount >= overloadsBeforeStall) {
-                val failure = PhysicsStalledException(
+                val failure = PhysicsOverloadException(
                     "Physics stalled after $overloadCount epochs reached " +
                         "${epochOverloadThresholdMillis}ms within ${overloadWindowMillis}ms"
                 )
@@ -769,6 +831,7 @@ class PhysicsCoordinator(
                     if (RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) return
                     lastMetrics = metrics
                     lastControllerNanos = controllerDurations.toMap()
+                    overloadRecoveryFrame = capturedWorldFrame
                     status = PhysicsCoordinatorStatus.STALLED
                     inFlight = null
                     ticket.completion.completeExceptionally(failure)
@@ -887,9 +950,17 @@ class PhysicsCoordinator(
         RailwaySimulationHalt.ensureRunning()
         when (status) {
             PhysicsCoordinatorStatus.RUNNING -> Unit
-            PhysicsCoordinatorStatus.STALLED -> throw PhysicsStalledException("PhysicsCoordinator is stalled")
+            PhysicsCoordinatorStatus.STALLED -> {
+                if (overloadRecoveryFrame != null) throw PhysicsOverloadException("PhysicsCoordinator is stalled by overload")
+                throw PhysicsStalledException("PhysicsCoordinator is stalled")
+            }
             PhysicsCoordinatorStatus.CLOSED -> error("PhysicsCoordinator is closed")
         }
+    }
+
+    private fun failPendingResets(failure: Throwable) {
+        val pending = synchronized(stateLock) { pendingResets.toList().also { pendingResets.clear() } }
+        pending.forEach { it.completeExceptionally(failure) }
     }
 
     private fun removePendingBetweenFramesLocked(): List<BetweenFramesOperation<*>> =
@@ -931,6 +1002,7 @@ class PhysicsCoordinator(
                     inFlight = null
                     removePendingBetweenFramesLocked()
                 }
+                failPendingResets(failure)
                 failBetweenFrames(pending, failure)
                 fallbackTimer.shutdownNow()
                 coordinatorExecutor.shutdownNow()
@@ -965,6 +1037,7 @@ class PhysicsCoordinator(
             inFlight = null
             removePendingBetweenFramesLocked()
         }
+        failPendingResets(IllegalStateException("PhysicsCoordinator is closed"))
         failBetweenFrames(pending, IllegalStateException("PhysicsCoordinator is closed"))
         fallbackTimer.shutdownNow()
         coordinatorExecutor.shutdownNow()

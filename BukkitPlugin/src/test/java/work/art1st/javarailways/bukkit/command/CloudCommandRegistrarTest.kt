@@ -104,6 +104,34 @@ class CloudCommandRegistrarTest {
         assertEquals(listOf(player), recipients)
     }
 
+    @Test
+    fun `physics status and reset have native routes and action suggestions`() {
+        val command = JavaRailwaysCommand()
+        val sender = sender(CommandSender::class.java)
+        assertTrue("physics" in command.suggest(sender, arrayOf("phy")))
+        assertEquals(listOf("reset", "status"), command.suggest(sender, arrayOf("physics", "")))
+        for (path in listOf("physics status", "physics reset")) {
+            assertTrue(path in CloudCommandRegistrar.registeredRoutePaths())
+            assertTrue(CloudCommandRegistrar.routeAcceptsArguments(path))
+        }
+    }
+
+    @Test
+    fun `physics reset denies unauthorized sender before accessing world runtime`() {
+        val messages = mutableListOf<Component>()
+        assertTrue(JavaRailwaysCommand().execute(sender(CommandSender::class.java, messages = messages),
+            "jr", arrayOf("physics", "reset", "world")))
+        assertEquals(listOf(Component.text("没有权限管理物理引擎")), messages)
+    }
+
+    @Test
+    fun `physics reset requires an explicit world`() {
+        val messages = mutableListOf<Component>()
+        assertTrue(JavaRailwaysCommand().execute(sender(CommandSender::class.java, permitted = true, messages = messages),
+            "jr", arrayOf("physics", "reset")))
+        assertEquals(listOf(Component.text("用法: /jr physics reset <world>")), messages)
+    }
+
     private fun <T> sender(type: Class<T>, permitted: Boolean = false, messages: MutableList<Component> = mutableListOf()): T =
         type.cast(Proxy.newProxyInstance(type.classLoader, arrayOf(type)) { instance, method, args ->
             when (method.name) {

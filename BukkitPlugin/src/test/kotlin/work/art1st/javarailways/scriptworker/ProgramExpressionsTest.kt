@@ -126,10 +126,15 @@ class ProgramExpressionsTest {
           {"id":"store","type":"STORE_AT_DEPOT","depotId":$reference,"stablingPointIds":{"value":[]}}
         ]}""")
         val actions = expandStationProgram(definition, buildJsonObject { put("id", "central") }, 0).steps.map { it.action!! }
+        assertEquals(listOf(SavedTimetableActionTypeV1.SET_DISPLAY, SavedTimetableActionTypeV1.DESTINATION,
+            SavedTimetableActionTypeV1.SELECT_STOP, SavedTimetableActionTypeV1.STORE_AT_DEPOT), actions.map { it.type })
         assertEquals("central", actions[0].displayValues.getValue("text").jsonPrimitive.content)
-        assertEquals(listOf("central@1"), actions[2].wayPointIds)
-        assertEquals("central", actions[3].stationId)
-        assertEquals("central", actions[4].depotId)
+        assertEquals(listOf("central@1"), actions[1].wayPointIds)
+        assertEquals("central", actions[2].stationId)
+        assertEquals(listOf(SavedStationStopCandidateV1("berth", 0)), actions[2].berthCandidates)
+        assertEquals(SavedStationStopSelectionPolicyV1.FIXED_PREFERENCE, actions[2].selectionPolicy)
+        assertEquals("central", actions[3].depotId)
+        assertTrue(actions[3].stablingPointIds.isEmpty())
         for (text in listOf("", " ", "x".repeat(8192))) {
             assertEquals(text, ProgramExpressions.evaluate(expr(reference), "STRING", mapOf("id" to "STRING"), buildJsonObject { put("id", text) }).jsonPrimitive.content)
         }

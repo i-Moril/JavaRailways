@@ -9,7 +9,7 @@ import work.art1st.javarailways.simpleato.api.station.StationId
 
 class DisplayLineIndexTest {
     private fun line(id: String, metadata: JsonObject = JsonObject(emptyMap())) =
-        Line(LineId(id), "Line $id", listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a")), metadata = metadata)
+        Line(LineId(id), listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a")), metadata = metadata)
 
     @Test fun `whole world catalog allows arbitrary transfer lookup and preserves opaque data`() {
         val source = linkedMapOf<String, JsonElement>("label" to JsonPrimitive("airport"))

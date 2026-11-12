@@ -87,7 +87,7 @@ class IsolatedTimetableSimulationFactoryTest {
                         doorSide = if (id == "b") DoorSide.LEFT else DoorSide.NONE, usableLengthMeters = 30.0)))
             }
             val line = LineId("doors")
-            source.simpleAtoWorldData.lines.put(Line(line, "Doors", listOf("a", "b", "c").map(::StationId),
+            source.simpleAtoWorldData.lines.put(Line(line, listOf("a", "b", "c").map(::StationId),
                 listOf("c", "b", "a").map(::StationId), maximumSpeedMetersPerSecond = 6.0), 0L)
             val calls = listOf("a" to "ORIGIN", "b" to "STOP", "c" to "TERMINAL").map { (id, kind) ->
                 LineMeasurementCall("call-$id", id, "$id@one", kind, emptyList())
@@ -165,7 +165,7 @@ class IsolatedTimetableSimulationFactoryTest {
                         doorSide = DoorSide.NONE, usableLengthMeters = 30.0)))
             }
             val line = LineId("measurement")
-            source.simpleAtoWorldData.lines.put(Line(line, "Measurement", listOf("a", "b", "c", "d").map(::StationId),
+            source.simpleAtoWorldData.lines.put(Line(line, listOf("a", "b", "c", "d").map(::StationId),
                 listOf("d", "c", "b", "a").map(::StationId), maximumSpeedMetersPerSecond = 6.0), 0L)
             val calls = listOf("a" to "ORIGIN", "b" to "PASS", "c" to "STOP", "d" to "TERMINAL").map { (id, kind) ->
                 LineMeasurementCall("call-$id", id, "$id@one", kind, emptyList())
@@ -1036,9 +1036,9 @@ class IsolatedTimetableSimulationFactoryTest {
         val main = LineId("main")
         val branch = LineId("branch")
         val lines = source.simpleAtoWorldData.lines
-        lines.put(Line(main, "Main", listOf("a", "b", "c", "d").map(::StationId),
+        lines.put(Line(main, listOf("a", "b", "c", "d").map(::StationId),
             listOf("d", "c", "b", "a").map(::StationId)), 0L)
-        lines.put(Line(branch, "Branch", listOf("c", "e").map(::StationId),
+        lines.put(Line(branch, listOf("c", "e").map(::StationId),
             listOf("e", "c").map(::StationId)), 1L)
         fun call(id: String, status: work.art1st.javarailways.simpleato.timetable.TimetableServiceStopStatus,
                  arrival: Long? = null, departure: Long? = null, via: List<String> = emptyList()) =
@@ -1193,7 +1193,7 @@ class IsolatedTimetableSimulationFactoryTest {
                     ViewDirection.AB, DestinationRole.StationBerthRole(StationId(station), berthId = "one", doorSide = DoorSide.NONE,
                         usableLengthMeters = 40.0)))
             }
-            source.simpleAtoWorldData.lines.put(Line(LineId("joined-line"), "Joined line",
+            source.simpleAtoWorldData.lines.put(Line(LineId("joined-line"),
                 listOf(StationId("c"), StationId("d")), listOf(StationId("d"), StationId("c"))), 0L)
         }
         fun at(action: TimetableAction) = TimetableStep.At(0, action)
@@ -1433,7 +1433,7 @@ class IsolatedTimetableSimulationFactoryTest {
         }
         val lineId = LineId("metro")
         source.simpleAtoWorldData.lines.put(
-            Line(lineId, "Metro", listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a"))),
+            Line(lineId, listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a"))),
             0L
         )
         fun timetable(id: String, speed: Double) = Timetable(

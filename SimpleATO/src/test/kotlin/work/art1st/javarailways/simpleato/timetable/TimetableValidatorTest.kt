@@ -68,7 +68,7 @@ class TimetableValidatorTest {
         val stationId = StationId("terminal")
         val lineId = LineId("door-line")
         val otherStationId = StationId("origin")
-        world.simpleAtoWorldData.lines.put(Line(lineId, "Door line",
+        world.simpleAtoWorldData.lines.put(Line(lineId,
             listOf(otherStationId, stationId), listOf(stationId, otherStationId)), 0L)
         val terminal = StationStopPrograms("terminal", "106P-terminal", StationStopRole.TERMINAL,
             listOf(StationProgramAction.OpenDoors, StationProgramAction.End),
@@ -422,7 +422,7 @@ class TimetableValidatorTest {
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val known = LineId("known")
         world.simpleAtoWorldData.lines.put(
-            Line(known, "Known", listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a"))),
+            Line(known, listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a"))),
             0L
         )
         val timetable = Timetable("line-validation", services = listOf(

@@ -46,7 +46,7 @@ describe('graph layout', () => {
         { stationId:'central', berthId:'one', destinationId:'beta@1' },
       ],
     }, {
-      id:'line', displayName:'Line', upStationIds:['central','terminus'], downStationIds:['terminus','central'],
+      id:'line', metadata:{name:'Line'}, upStationIds:['central','terminus'], downStationIds:['terminus','central'],
     });
     expect(layout.height).toBe(600);
     expect(layout.lanes.slice(0,2).map((lane) => lane.id)).toEqual(['central','terminus']);

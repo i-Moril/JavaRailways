@@ -40,7 +40,7 @@ vi.mock('antd',()=>{
   };
 });
 
-const lines:LineV1[]=[{id:'line',displayName:'Line',maximumSpeedMetersPerSecond:20,upStationIds:['a','b','c'],downStationIds:['c','b','a']}];
+const lines:LineV1[]=[{id:'line',metadata:{name:'Line'},maximumSpeedMetersPerSecond:20,upStationIds:['a','b','c'],downStationIds:['c','b','a']}];
 const metadata:WorldMetadata={simulationProfiles:[{type:'TRAIN_TEMPLATE',id:'emu',displayName:'EMU',carCount:1}]};
 const fixture=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),id:'timetable',minimumDwellTicks:40,
   diagramLines:[{id:'line',upStationIds:['a','b','c'],downStationIds:['c','b','a']}],runs:[{

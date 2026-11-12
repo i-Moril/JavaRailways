@@ -121,7 +121,6 @@ class ProductionRoutePlanningRestrictionTest {
         val line = LinePlanner(world).compile(
             Line(
                 LineId("line"),
-                "Line",
                 listOf(StationId("a"), StationId("b")),
                 listOf(StationId("b"), StationId("a"))
             ),

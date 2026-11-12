@@ -17,7 +17,7 @@ import work.art1st.javarailways.simpleato.timetable.TimetableRunSegment
 class MetadataModelsTest {
     private val empty = JsonObject(emptyMap())
     private fun line(metadata: JsonObject = empty) = Line(
-        LineId("metro"), "Metro", listOf(StationId("a"), StationId("b")),
+        LineId("metro"), listOf(StationId("a"), StationId("b")),
         listOf(StationId("b"), StationId("a")), metadata = metadata
     )
     private fun run(metadata: JsonObject = empty) = TimetableRunSegment(
@@ -26,7 +26,7 @@ class MetadataModelsTest {
 
     @Test
     fun `fixed missing field inputs default to empty without changing persisted boundaries`() {
-        val oldLine = """{"id":"metro","displayName":"Metro","upStationIds":["a","b"],"downStationIds":["b","a"]}"""
+        val oldLine = """{"id":"metro","upStationIds":["a","b"],"downStationIds":["b","a"]}"""
         val oldRun = """{"runId":"run","lineId":"metro","startStepIndex":0,"endStepIndexExclusive":2}"""
         assertEquals(empty, Json.decodeFromString<SavedLineV1>(oldLine).restore().metadata)
         assertEquals(empty, Json.decodeFromString<SavedTimetableRunSegmentV1>(oldRun).restore().metadata)

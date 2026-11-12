@@ -746,7 +746,7 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("B", rail.id, originArc + 30.0))
         val lineId = LineId("metro")
         world.simpleAtoWorldData.lines.put(
-            Line(lineId, "Metro", listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a"))),
+            Line(lineId, listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a"))),
             0L
         )
         val base = timetable("tt", "s1", train.id, "A", "B")
@@ -796,7 +796,7 @@ class TimetableDispatcherTest {
         ))
         val lineId = LineId("reverse-line")
         world.simpleAtoWorldData.lines.put(Line(
-            lineId, "Reverse line", listOf(originStation, terminalStation),
+            lineId, listOf(originStation, terminalStation),
             listOf(terminalStation, originStation)
         ), 0L)
         val segment = TimetableRunSegment("152P", lineId, 2, 4, calls = listOf(

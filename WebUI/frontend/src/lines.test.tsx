@@ -18,7 +18,7 @@ describe('line editor', () => {
             { stationId: 'harbor', stationName: 'Harbor', berthId: '1', destinationId: 'harbor@1' },
           ] }}
           collection={{ revision: 0, lines: [{
-            id:'line-1',displayName:'Line 1',color:'#1677ff',
+            id:'line-1',metadata:{name:'Line 1'},color:'#1677ff',
             upStationIds:['central','harbor'],downStationIds:['harbor','central'],
           }] }}
           onCollection={() => undefined}

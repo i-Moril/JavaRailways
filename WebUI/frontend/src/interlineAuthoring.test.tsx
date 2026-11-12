@@ -7,7 +7,7 @@ import {deleteRunFromDocument,editRunConnection,generateTimetableSource as gener
 import {createDocumentHistory,updateDocumentHistory,undoDocumentHistory,redoDocumentHistory} from './documentHistory';
 import {displayValuesError,validateStationProgram} from './stationPrograms';
 import type {SavedTimetableV1,TimetableServiceV1} from './types';
-const infrastructureLines=[{"id": "main", "displayName": "main", "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 20}, {"id": "branch", "displayName": "branch", "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 10}];
+const infrastructureLines=[{"id": "main", metadata:{name:"main"}, "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 20}, {"id": "branch", metadata:{name:"branch"}, "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 10}];
 const generateTimetableSource=(document:TimetableAuthoringDocumentV1,programs=[] as import('./types').StationProgramRecord[])=>generateWithLines(document,infrastructureLines,programs);
 const validateAuthoringDocument=(document:TimetableAuthoringDocumentV1,programs=[] as import('./types').StationProgramRecord[])=>validateWithLines(document,infrastructureLines,programs);
 const document=():TimetableAuthoringDocumentV1=>({formatVersion:1,id:'through',periodDays:1,minimumDwellTicks:20,arrivalOverrides:[],initialPositions:[],diagramLines:[{id:'main',upStationIds:['A','B','C','D'],downStationIds:['D','C','B','A']},{id:'branch',upStationIds:['C','E'],downStationIds:['E','C']}],runs:[

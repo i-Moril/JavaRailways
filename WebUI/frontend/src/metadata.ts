@@ -1,3 +1,4 @@
+import type { Locale } from './i18n';
 import type { MetadataObject } from './types';
 
 export type MetadataParseResult = {value:MetadataObject;error?:undefined} | {value?:undefined;error:'invalidJson'|'objectRequired'|'finiteNumbers';detail?:string};
@@ -17,4 +18,17 @@ export function metadataValueResult(value:unknown):MetadataParseResult {
     if(current&&typeof current==='object')for(const child of Object.values(current))pending.push(child);
   }
   return {value:value as MetadataObject};
+}
+
+export function localizedNameLabel(id:string,name:unknown,locale:Locale):string {
+  if(typeof name==='string' && name.trim()) return name;
+  if(name && typeof name==='object' && !Array.isArray(name)) {
+    const translations=name as Record<string,unknown>;
+    const keys=locale==='zh-CN' ? ['zh','en'] : ['en','zh'];
+    for(const key of keys) {
+      const text=translations[key];
+      if(typeof text==='string' && text.trim()) return text;
+    }
+  }
+  return id;
 }

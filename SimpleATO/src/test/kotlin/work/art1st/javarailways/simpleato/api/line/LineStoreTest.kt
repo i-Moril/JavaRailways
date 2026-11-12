@@ -8,7 +8,6 @@ import work.art1st.javarailways.simpleato.api.station.StationId
 class LineStoreTest {
     private fun line(id: String = "L1", maximumSpeed: Double? = null) = Line(
         LineId(id),
-        "Line $id",
         listOf(StationId("A"), StationId("B")),
         listOf(StationId("B"), StationId("A")),
         "#56c5ff",
@@ -38,7 +37,7 @@ class LineStoreTest {
     @Test
     fun `line keeps independent directional station patterns`() {
         val line = Line(
-            LineId("L1"), "Line",
+            LineId("L1"),
             listOf(StationId("A"), StationId("B"), StationId("C")),
             listOf(StationId("C"), StationId("X"), StationId("A")),
             "#56c5ff"
@@ -51,7 +50,7 @@ class LineStoreTest {
     fun `line requires unique ordered stations`() {
         assertThrows(IllegalArgumentException::class.java) {
             Line(
-                LineId("L1"), "Line",
+                LineId("L1"),
                 listOf(StationId("A"), StationId("A")),
                 listOf(StationId("A"), StationId("A"))
             )

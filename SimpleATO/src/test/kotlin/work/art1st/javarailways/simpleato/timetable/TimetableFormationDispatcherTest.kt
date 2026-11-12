@@ -794,7 +794,7 @@ class TimetableFormationDispatcherTest {
                 val stations = listOf(work.art1st.javarailways.simpleato.api.station.StationId("a"),
                     work.art1st.javarailways.simpleato.api.station.StationId("b"))
                 for (id in listOf(slow, fast)) world.simpleAtoWorldData.lines.put(
-                    work.art1st.javarailways.simpleato.api.line.Line(id, id.value, stations, stations.reversed()),
+                    work.art1st.javarailways.simpleato.api.line.Line(id, stations, stations.reversed()),
                     world.simpleAtoWorldData.lines.snapshot().revision)
             }
             val configuredDuties = if (!separateDutyCaps) duties else duties.map {

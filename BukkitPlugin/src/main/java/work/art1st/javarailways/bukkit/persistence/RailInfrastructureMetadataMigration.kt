@@ -46,6 +46,14 @@ object RailInfrastructureMetadataMigration {
         prettyPrint = true
     }
 
+    private fun migrateLine(line: JsonObject): SavedLineV1 {
+        val name = line.getValue("displayName").jsonPrimitive
+        val metadata = line["metadata"]?.jsonObject ?: JsonObject(emptyMap())
+        val updatedMetadata = if ("name" in metadata) metadata else JsonObject(metadata + ("name" to name))
+        val current = JsonObject(line - "displayName" + ("metadata" to updatedMetadata))
+        return json.decodeFromJsonElement<SavedLineV1>(current)
+    }
+
     fun migrate(source: String): Result {
         val outer = json.decodeFromString<LegacyInfrastructureFileV1>(source)
         require(outer.formatVersion == LegacyInfrastructureFileV1.FORMAT_VERSION) {
@@ -71,7 +79,7 @@ object RailInfrastructureMetadataMigration {
             formatVersion = SimpleATOInfrastructureSnapshotV1.CURRENT_FORMAT_VERSION,
             infrastructureRevision = outer.infrastructureRevision,
             destinations = basic.destinations,
-            lines = basic.lines,
+            lines = basic.lines.map(::migrateLine),
             lineRevision = basic.lineRevision
         )
         val target = InfrastructureFileV2(
@@ -187,7 +195,7 @@ private data class LegacyBasicInfrastructureSnapshotV1(
     val infrastructureRevision: Long,
     val destinations: List<SavedOperationalDestinationV1>,
     val wayPoints: List<SavedWayPointV1>,
-    val lines: List<SavedLineV1>,
+    val lines: List<JsonObject>,
     val lineRevision: Long,
     val railMetadata: List<LegacySavedRailInfrastructureMetadataV1> = emptyList()
 ) {

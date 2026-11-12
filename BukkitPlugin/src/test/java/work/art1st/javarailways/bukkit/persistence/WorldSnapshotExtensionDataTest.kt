@@ -40,7 +40,7 @@ class WorldSnapshotExtensionDataTest {
         val simpleAto = SimpleATOInfrastructureSnapshotCodec.decode("""
             {"formatVersion":1,"infrastructureRevision":7,
              "destinations":[{"id":"central","railId":"00000000-0000-0000-0000-000000000001","arcLengthInAbMeters":0.75}],
-             "lines":[{"id":"main","displayName":"Main","upStationIds":[],"downStationIds":[],"color":"#123456"}],
+             "lines":[{"id":"main","metadata":{"name":"Main"},"upStationIds":[],"downStationIds":[],"color":"#123456"}],
              "lineRevision":4}
         """.trimIndent())
         val world = createTestWorld()

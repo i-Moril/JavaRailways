@@ -89,7 +89,7 @@ describe('running graph styling',()=>{
     expect(paths[1]).toContain(`stroke="${graphServiceColor('dark','run-1',['run-0','run-1'])}"`);
   });
   it('uses the run color before line color, preserves fallback and preview styling',()=>{
-    const html=render({line:{id:'airport',displayName:'Airport',upStationIds:['harbour','airport'],downStationIds:[],color:'#123456'},serviceColors:new Map([['AP101','#abcdef']]),previewServiceIds:new Set(['AP101'])});
+    const html=render({line:{id:'airport',metadata:{name:'Airport'},upStationIds:['harbour','airport'],downStationIds:[],color:'#123456'},serviceColors:new Map([['AP101','#abcdef']]),previewServiceIds:new Set(['AP101'])});
     const paths=html.match(/<polyline[^>]*>/g)!;
     expect(paths[0]).toContain('stroke="#abcdef"');expect(paths[0]).toContain('stroke-dasharray="10 7"');
     expect(paths[1]).toContain('stroke="#123456"');expect(paths[1]).not.toContain('stroke-dasharray');

@@ -23,7 +23,7 @@ beforeEach(()=>{Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});contai
 afterEach(async()=>{await act(async()=>root.unmount());container.remove();});
 async function mount(focusedCallId?:string){
  const change=vi.fn();let document:AuthoringRunV1=initial;
- function Harness(){const [run,setRun]=useState(initial);return <I18nProvider><RunRouteEditor automaticColor={graphServiceColor('light','run-1',['run-0','run-1'])} fieldScope="world/document" focusedCallId={focusedCallId} run={run} lines={[{id:'L',displayName:'Line',upStationIds:['a','b'],downStationIds:['b','a']}]} metadata={metadata} busy={false} onError={()=>{}} onDelete={()=>{}} onChange={next=>{document=next;change(next);setRun(next);}}/></I18nProvider>;}
+ function Harness(){const [run,setRun]=useState(initial);return <I18nProvider><RunRouteEditor automaticColor={graphServiceColor('light','run-1',['run-0','run-1'])} fieldScope="world/document" focusedCallId={focusedCallId} run={run} lines={[{id:'L',metadata:{name:'Line'},upStationIds:['a','b'],downStationIds:['b','a']}]} metadata={metadata} busy={false} onError={()=>{}} onDelete={()=>{}} onChange={next=>{document=next;change(next);setRun(next);}}/></I18nProvider>;}
  await act(async()=>root.render(<Harness/>));
  return {change,current:()=>document};
 }

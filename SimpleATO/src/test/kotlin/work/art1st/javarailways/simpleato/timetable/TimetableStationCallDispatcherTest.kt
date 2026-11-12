@@ -100,7 +100,7 @@ class TimetableStationCallDispatcherTest {
             val lineId = work.art1st.javarailways.simpleato.api.line.LineId("progress-line")
             val stations = listOf(StationId("origin"),StationId("central"),StationId("end"))
             world.simpleAtoWorldData.lines.put(work.art1st.javarailways.simpleato.api.line.Line(
-                lineId,"Progress",stations,stations.reversed()),world.simpleAtoWorldData.lines.snapshot().revision)
+                lineId,stations,stations.reversed()),world.simpleAtoWorldData.lines.snapshot().revision)
             val table = checkNotNull(world.simpleAtoWorldData.timetables["tt"])
             val source = table.services.single()
             val steps = source.steps.dropLast(1) + TimetableStep.At(1_000L,TimetableAction.GoTo("end@one"))

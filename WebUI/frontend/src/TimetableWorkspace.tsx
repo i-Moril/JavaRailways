@@ -1,3 +1,4 @@
+import { localizedNameLabel } from './metadata';
 import { useState,type ReactNode } from 'react';
 import { Badge,Button,Flex,Input,Segmented,Select,Space,Tag,Tooltip,Typography } from 'antd';
 import { LeftOutlined,PlusOutlined,RightOutlined } from '@ant-design/icons';
@@ -51,7 +52,7 @@ export function TimetableWorkspace({
       <Tooltip title={t('editor.runLibraryShow')} placement="right"><Button type="text" icon={<RightOutlined/>} onClick={()=>setLeftCollapsed(false)}/></Tooltip>
       <span>{t('duties.runs')}</span>
     </aside>:<aside className="run-panel panel-surface">
-      <div className="line-scope"><Typography.Text type="secondary">{t('lines.current')}</Typography.Text><Select value={activeLineId||undefined} onChange={onLineChange} options={lines.map((item)=>({value:item.id,label:<Space><Badge color={item.color??'#1677ff'}/>{item.displayName}</Space>}))}/></div>
+      <div className="line-scope"><Typography.Text type="secondary">{t('lines.current')}</Typography.Text><Select value={activeLineId||undefined} onChange={onLineChange} options={lines.map((item)=>({value:item.id,label:<Space><Badge color={item.color??'#1677ff'}/>{localizedNameLabel(item.id,item.metadata?.name,locale)}</Space>}))}/></div>
       <Flex align="center" justify="space-between" className="panel-heading"><Typography.Title level={5}>{t('duties.runs')}</Typography.Title><Space size={0}><Button size="small" type="text" icon={<PlusOutlined/>} onClick={onAddRun}/><Tooltip title={t('editor.runLibraryHide')}><Button size="small" type="text" icon={<LeftOutlined/>} onClick={()=>setLeftCollapsed(true)}/></Tooltip></Space></Flex>
       <div className="run-filters"><Input.Search allowClear value={search} onChange={(event)=>onSearchChange(event.target.value)} placeholder={t('duties.searchRuns')}/><Segmented block size="small" value={direction} onChange={(value)=>onDirectionChange(value as LineDirection)} options={[{value:'UP',label:t('direction.UP')},{value:'DOWN',label:t('direction.DOWN')}]}/></div>
       <div className="run-list">{runs.map((run)=>{
@@ -62,9 +63,9 @@ export function TimetableWorkspace({
     </aside>}
 
     <main className="graph-panel panel-surface">
-      <Flex className="graph-header" justify="space-between" align="center"><div><Typography.Title level={5}>{t('editor.graph')}</Typography.Title><Space size={6}><Tag color={selected?runColor(selected.id):color}>{selected?.id??t('common.none')}</Tag><Typography.Text type="secondary">{line?.displayName}</Typography.Text></Space></div><Space><Typography.Text type="secondary">{graphPreviewActive?t('duties.shiftPreviewActive'):t('editor.graphPanHint')}</Typography.Text>{saveStatus??<Tag color={saved?'green':'gold'}>{saved?t('common.saved'):t('common.unsaved')}</Tag>}{graphActions}</Space></Flex>
+      <Flex className="graph-header" justify="space-between" align="center"><div><Typography.Title level={5}>{t('editor.graph')}</Typography.Title><Space size={6}><Tag color={selected?runColor(selected.id):color}>{selected?.id??t('common.none')}</Tag><Typography.Text type="secondary">{line&&localizedNameLabel(line.id,line.metadata?.name,locale)}</Typography.Text></Space></div><Space><Typography.Text type="secondary">{graphPreviewActive?t('duties.shiftPreviewActive'):t('editor.graphPanHint')}</Typography.Text>{saveStatus??<Tag color={saved?'green':'gold'}>{saved?t('common.saved'):t('common.unsaved')}</Tag>}{graphActions}</Space></Flex>
       <div className="studio-graph-canvas">{graph}</div>
-      <Flex className="graph-status" justify="space-between"><Badge color={color} text={line?.displayName??t('common.none')}/><Typography.Text type="secondary">{t('editor.graphAxisHint')}</Typography.Text></Flex>
+      <Flex className="graph-status" justify="space-between"><Badge color={color} text={line?localizedNameLabel(line.id,line.metadata?.name,locale):t('common.none')}/><Typography.Text type="secondary">{t('editor.graphAxisHint')}</Typography.Text></Flex>
     </main>
 
     {rightCollapsed?<aside className="collapsed-panel right panel-surface">

@@ -54,7 +54,7 @@ class LinePlannerTest {
             role = DestinationRole.StationBerthRole(StationId(id), "one", DoorSide.LEFT)))
         world.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("via1", rail.id, 40.0))
         world.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("via2", rail.id, 60.0))
-        val line = Line(LineId("L"), "Line", listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a")))
+        val line = Line(LineId("L"), listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a")))
         val planner = LinePlanner(world)
         fun compile(via: List<String>) = planner.compileResetCandidates(line, line.upStationIds, listOf("a@one", "b@one"),
             listOf(ViewDirection.AB), listOf(emptyList(), via), requireUniquePath = true, pruneNonTargetWaypoints = true)
@@ -97,7 +97,7 @@ class LinePlannerTest {
             arcLengthInAbMeters = goal.startAbMeters, approachDirection = goalDirection,
             role = DestinationRole.StationBerthRole(StationId("goal"), "one", DoorSide.LEFT)
         ))
-        val line = Line(LineId("fractional"), "Fractional",
+        val line = Line(LineId("fractional"),
             listOf(StationId("origin"), StationId("goal")),
             listOf(StationId("goal"), StationId("origin")))
 
@@ -131,7 +131,7 @@ class LinePlannerTest {
 
         val result = LinePlanner(world).compile(
             Line(
-                LineId("L1"), "Line 1",
+                LineId("L1"),
                 listOf(StationId("a"), StationId("b")),
                 listOf(StationId("b"), StationId("a"))
             )
@@ -144,13 +144,13 @@ class LinePlannerTest {
         assertEquals("b@one", result.legs.single().toDestinationId)
         assertTrue(LinePlanner(world).compile(
             Line(
-                LineId("L2"), "Wrong direction",
+                LineId("L2"),
                 listOf(StationId("a"), StationId("wrong")),
                 listOf(StationId("wrong"), StationId("a"))
             )
         ) is LineCompileResult.Failure)
         val directional = Line(
-            LineId("L3"), "Directional",
+            LineId("L3"),
             listOf(StationId("a"), StationId("b")),
             listOf(StationId("a"), StationId("wrong"))
         )
@@ -175,7 +175,7 @@ class LinePlannerTest {
         destinations.register(berth("b", "selected", 90.0))
         destinations.register(berth("a", "return", 10.0, ViewDirection.BA))
         val line = Line(
-            LineId("L-selected"), "Selected berths",
+            LineId("L-selected"),
             listOf(StationId("a"), StationId("b")),
             listOf(StationId("b"), StationId("a"))
         )
@@ -198,7 +198,7 @@ class LinePlannerTest {
         ) is LineCompileResult.Failure)
 
         val turnbackLine = Line(
-            LineId("L-turnback"), "Turnback",
+            LineId("L-turnback"),
             listOf(StationId("b"), StationId("a")),
             listOf(StationId("a"), StationId("b"))
         )

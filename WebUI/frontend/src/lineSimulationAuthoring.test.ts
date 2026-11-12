@@ -4,7 +4,7 @@ import {createDocumentHistory,updateDocumentHistory,undoDocumentHistory} from '.
 import {defaultStationStopProgram} from './stationPlans';
 import type {LineSimulationResult,LineV1} from './types';
 
-const lines:LineV1[]=[{id:'line',displayName:'Line',maximumSpeedMetersPerSecond:20,upStationIds:['a','b','c','d'],downStationIds:['d','c','b','a']}];
+const lines:LineV1[]=[{id:'line',metadata:{name:'Line'},maximumSpeedMetersPerSecond:20,upStationIds:['a','b','c','d'],downStationIds:['d','c','b','a']}];
 const document=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),id:'timetable',minimumDwellTicks:40,
   diagramLines:[{id:'diagram',upStationIds:['a','b','c','d'],downStationIds:['d','c','b','a']}],
   runs:[{id:'run',type:'PASSENGER',lineId:'line',diagramLineId:'diagram',lineDirection:'UP',originDepartureMode:'REVERSE',calls:[

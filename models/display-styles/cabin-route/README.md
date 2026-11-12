@@ -6,11 +6,11 @@ The fixed 800 × 200 canvas has a colored 336-pixel left information panel and a
 
 Metadata conventions:
 
-- Current run `metadata.line.{zh,en}` may override the line name; otherwise use current infrastructure line `metadata.name.{zh,en}`, then `displayName`.
+- Current run `metadata.line.{zh,en}` may override the line name; otherwise use current infrastructure line `metadata.name.{zh,en}`. If both are missing, the line name is blank.
 - Run `metadata.class.{zh,en}` supplies the translated class.
 - `operational.values.destination` is a string or `{zh,en}`. An explicitly authored value takes precedence (including empty string or null). When the key is absent, the host supplies the actual current run's terminal station name, using station `metadata.name` when available. It never takes the final stop of a later run in the operational trip.
 - Station names use `metadata.name` (a string or `{zh,en}`); an unnamed station has no text label. Optional `metadata.transfer.{zh,en}` supplies the left transfer caption.
-- Station `metadata.transfers` is an array of infrastructure line IDs. Each is looked up in `ctx.data.lines`; line `metadata.badge` is a string or `{zh,en}` (compact logo text), falling back to line name/ID. Line `metadata.themeColor` and `line.color` use `#RRGGBB`.
+- Station `metadata.transfers` is an array of infrastructure line IDs. Each is looked up in `ctx.data.lines`; line `metadata.badge` is a string or `{zh,en}` (compact logo text), falling back to line `metadata.name`, then the line ID. Line `metadata.themeColor` and `line.color` use `#RRGGBB`.
 - Localized objects fall back from the active language to Chinese, then English. Unknown values do not manufacture names or destinations.
 
 The route uses the full ordered `operational.stops`, authoritative `stationIndex` and `phase`; it never treats `completed` as physical departure. Up to two passed calls and eight total occurrences are shown, with no duplicate station-ID matching. Passed circles, labels and connections are gray; PASS calls have no center and gray labels. The next STOP/TERMINAL center alternates on/off every 10 source ticks by updating one stable span between the dot and empty text; it is not removed from the frame. Unknown/finished progress leaves the route blank. Short routes are centered. Omitted history/future produce continuation stubs; unresolved future also keeps a continuation stub without inventing calls. An at-station cursor remains current until the domain reports departure.

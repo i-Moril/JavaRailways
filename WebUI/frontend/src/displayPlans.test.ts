@@ -16,7 +16,7 @@ function document():TimetableAuthoringDocumentV1{return {
     {id:'2',selector:{type:'TRAIN_NAME',name:'other'},elements:[{id:'b',type:'RUN',runId:'2'}]},
   ],events:[{id:'event',tick:500}],stationPrograms:[],
 };}
-const lines=[{id:'main',displayName:'Main',upStationIds:['a','b'],downStationIds:['b','a'],maximumSpeedMetersPerSecond:20}];
+const lines=[{id:'main',metadata:{name:'Main'},upStationIds:['a','b'],downStationIds:['b','a'],maximumSpeedMetersPerSecond:20}];
 
 describe('timeline-owned continuous display plans',()=>{
   it('views existing IDs defaults and leg order without rewriting any document field',()=>{

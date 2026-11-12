@@ -65,6 +65,7 @@ class RailInfrastructureMetadataMigrationTest {
         assertFalse(migrated.file.simpleAtoSnapshotJson.contains("operatingDirections"))
         assertEquals(listOf("central"), simpleAto.destinations.map { it.id })
         assertEquals(listOf("main"), simpleAto.lines.map { it.id })
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("Main"), simpleAto.lines.single().metadata["name"])
         assertEquals(4L, simpleAto.lineRevision)
         assertFalse(migrated.file.basicSnapshotJson.contains("allowedDirection"))
     }

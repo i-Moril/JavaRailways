@@ -7,7 +7,7 @@ import {I18nProvider} from './i18n';
 import {generateTimetableSource,type AuthoringRunV1,type AuthoringRunCallV1,type TimetableAuthoringDocumentV1} from './authoring';
 
 vi.mock('./StationStopProgramEditor',()=>({StationStopProgramEditor:()=>null}));
-const line={id:'L',displayName:'Line',upStationIds:['a','b','c'],downStationIds:['c','b','a'],maximumSpeedMetersPerSecond:20};
+const line={id:'L',metadata:{name:'Line'},upStationIds:['a','b','c'],downStationIds:['c','b','a'],maximumSpeedMetersPerSecond:20};
 let container:HTMLDivElement,root:Root,run:AuthoringRunV1;
 const changed=vi.fn();
 async function render(){await act(async()=>root.render(<I18nProvider><RunRouteEditor automaticColor="#56c5ff" run={run} focusedCallId="b" lines={[line]} metadata={{stations:[{stationId:'b',berthId:'1',destinationId:'b@1'},{stationId:'b',berthId:'2',destinationId:'b@2'}]}} busy={false} onError={vi.fn()} onDelete={vi.fn()} onChange={(next,clearOverrides)=>{changed(next,clearOverrides);run=next;}}/></I18nProvider>));}

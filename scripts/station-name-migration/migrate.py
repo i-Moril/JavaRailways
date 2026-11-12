@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert one extracted JavaRailways infrastructure snapshot into a new file."""
+"""Move station and line names to metadata in an extracted infrastructure snapshot."""
 
 import argparse
 import gzip
@@ -15,12 +15,43 @@ def by_key(text, offset):
     return {entry[0]: entry for entry in members(text, offset)}
 
 
-def has_station_name(name):
+def has_name(name):
     if isinstance(name, str):
         return bool(name.strip())
     return isinstance(name, dict) and any(
         isinstance(name.get(language), str) and name[language].strip() for language in ("zh", "en")
     )
+
+
+
+def array_entries(text, array_start, records):
+    offset = skip_space(text, array_start + 1)
+    for record in records:
+        yield record, members(text, offset)
+        _, offset = DECODER.raw_decode(text, offset)
+        offset = skip_space(text, offset)
+        if text[offset] == ",":
+            offset = skip_space(text, offset + 1)
+
+
+def delete_member(entries, index):
+    _, begin, _, end = entries[index]
+    if index + 1 < len(entries):
+        end = entries[index + 1][1]
+    elif index:
+        begin = entries[index - 1][3]
+    return begin, end, ""
+
+
+def set_name(text, offset, name):
+    fields = by_key(text, offset)
+    serialized = json.dumps(name, ensure_ascii=False)
+    if "name" in fields:
+        _, _, begin, end = fields["name"]
+        return begin, end, serialized
+    position = offset + 1
+    separator = ", " if fields else ""
+    return position, position, '"name": ' + serialized + separator
 
 
 def convert(raw):
@@ -36,32 +67,45 @@ def convert(raw):
     old_names = {}
     edits = []
     fields = by_key(nested, skip_space(nested, 0))
-    offset = skip_space(nested, fields["destinations"][2] + 1)
-    for destination in snapshot["destinations"]:
-        entries = members(nested, offset)
-        for i, (key, begin, _, end) in enumerate(entries):
+    destinations = snapshot["destinations"]
+    for destination, entries in array_entries(nested, fields["destinations"][2], destinations):
+        for index, (key, _, _, _) in enumerate(entries):
             if key != "stationDisplayName":
                 continue
-            if i + 1 < len(entries):
-                end = entries[i + 1][1]
-            elif i:
-                begin = entries[i - 1][3]
-            edits.append((begin, end, ""))
+            edits.append(delete_member(entries, index))
             station = destination.get("stationId")
-            old_name = destination[key]
+            old_name = destination.pop(key)
             if destination["roleType"] == "STATION_BERTH" and old_name and old_name != station:
                 old_names.setdefault(station, set()).add(old_name)
-        _, offset = DECODER.raw_decode(nested, offset)
-        offset = skip_space(nested, offset)
-        if nested[offset] == ",":
-            offset = skip_space(nested, offset + 1)
 
+    removed = len(edits)
+    line_names_moved = 0
+    for line, entries in array_entries(nested, fields["lines"][2], snapshot["lines"]):
+        line_fields = {entry[0]: entry for entry in entries}
+        for index, (key, _, _, _) in enumerate(entries):
+            if key != "displayName":
+                continue
+            edits.append(delete_member(entries, index))
+            removed += 1
+            old_name = line.pop(key)
+            line_metadata = line.setdefault("metadata", {})
+            if has_name(line_metadata.get("name")):
+                break
+            if "metadata" in line_fields:
+                edits.append(set_name(nested, line_fields["metadata"][2], old_name))
+            else:
+                # Insert before the closing brace, after the deletion range.
+                position = skip_space(nested, entries[-1][3])
+                addition = json.dumps({"name": old_name}, ensure_ascii=False)
+                edits.append((position, position, ', "metadata": ' + addition))
+            line_metadata["name"] = old_name
+            line_names_moved += 1
+            break
     if not edits:
         return raw, 0, 0
-    removed = len(edits)
     promoted = {}
     for station, names in old_names.items():
-        if has_station_name(metadata.get(station, {}).get("name")):
+        if has_name(metadata.get(station, {}).get("name")):
             continue
         if len(names) != 1:
             raise ValueError(f"Conflicting legacy names for {station!r}: {sorted(names)!r}; set metadata.name first")
@@ -79,16 +123,7 @@ def convert(raw):
             if station not in records:
                 new_records[station] = {"name": name}
                 continue
-            object_offset = records[station][2]
-            station_fields = by_key(nested, object_offset)
-            serialized_name = json.dumps(name, ensure_ascii=False)
-            if "name" in station_fields:
-                _, _, begin, end = station_fields["name"]
-                edits.append((begin, end, serialized_name))
-            else:
-                position = object_offset + 1
-                separator = ", " if station_fields else ""
-                edits.append((position, position, '"name": ' + serialized_name + separator))
+            edits.append(set_name(nested, records[station][2], name))
         if new_records:
             position = metadata_offset + 1
             separator = ", " if records else ""
@@ -98,15 +133,13 @@ def convert(raw):
     for begin, end, replacement in sorted(edits, reverse=True):
         nested = nested[:begin] + replacement + nested[end:]
     converted = DECODER.decode(nested)
-    for destination in snapshot["destinations"]:
-        destination.pop("stationDisplayName", None)
     for station, name in promoted.items():
         snapshot.setdefault("stationMetadata", {}).setdefault(station, {})["name"] = name
     if converted != snapshot:
         raise ValueError("Conversion changed unrelated SimpleATO data")
     _, _, begin, end = by_key(text, skip_space(text, 0))["simpleAtoSnapshotJson"]
     result = (text[:begin] + json.dumps(nested, ensure_ascii=False) + text[end:]).encode("utf-8")
-    return (gzip.compress(result, mtime=0) if compressed else result), removed, len(promoted)
+    return (gzip.compress(result, mtime=0) if compressed else result), removed, len(promoted) + line_names_moved
 
 
 def main():
@@ -118,7 +151,7 @@ def main():
     if args.output:
         with args.output.open("xb") as stream:
             stream.write(candidate)
-    print(f"{args.source.name}: {removed} snapshot fields removed, {promoted} names moved to station metadata")
+    print(f"{args.source.name}: {removed} snapshot fields removed, {promoted} names moved to metadata")
 
 
 if __name__ == "__main__":

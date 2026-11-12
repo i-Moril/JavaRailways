@@ -210,13 +210,14 @@ function render(ctx) {
 
 The authenticated WebUI Stations page edits that JSON directly, once per world/station rather than per berth. Fields such as `transfers` are author conventions; custom fields remain intact. Metadata is never executed. Saves update the live station; existing periodic and normal shutdown world saves persist it in the SimpleATO infrastructure snapshot. Screens capture changes on the next regular input sample (at most 10 simulation ticks under normal ticking), without rebuilding the model. Whole-template input limits still apply when many stop metadata objects are included. JSON data retains its numeric text in persistence; use strings for identifiers or integers that require precision beyond JavaScript's safe integer range.
 
-Lines are indexed by their actual infrastructure line ID in `ctx.data.lines`, including lines referenced only by transfer information. The index belongs to the current world and contains `{id, displayName, metadata, color?}` records. It is captured on the simulation owner with the regular input sample, and missing IDs have no record:
+Lines are indexed by their actual infrastructure line ID in `ctx.data.lines`, including lines referenced only by transfer information. The index belongs to the current world and contains `{id, metadata, color?}` records. It is captured on the simulation owner with the regular input sample, and missing IDs have no record:
 
 ```js
 const transferLine = ctx.data.lines["metro_2"];
-const transferName = transferLine
-  ? (transferLine.metadata.nameEn || transferLine.displayName)
-  : "";
+const name = transferLine?.metadata.name;
+const transferName = typeof name === "string"
+  ? name
+  : name?.en || name?.zh || transferLine?.id || "";
 const currentRun = ctx.data.operational && ctx.data.operational.currentRun;
 const runNotice = currentRun ? currentRun.metadata.notice : null;
 ```

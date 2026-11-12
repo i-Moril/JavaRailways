@@ -240,7 +240,6 @@ class SimpleATOInfrastructureSnapshotTest {
 
     private fun line() = Line(
         LineId("metro"),
-        "Metro",
         listOf(StationId("central"), StationId("south")),
         listOf(StationId("south"), StationId("central"))
     )

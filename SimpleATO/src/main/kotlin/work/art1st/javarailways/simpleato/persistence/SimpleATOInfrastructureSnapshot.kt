@@ -96,7 +96,6 @@ data class SavedOperationalDestinationV1(
 @Serializable
 data class SavedLineV1(
     val id: String,
-    val displayName: String,
     val upStationIds: List<String>,
     val downStationIds: List<String>,
     val color: String? = null,
@@ -105,7 +104,6 @@ data class SavedLineV1(
 ) {
     fun restore(): Line = Line(
         LineId(id),
-        displayName,
         upStationIds.map(::StationId),
         downStationIds.map(::StationId),
         color,
@@ -116,7 +114,6 @@ data class SavedLineV1(
     companion object {
         fun capture(value: Line): SavedLineV1 = SavedLineV1(
             id = value.id.value,
-            displayName = value.displayName,
             upStationIds = value.upStationIds.map { it.value },
             downStationIds = value.downStationIds.map { it.value },
             color = value.color,

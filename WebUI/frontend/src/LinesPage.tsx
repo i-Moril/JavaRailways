@@ -1,16 +1,15 @@
-import { stationNameLabel } from './stationMetadata';
 import { useEffect,useMemo,useRef,useState } from 'react';
 import { Button,Flex,Input,Select,Space,Typography } from 'antd';
 import { DeleteOutlined,DownOutlined,PlusOutlined,RightOutlined,SaveOutlined,UpOutlined } from '@ant-design/icons';
 import { CommittedNumberInput } from './CommittedNumberInput';
 import { MetadataJsonEditor } from './MetadataJsonEditor';
-import { parseMetadata } from './metadata';
+import { localizedNameLabel,parseMetadata } from './metadata';
 import { api } from './api';
 import { DocumentAutosave,type AutosaveState } from './documentAutosave';
 import { useI18n } from './i18n';
 import type { LineCollection,LineDirection,LineV1,WorldMetadata } from './types';
 
-const blankLine=(index:number):LineV1=>({id:`line-${index}`,displayName:`Line ${index}`,upStationIds:[],downStationIds:[],color:'#1677ff',metadata:{}});
+const blankLine=(index:number):LineV1=>({id:`line-${index}`,upStationIds:[],downStationIds:[],color:'#1677ff',metadata:{name:`Line ${index}`}});
 const cloneLine=(line:LineV1):LineV1=>({...line,upStationIds:[...line.upStationIds],downStationIds:[...line.downStationIds]});
 const move=<T,>(items:T[],from:number,to:number):T[]=>{const copy=[...items];const [item]=copy.splice(from,1);copy.splice(to,0,item);return copy;};
 
@@ -35,7 +34,7 @@ function LineEditor({world,metadata,collection,onCollection,run}:LinesPageProps)
   if(collection.revision>=collectionRef.current.revision)collectionRef.current=collection;
   const onCollectionRef=useRef(onCollection);onCollectionRef.current=onCollection;
   const editorRef=useRef({editing,baseline,selectedId,editingEpoch,valid:false,metadataValid});
-  const valid=Boolean(metadataValid&&lineCapValid&&editing.id.trim()&&editing.displayName.trim()&&editing.upStationIds.length>=2&&editing.downStationIds.length>=2);
+  const valid=Boolean(metadataValid&&lineCapValid&&editing.id.trim()&&editing.upStationIds.length>=2&&editing.downStationIds.length>=2);
   editorRef.current={editing,baseline,selectedId,editingEpoch,valid,metadataValid};
   const autosave=useRef<DocumentAutosave<LineV1>|undefined>(undefined);
   const commandPending=useRef(false);
@@ -68,7 +67,7 @@ function LineEditor({world,metadata,collection,onCollection,run}:LinesPageProps)
   },[world]);
   useEffect(()=>{syncAutosave();},[editing,baseline,selectedId,editingEpoch,valid]);
   const stations=useMemo(()=>Array.from(new Map((metadata.stations??[]).map((station)=>[station.stationId,station])).values()),[metadata.stations]);
-  const stationName=(stationId:string)=>stationNameLabel(stationId,stations.find((station)=>station.stationId===stationId)?.stationName,locale);
+  const stationName=(stationId:string)=>localizedNameLabel(stationId,stations.find((station)=>station.stationId===stationId)?.stationName,locale);
   const replaceEditing=(line:LineV1,isNew=false)=>{
     const value=cloneLine(line),nextBaseline=JSON.stringify(value),epoch=editorRef.current.editingEpoch+1;
     editorRef.current={editing:value,baseline:nextBaseline,selectedId:isNew?'':line.id,editingEpoch:epoch,valid:false,metadataValid:true};
@@ -109,14 +108,15 @@ function LineEditor({world,metadata,collection,onCollection,run}:LinesPageProps)
   return <section className="module-page lines-module">
     <div className="page-heading"><div><Typography.Title level={3}>{t('lines.title')}</Typography.Title><Typography.Text type="secondary">{t('lines.description')}</Typography.Text></div><Button type="primary" icon={<PlusOutlined/>} disabled={switching} onClick={create}>{t('lines.new')}</Button></div>
     <div className="line-admin-grid">
-      <aside className="entity-list panel-surface">{collection.lines.map((line)=><button className={`entity-card ${selectedId===line.id?'active':''}`} key={line.id} disabled={switching} onClick={()=>select(line)}><i style={{background:line.color??'#1677ff'}}/><span><b>{line.displayName}</b><small>{line.upStationIds.length} {t('lines.upStations')} · {line.downStationIds.length} {t('lines.downStations')}</small></span><RightOutlined/></button>)}{!collection.lines.length&&!creating&&<p className="empty">{t('lines.empty')}</p>}</aside>
+      <aside className="entity-list panel-surface">{collection.lines.map((line)=><button className={`entity-card ${selectedId===line.id?'active':''}`} key={line.id} disabled={switching} onClick={()=>select(line)}><i style={{background:line.color??'#1677ff'}}/><span><b>{localizedNameLabel(line.id,line.metadata?.name,locale)}</b><small>{line.upStationIds.length} {t('lines.upStations')} · {line.downStationIds.length} {t('lines.downStations')}</small></span><RightOutlined/></button>)}{!collection.lines.length&&!creating&&<p className="empty">{t('lines.empty')}</p>}</aside>
       <article className="line-detail panel-surface">
-        <div className="detail-heading"><Space><span className="large-line-dot" style={{background:editing.color??'#1677ff'}}/><div><Typography.Title level={4}>{editing.displayName||t('lines.new')}</Typography.Title><Typography.Text type="secondary">{editing.id||'—'}</Typography.Text></div></Space><Space><Typography.Text role="status" type={saveState.status==='failed'?'danger':'secondary'} title={saveState.error}>{saveLabel}{saveState.error?`: ${saveState.error}`:''}</Typography.Text><Button danger icon={<DeleteOutlined/>} disabled={!selectedId||switching} onClick={()=>void remove()}>{t('common.delete')}</Button><Button type="primary" icon={<SaveOutlined/>} disabled={!valid||switching} onClick={()=>void save()}>{t(saveState.status==='failed'?'common.retrySave':'common.save')}</Button></Space></div>
-        <div className="line-properties"><label>{t('ui.lineCap')}<CommittedNumberInput fieldKey={`${world}/${selectedId}/${editingEpoch}/line-cap`} aria-label={t('ui.lineCap')} onValidityChange={setLineCapValid} min={Number.MIN_VALUE} value={editing.maximumSpeedMetersPerSecond==null?null:editing.maximumSpeedMetersPerSecond*3.6} onCommit={(kmh)=>{const speed=kmh==null?null:kmh/3.6;if(speed!=null&&(!Number.isFinite(speed)||speed<=0))throw new Error(t('ui.lineCapInvalid'));setEditing((current)=>({...current,maximumSpeedMetersPerSecond:speed}));}} addonAfter="km/h"/></label><label>{t('lines.name')}<Input value={editing.displayName} onChange={(event)=>setEditing({...editing,displayName:event.target.value})}/></label><label>{t('lines.id')}<Input value={editing.id} disabled={Boolean(selectedId)||saveState.status==='saving'} onChange={(event)=>setEditing({...editing,id:event.target.value})}/></label><label>{t('lines.color')}<Input type="color" value={editing.color??'#1677ff'} onChange={(event)=>setEditing({...editing,color:event.target.value})}/></label></div>
+        <div className="detail-heading"><Space><span className="large-line-dot" style={{background:editing.color??'#1677ff'}}/><div><Typography.Title level={4}>{localizedNameLabel(editing.id,editing.metadata?.name,locale)||t('lines.new')}</Typography.Title><Typography.Text type="secondary">{editing.id||'—'}</Typography.Text></div></Space><Space><Typography.Text role="status" type={saveState.status==='failed'?'danger':'secondary'} title={saveState.error}>{saveLabel}{saveState.error?`: ${saveState.error}`:''}</Typography.Text><Button danger icon={<DeleteOutlined/>} disabled={!selectedId||switching} onClick={()=>void remove()}>{t('common.delete')}</Button><Button type="primary" icon={<SaveOutlined/>} disabled={!valid||switching} onClick={()=>void save()}>{t(saveState.status==='failed'?'common.retrySave':'common.save')}</Button></Space></div>
+        <div className="line-properties"><label>{t('ui.lineCap')}<CommittedNumberInput fieldKey={`${world}/${selectedId}/${editingEpoch}/line-cap`} aria-label={t('ui.lineCap')} onValidityChange={setLineCapValid} min={Number.MIN_VALUE} value={editing.maximumSpeedMetersPerSecond==null?null:editing.maximumSpeedMetersPerSecond*3.6} onCommit={(kmh)=>{const speed=kmh==null?null:kmh/3.6;if(speed!=null&&(!Number.isFinite(speed)||speed<=0))throw new Error(t('ui.lineCapInvalid'));setEditing((current)=>({...current,maximumSpeedMetersPerSecond:speed}));}} addonAfter="km/h"/></label><label>{t('lines.id')}<Input value={editing.id} disabled={Boolean(selectedId)||saveState.status==='saving'} onChange={(event)=>setEditing({...editing,id:event.target.value})}/></label><label>{t('lines.color')}<Input type="color" value={editing.color??'#1677ff'} onChange={(event)=>setEditing({...editing,color:event.target.value})}/></label></div>
+        <Typography.Text type="secondary">{t('lines.metadataName')}</Typography.Text>
         <MetadataJsonEditor draft={metadataDraft} disabled={switching} onChange={(draft)=>{setMetadataDraft(draft);const parsed=parseMetadata(draft);if(!parsed.error)setEditing((current)=>({...current,metadata:parsed.value}));}}/>
         <div className="direction-sequences">{(['UP','DOWN'] as const).map((direction)=>{
           const values=direction==='UP'?editing.upStationIds:editing.downStationIds;
-          return <section className="direction-sequence" key={direction}><Flex className="sequence-heading" align="center" justify="space-between"><div><Typography.Title level={5}>{t(`direction.${direction}`)}</Typography.Title><Typography.Text type="secondary">{values.length} {t('lines.stations')}</Typography.Text></div><Select value={undefined} placeholder={`+ ${t('lines.addStation')}`} onChange={(stationId)=>{if(stationId)updateStations(direction,[...values,stationId]);}} options={stations.filter((station)=>!values.includes(station.stationId)).map((station)=>({value:station.stationId,label:stationNameLabel(station.stationId,station.stationName,locale)}))}/></Flex>
+          return <section className="direction-sequence" key={direction}><Flex className="sequence-heading" align="center" justify="space-between"><div><Typography.Title level={5}>{t(`direction.${direction}`)}</Typography.Title><Typography.Text type="secondary">{values.length} {t('lines.stations')}</Typography.Text></div><Select value={undefined} placeholder={`+ ${t('lines.addStation')}`} onChange={(stationId)=>{if(stationId)updateStations(direction,[...values,stationId]);}} options={stations.filter((station)=>!values.includes(station.stationId)).map((station)=>({value:station.stationId,label:localizedNameLabel(station.stationId,station.stationName,locale)}))}/></Flex>
             <div className="station-sequence">{values.map((stationId,index)=><div className="sequence-row" key={stationId}><span className="sequence-index">{index+1}</span><span className="sequence-track" style={{background:editing.color??'#1677ff'}}/><div><b>{stationName(stationId)}</b><small>{stationId}</small></div><Space size={0}><Button type="text" size="small" icon={<UpOutlined/>} disabled={index===0} onClick={()=>updateStations(direction,move(values,index,index-1))}/><Button type="text" size="small" icon={<DownOutlined/>} disabled={index===values.length-1} onClick={()=>updateStations(direction,move(values,index,index+1))}/><Button type="text" danger size="small" icon={<DeleteOutlined/>} onClick={()=>updateStations(direction,values.filter((id)=>id!==stationId))}/></Space></div>)}</div>
           </section>;
         })}</div>

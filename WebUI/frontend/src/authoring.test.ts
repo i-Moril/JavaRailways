@@ -7,7 +7,7 @@ import {createDocumentHistory,redoDocumentHistory,undoDocumentHistory,updateDocu
 import {layoutGraph} from './graph';
 import type { LineSimulationResult,LineV1,StationProgramRecord,WorldMetadata } from './types';
 
-const infrastructureLines=[{"id": "line-1", "displayName": "line-1", "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 20}];
+const infrastructureLines=[{"id": "line-1", metadata:{name:"line-1"}, "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 20}];
 const generateTimetableSource=(document:TimetableAuthoringDocumentV1)=>generateWithLines(document,infrastructureLines);
 const validateAuthoringDocument=(document:TimetableAuthoringDocumentV1)=>validateWithLines(document,infrastructureLines);
 const metadata:WorldMetadata={stations:[
@@ -16,7 +16,7 @@ const metadata:WorldMetadata={stations:[
   {stationId:'c',berthId:'1',destinationId:'c@1'},
   {stationId:'d',berthId:'1',destinationId:'d@1'},
 ]};
-const line:LineV1={id:'line-1',displayName:'Line 1',upStationIds:['a','b','c','d'],downStationIds:['d','c','b','a']};
+const line:LineV1={id:'line-1',metadata:{name:'Line 1'},upStationIds:['a','b','c','d'],downStationIds:['d','c','b','a']};
 
 const valid=():TimetableAuthoringDocumentV1=>({
   formatVersion:1,id:'l1',periodDays:1,

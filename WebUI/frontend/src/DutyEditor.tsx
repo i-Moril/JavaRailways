@@ -1,4 +1,4 @@
-import { stationNameLabel } from './stationMetadata';
+import { localizedNameLabel } from './metadata';
 import { parseMetadata } from './metadata';
 import {DEFAULT_SIMULATION_TIMEOUT_MILLIS,validSimulationTimeout} from './SimulationTimeoutInput';
 import {SimulationSetupDialog} from './SimulationSetupDialog';
@@ -207,7 +207,7 @@ export function DutyEditor({programLibraryRevision=0,world,recoveryOwner,lines,m
     if(message==='Unknown run'||message==='Unknown graph point'||message==='Unknown shift mode')return t('ui.shiftChanged');
     return message;
   };
-  const stationNames=useMemo(()=>new Map((metadata.stations??[]).map((station)=>[station.stationId,stationNameLabel(station.stationId,station.stationName,locale)])),[metadata.stations,locale]);
+  const stationNames=useMemo(()=>new Map((metadata.stations??[]).map((station)=>[station.stationId,localizedNameLabel(station.stationId,station.stationName,locale)])),[metadata.stations,locale]);
   const pointRun=effectiveRuns.find((run)=>run.id===selectedPoint?.runId);
   const pointRouteSignature=JSON.stringify(pointRun?.calls.map((call)=>[call.id,call.status]));
   const pointSelectionValid=Boolean(selectedPoint&&selectedPoint.routeSignature===pointRouteSignature);

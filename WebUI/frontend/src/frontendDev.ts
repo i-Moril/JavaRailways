@@ -14,9 +14,9 @@ const clone=<T,>(value:T):T=>JSON.parse(JSON.stringify(value)) as T;
 const now=()=>new Date().toISOString();
 
 const lineSeed:LineV1[]=[
-  {id:'airport-line',maximumSpeedMetersPerSecond:27.78,displayName:'Airport Line',color:'#1677ff',upStationIds:['harbour','old-town','central','university','airport-t2'],downStationIds:['airport-t2','university','central','old-town','harbour']},
-  {id:'coastal-line',displayName:'Coastal Line',color:'#13a8a8',upStationIds:['marina','museum','central','cliff-gardens','north-port'],downStationIds:['north-port','cliff-gardens','central','museum','marina']},
-  {id:'university-link',displayName:'University Link',color:'#722ed1',upStationIds:['old-town','market','university'],downStationIds:['university','market','old-town']},
+  {id:'airport-line',maximumSpeedMetersPerSecond:27.78,metadata:{name:'Airport Line'},color:'#1677ff',upStationIds:['harbour','old-town','central','university','airport-t2'],downStationIds:['airport-t2','university','central','old-town','harbour']},
+  {id:'coastal-line',metadata:{name:'Coastal Line'},color:'#13a8a8',upStationIds:['marina','museum','central','cliff-gardens','north-port'],downStationIds:['north-port','cliff-gardens','central','museum','marina']},
+  {id:'university-link',metadata:{name:'University Link'},color:'#722ed1',upStationIds:['old-town','market','university'],downStationIds:['university','market','old-town']},
 ];
 const stationIds=[...new Set(lineSeed.flatMap((line)=>[...line.upStationIds,...line.downStationIds]))];
 const displayName=(id:string)=>id.split('-').map((part)=>part[0].toUpperCase()+part.slice(1)).join(' ');

@@ -50,7 +50,7 @@ describe('visible authoring IDs',()=>{
   it('creates a numeric run and duty without renaming saved custom IDs',()=>{
     const document={...emptyAuthoringDocument(),runs:[run('custom-run')],duties:[duty('custom-duty')]};
     const [runId]=allocateAuthoringIds(document,'RUN'),[dutyId]=allocateAuthoringIds(document,'DUTY');
-    const created=createRunFromLine(runId,{id:'line',displayName:'Line',upStationIds:['a','b'],downStationIds:['b','a']},'UP',{stations:[]},(station)=>`call-${station}`);
+    const created=createRunFromLine(runId,{id:'line',metadata:{name:'Line'},upStationIds:['a','b'],downStationIds:['b','a']},'UP',{stations:[]},(station)=>`call-${station}`);
     const next={...document,runs:[...document.runs,created],duties:[...document.duties,duty(dutyId)]};
     expect(next.runs.map((entry)=>entry.id)).toEqual(['custom-run','1']);
     expect(next.duties.map((entry)=>entry.id)).toEqual(['custom-duty','1']);

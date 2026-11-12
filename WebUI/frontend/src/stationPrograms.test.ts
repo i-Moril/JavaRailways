@@ -5,7 +5,7 @@ import {findProgramStep,stationProgramSchedule,programJsonObjectError,validateSt
 import {emptyAuthoringDocument,generateTimetableSource as generateWithLines,validateAuthoringDocument as validateWithLines,type TimetableAuthoringDocumentV1} from './authoring';
 import {parseAuthoringRecovery} from './authoringRecovery';
 import type {StationProgramDefinition,StationProgramRecord} from './types';
-const infrastructureLines=[{"id": "line", "displayName": "line", "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 20}];
+const infrastructureLines=[{"id": "line", metadata:{name:"line"}, "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 20}];
 const generateTimetableSource=(document:TimetableAuthoringDocumentV1,programs:StationProgramRecord[]=[])=>generateWithLines(document,infrastructureLines,programs);
 const validateAuthoringDocument=(document:TimetableAuthoringDocumentV1,programs:StationProgramRecord[]=[])=>validateWithLines(document,infrastructureLines,programs);
 const definition:StationProgramDefinition={parameters:[{id:'target',type:'STRING'}],steps:[{id:'reverse',type:'REVERSE'},{id:'move',type:'MOVE',destinationId:{parameterId:'target'},viaIds:{value:[]}}]};

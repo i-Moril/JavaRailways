@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
 class SavedLineMaximumSpeedTest {
-    private val fixture = """{"id":"metro","displayName":"Metro","upStationIds":["a","b"],"downStationIds":["b","a"]}"""
+    private val fixture = """{"id":"metro","upStationIds":["a","b"],"downStationIds":["b","a"]}"""
 
     @Test
     fun `existing lines have an explicit unset cap and saved caps survive restore`() {

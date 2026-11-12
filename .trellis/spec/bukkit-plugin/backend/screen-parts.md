@@ -54,7 +54,7 @@ projectOperationalPartRender 从simulation owner的StationStore捕获current/nex
 
 ## 线路索引与运行线metadata（2026-11-10）
 
-simulation owner在每次fresh sample构建一份当前world全部已知线路索引ctx.data.lines，record为{id,displayName,metadata,color?}；train snapshot/sample cache与geometry coalescing一起保留该数据，不跨world或publication stream借用。JS可按actual LineId查询非当前线路（例如换乘），没有record则无条目。全部线路/站点输入仍受SimpleDisplays aggregate limits约束，不静默截断。无需给SimpleDisplays加入铁路API或让JS读取live store。
+simulation owner在每次fresh sample构建一份当前world全部已知线路索引ctx.data.lines，record为{id,metadata,color?}；train snapshot/sample cache与geometry coalescing一起保留该数据，不跨world或publication stream借用。JS可按actual LineId查询非当前线路（例如换乘），没有record则无条目。全部线路/站点输入仍受SimpleDisplays aggregate limits约束，不静默截断。无需给SimpleDisplays加入铁路API或让JS读取live store。
 
 operational.currentRun为领域捕获的actual scope或null，携带serviceId/runId/lineId/metadata/terminalStationId；与同一outer timetable/cycle一起使用，变化进入现有contextKey并清旧帧。line metadata HTTP读写和scriptworker严格参数/镜像run DTO需同时同步，metadata缺失默认{}，显式非object拒绝；权威restore执行共同JSON限额校验。
 

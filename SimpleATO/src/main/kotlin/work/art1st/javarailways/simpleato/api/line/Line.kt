@@ -21,7 +21,6 @@ enum class LineDirection { UP, DOWN }
 @ConsistentCopyVisibility
 data class Line private constructor(
     val id: LineId,
-    val displayName: String,
     val upStationIds: List<StationId>,
     val downStationIds: List<StationId>,
     val color: String? = null,
@@ -30,19 +29,17 @@ data class Line private constructor(
 ) {
     constructor(
         id: LineId,
-        displayName: String,
         upStationIds: Collection<StationId>,
         downStationIds: Collection<StationId>,
         color: String? = null,
         maximumSpeedMetersPerSecond: Double? = null,
         metadata: JsonObject = JsonObject(emptyMap())
-    ) : this(id, displayName, immutable(upStationIds), immutable(downStationIds), color, maximumSpeedMetersPerSecond, JsonMetadata.immutableCopy(metadata))
+    ) : this(id, immutable(upStationIds), immutable(downStationIds), color, maximumSpeedMetersPerSecond, JsonMetadata.immutableCopy(metadata))
 
     init {
         require(maximumSpeedMetersPerSecond == null || (maximumSpeedMetersPerSecond.isFinite() && maximumSpeedMetersPerSecond > 0.0)) {
             "Line maximum speed must be finite and positive"
         }
-        require(displayName.isNotBlank() && displayName == displayName.trim())
         validatePattern("UP", upStationIds)
         validatePattern("DOWN", downStationIds)
         require(color == null || color.matches(Regex("#[0-9a-fA-F]{6}"))) {

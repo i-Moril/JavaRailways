@@ -987,8 +987,6 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
 
         private fun parseLine(value: JsonObject): Line {
             val id = value["id"]?.jsonPrimitive?.content ?: throw HttpFailure(400, "line id is required")
-            val displayName = value["displayName"]?.jsonPrimitive?.content
-                ?: throw HttpFailure(400, "line displayName is required")
             val up = value["upStationIds"] as? JsonArray
                 ?: throw HttpFailure(400, "line upStationIds is required")
             val down = value["downStationIds"] as? JsonArray
@@ -998,12 +996,11 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             val color = value["color"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
             val maximumSpeed = parseLineMaximumSpeed(value["maximumSpeedMetersPerSecond"])
             val metadata = parseLineMetadata(value["metadata"])
-            return Line(LineId(id), displayName, upIds, downIds, color, maximumSpeed, metadata)
+            return Line(LineId(id), upIds, downIds, color, maximumSpeed, metadata)
         }
 
         private fun lineJson(line: Line) = buildJsonObject {
             put("id", line.id.value)
-            put("displayName", line.displayName)
             put("metadata", line.metadata)
             put("upStationIds", JsonArray(line.upStationIds.map { JsonPrimitive(it.value) }))
             put("downStationIds", JsonArray(line.downStationIds.map { JsonPrimitive(it.value) }))

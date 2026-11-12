@@ -5,7 +5,7 @@ import {parseAuthoringRecovery} from './authoringRecovery';
 import {definitionToBlocks,blocksToDefinition} from './programBlocks';
 import type {StationProgramDefinition,StationProgramRecord} from './types';
 const document=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),id:'tt',diagramLines:[{id:'L',upStationIds:['a','b'],downStationIds:['b','a']}],runs:[{id:'r',type:'PASSENGER',lineId:'L',diagramLineId:'L',lineDirection:'UP',calls:[{id:'a',stationId:'a',targetId:'a',status:'ORIGIN',departureTick:100},{id:'b',stationId:'b',targetId:'b',status:'TERMINAL',arrivalTick:200}]}],stationPrograms:[defaultStationStopProgram('b')],duties:[{id:'d',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'e',type:'RUN',runId:'r'}]}]});
-const lines=[{id:'L',displayName:'Line',upStationIds:['a','b'],downStationIds:['b','a'],maximumSpeedMetersPerSecond:20}];
+const lines=[{id:'L',metadata:{name:'Line'},upStationIds:['a','b'],downStationIds:['b','a'],maximumSpeedMetersPerSecond:20}];
 describe('shared station programs',()=>{
  it('saves station definitions once and supplies independent call role/context to compilation',()=>{
   const value=document(),result=generateTimetableSource(value,lines);

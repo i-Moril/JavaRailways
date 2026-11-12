@@ -17,7 +17,7 @@ describe('authoring workspace views',()=>{
    expect(html).toContain('Train initial positions');expect(html).toContain('Metro 01');expect(html).toContain('depot@1');expect(html).toContain('independent of duties');
  });
  it('edits the cap in line settings and keeps run options free of a cap input',()=>{
-   const line={id:'L',displayName:'Line',upStationIds:['a','b'],downStationIds:['b','a'],maximumSpeedMetersPerSecond:20};
+   const line={id:'L',metadata:{name:'Line'},upStationIds:['a','b'],downStationIds:['b','a'],maximumSpeedMetersPerSecond:20};
    const html=render(<LinesPage world="world" metadata={{}} collection={{revision:0,lines:[line]}} onCollection={noop} run={async(operation)=>operation()}/>);
    expect(html).toContain('value="72"');expect(html).toContain('km/h');
    const run={id:'R',type:'PASSENGER' as const,lineId:'L',diagramLineId:'L',lineDirection:'UP' as const,calls:[]};
@@ -56,7 +56,7 @@ describe('authoring workspace views',()=>{
  });
  it('opens arrival editing from stopping call details and explains unsupported origin calls',()=>{
   const run={id:'r',type:'PASSENGER' as const,lineDirection:'UP' as const,diagramLineId:'L',calls:[{id:'origin',stationId:'a',targetId:'a',status:'ORIGIN' as const},{id:'terminal',stationId:'b',targetId:'b',status:'TERMINAL' as const}]};
-  const lines=[{id:'L',displayName:'Line',upStationIds:['a','b'],downStationIds:['b','a']}];
+  const lines=[{id:'L',metadata:{name:'Line'},upStationIds:['a','b'],downStationIds:['b','a']}];
   const terminal=render(<RunRouteEditor automaticColor="#56c5ff" run={run} focusedCallId="terminal" lines={lines} metadata={{}} busy={false} onChange={noop} onError={noop} onDelete={noop}/>);
   expect(terminal).toContain(translate('en-US','programs.editArrival'));expect(terminal).toContain(translate('en-US','stationPrograms.hint'));
   expect(terminal).not.toContain('station-actions-reserved');
@@ -90,7 +90,7 @@ describe('authoring workspace views',()=>{
 
  it('offers an inline selected-run title edit without committing during render',()=>{
   let renamed='';
-  const html=render(<RunRouteEditor automaticColor="#56c5ff" run={{id:'editable-service',type:'PASSENGER',lineDirection:'UP',diagramLineId:'line',calls:[]}} lines={[{id:'line',displayName:'Line',upStationIds:['a','b'],downStationIds:['b','a']}]} metadata={{}} busy={false} onRename={(id)=>{renamed=id;}} onError={noop} onChange={noop} onDelete={noop}/>);
+  const html=render(<RunRouteEditor automaticColor="#56c5ff" run={{id:'editable-service',type:'PASSENGER',lineDirection:'UP',diagramLineId:'line',calls:[]}} lines={[{id:'line',metadata:{name:'Line'},upStationIds:['a','b'],downStationIds:['b','a']}]} metadata={{}} busy={false} onRename={(id)=>{renamed=id;}} onError={noop} onChange={noop} onDelete={noop}/>);
   expect(html).toContain('Rename run');expect(html).toContain('editable-service');expect(renamed).toBe('');
  });
 
@@ -100,7 +100,7 @@ describe('authoring workspace views',()=>{
     {id:'b',stationId:'Stop',targetId:'b',status:'STOP',arrivalTick:200,departureTick:300},
     {id:'c',stationId:'Pass',targetId:'c',status:'PASS',arrivalTick:400},
     {id:'d',stationId:'Terminal',targetId:'d',status:'TERMINAL',arrivalTick:500},
-  ]}} lines={[{id:'line',displayName:'Line',upStationIds:['Origin','Stop','Pass','Terminal'],downStationIds:['Terminal','Pass','Stop','Origin']}]} metadata={{}} busy={false} onError={noop} onChange={noop} onDelete={noop}/>);
+  ]}} lines={[{id:'line',metadata:{name:'Line'},upStationIds:['Origin','Stop','Pass','Terminal'],downStationIds:['Terminal','Pass','Stop','Origin']}]} metadata={{}} busy={false} onError={noop} onChange={noop} onDelete={noop}/>);
   expect(html).toContain('Origin · Departure');expect(html).toContain('Stop · Arrival');expect(html).toContain('Stop · Departure');expect(html).toContain('Pass · Arrival');expect(html).toContain('Terminal · Arrival');
   expect(html).not.toContain('aria-label="Origin · Arrival"');expect(html).not.toContain('aria-label="Pass · Departure"');expect(html).toContain('aria-label="Terminal · Departure"');
   expect(html).not.toContain('ant-input-number-disabled');expect(html).toContain('Commit times with Enter or blur');
@@ -131,7 +131,7 @@ describe('authoring workspace views',()=>{
   expect(html).toContain('Take from depot');expect(html).toContain('Duty timeline');expect(html).toContain('Duty ID');expect(html).toContain('Click a run to add it to the duty');expect(html).not.toContain('blockly');expect(html).not.toContain('PLACE_INITIAL');
  });
  it('run inspector renders actual local errors instead of unconditional success',()=>{
-  const html=render(<RunRouteEditor automaticColor="#56c5ff" run={{id:'r',type:'PASSENGER',lineDirection:'UP',diagramLineId:'line',calls:[]}} lines={[{id:'line',displayName:'Line',upStationIds:['a','b'],downStationIds:['b','a']}]} metadata={{}} busy={false} issues={[{path:'runs[0]',message:'Missing departure',severity:'error'}]} onError={noop} onChange={noop} onDelete={noop}/>);
+  const html=render(<RunRouteEditor automaticColor="#56c5ff" run={{id:'r',type:'PASSENGER',lineDirection:'UP',diagramLineId:'line',calls:[]}} lines={[{id:'line',metadata:{name:'Line'},upStationIds:['a','b'],downStationIds:['b','a']}]} metadata={{}} busy={false} issues={[{path:'runs[0]',message:'Missing departure',severity:'error'}]} onError={noop} onChange={noop} onDelete={noop}/>);
   // The inspector starts on Calls; issue content is not announced as a success outside its tab.
   expect(html).not.toContain('No local issues');
  });

@@ -1,10 +1,11 @@
+import { localizedNameLabel } from './metadata';
 import { useEffect, useReducer, useRef, useState } from 'react';
 import { Alert, Button, Card, Empty, Flex, Input, Select, Spin, Typography } from 'antd';
 import { api } from './api';
 import { ApiError } from './apiErrors';
 import { frontendDemoEnabled } from './frontendDev';
 import { useI18n } from './i18n';
-import { initialMetadataEditor, metadataEditorReducer, parseStationMetadata, stationNameLabel } from './stationMetadata';
+import { initialMetadataEditor, metadataEditorReducer, parseStationMetadata } from './stationMetadata';
 import type { StationDescriptor } from './types';
 
 export function StationMetadataEditor({world,station,onSaved}:{world:string;station:StationDescriptor;onSaved?:(station:StationDescriptor)=>void}) {
@@ -77,7 +78,7 @@ function WorldStationsPage({world,onSaved}:{world:string;onSaved?:(station:Stati
         {stations?.length===0&&<Empty description={t('stations.empty')}/>}
         <Select aria-label={t('stations.station')} placeholder={t('stations.station')} value={selected} showSearch optionFilterProp="label"
           options={stations?.map((value)=>{
-            const label=stationNameLabel(value.id,value.metadata.name,locale);
+            const label=localizedNameLabel(value.id,value.metadata.name,locale);
             return {value:value.id,label:label===value.id?value.id:`${label} (${value.id})`};
           })} onChange={setSelected}/>
         {station&&<StationMetadataEditor key={JSON.stringify([world,station.id])} world={world} station={station}

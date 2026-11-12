@@ -10,7 +10,6 @@ internal fun captureDisplayLineIndex(lines: List<Line>): JsonObject {
     return immutablePartExtensionJson(buildJsonObject {
         lines.forEach { line -> put(line.id.value, buildJsonObject {
             put("id", line.id.value)
-            put("displayName", line.displayName)
             put("metadata", line.metadata)
             line.color?.let { put("color", it) }
         }) }

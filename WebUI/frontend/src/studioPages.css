@@ -146,6 +146,12 @@
 .sequence-row:last-child .sequence-track { height: 50%; align-self: start; border-radius: 0 0 4px 4px; }
 .sequence-row > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .sequence-row small { overflow: hidden; color: var(--ant-color-text-tertiary); text-overflow: ellipsis; white-space: nowrap; }
+.metadata-convention-fields { padding: 12px; border: 1px solid var(--ant-color-border-secondary); border-radius: 8px; }
+.metadata-convention-field { display: grid; gap: 6px; min-width: 0; }
+.metadata-translations { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.metadata-translations label { display: grid; gap: 4px; color: var(--ant-color-text-secondary); }
+.metadata-convention-description { margin-bottom: 16px; }
+@media (max-width: 600px) { .metadata-translations { grid-template-columns: minmax(0,1fr); } }
 
 @media (max-width:1350px) {
   .line-admin-grid { grid-template-columns: 260px minmax(500px,1fr); }

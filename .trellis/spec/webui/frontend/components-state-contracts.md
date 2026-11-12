@@ -67,8 +67,10 @@ Vitest environment 是 `node`。优先测试 pure transformation；无浏览器 
 
 ## Station JSON metadata editor（2026-11-10）
 
-StationsPage为认证用户展示现有站点，以JSON文本编辑metadata，根必须object。未知自定义key保留；格式化只操作当前草稿。server baseline与编辑draft分离，PUT携带expectedMetadata做按站点冲突检测。解析错误/保存失败/冲突均不清空draft。world/station identity改变必须隔离late response，不能以旧站点资料对新world发写请求；刷新列表不能悄悄将旧draft重基到新baseline后覆盖他人数据。不新增localStorage边界。API/types集中、错误/操作文案双语。
+车站 metadata 入口位于 LinesPage 上下行车站列表的按钮，不设独立导航 tab。StationMetadataModal 通过现有 api.stations 读取完整站点资料；按 world 隔离 owner、按已访问 station 保持 editor 挂载，关闭、重开和切换车站均保留各自草稿与基线。保存成功回调更新 App 的同站全部 berth 名称，使两个方向列表及其他 consumer 同步。根必须 object，未知自定义 key 保留；格式化只操作当前草稿。server baseline 与编辑 draft 分离，PUT 携带 expectedMetadata 做按站点冲突检测。解析错误/保存失败/冲突均不清空 draft。world/station identity 改变必须隔离 late response，不能以旧站点资料对新 world 发写请求；刷新列表不能悄悄将旧 draft 重基到新 baseline 后覆盖他人数据。不新增 localStorage 边界。API/types 集中、错误/操作文案双语。
 
 ## 线路/运行线 JSON metadata（2026-11-10）
 
 共享metadata.ts parser与MetadataJsonEditor；stationMetadata保留解析入口但委派中立实现。线路以metadataDraft控制原始JSON，非法draft禁用autosave/flush，现有Line revision保护不变；metadata保留在LineV1 wire。运行线raw draft由DutyEditor按run identity持有，切换页面/运行线保留；同步draft-validity ref拦截save/compile/publish/simulation，不能先让旧有效model保存再报告非法。文档切换清理，Undo后显示文档值。复制/resize/reset/模拟等spread paths保留metadata，generated segment必须明确携带run.metadata??{}。Java editor validator同时校验对象/深度/节点/字节，未知metadata内部字段不丢失。
+
+线路标题按钮打开 metadata 弹窗，metadataDraft 仍由 LineEditor 持有，关闭弹窗不丢失有效或无效草稿；无效草稿在主页面显示错误并可重开修复。MetadataJsonEditor 按 station/line/run scope 展示当前 cabin-route XML 消费的约定说明与字段控件：车站 name/transfer/transfers，线路 name/badge/themeColor，运行线 line/class。控件与原始 JSON 共用 draft，不建立第二份元数据；只修改选中字段或语言，保留自定义字段及额外语言。形状不适配的已有字段仍保留在 JSON 中供直接编辑，不强制转换或删除；删除字段是显式操作。换乘线路复用 EditableIdList，提交实际线路 ID，保留手输及未知 ID，选择后失焦不得添加残留查询。颜色是显示约定，不收紧通用 JSON 存储规则。说明按钮在 JSON 无效时仍可使用。

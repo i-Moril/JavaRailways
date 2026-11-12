@@ -7,7 +7,6 @@ import { trackSessionActivity } from './sessionActivity';
 import { frontendDemoEnabled } from './frontendDev';
 import { DutyEditor } from './DutyEditor';
 import { StationProgramLibrary } from './StationProgramLibrary';
-import { StationsPage } from './StationsPage';
 import { LinesPage } from './LinesPage';
 import { LogsPage } from './LogsPage';
 import { IssuesPage } from './IssuesPage';
@@ -19,10 +18,10 @@ import type { LineCollection,WorldMetadata,WorldSummary } from './types';
 import './styles.css';
 import './studioPages.css';
 
-export type View = 'graph' | 'map' | 'stations' | 'lines' | 'duties' | 'positions' | 'validation' | 'issues' | 'programs' | 'logs';
+export type View = 'graph' | 'map' | 'lines' | 'duties' | 'positions' | 'validation' | 'issues' | 'programs' | 'logs';
 export const DEFAULT_VIEW:View='map';
 export const navigationForAuthentication=(authenticated:boolean|null):View[]=>authenticated
-  ?['graph','map','stations','lines','duties','positions','validation','issues','programs','logs']
+  ?['graph','map','lines','duties','positions','validation','issues','programs','logs']
   :['map'];
 
 type WorldResources={world:string;metadata:WorldMetadata;lineCollection:LineCollection};
@@ -130,7 +129,7 @@ export default function App() {
   const navigation=navigationForAuthentication(authenticated);
   const workspaceNotice=!authenticated?t('auth.mapOnly'):
     ['graph','duties','positions','validation'].includes(view)?t('duties.workspace'):
-    view==='stations'?t('stations.description'):view==='lines'?t('lines.description'):
+    view==='lines'?t('lines.description'):
     view==='issues'?t('issues.description'):view==='programs'?t('programs.description'):view==='logs'?t('logs.description'):t('map.public');
   return <ConfigProvider
     locale={antDesignLocale(locale)}
@@ -176,17 +175,15 @@ export default function App() {
 
     {authenticated&&<section className="persistent-graph-view" hidden={!['graph','duties','positions','validation'].includes(view)}><DutyEditor programLibraryRevision={programLibraryRevision} key={JSON.stringify([authenticatedPlayer,world])} onActiveDocument={setAuthoringDocumentId} onOpenProgramLibrary={(programId,stepId)=>{setProgramFocus({world,programId,stepId});setView('programs');}} onCommandState={setAuthoringState} page={view==='duties'?'duties':view==='positions'?'positions':view==='validation'?'validation':'graph'} onPageChange={setView} world={world} recoveryOwner={authenticatedPlayer} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>}
     {authenticated&&<section className="persistent-graph-view" hidden={view!=='programs'}><StationProgramLibrary metadata={metadata} onLibraryChange={()=>setProgramLibraryRevision((revision)=>revision+1)} key={`${authenticatedPlayer}::${world}`} world={world} documentId={authoringDocumentId} recoveryOwner={authenticatedPlayer} extensions={metadata.extensions?.actions} focus={programFocus?.world===world?programFocus:undefined}/></section>}
-    {authenticated&&view === 'stations' && <StationsPage key={JSON.stringify([authenticatedPlayer,world])} world={world} onSaved={(station)=>setWorldResources((current)=>{
-      if(current.world!==world || !current.metadata.stations) return current;
-      const stations=current.metadata.stations.map((berth)=>berth.stationId===station.id
-        ? {...berth,stationName:station.metadata.name} : berth);
-      return {...current,metadata:{...current.metadata,stations}};
-    })} />}
     {authenticated&&view === 'logs' && <LogsPage />}
     {authenticated&&view === 'issues' && <IssuesPage key={world} world={world} />}
     {view === 'map' && <RailMap key={world} world={world} onError={setError} />}
     {authenticated&&<section className="persistent-graph-view" hidden={view!=='lines'}><LinesPage key={JSON.stringify([authenticatedPlayer,world])} world={world} metadata={metadata} collection={lineCollection}
-      onCollection={setLineCollection} run={run} /></section>}
+      onCollection={setLineCollection} run={run} onStationSaved={(station)=>setWorldResources((current)=>{
+        if(current.world!==world||!current.metadata.stations)return current;
+        const stations=current.metadata.stations.map((berth)=>berth.stationId===station.id?{...berth,stationName:station.metadata.name}:berth);
+        return {...current,metadata:{...current.metadata,stations}};
+      })} /></section>}
 
     {error&&<div className="error-toast" role="alert" aria-live="assertive"><Alert type="error" showIcon closable title={error} onClose={()=>setError('')}/></div>}
   </main></AntApp></ConfigProvider>;

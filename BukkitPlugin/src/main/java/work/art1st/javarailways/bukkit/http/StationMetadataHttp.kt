@@ -22,7 +22,6 @@ internal fun parseStationMetadataUpdate(body: String): StationMetadataUpdate {
 
 internal fun stationMetadataJson(station: Station): JsonObject = buildJsonObject {
     put("id", station.id.value)
-    put("displayName", station.displayName)
     put("metadata", station.metadata)
 }
 

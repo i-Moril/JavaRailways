@@ -18,7 +18,6 @@ class RailObjectDestinationEditTest {
         val railId = UUID.randomUUID()
         val originalRole = DestinationRole.StationBerthRole(
             stationId = StationId("central"),
-            stationDisplayName = "Central Station",
             berthId = "one",
             doorSide = DoorSide.LEFT,
             stoppingOffsetMetersBefore = 2.5,
@@ -50,7 +49,6 @@ class RailObjectDestinationEditTest {
         val role = updated.role as DestinationRole.StationBerthRole
 
         assertEquals("central@one", updated.id)
-        assertEquals("Central Station", role.stationDisplayName)
         assertEquals(2.5, role.stoppingOffsetMetersBefore)
         assertEquals(0.3, role.positionToleranceMeters)
         assertEquals(95.0, role.usableLengthMeters)

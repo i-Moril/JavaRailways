@@ -26,7 +26,6 @@ data class SavedOperationalDestinationV1(
     val approachDirection: ViewDirection? = null,
     val roleType: DestinationRoleType = DestinationRoleType.REGULAR,
     val stationId: String? = null,
-    val stationDisplayName: String? = null,
     val berthId: String? = null,
     val doorSide: DoorSide? = null,
     val stoppingOffsetMetersBefore: Double = 0.0,
@@ -50,7 +49,6 @@ data class SavedOperationalDestinationV1(
         DestinationRoleType.REGULAR -> DestinationRole.Regular
         DestinationRoleType.STATION_BERTH -> DestinationRole.StationBerthRole(
             stationId = StationId(requireNotNull(stationId)),
-            stationDisplayName = requireNotNull(stationDisplayName),
             berthId = requireNotNull(berthId),
             doorSide = requireNotNull(doorSide),
             stoppingOffsetMetersBefore = stoppingOffsetMetersBefore,
@@ -79,7 +77,6 @@ data class SavedOperationalDestinationV1(
                 approachDirection = value.approachDirection,
                 roleType = value.role.type,
                 stationId = station?.stationId?.value,
-                stationDisplayName = station?.stationDisplayName,
                 berthId = station?.berthId,
                 doorSide = station?.doorSide,
                 stoppingOffsetMetersBefore = station?.stoppingOffsetMetersBefore ?: 0.0,

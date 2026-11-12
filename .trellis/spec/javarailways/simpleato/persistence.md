@@ -10,6 +10,9 @@ Station、StationBerth、Depot stabling point和Basic WayPoint都是从Destinati
 不单独持久化为第二个owner。Line 的业务 JSON shape沿用`SavedLineV1`，Destination沿用
 `SavedOperationalDestinationV1`。
 
+车站显示名称存于每站一份的 `stationMetadata[stationId].name`，停车点记录只保存车站 ID 和 berth ID 等运营字段。
+旧开发服快照可以使用 `scripts/station-name-migration/migrate.py` 处理提取副本，移除旧字段并保留未配置 metadata 的自定义名称。
+
 恢复必须先完整解析并预校验全部Destination与Line：重复identity、missing rail、越界arc、与Basic standalone WayPoint/RailObject/Depot point碰撞、Line missing Station都在任何写入前拒绝。然后通过`OperationalDestinationService`依次materialize Destination及其投影；异常时逆序移除已完成项。只有Destination/Station全部成功后才恢复Line store。目标SimpleATO stores必须fresh。
 
 `SimpleATORuntimeSnapshotV1` 是 SimpleATO 独立的 runtime 持久化边界，保存 Timetable definitions、

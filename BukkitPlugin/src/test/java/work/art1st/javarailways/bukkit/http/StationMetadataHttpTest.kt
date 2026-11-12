@@ -20,9 +20,9 @@ class StationMetadataHttpTest {
     @Test fun `station response uses canonical identity and metadata without execution or rewriting`() {
         val id = StationId("中央")
         val metadata = buildJsonObject { put("script", "throw Error('plain data')"); put("custom", JsonNull) }
-        val station = Station(id, "中央车站", listOf(StationBerthRef(id, "one")), metadata = metadata)
+        val station = Station(id, listOf(StationBerthRef(id, "one")), metadata = metadata)
         val response = stationMetadataJson(station)
-        assertEquals(setOf("id", "displayName", "metadata"), response.keys)
+        assertEquals(setOf("id", "metadata"), response.keys)
         assertEquals("中央", response.getValue("id").jsonPrimitive.content)
         assertEquals(metadata, response.getValue("metadata"))
     }

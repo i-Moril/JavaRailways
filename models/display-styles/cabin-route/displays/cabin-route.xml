@@ -77,8 +77,12 @@
     }
 
     function stationName(station, lang) {
-        const s = object(station);
-        return localized(object(s.metadata).name, lang, typeof s.stationName === "string" ? s.stationName : "");
+        const name = object(object(station).metadata).name;
+        if (typeof name === "string") return name.trim() ? name : "";
+        const translations = object(name);
+        const zh = typeof translations.zh === "string" && translations.zh.trim() ? translations.zh : "";
+        const en = typeof translations.en === "string" && translations.en.trim() ? translations.en : "";
+        return lang === "zh" ? zh || en : en || zh;
     }
     function transferLines(station, d, ctx) {
         const ids = object(object(station).metadata).transfers;

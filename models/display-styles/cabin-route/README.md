@@ -8,8 +8,8 @@ Metadata conventions:
 
 - Current run `metadata.line.{zh,en}` may override the line name; otherwise use current infrastructure line `metadata.name.{zh,en}`, then `displayName`.
 - Run `metadata.class.{zh,en}` supplies the translated class.
-- `operational.values.destination` is a string or `{zh,en}`. An explicitly authored value takes precedence (including empty string or null). When the key is absent, the host supplies the actual current run's terminal station name, preferring station `metadata.name` translations and falling back to its canonical name. It never takes the final stop of a later run in the operational trip.
-- Station `metadata.name.{zh,en}` overrides `stationName`. Optional `metadata.transfer.{zh,en}` supplies the left transfer caption.
+- `operational.values.destination` is a string or `{zh,en}`. An explicitly authored value takes precedence (including empty string or null). When the key is absent, the host supplies the actual current run's terminal station name, using station `metadata.name` when available. It never takes the final stop of a later run in the operational trip.
+- Station names use `metadata.name` (a string or `{zh,en}`); an unnamed station has no text label. Optional `metadata.transfer.{zh,en}` supplies the left transfer caption.
 - Station `metadata.transfers` is an array of infrastructure line IDs. Each is looked up in `ctx.data.lines`; line `metadata.badge` is a string or `{zh,en}` (compact logo text), falling back to line name/ID. Line `metadata.themeColor` and `line.color` use `#RRGGBB`.
 - Localized objects fall back from the active language to Chinese, then English. Unknown values do not manufacture names or destinations.
 

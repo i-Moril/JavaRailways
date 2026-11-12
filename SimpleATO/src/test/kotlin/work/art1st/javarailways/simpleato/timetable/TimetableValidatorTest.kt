@@ -682,7 +682,7 @@ class TimetableValidatorTest {
         val stationId = StationId("central")
         val berthRef = StationBerthRef(stationId, "wrong-way")
         world.simpleAtoWorldData.stations.register(
-            Station(stationId, "Central", listOf(berthRef)),
+            Station(stationId, listOf(berthRef)),
             listOf(
                 StationBerth(
                     berthRef = berthRef,

@@ -1,3 +1,4 @@
+import type { Locale } from './i18n';
 import type { StationMetadataObject } from './types';
 
 export { parseMetadata as parseStationMetadata } from './metadata';
@@ -28,4 +29,17 @@ export function metadataEditorReducer(state:MetadataEditorState,action:MetadataE
     case 'saved':return {...state,incoming:undefined,baseline:action.metadata,draft:state.draft===action.submitted?JSON.stringify(action.metadata,null,2):state.draft,saving:false,saved:state.draft===action.submitted,error:undefined};
     case 'failed':return {...state,saving:false,error:action.error,saved:false};
   }
+}
+
+export function stationNameLabel(id:string,name:unknown,locale:Locale):string {
+  if(typeof name==='string' && name.trim()) return name;
+  if(name && typeof name==='object' && !Array.isArray(name)) {
+    const translations=name as Record<string,unknown>;
+    const keys=locale==='zh-CN' ? ['zh','en'] : ['en','zh'];
+    for(const key of keys) {
+      const text=translations[key];
+      if(typeof text==='string' && text.trim()) return text;
+    }
+  }
+  return id;
 }

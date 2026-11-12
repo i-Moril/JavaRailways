@@ -9,9 +9,10 @@ import work.art1st.javarailways.simpleato.timetable.TimetableUnitStopSnapshot
 import work.art1st.javarailways.simpleato.timetable.TimetableRunDisplayContext
 import work.art1st.javarailways.simpleato.timetable.TimetableDisplayProgress
 import work.art1st.javarailways.simpleato.api.station.StationBerthRef
+import work.art1st.javarailways.simpleato.api.station.StationMetadata
 import work.art1st.javarailways.basic.api.operation.DoorSide
 
-/** Detached operational values only; neither domain objects nor the owner-side name resolver escape. */
+/** Detached operational values only; neither domain objects nor the owner-side metadata resolver escape. */
 internal class OperationalPartRenderProjection(unit: JsonElement, operational: JsonElement, aliases: JsonObject) {
     val unit: JsonElement = immutablePartExtensionJson(unit, 0)
     val operational: JsonElement = immutablePartExtensionJson(operational, 0)
@@ -33,11 +34,10 @@ private fun emptyOperationalAliases(): JsonObject = buildJsonObject {
     put("nextStationName", "")
 }
 
-/** Projects exact owner-captured unit facts. Callers supply only a station-ID-to-name lookup. */
+/** Projects exact owner-captured unit facts. Callers supply the station metadata lookup. */
 internal fun projectOperationalPartRender(
     context: TimetableUnitDisplayContext?,
     stationMetadata: (String) -> JsonObject = { JsonObject(emptyMap()) },
-    stationName: (String) -> String?,
 ): OperationalPartRenderProjection {
     if (context == null) return OperationalPartRenderProjection.EMPTY
     val unit = buildJsonObject {
@@ -51,7 +51,7 @@ internal fun projectOperationalPartRender(
     return projectOperationalFacts(unit, checkNotNull(context.timetableId), display.operationalTripId,
         display.cycleIndex, display.values, display.plannedStops, display.completedStops.size,
         display.unresolvedRuns, context.currentBerth, context.currentRun, context.progress, context.doorSide,
-        stationMetadata, stationName)
+        stationMetadata)
 }
 
 private fun projectOperationalFacts(
@@ -68,15 +68,15 @@ private fun projectOperationalFacts(
     progress: TimetableDisplayProgress,
     doorSide: DoorSide?,
     stationMetadata: (String) -> JsonObject,
-    stationName: (String) -> String?,
 ): OperationalPartRenderProjection {
     fun stop(value: TimetableUnitStopSnapshot): JsonObject = buildJsonObject {
         put("serviceId", value.serviceId)
         put("runId", value.runId)
         put("callId", value.call.id)
         put("stationId", value.call.stationId)
-        put("stationName", stationName(value.call.stationId)?.let(::JsonPrimitive) ?: JsonNull)
-        put("metadata", stationMetadata(value.call.stationId))
+        val metadata = stationMetadata(value.call.stationId)
+        put("stationName", StationMetadata.preferredName(StationMetadata.name(metadata))?.let(::JsonPrimitive) ?: JsonNull)
+        put("metadata", metadata)
         put("destinationId", value.call.destinationId)
         put("status", value.call.status.name)
         put("arrivalTick", value.call.arrivalTick?.toString()?.let(::JsonPrimitive) ?: JsonNull)
@@ -85,8 +85,9 @@ private fun projectOperationalFacts(
     }
     val current = currentBerth?.let { berth -> buildJsonObject {
         put("stationId", berth.stationId.value)
-        put("stationName", stationName(berth.stationId.value)?.let(::JsonPrimitive) ?: JsonNull)
-        put("metadata", stationMetadata(berth.stationId.value))
+        val metadata = stationMetadata(berth.stationId.value)
+        put("stationName", StationMetadata.preferredName(StationMetadata.name(metadata))?.let(::JsonPrimitive) ?: JsonNull)
+        put("metadata", metadata)
         put("berthId", berth.berthId)
     } }
     val nextStart = when (progress.phase) {
@@ -102,26 +103,7 @@ private fun projectOperationalFacts(
     // Presence, rather than value/type/truthiness, defines an authored destination override.
     // This is a presentation default; the captured operational values remain untouched.
     val defaultTerminal = currentRun?.terminalStationId?.takeIf { "destination" !in values }
-    val defaultStationName = defaultTerminal?.let(stationName)?.takeIf { it.isNotBlank() }
-    val defaultDestination = defaultTerminal?.let { id ->
-        when (val name = stationMetadata(id)["name"]) {
-            is JsonPrimitive -> name.takeIf { it.isString && it.content.isNotBlank() }
-            is JsonObject -> buildJsonObject {
-                for (language in listOf("zh", "en")) {
-                    (name[language] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() }
-                        ?.let { put(language, it) }
-                }
-            }.takeIf { it.isNotEmpty() }
-            else -> null
-        } ?: defaultStationName?.let(::JsonPrimitive)
-    }
-    val defaultDestinationAlias = when (defaultDestination) {
-        is JsonPrimitive -> defaultDestination.content
-        is JsonObject -> defaultStationName ?: listOf("zh", "en").firstNotNullOfOrNull {
-            (defaultDestination[it] as? JsonPrimitive)?.content
-        }.orEmpty()
-        else -> ""
-    }
+    val defaultDestination = defaultTerminal?.let { StationMetadata.name(stationMetadata(it)) }
     val effectiveValues = if (defaultDestination != null) buildJsonObject {
         values.forEach { (key, value) -> put(key, value) }
         put("destination", defaultDestination)
@@ -158,7 +140,7 @@ private fun projectOperationalFacts(
     fun stationString(value: JsonObject?): String = (value?.get("stationName") as? JsonPrimitive)
         ?.takeIf { it.isString }?.content.orEmpty()
     val aliases = buildJsonObject {
-        put("destination", if (defaultDestination != null) defaultDestinationAlias else authoredString("destination"))
+        put("destination", if (defaultDestination != null) StationMetadata.preferredName(defaultDestination).orEmpty() else authoredString("destination"))
         put("runType", authoredString("runType"))
         put("currentStationName", stationString(current))
         put("nextStationName", stationString(next))

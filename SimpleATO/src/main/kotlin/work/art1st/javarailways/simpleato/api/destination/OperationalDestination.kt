@@ -70,7 +70,6 @@ sealed interface DestinationRole {
 
     data class StationBerthRole(
         val stationId: StationId,
-        val stationDisplayName: String = stationId.value,
         val berthId: String,
         val doorSide: DoorSide,
         val stoppingOffsetMetersBefore: Double = 0.0,
@@ -82,7 +81,6 @@ sealed interface DestinationRole {
         override val type: DestinationRoleType = DestinationRoleType.STATION_BERTH
 
         init {
-            require(stationDisplayName.isNotBlank() && stationDisplayName == stationDisplayName.trim())
             StationBerthRef(stationId, berthId)
             require(stoppingOffsetMetersBefore.isFinite() && stoppingOffsetMetersBefore >= 0.0)
                 require(usableLengthMeters == null || usableLengthMeters.isFinite() && usableLengthMeters > 0.0)
@@ -485,7 +483,6 @@ class OperationalDestinationService(private val world: World) {
         )
         data.stations.addBerth(
             stationId = role.stationId,
-            stationDisplayName = role.stationDisplayName,
             berth = berth
         )
     }

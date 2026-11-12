@@ -57,7 +57,7 @@ class TrainPartRenderSnapshotTest {
                 "unit", "trip", 1L, buildJsonObject { put("destination", "Authored"); put("runType", "Express") }, emptyList(), emptyList(), emptyList())
             val context = work.art1st.javarailways.simpleato.timetable.TimetableUnitDisplayContext(
                 frame.trainId, "unit", frame.cars.map { it.carId }, "table", display, null)
-            val operational = projectOperationalPartRender(context) { null }
+            val operational = projectOperationalPartRender(context)
             val lineCatalog = buildJsonObject { put("line", buildJsonObject { put("metadata", buildJsonObject { put("nameEn", "Airport Line") }) }) }
             val first = captureTrainPartRenderSnapshot(frame, 1, "fleet", 100L, operational, lineCatalog)
             assertEquals(lineCatalog, first.data["lines"])

@@ -34,7 +34,7 @@ class StationStopSelectionTest {
                     approachDirection = direction, usableLengthMeters = usableLength)
                 val berths = listOf(berth("p1"), berth("p2"),
                     berth("short", usableLength = 10.0), berth("long"), berth("wrong-direction", direction = ViewDirection.BA))
-                world.simpleAtoWorldData.stations.register(Station(stationId, "Central", berths.map { it.berthRef }), berths)
+                world.simpleAtoWorldData.stations.register(Station(stationId, berths.map { it.berthRef }), berths)
                 val registry = StationCallRegistry()
                 val resolver = StationCallResolver(world)
                 body(registry) { selection, owner, revision -> selection.candidates.associate { candidate ->

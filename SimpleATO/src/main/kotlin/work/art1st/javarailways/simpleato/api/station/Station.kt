@@ -85,21 +85,18 @@ class StationBerth(
 @ConsistentCopyVisibility
 data class Station private constructor(
     val id: StationId,
-    val displayName: String,
     val berthRefs: List<StationBerthRef>,
     val defaultDwellTicks: Long = 0L,
     val metadata: JsonObject
 ) {
     constructor(
         id: StationId,
-        displayName: String,
         berthRefs: Collection<StationBerthRef>,
         defaultDwellTicks: Long = 0L,
         metadata: JsonObject = JsonObject(emptyMap())
-    ) : this(id, displayName, immutableBerthRefs(berthRefs), defaultDwellTicks, StationMetadata.immutableCopy(metadata))
+    ) : this(id, immutableBerthRefs(berthRefs), defaultDwellTicks, StationMetadata.immutableCopy(metadata))
 
     init {
-        require(displayName.isNotBlank() && displayName == displayName.trim())
         require(defaultDwellTicks >= 0L)
         require(berthRefs.isNotEmpty()) { "Station must contain at least one berth" }
         require(berthRefs.all { it.stationId == id }) {
@@ -226,7 +223,6 @@ class StationStore(private val railObjects: RailObjectStore) {
     @MainThread
     fun addBerth(
         stationId: StationId,
-        stationDisplayName: String,
         berth: StationBerth,
         stationDefaultDwellTicks: Long = 0L
     ) = synchronized(lock) {
@@ -241,14 +237,12 @@ class StationStore(private val railObjects: RailObjectStore) {
         val updated = if (current == null) {
             Station(
                 stationId,
-                stationDisplayName,
                 listOf(berth.berthRef),
                 stationDefaultDwellTicks
             )
         } else {
             Station(
                 current.id,
-                current.displayName,
                 current.berthRefs + berth.berthRef,
                 current.defaultDwellTicks,
                 current.metadata
@@ -273,7 +267,6 @@ class StationStore(private val railObjects: RailObjectStore) {
             } else {
                 stations[ref.stationId] = Station(
                     current.id,
-                    current.displayName,
                     remaining,
                     current.defaultDwellTicks,
                     current.metadata
@@ -292,7 +285,7 @@ class StationStore(private val railObjects: RailObjectStore) {
             val current = stations[id] ?: throw NoSuchElementException("Station not found: $id")
             if (current.metadata != expected) throw StationMetadataConflict(id)
             if (current.metadata == detached) return@synchronized current
-            Station(current.id, current.displayName, current.berthRefs,
+            Station(current.id, current.berthRefs,
                 current.defaultDwellTicks, detached).also { stations[id] = it }
         }
     }

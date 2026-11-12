@@ -18,7 +18,7 @@ class TimetableScriptNormalizerTest {
         val destinations = OperationalDestinationStore()
         destinations.add(OperationalDestination(
             id = "central@one", railId = UUID.randomUUID(), arcLengthInAbMeters = 10.0,
-            role = DestinationRole.StationBerthRole(StationId("central"), "Central", "one", DoorSide.LEFT)
+            role = DestinationRole.StationBerthRole(StationId("central"), "one", DoorSide.LEFT)
         ))
         val workerJson = executeScript("""
             function main(timetable) {
@@ -48,7 +48,7 @@ class TimetableScriptNormalizerTest {
             railId = UUID.randomUUID(),
             arcLengthInAbMeters = 10.0,
             role = DestinationRole.StationBerthRole(
-                StationId("central"), "Central", "one", DoorSide.LEFT
+                StationId("central"), "one", DoorSide.LEFT
             )
         ))
         val workerJson = executeScript("""

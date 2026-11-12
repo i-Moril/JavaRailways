@@ -1,3 +1,4 @@
+import { stationNameLabel } from './stationMetadata';
 import {EditableIdList} from './EditableIdSelect';
 import {directedWaypointOptions} from './idOptions';
 import {useEffect,useRef,useState} from 'react';
@@ -30,7 +31,7 @@ export interface DutyManagementProps {
   simulation?:TimetableSimulationResult;onSimulate?:()=>void;simulationReason?:string;busy?:boolean;
 }
 export function DutyManagement(p:DutyManagementProps) {
-  const {t}=useI18n();
+  const {t,locale}=useI18n();
   const currentDocument=useRef(p.document);currentDocument.current=p.document;
   const duty=p.duties.find((item)=>item.id===p.selectedId),selector=duty?.selector;
   const options=(values:string[])=>values.map((value)=>({value,label:value}));
@@ -44,7 +45,7 @@ export function DutyManagement(p:DutyManagementProps) {
       <Typography.Paragraph className="duty-graph-hint" type="secondary">{t('duties.graphSelectHint')}</Typography.Paragraph>
       {p.graph}
       {p.programError&&<Typography.Paragraph type="danger" role="alert">{p.programError}</Typography.Paragraph>}
-      {p.document&&<DutyTimeline programSimulation={p.programSimulation?{...p.programSimulation,profile:duty.referenceVehicle,plannedContext:{dutyId:duty.id}}:undefined} onDocumentChange={p.onDocumentChange} onOpenFormation={p.onOpenFormation} onPatchFormation={p.onPatchFormation} onSelectDuty={p.onSelect} destinations={p.metadata.wayPoints??[]} key={duty.id} document={p.document} duty={duty} focusedElementId={p.focusedDutyElement?.dutyId===duty.id?p.focusedDutyElement.elementId:undefined} fieldScope={p.fieldScope??''} library={p.programLibrary??[]} stationNames={new Map((p.metadata.stations??[]).map((station)=>[station.stationId,station.stationDisplayName||station.stationId]))} stationIds={[...new Set((p.metadata.stations??[]).map((station)=>station.stationId))]} onOpenGraphEvent={p.onOpenGraphEvent} onOperationValidityChange={p.onOperationValidityChange?((elementId,valid)=>p.onOperationValidityChange?.(duty.id,elementId,valid)):undefined} simulation={p.simulation} simulationReason={p.simulationReason} busy={p.busy} onSimulate={p.onSimulate} onPatch={p.onPatch} onPatchProgram={p.onPatchProgram} onRemove={p.onRemove} onViewRun={p.onViewRun} onOpenProgramLibrary={p.onOpenProgramLibrary} onRefreshPrograms={p.onRefreshPrograms} programLoading={p.programLoading} focusedProgram={p.focusedProgram}/>}
+      {p.document&&<DutyTimeline programSimulation={p.programSimulation?{...p.programSimulation,profile:duty.referenceVehicle,plannedContext:{dutyId:duty.id}}:undefined} onDocumentChange={p.onDocumentChange} onOpenFormation={p.onOpenFormation} onPatchFormation={p.onPatchFormation} onSelectDuty={p.onSelect} destinations={p.metadata.wayPoints??[]} key={duty.id} document={p.document} duty={duty} focusedElementId={p.focusedDutyElement?.dutyId===duty.id?p.focusedDutyElement.elementId:undefined} fieldScope={p.fieldScope??''} library={p.programLibrary??[]} stationNames={new Map((p.metadata.stations??[]).map((station)=>[station.stationId,stationNameLabel(station.stationId,station.stationName,locale)]))} stationIds={[...new Set((p.metadata.stations??[]).map((station)=>station.stationId))]} onOpenGraphEvent={p.onOpenGraphEvent} onOperationValidityChange={p.onOperationValidityChange?((elementId,valid)=>p.onOperationValidityChange?.(duty.id,elementId,valid)):undefined} simulation={p.simulation} simulationReason={p.simulationReason} busy={p.busy} onSimulate={p.onSimulate} onPatch={p.onPatch} onPatchProgram={p.onPatchProgram} onRemove={p.onRemove} onViewRun={p.onViewRun} onOpenProgramLibrary={p.onOpenProgramLibrary} onRefreshPrograms={p.onRefreshPrograms} programLoading={p.programLoading} focusedProgram={p.focusedProgram}/>}
     </>}</section>
     <aside className="panel-surface inspector-panel duty-sidebar">
       <div className="compact-inspector-head duty-sidebar-head"><Typography.Text strong>{t('duties.properties')}</Typography.Text></div>

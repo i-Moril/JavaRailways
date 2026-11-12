@@ -42,8 +42,8 @@ describe('running graph component',()=>{
 
   it('renders the studio canvas with independent axis controls',()=>{
     const html=renderToStaticMarkup(<I18nProvider><ThemeProvider><Graph value={value} graphLineId="airport" metadata={{stations:[
-      {stationId:'harbour',stationDisplayName:'Harbour',berthId:'1',destinationId:'harbour@1'},
-      {stationId:'airport',stationDisplayName:'Airport T2',berthId:'1',destinationId:'airport@1'},
+      {stationId:'harbour',stationName:'Harbour',berthId:'1',destinationId:'harbour@1'},
+      {stationId:'airport',stationName:'Airport T2',berthId:'1',destinationId:'airport@1'},
     ]}}/></ThemeProvider></I18nProvider>);
     expect(html).toContain('class="canvas-sheet"');
     expect(html).toContain('class="diagram-svg"');

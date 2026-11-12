@@ -172,7 +172,7 @@ class StationCallResolverTest {
             berthTrain.head.location,
             approachDirection = ViewDirection.AB
         )
-        val station = Station(fixture.station.id, "Central", listOf(berthRef))
+        val station = Station(fixture.station.id, listOf(berthRef))
         fixture.world.simpleAtoWorldData.stations.register(station, listOf(berth))
         val unreachableCall = fixture.call(2L, berthRef = berthRef)
         val routeFailure = StationCallResolver(fixture.world).resolve(
@@ -231,7 +231,7 @@ class StationCallResolverTest {
             releaseDistanceMetersAfter = 4.0,
             doorSide = DoorSide.LEFT
         )
-        val station = Station(stationId, "Central", listOf(berthRef), defaultDwellTicks = 20L)
+        val station = Station(stationId, listOf(berthRef), defaultDwellTicks = 20L)
         if (registerStation) world.simpleAtoWorldData.stations.register(station, listOf(berth))
         return Fixture(world, data, station, berth)
     }

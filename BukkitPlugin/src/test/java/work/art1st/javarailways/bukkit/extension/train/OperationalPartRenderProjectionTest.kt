@@ -25,9 +25,13 @@ class OperationalPartRenderProjectionTest {
         TimetableUnitDisplayContext("train", "unit", listOf("car-a", "car-b"), if (display == null) null else "table", display, berth,
             progress = progress)
     private val names = mapOf("A" to "Alpha", "B" to "Beta", "C" to "Central")
+    private fun stationMetadata(id: String) = buildJsonObject {
+        names[id]?.let { put("name", it) }
+    }
+
     private fun projection(display: TimetableUnitDisplaySnapshot, berth: StationBerthRef? = null,
         progress: TimetableDisplayProgress = TimetableDisplayProgress(TimetableDisplayPhase.UNKNOWN)) =
-        projectOperationalPartRender(context(display, berth, progress), stationName = names::get)
+        projectOperationalPartRender(context(display, berth, progress), stationMetadata = ::stationMetadata)
 
     @Test fun `default unit trip supplies the same ordered run facts and real identities as authored trips`() {
         val stops = listOf(stop("past", "A", TimetableServiceStopStatus.STOP, "actual-run", completed = true),
@@ -43,7 +47,7 @@ class OperationalPartRenderProjectionTest {
         fun project(tripId: String) = projectOperationalPartRender(capture(tripId), stationMetadata = { id ->
             if (id == "C") buildJsonObject { put("name", buildJsonObject { put("zh", "中央"); put("en", "Central") }) }
             else JsonObject(emptyMap())
-        }, stationName = names::get)
+        })
         val result = project("default-run/4:duty/10:actual-run")
         assertEquals(JsonPrimitive("unit"), result.unit.jsonObject["id"])
         val op = result.operational.jsonObject
@@ -65,9 +69,9 @@ class OperationalPartRenderProjectionTest {
         val display = snapshot(values = JsonObject(emptyMap()))
         fun current(terminal: String) = TimetableUnitDisplayContext("train", "unit", listOf("car-a", "car-b"),
             "table", display, currentBerth = null, currentRun = TimetableRunDisplayContext("duty", "run", "line", JsonObject(emptyMap()), terminal))
-        val old = projectOperationalPartRender(current("B"), stationName = names::get)
-        val updated = projectOperationalPartRender(current("C"), stationName = names::get)
-        val outsideRun = projectOperationalPartRender(context(display), stationName = names::get)
+        val old = projectOperationalPartRender(current("B"), stationMetadata = ::stationMetadata)
+        val updated = projectOperationalPartRender(current("C"), stationMetadata = ::stationMetadata)
+        val outsideRun = projectOperationalPartRender(context(display), stationMetadata = ::stationMetadata)
         val inactive = projection(snapshot(active = false))
         assertNotEquals(old.contextKey, updated.contextKey)
         assertEquals(JsonPrimitive("Central"), updated.operational.jsonObject.getValue("values").jsonObject["destination"])
@@ -83,12 +87,12 @@ class OperationalPartRenderProjectionTest {
         val captured = context(snapshot())
         val actual = TimetableUnitDisplayContext(captured.trainId,captured.unitId,captured.carIds,captured.timetableId,
             captured.display,null,TimetableRunDisplayContext("service","run","line",buildJsonObject { put("notice","run-specific") }))
-        val result = projectOperationalPartRender(actual, stationName = names::get)
+        val result = projectOperationalPartRender(actual, stationMetadata = ::stationMetadata)
         val run = result.operational.jsonObject.getValue("currentRun").jsonObject
         assertEquals(JsonPrimitive("service"),run["serviceId"])
         assertEquals(JsonPrimitive("line"),run["lineId"])
         assertEquals(JsonPrimitive("run-specific"),run.getValue("metadata").jsonObject["notice"])
-        assertEquals(JsonNull,projectOperationalPartRender(captured,stationName=names::get).operational.jsonObject["currentRun"])
+        assertEquals(JsonNull,projectOperationalPartRender(captured,stationMetadata=::stationMetadata).operational.jsonObject["currentRun"])
         assertFalse(result.operational.jsonObject.getValue("values").jsonObject.containsKey("notice"))
     }
 
@@ -102,11 +106,10 @@ class OperationalPartRenderProjectionTest {
             TimetableRunDisplayContext("service", "run", "line", JsonObject(emptyMap()), "B"))
         val names = linkedMapOf<String, JsonElement>("zh" to JsonPrimitive("乙站"), "en" to JsonPrimitive("Beta Station"))
         fun project() = projectOperationalPartRender(actual,
-            stationMetadata = { id -> if (id == "B") buildJsonObject { put("name", JsonObject(names)) } else JsonObject(emptyMap()) },
-            stationName = this.names::get)
+            stationMetadata = { id -> if (id == "B") buildJsonObject { put("name", JsonObject(names)) } else JsonObject(emptyMap()) })
         val result = project()
         assertEquals(JsonObject(names), result.operational.jsonObject.getValue("values").jsonObject["destination"])
-        assertEquals("Beta", result.aliases.getValue("destination").jsonPrimitive.content)
+        assertEquals("乙站", result.aliases.getValue("destination").jsonPrimitive.content)
         assertEquals(JsonPrimitive("B"), result.operational.jsonObject.getValue("currentRun").jsonObject["terminalStationId"])
         assertFalse(authored.containsKey("destination"))
         assertFalse(actual.display!!.values.containsKey("destination"))
@@ -117,16 +120,18 @@ class OperationalPartRenderProjectionTest {
 
     @Test fun `default destination handles missing terminal and malformed names while retaining explicit overrides`() {
         fun project(values: JsonObject = JsonObject(emptyMap()), terminal: String? = "B", name: JsonElement? = null,
-            canonical: String? = "Beta", currentRun: Boolean = true, active: Boolean = true): OperationalPartRenderProjection =
+            currentRun: Boolean = true, active: Boolean = true): OperationalPartRenderProjection =
             projectOperationalPartRender(TimetableUnitDisplayContext("train", "unit", listOf("car"), "table",
                 snapshot(values = values, active = active), null,
                 if (currentRun) TimetableRunDisplayContext("service", "run", "line", JsonObject(emptyMap()), terminal) else null),
-                stationMetadata = { buildJsonObject { if (name != null) put("name", name) } }, stationName = { canonical })
+                stationMetadata = { buildJsonObject { if (name != null) put("name", name) } })
         for (name in listOf<JsonElement?>(null, JsonNull, JsonPrimitive(42), JsonPrimitive(""), JsonArray(emptyList()),
             buildJsonObject { put("zh", false); put("en", ""); put("foreign", "ignored") })) {
-            assertEquals(JsonPrimitive("Beta"), project(name = name).operational.jsonObject.getValue("values").jsonObject["destination"])
+            val result = project(name = name)
+            assertFalse(result.operational.jsonObject.getValue("values").jsonObject.containsKey("destination"))
+            assertEquals("", result.aliases.getValue("destination").jsonPrimitive.content)
         }
-        val partial = project(name = buildJsonObject { put("zh", "乙站"); put("en", false) }, canonical = null)
+        val partial = project(name = buildJsonObject { put("zh", "乙站"); put("en", false) })
         assertEquals(buildJsonObject { put("zh", "乙站") }, partial.operational.jsonObject.getValue("values").jsonObject["destination"])
         assertEquals("乙站", partial.aliases.getValue("destination").jsonPrimitive.content)
         assertEquals("Metadata Beta", project(name = JsonPrimitive("Metadata Beta")).aliases.getValue("destination").jsonPrimitive.content)
@@ -137,7 +142,7 @@ class OperationalPartRenderProjectionTest {
             assertEquals(if (override is JsonPrimitive && override.isString) override.content else "",
                 result.aliases.getValue("destination").jsonPrimitive.content)
         }
-        for (result in listOf(project(terminal = null), project(currentRun = false), project(canonical = null))) {
+        for (result in listOf(project(terminal = null), project(currentRun = false))) {
             assertFalse(result.operational.jsonObject.getValue("values").jsonObject.containsKey("destination"))
             assertEquals("", result.aliases.getValue("destination").jsonPrimitive.content)
         }
@@ -154,7 +159,7 @@ class OperationalPartRenderProjectionTest {
             stop("two", "C", TimetableServiceStopStatus.STOP), stop("unknown", "foreign", TimetableServiceStopStatus.TERMINAL))
         val result = projectOperationalPartRender(context(snapshot(planned = stops), StationBerthRef(StationId("A"), "one"),
                 TimetableDisplayProgress(TimetableDisplayPhase.IN_TRANSIT, 1)),
-            stationMetadata = { if (it == "C" || it == "A") metadata else JsonObject(emptyMap()) }, stationName = names::get)
+            stationMetadata = { if (it == "C" || it == "A") metadata else JsonObject(emptyMap()) })
         val operational = result.operational.jsonObject
         assertEquals(metadata, operational.getValue("currentStation").jsonObject.getValue("metadata"))
         assertEquals(metadata, operational.getValue("nextStation").jsonObject.getValue("metadata"))
@@ -166,7 +171,7 @@ class OperationalPartRenderProjectionTest {
         assertEquals("Central Station", operational.getValue("currentStation").jsonObject.getValue("metadata").jsonObject.getValue("nameEn").jsonPrimitive.content)
         val changed = projectOperationalPartRender(context(snapshot(planned = stops), StationBerthRef(StationId("A"), "one"),
                 TimetableDisplayProgress(TimetableDisplayPhase.IN_TRANSIT, 1)),
-            stationMetadata = { metadata }, stationName = names::get)
+            stationMetadata = { metadata })
         assertNotEquals(result.contextKey, changed.contextKey, "metadata changes invalidate stale completed screen output")
     }
 
@@ -176,7 +181,7 @@ class OperationalPartRenderProjectionTest {
             TimetableUnitDisplayContext("train", "unit", listOf("car-a"), "table", display,
                 StationBerthRef(StationId("C"), "one"),
                 TimetableRunDisplayContext("service", "run", "line", JsonObject(emptyMap())),
-                TimetableDisplayProgress(TimetableDisplayPhase.AT_STATION, 0), doorSide = side), stationName = names::get)
+                TimetableDisplayProgress(TimetableDisplayPhase.AT_STATION, 0), doorSide = side), stationMetadata = ::stationMetadata)
         val unknown = withSide(null)
         assertEquals(JsonNull, unknown.operational.jsonObject["doorSide"])
         for (side in work.art1st.javarailways.basic.api.operation.DoorSide.entries) {
@@ -288,11 +293,11 @@ class OperationalPartRenderProjectionTest {
     }
 
     @Test fun `absent inactive and contextless registered units clear aliases while keeping valid membership`() {
-        val absent = projectOperationalPartRender(null, stationName = names::get)
+        val absent = projectOperationalPartRender(null, stationMetadata = ::stationMetadata)
         assertSame(OperationalPartRenderProjection.EMPTY, absent)
         assertEquals(JsonNull, absent.unit); assertEquals(JsonNull, absent.operational)
         listOf(context(null), context(snapshot(active = false))).forEach { context ->
-            val result = projectOperationalPartRender(context, stationName = names::get)
+            val result = projectOperationalPartRender(context, stationMetadata = ::stationMetadata)
             assertEquals("unit", result.unit.jsonObject["id"]?.jsonPrimitive?.content)
             assertEquals(JsonArray(listOf(JsonPrimitive("car-a"), JsonPrimitive("car-b"))), result.unit.jsonObject["carIds"])
             assertEquals(JsonNull, result.operational)

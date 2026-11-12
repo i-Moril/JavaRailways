@@ -1742,7 +1742,7 @@ class TimetableDispatcherTest {
         val stationId = StationId("central")
         val berthRef = StationBerthRef(stationId, "one")
         world.simpleAtoWorldData.stations.register(
-            Station(stationId, "Central", listOf(berthRef), defaultDwellTicks = 3L),
+            Station(stationId, listOf(berthRef), defaultDwellTicks = 3L),
             listOf(
                 StationBerth(
                     berthRef,

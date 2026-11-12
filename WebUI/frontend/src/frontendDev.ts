@@ -23,7 +23,7 @@ const displayName=(id:string)=>id.split('-').map((part)=>part[0].toUpperCase()+p
 
 const metadataSeed:WorldMetadata={
   wayPoints:['east-junction','harbour-depot-throat'],
-  stations:stationIds.map((id)=>({stationId:id,stationDisplayName:displayName(id),berthId:`${id}-platform-1`,destinationId:`${id}-destination`})),
+  stations:stationIds.map((id)=>({stationId:id,stationName:displayName(id),berthId:`${id}-platform-1`,destinationId:`${id}-destination`})),
   depots:['harbour-depot'],
   depotDetails:[{id:'harbour-depot',displayName:'Harbour Depot',stablingPoints:[{id:'road-1',destinationId:'harbour-depot-road-1'}]}],
   trains:['demo-express'],

@@ -4,10 +4,10 @@ import { api } from './api';
 import { ApiError } from './apiErrors';
 import { frontendDemoEnabled } from './frontendDev';
 import { useI18n } from './i18n';
-import { initialMetadataEditor, metadataEditorReducer, parseStationMetadata } from './stationMetadata';
+import { initialMetadataEditor, metadataEditorReducer, parseStationMetadata, stationNameLabel } from './stationMetadata';
 import type { StationDescriptor } from './types';
 
-export function StationMetadataEditor({world,station}:{world:string;station:StationDescriptor}) {
+export function StationMetadataEditor({world,station,onSaved}:{world:string;station:StationDescriptor;onSaved?:(station:StationDescriptor)=>void}) {
   const {t,locale}=useI18n();
   const [state,dispatch]=useReducer(metadataEditorReducer,station.metadata,initialMetadataEditor);
   const {baseline,draft,saving,error,saved,incoming}=state;
@@ -24,6 +24,7 @@ export function StationMetadataEditor({world,station}:{world:string;station:Stat
       const updated=await api.saveStationMetadata(world,station.id,parsed.value,baseline);
       if(!mounted.current)return;
       dispatch({type:'saved',metadata:updated.metadata,submitted});
+      onSaved?.(updated);
     } catch(failure) {if(mounted.current)dispatch({type:'failed',error:failure});}
   };
   return <Flex vertical gap={12}>
@@ -44,11 +45,11 @@ export function StationMetadataEditor({world,station}:{world:string;station:Stat
   </Flex>;
 }
 
-export function StationsPage({world}:{world:string}) {
-  return <WorldStationsPage key={world} world={world}/>;
+export function StationsPage({world,onSaved}:{world:string;onSaved?:(station:StationDescriptor)=>void}) {
+  return <WorldStationsPage key={world} world={world} onSaved={onSaved}/>;
 }
 
-function WorldStationsPage({world}:{world:string}) {
+function WorldStationsPage({world,onSaved}:{world:string;onSaved?:(station:StationDescriptor)=>void}) {
   const {t,locale}=useI18n();
   const [stations,setStations]=useState<StationDescriptor[]>();
   const [selected,setSelected]=useState<string>();
@@ -75,8 +76,15 @@ function WorldStationsPage({world}:{world:string}) {
         {loading&&<div role="status"><Spin size="small"/> {t('stations.loading')}</div>}
         {stations?.length===0&&<Empty description={t('stations.empty')}/>}
         <Select aria-label={t('stations.station')} placeholder={t('stations.station')} value={selected} showSearch optionFilterProp="label"
-          options={stations?.map((value)=>({value:value.id,label:value.displayName===value.id?value.id:`${value.displayName} (${value.id})`}))} onChange={setSelected}/>
-        {station&&<StationMetadataEditor key={JSON.stringify([world,station.id])} world={world} station={station}/>}
+          options={stations?.map((value)=>{
+            const label=stationNameLabel(value.id,value.metadata.name,locale);
+            return {value:value.id,label:label===value.id?value.id:`${label} (${value.id})`};
+          })} onChange={setSelected}/>
+        {station&&<StationMetadataEditor key={JSON.stringify([world,station.id])} world={world} station={station}
+          onSaved={(updated)=>{
+            setStations((current)=>current?.map((item)=>item.id===updated.id?updated:item));
+            onSaved?.(updated);
+          }}/>}
       </>}
     </Flex>
   </Card></section>;

@@ -13,9 +13,9 @@ describe('line editor', () => {
         <LinesPage
           world="world"
           metadata={{ stations: [
-            { stationId: 'central', stationDisplayName: 'Central', berthId: '1', destinationId: 'central@1' },
-            { stationId: 'central', stationDisplayName: 'Central', berthId: '2', destinationId: 'central@2' },
-            { stationId: 'harbor', stationDisplayName: 'Harbor', berthId: '1', destinationId: 'harbor@1' },
+            { stationId: 'central', stationName: 'Central', berthId: '1', destinationId: 'central@1' },
+            { stationId: 'central', stationName: 'Central', berthId: '2', destinationId: 'central@2' },
+            { stationId: 'harbor', stationName: 'Harbor', berthId: '1', destinationId: 'harbor@1' },
           ] }}
           collection={{ revision: 0, lines: [{
             id:'line-1',displayName:'Line 1',color:'#1677ff',

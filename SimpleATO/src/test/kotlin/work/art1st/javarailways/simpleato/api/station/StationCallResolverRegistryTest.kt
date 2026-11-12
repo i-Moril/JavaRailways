@@ -176,7 +176,7 @@ class StationCallResolverRegistryTest {
         val otherRef = StationBerthRef(request.call.stationId, "long")
         val short = StationBerth(request.call.berthRef, original.location, approachDirection = ViewDirection.AB)
         val long = StationBerth(otherRef, (original.location as work.art1st.javarailways.core.physics.rail.RailLocationWithFacing).forward(5.0)!!, approachDirection = ViewDirection.AB)
-        store.register(Station(request.call.stationId, "Station", listOf(short.berthRef, long.berthRef)), listOf(short, long))
+        store.register(Station(request.call.stationId, listOf(short.berthRef, long.berthRef)), listOf(short, long))
         val length = world.allTrains.first().cars.sumOf { it.length }
         world.simpleAtoWorldData.stationCallResolvers.register {
             assertEquals(length, it.trainLengthMeters)
@@ -210,7 +210,7 @@ class StationCallResolverRegistryTest {
         val ref = StationBerthRef(StationId("station"), "berth")
         val berth = StationBerth(ref, train.head.location.forward(35.0)!!, approachDirection = ViewDirection.AB,
             stoppingOffsetMetersBefore = 1.0, usableLengthMeters = 100.0)
-        world.simpleAtoWorldData.stations.register(Station(ref.stationId, "Station", listOf(ref)), listOf(berth))
+        world.simpleAtoWorldData.stations.register(Station(ref.stationId, listOf(ref)), listOf(berth))
         return world to StationCallRequest("run", WayPointRef("origin"),
             StationCall("call", 1L, ref.stationId, ref, dwellPlan = DwellPlan(0)))
     }

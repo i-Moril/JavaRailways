@@ -39,10 +39,6 @@ internal fun applyRailObjectDestinationEdit(
             val previous = original?.role as? DestinationRole.StationBerthRole
             DestinationRole.StationBerthRole(
                 stationId = stationId,
-                stationDisplayName = previous
-                    ?.takeIf { it.stationId == stationId }
-                    ?.stationDisplayName
-                    ?: stationId.value,
                 berthId = edit.berthId.trim(),
                 doorSide = edit.doorSide,
                 stoppingOffsetMetersBefore = previous?.stoppingOffsetMetersBefore ?: 0.0,

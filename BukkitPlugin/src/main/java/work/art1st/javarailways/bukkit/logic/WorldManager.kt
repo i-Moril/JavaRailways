@@ -729,9 +729,8 @@ class WorldManager internal constructor(
             val stationMetadata: (String) -> kotlinx.serialization.json.JsonObject = { stationId ->
                 data.stations[StationId(stationId)]?.metadata ?: kotlinx.serialization.json.JsonObject(emptyMap())
             }
-            val stationName: (String) -> String? = { stationId -> data.stations[StationId(stationId)]?.displayName }
             data.dispatcher.captureUnitDisplays(coreWorld).forEach { context ->
-                val projection = projectOperationalPartRender(context, stationMetadata, stationName)
+                val projection = projectOperationalPartRender(context, stationMetadata)
                 context.carIds.forEach { carId ->
                     check(byCar.put(carId, projection) == null) { "Car '$carId' belongs to overlapping display units" }
                 }

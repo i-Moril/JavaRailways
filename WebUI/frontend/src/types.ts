@@ -51,7 +51,7 @@ export interface RailMapFile { formatVersion:number;world:string;runtimeId:strin
 export interface RailMapTrainCar { id:string;lengthMeters:number;x:number;y:number;z:number;directionX:number;directionZ:number }
 export interface RailMapTrain { id:string;name:string;revision:number;speedMetersPerSecond:number;derailed:boolean;reversed:boolean;railId:string;arcLengthMeters:number;facing:'AB'|'BA';cars:RailMapTrainCar[] }
 export interface StationBerthMetadata {
-  usableLengthMeters?:number; stationId:string; stationDisplayName?:string; berthId:string; destinationId:string }
+  usableLengthMeters?:number; stationId:string; stationName?:MetadataValue; berthId:string; destinationId:string }
 export interface DepotMetadata { id:string; displayName?:string; stablingPoints:{id:string;destinationId:string}[] }
 export interface SimulationProfileDescriptor { type:'WORLD_TRAIN'|'TRAIN_TEMPLATE'; id:string; displayName:string; carCount:number }
 export interface ProgramSimulationWayPoint {id:string;railId:string;direction:'AB'|'BA';directionSource:'WAYPOINT'|'RAIL'}
@@ -176,5 +176,5 @@ export type MetadataValue = string | number | boolean | null | MetadataValue[] |
 export interface MetadataObject { [key:string]:MetadataValue }
 export type StationMetadataValue = MetadataValue;
 export type StationMetadataObject = MetadataObject;
-export interface StationDescriptor { id:string; displayName:string; metadata:StationMetadataObject }
+export interface StationDescriptor { id:string; metadata:StationMetadataObject }
 export interface StationCollection { stations:StationDescriptor[] }

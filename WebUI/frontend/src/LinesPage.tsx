@@ -1,3 +1,4 @@
+import { stationNameLabel } from './stationMetadata';
 import { useEffect,useMemo,useRef,useState } from 'react';
 import { Button,Flex,Input,Select,Space,Typography } from 'antd';
 import { DeleteOutlined,DownOutlined,PlusOutlined,RightOutlined,SaveOutlined,UpOutlined } from '@ant-design/icons';
@@ -19,7 +20,7 @@ type LinesPageProps={
 };
 export function LinesPage(props:LinesPageProps){return <LineEditor key={props.world} {...props}/>;}
 function LineEditor({world,metadata,collection,onCollection,run}:LinesPageProps) {
-  const {t}=useI18n();
+  const {t,locale}=useI18n();
   const [selectedId,setSelectedId]=useState(collection.lines[0]?.id??'');
   const [creating,setCreating]=useState(false);
   const [lineCapValid,setLineCapValid]=useState(true);
@@ -67,7 +68,7 @@ function LineEditor({world,metadata,collection,onCollection,run}:LinesPageProps)
   },[world]);
   useEffect(()=>{syncAutosave();},[editing,baseline,selectedId,editingEpoch,valid]);
   const stations=useMemo(()=>Array.from(new Map((metadata.stations??[]).map((station)=>[station.stationId,station])).values()),[metadata.stations]);
-  const stationName=(stationId:string)=>stations.find((station)=>station.stationId===stationId)?.stationDisplayName||stationId;
+  const stationName=(stationId:string)=>stationNameLabel(stationId,stations.find((station)=>station.stationId===stationId)?.stationName,locale);
   const replaceEditing=(line:LineV1,isNew=false)=>{
     const value=cloneLine(line),nextBaseline=JSON.stringify(value),epoch=editorRef.current.editingEpoch+1;
     editorRef.current={editing:value,baseline:nextBaseline,selectedId:isNew?'':line.id,editingEpoch:epoch,valid:false,metadataValid:true};
@@ -115,7 +116,7 @@ function LineEditor({world,metadata,collection,onCollection,run}:LinesPageProps)
         <MetadataJsonEditor draft={metadataDraft} disabled={switching} onChange={(draft)=>{setMetadataDraft(draft);const parsed=parseMetadata(draft);if(!parsed.error)setEditing((current)=>({...current,metadata:parsed.value}));}}/>
         <div className="direction-sequences">{(['UP','DOWN'] as const).map((direction)=>{
           const values=direction==='UP'?editing.upStationIds:editing.downStationIds;
-          return <section className="direction-sequence" key={direction}><Flex className="sequence-heading" align="center" justify="space-between"><div><Typography.Title level={5}>{t(`direction.${direction}`)}</Typography.Title><Typography.Text type="secondary">{values.length} {t('lines.stations')}</Typography.Text></div><Select value={undefined} placeholder={`+ ${t('lines.addStation')}`} onChange={(stationId)=>{if(stationId)updateStations(direction,[...values,stationId]);}} options={stations.filter((station)=>!values.includes(station.stationId)).map((station)=>({value:station.stationId,label:station.stationDisplayName||station.stationId}))}/></Flex>
+          return <section className="direction-sequence" key={direction}><Flex className="sequence-heading" align="center" justify="space-between"><div><Typography.Title level={5}>{t(`direction.${direction}`)}</Typography.Title><Typography.Text type="secondary">{values.length} {t('lines.stations')}</Typography.Text></div><Select value={undefined} placeholder={`+ ${t('lines.addStation')}`} onChange={(stationId)=>{if(stationId)updateStations(direction,[...values,stationId]);}} options={stations.filter((station)=>!values.includes(station.stationId)).map((station)=>({value:station.stationId,label:stationNameLabel(station.stationId,station.stationName,locale)}))}/></Flex>
             <div className="station-sequence">{values.map((stationId,index)=><div className="sequence-row" key={stationId}><span className="sequence-index">{index+1}</span><span className="sequence-track" style={{background:editing.color??'#1677ff'}}/><div><b>{stationName(stationId)}</b><small>{stationId}</small></div><Space size={0}><Button type="text" size="small" icon={<UpOutlined/>} disabled={index===0} onClick={()=>updateStations(direction,move(values,index,index-1))}/><Button type="text" size="small" icon={<DownOutlined/>} disabled={index===values.length-1} onClick={()=>updateStations(direction,move(values,index,index+1))}/><Button type="text" danger size="small" icon={<DeleteOutlined/>} onClick={()=>updateStations(direction,values.filter((id)=>id!==stationId))}/></Space></div>)}</div>
           </section>;
         })}</div>

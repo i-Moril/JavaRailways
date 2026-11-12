@@ -56,7 +56,7 @@ class OperationalDestinationTest {
         val id = StationId("central")
         val original = OperationalDestination(
             id = "central@one", railId = rail.id, arcLengthInAbMeters = 20.0,
-            role = DestinationRole.StationBerthRole(id, "Central", "one", DoorSide.LEFT)
+            role = DestinationRole.StationBerthRole(id, "one", DoorSide.LEFT)
         )
         service.register(original)
         val metadata = JsonObject(mapOf("notice" to JsonPrimitive("Transfer here")))
@@ -203,7 +203,6 @@ class OperationalDestinationTest {
         val stationId = StationId("central")
         val firstRole = DestinationRole.StationBerthRole(
             stationId = stationId,
-            stationDisplayName = "Central",
             berthId = "one-up",
             doorSide = DoorSide.LEFT
         )

@@ -30,6 +30,7 @@ import work.art1st.javarailways.simpleato.api.line.LineId
 import work.art1st.javarailways.simpleato.api.line.LinePlanner
 import work.art1st.javarailways.simpleato.api.line.LineRevisionConflict
 import work.art1st.javarailways.simpleato.api.station.StationId
+import work.art1st.javarailways.simpleato.api.station.StationMetadata
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.simpleato.persistence.SavedTimetableV1
 import work.art1st.javarailways.simpleato.persistence.TimetableSnapshotCodec
@@ -385,7 +386,9 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                         ?: return@mapNotNull null
                     buildJsonObject {
                         put("stationId", role.stationId.value)
-                        put("stationDisplayName", role.stationDisplayName)
+                        operationalData.stations[role.stationId]?.metadata
+                            ?.let(StationMetadata::name)
+                            ?.let { put("stationName", it) }
                         put("berthId", role.berthId)
                         role.usableLengthMeters?.let { put("usableLengthMeters", it) }
                         put("destinationId", destination.id)

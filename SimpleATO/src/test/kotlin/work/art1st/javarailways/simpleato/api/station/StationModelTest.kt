@@ -83,7 +83,7 @@ class StationModelTest {
             StationBerthRef(stationId, "one"),
             StationBerthRef(stationId, "two")
         )
-        val station = Station(stationId, "Central", mutableRefs, defaultDwellTicks = 40L)
+        val station = Station(stationId, mutableRefs, defaultDwellTicks = 40L)
         mutableRefs.clear()
 
         assertEquals(2, station.berthRefs.size)
@@ -124,7 +124,7 @@ class StationModelTest {
             releaseDistanceMetersAfter = 5.0,
             doorSide = DoorSide.LEFT
         )
-        val station = Station(stationId, "Central", listOf(berthRef), defaultDwellTicks = 80L)
+        val station = Station(stationId, listOf(berthRef), defaultDwellTicks = 80L)
 
         stations.register(station, listOf(berth))
 
@@ -156,7 +156,7 @@ class StationModelTest {
         val berthRef = StationBerthRef(stationId, "one")
         val firstBerth = StationBerth(berthRef, firstFixture.location)
         val secondBerth = StationBerth(berthRef, secondFixture.location)
-        val station = Station(stationId, "Central", listOf(berthRef))
+        val station = Station(stationId, listOf(berthRef))
 
         firstStations.register(station, listOf(firstBerth))
         secondStations.register(station, listOf(secondBerth))
@@ -182,7 +182,7 @@ class StationModelTest {
         val source = linkedMapOf<String, JsonElement>(
             "transfers" to JsonArray(transfers), "notice" to JsonPrimitive("hello")
         )
-        store.register(Station(id, "Central", listOf(ref), metadata = JsonObject(source)),
+        store.register(Station(id, listOf(ref), metadata = JsonObject(source)),
             listOf(StationBerth(ref, location)))
         nested.clear()
         transfers.clear()
@@ -213,15 +213,15 @@ class StationModelTest {
         val first = StationBerthRef(id, "one")
         val second = StationBerthRef(id, "two")
         val metadata = JsonObject(mapOf("enabled" to JsonPrimitive(true)))
-        store.addBerth(id, "Central", StationBerth(first, location))
+        store.addBerth(id, StationBerth(first, location))
         store.updateMetadata(id, metadata, JsonObject(emptyMap()))
-        store.addBerth(id, "Central", StationBerth(second, location))
+        store.addBerth(id, StationBerth(second, location))
         assertEquals(metadata, store[id]!!.metadata)
         store.removeBerth(first)
         assertEquals(metadata, store[id]!!.metadata)
         store.removeBerth(second)
         assertNull(store[id])
-        store.addBerth(id, "Central", StationBerth(first, location))
+        store.addBerth(id, StationBerth(first, location))
         assertEquals(JsonObject(emptyMap()), store[id]!!.metadata)
     }
 

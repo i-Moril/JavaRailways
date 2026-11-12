@@ -51,7 +51,7 @@ class LinePlannerTest {
         for ((id, position) in listOf("a" to 10.0, "b" to 90.0)) destinations.register(OperationalDestination(
             id = "$id@one", railId = rail.id, arcLengthInAbMeters = position,
             approachDirection = ViewDirection.AB,
-            role = DestinationRole.StationBerthRole(StationId(id), id, "one", DoorSide.LEFT)))
+            role = DestinationRole.StationBerthRole(StationId(id), "one", DoorSide.LEFT)))
         world.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("via1", rail.id, 40.0))
         world.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("via2", rail.id, 60.0))
         val line = Line(LineId("L"), "Line", listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a")))
@@ -90,12 +90,12 @@ class LinePlannerTest {
         destinations.register(OperationalDestination(
             id = "origin@one", railId = origin.railId,
             arcLengthInAbMeters = origin.endAbMeters, approachDirection = originDirection,
-            role = DestinationRole.StationBerthRole(StationId("origin"), "Origin", "one", DoorSide.LEFT)
+            role = DestinationRole.StationBerthRole(StationId("origin"), "one", DoorSide.LEFT)
         ))
         destinations.register(OperationalDestination(
             id = "goal@one", railId = goal.railId,
             arcLengthInAbMeters = goal.startAbMeters, approachDirection = goalDirection,
-            role = DestinationRole.StationBerthRole(StationId("goal"), "Goal", "one", DoorSide.LEFT)
+            role = DestinationRole.StationBerthRole(StationId("goal"), "one", DoorSide.LEFT)
         ))
         val line = Line(LineId("fractional"), "Fractional",
             listOf(StationId("origin"), StationId("goal")),
@@ -123,7 +123,7 @@ class LinePlannerTest {
         fun station(id:String, arc:Double, direction:ViewDirection = ViewDirection.AB) = OperationalDestination(
             id="$id@one", railId=rail.id, arcLengthInAbMeters=arc,
             approachDirection=direction,
-            role=DestinationRole.StationBerthRole(StationId(id), id, "one", DoorSide.LEFT)
+            role=DestinationRole.StationBerthRole(StationId(id), "one", DoorSide.LEFT)
         )
         destinations.register(station("a", 20.0))
         destinations.register(station("b", 80.0))
@@ -167,7 +167,7 @@ class LinePlannerTest {
         fun berth(station:String, berth:String, arc:Double, direction:ViewDirection = ViewDirection.AB) = OperationalDestination(
             id="$station@$berth", railId=rail.id, arcLengthInAbMeters=arc,
             approachDirection=direction,
-            role=DestinationRole.StationBerthRole(StationId(station), station, berth, DoorSide.LEFT)
+            role=DestinationRole.StationBerthRole(StationId(station), berth, DoorSide.LEFT)
         )
         destinations.register(berth("a", "near", 20.0))
         destinations.register(berth("a", "selected", 10.0))

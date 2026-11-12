@@ -1,3 +1,4 @@
+import { stationNameLabel } from './stationMetadata';
 import { useEffect,useMemo,useRef,useState } from 'react';
 import { Button,Tooltip } from 'antd';
 import { graphServiceColor,layoutGraph,type GraphPoint } from './graph';
@@ -57,8 +58,8 @@ export function Graph({
   ]);
   const sheetHeight=Math.ceil(layout.height);
   const stationNames=useMemo(()=>new Map((metadata?.stations??[]).map((station)=>[
-    station.stationId,station.stationDisplayName||station.stationId,
-  ])),[metadata?.stations]);
+    station.stationId,stationNameLabel(station.stationId,station.stationName,locale),
+  ])),[metadata?.stations,locale]);
   const services=useMemo(()=>{
     const grouped=new Map<number,ServicePath>();
     layout.paths.forEach((path)=>{

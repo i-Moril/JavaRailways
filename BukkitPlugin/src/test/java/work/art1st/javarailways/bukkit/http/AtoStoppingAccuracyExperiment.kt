@@ -123,7 +123,7 @@ class AtoStoppingAccuracyExperiment {
                                 if (direction == ViewDirection.AB) rail.viewAB else rail.viewBA,
                                 if (direction == ViewDirection.AB) targetArc else railLength - targetArc),
                                 approachDirection = direction)
-                            world.simpleAtoWorldData.stations.register(Station(stationId, "station", listOf(berthRef)), listOf(berth))
+                            world.simpleAtoWorldData.stations.register(Station(stationId, listOf(berthRef)), listOf(berth))
                             val request = StationCallRequest("accuracy", WayPointRef("origin"),
                                 StationCall("accuracy", 1, stationId, berthRef, dwellPlan = DwellPlan(0)))
                             val selected = (result as AtoMissionSubmissionResult.Accepted).mission.legs.single().plannedRoute.expandedRoute

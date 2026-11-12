@@ -158,7 +158,7 @@ class RailObjectDestinationEditorTest {
 
     private fun stationDestination(anchor: WayPoint) = OperationalDestination(
         "central@one", anchor.railId, anchor.arcLength,
-        role = DestinationRole.StationBerthRole(StationId("central"), "Central", "one", DoorSide.NONE)
+        role = DestinationRole.StationBerthRole(StationId("central"), "one", DoorSide.NONE)
     )
 
     private fun attachWorldData() {

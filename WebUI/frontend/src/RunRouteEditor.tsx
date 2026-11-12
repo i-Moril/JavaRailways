@@ -1,3 +1,4 @@
+import { stationNameLabel } from './stationMetadata';
 import { MetadataJsonEditor } from './MetadataJsonEditor';
 import {EditableIdList} from './EditableIdSelect';
 import {waypointOptions} from './idOptions';
@@ -57,8 +58,8 @@ export function RunRouteEditor({metadataDraft,onMetadataDraftChange,automaticCol
   const originIndex=routeStations.indexOf(run.calls[0]?.stationId??'');
   const terminalIndex=routeStations.indexOf(run.calls.at(-1)?.stationId??'');
   const stationNames=useMemo(()=>new Map((metadata.stations??[]).map((station)=>[
-    station.stationId,station.stationDisplayName||station.stationId,
-  ])),[metadata.stations]);
+    station.stationId,stationNameLabel(station.stationId,station.stationName,locale),
+  ])),[metadata.stations,locale]);
   const labelStation=(stationId:string)=>stationNames.get(stationId)||stationId;
   const berthsFor=(stationId:string)=>(metadata.stations??[]).filter((berth)=>berth.stationId===stationId);
 

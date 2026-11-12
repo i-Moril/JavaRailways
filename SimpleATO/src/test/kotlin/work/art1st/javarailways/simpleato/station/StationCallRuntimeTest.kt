@@ -453,7 +453,7 @@ class StationCallRuntimeTest {
             approachDirection = ViewDirection.AB,
             defaultDwellTicks = 20L
         )
-        val station = Station(stationId, "Central", listOf(berthRef))
+        val station = Station(stationId, listOf(berthRef))
         world.simpleAtoWorldData.stations.register(station, listOf(berth))
         val actuator = KinematicTrainActuator(6.0, profile)
         val ato = SimpleATO(train, world, actuator, profile) { 0.0 }

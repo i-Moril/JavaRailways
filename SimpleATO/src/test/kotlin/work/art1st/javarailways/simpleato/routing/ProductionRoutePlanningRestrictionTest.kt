@@ -161,7 +161,6 @@ class ProductionRoutePlanningRestrictionTest {
         approachDirection = ViewDirection.AB,
         role = DestinationRole.StationBerthRole(
             stationId = StationId(station),
-            stationDisplayName = station,
             berthId = "one",
             doorSide = DoorSide.LEFT
         )

@@ -907,7 +907,7 @@ class TimetableStationCallDispatcherTest {
         )
         val service = work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService(world)
         val role = work.art1st.javarailways.simpleato.api.destination.DestinationRole.StationBerthRole(
-            stationId = fixture.station.id, stationDisplayName = "Central", berthId = "one", doorSide = DoorSide.NONE
+            stationId = fixture.station.id, berthId = "one", doorSide = DoorSide.NONE
         )
         val destination = work.art1st.javarailways.simpleato.api.destination.OperationalDestination(
             "central@one", fixture.berth.location.rail.id,
@@ -1926,7 +1926,7 @@ class TimetableStationCallDispatcherTest {
             approachDirection = ViewDirection.AB,
             usableLengthMeters = 100.0
         )
-        world.simpleAtoWorldData.stations.register(Station(stationId, "Central", listOf(berthRef)), listOf(berth))
+        world.simpleAtoWorldData.stations.register(Station(stationId, listOf(berthRef)), listOf(berth))
         val blockerId = TimetableServiceRunId("tt", "blocking")
         val mainId = TimetableServiceRunId("tt", "main")
         world.onOwnerForTest { dispatcher.startService(world, "tt", "blocking") } as TimetableServiceStartResult.Started
@@ -2021,7 +2021,7 @@ class TimetableStationCallDispatcherTest {
             approachDirection = ViewDirection.AB,
             usableLengthMeters = 100.0
         )
-        world.simpleAtoWorldData.stations.register(Station(stationId, "Central", listOf(berthRef)), listOf(berth))
+        world.simpleAtoWorldData.stations.register(Station(stationId, listOf(berthRef)), listOf(berth))
         val firstId = TimetableServiceRunId("tt", "first")
         val secondId = TimetableServiceRunId("tt", "second")
         val firstRun = world.onOwnerForTest { dispatcher.startService(world, "tt", "first") } as TimetableServiceStartResult.Started
@@ -2223,7 +2223,7 @@ class TimetableStationCallDispatcherTest {
             stoppingOffsetMetersBefore = berthStoppingOffsetMetersBefore,
             doorSide = doorSide
         )
-        val station = Station(stationId, "Central", listOf(berthRef))
+        val station = Station(stationId, listOf(berthRef))
         if (!canonicalTarget) world.simpleAtoWorldData.stations.register(station, listOf(berth))
         if (storeAfterDestination) {
             work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService(world).register(

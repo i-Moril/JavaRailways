@@ -4,7 +4,7 @@ import {waypointOptions,directedWaypointOptions} from './idOptions';
 import type {WorldMetadata} from './types';
 const metadata:WorldMetadata={wayPoints:['kasaidpt@1','中央@1','undirected'],
  programSimulationWayPoints:[{id:'kasaidpt@1',railId:'r',direction:'BA',directionSource:'WAYPOINT'}],
- stations:[{stationId:'中央',stationDisplayName:'中央站',berthId:'1',destinationId:'中央@1'}],
+ stations:[{stationId:'中央',stationName:'中央站',berthId:'1',destinationId:'中央@1'}],
  depotDetails:[{id:'kasaidpt',displayName:'葛西车辆段',stablingPoints:[{id:'1',destinationId:'kasaidpt@1'}]}]};
 describe('editable ID candidates keep their actual domain',()=>{
  it('displays and filters the full waypoint IDs',()=>{

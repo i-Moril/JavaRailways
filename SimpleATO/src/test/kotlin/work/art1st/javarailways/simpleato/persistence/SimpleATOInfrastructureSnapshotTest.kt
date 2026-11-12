@@ -233,7 +233,6 @@ class SimpleATOInfrastructureSnapshotTest {
         arcLengthInAbMeters = arc,
         role = DestinationRole.StationBerthRole(
             stationId = StationId(stationId),
-            stationDisplayName = stationId,
             berthId = "one",
             doorSide = DoorSide.LEFT
         )

@@ -1030,7 +1030,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(340.0, 1))
         for ((id, arc) in listOf("a" to 20.0, "b" to 60.0, "c" to 110.0, "d" to 180.0, "e" to 280.0)) {
             OperationalDestinationService(source).register(OperationalDestination("$id@one", rail.id, arc,
-                if (returning) ViewDirection.BA else ViewDirection.AB, DestinationRole.StationBerthRole(StationId(id), stationDisplayName = id.uppercase(),
+                if (returning) ViewDirection.BA else ViewDirection.AB, DestinationRole.StationBerthRole(StationId(id),
                     berthId = "one", doorSide = DoorSide.NONE, usableLengthMeters = 30.0)))
         }
         val main = LineId("main")
@@ -1426,7 +1426,6 @@ class IsolatedTimetableSimulationFactoryTest {
                 approachDirection = ViewDirection.AB,
                 role = DestinationRole.StationBerthRole(
                     stationId = StationId(id),
-                    stationDisplayName = id.uppercase(),
                     berthId = "one",
                     doorSide = DoorSide.LEFT
                 )

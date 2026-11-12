@@ -7,7 +7,7 @@
 ## 安装与使用
 
 - 服务器：将 `models/jr_route_indicator/` 复制到 `<SimpleSignals dataFolder>/models/jr_route_indicator/`，重启插件加载。
-- 客户端：从独立的 JavaRailwaysReources 仓库获取进路表示器客户端资源包，或将其中的 `assets/jr/` 合入现有资源包。元数据沿用现有四灯包的 Minecraft 1.21.11 格式 75.0；其他客户端版本未验证。
+- 客户端：从独立的 JavaRailwaysResources 仓库获取进路表示器客户端资源包，或将其中的 `assets/jr/` 合入现有资源包。元数据沿用现有四灯包的 Minecraft 1.21.11 格式 75.0；其他客户端版本未验证。
 - Signal Wand 新建进路表示器时选择模型 `jr_route_indicator:head`，明确将无进路外观设为 `closed`，再将各进路映射到数字 `0`～`9`。显示内容由映射决定，不从进路顺序推断。
 - 未配置映射使用所选无进路外观。数字显示不授予进路或行车权限。
 

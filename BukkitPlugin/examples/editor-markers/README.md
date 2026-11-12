@@ -14,7 +14,7 @@ Section tools show only transverse boundary marks and the thin centreline, witho
 or repeated captions inside the section. Direction arrows remain available to the rail direction tool.
 
 The client resource pack and its generator are maintained in the independent
-JavaRailwaysReources repository. Install its editor-markers pack or merge its
+JavaRailwaysResources repository. Install its editor-markers pack or merge its
 font and texture into a compatible pack. No `minecraft:default` font is replaced.
 The server does not install or host client packs automatically. Without this pack, these private
 glyphs cannot be rendered correctly; the server does not substitute particles.

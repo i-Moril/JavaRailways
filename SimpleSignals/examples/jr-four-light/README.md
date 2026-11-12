@@ -1,7 +1,7 @@
 # JR 四灯式信号包
 
 这是用于正式游戏验收的统一信号包，不是 smoke 规则：`signal-packs/jr_four_light/` 包含元数据、
-完整模型、JS 逻辑和玩家可选择的信号类型；独立的 JavaRailwaysReources 仓库提供共用外壳、四种亮灯模型和共用贴图。
+完整模型、JS 逻辑和玩家可选择的信号类型；独立的 JavaRailwaysResources 仓库提供共用外壳、四种亮灯模型和共用贴图。
 **只有灯头，没有立柱。**
 来源是用户提供的独立模型工作区，其中的 `models/jr_four_light/pack/assets/jr/`；外部原文件未修改。
 
@@ -89,7 +89,7 @@ ATO 以 0.6 实际制动。制动模型未包含坡度、制动建立或驾驶�
 `<SimpleSignals dataFolder>/signal-packs/jr_four_light/`，确保 `pack.yml` 位于该包根部。
 本目录的 `pack.yml` 只保存元数据，`model/head.yml`、`logic/block.yml` 与配对的 `logic/block.js`、
 `signal/block.yml` 分别定义模型、逻辑与可选择类型。不再同时安装旧的 model-only 灯头示例。
-客户端资源包从独立的 JavaRailwaysReources 仓库获取，将资源包目录放到客户端资源包目录，或将其内容打包，使 `pack.mcmeta`
+客户端资源包从独立的 JavaRailwaysResources 仓库获取，将资源包目录放到客户端资源包目录，或将其内容打包，使 `pack.mcmeta`
 位于资源包根部。资源包与服务器模型包是两个不同的目录，不可互相替代。
 
 插件启用时异步发现这些目录；复制文件后需重新启用插件，当前没有包热重载。

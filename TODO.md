@@ -24,9 +24,9 @@
 - TBB Wand浮点数舍入？
 - [x] RailObjectWand 右键识别
 - [ ] RailWand编辑模式加减号
-- [ ] RailWand预览
 - [ ] RailObjectWand depot模式滑块改输入数字
-- [ ] 道岔后轨道长度限制？
+- [ ] web端程序库是否按时刻表保存
+- [ ] 路径点方向？
 
 # Improvements
 - [ ] 统一容差（暂缓）：按语义整理并统一系统中的容差；轴距与车钩求解已共用 1mm，其余后续处理。 [已记录清单](ai_tasks/tolerance-audit-2026-11-09/README.md)

@@ -61,10 +61,10 @@ class RailPackageCoordinateTest {
     }
 
     @Test
-    fun `bundled default and root sample remain valid current rail configurations`() {
+    fun `bundled default and example remain valid current rail configurations`() {
         val bundled = loadRailModelConfig(requireNotNull(javaClass.getResourceAsStream("/rail_model.yml")))
         assertEquals(-90.0, bundled.elements.single().rotation.y)
-        val sample = loadRailModelConfig(Files.newInputStream(Path.of("../rail_model.yml")))
+        val sample = loadRailModelConfig(Files.newInputStream(Path.of("../examples/models/rails/basic-block/rail_model.yml")))
         assertEquals(3, sample.elements.size)
         assertEquals(OffsetConfig(-0.3, -0.1, 0.0), sample.elements[1].offset)
         assertEquals(OffsetConfig(0.3, -0.1, 0.0), sample.elements[2].offset)

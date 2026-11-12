@@ -130,7 +130,6 @@ gradle-app.setting
 .codeabs/
 
 tmp/*
-!tmp/template.yml
 
 # Local deployment records are audit evidence, not source history.
 ai_tasks/deployments/

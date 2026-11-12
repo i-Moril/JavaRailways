@@ -1,5 +1,5 @@
 // @ts-check
-/// <reference path="../../types/timetable.d.ts" />
+/// <reference path="../../schemas/types/timetable.d.ts" />
 
 /** @param {JavaRailwaysTimetableBuilder} timetable */
 function main(timetable) {

@@ -1,5 +1,5 @@
 // @ts-check
-/// <reference path="../../../types/train-behavior.d.ts" />
+/// <reference path="../../../schemas/types/train-behavior.d.ts" />
 
 function forDoorSide(door_side, callback) {
   const side = String(door_side || "left").toLowerCase()

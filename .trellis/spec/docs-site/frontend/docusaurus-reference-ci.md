@@ -27,21 +27,19 @@ locales: [zh-Hans]
 `package.json` 的 production build 顺序：
 
 ```text
-validate-models
-  → test-schemas
+test-schemas
   → copy-reference-files
   → docusaurus build
   → Pagefind index
 ```
 
-- `validate-model-packages.mjs` 从主仓 `schemas/train-model/` 读取 Draft 2020-12 schema，并验证 `examples/models/` 中列车包的 YAML；以manifest/control/actions/cars/parts包标记识别候选，裸轨道素材和resourcepack目录不当作列车包，具有列车内容但缺manifest仍报错。YAML 1.2 strict、unique keys，`on/off/yes/no` scene name 必须 quote。
-- `test-model-schemas.mjs` 固定 schema rejection cases，防止 schema 接受 loader 不支持的 shape。
+- `test-model-schemas.mjs` 检查固定的 schema rejection cases；当前 AJV strict 模式下 schema 编译失败，尚不能证明与 loader 的一致性。
 - `check-examples.mjs` 对主仓 `examples/` 中 `.js` 执行 Node syntax check；示例改动要显式运行，因为当前 `npm run check` 未包含该 script。
 - `copy-reference-files.mjs` 把主仓 `schemas/` 和 submodule `reference/types/` 复制到 `static/`。修改 source 后重建，不直接编辑 `static`。
 
 这些 script 通过相对路径读取嵌入主仓的输入；变更 script/path 时既要在主仓 submodule 位置验证输入集成，也要审查 submodule 自有 CI checkout 的运行边界，不能把 Git 独立性和 build input ownership 混为一谈。
 
-当前存在明确的 standalone CI 缺口：`check.yml`/`deploy.yml` 只 checkout `docs-site` repository，但 `validate-model-packages.mjs`、`test-model-schemas.mjs`、`check-examples.mjs` 和 `copy-reference-files.mjs` 会从父目录读取主仓 `schemas/`、`examples/`。因此嵌入主仓时的 `npm --prefix docs-site run check` 可以验证集成输入，不能据此宣称 submodule 自有 CI 已具备这些输入。修改 CI/script 时应显式提供有版本归属的主仓输入或重新定义 source ownership，并分别验证 standalone checkout 与嵌入位置；不要通过手工提交 `static/` 生成副本掩盖缺失 source。
+当前存在明确的 standalone CI 缺口：`check.yml`/`deploy.yml` 只 checkout `docs-site` repository，但 `test-model-schemas.mjs`、`check-examples.mjs` 和 `copy-reference-files.mjs` 会从父目录读取主仓 `schemas/`、`examples/`。因此嵌入主仓时的 `npm --prefix docs-site run check` 可以验证集成输入，不能据此宣称 submodule 自有 CI 已具备这些输入。修改 CI/script 时应显式提供有版本归属的主仓输入或重新定义 source ownership，并分别验证 standalone checkout 与嵌入位置；不要通过手工提交 `static/` 生成副本掩盖缺失 source。
 
 ## CI 与 submodule
 

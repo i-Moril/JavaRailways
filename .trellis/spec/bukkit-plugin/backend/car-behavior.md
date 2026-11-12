@@ -137,4 +137,6 @@ behavior.js 的 door(side,scene) 返回1至128个YAML动作名，不直接调用
 
 关门时长包含动作启动延迟及相应动画源/目标场景的完整跨度，先按开门计划的完成场景推算正常关门，整列取并行最大值。实际效果完成仍由同一每车播放时序确认，不能仅等待估算时长。隐藏、重新可见、模拟共用转换后的动画时间数据；替换、取消、销毁与卸载必须结清原操作，不得迟到成功。门计划契约的源代码变更需随模型包发布，旧快照/服务器模型包在部署前单独盘点，运行时不加旧door效果式协议的兼容分支。
 
+CarBehaviorClock 实现 `TickBatchPreparing`，在 owner 的 `preTick` 提交任何 generic worker 之前，将待启动动画和延时效果纳入本轮。捕获之后提交的效果下一 tick 才推进；延时起点也在准入时绑定，不能因 worker 迟执行而提前消费提交当轮的 delta。取消和 close 同时移除待准入与已准入效果。回归以 barrier 强制 worker 在动作前/后两种顺序，验证同一完成 tick，不以 sleep 或重跑概率证明保序。
+
 延迟效果和逐part播放由每车一个 CarBehaviorClock 在现有 TickManager 内推进，initialize幂等注册一次，空闲不运行JS；owner commit先提交已计算动画帧，再启动同一时刻到期的效果，新动画下一tick推进。这样没有每个延迟动画重新注册造成的额外phase间隔。动画reset/close先脱离槽位再销毁，逻辑关闭及source切换不投影旧模型，避免world.executionOwner清理越过Folia位置owner。可见性重建保持同一来源的播放进度，模型来源变化则取消旧槽位；两者不可混为一类。随仓库提供的S100压缩包必须同步行为脚本及其所依赖动作声明。

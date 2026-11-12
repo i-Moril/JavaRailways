@@ -4,6 +4,7 @@ import work.art1st.javarailways.core.api.util.tick.AsyncTickObjectMetrics
 import work.art1st.javarailways.core.api.util.tick.AsyncTickPhaseMetrics
 import work.art1st.javarailways.core.api.util.tick.MainThreadTickMetrics
 import work.art1st.javarailways.core.api.util.tick.Synchronizable
+import work.art1st.javarailways.core.api.util.tick.TickBatchPreparing
 import work.art1st.javarailways.core.api.util.tick.TickManager
 import work.art1st.javarailways.core.api.util.tick.TickProfiled
 import work.art1st.javarailways.core.api.util.tick.TickingObject
@@ -63,6 +64,7 @@ class TickManagerImpl(
         val deltaT = (currentTimeMs - currentTick).toDouble()
         currentTick = currentTimeMs
         val objects = tickingObjects.toList()
+        objects.filterIsInstance<TickBatchPreparing>().forEach { it.prepareTick() }
         val tickLatch = CountDownLatch(objects.size)
         val tickErrors = ConcurrentLinkedQueue<Throwable>()
         val totalObjectNanos = AtomicLong(0L)

@@ -95,6 +95,8 @@ Pre/Post同时携带World实例、epoch及实际delta，Post携带本次已提�
 | stationary/no controller | 仍参与 pending state/frame publication | 不从controller存在性推断可见性 |
 | deterministic step参数非法 | `require/check`失败，无新epoch | 修正caller输入 |
 
+Generic `preTick()` 先捕获注册对象，再在 owner 上同步调用本轮所有 `TickBatchPreparing.prepareTick()`，完成后才提交任何 worker。该入口只冻结对象自己拥有的待办，不执行平台 commit；捕获后到达的待办留给下一 tick，不在 worker 真正开始执行时重新准入。准备失败向 preTick caller 传播，本轮不提交 worker。
+
 Generic TickManager 的 `postTick()` 只 await workers并drain `postTickTasks`；平台之后才 `drainPendingCommits()`。不存在独立的 after-commit 阶段队列：提交请求的 mailbox 由 `drainPendingCommits()` 消费，若将来需要平台提交后回调，应由拥有真实完成时机的宿主提供，而不是在 TickManager 中保留第二个阶段名。
 
 world frame的capture与publication是两个阶段，但不是两个可独立观察的revision。capture持有topology read lock并保存当时同epoch的train frames、共享occupancy实例、topology revision和live turnout continuation snapshot；processor只读该value。最终publication再次持有read lock，要求topology revision未变、occupancy仍为同一实例、按train ID排序的当前published frames与candidate相等，且active-continuation snapshot仍是同一对象。任一不匹配都令ticket失败，不发布candidate。processor耗时计入`wallNanos`、`coordinatorNanos`与overload窗口；它不是不受physics预算约束的异步队列。

@@ -28,7 +28,7 @@ class CarAnimationPlaybackTest {
 
     @Test
     fun `actual converted S100 door plans include warning delay and complete playback for all six cars`() {
-        val source = requireNotNull(PackageLoader(java.io.File("../models/s100")).loadTrainPackage())
+        val source = requireNotNull(PackageLoader(java.io.File("../examples/models/s100")).loadTrainPackage())
         assertEquals(6, source.cars.size)
         source.cars.forEach { (name, model) ->
             val parts = SavedCarModelTree.build(model, source.partRegistry).captureAnimationParts()
@@ -71,7 +71,7 @@ class CarAnimationPlaybackTest {
     fun `packaged S100 behavior matches its action declarations and preserves real door durations`() {
         val temporary = java.nio.file.Files.createTempDirectory("s100-door-package-")
         try {
-            java.util.zip.ZipFile("../models/s100.zip").use { zip ->
+            java.util.zip.ZipFile("../examples/models/s100.zip").use { zip ->
                 zip.entries().asSequence().forEach { entry ->
                     val target = temporary.resolve(entry.name).normalize()
                     require(target.startsWith(temporary))
@@ -82,7 +82,7 @@ class CarAnimationPlaybackTest {
                 }
             }
             val source = requireNotNull(PackageLoader(temporary.resolve("s100").toFile()).loadTrainPackage())
-            assertEquals(java.io.File("../models/s100/behavior.js").readText(), source.behavior!!.source)
+            assertEquals(java.io.File("../examples/models/s100/behavior.js").readText(), source.behavior!!.source)
             assertEquals(6, source.cars.size)
             source.cars.forEach { (_, model) ->
                 val parts = SavedCarModelTree.build(model, source.partRegistry).captureAnimationParts()

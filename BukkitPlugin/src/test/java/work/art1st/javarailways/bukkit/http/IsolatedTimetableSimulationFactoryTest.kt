@@ -1866,7 +1866,7 @@ class IsolatedTimetableSimulationFactoryTest {
                     if (reverseAfter) listOf(TimetableStep.At(0, TimetableAction.Reverse),
                         TimetableStep.At(0, TimetableAction.GoTo("return"))) else emptyList())))
             val loaded = requireNotNull(work.art1st.javarailways.bukkit.config.model.PackageLoader(
-                java.io.File("../models/s100")).loadTrainPackage())
+                java.io.File("../examples/models/s100")).loadTrainPackage())
             val models = loaded.cars.values.associate { it.resourceName to
                 work.art1st.javarailways.bukkit.config.model.SavedCarModelTree.build(it, loaded.partRegistry) }
             val saved = work.art1st.javarailways.bukkit.config.model.SavedTrainPackageSnapshot.build("s100",

@@ -37,7 +37,7 @@ class RailPackageCoordinateTest {
         val newRotation = computeRailCurveRotation(forward, up)
         val origin = Vector3d(10.0, 20.0, 30.0)
         for ((name, oldElements) in oldPackages) {
-            val config = loadRailModelConfig(Files.newInputStream(Path.of("../models/rails/$name/rail_model.yml")))
+            val config = loadRailModelConfig(Files.newInputStream(Path.of("../examples/models/rails/$name/rail_model.yml")))
             assertEquals(oldElements.size, config.elements.size)
             config.elements.zip(oldElements).forEach { (element, old) ->
                 val actual = computeRailDisplayPlacement(origin, forward, up, element.offset, element.lightProbeOffset)

@@ -320,7 +320,7 @@ class FullFeatureSimulationIsolationTest {
     }
 
     private fun profile(carCount: Int): SimulationControlProfile {
-        val loaded = requireNotNull(PackageLoader(File("../models/s100")).loadTrainPackage())
+        val loaded = requireNotNull(PackageLoader(File("../examples/models/s100")).loadTrainPackage())
         val car = requireNotNull(loaded.cars["head"])
         val behavior = CapturedCarBehavior(loaded.behavior, loaded.actions,
             SavedCarModelTree.build(car, loaded.partRegistry).captureAnimationParts())

@@ -36,7 +36,7 @@ npm --prefix docs-site run check
 - 对 `Core`/`Basic` API 改动运行 downstream 编译/测试，并确认 Dokka 公开范围。
 - 对 Paper/Folia 改动检查 target-aware scheduler/ownership，必要时使用 `./gradlew :BukkitPlugin:runFolia` 做人工 smoke；自动测试通过不代表跨 region 场景已验证。
 - 对 WebUI contract 同时检查 Java route、`frontend/src/api.ts`、`frontend/src/types.ts` 和相关两侧测试。
-- 对 docs-site 输入检查根 `schemas/`、`models/`、`examples/` 与 submodule `reference/` 的来源关系，不手改生成的 `static/` 副本。
+- 对 docs-site 输入检查根 `schemas/`、`examples/` 与 submodule `reference/` 的来源关系，不手改生成的 `static/` 副本。
 - 最终运行 `git diff --check`；分别查看根仓库与 submodule 状态，避免混合提交。
 
 ## 禁止的验证捷径

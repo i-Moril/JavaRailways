@@ -253,7 +253,7 @@ tasks.withType(Test).configureEach {
 // Coordinate regression reads the shipped packages directly; edits must invalidate test results.
 tasks.named('test') {
     inputs.file(rootProject.file('rail_model.yml'))
-    inputs.files(rootProject.fileTree('models/rails') { include '**/rail_model.yml' })
+    inputs.files(rootProject.fileTree('examples/models/rails') { include '**/rail_model.yml' })
 }
 
 

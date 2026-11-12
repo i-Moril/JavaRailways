@@ -40,7 +40,7 @@ class CapturedCarBehaviorTest {
 
     @Test
     fun `real s100 package reverses every car without requesting another cars end lights`() {
-        val loaded = requireNotNull(PackageLoader(java.io.File("../models/s100")).loadTrainPackage())
+        val loaded = requireNotNull(PackageLoader(java.io.File("../examples/models/s100")).loadTrainPackage())
         assertEquals(setOf("head", "head_tail", "motor", "motor_tail", "passenger", "trailer"), loaded.cars.keys)
         for ((modelName, model) in loaded.cars) {
             val capabilities = SavedCarModelTree.build(model, loaded.partRegistry).captureAnimationCapabilities()

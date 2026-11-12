@@ -45,8 +45,8 @@ def summarize(folder):
                 'maximumMeasuredSpeedMetersPerSecond': max(float(row['peak_mps']) for row in selected),
             }
         groups[name] = {'options': options, 'modes': modes}
-    inputs = [HARNESS, ROOT / 'models/s100/control.yml', ROOT / 'models/s100/manifest.yml']
-    inputs += sorted((ROOT / 'models/s100/cars').rglob('*.yml'))
+    inputs = [HARNESS, ROOT / 'examples/models/s100/control.yml', ROOT / 'examples/models/s100/manifest.yml']
+    inputs += sorted((ROOT / 'examples/models/s100/cars').rglob('*.yml'))
     result = {
         'sourceCommit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
         'totalCases': total,

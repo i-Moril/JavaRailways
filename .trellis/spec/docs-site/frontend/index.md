@@ -9,7 +9,7 @@
 - [ ] 运行 `git submodule status -- docs-site` 和 `git -C docs-site status --short`，确认修改属于 submodule。
 - [ ] 阅读 `docusaurus.config.ts`、`sidebars.ts` 与目标 Markdown frontmatter，确认 route/slug/导航。
 - [ ] 判断内容源是手写 `docs/`、维护的 `reference/`，还是由 script 生成的 `static/`；禁止编辑生成副本。
-- [ ] 涉及 schema/model/example 时同时定位主仓 `schemas/`、`models/`、`examples/` 真实输入和对应 loader/test。
+- [ ] 涉及 schema/model/example 时同时定位主仓 `schemas/`、`examples/` 真实输入和对应 loader/test。
 - [ ] 涉及 locale/version 时先确认当前政策：仅 `zh-Hans`、第一次稳定发布前 current-only。
 
 ## 子文档索引

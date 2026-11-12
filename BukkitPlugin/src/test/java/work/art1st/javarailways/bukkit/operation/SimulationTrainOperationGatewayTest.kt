@@ -136,7 +136,7 @@ class SimulationTrainOperationGatewayTest {
 
     @Test
     fun `formal doors capture installed directions and real reverse invokes only target world behavior`() {
-        val script = Files.readString(Path.of("../models/s100/behavior.js"))
+        val script = Files.readString(Path.of("../examples/models/s100/behavior.js"))
         val actions = listOf("door-left-open", "door-right-open", "door-left-close", "door-right-close",
             "front-light-head", "front-light-tail").map(::action)
         val source = definition(script, actions, actions.associate { it.name to emptySet<String>() } +
@@ -379,7 +379,7 @@ class SimulationTrainOperationGatewayTest {
 
     @Test
     fun `real S100 whole-train door query is read only and ticket waits full delayed playback`() {
-        val loaded = requireNotNull(PackageLoader(java.io.File("../models/s100")).loadTrainPackage())
+        val loaded = requireNotNull(PackageLoader(java.io.File("../examples/models/s100")).loadTrainPackage())
         val definitions = loaded.cars.values.map { model -> CapturedCarBehavior(loaded.behavior, loaded.actions,
             SavedCarModelTree.build(model, loaded.partRegistry).captureAnimationParts()) }
         fixture(definitions).use { f ->
@@ -432,7 +432,7 @@ class SimulationTrainOperationGatewayTest {
 
     @Test
     fun `after reversal close only the physical side left open on each car`() {
-        val loaded = requireNotNull(PackageLoader(java.io.File("../models/s100")).loadTrainPackage())
+        val loaded = requireNotNull(PackageLoader(java.io.File("../examples/models/s100")).loadTrainPackage())
         val model = requireNotNull(loaded.cars["head"])
         val source = CapturedCarBehavior(loaded.behavior, loaded.actions,
             SavedCarModelTree.build(model, loaded.partRegistry).captureAnimationParts())

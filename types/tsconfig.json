@@ -12,6 +12,6 @@
   },
   "files": [
     "train-behavior.d.ts",
-    "../models/s100/behavior.js"
+    "../examples/models/s100/behavior.js"
   ]
 }

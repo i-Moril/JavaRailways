@@ -12,7 +12,7 @@ import java.io.File
 class S100PackageLoadTest {
     @Test
     fun `loads S100 package with installed lights`() {
-        val packageDir = File("../models/s100").canonicalFile
+        val packageDir = File("../examples/models/s100").canonicalFile
         assertTrue(packageDir.isDirectory, "S100 model package should exist at ${packageDir.path}")
 
         val loaded = PackageLoader(packageDir).loadTrainPackage()
@@ -38,7 +38,7 @@ class S100PackageLoadTest {
     }
     @Test
     fun `S100 source and distribution carry current per-car equipment settings`() {
-        val packageDir = File("../models/s100").canonicalFile
+        val packageDir = File("../examples/models/s100").canonicalFile
         val loaded = checkNotNull(PackageLoader(packageDir).loadTrainPackage())
         assertEquals(6, loaded.cars.size)
         loaded.cars.forEach { (name, car) ->

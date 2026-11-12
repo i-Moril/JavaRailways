@@ -81,4 +81,4 @@ Provider在validate/open把该启用期catalog与owning-car captured资源合并
 
 矩形改用SimpleDisplays `<rect>` 输出的原版U+2588字形（`minecraft:include/default`），不用自定义矩形PNG。该原版ASCII字形可见8×8、advance9、ascent7，原生TextDisplay墨迹X[-0.0875,0.1125]、Y[0.025,0.225]格；尺寸0.2×0.2、中心偏移(0.0125,0.125)。SDL计算非等比scaleX/scaleY及原点补偿；Decorations保留这些独立轴缩放，不再强制XYZ一致。旧库缺少scale getters明确报告ABI不兼容，不静默压缩。普通span保持现有名义字号语义。圆环/圆点仍用自定义字体，中心偏移必须以size/9补偿，不能把provider advance当作墨迹宽度。详细原版证据见主任务research/vanilla-rectangle-metrics.md。
 
-适配层透传draw.key，并按固定CSS z-index映射屏面正z，范围0..63；深度只由层级与屏幕尺寸决定，与帧元素数量/次序无关。同层重叠由模板作者处理。原始静态XML图元使用显式id或原始DOM路径，脚本新增图元必须有显式id；帧key必须唯一。typed ABI同时检查getKey/getZIndex，旧库应报告不兼容。车内下一站圆点持续保留节点，仅切换空文字；背景、线路、圆环、圆点和文字使用固定层级。客户端字体覆盖、最终深度精度、字形可读性和方向仍需游戏验收。构建脚本 `scripts/display-assets/package.py` 生成车包、独立样式包和保留客户端overlay的完整资源包，不部署服务器。
+适配层透传draw.key，并按固定CSS z-index映射屏面正z，范围0..63；深度只由层级与屏幕尺寸决定，与帧元素数量/次序无关。同层重叠由模板作者处理。原始静态XML图元使用显式id或原始DOM路径，脚本新增图元必须有显式id；帧key必须唯一。typed ABI同时检查getKey/getZIndex，旧库应报告不兼容。车内下一站圆点持续保留节点，仅切换空文字；背景、线路、圆环、圆点和文字使用固定层级。客户端字体覆盖、最终深度精度、字形可读性和方向仍需游戏验收。构建脚本 `scripts/display-assets/package.py` 生成车包和独立样式包；客户端 overlay 由独立资源仓库构建，不部署服务器。

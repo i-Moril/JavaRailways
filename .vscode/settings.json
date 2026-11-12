@@ -3,27 +3,27 @@
     "java.configuration.updateBuildConfiguration": "interactive",
     "yaml.schemas": {
         "./schemas/train-model/manifest-v2.schema.json": [
-            "models/*/manifest.yml",
-            "models/*/manifest.yaml"
+            "examples/models/*/manifest.yml",
+            "examples/models/*/manifest.yaml"
         ],
         "./schemas/train-model/control-v1.schema.json": [
-            "models/*/control.yml",
-            "models/*/control.yaml"
+            "examples/models/*/control.yml",
+            "examples/models/*/control.yaml"
         ],
         "./schemas/train-model/actions-v1.schema.json": [
-            "models/*/actions.yml",
-            "models/*/actions.yaml"
+            "examples/models/*/actions.yml",
+            "examples/models/*/actions.yaml"
         ],
         "./schemas/train-model/car-v1.schema.json": [
-            "models/*/cars/**/*.yml",
-            "models/*/cars/**/*.yaml"
+            "examples/models/*/cars/**/*.yml",
+            "examples/models/*/cars/**/*.yaml"
         ],
         "./schemas/train-model/part-v1.schema.json": [
-            "models/*/parts/**/*.yml",
-            "models/*/parts/**/*.yaml"
+            "examples/models/*/parts/**/*.yml",
+            "examples/models/*/parts/**/*.yaml"
         ],
         "./Decorations/schemas/displays-v1.schema.json": [
-            "models/*/decorations/displays.yml",
+            "examples/models/*/decorations/displays.yml",
             "Decorations/examples/*/decorations/displays.yml"
         ]
     }

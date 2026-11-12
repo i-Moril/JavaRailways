@@ -13,20 +13,15 @@ Readable captions continue to face the player and use the normal text font.
 Section tools show only transverse boundary marks and the thin centreline, without direction arrows
 or repeated captions inside the section. Direction arrows remain available to the rail direction tool.
 
-Install the `resourcepack/` directory (or ZIP its **contents**, with `pack.mcmeta` at the root)
-as a client resource pack. It can be enabled beside the train, rail and four-light signal packs.
-To merge with an existing pack, copy `assets/javarailways/font/editor_markers.json` and
-`assets/javarailways/textures/font/editor_markers.png`; keep the target pack's compatible metadata.
-No `minecraft:default` font is replaced, and no existing model/item names are overridden.
-Run `./gradlew :BukkitPlugin:editorMarkersResourcePack` to create
-`BukkitPlugin/build/distributions/JavaRailways-editor-markers-26.1.2.zip` with reproducible entry order and timestamps.
+The client resource pack and its generator are maintained in the independent
+JavaRailwaysReources repository. Install its editor-markers pack or merge its
+font and texture into a compatible pack. No `minecraft:default` font is replaced.
 The server does not install or host client packs automatically. Without this pack, these private
 glyphs cannot be rendered correctly; the server does not substitute particles.
 
-`generate-texture.mjs` is the small deterministic authoring source (Node built-ins only).
-Run `node BukkitPlugin/examples/editor-markers/generate-texture.mjs` from the repository root
-to regenerate the committed 48×16 RGBA PNG. The bitmap font splits it into three 16×16 cells,
-each displayed at eight font pixels high with ascent seven and advance nine pixels.
+The resource repository contains the deterministic texture generator for the
+48×16 RGBA PNG. The bitmap font splits it into three 16×16 cells, each displayed
+at eight font pixels high with ascent seven and advance nine pixels.
 The helper converts these font units to metre-scaled rail geometry and raises glyphs 0.08m
 along the supplied normal to avoid overlapping the rail surface.
 It compensates the 26.1.2 TextDisplay renderer's built-in pixel origin so the bitmap centre,

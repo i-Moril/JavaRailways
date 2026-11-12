@@ -1,6 +1,6 @@
 package work.art1st.javarailways.bukkit.api.editor;
 
-/** Glyphs supplied by BukkitPlugin/examples/editor-markers/resourcepack. Arrow points along local +Y. */
+/** Glyphs supplied by the independent editor marker resource pack. Arrow points along local +Y. */
 public enum EditorMarkerGlyph {
     DIRECTION('\ue100'),
     BOUNDARY('\ue101'),

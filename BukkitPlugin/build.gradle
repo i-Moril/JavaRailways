@@ -67,16 +67,6 @@ tasks.named("processResources") {
     }
 }
 
-tasks.register('editorMarkersResourcePack', Zip) {
-    group = 'distribution'
-    description = 'Packages the standalone 26.1.2 client resource pack for railway editor markers.'
-    from(layout.projectDirectory.dir('examples/editor-markers/resourcepack'))
-    destinationDirectory = layout.buildDirectory.dir('distributions')
-    archiveFileName = 'JavaRailways-editor-markers-26.1.2.zip'
-    preserveFileTimestamps = false
-    reproducibleFileOrder = true
-}
-
 group = 'work.art1st'
 version = '1.0-SNAPSHOT'
 

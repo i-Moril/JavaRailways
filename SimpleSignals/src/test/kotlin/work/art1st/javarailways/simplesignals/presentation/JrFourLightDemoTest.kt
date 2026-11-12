@@ -1,12 +1,7 @@
 package work.art1st.javarailways.simplesignals.presentation
 
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
-import com.mojang.serialization.JsonOps
 import net.minecraft.SharedConstants
 import net.minecraft.server.Bootstrap
-import net.minecraft.server.packs.metadata.pack.PackFormat
-import net.minecraft.server.packs.metadata.pack.PackMetadataSection
 import org.bukkit.Material
 import org.joml.Quaterniond
 import org.joml.Vector3d
@@ -23,14 +18,11 @@ import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simplesignals.signalpack.SignalPackLoader
-import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
-import javax.imageio.ImageIO
 
 class JrFourLightDemoTest {
     private val directory = Path.of(requireNotNull(javaClass.getResource("/examples/jr-four-light")).toURI())
-    private val resourcePack = directory.resolve("resourcepack")
     private val variants = listOf("stop", "caution", "slow", "proceed")
 
     @Test
@@ -84,84 +76,6 @@ class JrFourLightDemoTest {
     }
 
     @Test
-    fun `client references resolve to valid sized geometry and decodable texture with current pack metadata`() {
-        val pack = json(resourcePack.resolve("pack.mcmeta")).getAsJsonObject("pack")
-        val metadata = PackMetadataSection.CLIENT_TYPE.codec().parse(JsonOps.INSTANCE, pack).getOrThrow()
-        assertEquals(PackFormat.of(75, 0), metadata.supportedFormats().minInclusive())
-        assertEquals(PackFormat.of(75, 0), metadata.supportedFormats().maxInclusive())
-        assertEquals("1.21.11", SharedConstants.getCurrentVersion().name())
-        val geometryByPart = (variants + "housing").associateWith { variant ->
-            val wrapper = json(resourcePack.resolve("assets/jr/items/four_light_signal_$variant.json"))
-                .getAsJsonObject("model")
-            assertEquals("minecraft:model", wrapper.get("type").asString)
-            val geometry = json(asset(wrapper.get("model").asString, "models", ".json"))
-            assertFalse(geometry.has("parent"))
-            val textures = geometry.getAsJsonObject("textures")
-            textures.entrySet().forEach { (_, value) ->
-                val image = ImageIO.read(asset(value.asString, "textures", ".png").toFile())
-                assertNotNull(image)
-                assertEquals(32, image.width)
-                assertEquals(16, image.height)
-            }
-            val elements = geometry.getAsJsonArray("elements").map { it.asJsonObject }
-            val corners = elements.flatMap { listOf(it.getAsJsonArray("from"), it.getAsJsonArray("to")) }
-            assertTrue(corners.flatMap { it.toList() }.all { it.asDouble in -16.0..32.0 })
-            val lenses = elements.filter { it.get("name").asString.endsWith("pixel lens") }
-            lenses.forEach { assertEquals(setOf("north"), it.getAsJsonObject("faces").keySet()) }
-            elements.forEach { element ->
-                element.getAsJsonObject("faces").entrySet().forEach { (_, face) ->
-                    val reference = face.asJsonObject.get("texture").asString
-                    assertTrue(reference.startsWith("#"))
-                    assertTrue(textures.has(reference.removePrefix("#")))
-                }
-            }
-            // NONE does not apply the existing GUI display transform.
-            assertEquals(setOf("gui"), geometry.getAsJsonObject("display").keySet())
-            elements
-        }
-        val housing = geometryByPart.getValue("housing")
-        assertEquals(29, housing.size)
-        val darkLenses = housing.filter { it.get("name").asString.endsWith("pixel lens") }
-            .associateBy { it.get("name").asString }
-        assertEquals(4, darkLenses.size)
-        darkLenses.values.forEach {
-            assertEquals(4.0, it.getAsJsonArray("from")[0].asDouble)
-            assertEquals(12.0, it.getAsJsonArray("to")[0].asDouble)
-            assertEquals(listOf(0.0, 0.0, 4.0, 8.0), it.getAsJsonObject("faces").getAsJsonObject("north")
-                .getAsJsonArray("uv").map { coordinate -> coordinate.asDouble })
-            assertEquals(7.0, it.getAsJsonArray("from")[2].asDouble)
-            assertEquals(8.0, it.getAsJsonArray("to")[2].asDouble)
-        }
-        val lampsByVariant = mapOf("stop" to listOf(2), "caution" to listOf(3), "slow" to listOf(1, 4), "proceed" to listOf(4))
-        val uvByVariant = mapOf("stop" to listOf(4.0), "caution" to listOf(8.0), "slow" to listOf(8.0, 12.0), "proceed" to listOf(12.0))
-        val lowerYByLamp = mapOf(1 to 14.0, 2 to 5.0, 3 to -3.0, 4 to -12.0)
-        variants.forEach { variant ->
-            val lit = geometryByPart.getValue(variant)
-            assertEquals(lampsByVariant.getValue(variant).map { "lamp $it pixel lens" }, lit.map { it.get("name").asString })
-            lit.forEachIndexed { index, lamp ->
-                val dark = darkLenses.getValue(lamp.get("name").asString)
-                for (end in listOf("from", "to")) {
-                    assertEquals(dark.getAsJsonArray(end)[0].asDouble, lamp.getAsJsonArray(end)[0].asDouble)
-                    assertEquals(dark.getAsJsonArray(end)[1].asDouble, lamp.getAsJsonArray(end)[1].asDouble)
-                    // Active north faces are 0.05 model units (3.125mm) forward, never coplanar.
-                    assertEquals(0.05, dark.getAsJsonArray(end)[2].asDouble - lamp.getAsJsonArray(end)[2].asDouble, 1e-12)
-                }
-                assertEquals(lowerYByLamp.getValue(lampsByVariant.getValue(variant)[index]), lamp.getAsJsonArray("from")[1].asDouble)
-                val u = uvByVariant.getValue(variant)[index]
-                assertEquals(listOf(u, 0.0, u + 4.0, 8.0), lamp.getAsJsonObject("faces").getAsJsonObject("north")
-                    .getAsJsonArray("uv").map { it.asDouble })
-            }
-            val corners = (housing + lit).flatMap { listOf(it.getAsJsonArray("from"), it.getAsJsonArray("to")) }
-            assertEquals(-16.0, corners.minOf { it[1].asDouble })
-            assertEquals(26.0, corners.maxOf { it[1].asDouble })
-            assertEquals(42.0, corners.maxOf { it[1].asDouble } - corners.minOf { it[1].asDouble })
-            assertEquals(20.0, corners.maxOf { it[0].asDouble } - corners.minOf { it[0].asDouble })
-            assertEquals(7.0, corners.maxOf { it[2].asDouble } - corners.minOf { it[2].asDouble })
-        }
-        assertFalse(Files.exists(resourcePack.resolve("assets/minecraft")))
-    }
-
-    @Test
     fun `client item rotation faces approaching trains and preserves the base for rail and ground placement`() {
         val model = SignalPackLoader.load(directory.resolve("signal-packs")).models.getValue("jr_four_light:head").presentation
         val head = model.definition.parts().single() as ModelPart.Group
@@ -200,15 +114,6 @@ class JrFourLightDemoTest {
         val groundHead = quaternion(groundRoot).transform(Vector3d(head.pose().x(), head.pose().y(), head.pose().z()))
             .add(groundRoot.x(), groundRoot.y(), groundRoot.z())
         assertVector(renderedRotation.transform(Vector3d(0.0, -1.5, 0.0)).add(groundHead), 11.0, 63.5, -3.5)
-    }
-
-    private fun json(path: Path): JsonObject = Files.newBufferedReader(path).use { JsonParser.parseReader(it).asJsonObject }
-
-    private fun asset(key: String, kind: String, extension: String): Path {
-        val (namespace, name) = key.split(':', limit = 2)
-        val path = resourcePack.resolve("assets/$namespace/$kind/$name$extension")
-        assertTrue(Files.isRegularFile(path), "Missing asset for $key: $path")
-        return path
     }
 
     private fun quaternion(pose: ModelPose) = Quaterniond(pose.rotationX(), pose.rotationY(), pose.rotationZ(), pose.rotationW())

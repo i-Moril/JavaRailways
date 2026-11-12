@@ -78,7 +78,7 @@ tasks.withType(Test).configureEach {
     useJUnitPlatform()
 }
 
-// Test the shipped demo directly, without a second copy of its YAML or client assets.
+// Test the shipped server-side demos directly, without a second copy of their YAML.
 tasks.named('processTestResources') {
     from('examples/route-indicator') {
         into('examples/route-indicator')

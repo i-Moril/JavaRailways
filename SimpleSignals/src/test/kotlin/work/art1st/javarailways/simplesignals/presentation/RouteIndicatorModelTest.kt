@@ -1,6 +1,5 @@
 package work.art1st.javarailways.simplesignals.presentation
 
-import com.google.gson.JsonParser
 import net.minecraft.SharedConstants
 import net.minecraft.server.Bootstrap
 import org.joml.Quaterniond
@@ -15,16 +14,14 @@ import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
-import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
-import javax.imageio.ImageIO
 
 class RouteIndicatorModelTest {
     private val directory = Path.of(requireNotNull(javaClass.getResource("/examples/route-indicator")).toURI())
 
     @Test
-    fun `shipped indicator loads all eleven appearances with resolved client assets`() {
+    fun `shipped indicator loads all eleven appearances`() {
         val model = ModelPackageLoader.load(directory.resolve("models/jr_route_indicator"))
             .models.getValue("jr_route_indicator:head")
         val states = listOf("closed") + (0..9).map(Int::toString)
@@ -43,32 +40,6 @@ class RouteIndicatorModelTest {
             assertEquals("jr:route_indicator_$state", appearance.itemModelKey())
             assertEquals(ItemAppearance.Brightness(15, 15), appearance.brightness())
         }
-        val resourcePack = directory.resolve("resourcepack/assets/jr")
-        val meshes = (states + "housing").associateWith { state ->
-            val item = JsonParser.parseString(Files.readString(resourcePack.resolve("items/route_indicator_$state.json")))
-                .asJsonObject.getAsJsonObject("model")
-            assertEquals("minecraft:model", item.get("type").asString)
-            val mesh = JsonParser.parseString(Files.readString(resourcePack.resolve(
-                "models/${item.get("model").asString.substringAfter(':')}.json"))).asJsonObject
-            val texture = mesh.getAsJsonObject("textures").get("surface").asString.substringAfter(':')
-            assertNotNull(ImageIO.read(resourcePack.resolve("textures/$texture.png").toFile()))
-            mesh.getAsJsonArray("elements").forEach { element ->
-                listOf("from", "to").forEach { key ->
-                    assertTrue(element.asJsonObject.getAsJsonArray(key).all { it.asDouble in -16.0..32.0 })
-                }
-            }
-            mesh.getAsJsonArray("elements")
-        }
-        assertTrue(meshes.getValue("closed").isEmpty)
-        val shapes = (0..9).map { meshes.getValue(it.toString()).toString() }
-        assertEquals(10, shapes.toSet().size)
-        assertTrue((0..9).all { meshes.getValue(it.toString()).size() > 0 })
-        // Viewed from north, screen-left is positive source X. Keep asymmetric digits readable.
-        val leftPixel = meshes.getValue("2").single {
-            it.asJsonObject.get("name").asString == "pixel_1_0"
-        }.asJsonObject
-        assertEquals(10.8, leftPixel.getAsJsonArray("from")[0].asDouble, 1e-9)
-        assertEquals(setOf("north"), leftPixel.getAsJsonObject("faces").keySet())
     }
 
     @Test

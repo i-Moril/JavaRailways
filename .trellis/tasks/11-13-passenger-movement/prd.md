@@ -1,0 +1,49 @@
+# 验证 platform 区域内的乘客强制移动
+
+## Goal
+
+验证玩家进入列车已有的 platform 区域后，能够通过强制挂载稳定随车移动，并使用 WASD 改变自己在车内的位置；走出边界后恢复普通运动。当前目标是验证该控制方式的实际可行性。
+
+## Confirmed Context
+
+- 用户指定从 `main` 创建 `feat/passenger-movement`。分支已创建，基线是本地 `main` 的 `5aa13ea26280b5e8292c8c29723bc2eb52f4822a`，与缓存的 `origin/main` 相同。GitHub 插件无法访问仓库，SSH/HTTPS 认证均未成功，因此远端最新状态尚未验证。
+- 已获得创建 Trellis 任务并规划的同意；尚未获得最终方案的实施批准，任务保持 `planning`。
+- 当前 `PlatformModel` 的区域检测用于提前激活碰撞实体，含额外的横向和纵向范围；不能把它直接作为强制上车条件。证据：`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/model/PlatformModel.kt:152`、`:228`。
+- 已有座位后端维护真实服务端乘坐实体与客户端虚拟座位，可作为乘客移动的复用基础。证据：`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/backend/PacketEntityMotion.kt:116`。
+- 已有驾驶输入监听使用 `PlayerInputEvent`。证据：`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/control/TrainHandleInputListener.kt:34`。
+
+## Requirements
+
+- R1：玩家进入列车实际 platform 区域后，自动挂载到独立的隐藏承载实体；每位乘客能够独立移动。
+- R2：不按移动键时，玩家保持相对于 platform 的位置，随列车平移、转弯及升降；按 WASD 时改变其局部位置。
+- R3：受控期间禁止通过 Shift 主动下坐骑，禁止跳跃。该限制只在本功能管理的乘坐会话内生效；正常离开后不保留输入限制。
+- R4：玩家通过 WASD 走出区域边界时解除挂载，在对应世界位置恢复普通运动。相邻 platform 的边界归属规则见待决问题。
+- R5：本轮不解决乘客从车侧或端部掉出的问题，不加入门控、车墙/座椅碰撞和防坠落行为。
+- R6：死亡、退出、被传送、换世界、列车/模型销毁、世界卸载和插件停止时，结束受控会话并释放承载实体与任务；Shift 限制不得阻止这些生命周期动作。
+
+## Acceptance Criteria
+
+- [ ] AC1 / R1：玩家实际进入 platform 才被接管；位于现有显示预激活范围、但不在乘客区域内的玩家不会被吸入。
+- [ ] AC2 / R2：静止、启动、制动、转弯和坡道上，不按键的乘客保持局部位置；两名乘客能分别使用 WASD 移动。
+- [ ] AC3 / R3：受控期间按 Shift 不下车，按跳跃键不跳跃；退出受控状态后两者恢复原版行为。
+- [ ] AC4 / R4：走出确定后的 platform 边界即可下车，不被旧局部位置拉回，也不遗留乘坐关系或移动任务。
+- [ ] AC5 / R5：能从边缘走出即可，不以车门判断、防坠落或完整车厢碰撞作为通过条件。
+- [ ] AC6 / R6：异常结束路径不残留乘客会话、实体、输入限制或旧生命周期回调。
+- [ ] 记录真实客户端的第一人称平滑度、骑乘高度、上下车连续性，以及 Paper/Folia 的验证边界；单元测试通过不等于实机可行性已验证。
+
+## Out of Scope
+
+- 车门通行限制、车墙/座椅碰撞、防坠落与完整原版步行物理。
+- 客户端模组、Core 列车动力学与运营系统改动。
+- 未经单独确认的模型配置字段、世界存档或其他持久化格式修改。
+- 当前阶段的产品代码实现、部署或实机服务启动。
+
+## Open Product Decisions
+
+- Q1：WASD 是相对于玩家当前视角的水平朝向，还是相对于车厢方向？建议跟随视角，以保持熟悉的操作方式。
+- Q2：本轮是否只提供固定普通步速，忽略疾跑输入？建议先固定步速，减少首次可行性验证的变量。
+- Q3：相邻车厢/platform 之间，是连续交接受控状态，还是离开当前 platform 即释放？建议在相邻区域连续的情况下交接，离开列车所有平台才释放。
+
+## Planning Status
+
+已完成源码基础核对与预计改动范围记录，见 `research/scope.md`。上述产品决策尚未收敛，因此未编写最终 `design.md` / `implement.md`，未执行 `task.py start`。后续需根据用户回答更新需求、补齐设计与执行计划，并在最终规划摘要获得批准后才进入实现。

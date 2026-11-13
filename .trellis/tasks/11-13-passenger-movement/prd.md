@@ -41,8 +41,14 @@
 
 ## Planning Status
 
-已根据用户确认的三项产品选择完成需求收敛，并获得实施批准。功能实现、对应 32 项 Passenger/Seat 测试和打包完成；完整测试仍有一项已证明与本轮无关的 S100 ZIP/source 基线失败。真实客户端验收尚未执行，任务保持 `in_progress`，详细证据见 `research/validation.md`。
+已根据用户确认的三项产品选择完成需求收敛，并获得实施批准。功能实现、对应 32 项 Passenger/Seat 测试和打包完成；完整测试仍有一项已证明与本轮无关的 S100 ZIP/source 基线失败。用户随后完成部分实机体验并报告同步抖动及边界停顿，正在修复；完整客户端复验仍未通过，任务保持 `in_progress`，详细证据见 `research/validation.md`。
 
 ## Deployment Status
 
-用户明确要求使用 PlugManX 及 `/run` 下的 SSH agent。已完成测试服热部署和依赖插件恢复，JVM PID 保持不变；真实客户端验收仍待执行。首次级联卸载的 SimpleSignals/ATO 错误及后续恢复结果完整记录于 `research/deployment-20261113.md`，不能把整个过程报告为无错误。
+用户明确要求使用 PlugManX 及 `/run` 下的 SSH agent。已完成测试服热部署和依赖插件恢复，JVM PID 保持不变；后续实机反馈见下一节，完整客户端复验仍待执行。首次级联卸载的 SimpleSignals/ATO 错误及后续恢复结果完整记录于 `research/deployment-20261113.md`，不能把整个过程报告为无错误。
+
+## 2026-11-13 实机反馈与修复范围
+
+用户实际进服反馈两项未通过：乘客承载实体相对本节车厢有 jerk（不按 WASD、仅随车移动时也出现），而固定座位平滑；到边界会短暂卡住，继续移动才能下车，静止时也会发生；用户已纠正早先“拉回车内”的表述。后者不是要求更改边界规则，仍按 R4/AC4 越界释放，修复释放流程或位置同步中的缺陷。AC2、AC4 暂不能通过，其他客户端验收也未据此标为通过。
+
+修复沿用当前 `feat/passenger-movement`，起点为 `362ff669`，包含启动时序与显示增量更新的后续集成。远端 `main` 已重新核验为 `5aa13ea2`；不撤销已集成的本地 `main` 修复。具体成因与最小改动范围以 `research/passenger-feedback-20261113.md` 为准，模块机制同步回 `passenger-movement.md`。

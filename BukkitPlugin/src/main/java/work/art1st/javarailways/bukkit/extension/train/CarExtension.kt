@@ -21,6 +21,7 @@ import work.art1st.javarailways.bukkit.render.model.SeatModel
 import work.art1st.javarailways.bukkit.render.chunk.railViewDistanceSettings
 import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.core.api.physics.train.CarFrameSnapshot
+import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.render.RenderableFrameSnapshot
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
 import work.art1st.javarailways.bukkit.extension.bukkitWorldData
@@ -100,6 +101,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     private var forceNextModelUpdate: Boolean = false
     private val publishedFrameGate = CarFramePublicationGate()
     @Volatile private var latestFrame: CarFrameSnapshot? = null
+    private var latestTrainFrame: TrainFrameSnapshot? = null
     private var latestPartRenderSnapshot: TrainPartRenderSnapshot? = null
     private var latestPartRenderStream: UUID? = null
     @Volatile internal var hasDynamicExtensionModel: Boolean = false
@@ -333,9 +335,10 @@ class CarExtension : TrainComponentExtension<Car>() {
     internal fun applyPublishedFrame(
         frame: CarFrameSnapshot,
         publicationStreamId: UUID,
-        revision: Long,
+        trainFrame: TrainFrameSnapshot,
         partRenderSnapshot: TrainPartRenderSnapshot?
     ) {
+        val revision = trainFrame.revision
         require(revision >= 0L) { "published car frame revision must be non-negative" }
         ensureFrameLocationOwned(frame)
         if (!publishedFrameGate.accept(self as CoreCar, publicationStreamId, revision)) return
@@ -352,6 +355,7 @@ class CarExtension : TrainComponentExtension<Car>() {
         if (streamChanged) latestPartRenderSnapshot = null
         if (partRenderSnapshot != null) latestPartRenderSnapshot = partRenderSnapshot
         latestPartRenderStream = publicationStreamId
+        latestTrainFrame = trainFrame
         applyFrameState(
             frame,
             locationOwnershipChecked = true,
@@ -594,7 +598,9 @@ class CarExtension : TrainComponentExtension<Car>() {
             val bogieTransform = bogieState.modelTransform(self.floorHeight)
             bogieModel.updateState(bogieTransform, motion.bogieVelocitiesBlocksPerTick[index])
         }
-
+        passengerPlatforms?.let { registration -> latestTrainFrame?.let { trainFrame ->
+            BukkitPlugin.INSTANCE.passengerMovement?.present(registration, trainFrame)
+        } }
     }
 
     @Synchronized
@@ -713,7 +719,14 @@ class CarExtension : TrainComponentExtension<Car>() {
         }
     }
 
-    private fun renderFrame(): CarFrameSnapshot = latestFrame ?: captureLiveFrame()
+    private fun renderFrame(): CarFrameSnapshot {
+        latestFrame?.let { return it }
+        // Pin the complete initial scene before exposing a lazily built model. Later physics
+        // publication cannot advance the passenger before this carriage accepts that frame.
+        val trainFrame = (self.train as CoreTrain).publishedFrame
+        latestTrainFrame = trainFrame
+        return trainFrame.cars.first { it.carId == self.id }.also { latestFrame = it }
+    }
 
     private fun captureLiveFrame(): CarFrameSnapshot = CarFrameSnapshot.create(
         carId = (self as? CoreCar)?.id ?: self.hashCode().toString(),

@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.joml.Vector3d
 import work.art1st.javarailways.bukkit.render.model.CompactTransform
+import work.art1st.javarailways.bukkit.render.backend.ViewerPacketFrame
 import work.art1st.javarailways.bukkit.util.PlatformDispatchMetrics
 import work.art1st.javarailways.bukkit.util.PlatformDispatcher
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -38,8 +39,257 @@ import java.lang.reflect.Method
 import java.lang.reflect.Proxy
 import java.util.UUID
 import java.util.logging.Logger
+import java.util.concurrent.locks.ReentrantLock
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.Executors
 
 class PassengerMovementTest {
+    @Test
+    fun `boarding uses the contacted carriage presentation instead of another car's older whole scene`() =
+        fixture(listOf(2.0, 2.0)) { h ->
+            h.train.world.onOwnerForTest {
+                h.train.setLocation((h.train.headLocation as RailLocationWithFacing).forward(3.0)!!)
+                h.train.commit()
+            }
+            val second = h.otherRegistration!!
+            h.manager.present(second, h.train.publishedFrame)
+            val rider = h.rider(0.9, h.second)
+            val expected = rider.location.clone()
+            h.manager.watch(rider.player, h.first)
+            h.dispatcher.tick()
+            assertNull(rider.vehicle, "An old scene from A cannot board a passenger through B's historical pose")
+            h.manager.watch(rider.player, h.second)
+            h.dispatcher.tick()
+            assertNotNull(rider.vehicle)
+            assertEquals(expected.x, rider.location.x, 1e-8)
+            assertEquals(expected.z, rider.location.z, 1e-8)
+            h.manager.present(h.registration, h.scene.frame)
+            assertEquals(expected.x, rider.location.x, 1e-8)
+        }
+
+    @Test
+    fun `walking packet cannot overtake an outer carriage frame that has not flushed yet`() = fixture { h ->
+        val rider = h.rider(0.0)
+        h.manager.watch(rider.player, h.first)
+        h.dispatcher.tick()
+        rider.forward = true
+        val sent = java.util.concurrent.CopyOnWriteArrayList<List<String>>()
+        val frames = ViewerPacketFrame<String> { _, packets -> sent += packets }
+        h.access.frames = frames
+        h.access.onRender = { target -> frames.enqueue(listOf(rider.player.uniqueId)) { "carrier:${target.x},${target.z}" } }
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val entered = CountDownLatch(1)
+            val done = CountDownLatch(1)
+            var walking: java.util.concurrent.Future<*>? = null
+            frames.frame {
+                frames.enqueue(listOf(rider.player.uniqueId)) { "car" }
+                h.manager.present(h.registration, h.train.publishedFrame)
+                walking = executor.submit { entered.countDown(); h.dispatcher.tick(); done.countDown() }
+                assertTrue(entered.await(2, TimeUnit.SECONDS))
+                assertFalse(done.await(100, TimeUnit.MILLISECONDS), "The owner cannot send walking before the car packet frame")
+                assertTrue(sent.isEmpty())
+            }
+            walking!!.get(2, TimeUnit.SECONDS)
+            assertEquals(2, sent.size)
+            assertEquals("car", sent[0][0])
+            assertEquals(2, sent[0].size)
+            assertEquals(1, sent[1].size)
+            assertNotEquals(sent[0][1], sent[1][0])
+        } finally { executor.shutdownNow() }
+    }
+
+    @Test
+    fun `close waits for a carrier allocation already in progress and rejects its late publication`() = fixture { h ->
+        val rider = h.rider(0.0)
+        h.manager.watch(rider.player, h.first)
+        val spawned = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        h.access.onSpawn = { spawned.countDown(); assertTrue(resume.await(2, TimeUnit.SECONDS)) }
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val mount = executor.submit { h.dispatcher.tick() }
+            assertTrue(spawned.await(2, TimeUnit.SECONDS))
+            val completion = h.manager.close().toCompletableFuture()
+            assertFalse(completion.isDone)
+            resume.countDown()
+            mount.get(2, TimeUnit.SECONDS)
+            completion.get(2, TimeUnit.SECONDS)
+            assertNull(rider.vehicle)
+            assertEquals(0, h.access.registered)
+            assertTrue(h.access.created.single().removed)
+        } finally { resume.countDown(); executor.shutdownNow() }
+    }
+
+    @Test
+    fun `early exit waits for processed boarding confirmation and still follows presented carriage`() = fixture { h ->
+        h.access.pendingBoarding = true
+        val rider = h.rider(2.9)
+        h.manager.watch(rider.player, h.first)
+        h.dispatcher.tick()
+        val carrier = rider.vehicle
+        rider.forward = true
+        h.dispatcher.tick()
+        assertSame(carrier, rider.vehicle)
+        assertEquals(0, h.access.exits)
+        val before = rider.location.clone()
+        h.train.world.onOwnerForTest {
+            h.train.setLocation((h.train.headLocation as RailLocationWithFacing).forward(2.0)!!)
+            h.train.commit()
+        }
+        h.present()
+        assertNotEquals(before.x, rider.location.x)
+        val outside = h.scene.surfaces[1].pose.toWorld(PassengerPoint(0.0, 0.0, 1.115))
+        h.access.pendingBoarding = false // Fixture boundary represents vanilla having cleared its native pending position.
+        h.dispatcher.tick()
+        assertNull(rider.vehicle)
+        assertEquals(outside.x, rider.location.x, 1e-8)
+        assertEquals(outside.z, rider.location.z, 1e-8)
+        assertEquals(1, h.access.exits)
+        assertEquals(0, rider.teleports)
+    }
+
+    @Test
+    fun `retirement before boarding confirmation cannot revive a pending exit`() = fixture { h ->
+        h.access.pendingBoarding = true
+        val rider = h.rider(2.9)
+        h.manager.watch(rider.player, h.first)
+        h.dispatcher.tick()
+        rider.forward = true
+        h.dispatcher.tick()
+        h.manager.retire(h.registration).toCompletableFuture().join()
+        h.access.pendingBoarding = false
+        h.dispatcher.tick(includeCancelled = true)
+        assertEquals(0, h.access.exits)
+        assertNull(rider.vehicle)
+        assertEquals(1, h.access.releases)
+    }
+
+    @Test
+    fun `failed native mount removes only its newly allocated carrier`() = fixture { h ->
+        h.access.rejectMount = true
+        val rider = h.rider(0.0)
+        h.manager.watch(rider.player, h.first)
+        h.dispatcher.tick()
+        assertNull(rider.vehicle)
+        assertEquals(1, h.access.releases)
+        assertTrue(h.access.created.single().removed)
+    }
+
+    @Test
+    fun `idle passenger follows presented frame in carriage bundle while newer physics waits`() = fixture { h ->
+        val rider = h.rider(0.0)
+        h.manager.watch(rider.player, h.first)
+        h.dispatcher.tick()
+        val original = h.scene
+        val originalFeet = rider.location.clone()
+        val rendered = mutableListOf<List<String>>()
+        val packets = ViewerPacketFrame<String> { _, frame -> rendered += frame }
+        h.access.onRender = { target -> packets.enqueue(listOf(rider.player.uniqueId)) { "carrier:${target.x},${target.z}" } }
+        h.train.world.onOwnerForTest {
+            val location = h.train.headLocation as RailLocationWithFacing
+            h.train.setLocation(location.forward(3.0)!!)
+            h.train.commit()
+        }
+        val accepted = h.train.publishedFrame
+        h.train.world.onOwnerForTest {
+            val location = h.train.headLocation as RailLocationWithFacing
+            h.train.setLocation(location.forward(4.0)!!)
+            h.train.commit()
+        }
+        assertTrue(h.train.publishedFrame.revision > accepted.revision)
+        h.dispatcher.tick()
+        assertTrue(rendered.isEmpty(), "Idle entity clock must not send a separate carrier packet")
+        assertEquals(originalFeet.x, rider.location.x, 1e-8)
+        assertEquals(originalFeet.z, rider.location.z, 1e-8)
+        packets.frame {
+            packets.enqueue(listOf(rider.player.uniqueId)) { "car:${accepted.revision}" }
+            h.manager.present(h.registration, accepted)
+        }
+        assertSame(accepted, h.scene.frame)
+        val target = h.scene.surfaces.first().pose.toWorld(PassengerPoint(0.0, 0.0, 0.0))
+        assertEquals(target.x, rider.location.x, 1e-8)
+        assertEquals(target.z, rider.location.z, 1e-8)
+        assertEquals(listOf(listOf("car:${accepted.revision}", "carrier:${target.x},${target.z}")), rendered)
+        h.manager.present(h.registration, original.frame)
+        h.dispatcher.tick()
+        assertSame(accepted, h.scene.frame, "Late old presentation cannot rewind the native or packet carrier")
+        assertEquals(target.x, rider.location.x, 1e-8)
+        assertEquals(target.z, rider.location.z, 1e-8)
+        assertEquals(1, rendered.size)
+    }
+
+    @Test
+    fun `walking uses copied presented geometry until another carriage presentation`() = fixture { h ->
+        val rider = h.rider(0.0)
+        h.manager.watch(rider.player, h.first)
+        h.dispatcher.tick()
+        val presented = h.scene
+        h.first.publish(CompactTransform(Vector3d(40.0, 0.0, 0.0)))
+        rider.forward = true
+        h.dispatcher.tick()
+        val expected = presented.surfaces.first().pose.toWorld(PassengerPoint(0.0, 0.0, 0.215))
+        assertEquals(expected.x, rider.location.x, 1e-8)
+        assertEquals(expected.z, rider.location.z, 1e-8)
+        assertSame(presented, h.scene)
+    }
+
+    @Test
+    fun `latest presented move owns authority and queued moves cannot run after boundary release`() = fixture { h ->
+        val rider = h.rider(2.9)
+        h.manager.watch(rider.player, h.first)
+        h.dispatcher.tick()
+        h.dispatcher.deferOwnerTasks = true
+        h.present()
+        h.present()
+        assertEquals(0, h.access.moves)
+        h.dispatcher.drainOwnerTasks()
+        assertEquals(1, h.access.moves, "Only latest native target applies")
+        h.present() // A native update is still queued when the owner decides to leave the platform.
+        rider.forward = true
+        val expected = h.scene.surfaces[1].pose.toWorld(PassengerPoint(0.0, 0.0, 1.115))
+        h.dispatcher.tick()
+        val renders = h.access.renders
+        h.present() // A later carriage packet must also respect the release fence.
+        h.dispatcher.drainOwnerTasks()
+        assertEquals(2, h.access.moves, "Only the synchronous handoff moves the native carrier after its last accepted target")
+        assertEquals(renders, h.access.renders)
+        assertEquals(1, h.access.exits)
+        assertEquals(expected.x, rider.location.x, 1e-8)
+        assertEquals(expected.y, rider.location.y, 1e-8)
+        assertEquals(expected.z, rider.location.z, 1e-8)
+        assertNull(rider.vehicle)
+        h.dispatcher.tick()
+        assertEquals(1, h.access.created.size, "Static outside feet must not immediately mount again")
+    }
+
+    @Test
+    fun `boundary dismount veto keeps the same carrier and session until an accepted exit`() = fixture { h ->
+        val rider = h.rider(2.9)
+        h.manager.watch(rider.player, h.first)
+        h.dispatcher.tick()
+        val carrier = rider.vehicle
+        val inside = rider.location.clone()
+        h.access.vetoExit = true
+        rider.forward = true
+        h.dispatcher.tick()
+        assertSame(carrier, rider.vehicle)
+        assertEquals(0, h.access.releases)
+        assertFalse(h.access.created.single().removed)
+        assertEquals(inside.z, rider.location.z, 1e-8)
+        rider.sneak = true
+        val shift = EntityDismountEvent(rider.player, carrier!!)
+        h.manager.onManualDismount(shift)
+        assertTrue(shift.isCancelled, "The veto did not discard input restrictions or the active session")
+        h.access.vetoExit = false
+        h.dispatcher.tick()
+        assertNull(rider.vehicle)
+        assertEquals(1, h.access.releases)
+        assertEquals(1, h.access.created.size)
+        assertEquals(0, rider.teleports)
+    }
+
     @Test
     fun `stationary train walks across platforms using one stable carrier and ignores jump sprint`() = fixture { h ->
         val rider = h.rider(0.9)
@@ -223,10 +473,13 @@ class PassengerMovementTest {
                 h.train.commit()
             }
             val later = h.scene
-            assertNotSame(scene.frame, later.frame)
-            assertSame(h.train.publishedFrame, later.frame)
+            assertSame(scene.frame, later.frame, "A physics publication alone is not a presented scene")
             h.dispatcher.tick()
-            val moved = later.surfaces[1].pose.toWorld(PassengerPoint(0.0, 0.0, 0.885))
+            assertEquals(expected.x, rider.location.x, 1e-8)
+            h.present()
+            val presented = h.scene
+            assertSame(h.train.publishedFrame, presented.frame)
+            val moved = presented.surfaces[1].pose.toWorld(PassengerPoint(0.0, 0.0, 0.885))
             assertEquals(moved.x, rider.location.x, 1e-8)
             assertEquals(moved.z, rider.location.z, 1e-8)
             assertSame(carrier, rider.vehicle)
@@ -276,7 +529,7 @@ class PassengerMovementTest {
         source.publish(local)
         val registration = PassengerCarPlatforms(h.train.cars.single(), h.train, h.bukkitWorld, 1.25,
             listOf(PassengerPlatformPart(source, 0)))
-        val registry = PassengerPlatformRegistry().also { it.register(registration) }
+        val registry = PassengerPlatformRegistry().also { it.register(registration); it.present(registration, h.train.publishedFrame) }
         val scene = registry.capture(registration)!!
         assertSame(h.train.publishedFrame, scene.frame)
         val expected = local.applyTo(scene.frame.cars.single().bogies[0].modelTransform(1.25))
@@ -322,10 +575,17 @@ class PassengerMovementTest {
         val access = TestCarrierAccess()
         val manager = PassengerMovementManager(plugin, dispatcher, access).also {
             it.register(registration); otherRegistration?.let(it::register)
+            it.present(registration, train.publishedFrame); otherRegistration?.let { other -> it.present(other, train.publishedFrame) }
         }
         val scene get() = manager.platforms.capture(registration)!!
-        fun rider(z: Double): TestRider {
-            val surface = scene.surfaces.first()
+        fun present() {
+            val frame = train.publishedFrame
+            manager.present(registration, frame)
+            otherRegistration?.let { manager.present(it, frame) }
+        }
+        fun rider(z: Double, source: PassengerSurfaceSource = first): TestRider {
+            val owner = manager.platforms.owner(source)!!
+            val surface = manager.platforms.capture(owner)!!.surfaces.first { it.id === source }
             val p = surface.pose.toWorld(PassengerPoint(0.0, 0.0, z))
             val ahead = surface.pose.toWorld(PassengerPoint(0.0, 0.0, z + 1.0))
             val yaw = Math.toDegrees(kotlin.math.atan2(-(ahead.x - p.x), ahead.z - p.z)).toFloat()
@@ -355,29 +615,45 @@ class PassengerMovementTest {
         val riders = mutableMapOf<UUID, TestRider>()
         val created = mutableListOf<TestNative>()
         val cleanupEvents = mutableListOf<String>()
-        var registered = 0; var moves = 0; var exits = 0; var releases = 0
-        override fun spawn(location: Location): ArmorStand = TestNative(location, riders, cleanupEvents).also { created += it }.entity
+        var registered = 0; var moves = 0; var renders = 0; var exits = 0; var releases = 0
+        var onSpawn: (() -> Unit)? = null
+        override fun spawn(location: Location): ArmorStand = TestNative(location, riders, cleanupEvents) { !rejectMount }.also { created += it; onSpawn?.invoke() }.entity
         override fun register(carrier: ArmorStand, location: Location, viewers: Collection<Player>) { registered++ }
-        override fun move(carrier: ArmorStand, location: Location, viewers: Collection<Player>) {
+        var onRender: ((Location) -> Unit)? = null
+        var vetoExit = false
+        var rejectMount = false
+        var pendingBoarding = false
+        override fun canDismount(player: Player) = !pendingBoarding
+        var frames: ViewerPacketFrame<String>? = null
+        override fun holdPresentation(lock: ReentrantLock) { frames?.holdUntilFrameSent(lock) }
+        override fun render(carrier: ArmorStand, location: Location, viewers: Collection<Player>) {
+            renders++
+            onRender?.invoke(location)
+        }
+        override fun syncAuthority(carrier: ArmorStand, location: Location) {
             moves++
             val native = created.single { it.entity === carrier }
             native.location = location.clone()
             native.passengers.forEach { player -> riders[player.uniqueId]!!.location = location.clone().subtract(0.0, PASSENGER_CARRIER_LIFT, 0.0) }
         }
-        override fun dismountAt(carrier: ArmorStand, player: Player, feet: Location) {
+        override fun dismountAt(carrier: ArmorStand, player: Player, carrierTarget: Location): Boolean {
             exits++
+            syncAuthority(carrier, carrierTarget)
+            if (vetoExit) return false
             carrier.removePassenger(player)
-            riders[player.uniqueId]!!.location = feet.clone()
+            return true
         }
-        override fun release(carrier: ArmorStand) { releases++; cleanupEvents += "release" }
+        override fun release(carrier: ArmorStand) {
+            releases++; cleanupEvents += "release"
+        }
     }
 
-    private class TestNative(var location: Location, private val riders: Map<UUID, TestRider>, val events: MutableList<String>) {
+    private class TestNative(var location: Location, private val riders: Map<UUID, TestRider>, val events: MutableList<String>, val acceptMount: () -> Boolean) {
         val passengers = mutableListOf<Player>()
         var removed = false; var ejections = 0
         val entity: ArmorStand = proxy<ArmorStand> { method, args -> when (method.name) {
             "isValid" -> !removed; "getWorld" -> location.world; "getLocation" -> location.clone(); "getPassengers" -> passengers.toList()
-            "addPassenger" -> { val player = args!![0] as Player; passengers += player; riders[player.uniqueId]!!.vehicle = entity; true }
+            "addPassenger" -> { if (!acceptMount()) false else { val player = args!![0] as Player; passengers += player; riders[player.uniqueId]!!.vehicle = entity; true } }
             "removePassenger" -> { val player = args!![0] as Player; passengers.remove(player); riders[player.uniqueId]!!.vehicle = null; true }
             "eject" -> { ejections++; events += "detach"; passengers.toList().forEach { riders[it.uniqueId]!!.vehicle = null }; passengers.clear(); true }
             "remove" -> { removed = true; events += "remove"; null }

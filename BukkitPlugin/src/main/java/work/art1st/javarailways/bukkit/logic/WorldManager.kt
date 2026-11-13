@@ -766,7 +766,7 @@ class WorldManager internal constructor(
                 )
             }
             trainFrameDispatcher.offer(train.publicationStreamId, PendingTrainFrame(
-                bukkitWorld, train.publicationStreamId, trainFrame.revision, cars
+                bukkitWorld, train.publicationStreamId, trainFrame, cars
             ))
         }
     }
@@ -789,16 +789,16 @@ class WorldManager internal constructor(
                     if (stopping || pending.world in unloadingWorlds) break
                     if (!car.isOwnedByPublicationStream(pending.streamId)) continue
                     try {
-                        car.carRendererOrNull?.applyPublishedFrame(frame, pending.streamId, pending.revision, partRenderSnapshot)
+                        car.carRendererOrNull?.applyPublishedFrame(frame, pending.streamId, pending.frame, partRenderSnapshot)
                     } catch (failure: Exception) {
-                        plugin.logger.log(Level.SEVERE, "Failed to render car ${car.id} at revision ${pending.revision}", failure)
+                        plugin.logger.log(Level.SEVERE, "Failed to render car ${car.id} at revision ${pending.frame.revision}", failure)
                     }
                 }
             }
         }.whenComplete { _, failure ->
             try {
                 if (failure != null) plugin.logger.log(
-                    Level.SEVERE, "Failed to dispatch train render frame ${pending.streamId}/${pending.revision}", failure
+                    Level.SEVERE, "Failed to dispatch train render frame ${pending.streamId}/${pending.frame.revision}", failure
                 )
             } finally {
                 complete()
@@ -911,7 +911,7 @@ class WorldManager internal constructor(
     private data class PendingTrainFrame(
         val world: BukkitWorld,
         val streamId: UUID,
-        val revision: Long,
+        val frame: TrainFrameSnapshot,
         val cars: List<CarRenderFrame>
     )
 

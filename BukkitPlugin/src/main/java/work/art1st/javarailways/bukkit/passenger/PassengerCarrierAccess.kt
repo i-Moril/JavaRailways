@@ -6,13 +6,17 @@ import org.bukkit.entity.Player
 import work.art1st.javarailways.bukkit.render.backend.PacketEntityMotion
 import work.art1st.javarailways.bukkit.render.backend.SeatAuthorityMover
 import work.art1st.javarailways.bukkit.render.backend.configureSeatCarrier
+import java.util.concurrent.locks.ReentrantLock
 
-/** Entity-owner operations; session policy and geometry stay independent of the packet transport. */
+/** Packet presentation is frame-owned; native movement stays on the carrier's entity owner. */
 internal interface PassengerCarrierAccess {
     fun spawn(location: Location): ArmorStand
     fun register(carrier: ArmorStand, location: Location, viewers: Collection<Player>)
-    fun move(carrier: ArmorStand, location: Location, viewers: Collection<Player>)
-    fun dismountAt(carrier: ArmorStand, player: Player, feet: Location)
+    fun canDismount(player: Player): Boolean
+    fun render(carrier: ArmorStand, location: Location, viewers: Collection<Player>)
+    fun holdPresentation(lock: ReentrantLock)
+    fun syncAuthority(carrier: ArmorStand, location: Location)
+    fun dismountAt(carrier: ArmorStand, player: Player, carrierTarget: Location): Boolean
     fun release(carrier: ArmorStand)
 }
 
@@ -21,12 +25,14 @@ internal class PacketPassengerCarrierAccess(private val motion: PacketEntityMoti
         location.world!!.spawn(location, ArmorStand::class.java, ::configureSeatCarrier)
     override fun register(carrier: ArmorStand, location: Location, viewers: Collection<Player>) =
         motion.registerSeatCarrier(carrier, location, viewers)
-    override fun move(carrier: ArmorStand, location: Location, viewers: Collection<Player>) {
+    override fun canDismount(player: Player) = !SeatAuthorityMover.hasPendingTeleport(player)
+    override fun render(carrier: ArmorStand, location: Location, viewers: Collection<Player>) =
         motion.renderSeatCarrier(carrier, location, viewers)
-        motion.syncSeatAuthority(carrier, location)
-    }
-    override fun dismountAt(carrier: ArmorStand, player: Player, feet: Location) =
-        SeatAuthorityMover.dismountAt(carrier, player, feet)
+    override fun holdPresentation(lock: ReentrantLock) = motion.holdSeatPresentation(lock)
+    override fun syncAuthority(carrier: ArmorStand, location: Location) =
+        motion.syncPassengerAuthority(carrier, location)
+    override fun dismountAt(carrier: ArmorStand, player: Player, carrierTarget: Location) =
+        SeatAuthorityMover.dismountAt(carrier, player, carrierTarget)
     override fun release(carrier: ArmorStand) = motion.release(carrier)
 }
 

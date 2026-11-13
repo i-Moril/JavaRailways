@@ -42,10 +42,11 @@ internal class PassengerCarPlatforms(
 
 internal data class PassengerScene(val frame: TrainFrameSnapshot, val surfaces: List<PassengerSurface>)
 
-/** Model registration is independent of render dispatch completion; all car poses come from one frame. */
+/** Holds complete scenes accepted by each carriage's presentation, never the latest physics pose. */
 internal class PassengerPlatformRegistry {
     private val trains = ConcurrentHashMap<java.util.UUID, ConcurrentHashMap<String, PassengerCarPlatforms>>()
     private val sources = ConcurrentHashMap<PassengerSurfaceSource, PassengerCarPlatforms>()
+    private val presented = ConcurrentHashMap<PassengerCarPlatforms, PassengerScene>()
 
     @Synchronized
     fun register(registration: PassengerCarPlatforms) {
@@ -63,13 +64,19 @@ internal class PassengerPlatformRegistry {
         // Keep the empty stream map only until its exact final registration is removed.
         if (entries != null && entries.isEmpty()) trains.remove(registration.train.publicationStreamId, entries)
         registration.parts.forEach { sources.remove(it.source, registration) }
+        presented.remove(registration)
     }
 
-    fun capture(registration: PassengerCarPlatforms): PassengerScene? {
+    fun capture(registration: PassengerCarPlatforms): PassengerScene? =
+        presented[registration]?.takeIf { registration.isCurrent() }
+
+    /** Called after this carriage has applied its model transforms, inside its packet bundle. */
+    @Synchronized
+    fun present(registration: PassengerCarPlatforms, frame: TrainFrameSnapshot): PassengerScene? {
         if (!registration.isCurrent()) return null
         val entries = trains[registration.train.publicationStreamId] ?: return null
         if (entries[registration.car.id] !== registration) return null
-        val frame = registration.train.publishedFrame // Exactly one atomic read for this entire scene.
+        if ((presented[registration]?.frame?.revision ?: -1L) > frame.revision) return null
         val registrations = entries.toMap()
         val surfaces = frame.cars.flatMap { carFrame ->
             val member = registrations[carFrame.carId]?.takeIf { it.isCurrent() } ?: return@flatMap emptyList()
@@ -88,7 +95,7 @@ internal class PassengerPlatformRegistry {
                     part.source.halfX, part.source.halfZ)
             }
         }
-        return if (registration.isCurrent()) PassengerScene(frame, surfaces) else null
+        return if (registration.isCurrent()) PassengerScene(frame, surfaces).also { presented[registration] = it } else null
     }
 
     @Synchronized
@@ -96,6 +103,7 @@ internal class PassengerPlatformRegistry {
         trains.values.forEach { entries -> entries.values.forEach { it.retire() } }
         sources.clear()
         trains.clear()
+        presented.clear()
     }
 }
 

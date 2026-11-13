@@ -41,4 +41,22 @@
 
 ## 尚未完成的验收
 
-真实 Paper/Folia 的挂载高度、第一人称插值、曲线/坡道连接处、多人观感与游戏内生命周期验收尚未执行。单元测试的 native/dispatcher doubles 不证明这些实际表现。后续已获得并执行测试服 PlugManX 部署，命令和服务检查通过；没有执行游戏客户端控制。任务仍保留待实机验收，不归档为已完整通过。
+用户已做部分实机体验并报告随车 jerk 和边界停顿；挂载高度、第一人称连续性、曲线/坡道连接处、多人观感与游戏内生命周期的完整复验仍未通过。单元测试的 native/dispatcher doubles 不证明这些实际表现。后续已获得并执行测试服 PlugManX 部署，命令和服务检查通过；没有执行游戏客户端控制。任务仍保留待实机验收，不归档为已完整通过。
+
+## 2026-11-13 实机反馈后的回归基线
+
+用户已执行部分实机体验并报告：不按 WASD 仍相对车厢 jerk；到边界短暂卡住、继续移动才能下车（用户已纠正为并非拉回车内，静止时也发生）。AC2/AC4 有明确未通过反馈，不能继续笼统写成完全未尝试客户端验收。
+
+修复前执行 `./gradlew --offline --init-script /tmp/jr-passenger-test-heap.gradle :BukkitPlugin:test --tests '*Passenger*' --tests '*Seat*'`，现有 32 项全部通过。日志 `/tmp/jr-passenger-feedback-baseline.log`，这说明现有测试没有覆盖显示帧相位和原生解除骑乘/重挂行为，不能用基线绿色否定用户反馈。修复与新增回归结果如下。
+
+## 本轮反馈修复与最终验证
+
+- 完整帧沿 WorldManager/CarExtension 的已接受显示路径进入乘客场景；虚拟 carrier 与本车模型进入同一 bundle。会话锁保留到该帧发送入队，旧 authority 受 revision/ending fence 约束。静止 WASD 复用场景，不独立追赶更新的物理帧。
+- 边界交接先同步 rider/carrier，再原生 removeVehicle/resetPosition，保留取消事件；已有原生 teleport 未确认时只读查询其真实 pending 状态并保存越界意图，等待后释放。没有接管、伪造客户端确认或改变平台边界。
+- 为打破已证实的 session→audience→CarExtension 与 car→session 锁环，乘客 native authority 仍立即移动，仅观众刷新合并并延后一 tick。spawn 与 close 的分配完成、旧回调和取消下车也纳入回归。
+- 最终聚焦：54 项，0 failures/errors/skips；其中 PassengerMovementTest 22、PassengerGeometryTest 8。日志 `/tmp/jr-passenger-feedback-final-focused.log`。
+- 独立 trellis-check 执行一次完整 `./gradlew --offline --init-script /tmp/jr-passenger-test-heap.gradle :BukkitPlugin:test :BukkitPlugin:shadowJar --continue`：968 项，966 通过、1 失败、1 跳过、0 errors。唯一失败仍为 `CarAnimationPlaybackTest.kt:85` 的 S100 ZIP/source 类型引用差异；相关包/源码/测试与 HEAD 均未改。日志 `/tmp/jr-passenger-feedback-full.log`，没有将完整门禁记为绿色。
+- `shadowJar`、源码编译、`git diff --check` 及任务 JSON/JSONL 解析通过。JAR SHA256：`29411cc6b2dafcd1c29beab6b503555f479e35299c68655fd43c5588da9cd3dc`。
+- checker 报告见 `check-passenger-feedback-20261113.md`，native 研究见 `passenger-feedback-20261113.md`。精确 26.1.2 类从实服只读提取，未改服务器；编译后 javap 确认 Kotlin VarHandle 调用使用实际连接参数类型，未生成 Object[] 错误签名。
+
+此轮尚未部署或重载测试服。单元中的 pending 布尔与 entity/dispatcher doubles 只验证生产状态机和发送顺序；没有执行真实 Craft/NMS 交接或客户端画面，不能把它们报告为无卡顿/平滑的实机验收。

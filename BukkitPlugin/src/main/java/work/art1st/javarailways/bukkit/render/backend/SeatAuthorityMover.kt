@@ -3,25 +3,36 @@ package work.art1st.javarailways.bukkit.render.backend
 import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.entity.MoverType
 import net.minecraft.world.phys.Vec3
+import net.minecraft.server.network.ServerGamePacketListenerImpl
+import java.lang.invoke.MethodHandles
 import org.bukkit.Location
 import org.bukkit.craftbukkit.entity.CraftEntity
+import org.bukkit.craftbukkit.entity.CraftPlayer
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
 import kotlin.math.sqrt
 
 /** Moves the hidden server authority on its owning Paper/Folia entity thread without teleporting it. */
 internal object SeatAuthorityMover {
-    /** Marker carriers have zero height. Put the dismount origin at the requested feet WITHOUT
-     * repositioning the rider, then let vanilla stopRiding place and synchronize the player.
-     * This runs synchronously on their shared owner and never queues a later player teleport.
+    private val awaitingPosition = MethodHandles.privateLookupIn(ServerGamePacketListenerImpl::class.java, MethodHandles.lookup())
+        .findVarHandle(ServerGamePacketListenerImpl::class.java, "awaitingPositionFromClient", Vec3::class.java)
+
+    /** Read only on the player owner. Native code owns and processes every teleport confirmation. */
+    fun hasPendingTeleport(player: Player): Boolean =
+        awaitingPosition.get((player as CraftPlayer).handle.connection) != null
+
+    /** Controlled walking exits already know the exact feet position. Move the mounted rider
+     * there, then detach through the native event/passenger path without stopRiding's additional
+     * DISMOUNT teleport and its wait for a client teleport confirmation. Ordinary seats and
+     * lifecycle ejects continue using their existing native stopRiding behavior.
      */
-    fun dismountAt(entity: Entity, player: Player, feet: Location) {
-        val handle = (entity as CraftEntity).handle
-        require(entity.world === feet.world) { "Passenger dismount must stay in the carrier world" }
-        val position = handle.position()
-        handle.move(MoverType.SELF, Vec3(feet.x - position.x, feet.y - position.y, feet.z - position.z))
-        handle.setDeltaMovement(Vec3.ZERO)
-        entity.removePassenger(player)
+    fun dismountAt(entity: Entity, player: Player, carrierTarget: Location): Boolean {
+        move(entity, carrierTarget)
+        val passenger = (player as CraftPlayer).handle
+        passenger.removeVehicle()
+        if (passenger.vehicle === (entity as CraftEntity).handle) return false
+        passenger.connection.resetPosition()
+        return true
     }
 
     fun move(entity: Entity, target: Location): SeatAuthorityMoveResult {

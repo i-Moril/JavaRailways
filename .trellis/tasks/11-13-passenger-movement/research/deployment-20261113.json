@@ -1,0 +1,260 @@
+{
+  "branch": "feat/passenger-movement",
+  "sourceCommit": "82130c6d02df7675a3d5de14af8e181f715efd38",
+  "remoteMainVerified": "5aa13ea26280b5e8292c8c29723bc2eb52f4822a",
+  "sshAgent": "/run/host-ssh-agent/agent.sock",
+  "target": {
+    "host": "192.168.1.230",
+    "name": "JavaRailwaysTest"
+  },
+  "preflight": {
+    "instance": {
+      "instanceUuid": "836082a48c4f48fcb1fea4e83c57dc96",
+      "status": 3,
+      "processInfo": {
+        "pid": 1081210
+      }
+    },
+    "installedSha256": "16d735cd55e453169db30233cc4569a09d4497bde5a25a9d447394c3bf56b001",
+    "candidateSha256": "8c666c4a1dc826ded68df53b147aff7a1621073ae0437fa8f38197a738af8d3d",
+    "pluginHashes": {
+      "Chunky-Bukkit-1.4.40.jar": "2a5477fc80f71012e15ade1ce34dbeb836e17623b28db112492c0f1443c09721",
+      "Decorations.jar": "08d563612c7c7807606bf251b0ade32a830e02bb36ff32d8051c9d860e92650c",
+      "JavaRailways.jar": "16d735cd55e453169db30233cc4569a09d4497bde5a25a9d447394c3bf56b001",
+      "PlugManX-3.2.1.jar": "660a48c5975ab1eae67a9273e8eb0fdb607f34d7644730e51041d3f8bdfedcf2",
+      "SimpleDisplays.jar": "fd3445631a86fecfd6290894417e63c2f62c89ef09c271b1bfae94f6de984420",
+      "SimpleSignals.jar": "e9da012b4656cbdd60cf76453a4024fd78411fc96abad54f03d7479668f0a9ee",
+      "Terra-bukkit-7.0.0-BETA+47d430776-shaded.jar": "91aa93352444fb87105b33cf0ec36ad0ea554cc4b1c272aead4b6ee8b4e41867",
+      "TunnelBridgeBuilder.jar": "b6c56122bf4862fe693c3dfc8a7c3688965553903620bbc4b5d6f088646b5fbd",
+      "ViaVersion-5.12.0-SNAPSHOT.jar": "cc23a414b2bded80a72646a5fe43cc6b2ba97df516147a3630f402d9695e945b",
+      "packetevents-spigot-2.14.0.jar": "060087c58ec268eae7dd0eb1f17ac3bea1eaadda1693414141ff64e506091bd7",
+      "voxy-server-side-paper.jar": "696db9a0fb4e24f79383b4093b4212380c69513814e198033abc4f252d067b01",
+      "worldedit-bukkit-7.4.4.jar": "44c97ee6c1df9afa127df3c5a2c6a7108f826fb44ab7b255a7ec4250feb89b9d"
+    },
+    "plugmanConfigMode": [
+      "ignored-plugins: [ PlugMan,PlugManX,PlugManBungee,ViaVersion,ViaBackwards,ViaRewind,ProtocolSupport,ProtocolLib,PlotSquared ]",
+      "reloadDependentsMode: REQUIRED_ONLY"
+    ],
+    "jarDiff": {
+      "changed": [
+        "META-INF/JavaRailways.shadow.kotlin_module",
+        "work/art1st/javarailways/bukkit/BukkitPlugin$Companion.class",
+        "work/art1st/javarailways/bukkit/BukkitPlugin$installGentleUnload$1.class",
+        "work/art1st/javarailways/bukkit/BukkitPlugin$installGentleUnload$preparation$2.class",
+        "work/art1st/javarailways/bukkit/BukkitPlugin$onEnable$2.class",
+        "work/art1st/javarailways/bukkit/BukkitPlugin.class",
+        "work/art1st/javarailways/bukkit/extension/train/BukkitCarFrameMotion.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$Companion.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$behavior$2$1.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$behavior$2$2.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$behavior$2$7.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$behavior$2$8.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$behavior$2$9.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$behaviorClockDelegate$1$1.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$buildPreparedModel$1$1.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$buildPreparedModel$1$bogies$1$1$1.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$buildPreparedModel$lambda$2$1$$inlined$collectModelsOfType$1.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$buildPreparedModel$lambda$2$1$0$$inlined$collectModelsOfType$1.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$buildPreparedModel$lambda$2$2$$inlined$collectModelsOfType$1.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$buildPreparedModel$lambda$2$2$0$$inlined$collectModelsOfType$1.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$buildPreparedModel$sourcePackage$1.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$captureSimulationBehavior$1.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$captureSimulationBehavior$2.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$captureSimulationBehavior$3.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$collectModelsOfType$1.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$destroy$1$1.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$operationalSnapshot$1.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$operationalSnapshot$2.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$playback$2$4.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$updateModel$1.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtensionKt.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarFramePublicationGate.class",
+        "work/art1st/javarailways/bukkit/render/backend/SeatAuthorityMovePlan$Companion.class",
+        "work/art1st/javarailways/bukkit/render/backend/SeatAuthorityMovePlan.class",
+        "work/art1st/javarailways/bukkit/render/backend/SeatAuthorityMoveResult.class",
+        "work/art1st/javarailways/bukkit/render/backend/SeatAuthorityMover.class",
+        "work/art1st/javarailways/bukkit/render/backend/SeatAuthorityPoint.class",
+        "work/art1st/javarailways/bukkit/render/model/PlatformModel$Companion.class",
+        "work/art1st/javarailways/bukkit/render/model/PlatformModel$NativePlatformUnit.class",
+        "work/art1st/javarailways/bukkit/render/model/PlatformModel$PacketPlatformUnit.class",
+        "work/art1st/javarailways/bukkit/render/model/PlatformModel.class",
+        "work/art1st/javarailways/bukkit/render/model/SeatModel$Companion.class",
+        "work/art1st/javarailways/bukkit/render/model/SeatModel$SeatBinding.class",
+        "work/art1st/javarailways/bukkit/render/model/SeatModel$SeatInteractionListener$DriverSeatContext.class",
+        "work/art1st/javarailways/bukkit/render/model/SeatModel$SeatInteractionListener.class",
+        "work/art1st/javarailways/bukkit/render/model/SeatModel$ensureCarrier$carrier$1.class",
+        "work/art1st/javarailways/bukkit/render/model/SeatModel$spawnEntity$1$1$1.class",
+        "work/art1st/javarailways/bukkit/render/model/SeatModel$spawnEntity$1$1$3.class",
+        "work/art1st/javarailways/bukkit/render/model/SeatModel.class"
+      ],
+      "added": [
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$buildPreparedModel$lambda$2$4$$inlined$collectModelsOfType$1.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarExtension$buildPreparedModel$lambda$2$4$1$$inlined$collectModelsOfType$1.class",
+        "work/art1st/javarailways/bukkit/extension/train/CarFrameModelTransformKt.class",
+        "work/art1st/javarailways/bukkit/passenger/PacketPassengerCarrierAccess$spawn$1.class",
+        "work/art1st/javarailways/bukkit/passenger/PacketPassengerCarrierAccess.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerCarPlatforms.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerCarrierAccess.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerCarrierAccessKt.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerGeometryKt.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerMovementManager$Session.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerMovementManager$Watch.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerMovementManager.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerMovementManagerKt.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerPlatformPart.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerPlatformRegistry.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerPlatformsKt.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerPoint$Companion.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerPoint.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerPose$Companion.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerPose.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerScene.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerSurface.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerSurfaceSource.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerWalk.class",
+        "work/art1st/javarailways/bukkit/passenger/PassengerWalking.class",
+        "work/art1st/javarailways/bukkit/render/backend/SeatCarrierConfigurationKt.class"
+      ],
+      "removed": []
+    },
+    "consoleReceipts": {
+      "list": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "plugman list": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "jr help": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "jr ato status world": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }"
+    },
+    "logOffset": 6794182,
+    "preflightCompleteOffset": 6797881
+  },
+  "backup": {
+    "directory": "/opt/mcsmanager/backups/javarailways/passenger-movement-82130c6d-20261113-zok7tfyo",
+    "files": 193,
+    "archiveSha256": "79a5717df11b630615fe8eec7dc3a72437e279148dfe3427f6d7cc39cf898d0f",
+    "manifestSha256": "9a3002f73951ba68048829ecc9b79baae8f3a8982ae3d98b8f0bba335a43ac7c"
+  },
+  "prepare": {
+    "ready": true,
+    "receipt": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+    "logOffset": 6797881,
+    "completeOffset": 6836264,
+    "completedAt": "2026-11-13T10:30:43.432499+00:00"
+  },
+  "install": {
+    "sourceCommit": "82130c6d",
+    "installedSha256": "8c666c4a1dc826ded68df53b147aff7a1621073ae0437fa8f38197a738af8d3d",
+    "recovery": "/opt/mcsmanager/backups/javarailways/passenger-movement-82130c6d-20261113-zok7tfyo",
+    "installedAt": "2026-11-13T10:31:17.918667+00:00",
+    "retainedPluginJars": 11
+  },
+  "reload": {
+    "ready": true,
+    "receipt": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+    "logOffset": 6836264,
+    "completeOffset": 6838672,
+    "completedAt": "2026-11-13T10:31:34.044334+00:00"
+  },
+  "restoreDependents": {
+    "commands": [
+      {
+        "command": "plugman reload SimpleSignals",
+        "receipt": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+        "marker": "SimpleSignals has been reloaded"
+      },
+      {
+        "command": "plugman load TunnelBridgeBuilder",
+        "receipt": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+        "marker": "TunnelBridgeBuilder has been loaded"
+      },
+      {
+        "command": "plugman load Decorations",
+        "receipt": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+        "marker": "Decorations has been loaded"
+      }
+    ],
+    "logOffset": 6839232,
+    "completeOffset": 6846917,
+    "completedAt": "2026-11-13T10:32:32.191728+00:00"
+  },
+  "postcheck": {
+    "checkedAt": "2026-11-13T10:34:38.672809+00:00",
+    "instance": {
+      "instanceUuid": "836082a48c4f48fcb1fea4e83c57dc96",
+      "status": 3,
+      "processInfo": {
+        "pid": 1081210
+      }
+    },
+    "installedSha256": "8c666c4a1dc826ded68df53b147aff7a1621073ae0437fa8f38197a738af8d3d",
+    "retainedPluginJars": 11,
+    "plugmanConfigUnchanged": true,
+    "commands": {
+      "list": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "plugman list": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "plugman info JavaRailways": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "plugman info SimpleSignals": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "plugman info Decorations": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "plugman info TunnelBridgeBuilder": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "jr help": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "jr ato status world": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "jr physics status world": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "simplesignals inspect world": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "jr issues world": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }"
+    },
+    "helpResponded": true,
+    "atoRunning": true,
+    "health": {
+      "8765": {
+        "status": 200,
+        "body": {
+          "ok": true
+        }
+      },
+      "29002": {
+        "status": 200,
+        "body": {
+          "status": "ok"
+        }
+      }
+    },
+    "railMap": {
+      "status": 200,
+      "rails": 113,
+      "markers": 31
+    },
+    "logOffset": 6856360,
+    "completeOffset": 6862219,
+    "warningsAfterSecondReload": [
+      "[10:31:33] [Folia Region Scheduler Thread #0/WARN]: [JavaRailways] Timetable WebUI is listening on non-loopback address '0.0.0.0'; login and session traffic may be exposed without HTTPS",
+      "[10:31:33] [Folia Region Scheduler Thread #0/WARN]: [JavaRailways] Timetable WebUI public URL uses plaintext HTTP: http://mc.art1st.work:29002",
+      "[10:31:34] [Folia Region Scheduler Thread #0/WARN]: [JavaRailways] Folia has only one tick worker thread. Synchronous JavaRailways hot-disable cleanup may time out while waiting for other regions. Use the two-request PlugManX GentleUnload flow; direct disable remains unsafe.",
+      "[10:32:31] [Folia Async Scheduler Thread #7/ERROR]: [STDERR] [com.oracle.truffle.polyglot.PolyglotEngineImpl] [engine] WARNING: Unable to load the TruffleAttach library."
+    ]
+  },
+  "persistedRuntimeComparison": {
+    "before": {
+      "physicsEpoch": 1320160,
+      "trains": 5,
+      "timetables": 1,
+      "runs": 5,
+      "runStates": {
+        "DWELLING": 1,
+        "APPROACHING": 3,
+        "RUNNING": 1
+      }
+    },
+    "after": {
+      "physicsEpoch": 1322334,
+      "trains": 5,
+      "timetables": 1,
+      "runs": 5,
+      "runStates": {
+        "DWELLING": 1,
+        "APPROACHING": 3,
+        "DEPARTING": 1
+      }
+    }
+  },
+  "firstRequestIncident": "PlugManX unloaded SimpleSignals before host GentleUnload. Active infrastructure dependencies stalled old ATO; dependent reload failed. Host reached READY. After second host reload, restored SimpleSignals/TunnelBridgeBuilder/Decorations with PlugManX. See prepare-console.log.",
+  "realClientAcceptance": "pending"
+}

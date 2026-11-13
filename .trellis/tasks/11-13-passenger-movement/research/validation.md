@@ -2,7 +2,7 @@
 
 ## 最终实现
 
-- 分支：`feat/passenger-movement`，基线为本地 `main` 的 `5aa13ea2`；本轮没有推送、部署或启动游戏服务器，远端最新性仍未通过认证核验。
+- 分支：`feat/passenger-movement`，基线为本地 `main` 的 `5aa13ea2`；实现提交时未推送、部署或启动游戏服务器，远端认证尚未核验。后续已按用户授权完成部署，并通过指定 SSH agent 核对远端 `main` 仍为该基线；见 `deployment-20261113.md`。
 - 平台登记复制局部变换；会话每步只捕获一次既有整列 `Train.publishedFrame`，沿用共享模型姿态计算，无需改动 `WorldManager`。
 - 视角相对 WASD、固定 4.3 m/s、禁止 Shift 主动下车和跳跃、同 carrier 的连续平台交接、区域外同步释放已实现。
 - 复用现有 carrier packet/authority；清理使用 presentation owner，保留已排队的真实清理 completion。固定座位与驾驶输入保持原职责。
@@ -41,4 +41,4 @@
 
 ## 尚未完成的验收
 
-真实 Paper/Folia 的挂载高度、第一人称插值、曲线/坡道连接处、多人观感与游戏内生命周期验收尚未执行。单元测试的 native/dispatcher doubles 不证明这些实际表现。没有获得并执行测试服部署或游戏客户端控制；任务保留待实机验收，不归档为已完整通过。
+真实 Paper/Folia 的挂载高度、第一人称插值、曲线/坡道连接处、多人观感与游戏内生命周期验收尚未执行。单元测试的 native/dispatcher doubles 不证明这些实际表现。后续已获得并执行测试服 PlugManX 部署，命令和服务检查通过；没有执行游戏客户端控制。任务仍保留待实机验收，不归档为已完整通过。

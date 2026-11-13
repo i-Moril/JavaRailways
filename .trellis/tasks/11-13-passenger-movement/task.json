@@ -25,6 +25,9 @@
   "meta": {
     "implementation": "complete",
     "runtime_acceptance": "pending",
-    "full_test_gate": "baseline_failure"
+    "full_test_gate": "baseline_failure",
+    "deployment": "complete",
+    "deployed_source_commit": "82130c6d02df7675a3d5de14af8e181f715efd38",
+    "deployment_evidence": "research/deployment-20261113.md"
   }
 }

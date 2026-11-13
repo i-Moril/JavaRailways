@@ -1,0 +1,191 @@
+{
+  "source": {
+    "sourceCommit": "c63268b987688abe7864f7ba61051e3816600a43",
+    "mainFixCommit": "4b102dcd8b5c9f14efe8959d0cea9502cce35007",
+    "oldDevelopmentHead": "52fa87f6ba7e0e48a30f4672d8eac1715cc52281",
+    "branch": "feat/passenger-movement",
+    "replayedCommitsUnchanged": 7,
+    "jarSha256": "9f6969570a0e0f01464cbe4b4feea790b5f0e299b2191a2a7963c2a438fa87da",
+    "focusedTests": {
+      "tests": 68,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "moduleBoundaries": "passed"
+  },
+  "preflight": {
+    "instance": {
+      "instanceUuid": "836082a48c4f48fcb1fea4e83c57dc96",
+      "status": 3,
+      "processInfo": {
+        "pid": 1081210
+      }
+    },
+    "installedSha256": "c0725cc57e23cc95f356196806abec99a284f0e48cdbf9b3bf6ab4dbc93179bd",
+    "candidateSha256": "9f6969570a0e0f01464cbe4b4feea790b5f0e299b2191a2a7963c2a438fa87da",
+    "pluginHashes": {
+      "Chunky-Bukkit-1.4.40.jar": "2a5477fc80f71012e15ade1ce34dbeb836e17623b28db112492c0f1443c09721",
+      "Decorations.jar": "08d563612c7c7807606bf251b0ade32a830e02bb36ff32d8051c9d860e92650c",
+      "JavaRailways.jar": "c0725cc57e23cc95f356196806abec99a284f0e48cdbf9b3bf6ab4dbc93179bd",
+      "PlugManX-3.2.1.jar": "660a48c5975ab1eae67a9273e8eb0fdb607f34d7644730e51041d3f8bdfedcf2",
+      "RoseResourcepack-3.5.0.jar": "e38e9b729910bf7741b2da74362651f24d83d0e8b70d656d6c6029524f3a4e9b",
+      "SimpleDisplays.jar": "fd3445631a86fecfd6290894417e63c2f62c89ef09c271b1bfae94f6de984420",
+      "SimpleSignals.jar": "e9da012b4656cbdd60cf76453a4024fd78411fc96abad54f03d7479668f0a9ee",
+      "Terra-bukkit-7.0.0-BETA+47d430776-shaded.jar": "91aa93352444fb87105b33cf0ec36ad0ea554cc4b1c272aead4b6ee8b4e41867",
+      "TunnelBridgeBuilder.jar": "b6c56122bf4862fe693c3dfc8a7c3688965553903620bbc4b5d6f088646b5fbd",
+      "ViaVersion-5.12.0-SNAPSHOT.jar": "cc23a414b2bded80a72646a5fe43cc6b2ba97df516147a3630f402d9695e945b",
+      "packetevents-spigot-2.14.0.jar": "060087c58ec268eae7dd0eb1f17ac3bea1eaadda1693414141ff64e506091bd7",
+      "voxy-server-side-paper.jar": "696db9a0fb4e24f79383b4093b4212380c69513814e198033abc4f252d067b01",
+      "worldedit-bukkit-7.4.4.jar": "44c97ee6c1df9afa127df3c5a2c6a7108f826fb44ab7b255a7ec4250feb89b9d"
+    },
+    "plugmanConfigMode": [
+      "ignored-plugins: [ PlugMan,PlugManX,PlugManBungee,ViaVersion,ViaBackwards,ViaRewind,ProtocolSupport,ProtocolLib,PlotSquared ]",
+      "reloadDependentsMode: REQUIRED_ONLY"
+    ],
+    "jarDiff": {
+      "changed": [
+        "work/art1st/javarailways/bukkit/render/backend/EntityLibDisplayVisual.class",
+        "work/art1st/javarailways/bukkit/render/backend/PassengerManagedDisplayEntity.class"
+      ],
+      "added": [],
+      "removed": []
+    },
+    "consoleReceipts": {
+      "list": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "plugman list": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "jr help": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "jr ato status world": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "jr perf world": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }"
+    },
+    "logOffset": 8527917,
+    "preflightCompleteOffset": 8537977
+  },
+  "backup": {
+    "directory": "/opt/mcsmanager/backups/javarailways/metadata-delta-c63268b9-20261113-9jj3bqgk",
+    "files": 195,
+    "archiveSha256": "335d1d58f5d7c505ded39a7b15034c7c260516d54339a91a0e62d48f7bc7043e",
+    "manifestSha256": "2595230ca476fc76bcd1f9f449e7e07b03278e6c9bace01c071e8b8266a1aa8c"
+  },
+  "unload-dependents": {
+    "commands": [
+      "plugman unload Decorations",
+      "plugman unload TunnelBridgeBuilder",
+      "plugman unload SimpleSignals"
+    ],
+    "receipt": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+    "logOffset": 8537977,
+    "completeOffset": 8546934,
+    "completedAt": "2026-11-13T12:38:28.157469+00:00"
+  },
+  "prepare": {
+    "ready": true,
+    "receipt": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+    "logOffset": 8546934,
+    "completeOffset": 8547371,
+    "completedAt": "2026-11-13T12:38:42.465193+00:00"
+  },
+  "install": {
+    "sourceCommit": "c63268b987688abe7864f7ba61051e3816600a43",
+    "installedSha256": "9f6969570a0e0f01464cbe4b4feea790b5f0e299b2191a2a7963c2a438fa87da",
+    "recovery": "/opt/mcsmanager/backups/javarailways/metadata-delta-c63268b9-20261113-9jj3bqgk",
+    "installedAt": "2026-11-13T12:39:17.475795+00:00",
+    "retainedPluginJars": 12
+  },
+  "unload": {
+    "ready": true,
+    "receipt": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+    "logOffset": 8547371,
+    "completeOffset": 8547569,
+    "completedAt": "2026-11-13T12:39:18.556929+00:00"
+  },
+  "load": {
+    "commands": [
+      "plugman load JavaRailways",
+      "plugman load SimpleSignals",
+      "plugman load TunnelBridgeBuilder",
+      "plugman load Decorations"
+    ],
+    "receipt": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+    "logOffset": 8547569,
+    "completeOffset": 8557965,
+    "completedAt": "2026-11-13T12:39:24.383285+00:00",
+    "dependenciesEnabledBeforePhysics": true
+  },
+  "postcheck": {
+    "checkedAt": "2026-11-13T12:39:51.848386+00:00",
+    "instance": {
+      "instanceUuid": "836082a48c4f48fcb1fea4e83c57dc96",
+      "status": 3,
+      "processInfo": {
+        "pid": 1081210
+      }
+    },
+    "installedSha256": "9f6969570a0e0f01464cbe4b4feea790b5f0e299b2191a2a7963c2a438fa87da",
+    "retainedPluginJars": 12,
+    "plugmanConfigUnchanged": true,
+    "physicsEpochSamples": [
+      495,
+      518
+    ],
+    "helpResponded": true,
+    "atoRunning": true,
+    "health": {
+      "8765": {
+        "status": 200,
+        "body": {
+          "ok": true
+        }
+      },
+      "29002": {
+        "status": 200,
+        "body": {
+          "status": "ok"
+        }
+      }
+    },
+    "railMap": {
+      "status": 200,
+      "rails": 113,
+      "markers": 31
+    }
+  },
+  "final": {
+    "checkedAt": "2026-11-13T12:40:35.863315+00:00",
+    "instance": {
+      "instanceUuid": "836082a48c4f48fcb1fea4e83c57dc96",
+      "status": 3,
+      "processInfo": {
+        "pid": 1081210
+      }
+    },
+    "installedSha256": "9f6969570a0e0f01464cbe4b4feea790b5f0e299b2191a2a7963c2a438fa87da",
+    "physicsEpochSamples": [
+      1384,
+      1406
+    ],
+    "atoRunning": true,
+    "physicsRunning": true,
+    "worldIssueCount": 0,
+    "health": {
+      "8765": 200,
+      "29002": 200
+    },
+    "warnings": {
+      "truffleAttach": 1,
+      "jvmciDisabled": 0,
+      "onReverseReset": 0,
+      "physicsEpochOverload": 1
+    }
+  },
+  "acceptanceBoundary": {
+    "preflightActiveControllers": "5/5",
+    "postLoadActiveControllers": "0/5",
+    "checkpointRestoresControllers": false,
+    "unloadDependencySafetyStallObserved": true,
+    "postLoadJavaRailwaysErrors": 0,
+    "clientBendBandwidthAndAppearance": "not verified",
+    "globalTimetableReloadOrResetPerformed": false,
+    "unchangedPassengerAdapterInstructions": true
+  }
+}

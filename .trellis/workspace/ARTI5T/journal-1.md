@@ -1329,3 +1329,39 @@ Diagnosed the post-deployment NoSuchMethodError as an old SimpleSignals JAR link
 ### Next Steps
 
 - 用户在实际光影客户端确认默认字体、9/6秒切换、回送规则和刷新无黑屏；未替代玩家操作或自动重置班次。
+
+
+## Session 41: Platform passenger movement implementation
+<!-- trellis-session: v=2 fp=e6556f4cf52fa858 -->
+
+**Date**: 2026-11-13
+**Task**: Platform passenger movement implementation
+**Package**: bukkit-plugin
+**Branch**: `feat/passenger-movement`
+
+### Summary
+
+Implemented view-relative fixed-speed passenger movement and stable carrier handoff. Passenger/Seat 32 tests pass; full suite has one unchanged S100 package baseline failure; runtime acceptance pending.
+
+### Main Changes
+
+- Platform contact, one captured train frame, stable carrier handoff, Shift/jump restrictions, synchronous boundary exit and lifecycle cleanup.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `82130c6d` | feat(bukkit): move passengers with train platforms |
+
+### Testing
+
+- [OK] Final full suite with temporary 2 GiB Test heap: 956 tests, 954 passed, 1 unchanged CarAnimationPlaybackTest:85 failure, 1 skipped. All 20 Passenger and 12 Seat tests passed.
+- [OK] Standalone shadowJar and git diff --check passed; artifact SHA256 8c666c4a1dc826ded68df53b147aff7a1621073ae0437fa8f38197a738af8d3d.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Real Paper/Folia client validation remains pending; no deployment/server startup performed. Keep task in_progress. Existing S100 ZIP/source reference mismatch is outside this task.

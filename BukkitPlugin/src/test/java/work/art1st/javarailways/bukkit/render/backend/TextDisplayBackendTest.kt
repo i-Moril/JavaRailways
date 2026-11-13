@@ -1,6 +1,10 @@
 package work.art1st.javarailways.bukkit.render.backend
 
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes
+import com.github.retrooper.packetevents.protocol.item.ItemStack as PacketItemStack
+import com.github.retrooper.packetevents.protocol.item.type.ItemTypes
+import com.github.retrooper.packetevents.util.Quaternion4f
+import com.github.retrooper.packetevents.util.Vector3f as PacketVector3f
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetPassengers
 import com.github.retrooper.packetevents.wrapper.PacketWrapper
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityMetadata
@@ -177,8 +181,14 @@ class TextDisplayBackendTest {
             val packets = sent.single().second.map { it as WrapperPlayServerEntityMetadata }
             assertEquals(5, packets.size)
             assertTrue(packets.all { it.entityId == 42 })
-            assertTrue(packets.first().entityMetadata.any { it.value == styled })
-            assertTrue(packets.last().entityMetadata.any { it.value == Component.empty() })
+            assertEquals(styled, packets.first().entityMetadata.single().value)
+            assertEquals(setOf(AbstractDisplayMeta.OFFSET.toInt(),
+                AbstractDisplayMeta.OFFSET + 3, AbstractDisplayMeta.OFFSET + 4,
+                AbstractDisplayMeta.OFFSET + 5, AbstractDisplayMeta.OFFSET + 6),
+                packets[1].entityMetadata.map { it.index }.toSet())
+            assertEquals((7 shl 4) or (12 shl 20), packets[2].entityMetadata.single().value)
+            assertEquals(-1, packets[3].entityMetadata.single().value)
+            assertEquals(Component.empty(), packets.last().entityMetadata.single().value)
             assertEquals(Component.empty(), meta.text)
             assertEquals(3f, meta.translation.x)
             assertEquals(-1, meta.brightnessOverride)
@@ -192,6 +202,62 @@ class TextDisplayBackendTest {
             assertEquals(1, sent.size)
             assertEquals(Component.empty(), meta.text)
             assertEquals(3f, meta.translation.x)
+        }
+    }
+
+    @Test
+    fun `curve rotations send only changed fields and restart interpolation for text and item displays`() = withEntityLibMetadata {
+        for ((type, meta) in listOf(
+            EntityTypes.TEXT_DISPLAY to TextDisplayMeta(42, Metadata(42)).apply { configurePacketText(this, styledText()) },
+            EntityTypes.ITEM_DISPLAY to ItemDisplayMeta(42, Metadata(42)).apply {
+                setItem(PacketItemStack.builder().type(ItemTypes.PAPER).amount(1).build())
+                setDisplayType(ItemDisplayMeta.DisplayType.NONE)
+            }
+        )) {
+            meta.setInterpolationDelay(0)
+            meta.setTransformationInterpolationDuration(3)
+            meta.setPositionRotationInterpolationDuration(3)
+            meta.setTranslation(PacketVector3f(1f, 2f, 3f))
+            meta.setScale(PacketVector3f(2f, 3f, 4f))
+            meta.setLeftRotation(Quaternion4f(0f, 0f, 0f, 1f))
+            meta.setRightRotation(Quaternion4f(0f, 0f, 0f, 1f))
+            meta.setViewRange(4f)
+            meta.setBrightnessOverride((7 shl 4) or (12 shl 20))
+            val sent = mutableListOf<WrapperPlayServerEntityMetadata>()
+            val bundles = TrainPacketBundleCoordinator { _, packets ->
+                sent += packets.map { it as WrapperPlayServerEntityMetadata }
+            }
+            withHost(bundles) {
+                val wrapper = WrapperEntity(42, UUID.randomUUID(), type, meta)
+                wrapper.addViewerSilently(UUID.randomUUID())
+                val visual = packetVisual(wrapper)
+                val rotations = listOf(0.1f, 0.2f, 0.3f).map { Quaternionf().rotateY(it) }
+                bundles.frame {
+                    rotations.forEach { rotation -> visual.setTransformation(Transformation(
+                        Vector3f(1f, 2f, 3f), rotation, Vector3f(2f, 3f, 4f), Quaternionf())) }
+                    visual.setTransformation(Transformation(Vector3f(1f, 2f, 3f), Quaternionf(rotations.last()),
+                        Vector3f(2f, 3f, 4f), Quaternionf()))
+                    assertTrue(sent.isEmpty())
+                }
+                assertEquals(4, sent.size, "each transform retains its own interpolation restart")
+                sent.take(3).forEachIndexed { index, packet ->
+                    val entries = packet.entityMetadata.associateBy { it.index }
+                    assertEquals(setOf(AbstractDisplayMeta.OFFSET.toInt(), AbstractDisplayMeta.OFFSET + 5), entries.keys)
+                    assertEquals(0, entries.getValue(AbstractDisplayMeta.OFFSET.toInt()).value)
+                    val actual = entries.getValue(AbstractDisplayMeta.OFFSET + 5).value as Quaternion4f
+                    val expected = rotations[index]
+                    assertEquals(expected.x(), actual.x)
+                    assertEquals(expected.y(), actual.y)
+                    assertEquals(expected.z(), actual.z)
+                    assertEquals(expected.w(), actual.w)
+                }
+                assertEquals(AbstractDisplayMeta.OFFSET.toInt(), sent.last().entityMetadata.single().index)
+                assertEquals(0, sent.last().entityMetadata.single().value)
+                visual.setBrightness(7, 12)
+                if (meta is TextDisplayMeta) visual.setText(styledText())
+                assertEquals(4, sent.size, "unchanged content and brightness have no delta")
+                visual.destroy().toCompletableFuture().join()
+            }
         }
     }
 

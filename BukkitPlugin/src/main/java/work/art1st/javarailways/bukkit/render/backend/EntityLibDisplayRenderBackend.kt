@@ -182,6 +182,7 @@ internal class EntityLibDisplayVisual(
     @Volatile private var passengers: List<EntityLibDisplayVisual> = emptyList()
     @Volatile private var passengerParent: EntityLibDisplayVisual? = null
     private val sentPassengers = ConcurrentHashMap<UUID, List<Int>>()
+    private val metadataBaseline = entity.entityMeta.entityData().associateBy { it.index }.toMutableMap()
 
     @Synchronized private fun rememberPassenger(child: EntityLibDisplayVisual) {
         if (passengers.none { it === child }) passengers = passengers + child
@@ -281,7 +282,7 @@ internal class EntityLibDisplayVisual(
         meta.setScale(transformation.scale.toPacketVector())
         meta.setLeftRotation(transformation.leftRotation.toPacketQuaternion())
         meta.setRightRotation(transformation.rightRotation.toPacketQuaternion())
-        queueMetadata(meta)
+        queueMetadata(meta, restartInterpolation = true)
     }
 
     override fun setItemStack(itemStack: ItemStack) {
@@ -354,9 +355,22 @@ internal class EntityLibDisplayVisual(
         steps.finish()
     }
 
-    private fun queueMetadata(meta: AbstractDisplayMeta) {
-        val entries = meta.createPacket().entityMetadata.toList()
-        queueToViewers { WrapperPlayServerEntityMetadata(entity.entityId, entries) }
+    private fun queueMetadata(meta: AbstractDisplayMeta, restartInterpolation: Boolean = false) {
+        // EntityLib replaces entries on each setter. Keep those captured values for the queued
+        // delta, while the wrapper retains the complete current state for newly shown viewers.
+        val entries = meta.entityData().filter { entry ->
+            val previous = metadataBaseline.put(entry.index, entry)
+            restartInterpolation && entry.index == AbstractDisplayMeta.OFFSET.toInt() ||
+                previous == null || previous.type != entry.type || !sameMetadataValue(previous.value, entry.value)
+        }
+        if (entries.isNotEmpty()) queueToViewers { WrapperPlayServerEntityMetadata(entity.entityId, entries) }
+    }
+
+    private fun sameMetadataValue(previous: Any?, current: Any?): Boolean {
+        // PacketEvents Quaternion4f has no value equality; compare its stored components exactly.
+        return if (previous is Quaternion4f && current is Quaternion4f) {
+            previous.x == current.x && previous.y == current.y && previous.z == current.z && previous.w == current.w
+        } else previous == current
     }
 
     private fun queueToViewers(packetFactory: () -> com.github.retrooper.packetevents.wrapper.PacketWrapper<*>) {

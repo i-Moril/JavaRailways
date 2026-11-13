@@ -8,6 +8,7 @@ import com.github.retrooper.packetevents.manager.protocol.ProtocolManager
 import com.github.retrooper.packetevents.manager.server.ServerManager
 import com.github.retrooper.packetevents.manager.server.ServerVersion
 import com.github.retrooper.packetevents.netty.NettyManager
+import io.github.retrooper.packetevents.impl.netty.NettyManagerImpl
 import me.tofaa.entitylib.meta.Metadata
 import me.tofaa.entitylib.meta.display.ItemDisplayMeta
 import io.papermc.paper.datacomponent.DataComponentTypes
@@ -138,7 +139,7 @@ internal fun withPacketVersion(block: () -> Unit) = synchronized(PacketEvents::c
         override fun getPlugin(): Any = error("No packet plugin used")
         override fun getProtocolManager(): ProtocolManager = error("No protocol manager used")
         override fun getPlayerManager(): PlayerManager = error("No player manager used")
-        override fun getNettyManager(): NettyManager = error("No netty manager used")
+        override fun getNettyManager(): NettyManager = NettyManagerImpl()
         override fun getInjector(): ChannelInjector = error("No injector used")
         override fun load() = error("No packet load used")
         override fun init() = error("No packet init used")

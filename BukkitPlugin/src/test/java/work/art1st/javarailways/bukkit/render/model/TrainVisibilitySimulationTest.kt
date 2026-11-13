@@ -24,6 +24,7 @@ import me.tofaa.entitylib.UserLocaleProvider
 import me.tofaa.entitylib.container.EntityContainer
 import me.tofaa.entitylib.event.EventHandler
 import me.tofaa.entitylib.wrapper.WrapperEntity
+import me.tofaa.entitylib.meta.display.AbstractDisplayMeta
 import me.tofaa.entitylib.meta.display.TextDisplayMeta
 import net.kyori.adventure.key.Key
 import net.kyori.adventure.text.Component
@@ -33,6 +34,9 @@ import net.kyori.adventure.translation.TranslationStore
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.joml.Vector3d
+import org.joml.Vector3f
+import org.joml.Quaternionf
+import org.bukkit.util.Transformation
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -305,6 +309,77 @@ class TrainVisibilitySimulationTest {
         } finally {
             visual.destroy().toCompletableFuture().join()
             GlobalTranslator.translator().removeSource(store)
+        }
+    }
+
+    @Test
+    fun `new and reshown viewers receive complete latest metadata after visible and hidden deltas`() {
+        val first = player()
+        val late = player()
+        val wrapper = entity(ROOT, EntityTypes.TEXT_DISPLAY)
+        val meta = wrapper.getEntityMeta(TextDisplayMeta::class.java)
+        meta.setLineWidth(Int.MAX_VALUE)
+        meta.setBackgroundColor(0)
+        meta.setTextOpacity((-1).toByte())
+        meta.setShadow(false)
+        meta.setBillboardConstraints(AbstractDisplayMeta.BillboardConstraints.FIXED)
+        meta.setTransformationInterpolationDuration(3)
+        meta.setPositionRotationInterpolationDuration(3)
+        meta.setViewRange(4f)
+        val visual = visual(wrapper)
+        fun pose(x: Float) = Transformation(Vector3f(x, 2f, 3f), Quaternionf().rotateY(x / 10f),
+            Vector3f(1f), Quaternionf())
+        fun metadata(viewer: Player) = packets[viewer.uniqueId].orEmpty()
+            .filterIsInstance<WrapperPlayServerEntityMetadata>()
+        fun expectComplete(viewer: Player, text: Component, x: Float, brightness: Int) {
+            val entries = metadata(viewer).last().entityMetadata.associateBy { it.index }
+            assertEquals(meta.entityData().map { it.index }.toSet(), entries.keys)
+            assertEquals(text, entries.getValue(TextDisplayMeta.OFFSET.toInt()).value)
+            assertEquals(brightness, entries.getValue(AbstractDisplayMeta.OFFSET + 8).value)
+            assertEquals(com.github.retrooper.packetevents.util.Vector3f(x, 2f, 3f),
+                entries.getValue(AbstractDisplayMeta.OFFSET + 3).value)
+            assertEquals(Int.MAX_VALUE, entries.getValue(TextDisplayMeta.OFFSET + 1).value)
+            assertEquals(0, entries.getValue(TextDisplayMeta.OFFSET + 2).value)
+            assertEquals((-1).toByte(), entries.getValue(TextDisplayMeta.OFFSET + 3).value)
+            assertEquals(3, entries.getValue(AbstractDisplayMeta.OFFSET + 1).value)
+            assertEquals(3, entries.getValue(AbstractDisplayMeta.OFFSET + 2).value)
+            assertEquals(4f, entries.getValue(AbstractDisplayMeta.OFFSET + 9).value)
+        }
+        try {
+            bundles.frame {
+                visual.setText(Component.text("before first show"))
+                visual.setTransformation(pose(1f))
+                visual.setBrightness(0, 0)
+            }
+            assertTrue(packets.isEmpty(), "updates while hidden only change stored metadata")
+            bundles.frame { visual.showTo(first) }
+            expectComplete(first, Component.text("before first show"), 1f, 0)
+
+            bundles.frame {
+                visual.setText(Component.text("after curve"))
+                visual.setTransformation(pose(2f))
+                visual.setBrightness(7, 12)
+            }
+            assertEquals(1, metadata(first)[1].entityMetadata.size, "visible text updates remain incremental")
+            assertEquals(1, metadata(first).last().entityMetadata.size, "visible brightness updates remain incremental")
+            bundles.frame { visual.showTo(late) }
+            expectComplete(late, Component.text("after curve"), 2f, (7 shl 4) or (12 shl 20))
+
+            bundles.frame { visual.hideFrom(first); visual.hideFrom(late) }
+            val hiddenPacketCount = packets.values.sumOf { it.size }
+            bundles.frame {
+                visual.setText(Component.empty())
+                visual.setTransformation(pose(0f))
+                visual.clearBrightness()
+            }
+            assertEquals(hiddenPacketCount, packets.values.sumOf { it.size })
+            bundles.frame { visual.showTo(first); visual.showTo(late) }
+            expectComplete(first, Component.empty(), 0f, -1)
+            expectComplete(late, Component.empty(), 0f, -1)
+            assertEquals(2, spawns(first).size)
+            assertEquals(2, spawns(late).size)
+        } finally {
+            visual.destroy().toCompletableFuture().join()
         }
     }
 

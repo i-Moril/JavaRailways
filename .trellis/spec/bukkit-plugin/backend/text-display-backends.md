@@ -14,6 +14,33 @@ setText 在已销毁后无副作用；未销毁的 Item/Block visual 明确拒�
 
 无玩家的隔离 Paper 探针必须显式加载并持有目标区块，不能仅凭 server started 或延后一 tick 推断新建实体有效；应检查真实 entity validity/位置和删除完成。相关实际证据见任务 text-backends-validation.md。
 
+## Packet Display 的运行时 metadata 增量
+
+CURRENT：`EntityLibDisplayVisual` 负责 Item/Block/TextDisplay 的字段增量。弯道上部件姿态持续变化，
+不能让每次变换都携带未变化的文字、物品和显示样式。wrapper 的 metadata 仍保存完整最新状态；
+首次显示、新观众加入、隐藏后重显及区块重发，继续从 wrapper 生成完整 metadata。
+
+visual 在创建时捕获按字段 index 索引的 metadata 基线。每次 setter 修改真实 EntityLib meta 后，
+读取公开 `entityData()` 快照，逐字段比较类型与值，仅将变化字段交给既有 coordinator，并更新基线。
+`EntityData` 自身的对象身份不是值相等；四元数按四个浮点分量精确比较，不引入几何容差。
+没有观众时仍更新 wrapper 和基线，后来的观众因此能获得当前完整状态。排队快照在模型 owner 内捕获，
+后续 setter 不得改写已经排队的值；生命周期、发包顺序和编辑者专用描边过滤沿用现有出口。
+
+`setTransformation` 的 interpolation-delay 字段是必须保留的触发信号：即使值始终为0，也随每次
+变换调用发送，使客户端重新启动插值。其他变换字段仅在实际变化时发送。文字、物品和亮度更新
+不得连带重发这个触发字段；自然光复位仍发送协议值-1，空文字仍发送空 Component。
+已销毁 visual 的 setter 仍无副作用，错误类型的文字更新仍按原合同拒绝；不新增恢复或重试路径。
+
+每次更新比较 M 个已存字段，时间和每 visual 的基线空间均为 O(M)；向 P 位观众发送的 metadata
+规模由变化字段数 D 决定，为 O(P×D)。同帧的独立更新继续分别排队并保持顺序，不按帧合包或降频。
+例如文字保持不变而车厢连续转向时，后续包保留插值触发及变化的姿态字段，不包含文字和固定样式；
+玩家离开后更新文字及亮度，再次显示时必须通过完整快照恢复这些值。
+
+必需回归：真实 EntityLib meta/backend 的连续变换省略未变的文字、物品、缩放和旋转字段；
+重复变换仍带插值触发；文字、亮度设置及复位只发相关字段；同帧排队值不被后续更新覆盖；
+新观众、重显及无观众期间更新后均收到完整最新状态。协议机制测试不能代替真实弯道流量及画面验收。
+本机制不改变公开接口、配置、持久化格式或 schema version，无迁移步骤。
+
 ## 非等比文字缩放与安装旋转
 
 TextModel 的 CompactTransform 表示 `T * R * S`：glyph 在本地平面缩放，再随屏幕/车厢旋转。映射至 Bukkit Transformation 必须将 rotation 放在leftRotation、rightRotation置identity。不能使用 `T * S * R`：当矩形X/Y缩放不等且屏幕有Y=90或倾角时，实际平面法向会随矩形宽高比变化，色块不再共面。统一缩放可交换，容易掩盖此错误。该要求属于扩展文字叶节点，不在本修正中重写普通ItemDisplay路径。

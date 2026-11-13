@@ -431,7 +431,7 @@ class StationCallRuntimeTest {
         TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val rail = createStraightRailFromSegments(
             world,
-            PrimeCurveGenerator.buildStraight(railLength, segmentCount = 1)
+            PrimeCurveGenerator.buildStraight(railLength, segmentCount = 1, step = 1.0)
         )
         val train = createTrainWithConfig("T-$id", rail, world, listOf(10.0))
         if (originOverride != null) work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker.run {

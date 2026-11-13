@@ -1993,7 +1993,7 @@ class TimetableStationCallDispatcherTest {
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
-            PrimeCurveGenerator.buildStraight(180.0, segmentCount = 1)
+            PrimeCurveGenerator.buildStraight(180.0, segmentCount = 1, step = 1.0)
         )
         val firstTrain = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val secondTrain = createTrainWithConfig("T2", rail, world, listOf(10.0), carIdPrefix = "T2" + "/car-")
@@ -2141,7 +2141,7 @@ class TimetableStationCallDispatcherTest {
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
-            PrimeCurveGenerator.buildStraight(180.0, segmentCount = 1)
+            PrimeCurveGenerator.buildStraight(180.0, segmentCount = 1, step = 1.0)
         )
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0), carIdPrefix = "T1" + "/car-")
         val originArc = train.head.location.arcLength

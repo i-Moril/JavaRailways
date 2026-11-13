@@ -33,6 +33,7 @@ dependencies {
 }
 
 tasks.test {
+    forkEvery = 1
     doFirst {
         systemProperty("javarailways.haltTest.classpath", classpath.asPath)
     }

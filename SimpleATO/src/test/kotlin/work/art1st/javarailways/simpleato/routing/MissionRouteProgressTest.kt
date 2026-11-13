@@ -39,7 +39,7 @@ class MissionRouteProgressTest {
     @EnumSource(ViewDirection::class)
     fun `split segments preserve exact progress before at and after their shared boundary`(direction: ViewDirection) {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
-        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(1024.0, 1))
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(1024.0, segmentCount = 1, step = 1.0))
         val boundary = 582.7380266737305
         val layout = MissionRouteLayout(world, segmentedMission(listOf(
             RouteSegment(RailViewRef(rail.id, direction), 0.0, boundary),
@@ -59,7 +59,7 @@ class MissionRouteProgressTest {
     @EnumSource(ViewDirection::class)
     fun `positions just outside route bounds are not clamped into the route`(direction: ViewDirection) {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
-        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(1024.0, 1))
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(1024.0, segmentCount = 1, step = 1.0))
         val layout = MissionRouteLayout(world, segmentedMission(listOf(
             RouteSegment(RailViewRef(rail.id, direction), 100.0, 900.0)
         )))

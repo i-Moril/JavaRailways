@@ -310,7 +310,7 @@ class StructuralTimetableValidationTest {
             val world = fixture.world
             TestSimpleATOWorldDataRegistry.getOrCreate(world)
             try {
-                val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(220.0, 1))
+                val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(220.0, segmentCount = 1, step = 1.0))
                 fun train(id: String, head: Double) = world.onOwnerForTest {
                     val anchor = work.art1st.javarailways.core.physics.rail.RailLocationWithFacing(rail.viewAB, head)
                     val car = CoreCar.create("$id-car", CoreBogie.create(anchor), CoreBogie.create(anchor),
@@ -531,7 +531,7 @@ class StructuralTimetableValidationTest {
             val world = fixture.world
             TestSimpleATOWorldDataRegistry.getOrCreate(world)
             try {
-                val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(220.0, 1))
+                val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(220.0, segmentCount = 1, step = 1.0))
                 val train = createTrainWithConfig("physical", rail, world, List(cars) { 10.0 }, connectorLength = 0.25, composition = work.art1st.javarailways.simpleato.testing.testGroupedComposition(cars, 2))
                 world.onOwnerForTest { train.setLocation(rail.viewAB.getRailLocationAt(head)); train.commit() }
                 listOf("origin" to head, "stop" to 100.0, "end" to 200.0, "later" to 180.0,

@@ -1,0 +1,157 @@
+{
+  "authorization": "用户确认部署当前分支完整 JAR（部署全部）；不做列车或客户端测试。",
+  "target": {
+    "host": "192.168.1.230",
+    "instance": "JavaRailwaysTest",
+    "instanceUuid": "836082a48c4f48fcb1fea4e83c57dc96"
+  },
+  "installation": {
+    "sourceCommit": "64d449f444d0eac7a7b85caf20a6d2c741ce1e46",
+    "branch": "feat/passenger-movement",
+    "oldPid": 1103524,
+    "recoveryDirectory": "/opt/mcsmanager/backups/javarailways/operating-hold-64d449f4-20261113-ktsmg0a1",
+    "archiveSha256": "b098b63e69f4eb6fcc380af09619f4d3392f62309a891df53fb8a9db20c4d38d",
+    "archiveBytes": 1147944960,
+    "backedUpFilesAndLinks": 3598,
+    "oldSha256": "9f6969570a0e0f01464cbe4b4feea790b5f0e299b2191a2a7963c2a438fa87da",
+    "candidateSha256": "48ad69e991dd6319ef280767a9a97f0b19f5e11b6d3d95807b899f692a9b8189",
+    "installedAt": "2026-11-13T18:21:44.089053+00:00",
+    "changedFiles": [
+      "plugins/JavaRailways.jar"
+    ],
+    "preservedFilesAndLinks": 3597
+  },
+  "runtime": {
+    "checkedAt": "2026-11-13T18:24:54.071284+00:00",
+    "sourceCommit": "64d449f444d0eac7a7b85caf20a6d2c741ce1e46",
+    "status": {
+      "instanceUuid": "836082a48c4f48fcb1fea4e83c57dc96",
+      "status": 3,
+      "processInfo": {
+        "pid": 1107713
+      }
+    },
+    "pluginJarCount": 14,
+    "changedPluginJars": [
+      "JavaRailways.jar"
+    ],
+    "mainJarSha256": "48ad69e991dd6319ef280767a9a97f0b19f5e11b6d3d95807b899f692a9b8189",
+    "health": {
+      "8765": {
+        "status": 200,
+        "body": "{\"ok\":true}"
+      },
+      "29002": {
+        "status": 200,
+        "body": "{\"status\":\"ok\"}"
+      }
+    },
+    "done": [
+      "[18:22:49] [Server thread/INFO]: Done (49.737s)! For help, type \"help\""
+    ],
+    "errors": [
+      "[18:22:35] [ForkJoinPool.commonPool-worker-2/ERROR]: [com.dfsek.seismic.util.ReflectionUtils] Field theUnsafe not found in class sun.misc.Unsafe",
+      "[18:22:48] [Folia Async Scheduler Thread #1/ERROR]: [STDERR] [com.oracle.truffle.polyglot.PolyglotEngineImpl] [engine] WARNING: Unable to load the TruffleAttach library."
+    ],
+    "warnings": [
+      "[18:22:06] [ServerMain/WARN]: You have used the Paper command line EULA agreement flag.",
+      "[18:22:06] [ServerMain/WARN]: By using this setting you are indicating your agreement to Mojang's EULA (https://aka.ms/MinecraftEULA).",
+      "[18:22:06] [ServerMain/WARN]: If you do not agree to the above EULA please stop your server and remove this flag immediately.",
+      "[18:22:09] [Server thread/WARN]: ****************************",
+      "[18:22:09] [Server thread/WARN]: YOU ARE RUNNING THIS SERVER AS AN ADMINISTRATIVE OR ROOT USER. THIS IS NOT ADVISED.",
+      "[18:22:09] [Server thread/WARN]: YOU ARE OPENING YOURSELF UP TO POTENTIAL RISKS WHEN DOING THIS.",
+      "[18:22:09] [Server thread/WARN]: FOR MORE INFORMATION, SEE https://madelinemiller.dev/blog/root-minecraft-server/",
+      "[18:22:09] [Server thread/WARN]: ****************************",
+      "[18:22:41] [Server thread/WARN]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!",
+      "[18:22:41] [Server thread/WARN]: The server will make no attempt to authenticate usernames. Beware.",
+      "[18:22:41] [Server thread/WARN]: While this makes the game possible to play without internet access, it also opens up the ability for hackers to connect with any username they choose.",
+      "[18:22:41] [Server thread/WARN]: To change this, set \"online-mode\" to \"true\" in the server.properties file.",
+      "[18:22:47] [Server thread/WARN]: [JavaRailways] Timetable WebUI is listening on non-loopback address '0.0.0.0'; login and session traffic may be exposed without HTTPS",
+      "[18:22:47] [Server thread/WARN]: [JavaRailways] Timetable WebUI public URL uses plaintext HTTP: http://mc.art1st.work:29002",
+      "[18:22:47] [Server thread/WARN]: [To redirect Truffle log output to a file use one of the following options:",
+      "[18:22:47] [Server thread/WARN]: * '--log.file=<path>' if the option is passed using a guest language launcher.",
+      "[18:22:47] [Server thread/WARN]: * '-Dpolyglot.log.file=<path>' if the option is passed using the host Java launcher.",
+      "[18:22:47] [Server thread/WARN]: * Configure logging using the polyglot embedding API.]",
+      "[18:22:47] [Server thread/WARN]: [engine] WARNING: The polyglot engine uses a fallback runtime that does not support runtime compilation to native code.",
+      "[18:22:47] [Server thread/WARN]: Execution without runtime compilation will negatively impact the guest application performance.",
+      "[18:22:47] [Server thread/WARN]: The following cause was found: JVMCI is not enabled for this JVM. Enable JVMCI using -XX:+EnableJVMCI.",
+      "[18:22:47] [Server thread/WARN]: For more information see: https://www.graalvm.org/latest/reference-manual/embed-languages/#runtime-optimization-support.",
+      "[18:22:47] [Server thread/WARN]: To disable this warning use the '--engine.WarnInterpreterOnly=false' option or the '-Dpolyglot.engine.WarnInterpreterOnly=false' system property.",
+      "[18:22:48] [Server thread/WARN]: Failed to automatically fetch the public IP address of the server. Please type it manually in the  config.yml",
+      "[18:22:49] [Server thread/WARN]: [VSS] The LOD store is armed on FOLIA (lodStore=on), where it is NOT validated (single-player soaks only; concurrent multi-region ingress is untested). Set lodStore=off to disable it if you see store-related issues.",
+      "[18:22:49] [Server thread/WARN]: [ViaVersion] The Vanilla protocol of Minecraft 1.20.5-1.21.4 is easily exploitable. If you don't need to support these versions, consider adding them to block-versions in the ViaVersion config: \"1.20.5-1.20.6\", \"1.21-1.21.1\", \"1.21.2-1.21.3\", \"1.21.4\"",
+      "[18:22:49] [Folia Region Scheduler Thread #0/WARN]: [JavaRailways] Folia has only one tick worker thread. Synchronous JavaRailways hot-disable cleanup may time out while waiting for other regions. Use the two-request PlugManX GentleUnload flow; direct disable remains unsafe.",
+      "[18:22:50] [JavaRailways-PhysicsCoordinator-3/WARN]: [work.art1st.javarailways.core.physics.tick.PhysicsCoordinator] Physics epoch overload: 429.230341ms (1/3 in 10000ms)",
+      "[18:22:50] [JavaRailways-PhysicsCoordinator-3/WARN]: [work.art1st.javarailways.core.physics.tick.PhysicsCoordinator] Physics delta clamped in epoch 3: raw=450.025705ms applied=200.0ms"
+    ],
+    "commandOutput": [
+      "[18:23:09] [Folia Region Scheduler Thread #0/INFO]: === JavaRailways 命令帮助 ===",
+      "[18:23:09] [Folia Region Scheduler Thread #0/INFO]: ATO world: RUNNING",
+      "[18:23:09] [Folia Region Scheduler Thread #0/INFO]: Physics world: RUNNING",
+      "[18:23:09] [Folia Region Scheduler Thread #0/INFO]: SimpleSignals 2952ad2c-41ce-40bc-b83b-1b578ae7af12: installed, definitionRevision=117, topologyRevision=1; regions=5, tables=5, blocks=14, fixedBlockSignals=8, protectionSignals=4, routeIndicators=1, attachedSignals=0",
+      "[18:24:13] [Folia Region Scheduler Thread #0/INFO]: world：0 个当前问题"
+    ],
+    "javaRailwaysErrorCount": 0,
+    "renderQueueExceptionCount": 0,
+    "physicsStalledLines": [],
+    "lastLogLine": "[18:24:13] [Folia Region Scheduler Thread #0/INFO]: world：0 个当前问题",
+    "trainOrClientAcceptancePerformed": false
+  },
+  "baselineLogEvidence": [
+    {
+      "pattern": "Field theUnsafe not found",
+      "oldLogCount": 1,
+      "lastOldOccurrence": "[15:36:39] [ForkJoinPool.commonPool-worker-3/ERROR]: [com.dfsek.seismic.util.ReflectionUtils] Field theUnsafe not found in class sun.misc.Unsafe"
+    },
+    {
+      "pattern": "Unable to load the TruffleAttach library",
+      "oldLogCount": 2,
+      "lastOldOccurrence": "[15:40:49] [Folia Async Scheduler Thread #1/ERROR]: [JavaRailways] [STDERR] [engine] WARNING: Unable to load the TruffleAttach library."
+    },
+    {
+      "pattern": "TrainPacketBundleCoordinator",
+      "oldLogCount": 2268,
+      "lastOldOccurrence": "[18:21:03] [Netty Epoll IO #2/WARN]: [io.netty.util.concurrent.AbstractEventExecutor] A task raised an exception. Task: work.art1st.javarailways.bukkit.render.backend.TrainPacketBundleCoordinator$$Lambda/0x000000004a0c3608@80814a2"
+    },
+    {
+      "pattern": "Saved global world data",
+      "oldLogCount": 1,
+      "lastOldOccurrence": "[18:21:03] [Region shutdown thread/INFO]: [RegionShutdownThread] Saved global world data."
+    },
+    {
+      "pattern": "Saved all player data",
+      "oldLogCount": 1,
+      "lastOldOccurrence": "[18:21:03] [Region shutdown thread/INFO]: [RegionShutdownThread] Saved all player data"
+    },
+    {
+      "pattern": "All RegionFile I/O tasks to complete",
+      "oldLogCount": 1,
+      "lastOldOccurrence": "[18:21:03] [Region shutdown thread/INFO]: All RegionFile I/O tasks to complete"
+    }
+  ],
+  "sourceValidation": {
+    "buildCommand": "./gradlew --offline :BukkitPlugin:shadowJar verifySignalModuleBoundaries --no-daemon --max-workers=2",
+    "buildPassed": true,
+    "relevantModules": {
+      "Core": 599,
+      "Basic": 494,
+      "SimpleATO": 856,
+      "SimpleATOBukkit": 2
+    },
+    "knownBaselineFailures": {
+      "SimpleSignals": 7,
+      "BukkitPlugin": 1
+    },
+    "bukkitSkipped": 1
+  },
+  "remoteBaseline": {
+    "main": "5aa13ea26280b5e8292c8c29723bc2eb52f4822a",
+    "includedInSourceHead": true,
+    "passengerBranchPublished": false
+  },
+  "acceptance": {
+    "trainMotion": false,
+    "clientVisuals": false,
+    "timetableReloadOrReset": false
+  }
+}

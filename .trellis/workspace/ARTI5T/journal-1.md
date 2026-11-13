@@ -1427,3 +1427,26 @@ Implemented view-relative fixed-speed passenger movement and stable carrier hand
 ### Next Steps
 
 - 任务保留 pending_retest；当前修复未部署，实际Craft/NMS与客户端平滑度、边界连续性仍需实服复验。
+
+
+## Session 44: Passenger movement stationary carrier path
+<!-- trellis-session: v=2 fp=e67b0a9785497718 -->
+
+**Date**: 2026-11-13
+**Task**: Passenger movement stationary carrier path
+**Package**: bukkit-plugin
+**Branch**: `feat/passenger-movement`
+
+### Summary
+
+按用户确认方案完成乘客移动重构：玩家 owner 累计相对状态，行驶随车厢同批呈现，停车只更新变动 carrier；无额外列车缓存、停车整列任务或组合批次等待。源码6文件+233/-234，测试2文件+302/-401。聚焦42项通过；完整963项为961通过、1项既有S100失败、1跳过、0errors；shadowJar成功，独立检查无源码待修项。未部署、未推送；客户端平滑度和下车复验待完成，任务保持in_progress，不归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1d13ec5f` | fix(bukkit): simplify passenger movement presentation |
+
+### Status
+
+[OK] **Completed**

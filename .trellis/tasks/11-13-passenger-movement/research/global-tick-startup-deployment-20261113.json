@@ -1,0 +1,205 @@
+{
+  "source": {
+    "sourceCommit": "985d6640bcfdf38a0ecd1bf5ca11d248b96a2154",
+    "mainFixCommit": "9e398aeb9edf05c70564b6b82f85b9da70930f14",
+    "branch": "feat/passenger-movement",
+    "jarSha256": "c0725cc57e23cc95f356196806abec99a284f0e48cdbf9b3bf6ab4dbc93179bd",
+    "focusedTests": {
+      "tests": 37,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "preflight": {
+    "instance": {
+      "instanceUuid": "836082a48c4f48fcb1fea4e83c57dc96",
+      "status": 3,
+      "processInfo": {
+        "pid": 1081210
+      }
+    },
+    "installedSha256": "8c666c4a1dc826ded68df53b147aff7a1621073ae0437fa8f38197a738af8d3d",
+    "candidateSha256": "c0725cc57e23cc95f356196806abec99a284f0e48cdbf9b3bf6ab4dbc93179bd",
+    "pluginHashes": {
+      "Chunky-Bukkit-1.4.40.jar": "2a5477fc80f71012e15ade1ce34dbeb836e17623b28db112492c0f1443c09721",
+      "Decorations.jar": "08d563612c7c7807606bf251b0ade32a830e02bb36ff32d8051c9d860e92650c",
+      "JavaRailways.jar": "8c666c4a1dc826ded68df53b147aff7a1621073ae0437fa8f38197a738af8d3d",
+      "PlugManX-3.2.1.jar": "660a48c5975ab1eae67a9273e8eb0fdb607f34d7644730e51041d3f8bdfedcf2",
+      "RoseResourcepack-3.5.0.jar": "e38e9b729910bf7741b2da74362651f24d83d0e8b70d656d6c6029524f3a4e9b",
+      "SimpleDisplays.jar": "fd3445631a86fecfd6290894417e63c2f62c89ef09c271b1bfae94f6de984420",
+      "SimpleSignals.jar": "e9da012b4656cbdd60cf76453a4024fd78411fc96abad54f03d7479668f0a9ee",
+      "Terra-bukkit-7.0.0-BETA+47d430776-shaded.jar": "91aa93352444fb87105b33cf0ec36ad0ea554cc4b1c272aead4b6ee8b4e41867",
+      "TunnelBridgeBuilder.jar": "b6c56122bf4862fe693c3dfc8a7c3688965553903620bbc4b5d6f088646b5fbd",
+      "ViaVersion-5.12.0-SNAPSHOT.jar": "cc23a414b2bded80a72646a5fe43cc6b2ba97df516147a3630f402d9695e945b",
+      "packetevents-spigot-2.14.0.jar": "060087c58ec268eae7dd0eb1f17ac3bea1eaadda1693414141ff64e506091bd7",
+      "voxy-server-side-paper.jar": "696db9a0fb4e24f79383b4093b4212380c69513814e198033abc4f252d067b01",
+      "worldedit-bukkit-7.4.4.jar": "44c97ee6c1df9afa127df3c5a2c6a7108f826fb44ab7b255a7ec4250feb89b9d"
+    },
+    "plugmanConfigMode": [
+      "ignored-plugins: [ PlugMan,PlugManX,PlugManBungee,ViaVersion,ViaBackwards,ViaRewind,ProtocolSupport,ProtocolLib,PlotSquared ]",
+      "reloadDependentsMode: REQUIRED_ONLY"
+    ],
+    "jarDiff": {
+      "changed": [
+        "work/art1st/javarailways/bukkit/BukkitPlugin.class",
+        "work/art1st/javarailways/bukkit/logic/LoadedRailWorldRegistry.class",
+        "work/art1st/javarailways/bukkit/logic/ServerPhysicsStartup.class",
+        "work/art1st/javarailways/bukkit/logic/TrainFrameDispatchMetrics.class",
+        "work/art1st/javarailways/bukkit/logic/WorldManager$CarRenderFrame.class",
+        "work/art1st/javarailways/bukkit/logic/WorldManager$Companion.class",
+        "work/art1st/javarailways/bukkit/logic/WorldManager$PendingPlatformCommit.class",
+        "work/art1st/javarailways/bukkit/logic/WorldManager$PendingTrainFrame.class",
+        "work/art1st/javarailways/bukkit/logic/WorldManager$platformCommitDispatcher$1.class",
+        "work/art1st/javarailways/bukkit/logic/WorldManager$registerRailWorld$1$1.class",
+        "work/art1st/javarailways/bukkit/logic/WorldManager$registerRailWorld$1$2.class",
+        "work/art1st/javarailways/bukkit/logic/WorldManager$registerRailWorld$1$3.class",
+        "work/art1st/javarailways/bukkit/logic/WorldManager$registerRailWorld$1$6.class",
+        "work/art1st/javarailways/bukkit/logic/WorldManager$registerRailWorld$1$9.class",
+        "work/art1st/javarailways/bukkit/logic/WorldManager$scheduleTrainFrame$2.class",
+        "work/art1st/javarailways/bukkit/logic/WorldManager$startup$3.class",
+        "work/art1st/javarailways/bukkit/logic/WorldManager$trainFrameDispatcher$1.class",
+        "work/art1st/javarailways/bukkit/logic/WorldManager$unregisterRailWorld$2.class",
+        "work/art1st/javarailways/bukkit/logic/WorldManager.class",
+        "work/art1st/javarailways/bukkit/logic/WorldManagerKt.class"
+      ],
+      "added": [],
+      "removed": []
+    },
+    "consoleReceipts": {
+      "list": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "plugman list": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "jr help": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "jr ato status world": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+      "jr perf world": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }"
+    },
+    "logOffset": 6866987,
+    "preflightCompleteOffset": 6872219
+  },
+  "backup": {
+    "directory": "/opt/mcsmanager/backups/javarailways/global-tick-startup-985d6640-20261113-d01j0p4n",
+    "files": 195,
+    "archiveSha256": "90003e760f69452c4243ef729e416dd5345e087fca2ee7714dff0a1e0e76205e",
+    "manifestSha256": "65206426b5f7a443005cf0731e4300d7b46403582d0f7984cb554fb881e8f2a3"
+  },
+  "unload-dependents": {
+    "commands": [
+      "plugman unload Decorations",
+      "plugman unload TunnelBridgeBuilder",
+      "plugman unload SimpleSignals"
+    ],
+    "receipt": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+    "logOffset": 6872219,
+    "completeOffset": 6872948,
+    "completedAt": "2026-11-13T11:19:46.970676+00:00"
+  },
+  "prepare": {
+    "ready": true,
+    "receipt": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+    "logOffset": 6872948,
+    "completeOffset": 6873385,
+    "completedAt": "2026-11-13T11:20:02.270652+00:00"
+  },
+  "install": {
+    "sourceCommit": "985d6640bcfdf38a0ecd1bf5ca11d248b96a2154",
+    "installedSha256": "c0725cc57e23cc95f356196806abec99a284f0e48cdbf9b3bf6ab4dbc93179bd",
+    "recovery": "/opt/mcsmanager/backups/javarailways/global-tick-startup-985d6640-20261113-d01j0p4n",
+    "installedAt": "2026-11-13T11:20:18.486910+00:00",
+    "retainedPluginJars": 12
+  },
+  "unload": {
+    "ready": true,
+    "receipt": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+    "logOffset": 6873385,
+    "completeOffset": 6873583,
+    "completedAt": "2026-11-13T11:20:21.137064+00:00"
+  },
+  "load": {
+    "commands": [
+      "plugman load JavaRailways",
+      "plugman load SimpleSignals",
+      "plugman load TunnelBridgeBuilder",
+      "plugman load Decorations"
+    ],
+    "receipt": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+    "logOffset": 6873583,
+    "completeOffset": 6883978,
+    "completedAt": "2026-11-13T11:20:44.222760+00:00",
+    "dependenciesEnabledBeforePhysics": true
+  },
+  "postcheck": {
+    "checkedAt": "2026-11-13T11:20:57.230465+00:00",
+    "instance": {
+      "instanceUuid": "836082a48c4f48fcb1fea4e83c57dc96",
+      "status": 3,
+      "processInfo": {
+        "pid": 1081210
+      }
+    },
+    "installedSha256": "c0725cc57e23cc95f356196806abec99a284f0e48cdbf9b3bf6ab4dbc93179bd",
+    "retainedPluginJars": 12,
+    "plugmanConfigUnchanged": true,
+    "physicsEpochSamples": [
+      206,
+      229
+    ],
+    "helpResponded": true,
+    "atoRunning": true,
+    "health": {
+      "8765": {
+        "status": 200,
+        "body": {
+          "ok": true
+        }
+      },
+      "29002": {
+        "status": 200,
+        "body": {
+          "status": "ok"
+        }
+      }
+    },
+    "railMap": {
+      "status": 200,
+      "rails": 113,
+      "markers": 31
+    }
+  },
+  "verify-timetable": {
+    "commands": [
+      "jr timetable reload-all confirm"
+    ],
+    "receipt": "{ instanceUuid: '836082a48c4f48fcb1fea4e83c57dc96' }",
+    "logOffset": 6894569,
+    "completeOffset": 6906609,
+    "completedAt": "2026-11-13T11:21:10.941434+00:00"
+  },
+  "final": {
+    "checkedAt": "2026-11-13T11:22:03.188898+00:00",
+    "instance": {
+      "instanceUuid": "836082a48c4f48fcb1fea4e83c57dc96",
+      "status": 3,
+      "processInfo": {
+        "pid": 1081210
+      }
+    },
+    "installedSha256": "c0725cc57e23cc95f356196806abec99a284f0e48cdbf9b3bf6ab4dbc93179bd",
+    "physicsEpochSamples": [
+      1531,
+      1553
+    ],
+    "atoRunning": true,
+    "physicsRunning": true,
+    "worldIssueCount": 0,
+    "health": {
+      "8765": 200,
+      "29002": 200
+    },
+    "warnings": {
+      "truffleAttach": 2,
+      "jvmciDisabled": 15,
+      "onReverseReset": 1,
+      "physicsEpochOverload": 3
+    }
+  }
+}

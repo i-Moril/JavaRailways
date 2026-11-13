@@ -1365,3 +1365,34 @@ Implemented view-relative fixed-speed passenger movement and stable carrier hand
 ### Next Steps
 
 - Real Paper/Folia client validation remains pending; no deployment/server startup performed. Keep task in_progress. Existing S100 ZIP/source reference mismatch is outside this task.
+
+
+## Session 42: 乘客移动 PlugManX 热部署
+<!-- trellis-session: v=2 fp=b19707756a2123ce -->
+
+**Date**: 2026-11-13
+**Task**: 乘客移动 PlugManX 热部署
+**Package**: bukkit-plugin
+**Branch**: `feat/passenger-movement`
+
+### Summary
+
+通过 /run/host-ssh-agent/agent.sock 部署乘客移动构建 82130c6d；保留 JVM PID 1081210 和其余 11 个插件 JAR。完整记录首次级联卸载引发的 SimpleSignals/ATO 故障及后续 PlugManX 依赖恢复。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c9d4679b` | docs: record passenger movement PlugManX deployment |
+
+### Testing
+
+- [OK] JAR/恢复归档哈希、主插件和三个依赖 Enabled、jr help、ATO/Physics RUNNING、世界 0 问题、两个 health HTTP200 和地图 113 rails/31 markers；文档 JSON 解析及 diff check 通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真实客户端验证挂载高度、随车移动、视角 WASD、Shift/跳跃限制和连续平台交接；任务保持 in_progress，未归档。

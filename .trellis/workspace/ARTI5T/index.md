@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 42
+- **Total Sessions**: 43
 - **Last Active**: 2026-11-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1398 | Active |
+| `journal-1.md` | ~1429 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 43 | 2026-11-13 | 乘客同步与边界停顿反馈修复 | `2bbea813` | `feat/passenger-movement` |
 | 42 | 2026-11-13 | 乘客移动 PlugManX 热部署 | `c9d4679b` | `feat/passenger-movement` |
 | 41 | 2026-11-13 | Platform passenger movement implementation | `82130c6d` | `feat/passenger-movement` |
 | 40 | 2026-11-12 | 显示修复数据补齐与测试服部署 | `192a4d00` | `codex/train-display-in-service-refresh` |

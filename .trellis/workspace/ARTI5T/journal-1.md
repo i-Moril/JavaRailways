@@ -1396,3 +1396,34 @@ Implemented view-relative fixed-speed passenger movement and stable carrier hand
 ### Next Steps
 
 - 真实客户端验证挂载高度、随车移动、视角 WASD、Shift/跳跃限制和连续平台交接；任务保持 in_progress，未归档。
+
+
+## Session 43: 乘客同步与边界停顿反馈修复
+<!-- trellis-session: v=2 fp=d855e0a84d69cf27 -->
+
+**Date**: 2026-11-13
+**Task**: 乘客同步与边界停顿反馈修复
+**Package**: bukkit-plugin
+**Branch**: `feat/passenger-movement`
+
+### Summary
+
+在 feat/passenger-movement 修复实际显示帧与乘客时钟错位、受控越界 DISMOUNT 确认停顿；同步处理 bundle 顺序、session/car 锁重入及 spawn-close 完成屏障。用户询问改动规模，已说明生产8文件+260/-88、测试2文件+307/-14，当前仅本地提交，未部署。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2bbea813` | fix(bukkit): synchronize walking passengers and boundary exit |
+
+### Testing
+
+- [OK] 54项聚焦回归通过；完整Bukkit测试968项：966通过、1项既有S100 ZIP/source失败、1跳过、0errors；编译/打包/diff检查通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 任务保留 pending_retest；当前修复未部署，实际Craft/NMS与客户端平滑度、边界连续性仍需实服复验。

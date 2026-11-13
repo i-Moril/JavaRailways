@@ -450,7 +450,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             }
             sidecar.start()
         }
-        worldManager.start(net.minecraft.server.MinecraftServer.getServer().isReady)
+        worldManager.start()
     }
 
     override fun onDisable() {

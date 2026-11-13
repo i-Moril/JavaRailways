@@ -8,7 +8,6 @@ import org.bukkit.World as BukkitWorld
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
-import org.bukkit.event.server.ServerLoadEvent
 import org.bukkit.event.world.WorldLoadEvent
 import org.bukkit.event.world.WorldUnloadEvent
 import work.art1st.javarailways.basic.basicWorldData
@@ -128,13 +127,8 @@ class WorldManager internal constructor(
         tick = ::tick
     )
 
-    /** Preparing worlds does not start their fallback timers before server startup completes. */
-    fun start(serverAlreadyStarted: Boolean) = startup.prepare(serverAlreadyStarted)
-
-    @EventHandler(priority = EventPriority.MONITOR)
-    fun onServerLoad(event: ServerLoadEvent) {
-        if (event.type == ServerLoadEvent.LoadType.STARTUP) startup.serverLoaded()
-    }
+    /** The first actual global tick starts physics after plugin composition completes. */
+    fun start() = startup.prepare()
 
     private fun startRegisteredWorldPhysics(railWorld: World) = startup.startWorld {
         (railWorld as? CoreWorld)?.physicsCoordinator?.start()
@@ -1028,7 +1022,7 @@ internal fun consumeTrainRenderFrames(
     }
 }
 
-/** Owns the one-way server-ready barrier shared by initial worlds and later world loads. */
+/** Owns the first-global-tick barrier shared by initial worlds and later world loads. */
 internal class ServerPhysicsStartup(
     private val scheduleTicks: (() -> Unit) -> ScheduledTask,
     private val startWorlds: () -> Unit,
@@ -1036,29 +1030,17 @@ internal class ServerPhysicsStartup(
 ) {
     private val lock = Any()
     private var prepared = false
-    private var ready = false
     private var stopped = false
     private var task: ScheduledTask? = null
     @Volatile
     var isRunning = false
         private set
 
-    fun prepare(serverAlreadyStarted: Boolean) = synchronized(lock) {
+    fun prepare() = synchronized(lock) {
         check(!prepared && !stopped) { "WorldManager is already started or stopped" }
         prepared = true
-        ready = ready || serverAlreadyStarted
-        armTicksWhenReady()
-    }
-
-    fun serverLoaded() = synchronized(lock) {
-        ready = true
-        armTicksWhenReady()
-    }
-
-    private fun armTicksWhenReady() {
-        if (!prepared || !ready || stopped || task != null) return
-        // First real global tick runs after the complete ServerLoadEvent callback chain.
-        // Starting inside the event would let fallback timers race later plugin callbacks.
+        // Paper and Folia drive the global scheduler after startup callbacks complete.
+        // Scheduling also works on hot enable, without another startup event or a native ready flag.
         task = scheduleTicks {
             if (!isRunning) LiveWorldManagement.run {
                 synchronized(lock) {

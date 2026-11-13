@@ -1,9 +1,6 @@
 package work.art1st.javarailways.bukkit.logic
 
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask
-import org.bukkit.event.EventHandler
-import org.bukkit.event.EventPriority
-import org.bukkit.event.server.ServerLoadEvent
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.physics.CoreWorld
@@ -15,15 +12,11 @@ import java.util.concurrent.TimeUnit
 
 class ServerPhysicsStartupTest {
     @Test
-    fun `cold startup blocks physics timer and generic ticks until event and first real server tick`() {
+    fun `preparation waits for first actual global tick before starting physics and generic ticks`() {
         Fixture().use { fixture ->
             val initial = fixture.world()
-            fixture.startup.prepare(false)
+            fixture.startup.prepare()
             fixture.startup.startWorld { initial.world.physicsCoordinator.start() }
-            assertEquals(0, fixture.scheduled)
-            assertFalse(initial.epoch.await(100, TimeUnit.MILLISECONDS))
-            assertEquals(0, fixture.ticks)
-            fixture.startup.serverLoaded()
             assertEquals(1, fixture.scheduled)
             assertFalse(initial.epoch.await(100, TimeUnit.MILLISECONDS))
             assertEquals(0, fixture.ticks)
@@ -31,7 +24,6 @@ class ServerPhysicsStartupTest {
             assertTrue(initial.epoch.await(5, TimeUnit.SECONDS), "real fallback timer must run after startup")
             assertEquals(1, fixture.starts)
             assertEquals(1, fixture.ticks)
-            fixture.startup.serverLoaded()
             fixture.fireTick()
             assertEquals(1, fixture.starts)
             assertEquals(1, fixture.scheduled)
@@ -40,34 +32,22 @@ class ServerPhysicsStartupTest {
     }
 
     @Test
-    fun `hot enable on ready server arms first tick without waiting for another startup event`() {
+    fun `world registered before first global tick waits for the shared startup`() {
         Fixture().use { fixture ->
-            val initial = fixture.world()
-            fixture.startup.prepare(true)
-            assertEquals(1, fixture.scheduled)
-            assertFalse(initial.epoch.await(100, TimeUnit.MILLISECONDS))
+            fixture.startup.prepare()
+            val late = fixture.world()
+            fixture.startup.startWorld { late.world.physicsCoordinator.start() }
+            assertFalse(late.epoch.await(100, TimeUnit.MILLISECONDS))
             fixture.fireTick()
-            assertTrue(initial.epoch.await(5, TimeUnit.SECONDS))
+            assertTrue(late.epoch.await(5, TimeUnit.SECONDS))
             assertEquals(1, fixture.starts)
-        }
-    }
-
-    @Test
-    fun `server event before preparation waits for complete plugin enable`() {
-        Fixture().use { fixture ->
-            fixture.startup.serverLoaded()
-            assertEquals(0, fixture.scheduled)
-            fixture.startup.prepare(false)
-            assertEquals(1, fixture.scheduled)
-            fixture.fireTick()
-            assertTrue(fixture.startup.isRunning)
         }
     }
 
     @Test
     fun `world loaded after server startup starts its own fallback timer`() {
         Fixture().use { fixture ->
-            fixture.startup.prepare(true)
+            fixture.startup.prepare()
             fixture.fireTick()
             val late = fixture.world()
             fixture.startup.startWorld { late.world.physicsCoordinator.start() }
@@ -76,14 +56,12 @@ class ServerPhysicsStartupTest {
     }
 
     @Test
-    fun `stop cancels armed task and late event or dispatched callback cannot revive physics`() {
+    fun `stop cancels armed task and dispatched callback cannot revive physics`() {
         Fixture().use { fixture ->
             val initial = fixture.world()
-            fixture.startup.prepare(false)
-            fixture.startup.serverLoaded()
+            fixture.startup.prepare()
             fixture.startup.stop()
             assertEquals(1, fixture.cancelled)
-            fixture.startup.serverLoaded()
             fixture.fireTick()
             fixture.startup.startWorld { initial.world.physicsCoordinator.start() }
             assertFalse(initial.epoch.await(100, TimeUnit.MILLISECONDS))
@@ -95,10 +73,20 @@ class ServerPhysicsStartupTest {
     }
 
     @Test
-    fun `startup listener observes completed startup at monitor priority`() {
-        val handler = WorldManager::class.java.getMethod("onServerLoad", ServerLoadEvent::class.java)
-            .getAnnotation(EventHandler::class.java)
-        assertEquals(EventPriority.MONITOR, handler.priority)
+    fun `stop after first tick cancels subsequent ticks and late world startup`() {
+        Fixture().use { fixture ->
+            fixture.startup.prepare()
+            fixture.fireTick()
+            fixture.startup.stop()
+            val late = fixture.world()
+            fixture.startup.startWorld { late.world.physicsCoordinator.start() }
+            fixture.fireTick()
+            assertFalse(late.epoch.await(100, TimeUnit.MILLISECONDS))
+            assertEquals(1, fixture.cancelled)
+            assertEquals(1, fixture.starts)
+            assertEquals(1, fixture.ticks)
+            assertFalse(fixture.startup.isRunning)
+        }
     }
 
     private data class TimedWorld(val world: CoreWorld, val epoch: CountDownLatch)

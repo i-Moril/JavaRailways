@@ -21,6 +21,7 @@ import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueKind
 import work.art1st.javarailways.bukkit.behavior.behaviorRelativeTail
 import work.art1st.javarailways.bukkit.config.model.DriverControlEnd
 import work.art1st.javarailways.bukkit.BukkitPlugin
+import work.art1st.javarailways.bukkit.passenger.PassengerMovementManager
 import work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationService
 import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureResourceService
 import work.art1st.javarailways.bukkit.api.internal.DefaultSignalEpochSourceService
@@ -747,6 +748,7 @@ class WorldManager internal constructor(
             }
             byCar
         } else emptyMap()
+        val passengers = BukkitPlugin.INSTANCE.passengerMovement?.capture(bukkitWorld).orEmpty()
         consumeTrainRenderFrames(coreWorld, sampleInputs,
             needsClock = { it.carRendererOrNull?.hasDynamicExtensionModel == true }) { train, trainFrame, indices ->
             val trainType = train.rendererOrNull?.modelPackageName()
@@ -766,7 +768,8 @@ class WorldManager internal constructor(
                 )
             }
             trainFrameDispatcher.offer(train.publicationStreamId, PendingTrainFrame(
-                bukkitWorld, train.publicationStreamId, trainFrame, cars
+                bukkitWorld, train.publicationStreamId, trainFrame, cars,
+                passengers[train.publicationStreamId].orEmpty()
             ))
         }
     }
@@ -784,17 +787,13 @@ class WorldManager internal constructor(
             },
             schedule = plugin.platformDispatcher::runAt,
         ) { cars ->
-            plugin.trainPacketBundles.frame {
-                for ((car, frame, partRenderSnapshot) in cars) {
-                    if (stopping || pending.world in unloadingWorlds) break
-                    if (!car.isOwnedByPublicationStream(pending.streamId)) continue
-                    try {
-                        car.carRendererOrNull?.applyPublishedFrame(frame, pending.streamId, pending.frame, partRenderSnapshot)
-                    } catch (failure: Exception) {
-                        plugin.logger.log(Level.SEVERE, "Failed to render car ${car.id} at revision ${pending.frame.revision}", failure)
-                    }
-                }
-            }
+            dispatchTrainPresentation(pending, cars, { plugin.trainPacketBundles.frame(it) },
+                apply = { item -> item.car.carRendererOrNull?.applyPublishedFrame(
+                    item.frame, pending.streamId, pending.frame, item.partRenderSnapshot) },
+                present = { rider, accepted, flushed -> plugin.passengerMovement?.render(rider, accepted, flushed) },
+                isCurrent = { !stopping && pending.world !in unloadingWorlds },
+                failed = { car, failure -> plugin.logger.log(Level.SEVERE,
+                    "Failed to render car ${car.id} at revision ${pending.frame.revision}", failure) })
         }.whenComplete { _, failure ->
             try {
                 if (failure != null) plugin.logger.log(
@@ -907,19 +906,6 @@ class WorldManager internal constructor(
     private companion object {
         const val PERIODIC_SNAPSHOT_TICKS = 1_200L
     }
-
-    private data class PendingTrainFrame(
-        val world: BukkitWorld,
-        val streamId: UUID,
-        val frame: TrainFrameSnapshot,
-        val cars: List<CarRenderFrame>
-    )
-
-    private data class CarRenderFrame(
-        val car: CoreCar,
-        val frame: CarFrameSnapshot,
-        val partRenderSnapshot: TrainPartRenderSnapshot?
-    )
 
     private data class PendingPlatformCommit(
         val synchronizable: Synchronizable,
@@ -1099,4 +1085,49 @@ internal fun <T> dispatchTrainFrameChunks(
         completion
     }
     return CompletableFuture.allOf(*completions.toTypedArray())
+}
+
+/** Normal carriage rendering carries a once-captured set of player-relative positions. */
+internal data class PendingTrainFrame(
+    val world: BukkitWorld,
+    val streamId: UUID,
+    val frame: TrainFrameSnapshot,
+    val cars: List<CarRenderFrame>,
+    val passengers: List<PassengerMovementManager.Presentation> = emptyList()
+)
+
+internal data class CarRenderFrame(
+    val car: CoreCar,
+    val frame: CarFrameSnapshot,
+    val partRenderSnapshot: TrainPartRenderSnapshot?
+)
+
+/** Uses the accepted car pose and completes the carrier batch only after the outer bundle enqueue. */
+internal fun dispatchTrainPresentation(
+    pending: PendingTrainFrame,
+    cars: List<CarRenderFrame>,
+    bundle: (() -> Unit) -> Unit,
+    apply: (CarRenderFrame) -> TrainFrameSnapshot?,
+    present: (PassengerMovementManager.Presentation, TrainFrameSnapshot, CompletableFuture<Void>) -> Unit,
+    isCurrent: () -> Boolean,
+    failed: (CoreCar, Exception) -> Unit
+) {
+    val flushed = CompletableFuture<Void>()
+    try {
+        bundle {
+            cars.forEach { item ->
+                if (!isCurrent() || !item.car.isOwnedByPublicationStream(pending.streamId)) return@forEach
+                try {
+                    val accepted = apply(item) ?: return@forEach
+                    pending.passengers.filter { it.state.registration.car === item.car }.forEach {
+                        present(it, accepted, flushed)
+                    }
+                } catch (failure: Exception) { failed(item.car, failure) }
+            }
+        }
+        flushed.complete(null)
+    } catch (failure: Throwable) {
+        flushed.completeExceptionally(failure)
+        throw failure
+    }
 }

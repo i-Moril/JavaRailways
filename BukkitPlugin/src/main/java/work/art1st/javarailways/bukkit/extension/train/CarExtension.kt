@@ -337,11 +337,17 @@ class CarExtension : TrainComponentExtension<Car>() {
         publicationStreamId: UUID,
         trainFrame: TrainFrameSnapshot,
         partRenderSnapshot: TrainPartRenderSnapshot?
-    ) {
+    ): TrainFrameSnapshot? {
         val revision = trainFrame.revision
         require(revision >= 0L) { "published car frame revision must be non-negative" }
         ensureFrameLocationOwned(frame)
-        if (!publishedFrameGate.accept(self as CoreCar, publicationStreamId, revision)) return
+        if (!publishedFrameGate.accept(self as CoreCar, publicationStreamId, revision)) {
+            // Equal accepted geometry still permits local passenger walking. Older or foreign
+            // callbacks must not emit passenger positions against a rejected carriage pose.
+            return latestTrainFrame?.takeIf {
+                publishedFrameGate.isCurrent(self as CoreCar, publicationStreamId, revision)
+            }
+        }
         // Dynamic extensions have no pre-publication source identity. Passenger registrations
         // already capture an exact train stream, so retain those on the matching first frame.
         // A transfer before that first frame still retires the original passenger registration.
@@ -362,6 +368,7 @@ class CarExtension : TrainComponentExtension<Car>() {
             rebuildForStreamChange = streamChanged,
             invalidateExtensionContext = contextChanged && !streamChanged
         )
+        return trainFrame
     }
 
     private fun applyFrameState(
@@ -763,6 +770,9 @@ private const val SERVER_TICKS_PER_SECOND = 20.0
 internal class CarFramePublicationGate {
     private var publicationStreamId: UUID? = null
     private var latestRevision: Long = -1L
+
+    fun isCurrent(car: CoreCar, streamId: UUID, revision: Long): Boolean =
+        car.isOwnedByPublicationStream(streamId) && publicationStreamId == streamId && latestRevision == revision
 
     fun accept(car: CoreCar, streamId: UUID, revision: Long): Boolean {
         require(revision >= 0L) { "published car frame revision must be non-negative" }

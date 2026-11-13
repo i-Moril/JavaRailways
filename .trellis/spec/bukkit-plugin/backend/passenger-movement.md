@@ -1,98 +1,72 @@
 # 列车 platform 乘客移动
 
-## 状态、范围与归属
+## 状态与范围
 
-CURRENT：乘客会话、平台交接与生命周期清理已实现。用户实机报告了不按键随车 jerk、静止时边界短暂停顿；对应修复已完成自动化回归，真实客户端复验仍待完成。BukkitPlugin 负责玩家输入、实体乘坐、平台部件姿态与清理；Core 继续负责列车物理和完整不可变帧。
-
-玩家进入列车实际 platform 支撑面后，自动挂载到个人隐藏承载实体。WASD 按玩家水平视角以固定速度改变车内位置；相邻相接或重叠平台之间保持同一乘坐关系；走出连续区域才恢复普通运动。本轮不处理车门、车墙/座椅碰撞、防坠落、跨空隙连接面或不同列车之间的交接。
+CURRENT（源码机制，实机待复验）：玩家 entity owner 计算相对移动，行驶时随正常车厢帧呈现，停车输入仅更新变动乘客。模块负责脚底接触后挂载、固定步速局部行走、同列车连续交接及越界释放。已删除原会话持锁和乘客专用 audience 延迟；不新增列车帧缓存、整列停车任务或组合全部发包批次的等待。第一人称平滑度、真实下车和性能仍需客户端复验。
 
 ## 一次正常移动
 
-已有车厢观众/互动激活路径提供附近玩家候选。平台登记其车厢归属、模型生命周期和复制后的相对根部件变换。玩家脚底接触真实支撑面才开始会话，已经在固定座位或其他坐骑上的玩家不会被抢占。
+平台预激活仅提供候选来源。玩家已有实体调度逐 tick 判断脚底接触实际平台，挂载个人隐藏 carrier。受控期间按视角读取 WASD，以每 tick 0.215 米累计局部位置，一次发布所属平台、局部坐标、朝向和退出状态。行驶时，WorldManager 在正常列车候选分区域前采样一次乘客清单，车厢接受对应姿态后，在同一 bundle 输出乘客位置。停车时（已接受场景的 speedMetersPerSecond == 0.0），玩家 tick 推进步行状态后直接调用 renderStationary，仅输出本人 carrier 的变化。两条路径共用 render 的坐标变换、packet 呈现和原生 owner 同步。
 
-每个受控玩家使用一个独立承载实体。`WorldManager.PendingTrainFrame` 保留一次选定的完整列车帧，`CarExtension.applyPublishedFrame` 接受该帧后，在更新模型的同一 packet bundle 内提交乘客姿态。平台注册表按车厢保存已接受的完整场景，不在玩家 tick 读取更新更快的物理帧。
+## 表示与算法
 
-实体 owner 每 tick 读取输入和水平视角，在该会话最近已接受的场景中积分局部行走。无输入时不另发随车位置；随车位移由本节车厢的显示提交驱动。静止列车即使没有新 Core 帧，仍能按最后场景行走。初次接管只检查该候选车厢自己的平台，避免借 A 的旧整列场景接管已经显示到新帧的 B；已挂载后的跨平台几何仍取一次完整场景。
+- 跨线程只传不可变值和受控身份引用，不传 live model/JOML 状态。所属平台与坐标必须在同一快照中原子发布，不能分别读写。
+- 局部位置是累计结果，不是本次输入增量；渲染跳过中间状态不会丢已执行的步行距离。玩家 owner 是局部位置、交接和越界意图的唯一写入者，渲染不修改它们。
+- `PassengerWalking.viewDirection` 根据水平 yaw 与 WASD 组合并归一化；`SPEED_METERS_PER_SECOND=4.3`，每个实际执行的玩家 tick 前进 `DISTANCE_PER_TICK=0.215` 米，疾跑不改变步长，跳跃不参与计算。
+- `advance` 逐段走完步长，先到当前平台边界，再在同列车平台中寻找边界点共面的连续入口并消费剩余步长。保持同一 carrier；有真实空隙则产生越界结果。几何容差 `1e-7`，不设门、墙、跳台或桥接。
+- 输入几何来自只读列车场景，同一次几何计算使用一份完整 TrainFrameSnapshot；首次接触以被接触车厢实际接受的显示场景为依据。呈现位置使用这次车厢实际接受的姿态，不从更快的物理 publishedFrame 独立跟车。
 
-## 几何与交接机制
+## 内部接口与单位
 
-平台边界沿用当前 rows、columns、spacing 与单个碰撞单元半宽 0.5 米的定义。现有 `PlatformModel` 的 3/5 米横向预激活余量只用于碰撞实体显示，不属于强制上车区域。必须使用脚底接触高度，不能把宽纵向预激活范围当成地板。
+`WalkingState(registration, surface, local, yaw, exit)` 是不可变累计状态，`Session.state` 以 volatile 引用一次发布；`Presentation(session, state)` 固定本次采用的完整状态。内部入口：
 
-1. WASD 组合后归一化，斜向与直向速度相同；固定步速为 `4.3 m/s`，20 tick/s 时每 tick `0.215 m`。疾跑、潜行和跳跃不会增加或改变受控行走速度。
-2. 使用当前 yaw 形成世界水平方向，投影到平台支撑面并归一化；pitch 不产生飞行分量。变更视角后下一次 tick 即使用新方向，不等待另一条按键事件。
-3. 优先保留当前平台，即使当前点落在多个平台的重叠区。到达离开边界时寻找同列车连续可达的平台；将世界交接点换算到目标平台局部坐标，继续消费剩余步长。
-4. 沿运动路径判断连续性，不能仅因最终位置位于 B 就越过中间真实空隙。浮点误差容差用于边界比较，不能变成吸附或跨缝距离。
-5. 交接不更换真实/虚拟承载实体，不反复发送下车/上车，不移动到目标平台中心，不清空仍按住的输入。
-6. 不存在目标平台时结束会话并释放至区域外位置；不夹回边缘，不增加全局重上车冷却。
+```kotlin
+fun capture(world: org.bukkit.World): Map<UUID, List<Presentation>>
+fun present(registration: PassengerCarPlatforms, frame: TrainFrameSnapshot)
+fun render(presentation: Presentation, frame: TrainFrameSnapshot, flushed: CompletionStage<Void>)
+```
 
-## 实体高度与后端合同
+`capture` 每次只读一次每个会话的 state，再按准确 publication stream 分组。`present` 只登记车厢已接受的场景；`render` 以同一 frame 的平台姿态将 local/exit 换成世界坐标。`CarExtension.applyPublishedFrame(...): TrainFrameSnapshot?` 在成功接受和等于当前 revision 时返回实际接受帧；旧 revision 或旧 stream 返回 null，既有模型 gate 不因乘客输入而重新应用相同帧。
 
-复用 `PacketEntityMotion` 的 carrier 注册、客户端虚拟挂载和服务端 authority 移动；不另写第二套座位数据包协议。固定座位与可行走乘客的会话/输入归属分别管理，仅共享真实相同的实体配置与移动机制。
+`PassengerCarrierAccess` 分开提供 render、syncAuthority、canDismount、dismountAt、release。行驶 render 加入当前车厢 bundle，外层 bundle 提交后完成本批 flushed；停车只发本人 carrier，本次 enqueue 返回后完成 flushed。完成指提交发送队列，不等待客户端。之后在 carrier owner 上同步真实位置或执行越界释放。公共 API、模型/配置和持久化格式不变。
 
-当前 1.21.11 cached NMS 定义：Chicken passenger attachment 为 `(0, 0.7, -0.1)`；闭合 Shulker 的碰撞高度为 1 米；现有平台 Chicken 原点为部件世界 Y 减 `0.6875`。因此支撑面相对于部件原点有约 `+1.0125` 的世界 Y 偏移和 yaw-forward `-0.1` 的水平偏移，不能简单取 local Y=0。
+`PassengerPoint` 为米制不可变坐标。carrier 的世界 Y 为脚底加 `0.6`。现有 Chicken/Shulker 碰撞面高度为世界竖直 `0.7 + 1.0 - 0.6875 = 1.0125`，并含按 yaw 朝后 `0.1` 的偏移；不能把碰撞高度改成倾斜后的局部竖直偏移。实际接触要求局部水平范围及高度差 `<=0.15`；平台额外预激活范围不作为上车范围。
 
-Marker ArmorStand 高度为 0；玩家 vehicle attachment 为 `(0, 0.6, 0)`。以脚底为目标时需要把承载实体提高 0.6 米。受控越界时沿用 `SeatAuthorityMover.move`，先把 carrier 与 rider 对齐到目标脚底，再调用原生玩家 `removeVehicle()`；确认实际已解除后调用连接 `resetPosition()` 更新普通移动基线。不能调用会追加 DISMOUNT teleport 的 `stopRiding`，也不能复用固定座位下一 tick 回位。原生取消事件若保留原载具，仍保留本会话和 carrier，并恢复该会话既有局部位置。普通固定座位和生命周期 eject 继续按其原有路径处理。
+## 线程、生命周期与发布
 
-真实 Folia 26.1.2 字节码确认 DISMOUNT teleport 会设置 `awaitingPositionFromClient`，原生在确认前跳过普通行走 XYZ，构成静止时也会发生的交接停顿。刚上车时也可能尚有原生 boarding teleport：此时立即无传送下车会被迟到确认覆盖。`SeatAuthorityMover.hasPendingTeleport(Player)` 在玩家 owner 上，以缓存的严格 `VarHandle` 只读连接字段；当前编译 1.21.11 与实服 26.1.2 的字段名、类型已核对。未清空时仅保存越界局部位置并随车，后续 entity tick 在原生实际清空后释放。全部确认包沿原生路径处理，不写私有状态，不伪造确认，不用超时或近距离猜测。该绑定不包含旧字段名探测或兼容分支。客户端实际眼高、连续性和平滑度仍需游戏内确认。
+- `runForEntityAtFixedRate(player, 1, 1)` 是既有时钟，不新建乘客线程。spawn、挂载、真实移动、解除和删除保持 Folia ownership。
+- 正常列车分发在拆分区域回调之前为每位乘客采样一次。A→B 交接不能由 A、B 两个回调分别读取最新归属，导致重复呈现或遗漏。保留已有逐列串行分发和区域分块，不要求同列车所有车厢位于同一 Folia region。
+- 停车走动使用只处理乘客的简化路径，复用平台当前已接受的姿态，不提交整列渲染、不新增 retained 列车帧缓存、不修改通用 latest-only dispatcher。
+- 停车乘客更新不重跑模型树；行驶时由车厢呈现更新乘客，停车时只处理玩家移动。两条路径共用既有 carrier 后端与生命周期。玩家 owner 始终唯一推进局部坐标，呈现方法不修改步行进度。
+- 正常移动不持会话锁跨线程等待发包。既有短生命周期事务与后端同步有独立职责，不能宣称全插件无锁。
+- 结束先使新/迟到位置失效，沿用已记录的最后一次呈现批次完成标记，然后移除乘坐关系、释放 packet carrier 并完成真实实体删除；本轮不扩展为汇总所有批次的等待。完成结果不能早于实际操作；世界/插件停止后无需后续 world tick 才能清理。分配途中关闭也必须回收已生成的 carrier。
 
-没有新增公开 API、命令、配置或持久化字段；输入方向无量纲，局部/世界位置以米计，固定速度以米每秒计，跨 owner 姿态必须是值快照。
+## 下车与失败处理
 
-内部接入由 `PassengerMovementManager` 提供：`start()` 注册事件，`register(PassengerCarPlatforms)` 登记一节车厢的部件，`watch(Player, PassengerSurfaceSource)` / `unwatch(...)` 跟随现有附近观众，`retire(PassengerCarPlatforms): CompletionStage<Void>` 和 `close(): CompletionStage<Void>` 返回真实会话清理结果。每位附近玩家只持有一个 player entity-owner 时钟；挂载后玩家与 carrier 共享 owner。每 tick 直接读取 `Player.currentInput`，不再维护第二份按键事件缓存。
+普通 Shift 只在活动受控会话中取消主动下车；死亡、退出、已接受传送、换世界、模型/列车/世界销毁及插件停止仍清理。不得抢占已有固定座位或其他 vehicle。
 
-`PassengerPlatformRegistry.present(registration, TrainFrameSnapshot)` 在车厢模型应用后，以调用者给定的完整帧投影平台并保留该车厢场景；`capture(registration)` 只读取该场景。`PassengerScene` 包含完整帧和 `PassengerSurface` 列表。`PassengerSurfaceSource.publish/current/retire` 只发布复制后的局部姿态。`PassengerWalking.advance(...)` 返回 `PassengerWalk`，其中 `surface == null` 表示此次位移已离开连续区域。共用 `RenderableFrameSnapshot.modelTransform(floorHeight)` / `modelRotation` 保持模型显示与乘客几何使用同一姿态公式。
+越界保留步长走出的外侧脚底位置。`SeatAuthorityMover.hasPendingTeleport` 只在玩家 owner 读取当前 NMS `awaitingPositionFromClient`；真实 boarding 确认未清时保留越界状态，确认仍由原版处理，不伪造 ACK。可释放时先把 rider/carrier 移到外侧，再 `ServerPlayer.removeVehicle()`，尊重 dismount event veto，并 `connection.resetPosition()`；避免 `LivingEntity.stopRiding()` 额外 DISMOUNT teleport 造成确认等待停顿。veto 后保留乘坐关系，并让玩家 owner 处理其后状态。
 
-## 生命周期、线程与帧来源
+注册已失效、surface 已退休或玩家离开本会话 vehicle 时结束。调度退休/拒绝及真实清理失败必须完成或失败对应 future 并记录原因；不吞错后报告完成，不增加超时、兼容字段名、传送协议替代或重新上车冷却。
 
-- 每个玩家最多一个乘客会话；会话启动、运动和退出有明确 owner。Bukkit entity/location 操作经 `PlatformDispatcher` 的目标 owner 执行，不能在 physics/global worker 上直接操作玩家。
-- 一个积分步骤只使用一份已接受的完整场景。Core 的 `Car.train` 原子归属与 runtime 来源用于识别换编组/删除后的旧登记；不得把多个车厢各自的最新可变姿态拼成场景，或从后续物理帧抢先发送乘客位置。
-- `PassengerMovementManager.present` 在车厢原有 bundle 内输出虚拟 carrier 位置。`ViewerPacketFrame.holdUntilFrameSent(ReentrantLock)` 将该会话锁保留至最外层帧向各 viewer 的 Netty 队列入队完成；嵌套帧复用外层，发送异常也在 finally 反序释放全部锁。后续 owner 行走不会越过尚在缓冲的旧位置。临界区覆盖当前 chunk 的同步构建与发送入队，不等待尚未运行的 owner future。
-- native authority 通过 carrier owner 更新，并用每会话 movement revision 拒绝旧目标；结束会话先 fence，排队目标不能在释放后执行。`PacketEntityMotion.syncPassengerAuthority` 沿用既有 mover/metrics，仅将可能重新进入 `CarExtension` 的观众刷新合并并延后一 tick，避免 session → audience → car 与 car → session 的实际锁环。每个 managed carrier 最多一个待刷新任务；回调复核 active、身份和当前乘坐关系，retire 后不重建旧观众。位置、输入和 packet 不因这次观众刷新而延迟，固定 Seat 保持原刷新路径。
-- 分 chunk 派发不等于跨 Folia region 或并行线程。优先直接消费已有完整帧，不因为分 chunk 就新增 `WorldManager` 整列汇合机制。
-- Shift 拦截只针对当前活动乘客会话的主动 dismount。进入退出状态后，越界、死亡、退出、有效外部传送、换世界与销毁均能释放。尊重已取消的世界卸载/传送事件。
-- 平台/模型重建、列车 runtime 来源变化、世界卸载和插件停止必须失效旧登记和会话；排队回调不能把玩家拉回、重新注册 carrier 或恢复旧输入。
-- 清理沿用 `DestructionSteps` / `PlatformCleanup`，由真实 owner 动作完成通知证明删除完成；GentleUnload 在 packet runtime 关闭前结束会话。整服 Folia 停止遵循既有 skip-owner 合同。
-- manager 使用已有 `presentationOwner` 调度器。正常业务 dispatcher 先停止，manager.close 在 owner cleanup 批次中等待，包括此前已排队的接受下车清理；最后才 drain presentation dispatcher。不能把该延迟清理留在已停止的业务 dispatcher 上。
-- 所有状态仅存在于运行期，无格式升级、migration 或旧格式兼容行为。
+## 成本与退化
 
-## 条件与结果
+每位受控玩家每 tick 做一次输入和几何推进。平台登记保存现有每车已接受场景，capture 是取引用；车厢 present 投影涉及同列车车厢/平台并保留现有 registry 同步。设候选平台数 P，advance 每次交接搜索候选，visited 防止重复访问，最坏 O(P²)，不把它描述为全程 O(1)。
 
-- 附近但未接触支撑面：不接管，现有显示预激活照常。
-- 已乘坐固定座位/驾驶席/其他坐骑：不抢占乘坐关系，不获得驾驶输入控制权。
-- 仍在当前平台或重叠区：保持当前归属。
-- 进入相接目标平台：同 carrier 转换局部坐标并消耗剩余位移。
-- 侧边/端部或真实空隙：释放为普通运动，不补连接面。
-- 已取消的传送/世界卸载：保留仍有效的会话；被接受的动作进入终止流程。
-- 初次挂载失败：仅释放本次已创建的实体/任务，不留下半注册会话。spawn 前登记到现有 removals 的真实分配 completion，发布 session 前在 lifecycle 短锁内重新检查 closed/watch/registration；close 不漏掉 spawn 中的资源，不在 lifecycle 锁内等待 session。
-- 运动或清理失败：沿用现有后端失败报告；不能吞错伪装完成，也不新增另一套兜底传送协议。
+WorldManager 正常帧准备的乘客 capture 扫描全部活动会话后按 world/stream 过滤分组，成本 O(S)，没有扫描全服玩家。每车呈现筛选本列乘客，成本随车厢数及乘客数增长。既有逐列分发仍维持一个执行中任务和一个最新待处理任务；停车路径不进入该队列，不重新应用模型。原生更新沿既有 owner dispatcher，没有新 executor。玩家可累计相对坐标，显示可跳过中间位置。未做 tick 性能基准，不承诺零开销。
 
-## 成本与退化行为
+## 正常与边界情形
 
-平台登记跟随模型生命周期；不逐 tick 扫描世界所有玩家或所有列车。每个活动会话仅处理其所属列车已登记平台，普通无边界步长优先测试当前平台，边界交接才搜索候选。静止列车行走由实体 tick 驱动，不改变 Core stationary mailbox suppression。
+停车：玩家局部位置从 1.0 变为 1.2，只更新该乘客 carrier；整列模型不重新渲染。行驶且区域显示暂未运行时，玩家局部位置仍可累计到 1.4，之后随车厢呈现最新坐标。列车移动：局部位置不变，乘客和车厢用同一次显示姿态。跨车厢：在 A 的边界连续进入 B，只改归属和局部坐标，carrier/乘坐关系不重建。越界：走到外侧后恢复普通移动，存在真实 teleport pending 时按原版确认结果释放。退出或关闭：旧快照不能重新生成或移动已结束的 carrier。
 
-每次车厢显示提交投影所属列车的 C 节车厢与 P 个平台，成本 O(C+P)；manager 另遍历 S 个活动会话并为 M 个匹配会话查找平台，成本 O(S+MP)。若 C 节车厢均提交，整列该轮投影最坏 O(C(C+P))，会话扫描/查找成本按各车厢累加。缓存每个登记车厢一份场景，空间 O(CP)，完整帧引用复用；不是按历史 revision 累积。玩家 tick 复用场景，无输入不再重复投影或发送位置。一次行走最坏逐次搜索相接平台，已访问集合保证每个平台至多交接一次，成本上界 O(P²)。附近未接管玩家只搜索其预激活候选关联的车厢平台。帧持锁和延后观众刷新只保留当前任务的有界状态，不添加常驻输入队列。
+## 必需测试与验证边界
 
-注册表只保存当前模型成员和会话；终止后释放引用。数值比较和交接迭代必须根据真实几何与剩余步长收敛，不能引入任意“最近平台”吸附或无界重试。
+生产调度链覆盖：行驶中多次玩家 tick 累计且不独立发位置包、匹配车厢帧的 bundle、静止持续行走且不重算未变模型、停车输入不增加车厢渲染次数/不提交整列任务、一次采样后的跨车厢交接、旧实体目标失效、pending/veto、外部事件、分配/发包中 close、卸载/停止后真实完成。
 
-## 必须覆盖的场景
+保留纯几何的方向、斜向速度、碰撞高度、连续平台与真实空隙测试。检查 `:BukkitPlugin:test`、`:BukkitPlugin:shadowJar` 及 diff-check；既有 S100 ZIP/source 基线失败单独记录。fixture 不执行真实 Craft/NMS 私有字段、Folia 迁移与客户端插值。实机仍需停车/启动/制动/转弯/坡道、多玩家、跨区域、Shift/跳跃与边界下车复验。
 
-直线 A→B→A 应保持 carrier 身份、世界交接点和剩余步长；重叠区不反复切换。曲线和坡道按各自支撑面换算，不能拿 A 的局部坐标原样复制给 B。真实空隙释放，不因为步长末点在 B 而穿过空隙。
+## 迁移与避免的做法
 
-静止列车上的长按仍每 tick 移动；转头改变方向；两名玩家的输入和位置互不覆盖。正常座位和驾驶席继续执行原有输入和下车逻辑。
+本轮只替换 Bukkit 乘客调度和必要接入，不改 Core 物理、普通座位职责或存档 schema。历史部署不代表本轮代码已部署。
 
-## 测试与验收边界
-
-要求覆盖方向/斜向归一化、旋转/坡道变换、连续与重叠交接、空隙退出、剩余步长、静止持续输入、frame 来源、模型失效、取消和接受的结束事件、Shift/跳跃及清理后的迟到回调。涉及共享座位 helper 时保留现有 Seat 相关测试。
-
-回归必须先发布更新的物理帧而推迟车厢显示，证明无输入乘客不会抢跑；实际接受帧即使早于最新物理帧，也与车厢进入同一 bundle。外层帧开放时另一个 owner 的行走不能先发包，发送异常须释放锁。还需覆盖首次接管不借其他车厢旧场景、静止持续行走、旧 authority 迟到、原生 pending 确认前后释放、下车 veto 保留同 carrier，以及 spawn 与 close 并发的真实分配 completion。
-
-`PassengerGeometryTest` 的 8 项纯几何/值快照、真实 Core 列车场景及既有 Seat 测试继续保留。测试中的 entity/dispatcher doubles 只替代 Bukkit 执行出口，不证明 Craft/NMS 已在服务器执行；切换 pending 布尔的 fixture 也不等于测试了真实私有字段。精确 NMS 行为的静态依据与实机复验边界见本任务研究/验证记录。
-
-运行受影响的 `:BukkitPlugin:test` 和 `:BukkitPlugin:shadowJar`，并检查 `git diff --check`。测试使用生产几何/会话逻辑；可控 scheduler/event fixture 不构成真实客户端验收。
-
-Paper/Folia 游戏内另验收挂载高度、第一人称插值、直线/曲线/坡道跨车厢、多玩家和退出连续性。仅编译、单元测试或插件启动不能证明乘客体验通过。
-
-## 维护与迁移
-
-本轮没有持久化变更。新增跨空隙连接面、防坠落、车门/内部碰撞、跨列车交接或不同移动模式，均属于后续产品范围，不能当作当前交接失败的隐式修复。
-
-应避免每个平台单独挂载同一玩家、每次交接先 eject 再 mount、用近距离显示范围吸入乘客、延迟传送玩家回旧位置。正确做法是单个乘客会话持有稳定 carrier，用一致帧换算局部坐标，并在退出状态中完成位置释放和资源删除。
+避免玩家 tick 与车厢回调都发位置、都改 local，再用长范围锁串联。采用玩家唯一推进 local，行驶跟随车厢呈现、停车仅呈现玩家。避免为停车走动重提整列任务，再增加整列缓存和增量合并；直接复用现有平台姿态与 carrier 输出。源码机制已同步到本规范；聚焦测试通过，完整测试与构建证据归 task/research/validation.md，客户端验收独立保留待完成。

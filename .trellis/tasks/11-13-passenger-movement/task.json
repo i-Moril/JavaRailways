@@ -26,9 +26,9 @@
     "implementation": "complete",
     "runtime_acceptance": "pending_retest",
     "full_test_gate": "baseline_failure",
-    "deployment": "complete",
+    "deployment": "historical_initial_version",
     "deployed_source_commit": "82130c6d02df7675a3d5de14af8e181f715efd38",
     "deployment_evidence": "research/deployment-20261113.md",
-    "feedback_fixes": "complete"
+    "feedback_fixes": "implemented_pending_client_retest"
   }
 }

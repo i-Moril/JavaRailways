@@ -8,7 +8,6 @@ import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBu
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityMetadata
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.locks.ReentrantLock
 
 /** Collects one render frame per viewer and emits it between Bundle delimiters on Netty's event loop. */
 class TrainPacketBundleCoordinator internal constructor(
@@ -22,8 +21,6 @@ class TrainPacketBundleCoordinator internal constructor(
     private val frames = ViewerPacketFrame<PacketWrapper<*>>(::send)
 
     fun <T> frame(block: () -> T): T = frames.frame(block)
-
-    internal fun holdUntilFrameSent(lock: ReentrantLock) = frames.holdUntilFrameSent(lock)
 
     fun enqueue(viewerIds: Iterable<UUID>, packetFactory: () -> PacketWrapper<*>) {
         frames.enqueue(viewerIds, packetFactory)
@@ -86,15 +83,8 @@ internal class ViewerPacketFrame<T>(
             block()
         } finally {
             activeFrame.remove()
-            try { frame.itemsByViewer.forEach(sender) }
-            finally { frame.heldLocks.toList().asReversed().forEach { it.unlock() } }
+            frame.itemsByViewer.forEach(sender)
         }
-    }
-
-    /** A presented state cannot become visible to another producer before its packets are queued. */
-    fun holdUntilFrameSent(lock: ReentrantLock) {
-        val frame = activeFrame.get() ?: return
-        if (frame.heldLocks.add(lock)) lock.lock()
     }
 
     fun enqueue(viewerIds: Iterable<UUID>, itemFactory: () -> T) {
@@ -110,7 +100,6 @@ internal class ViewerPacketFrame<T>(
 
     private class Frame<T> {
         val itemsByViewer = LinkedHashMap<UUID, MutableList<T>>()
-        val heldLocks = LinkedHashSet<ReentrantLock>()
     }
 }
 

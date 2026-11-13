@@ -1,79 +1,38 @@
-# platform 乘客移动：执行与验证计划
+# platform 乘客移动：重新实施计划
 
-## 开始条件
+## 起点和边界
 
-- 当前分支 `feat/passenger-movement`，基于本地 `main` 的 `5aa13ea2`；规划阶段远端认证不可用；后续部署时已通过指定 SSH agent 核验远端 `main` 仍为 `5aa13ea2`。
-- 用户确认视角相对方向、固定速度和跨平台交接。
-- 用户在最终规划摘要及调度澄清后明确回复“可以。允许修改代码。”，实施已获批准。开始前已修正跨 chunk 不等于跨 region 的规划表述。
-- 不启动或部署游戏服务器，除非后续获得对应授权。
+分支 `feat/passenger-movement`，最初源码起点 `60201085`，当前 HEAD 为外部追加文档提交 `6e77496c`，保留它。用户批准重新实现及回到既有 commit。原未提交草稿已完整备份，相关源码按 HEAD 恢复后重做；不重写分支历史，不部署。
 
-## 有序执行清单
+生产文件预期为 PassengerMovementManager、PassengerPlatforms、PassengerCarrierAccess、WorldManager、必要的 CarExtension 入口，以及 PacketEntityMotion/TrainPacketBundleCoordinator 删除旧持锁机制。LatestAffinityTaskDispatcher 应保持既有 latest-only API。对应测试和任务/规范同步更新。
 
-- [x] 1. 最终规划获批后激活任务；按 Trellis 子代理模式派发 `trellis-implement`，提示以 `Active task: .trellis/tasks/11-13-passenger-movement` 开头并加载已整理的上下文。`lifecycle-and-threading.md` / `interaction-render-persistence.md` 超过原生注入的单文件 32768 字节上限，implement/check 子代理须从磁盘补读完整相关章节，尤其关闭与 GentleUnload 部分，不能把截断注入当作完整规范。
-- [x] 2. 将 `PlatformModel` 的预激活与真实乘客支撑区域分开；发布复制后的几何/姿态与模型生命周期身份，不跨线程暴露 `ModelState`。
-- [x] 3. 优先复用已有整列不可变快照与 `CarExtension` 平台登记建立同来源场景，验证静止、来源失效及模型重建；仅在实际集成需要时最小接入 `WorldManager`，保持既有 Core 渲染通知/分区调度合同。
-- [x] 4. 实现视角相对、固定 `4.3 m/s` 的归一化行走与沿运动路径的连续平台交接；先写有意义的坐标、斜向、坡度、重叠/空隙和剩余步长测试。
-- [x] 5. 接入每位玩家单独的 carrier 与 session，复用 `PacketEntityMotion` / `PacketVirtualSeat` / `SeatAuthorityMover`。需要时最小提取现有 carrier 配置，避免复制 seat registry。
-- [x] 6. 接入 Shift 主动 dismount 拦截、忽略跳跃、区域外释放及外部传送/死亡/退出/销毁/世界卸载/插件关闭。旧回调不能拉回玩家或重新创建资源。
-- [x] 7. 将 manager 放入 `BukkitPlugin` 的启动与清理顺序；检查现有点击座位、驾驶输入和 audience 未发生职责冲突。
-- [x] 8. 完成聚焦测试与模块构建，再派发 `trellis-check` 审查整个改动范围；主会话核对修复、证据及未通过边界。
-- [ ] 9. 在明确获准的真实开发服执行下列客户端验收；若尚未获准或未执行，保留为未验收，不宣称功能实机可行性已证明。
-- [x] 10. 按实际实现更新 Bukkit spec，精确暂存本任务文件并提交；不推送或部署。
+## 实施顺序
 
-## 预期改动文件
+- [x] 玩家 entity owner 单独推进局部位置、交接和退出，发布一份不可变完整状态。
+- [x] 既有列车分发前统一采样，车厢 bundle 呈现后由 entity owner 同步真实位置；渲染不回写步行状态。
+- [x] 停车仅通过乘客简化路径更新发生变化的 carrier，复用已接受平台姿态；不提交整列渲染，不新增 retained 缓存，保留正常行驶随车呈现。
+- [x] 删除旧会话持锁、bundle 持锁及其 audience 延迟；回归 boarding pending、veto、稳定 carrier、迟到任务与真实 cleanup completion。
+- [ ] 实现代理聚焦测试及编译；检查代理审查完整差异，跑完整 BukkitPlugin:test 与 shadowJar，单独记录既有 S100 基线失败。
+- [x] 规范与任务已按最终源码同步，工作变更纳入本次提交；会话由 finish-work 记录，任务保留待客户端复验状态。
 
-源码根目录为 `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/`：
+## 关键断言
 
-- `render/model/PlatformModel.kt`：乘客支撑区域与值快照。
-- 新增内部乘客会话、几何和场景管理文件：单一 owner，避免平台分散控制玩家。
-- `extension/train/CarExtension.kt`：车厢平台登记、姿态复制、生命周期失效。
-- `logic/WorldManager.kt`：不是预定必改文件；仅在无法直接复用现有整列帧时接入已有发布/完成边界。
-- `BukkitPlugin.kt`：manager composition/start/stop。
-- `render/model/SeatModel.kt`：仅在需要共用 carrier 配置时最小提取；现有座位行为不变。
-- `render/backend/PacketEntityMotion.kt` 及关联 helper：优先直接复用；只有实际集成所需才调整内部接口。
-- 对应 `BukkitPlugin/src/test/`、Bukkit spec 与当前任务文档。
+行驶时玩家 tick 连续执行多次、区域显示暂未运行时，相对位移仍累计，期间没有独立位置包；停车输入直接走仅更新乘客的简化路径。一次列车分发对每位乘客采样一次，交接中前后车厢不重复或遗漏输出。同一显示批次的车厢和乘客使用匹配姿态。停车输入只移动玩家且车厢渲染次数不增加、正常随车呈现、多人其中一人停步、跨平台、原生 pending/veto、外部事件、分配/输出中 close、卸载后迟到回调必须覆盖。
 
-若必须扩展 Core、持久化或模型配置字段，应暂停扩大实现范围，回到规划说明原因并读取对应版本规则。
+保留已有纯几何测试和原生实现。fixture 不能证明 Craft/NMS 私有字段、真实客户端平滑度或实际 tick 性能。完整模块已有 CarAnimationPlaybackTest.kt:85 的 S100 ZIP/source 类型路径基线失败，相关输入保持不变并分别报告。
 
-## 验证命令
+## 历史证据
 
-新增测试的类名由实现命名，先聚焦运行新几何、场景发布、会话生命周期与既有 Seat 测试，再运行：
+历史实现/部署和测试证据见 research/validation.md、research/deployment-20261113.md。它们只代表对应版本，本轮最终证据在完成后追加，不覆盖历史结果。
 
-```bash
-./gradlew :BukkitPlugin:test
-./gradlew :BukkitPlugin:shadowJar
-git diff --check
-```
+## 用户边界
 
-若只因环境问题无法完成，记录真实失败命令和边界，不把静态检查或 mock 当作实际客户端验收。通过后不无理由重复完整构建。
+禁止臆测不存在的需求。如发现真正的问题，先停止，给出复现或明确代码证据并问用户，不自行增加同步/缓存/防御机制。此前首次上车 B/C 说法尚无复现，不作为实施依据。
 
-## 游戏验收
+用户已要求继续修复；已撤回的多批次清理等待扩展不实施，不编写只验证该额外限制的测试。
 
-- 静止、启动、制动、弯道、坡道中不按键随车移动。
-- 转头后 WASD 跟随水平视角，斜向不加速，疾跑输入不加速。
-- 两名玩家各自移动，Shift 不下车、跳跃不生效；离开后恢复普通输入。
-- A→B→A 往返保持相同 carrier/虚拟挂载，不居中、不在重叠处反复切换；曲线与坡道连接单独观察。
-- 离开整片连续区域恢复普通运动；真实空隙明确记录为本轮不桥接。
-- 外部传送、死亡、退出、列车/模型删除、世界卸载和插件停止不残留会话或实体。
-- Paper 与 Folia 分别记录；未测试的平台不得被另一平台测试结果覆盖。
+## 最终本地验证
 
-## 回退点
+聚焦编译与测试、独立完整模块检查和 shadowJar 已完成，证据与既有失败见 [validation.md](./research/validation.md) 及 [独立检查](./research/check-stationary-passenger-20261113.md)。源码检查无待修项；完整测试仍有一项已记录 S100 基线失败，不标为全绿。
 
-几何/场景发布与实体会话保持清楚的提交边界；所有数据为临时运行态。回退前先结束会话并完成 carrier 清理，再回退本功能提交；不涉及存档迁移。最敏感的现有路径为 `SeatModel` 的驾驶席绑定/下车和 `WorldManager` 的逐列完成回调，必须保留已有测试并在审查中重点核对。
-
-## 当前验证结果
-
-实现与独立代码审查完成，20 项 Passenger 和 12 项 Seat 测试通过，插件打包成功。完整测试为 956 项、1 项既有 S100 ZIP/source 基线失败、1 跳过；临时增加 Test 堆到 2 GiB 后无 OOM。第 9 项已有部分游戏内反馈并发现缺陷，完整复验未通过，任务不归档为已完整验收。证据见 `research/validation.md`。
-
-## 后续部署授权与结果
-
-用户于 2026-11-13 明确要求用 PlugManX 部署，使用 `/run` 下的 SSH agent；该后续授权覆盖以上实施阶段的“不部署”边界。已完成部署、依赖恢复及服务检查，未重启 JVM、未推送分支，未执行资源重载、ATO reset 或时刻表重规划。第 9 项客户端验收已有缺陷反馈，完整复验仍未完成。见 `research/deployment-20261113.md`。
-
-## 实机反馈修复批次（2026-11-13）
-
-- [x] 对比固定 Seat 与乘客完整渲染/authority 时序，确认抖动来源；追踪边界处骑乘切换步行时的位置同步和停顿。研究只写当前任务 research。
-- [x] 在 Bukkit 现有 render/frame 和 seat 后端范围内实现最小修复；保留视角相对固定步速、静止行走、同 carrier 交接及生命周期清理。边界规则、持久化、Core 物理保持既有合同。
-- [x] 回归必须覆盖实际生产路径中的显示帧与乘客帧顺序、静止行走、越界后旧回调/位置回推和已有 Seat 行为；独立 trellis-check 检查修复。
-- [x] 更新代码规范、验证记录并精确提交；客户端平滑度与越界释放需实机复验，不能用代理或 mock 宣称通过。
-
-修复后 54 项聚焦回归通过；完整 968 项为 966 通过、1 个既有 S100 一致性失败、1 跳过、0 errors；打包成功，独立检查完成。此处完成的是本地代码/验证批次，客户端复验仍待完成。
+- [ ] 部署本轮产物并执行客户端平滑度、边界连续性和跨区域实机复验；不把本地单测结果等同于这些验收。

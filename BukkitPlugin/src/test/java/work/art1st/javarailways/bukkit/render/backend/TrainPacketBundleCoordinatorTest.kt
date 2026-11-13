@@ -1,27 +1,10 @@
 package work.art1st.javarailways.bukkit.render.backend
 
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.util.UUID
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
 
 class TrainPacketBundleCoordinatorTest {
-    @Test
-    fun `failed outer frame flush releases every held presentation lock`() {
-        val locks = listOf(ReentrantLock(), ReentrantLock())
-        val frames = ViewerPacketFrame<String> { _, _ -> error("Failed packet send") }
-        assertThrows(IllegalStateException::class.java) {
-            frames.frame {
-                locks.forEach { lock -> lock.withLock { frames.holdUntilFrameSent(lock); frames.holdUntilFrameSent(lock) } }
-                frames.enqueue(listOf(UUID.randomUUID())) { "position" }
-            }
-        }
-        locks.forEach { assertFalse(it.isLocked) }
-    }
-
     @Test
     fun `one render frame becomes one ordered packet list per viewer`() {
         val first = UUID.randomUUID()

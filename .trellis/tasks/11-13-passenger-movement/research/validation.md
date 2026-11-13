@@ -60,3 +60,29 @@
 - checker 报告见 `check-passenger-feedback-20261113.md`，native 研究见 `passenger-feedback-20261113.md`。精确 26.1.2 类从实服只读提取，未改服务器；编译后 javap 确认 Kotlin VarHandle 调用使用实际连接参数类型，未生成 Object[] 错误签名。
 
 此轮尚未部署或重载测试服。单元中的 pending 布尔与 entity/dispatcher doubles 只验证生产状态机和发送顺序；没有执行真实 Craft/NMS 交接或客户端画面，不能把它们报告为无卡顿/平滑的实机验收。
+
+## 2026-11-13 玩家 owner 重新实现（历史方案与最终验证）
+
+用户在实际源码比较后批准重新实现，并允许回到既有 commit。当前保留 `feat/passenger-movement` 的 `60201085` HEAD，把失败的 WorldManager 单一计算草稿及全部修改文件备份到 `/tmp/jr-passenger-world-draft-qujrqfhm`，只将其 8 个 Kotlin 文件恢复为 HEAD 后重做；没有重写分支历史。远端通过 `/run/host-ssh-agent/agent.sock` 只读核对仍为 `main=5aa13ea2`，没有远端功能分支，该 main 提交已包含于当前 HEAD。
+
+根因和取舍：初版把乘客位置独立追随最新物理帧，无法保证和较慢的车厢显示相位一致；上轮把输入与车厢回调的更新用持锁连接，扩大了锁顺序和发包生命周期问题；未完成草稿又提交部分增量，因而需要拼补积压几何和其他乘客。它们分别是跨入口职责不清、调度合同与测试覆盖缺口，不是异步本身要求的复杂度。
+
+本轮采用已有玩家 entity tick 唯一累计局部位置、不可变整份状态发布，车厢渲染唯一输出连续位置。列车分区域前采样一次，活动乘客列车使用可完整替换的显示依据，保留原有通用 latest-only 分发。停车走动复用已选完整姿态，未变化模型不重跑；旧 native 目标只由实际呈现顺序判旧，不能仅因玩家又走一步而取消已显示位置的真实同步。
+
+本节自动化与最终实现证据待源码冻结及独立检查后补充。原有测试结果只适用于上方明确记录的历史版本；本轮尚未提交、部署或通过客户端复验。
+
+### 停车简化路径的用户决定
+
+用户明确要求停车时仅处理玩家移动，不进行整列车渲染。上方“活动乘客列车使用完整候选与 retained 帧”的方案已撤回，本轮不新增列车帧缓存、停车整列任务或通用队列合并。行驶走正常车厢批次，停车复用平台已接受场景，仅更新本人的 carrier。此前首次上车 B/C 推导未复现，不能记为已确认故障。多批次清理记录覆盖的推导同样没有实际故障证据，其组合等待建议已撤回；保留既有 ending/revision 与实际实体清理。用户随后明确“那你继续进行修复”，授权在这些边界内继续。
+
+### 最终实现与本地验证
+
+- 最终机制：玩家 owner 唯一累计 WalkingState；正常列车候选只增加一次采样的乘客清单，在匹配车厢 bundle 呈现。已接受场景速度为零时，renderStationary 只输出本人的 carrier，不进入列车分发器、不遍历模型、不新增 retained 缓存。common render 保留既有 native pending/veto、ending/revision 与最后批次清理；删除旧会话/包批次持锁和乘客 audience 延迟。
+- 实现冻结时相对 HEAD 6e77496c：生产 6 文件 +233/-234，测试 2 文件 +302/-401。几何、SeatAuthorityMover、Core、通用 dispatcher 和构建配置均未改。外部追加的 Via 安装文档提交完整保留。
+- 聚焦命令使用项目默认 Kotlin daemon，并临时设置 -Pkotlin.daemon.jvmargs=-Xmx4g，未修改 target/build 配置；目标 JVM25 编译通过。42 tests，0 failures/errors/skips：Movement18、Geometry8、PendingTrainFrames7、Gate1、LatestDispatcher4、Bundle2、SeatMovePlan2。日志 /tmp/jr-passenger-stationary-focused.log。
+- 独立 trellis-check 未修改源码，未发现任务内待修项。完整命令：`./gradlew --offline --init-script /tmp/jr-passenger-test-heap.gradle -Pkotlin.daemon.jvmargs=-Xmx4g :BukkitPlugin:test :BukkitPlugin:shadowJar --continue`。日志 /tmp/jr-passenger-stationary-full.log。
+- 最终 XML：963 tests，961 passed，1 failure，1 skipped，0 errors。唯一失败仍是 CarAnimationPlaybackTest.kt:85 的 S100 ZIP/source 类型引用路径差异；上方三份基线输入 SHA256 均保持不变。完整 test 命令退出1，不是全绿门禁。
+- shadowJar 成功；产物 BukkitPlugin/build/libs/JavaRailways-1.0-SNAPSHOT-all.jar，62,883,923 bytes，SHA256 `95460a583e99977e9a2000fe171c79227e6a807e020359b18743436ff46cdb6e`。已含新 WalkingState/WorldManager 接线、paper-plugin.yml 与 webui/JavaRailways-WebUI.jar。
+- 所有8份候选源码与 /tmp/jr-passenger-stationary-sources/sha256.txt 在编译、完整测试、打包前后均一致；本轮未再出现 WorldManager 意外恢复。diff-check 通过。独立报告见 check-stationary-passenger-20261113.md。
+
+本轮未部署、未推送。测试使用生产入口、真实 Core fixture 与 dispatcher/carrier doubles，不执行真实 Craft/NMS、Folia迁移或客户端插值，不构成第一人称平滑度、下车连续性或 tick 性能的实机验收。原客户端反馈仍需部署后复验，任务不归档。

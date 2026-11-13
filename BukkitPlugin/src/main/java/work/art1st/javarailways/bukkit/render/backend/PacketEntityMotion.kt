@@ -39,7 +39,6 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.DoubleAccumulator
 import kotlin.math.floor
-import java.util.concurrent.locks.ReentrantLock
 
 /**
  * Cross-platform packet movement layer for native interaction and Seat authority entities.
@@ -155,14 +154,8 @@ class PacketEntityMotion(
         virtualSeat.sync(target, viewerEntityIds)
     }
 
-    internal fun holdSeatPresentation(lock: ReentrantLock) = bundles.holdUntilFrameSent(lock)
-
     /** Moves the hidden server authority exactly on its owning Paper/Folia entity thread. */
-    fun syncSeatAuthority(entity: Entity, target: Location) = applySeatAuthority(entity, target, false)
-
-    internal fun syncPassengerAuthority(entity: Entity, target: Location) = applySeatAuthority(entity, target, true)
-
-    private fun applySeatAuthority(entity: Entity, target: Location, deferAudienceRefresh: Boolean) {
+    fun syncSeatAuthority(entity: Entity, target: Location) {
         val managed = entitiesByIdentity[entity] ?: return
         if (!managed.active.get() || managed.virtualSeat == null || !entity.isValid) return
 
@@ -180,8 +173,7 @@ class PacketEntityMotion(
             return
         }
 
-        if (deferAudienceRefresh) queuePassengerAudienceRefresh(managed)
-        else refreshAuthoritativePassengerAudiences(entity)
+        refreshAuthoritativePassengerAudiences(entity)
         seatAuthorityMoveUpdates.incrementAndGet()
         maxSeatAuthorityError.accumulate(result.residualError)
         val worldId = target.world?.uid?.toString() ?: "null"
@@ -221,24 +213,6 @@ class PacketEntityMotion(
                 railWorld.renderChunkManager.refreshAuthoritativePassenger(passenger)
             })
         }
-    }
-
-    /** Reconciliation can re-enter CarExtension; never do it under the passenger session lock. */
-    private fun queuePassengerAudienceRefresh(managed: ManagedEntity) {
-        if (!managed.passengerAudienceRefresh.compareAndSet(false, true)) return
-        dispatcher.runForEntityLater(managed.entity, 1L, action = {
-            managed.passengerAudienceRefresh.set(false)
-            if (!managed.active.get() || entitiesByIdentity[managed.entity] !== managed || !managed.entity.isValid)
-                return@runForEntityLater
-            managed.entity.passengers.filterIsInstance<Player>().forEach { passenger ->
-                dispatcher.runForEntity(passenger, action = passengerTask@{
-                    if (!managed.active.get() || entitiesByIdentity[managed.entity] !== managed ||
-                        !passenger.isOnline || passenger.vehicle !== managed.entity) return@passengerTask
-                    val railWorld = BukkitPlugin.INSTANCE.worldManager.railWorlds[passenger.world] ?: return@passengerTask
-                    railWorld.renderChunkManager.refreshAuthoritativePassenger(passenger)
-                })
-            }
-        }, retired = { managed.passengerAudienceRefresh.set(false) })
     }
 
     fun releaseViewer(entity: Entity, playerId: UUID) {
@@ -448,7 +422,6 @@ class PacketEntityMotion(
         val traceSequence = AtomicLong()
         val traceUntilNanos = AtomicLong()
         val seatMoveSequence = AtomicLong()
-        val passengerAudienceRefresh = AtomicBoolean()
 
         fun retire() {
             if (!active.compareAndSet(true, false)) return

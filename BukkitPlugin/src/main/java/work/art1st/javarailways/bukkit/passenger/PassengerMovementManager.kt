@@ -25,8 +25,6 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.logging.Level
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
 
 /** One entity-owner clock per nearby player; mounted riders and carriers share that owner. */
 internal class PassengerMovementManager(
@@ -48,18 +46,52 @@ internal class PassengerMovementManager(
         if (!closed) platforms.register(registration)
     }
 
-    /** The carriage invokes this in the SAME packet frame as its model and fixed seats. */
+    /** Publish only accepted carriage geometry; walking remains owned by the player clock. */
     fun present(registration: PassengerCarPlatforms, frame: TrainFrameSnapshot) {
-        if (closed) return
-        val scene = platforms.present(registration, frame) ?: return
-        sessions.values.filter { it.registration === registration }.forEach { session -> session.lock.withLock {
-            if (closed || session.ending.get() || session.registration !== registration ||
-                scene.frame.revision < session.scene.frame.revision) return@withLock
-            val surface = scene.surfaces.firstOrNull { it.id === session.surface } ?: return@withLock
-            carriers.holdPresentation(session.lock)
-            session.scene = scene
-            move(session, surface.pose.toWorld(session.pendingExit ?: session.local))
-        } }
+        if (!closed) platforms.present(registration, frame)
+    }
+
+    /** Capture each membership and local point together, before splitting a train into regions. */
+    fun capture(world: org.bukkit.World): Map<UUID, List<Presentation>> = sessions.values.mapNotNull { session ->
+        val state = session.state
+        if (closed || !session.ready || session.ending.get() || state.registration.world !== world ||
+            !state.registration.isCurrent()) null else Presentation(session, state)
+    }.groupBy { it.state.registration.train.publicationStreamId }
+
+    /** Called inside the carriage's bundle, using the exact geometry accepted by that carriage. */
+    fun render(presentation: Presentation, frame: TrainFrameSnapshot, flushed: CompletionStage<Void>) {
+        val session = presentation.session
+        val state = presentation.state
+        val scene = platforms.capture(state.registration)?.takeIf { it.frame === frame } ?: return
+        val surface = scene.surfaces.firstOrNull { it.id === state.surface } ?: return
+        val carrier = session.carrier ?: return
+        val revision = synchronized(lifecycle) {
+            if (closed || session.ending.get() || !state.registration.isCurrent() || state.surface.retired) return
+            session.flushed = flushed
+            session.movementRevision.incrementAndGet()
+        }
+        val target = carrierLocation(state.registration, surface.pose.toWorld(state.exit ?: state.local), state.yaw)
+        try { carriers.render(carrier, target, audience(session, state.surface)) }
+        catch (failure: Throwable) { end(session); throw failure }
+        // Native sync, dismount and audience reconciliation can re-enter model code. Run them
+        // after this actual bundle has been submitted, without holding any session/model lock.
+        flushed.whenComplete { _, failure ->
+            if (failure != null) { end(session); return@whenComplete }
+            val accepted = dispatcher.runForEntity(carrier, action = native@{
+                if (closed || session.ending.get() || revision != session.movementRevision.get() ||
+                    !state.registration.isCurrent() || !carrier.isValid) return@native
+                val player = session.watch.player
+                if (state.exit != null && session.state === state && carriers.canDismount(player)) {
+                    // Fence reentrant dismount events while preserving an actual event veto.
+                    session.detaching = true
+                    try {
+                        if (carriers.dismountAt(carrier, player, target)) end(session, alreadyDetached = true)
+                        else session.state = state.copy(exit = null)
+                    } finally { session.detaching = false }
+                } else carriers.syncAuthority(carrier, target)
+            }, retired = { end(session) })
+            if (!accepted) end(session)
+        }
     }
 
     /** Called through the existing platform pre-activation audience path, on the player owner. */
@@ -93,7 +125,7 @@ internal class PassengerMovementManager(
             val removed = registration.parts.map { it.source }.toSet()
             removed.forEach { viewers.remove(it) }
             watches.values.forEach { watch -> watch.candidates.removeAll(removed); stopIfUnused(watch) }
-            sessions.values.filter { it.registration === registration || it.surface in removed }
+            sessions.values.filter { it.state.registration === registration || it.state.surface in removed }
         }
         val steps = DestructionSteps()
         affected.forEach { session -> steps.await { end(session) } }
@@ -133,194 +165,157 @@ internal class PassengerMovementManager(
             for (surface in scene.surfaces) {
                 if (platforms.owner(surface.id) !== registration) continue
                 val contact = surface.contact(feet) ?: continue
-                mount(watch, registration, scene, surface, contact)
+                mount(watch, registration, surface, contact)
                 return
             }
         }
     }
 
-    private fun mount(watch: Watch, registration: PassengerCarPlatforms, scene: PassengerScene, surface: PassengerSurface, local: PassengerPoint) {
-        if (closed || !registration.isCurrent() || surface.id.retired) return
+    private fun mount(watch: Watch, registration: PassengerCarPlatforms, surface: PassengerSurface, local: PassengerPoint) {
         val player = watch.player
-        val feet = surface.pose.toWorld(local)
-        val target = carrierLocation(registration, feet, player.location.yaw)
-        // As with fixed seats, never mutate a carrier or mount across a Folia owner boundary.
+        val target = carrierLocation(registration, surface.pose.toWorld(local), player.location.yaw)
         if (!dispatcher.owns(target)) return
-        val allocation = CompletableFuture<Void>()
+        val session = Session(watch, WalkingState(registration, surface.id, local, player.location.yaw))
         synchronized(lifecycle) {
             if (closed || !registration.isCurrent() || surface.id.retired || watches[player.uniqueId] !== watch) return
-            removals.add(allocation)
+            sessions[player.uniqueId] = session
         }
-        val carrier = try { carriers.spawn(target) } catch (failure: Throwable) {
-            allocation.completeExceptionally(failure)
+        try {
+            val carrier = carriers.spawn(target)
+            session.carrier = carrier
+            if (!closed && !session.ending.get() && registration.isCurrent() && !surface.id.retired &&
+                eligible(player) && player.vehicle == null) {
+                carriers.register(carrier, target, audience(session, surface.id))
+                session.ready = carrier.addPassenger(player)
+            }
+        } catch (failure: Throwable) {
+            end(session)
             throw failure
-        }
-        val session = Session(watch, registration, scene, surface.id, local, player.location.yaw, carrier)
-        session.lock.withLock {
-            val accepted = synchronized(lifecycle) {
-                if (closed || !registration.isCurrent() || surface.id.retired || watches[player.uniqueId] !== watch) false
-                else { sessions[player.uniqueId] = session; true }
-            }
-            if (!accepted) {
-                end(session).whenComplete { _, failure ->
-                    if (failure == null) { allocation.complete(null); removals.remove(allocation) }
-                    else allocation.completeExceptionally(failure)
-                }
-                return
-            }
-            try {
-                carriers.register(carrier, target, audience(session))
-                if (closed || !registration.isCurrent() || surface.id.retired || !eligible(player) || player.vehicle != null ||
-                    !carrier.addPassenger(player)) end(session)
-                allocation.complete(null)
-                removals.remove(allocation)
-            } catch (failure: Throwable) {
-                end(session)
-                allocation.completeExceptionally(failure)
-                throw failure
-            }
+        } finally {
+            session.allocated.complete(null)
+            if (!session.ready || closed || session.ending.get()) end(session)
         }
     }
 
-    private fun tickSession(session: Session): Unit = session.lock.withLock {
+    /** Player ownership integrates walking; a stopped carriage needs only this rider updated. */
+    private fun tickSession(session: Session) {
+        if (!session.ready) return
         val player = session.watch.player
-        val carrier = session.carrier
-        if (!eligible(player) || player.world !== session.registration.world || !carrier.isValid || player.vehicle !== carrier ||
-            !dispatcher.owns(carrier)) {
+        val carrier = session.carrier ?: return
+        val state = session.state
+        if (!eligible(player) || player.world !== state.registration.world || !carrier.isValid ||
+            player.vehicle !== carrier || !dispatcher.owns(carrier) || !state.registration.isCurrent() || state.surface.retired) {
             end(session)
             return
         }
-        if (!session.registration.isCurrent() || session.surface.retired) { end(session); return }
-        val scene = session.scene
-        val current = scene.surfaces.firstOrNull { it.id === session.surface }
-        if (current == null) { end(session); return }
-        session.pendingExit?.let { pending ->
-            if (carriers.canDismount(player)) leave(session, current.pose.toWorld(pending))
+        val scene = platforms.capture(state.registration) ?: return
+        val current = scene.surfaces.firstOrNull { it.id === state.surface } ?: run { end(session); return }
+        if (state.exit != null) {
+            if (scene.frame.speedMetersPerSecond == 0.0 && carriers.canDismount(player))
+                renderStationary(session, state, scene)
             return
         }
         val input = player.currentInput
-        val direction = PassengerWalking.viewDirection(player.location.yaw,
+        val yaw = player.location.yaw
+        val direction = PassengerWalking.viewDirection(yaw,
             (if (input.isForward) 1 else 0) - (if (input.isBackward) 1 else 0),
             (if (input.isRight) 1 else 0) - (if (input.isLeft) 1 else 0))
-        session.yaw = player.location.yaw
-        // Following a moving carriage belongs to its render callback. The independent clock
-        // only integrates local walking, including when Core suppresses stationary frames.
-        if (direction == PassengerPoint(0.0, 0.0, 0.0)) return
-        val walk = PassengerWalking.advance(scene.surfaces, current, session.local, direction)
-        if (session.ending.get() || closed) return
-        if (walk.surface == null) {
-            if (carriers.canDismount(player)) leave(session, walk.worldFeet)
-            else {
-                session.pendingExit = current.pose.toLocal(walk.worldFeet)
-                move(session, walk.worldFeet)
-            }
+        if (direction == PassengerPoint(0.0, 0.0, 0.0)) {
+            if (state.yaw != yaw) session.state = state.copy(yaw = yaw)
             return
         }
-        val nextOwner = platforms.owner(walk.surface.id) ?: run { end(session); return }
-        session.registration = nextOwner
-        session.surface = walk.surface.id
-        session.local = walk.local
-        move(session, walk.worldFeet)
+        val walk = PassengerWalking.advance(scene.surfaces, current, state.local, direction)
+        val next = if (walk.surface == null) state.copy(yaw = yaw, exit = current.pose.toLocal(walk.worldFeet))
+        else {
+            val nextOwner = platforms.owner(walk.surface.id) ?: run { end(session); return }
+            WalkingState(nextOwner, walk.surface.id, walk.local, yaw)
+        }
+        if (!session.ending.get() && !closed) {
+            session.state = next
+            val accepted = if (next.registration === state.registration) scene else platforms.capture(next.registration)
+            if (accepted?.frame?.speedMetersPerSecond == 0.0) renderStationary(session, next, accepted)
+        }
     }
 
-    /** Like fixed seats: present immediately, then move native authority on its own owner. */
-    private fun move(session: Session, feet: PassengerPoint) {
-        val target = carrierLocation(session.registration, feet, session.yaw)
-        val revision = session.movementRevision.incrementAndGet()
-        carriers.render(session.carrier, target, audience(session))
-        dispatcher.runForEntity(session.carrier, action = { session.lock.withLock {
-            if (closed || session.ending.get() || revision != session.movementRevision.get() ||
-                !session.registration.isCurrent() || !session.carrier.isValid) return@withLock
-            carriers.syncAuthority(session.carrier, target)
-        } }, retired = { end(session) })
-    }
-
-    private fun audience(session: Session): Collection<Player> = LinkedHashMap<UUID, Player>().also { audience ->
-        viewers[session.surface]?.let { audience.putAll(it) }
-        audience[session.watch.player.uniqueId] = session.watch.player
-    }.values
-
-    /** Runs on the shared rider/carrier owner. An event veto retains the existing session. */
-    private fun leave(session: Session, outsideFeet: PassengerPoint) {
-        if (!session.ending.compareAndSet(false, true)) return
-        session.movementRevision.incrementAndGet()
-        val player = session.watch.player
-        val target = carrierLocation(session.registration, outsideFeet, player.location.yaw)
+    /** No train submission or model update: use the already accepted platform and common carrier path. */
+    private fun renderStationary(session: Session, state: WalkingState, scene: PassengerScene) {
+        val flushed = CompletableFuture<Void>()
         try {
-            carriers.render(session.carrier, target, audience(session))
-            if (!carriers.dismountAt(session.carrier, player, target)) {
-                session.ending.set(false)
-                session.pendingExit = null
-                val surface = session.scene.surfaces.first { it.id === session.surface }
-                move(session, surface.pose.toWorld(session.local))
-                return
-            }
-            finish(session, alreadyDetached = true)
+            render(Presentation(session, state), scene.frame, flushed)
+            flushed.complete(null)
         } catch (failure: Throwable) {
-            if (session.ending.get()) finish(session) else end(session)
+            flushed.completeExceptionally(failure)
             throw failure
         }
     }
 
-    /** Fence first. All later queued ticks see ending=true before any owner cleanup is submitted. */
-    private fun end(
-        session: Session,
-        dismountInProgress: Boolean = false
-    ): CompletionStage<Void> = session.lock.withLock {
-        if (!session.ending.compareAndSet(false, true)) return session.completion
-        session.movementRevision.incrementAndGet()
-        return finish(session, dismountInProgress = dismountInProgress)
-    }
+    private fun audience(session: Session, surface: PassengerSurfaceSource): Collection<Player> =
+        LinkedHashMap<UUID, Player>().also { audience ->
+            viewers[surface]?.let { audience.putAll(it) }
+            audience[session.watch.player.uniqueId] = session.watch.player
+        }.values
 
-    private fun finish(
+    /** Fence immediately; asynchronously await allocation and any bundle already admitted. */
+    private fun end(
         session: Session,
         alreadyDetached: Boolean = false,
         dismountInProgress: Boolean = false
     ): CompletionStage<Void> {
-        val completion = session.completion
-        removals.add(completion)
+        val flushed = synchronized(lifecycle) {
+            if (!session.ending.compareAndSet(false, true)) return session.completion
+            session.movementRevision.incrementAndGet()
+            removals.add(session.completion)
+            session.flushed
+        }
         fun cleanup(): CompletionStage<Void> {
+            val carrier = session.carrier ?: return CompletableFuture.completedFuture(null)
             val detach = if (alreadyDetached) CompletableFuture.completedFuture(null)
-                else dispatcher.runForEntityCompletion(session.carrier) { session.carrier.eject() }
-            // Continue resource cleanup even when detaching failed, but do not destroy the virtual
-            // mount or native carrier until the detach attempt has actually finished on its owner.
+                else dispatcher.runForEntityCompletion(carrier) { carrier.eject() }
             return detach.handle { _, failure -> failure }.thenCompose { detachFailure ->
                 val steps = DestructionSteps()
                 if (detachFailure != null) steps.await { CompletableFuture.failedFuture(detachFailure) }
-                steps.action { carriers.release(session.carrier) }
-                steps.await { dispatcher.removeEntityWithPassengers(session.carrier) }
+                steps.action { carriers.release(carrier) }
+                steps.await { dispatcher.removeEntityWithPassengers(carrier) }
                 steps.finish()
             }
         }
-        val result = try {
-            if (dismountInProgress) {
-                // The accepted event is inside vanilla stopRiding. Let it return before eject/remove
-                // to avoid reentering the same dismount; the session is already fenced above.
-                val deferred = CompletableFuture<Void>()
-                val task = dispatcher.runForEntityLater(session.carrier, 1L, action = {
-                    try {
-                        cleanup().whenComplete { _, failure ->
+        val result = session.allocated.thenCompose {
+            flushed.handle { _, failure -> failure }.thenCompose { flushFailure ->
+                val removal = if (dismountInProgress) {
+                    // Let vanilla's accepted dismount event return before eject/remove.
+                    val deferred = CompletableFuture<Void>()
+                    val carrier = checkNotNull(session.carrier)
+                    val task = dispatcher.runForEntityLater(carrier, 1L, action = {
+                        try { cleanup().whenComplete { _, failure ->
                             if (failure == null) deferred.complete(null) else deferred.completeExceptionally(failure)
-                        }
-                    } catch (failure: Throwable) { deferred.completeExceptionally(failure) }
-                }, retired = {
-                    carriers.release(session.carrier)
-                    deferred.completeExceptionally(IllegalStateException("Passenger carrier retired before dismount cleanup"))
-                })
-                if (task == null) deferred.completeExceptionally(IllegalStateException("Passenger dismount cleanup was rejected"))
-                deferred
-            } else cleanup()
-        } catch (failure: Throwable) { CompletableFuture.failedFuture<Void>(failure) }
+                        } } catch (failure: Throwable) { deferred.completeExceptionally(failure) }
+                    }, retired = {
+                        carriers.release(carrier)
+                        deferred.completeExceptionally(IllegalStateException("Passenger carrier retired before dismount cleanup"))
+                    })
+                    if (task == null) deferred.completeExceptionally(IllegalStateException("Passenger dismount cleanup was rejected"))
+                    deferred
+                } else cleanup()
+                removal.handle { _, removalFailure ->
+                    if (flushFailure != null) {
+                        if (removalFailure != null) flushFailure.addSuppressed(removalFailure)
+                        throw java.util.concurrent.CompletionException(flushFailure)
+                    }
+                    if (removalFailure != null) throw java.util.concurrent.CompletionException(removalFailure)
+                    null
+                }
+            }
+        }
         result.whenComplete { _, failure ->
             sessions.remove(session.watch.player.uniqueId, session)
             stopIfUnused(session.watch)
-            if (failure == null) { completion.complete(null); removals.remove(completion) }
+            if (failure == null) { session.completion.complete(null); removals.remove(session.completion) }
             else {
-                completion.completeExceptionally(failure)
+                session.completion.completeExceptionally(failure)
                 plugin.logger.log(Level.SEVERE, "Passenger carrier cleanup failed for ${session.watch.player.uniqueId}", failure)
             }
         }
-        return completion
+        return session.completion
     }
 
     private fun stopIfUnused(watch: Watch): Unit = synchronized(lifecycle) {
@@ -343,14 +338,14 @@ internal class PassengerMovementManager(
     fun onManualDismount(event: EntityDismountEvent) {
         val player = event.entity as? Player ?: return
         val session = sessions[player.uniqueId] ?: return
-        if (event.dismounted === session.carrier && !session.ending.get() && event.isCancellable && player.currentInput.isSneak)
+        if (event.dismounted === session.carrier && !session.ending.get() && !session.detaching && event.isCancellable && player.currentInput.isSneak)
             event.isCancelled = true
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onDismount(event: EntityDismountEvent) {
         val session = sessions[event.entity.uniqueId] ?: return
-        if (event.dismounted === session.carrier && !session.ending.get()) end(session, dismountInProgress = true)
+        if (event.dismounted === session.carrier && !session.ending.get() && !session.detaching) end(session, dismountInProgress = true)
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -368,23 +363,27 @@ internal class PassengerMovementManager(
     private fun carrierLocation(registration: PassengerCarPlatforms, feet: PassengerPoint, yaw: Float) =
         Location(registration.world, feet.x, feet.y + PASSENGER_CARRIER_LIFT, feet.z, yaw, 0.0f)
 
-    private class Watch(val player: Player) {
+    internal class Watch(val player: Player) {
         val candidates = ConcurrentHashMap.newKeySet<PassengerSurfaceSource>()
         @Volatile var task: ScheduledTask? = null
     }
-    private class Session(
-        val watch: Watch,
-        @Volatile var registration: PassengerCarPlatforms,
-        var scene: PassengerScene,
-        @Volatile var surface: PassengerSurfaceSource,
-        var local: PassengerPoint,
-        var yaw: Float,
-        val carrier: ArmorStand
-    ) {
-        val lock = ReentrantLock()
+    internal data class WalkingState(
+        val registration: PassengerCarPlatforms,
+        val surface: PassengerSurfaceSource,
+        val local: PassengerPoint,
+        val yaw: Float,
+        val exit: PassengerPoint? = null
+    )
+    internal class Presentation(val session: Session, val state: WalkingState)
+    internal class Session(val watch: Watch, initial: WalkingState) {
+        @Volatile var state = initial
+        @Volatile var carrier: ArmorStand? = null
+        @Volatile var ready = false
+        var detaching = false // Only the rider/carrier owner handles native dismount events.
         val ending = AtomicBoolean()
         val movementRevision = AtomicLong()
-        var pendingExit: PassengerPoint? = null
+        val allocated = CompletableFuture<Void>()
+        var flushed: CompletionStage<Void> = CompletableFuture.completedFuture(null) // lifecycle admission lock
         val completion = CompletableFuture<Void>()
     }
 }

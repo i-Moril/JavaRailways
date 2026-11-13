@@ -3,7 +3,7 @@
   "name": "passenger-movement",
   "title": "验证 platform 区域内的乘客强制移动",
   "description": "验证进入列车 platform 后强制挂载随车移动、WASD 局部移动、禁用 Shift 下车与跳跃，并在走出边界后恢复普通运动。",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": "bukkit-plugin",
@@ -22,5 +22,9 @@
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {
+    "implementation": "complete",
+    "runtime_acceptance": "pending",
+    "full_test_gate": "baseline_failure"
+  }
 }

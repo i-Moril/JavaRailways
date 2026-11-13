@@ -167,6 +167,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     internal val packetDisplayChunks get() = checkNotNull(packetEntityRuntime).displayChunks
     private var timetableHttpBridge: TimetableHttpBridge? = null
     private var timetableWebUiSidecar: TimetableWebUiSidecar? = null
+    internal var passengerMovement: work.art1st.javarailways.bukkit.passenger.PassengerMovementManager? = null
+        private set
     var packetEntityMotion: PacketEntityMotion? = null
         private set
 
@@ -343,6 +345,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
                 if (::trainControlManager.isInitialized) trainControlManager.retireWorld(world)
             }
         )
+        passengerMovement = work.art1st.javarailways.bukkit.passenger.PassengerMovementManager(
+            this, presentationOwner, work.art1st.javarailways.bukkit.passenger.PacketPassengerCarrierAccess(checkNotNull(packetEntityMotion))
+        ).also { it.start() }
         railTargetService = BukkitRailTargetService(this)
         server.pluginManager.registerEvents(worldManager, this)
         server.servicesManager.register(work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService::class.java,
@@ -572,6 +577,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             runShutdownStep("train handle input listener") { trainHandleInputListener.stop() }
         }
         return {
+            runShutdownStep("passenger movement") {
+                passengerMovement?.let { PlatformCleanup.awaitCompletion(it.close()) }
+            }
             val worldsStopped = runShutdownStep("world manager stop") {
                 if (::worldManager.isInitialized) worldManager.stop()
             }
@@ -647,6 +655,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         trainDebugMainEventRegistration = null
         runShutdownStep("train debug log") { TrainDebugLog.close() }
         runShutdownStep("packet entity runtime") { packetEntityRuntime?.close() }
+        passengerMovement = null
         packetEntityMotion = null
         packetEntityRuntime = null
         runShutdownStep("extension plugin registry") {

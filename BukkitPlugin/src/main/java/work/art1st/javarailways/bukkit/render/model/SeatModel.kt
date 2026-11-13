@@ -18,6 +18,7 @@ import org.joml.Vector3dc
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.config.model.DriverControlEnd
 import work.art1st.javarailways.bukkit.extension.bukkitWorldData
+import work.art1st.javarailways.bukkit.render.backend.configureSeatCarrier
 import work.art1st.javarailways.bukkit.render.Animation
 import work.art1st.javarailways.bukkit.util.BukkitThreadOwnership
 import work.art1st.javarailways.core.api.physics.World
@@ -250,19 +251,6 @@ class SeatModel internal constructor(
         interaction.setResponsive(!occupied)
         interaction.setInteractionWidth(if (occupied) 0.0f else 1.0f)
         interaction.setInteractionHeight(if (occupied) 0.0f else 1.0f)
-    }
-
-    private fun configureSeatCarrier(entity: ArmorStand) {
-        entity.isPersistent = false
-        entity.isSilent = true
-        entity.isInvisible = true
-        entity.isMarker = true
-        entity.isSmall = true
-        entity.setArms(false)
-        entity.setBasePlate(false)
-        entity.setGravity(false)
-        entity.setNoPhysics(true)
-        entity.isCollidable = false
     }
 
     private fun configureCommonInteraction(interaction: Interaction) {

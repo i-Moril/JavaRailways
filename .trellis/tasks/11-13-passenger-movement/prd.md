@@ -7,7 +7,7 @@
 ## Confirmed Context
 
 - 用户指定从 `main` 创建 `feat/passenger-movement`。分支已创建，基线是本地 `main` 的 `5aa13ea26280b5e8292c8c29723bc2eb52f4822a`，与缓存的 `origin/main` 相同。GitHub 插件无法访问仓库，SSH/HTTPS 认证均未成功，因此远端最新状态尚未验证。
-- 已获得创建 Trellis 任务并规划的同意；尚未获得最终方案的实施批准，任务保持 `planning`。
+- 已获得创建 Trellis 任务并规划的同意；用户在最终方案及调度澄清后明确回复“可以。允许修改代码。”，批准进入实施。
 - 当前 `PlatformModel` 的区域检测用于提前激活碰撞实体，含额外的横向和纵向范围；不能把它直接作为强制上车条件。证据：`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/model/PlatformModel.kt:152`、`:228`。
 - 已有座位后端维护真实服务端乘坐实体与客户端虚拟座位，可作为乘客移动的复用基础。证据：`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/backend/PacketEntityMotion.kt:116`。
 - 已有驾驶输入监听使用 `PlayerInputEvent`。证据：`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/control/TrainHandleInputListener.kt:34`。
@@ -41,4 +41,4 @@
 
 ## Planning Status
 
-已根据用户确认的三项产品选择完成需求收敛，移除了已回答的待决问题。`design.md` 记录交接设计，`implement.md` 记录执行和验收顺序，`implement.jsonl` / `check.jsonl` 提供子代理规范上下文。保持 `planning`，未执行 `task.py start`；最终规划摘要获得批准后才进入实现。
+已根据用户确认的三项产品选择完成需求收敛，并获得实施批准。功能实现、对应 32 项 Passenger/Seat 测试和打包完成；完整测试仍有一项已证明与本轮无关的 S100 ZIP/source 基线失败。真实客户端验收尚未执行，任务保持 `in_progress`，详细证据见 `research/validation.md`。

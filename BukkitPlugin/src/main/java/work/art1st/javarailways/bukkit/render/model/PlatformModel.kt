@@ -13,6 +13,7 @@ import org.joml.Vector3dc
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.config.model.PartPlatformConfig
 import work.art1st.javarailways.bukkit.extension.bukkitWorldData
+import work.art1st.javarailways.bukkit.passenger.PassengerSurfaceSource
 import work.art1st.javarailways.bukkit.render.Animation
 import work.art1st.javarailways.bukkit.render.backend.PacketPlatformCarrier
 import work.art1st.javarailways.core.api.physics.World
@@ -39,6 +40,7 @@ class PlatformModel internal constructor(
     private val cellOffsets = platformConfig.cellOffsets().map { Vector3d(it.x, it.y, it.z) }
     private val platformHalfX = ((platformConfig.rows - 1) * platformConfig.spacingX) / 2.0 + CELL_HALF_EXTENT
     private val platformHalfZ = ((platformConfig.columns - 1) * platformConfig.spacingZ) / 2.0 + CELL_HALF_EXTENT
+    internal val passengerSurface = PassengerSurfaceSource(platformHalfX, platformHalfZ)
     private val activePlayers = ConcurrentHashMap<UUID, Player>()
     private val lifecycleRevision = AtomicLong(0L)
     private val spawnScheduled = AtomicBoolean(false)
@@ -145,6 +147,7 @@ class PlatformModel internal constructor(
         transformDirty: Boolean
     ) {
         super.updateState(parentRelativeTransform, rootTransform, rootVelocity, transformDirty)
+        passengerSurface.publish(state.rootRelativeTransform)
         if (activePlayers.isNotEmpty() && units.isEmpty()) spawnEntities()
         if (units.isNotEmpty()) syncEntities()
     }
@@ -166,6 +169,7 @@ class PlatformModel internal constructor(
         }
 
         activePlayers[playerId] = player
+        BukkitPlugin.INSTANCE.passengerMovement?.watch(player, passengerSurface)
         if (units.isEmpty()) {
             spawnEntities()
         } else if (!alreadyActive && BukkitPlugin.INSTANCE.platformCapabilities.folia) {
@@ -177,6 +181,7 @@ class PlatformModel internal constructor(
 
     fun deactivateFor(player: Player) {
         if (activePlayers.remove(player.uniqueId) == null) return
+        BukkitPlugin.INSTANCE.passengerMovement?.unwatch(player, passengerSurface)
         units.filterIsInstance<PacketPlatformUnit>().forEach { unit ->
             unit.carrier.hideFrom(player.uniqueId)
         }
@@ -245,6 +250,8 @@ class PlatformModel internal constructor(
 
     override fun collectDestruction(steps: DestructionSteps) {
         retired = true
+        passengerSurface.retire()
+        activePlayers.values.forEach { BukkitPlugin.INSTANCE.passengerMovement?.unwatch(it, passengerSurface) }
         activePlayers.clear()
         steps.await { destroyEntities() }
         pendingRemovals.forEach { pending -> steps.await { pending } }

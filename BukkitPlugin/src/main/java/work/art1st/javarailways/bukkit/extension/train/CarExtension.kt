@@ -8,8 +8,6 @@ import work.art1st.javarailways.core.api.util.DestructionSteps
 
 import org.bukkit.Location
 import org.bukkit.entity.Player
-import org.joml.Matrix3d
-import org.joml.Quaterniond
 import org.joml.Vector3d
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.config.TrainModelUpdatePolicy
@@ -26,6 +24,9 @@ import work.art1st.javarailways.core.api.physics.train.CarFrameSnapshot
 import work.art1st.javarailways.core.api.render.RenderableFrameSnapshot
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
 import work.art1st.javarailways.bukkit.extension.bukkitWorldData
+import work.art1st.javarailways.bukkit.passenger.PassengerCarPlatforms
+import work.art1st.javarailways.bukkit.passenger.PassengerPlatformPart
+import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.train.CoreCar
 import work.art1st.javarailways.bukkit.extension.renderChunkManager
 import work.art1st.javarailways.bukkit.util.BukkitThreadOwnership
@@ -92,6 +93,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     private var bogieModels: List<CompositeModel> = emptyList()
     private var platformModels: List<PlatformModel> = emptyList()
     private var seatModels: List<SeatModel> = emptyList()
+    private var passengerPlatforms: PassengerCarPlatforms? = null
     private var modelUpdateSequence: Long = 0L
     private var modelStateApplied: Boolean = false
     private var detailStateCurrent: Boolean = false
@@ -337,10 +339,12 @@ class CarExtension : TrainComponentExtension<Car>() {
         require(revision >= 0L) { "published car frame revision must be non-negative" }
         ensureFrameLocationOwned(frame)
         if (!publishedFrameGate.accept(self as CoreCar, publicationStreamId, revision)) return
-        // A pre-publication model has no source identity yet; retire it on its first
-        // accepted source too, so a transfer before that first frame cannot reuse an old session.
+        // Dynamic extensions have no pre-publication source identity. Passenger registrations
+        // already capture an exact train stream, so retain those on the matching first frame.
+        // A transfer before that first frame still retires the original passenger registration.
+        val passengerStreamChanged = passengerPlatforms?.train?.publicationStreamId?.let { it != publicationStreamId } == true
         val streamChanged = latestPartRenderStream != publicationStreamId &&
-            (latestPartRenderStream != null || hasDynamicExtensionModel)
+            (latestPartRenderStream != null || hasDynamicExtensionModel || passengerStreamChanged)
         val contextChanged = partRenderSnapshot != null &&
             latestPartRenderSnapshot?.contextKey != partRenderSnapshot.contextKey
         // A geometry-only envelope carries no new metadata. It may retain the last sample only
@@ -491,6 +495,26 @@ class CarExtension : TrainComponentExtension<Car>() {
             bogieModels = bogies
             platformModels = platforms
             seatModels = seats
+            val passengerParts = buildList {
+                val bodyPlatforms = mutableListOf<PlatformModel>()
+                body.collectModelsOfType(bodyPlatforms)
+                bodyPlatforms.forEach { add(PassengerPlatformPart(it.passengerSurface, null)) }
+                bogies.forEachIndexed { index, bogie ->
+                    val bogiePlatforms = mutableListOf<PlatformModel>()
+                    bogie.collectModelsOfType(bogiePlatforms)
+                    bogiePlatforms.forEach { add(PassengerPlatformPart(it.passengerSurface, index)) }
+                }
+            }
+            if (passengerParts.isNotEmpty()) {
+                val car = self as CoreCar
+                passengerPlatforms = PassengerCarPlatforms(car, car.train as CoreTrain, bukkitWorld,
+                    self.floorHeight, passengerParts).also { pluginRegistration ->
+                    BukkitPlugin.INSTANCE.passengerMovement?.let { manager ->
+                        manager.register(pluginRegistration)
+                        construction.own(pluginRegistration) { manager.retire(pluginRegistration) }
+                    }
+                }
+            }
             behaviorModelNodes = buildList {
                 body.forEachModelRecursive { if (it.animation.isNotEmpty()) add(it) }
                 bogies.forEach { model -> model.forEachModelRecursive { if (it.animation.isNotEmpty()) add(it) } }
@@ -545,8 +569,8 @@ class CarExtension : TrainComponentExtension<Car>() {
         forceNextModelUpdate = false
         modelStateApplied = true
         detailStateCurrent = true
-        val renderRotation = rotationFrom(direction, normal)
-        val carTransform = CompactTransform(position = position, rotation = renderRotation)
+        val carTransform = state.modelTransform()
+        val renderRotation = carTransform.rotation
         model.updateState(carTransform, velocity)
 
         if (TrainDebugLog.enabled) {
@@ -567,10 +591,7 @@ class CarExtension : TrainComponentExtension<Car>() {
         }
 
         frame.bogies.zip(bogieModels).forEachIndexed { index, (bogieState, bogieModel) ->
-            val bogieTransform = CompactTransform(
-                position = bogieRootPosition(bogieState),
-                rotation = rotationFrom(bogieState.directionVector(), bogieState.normalVector())
-            )
+            val bogieTransform = bogieState.modelTransform(self.floorHeight)
             bogieModel.updateState(bogieTransform, motion.bogieVelocitiesBlocksPerTick[index])
         }
 
@@ -606,6 +627,10 @@ class CarExtension : TrainComponentExtension<Car>() {
         hasDynamicExtensionModel = false
         val steps = DestructionSteps()
         steps.action { snapshotHeldScenesForReload() }
+        passengerPlatforms?.let { registration ->
+            steps.await { BukkitPlugin.INSTANCE.passengerMovement?.retire(registration) ?: CompletableFuture.completedFuture(null) }
+        }
+        passengerPlatforms = null
         bodyModel?.let { model -> steps.await { model.destroy() } }
         bogieModels.forEach { model -> steps.await { model.destroy() } }
         behaviorModelNodes = emptyList()
@@ -686,21 +711,6 @@ class CarExtension : TrainComponentExtension<Car>() {
         forEachModelRecursive { model ->
             if (model is T) target += model
         }
-    }
-
-    /**
-     * Compute a model-space rotation from direction and normal vectors.
-     */
-    private fun rotationFrom(direction: org.joml.Vector3dc, normal: org.joml.Vector3dc): Quaterniond {
-        val right = Vector3d()
-        normal.cross(direction, right).normalize()
-        // Matrix columns: model-X→right(width), model-Y→normal(up), model-Z→direction(fwd).
-        val rotationMatrix = Matrix3d(
-            right.x(), right.y(), right.z(),
-            normal.x(), normal.y(), normal.z(),
-            direction.x(), direction.y(), direction.z()
-        )
-        return Quaterniond().setFromNormalized(rotationMatrix)
     }
 
     private fun renderFrame(): CarFrameSnapshot = latestFrame ?: captureLiveFrame()

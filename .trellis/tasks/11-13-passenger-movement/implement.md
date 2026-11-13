@@ -4,21 +4,21 @@
 
 - 当前分支 `feat/passenger-movement`，基于本地 `main` 的 `5aa13ea2`；远端认证尚不可用，不能声明远端已验证最新。
 - 用户确认视角相对方向、固定速度和跨平台交接。
-- 本轮只形成最终规划摘要，保持 `planning`。只有用户随后明确批准该摘要，才执行 `task.py start` 并进入实现。
+- 用户在最终规划摘要及调度澄清后明确回复“可以。允许修改代码。”，实施已获批准。开始前已修正跨 chunk 不等于跨 region 的规划表述。
 - 不启动或部署游戏服务器，除非后续获得对应授权。
 
 ## 有序执行清单
 
-- [ ] 1. 最终规划获批后激活任务；按 Trellis 子代理模式派发 `trellis-implement`，提示以 `Active task: .trellis/tasks/11-13-passenger-movement` 开头并加载已整理的上下文。`lifecycle-and-threading.md` / `interaction-render-persistence.md` 超过原生注入的单文件 32768 字节上限，implement/check 子代理须从磁盘补读完整相关章节，尤其关闭与 GentleUnload 部分，不能把截断注入当作完整规范。
-- [ ] 2. 将 `PlatformModel` 的预激活与真实乘客支撑区域分开；发布复制后的几何/姿态与模型生命周期身份，不跨线程暴露 `ModelState`。
-- [ ] 3. 在 `CarExtension` / `WorldManager` 接入同来源完整平台场景；验证分区完成、失败和静止快照语义，保持既有 Core 渲染通知/分区调度合同。
-- [ ] 4. 实现视角相对、固定 `4.3 m/s` 的归一化行走与沿运动路径的连续平台交接；先写有意义的坐标、斜向、坡度、重叠/空隙和剩余步长测试。
-- [ ] 5. 接入每位玩家单独的 carrier 与 session，复用 `PacketEntityMotion` / `PacketVirtualSeat` / `SeatAuthorityMover`。需要时最小提取现有 carrier 配置，避免复制 seat registry。
-- [ ] 6. 接入 Shift 主动 dismount 拦截、忽略跳跃、区域外释放及外部传送/死亡/退出/销毁/世界卸载/插件关闭。旧回调不能拉回玩家或重新创建资源。
-- [ ] 7. 将 manager 放入 `BukkitPlugin` 的启动与清理顺序；检查现有点击座位、驾驶输入和 audience 未发生职责冲突。
-- [ ] 8. 完成聚焦测试与模块构建，再派发 `trellis-check` 审查整个改动范围；主会话核对修复、证据及未通过边界。
+- [x] 1. 最终规划获批后激活任务；按 Trellis 子代理模式派发 `trellis-implement`，提示以 `Active task: .trellis/tasks/11-13-passenger-movement` 开头并加载已整理的上下文。`lifecycle-and-threading.md` / `interaction-render-persistence.md` 超过原生注入的单文件 32768 字节上限，implement/check 子代理须从磁盘补读完整相关章节，尤其关闭与 GentleUnload 部分，不能把截断注入当作完整规范。
+- [x] 2. 将 `PlatformModel` 的预激活与真实乘客支撑区域分开；发布复制后的几何/姿态与模型生命周期身份，不跨线程暴露 `ModelState`。
+- [x] 3. 优先复用已有整列不可变快照与 `CarExtension` 平台登记建立同来源场景，验证静止、来源失效及模型重建；仅在实际集成需要时最小接入 `WorldManager`，保持既有 Core 渲染通知/分区调度合同。
+- [x] 4. 实现视角相对、固定 `4.3 m/s` 的归一化行走与沿运动路径的连续平台交接；先写有意义的坐标、斜向、坡度、重叠/空隙和剩余步长测试。
+- [x] 5. 接入每位玩家单独的 carrier 与 session，复用 `PacketEntityMotion` / `PacketVirtualSeat` / `SeatAuthorityMover`。需要时最小提取现有 carrier 配置，避免复制 seat registry。
+- [x] 6. 接入 Shift 主动 dismount 拦截、忽略跳跃、区域外释放及外部传送/死亡/退出/销毁/世界卸载/插件关闭。旧回调不能拉回玩家或重新创建资源。
+- [x] 7. 将 manager 放入 `BukkitPlugin` 的启动与清理顺序；检查现有点击座位、驾驶输入和 audience 未发生职责冲突。
+- [x] 8. 完成聚焦测试与模块构建，再派发 `trellis-check` 审查整个改动范围；主会话核对修复、证据及未通过边界。
 - [ ] 9. 在明确获准的真实开发服执行下列客户端验收；若尚未获准或未执行，保留为未验收，不宣称功能实机可行性已证明。
-- [ ] 10. 按实际实现更新 Bukkit spec，精确暂存本任务文件并提交；不推送或部署。
+- [x] 10. 按实际实现更新 Bukkit spec，精确暂存本任务文件并提交；不推送或部署。
 
 ## 预期改动文件
 
@@ -27,7 +27,7 @@
 - `render/model/PlatformModel.kt`：乘客支撑区域与值快照。
 - 新增内部乘客会话、几何和场景管理文件：单一 owner，避免平台分散控制玩家。
 - `extension/train/CarExtension.kt`：车厢平台登记、姿态复制、生命周期失效。
-- `logic/WorldManager.kt`：既有整列 region 批次完成边界上的场景发布。
+- `logic/WorldManager.kt`：不是预定必改文件；仅在无法直接复用现有整列帧时接入已有发布/完成边界。
 - `BukkitPlugin.kt`：manager composition/start/stop。
 - `render/model/SeatModel.kt`：仅在需要共用 carrier 配置时最小提取；现有座位行为不变。
 - `render/backend/PacketEntityMotion.kt` 及关联 helper：优先直接复用；只有实际集成所需才调整内部接口。
@@ -60,3 +60,7 @@ git diff --check
 ## 回退点
 
 几何/场景发布与实体会话保持清楚的提交边界；所有数据为临时运行态。回退前先结束会话并完成 carrier 清理，再回退本功能提交；不涉及存档迁移。最敏感的现有路径为 `SeatModel` 的驾驶席绑定/下车和 `WorldManager` 的逐列完成回调，必须保留已有测试并在审查中重点核对。
+
+## 当前验证结果
+
+实现与独立代码审查完成，20 项 Passenger 和 12 项 Seat 测试通过，插件打包成功。完整测试为 956 项、1 项既有 S100 ZIP/source 基线失败、1 跳过；临时增加 Test 堆到 2 GiB 后无 OOM。第 9 项游戏内验收仍未执行，任务不归档为已完整验收。证据见 `research/validation.md`。

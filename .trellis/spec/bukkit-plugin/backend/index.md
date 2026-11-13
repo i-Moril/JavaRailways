@@ -22,6 +22,7 @@
 | [屏幕部件定义](./screen-parts.md) | namespaced 扩展部件、缺失插件保留子树、注册生命周期 |
 | [Wand 配置界面](./wand-config.md) | 配置项、注册、会话、动态显示和提交错误 |
 | [交互、渲染与持久化](./interaction-render-persistence.md) | Cloud/Wand/Dialog、backend/model、add-on API、snapshot/sidecar |
+| [列车 platform 乘客移动](./passenger-movement.md) | 乘客脚底接触、视角相对行走、同 carrier 平台交接与 owner 清理 |
 | [一次性离线开发服迁移](./offline-development-migration.md) | 整目录外部归档、旧split转换、受限曲线修复和真实restore；不进入JAR |
 | [独立道岔操作工具](./turnout-wand.md) | 来向/出口选择、安全手动切换、真实连接反馈 |
 | [铁路编辑标记视觉规范](./editor-markers.md) | 点、方向、区间和警告的共用含义；CURRENT临时文字公开API、玩家隔离及关闭完成；不统一业务模型 |

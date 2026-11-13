@@ -6,10 +6,24 @@ import net.minecraft.world.phys.Vec3
 import org.bukkit.Location
 import org.bukkit.craftbukkit.entity.CraftEntity
 import org.bukkit.entity.Entity
+import org.bukkit.entity.Player
 import kotlin.math.sqrt
 
 /** Moves the hidden server authority on its owning Paper/Folia entity thread without teleporting it. */
 internal object SeatAuthorityMover {
+    /** Marker carriers have zero height. Put the dismount origin at the requested feet WITHOUT
+     * repositioning the rider, then let vanilla stopRiding place and synchronize the player.
+     * This runs synchronously on their shared owner and never queues a later player teleport.
+     */
+    fun dismountAt(entity: Entity, player: Player, feet: Location) {
+        val handle = (entity as CraftEntity).handle
+        require(entity.world === feet.world) { "Passenger dismount must stay in the carrier world" }
+        val position = handle.position()
+        handle.move(MoverType.SELF, Vec3(feet.x - position.x, feet.y - position.y, feet.z - position.z))
+        handle.setDeltaMovement(Vec3.ZERO)
+        entity.removePassenger(player)
+    }
+
     fun move(entity: Entity, target: Location): SeatAuthorityMoveResult {
         val current = entity.location
         require(current.world === target.world) {

@@ -11,7 +11,7 @@
 - `PlatformModel` 已有网格和部件变换，但 `containsPlayer` 使用宽于实际平台的预激活范围。
 - `SeatModel` 已配置不可见、无碰撞的真实 ArmorStand；`PacketEntityMotion.registerSeatCarrier`、`renderSeatCarrier`、`syncSeatAuthority` 已维护服务端乘坐与客户端虚拟挂载。
 - `SeatAuthorityMover` 已移动服务端承载实体并同步乘客位置；无需另建每 tick 传送玩家的实现。
-- `CarExtension.applyPublishedFrame` 接收有 stream/revision 的不可变车厢帧；`WorldManager.scheduleTrainFrame` 将整列车厢分为 region 批次并提供整次完成边界。
+- `CarExtension.applyPublishedFrame` 接收有 stream/revision 的不可变车厢帧；`WorldManager.scheduleTrainFrame` 按 chunk 分批派发。跨 chunk 不等于跨 Folia region 或并行线程；正常相邻车厢通常属于同一 region。
 - 静止列车可没有新的 Core render 通知，因此乘客行走必须有独立于列车移动通知的输入积分时钟。
 
 ## 数据与 owner
@@ -26,11 +26,11 @@
 
 ## 同一列车的平台快照
 
-`CarExtension` 在拥有模型状态的线程上复制已应用部件的姿态与几何。`WorldManager` 沿既有整列帧分区完成边界汇合本次结果，原子替换同一 runtime stream/revision 的完整平台集合，包含当前已构建且参与乘客判定的平台。
+优先复用已有 `Train.publishedFrame` 的完整车厢姿态，将已登记平台的复制后部件局部变换投影到同一次捕获的整列帧；不得分别读取各车厢的“最新”可变状态作为交接依据。复用现有姿态换算，避免复制一套不同的车身解算。`CarExtension` 负责平台局部几何/部件姿态和生命周期来源的登记。
 
-待处理新帧、失败或未完成的分区不能逐车覆盖交接场景；保持上一完整场景。模型集合增删/重建时更新成员身份，不能将旧模型快照与新成员混装。初次构建时使用已捕获的车厢帧完成姿态发布，不为此唤醒 Core stationary physics publication，也不轮询所有玩家或列车。
+先以最小 consumer 实现同来源场景；只有实际集成证据表明无法复用现有完整帧时，才在既有完成边界做必要接入。不能仅凭按 chunk 派发就预设必须修改 `WorldManager`。模型集合增删/重建时更新成员身份，旧成员不能继续驱动会话。
 
-静止时，乘客每 tick 使用最后完整场景积分输入。不同车厢先后完成 region 更新不影响交接使用的一致来源。客户端仍可能受插值和 region 调度延迟影响；这里保证判定数据的一致性，不承诺跨实体像素级同步。
+静止时，乘客每 tick 使用最后完整姿态积分输入，不为此唤醒 Core stationary physics publication，也不轮询所有玩家或列车。客户端仍可能受插值和调度延迟影响；这里保证判定数据的一致来源，不承诺跨实体像素级同步。
 
 ## 平台与输入几何
 

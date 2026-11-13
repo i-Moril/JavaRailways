@@ -1735,7 +1735,7 @@ class TimetableDispatcher(
                 (run.stationCall == null || run.stationCall?.departed == true) &&
                 run.destinationStop == null
             ) {
-                run.ato.setSpeedLimit(stopKey(run), 0.0)
+                run.ato.setOperatingHold(stopKey(run))
                 if (runtime === run.storageRuntime) {
                     if (!tryCompleteStorage(world, run, runtime)) {
                         return@forEach
@@ -2583,7 +2583,7 @@ class TimetableDispatcher(
         stop: DispatcherDestinationStop
     ) {
         if (!validateCommittedAuthority(world, run)) return
-        run.ato.setSpeedLimit(stopKey(run), 0.0)
+        run.ato.setOperatingHold(stopKey(run))
         stop.started = true
         val role = world.simpleAtoWorldData.destinations[stop.options.destinationId]?.role as?
             work.art1st.javarailways.simpleato.api.destination.DestinationRole.StationBerthRole
@@ -4198,7 +4198,7 @@ class TimetableDispatcher(
             }, { operationGateway.estimateDoorCloseDurationTicks(run.train.id, DoorSide.BOTH) })
         run.confirmedDoorStop = run.confirmedDoorStop?.copy(side = effectiveSide)
         if (run.displayPosition.updateDoorSide(effectiveSide,run.train.publishedFrame)) displayRuntime.progressChanged()
-        run.ato.setSpeedLimit(stationProgramHoldKey(run), 0.0)
+        run.ato.setOperatingHold(stationProgramHoldKey(run))
         run.state = TimetableServiceRunState.DWELLING
         run.message = "station ${programs.stationId}/${programs.callId} ${programs.role.name.lowercase()} tasks"
     }
@@ -4416,7 +4416,7 @@ class TimetableDispatcher(
                 "door operation requires a stopped train"
             }
             check(run.doorOperation == null && run.stopExecution == null) { "another door/station operation is active" }
-            run.ato.setSpeedLimit(stopKey(run), 0.0)
+            run.ato.setOperatingHold(stopKey(run))
             val open = action is TimetableAction.OpenDoors
             val side = if (open) (action as TimetableAction.OpenDoors).doorSideOverride ?: inheritedDoorSide(world, run)
                 else DoorSide.BOTH
@@ -4527,7 +4527,7 @@ class TimetableDispatcher(
                 is TimetableStep.At -> when (val action = step.action) {
                     is TimetableAction.OpenDoors, TimetableAction.CloseDoors -> {
                         if (timetableElapsedTicks(run) < step.tick) {
-                            run.ato.setSpeedLimit(stopKey(run), 0.0)
+                            run.ato.setOperatingHold(stopKey(run))
                             waitForTimetableTick(run, step.tick, pendingStep = true)
                             return
                         }
@@ -4769,7 +4769,7 @@ class TimetableDispatcher(
                                 stallRun(world, run, "InfrastructureInvariantViolation", "waitUntil requires a stopped train")
                                 return
                             }
-                            run.ato.setSpeedLimit(stopKey(run), 0.0)
+                            run.ato.setOperatingHold(stopKey(run))
                             if (timetableElapsedTicks(run) < step.tick) {
                                 waitForTimetableTick(run, step.tick, pendingStep = true)
                                 return
@@ -4812,7 +4812,7 @@ class TimetableDispatcher(
                         recordScheduledAction(run, step.tick)
                         run.programCursor = run.programCursor.advance()
                         run.dwellTicksRemaining = action.ticks
-                        run.ato.setSpeedLimit(stopKey(run), 0.0)
+                        run.ato.setOperatingHold(stopKey(run))
                         run.state = TimetableServiceRunState.DWELLING
                         run.message = "dwell ${action.ticks} ticks"
                         return
@@ -5757,7 +5757,7 @@ class TimetableDispatcher(
             }
             run.requiredNextStartDirection = null
             waitForTimetableTick(run, plan.actionTick, pendingStep = false)
-            run.ato.setSpeedLimit(scheduleHoldKey(run), 0.0)
+            run.ato.setOperatingHold(scheduleHoldKey(run))
         } else plan.stationCallSpec?.let { spec ->
             if (run.stationCall != null) {
                 run.deferredStationCallSpec = spec

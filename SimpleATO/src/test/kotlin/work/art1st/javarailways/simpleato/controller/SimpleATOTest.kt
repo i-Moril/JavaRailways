@@ -83,6 +83,7 @@ import work.art1st.javarailways.simpleato.routing.RouteAllocationTiming
 import work.art1st.javarailways.simpleato.admission.RollingRouteAuthorityPlanner
 import work.art1st.javarailways.simpleato.admission.RouteAuthorityAdmissionState
 import work.art1st.javarailways.basic.api.route.RouteBoundary
+import work.art1st.javarailways.simpleato.control.AtpDiagnosticContext
 
 class SimpleATOTest {
     private val worldFixtures = mutableListOf<TestWorldFixture>()
@@ -136,6 +137,66 @@ class SimpleATOTest {
         assertEquals(0.0, authority.targetSpeedMetersPerSecond)
         assertEquals(0.0, incident.state.speedMetersPerSecond)
         assertTrue(incident.judgement.status != work.art1st.javarailways.simpleato.api.atp.AtpStatus.SAFE)
+    }
+
+    @Test
+    fun `operating hold reaches only reference targets and retains the issued authority`() {
+        val fixture = fixture("operating-hold-authority")
+        val rail = fixture.train.head.location.rail
+        val head = fixture.train.head.location.arcLength
+        fixture.data.wayPoints.add(WayPoint("hold-origin", rail.id, head - 0.1))
+        fixture.data.wayPoints.add(WayPoint("hold-target", rail.id, head + 40.0))
+        val accepted = fixture.ato.submitMission(AtoMissionRequest("hold-authority", 1L,
+            WayPointRef("hold-origin"), listOf(AtoMissionPoint.Stop(WayPointRef("hold-target")))))
+            as AtoMissionSubmissionResult.Accepted
+        fixture.ato.setMovementAuthority(accepted.mission.revision, 0.0)
+        fixture.ato.setOperatingHold("station-dwell")
+
+        tickAndPublish(fixture.ato, 50.0)
+
+        val incident = requireNotNull(fixture.world.simpleAtoWorldData.controlRuntime.latestIntervention).event
+        val frame = (incident.context as AtpDiagnosticContext).frame
+        val hold = frame.referenceTargets.single { it.id.contains("station-dwell") }
+        assertEquals(0.0, hold.distanceMeters)
+        assertEquals(0.0, hold.targetSpeedMetersPerSecond)
+        assertFalse(frame.protectionTargets.any { it.id == hold.id })
+        val authority = frame.protectionTargets.single { it.id.contains("authority/1") }
+        assertEquals(-0.1, authority.distanceMeters, 1e-9)
+        assertEquals(authority, incident.judgement.witness?.target)
+        assertFalse(fixture.coordinator.isStalled, fixture.coordinator.lastStall.toString())
+    }
+
+    @Test
+    fun `operating hold and speed limit replace each other and clear through the existing removal command`() {
+        val fixture = fixture("operating-hold-replacement")
+        authorizeMovement(fixture)
+        val key = "station-dwell"
+        fixture.ato.setOperatingHold(key)
+        assertFalse(fixture.ato.runtimeDiagnostics.constraints.any { it.contains(key) },
+            "external commands take effect at the physics boundary")
+        tickAndPublish(fixture.ato, 50.0)
+        assertEquals(0.0, fixture.train.speed)
+        assertTrue(fixture.ato.runtimeDiagnostics.constraints.single { it.contains(key) }
+            .contains("operatingTarget=true"))
+
+        fixture.ato.setSpeedLimit(key, 2.0)
+        tickAndPublish(fixture.ato, 1_000.0)
+        assertTrue(fixture.train.speed > 0.0, "replacing the hold must permit departure")
+        assertTrue(fixture.ato.runtimeDiagnostics.constraints.single { it.contains(key) }
+            .contains("maximumSpeedMetersPerSecond=2.0"))
+
+        fixture.ato.setOperatingHold(key)
+        repeat(40) { tickAndPublish(fixture.ato, 50.0) }
+        assertEquals(0.0, fixture.train.speed)
+        assertTrue(fixture.ato.runtimeDiagnostics.constraints.single { it.contains(key) }
+            .contains("operatingTarget=true"))
+
+        fixture.ato.removeSpeedLimit(key)
+        tickAndPublish(fixture.ato, 1_000.0)
+        assertFalse(fixture.ato.runtimeDiagnostics.constraints.any { it.contains(key) })
+        assertTrue(fixture.train.speed > 0.0, "removal must release the operating hold")
+        assertTrue(fixture.world.simpleAtoWorldData.controlRuntime.incidents.isEmpty())
+        assertFalse(fixture.coordinator.isStalled, fixture.coordinator.lastStall.toString())
     }
 
     @Test

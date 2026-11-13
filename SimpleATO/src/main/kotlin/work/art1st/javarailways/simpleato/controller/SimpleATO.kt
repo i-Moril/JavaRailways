@@ -125,6 +125,7 @@ class SimpleATO(
 
     private sealed interface Command {
         data class SetSpeedLimit(val key: String, val speed: Double) : Command
+        data class SetOperatingHold(val key: String) : Command
         data class StopAt(val key: String, val target: RailObjectRef, val offsetMeters: Double) : Command
         data class Remove(val key: String) : Command
         data class SetMovementAuthority(val missionRevision: Long, val limitDistanceMeters: Double) : Command
@@ -195,7 +196,7 @@ class SimpleATO(
     private val trainRestrictionAdapter = TrainRestrictionConstraintAdapter(train.id, constraintManager)
     private var trainInspection: InspectionRuntime.TrainInspection? = null
     private var inspectedRoute: FrozenRouteBinding? = null
-    private val speedLimits = LinkedHashMap<String, Double>()
+    private val externalConstraints = LinkedHashMap<String, AtoConstraint>()
     private val stopTargets = LinkedHashMap<String, StopTarget>()
     private var activeInfrastructureLimitMetersPerSecond: Double? = null
     private var infrastructureLimitInitialized = false
@@ -524,6 +525,12 @@ class SimpleATO(
         return commands.enqueue(Command.SetSpeedLimit(key, speedLimitMetersPerSecond)).revision
     }
 
+    /** Hold ordinary control at rest while retaining the actual ATP protection boundaries. */
+    fun setOperatingHold(key: String): Long {
+        require(key.isNotBlank())
+        return commands.enqueue(Command.SetOperatingHold(key)).revision
+    }
+
     fun stopAt(key: String, railObject: RailObject, offsetMetersBefore: Double = 0.0): Long =
         stopAt(key, railObject.ref, offsetMetersBefore)
 
@@ -573,10 +580,15 @@ class SimpleATO(
         }
         commands.drain().forEach { envelope ->
             when (val command = envelope.command) {
-                is Command.SetSpeedLimit -> speedLimits[command.key] = command.speed
+                is Command.SetSpeedLimit -> externalConstraints[command.key] =
+                    CurrentSpeedLimitConstraint(ConstraintKey("external", command.key), command.speed)
+                is Command.SetOperatingHold -> externalConstraints[command.key] = StopConstraint(
+                    ConstraintKey("external", command.key), 0.0,
+                    stoppingMarginMeters = 0.0, operatingTarget = true
+                )
                 is Command.StopAt -> stopTargets[command.key] = StopTarget(command.target, command.offsetMeters)
                 is Command.Remove -> {
-                    speedLimits.remove(command.key)
+                    externalConstraints.remove(command.key)
                     stopTargets.remove(command.key)
                 }
                 is Command.HoldForMovementAuthority -> {
@@ -942,9 +954,7 @@ class SimpleATO(
         constraintManager.replace(FOLLOW_OWNER, following)
 
         val external = buildList {
-            speedLimits.forEach { (key, limit) ->
-                add(CurrentSpeedLimitConstraint(ConstraintKey("external", key), limit))
-            }
+            addAll(externalConstraints.values)
             stopTargets.forEach { (key, target) ->
                 val transition = scan.perception.observations
                     .firstOrNull { it.subject.ref == target.ref }

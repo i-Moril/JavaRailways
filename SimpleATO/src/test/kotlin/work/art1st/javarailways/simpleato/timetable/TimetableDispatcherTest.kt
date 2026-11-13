@@ -399,6 +399,8 @@ class TimetableDispatcherTest {
             world.onOwnerForTest { dispatcher.tick(world) }
             assertEquals(TimetableServiceRunState.WAITING_TIMETABLE_TIME, dispatcher.status(id)?.state)
             assertEquals(0.0, train.speed, 1e-9)
+            val hold = ato.runtimeDiagnostics.constraints.single { it.contains("dispatcher:stop/") }
+            assertTrue(hold.contains("StopConstraint") && hold.contains("operatingTarget=true"), hold)
         }
         tickAndPublish(ato)
         world.onOwnerForTest { dispatcher.tick(world) }
@@ -410,6 +412,9 @@ class TimetableDispatcherTest {
             world.onOwnerForTest { dispatcher.tick(world) }
         }
         assertTrue(train.speed > 0.0, dispatcher.status(id).toString())
+        assertFalse(ato.runtimeDiagnostics.constraints.any { it.contains("dispatcher:stop/") },
+            "the next movement mission must clear the timetable hold")
+        assertTrue(world.simpleAtoWorldData.controlRuntime.incidents.isEmpty())
     }
 
     @Test
@@ -2429,6 +2434,8 @@ class TimetableDispatcherTest {
         assertTrue(world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") } is TimetableServiceStartResult.Started)
         val ato = train.controller as SimpleATO
         var observedDwell = false
+        var observedOperatingHold = false
+        var observedReleasedHold = false
         var dwellPosition: Double? = null
         var firstRevision = -1L
         repeat(5_000) {
@@ -2441,12 +2448,26 @@ class TimetableDispatcherTest {
                 assertEquals(0.0, train.speed, "ordinary dwell must retain an actually stopped train")
                 if (dwellPosition == null) dwellPosition = train.head.location.arcLength
                 assertEquals(dwellPosition!!, train.head.location.arcLength, 1.0e-9)
+                ato.runtimeDiagnostics.constraints.singleOrNull { it.contains("dispatcher:stop/") }?.let { hold ->
+                    assertTrue(hold.contains("StopConstraint") && hold.contains("operatingTarget=true"), hold)
+                    observedOperatingHold = true
+                }
+            }
+            if (status.missionRevision > firstRevision &&
+                ato.runtimeDiagnostics.missionRevision == status.missionRevision &&
+                status.state == TimetableServiceRunState.RUNNING
+            ) {
+                assertFalse(ato.runtimeDiagnostics.constraints.any { it.contains("dispatcher:stop/") },
+                    "installing the later movement mission must clear the dwell hold")
+                observedReleasedHold = true
             }
             if (status.state == TimetableServiceRunState.COMPLETED) return@repeat
         }
 
         val completed = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
         assertTrue(observedDwell)
+        assertTrue(observedOperatingHold)
+        assertTrue(observedReleasedHold)
         assertTrue(completed.missionRevision > firstRevision)
         assertEquals(TimetableServiceRunState.COMPLETED, completed.state)
         assertEquals(originArc + 65.0, train.head.location.arcLength, 0.4)

@@ -62,6 +62,29 @@ signed边界，越界不得clamp为0。普通策略使用扣除明确运营margi
 巡航策略默认0.2s重算，停车末段/目标变化/保持指令不安全时提前；ATP与实际积分每tick执行。不得在在线
 ATO/ATP路径调用未来多tick的真实动力学预演。参考策略见[参考控制](reference-control.md)。
 
+### 调度器运营停车保持
+
+`SimpleATO.setOperatingHold(key: String): Long`用于到达任务停车点、目的地停站、站点程序、独立门操作、
+停站等待和普通首次发车时间等待。调用沿既有revision命令队列提交，在physics边界生效；key要求非空白。
+同一external key的运营保持与`setSpeedLimit`相互替换，后接受的命令生效；既有`removeSpeedLimit(key)`
+清除该key的external约束和`stopAt`目标，也清除运营保持。移交、discard与下一mission沿既有key清理路径执行，
+不能另存一份未随原key清理的保持状态。
+
+运营保持复用`StopConstraint(remainingDistanceMeters=0.0, stoppingMarginMeters=0.0, operatingTarget=true)`。
+它只进入普通控制参考目标；既有停车策略排除牵引，选择通过真实ATP候选检查的最强常用制动并维持压力。
+保持指令不为ATP新增车头当前位置的物理停车边界。真实MA、线路/信号限速和信号限制失效后的保护继续参与ATP，
+保留原始距离与符号；例如车站运营点之后0.3m的实际授权不因停车保持缩为0m。
+
+主动停止服务、任意扩展动作、候选资源等待以及编组/联结等待仍使用原有限速保持路径。
+`CurrentSpeedLimitConstraint(0.0)`和`DepartureHoldConstraint`仍是硬保护，不能按数值为零或owner类型统一排除。
+本修复不修改ATP比较容差、坡度计算、停车曲线或到站/开门确认时序。
+
+外部约束仍由controller唯一拥有；每轮合成成本为O(E)，E为当前external约束数，不增加路线扫描或未来物理预演。
+保持状态沿现有runtime命令生命周期存在，不新增持久化字段或恢复兼容路径。
+`SimpleATOTest`和`TimetableDispatcherTest`验证指令转换、同key替换/删除及停站到下一mission的清理。
+`OperatingHoldProtectionTest`组合真实逐车动力学，验证零气压静止列车在近零负坡度上建立常用制动、
+真实下坡已有制动的持续保持、解除后发车，以及运营保持期间真实授权越界和显式零速/失效保持仍触发ATP。
+
 普通mission和车站终点仍是零速目标；只有通过当前接触证明、mission/MA revision及精确边界校验的重联终点，
 才以准入grant携带的接近速度为目标。接近速度与grant上限必须一致；Core仍夹紧实际接触位移。
 独立停车、红灯、跟车和授权约束不因存在接触动作而删除或放宽。

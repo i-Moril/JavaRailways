@@ -497,6 +497,11 @@ JS 明确设置速度和不透明模型名，物理／下游变化只触发受�
 git diff --check
 ```
 
+`SimpleSignalsWorldRuntimeManagerTest` 中需要同时阻塞多个参与者的并发回归，显式使用测试实例拥有的
+平台线程执行器，并在失败时释放 latch、关闭执行器且等待线程退出。JDK 25 的默认 `CompletableFuture`
+使用公共线程池；2 核 JVM 中可能只有一个工作线程，第二个参与者尚未运行就会触发超时或等待状态断言。
+相关回归需在测试 JVM 加 `-XX:ActiveProcessorCount=2` 验证，保留原有锁隔离断言和时间窗口。
+
 `verifyPluginJar` 必须证明 artifact 含 `plugin.yml`，且不含 Core、Basic、SimpleATO 或 BukkitPlugin
 宿主 package；也必须拒绝附属descriptor里的Kotlin/serialization library声明以及附属JAR中的`kotlin/`、`kotlinx/serialization/`类，避免从另一入口重新引入重复运行库。宿主实际JAR须包含共享类型；干净类加载下还需在真实Paper/Folia操作一次跨插件API，例如创建固定闭塞。单classpath单元测试无法证明插件classloader身份一致。服务发现测试必须覆盖完整 capability 集合和缺少必需 capability 时的 fail-fast。
 根级 `verifySignalModuleBoundaries` 只补充直接声明和产物回归：SimpleSignals的宿主项目依赖若存在，不能

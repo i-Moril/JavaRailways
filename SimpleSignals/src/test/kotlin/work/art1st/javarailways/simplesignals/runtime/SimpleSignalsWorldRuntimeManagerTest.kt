@@ -14,6 +14,7 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.simplesignals.testing.fixedBlockPolicy
 
 import org.bukkit.plugin.Plugin
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -155,11 +156,20 @@ import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 import java.util.function.Consumer
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class SimpleSignalsWorldRuntimeManagerTest {
     @TempDir
     lateinit var directory: Path
+
+    private val concurrentExecutor = Executors.newCachedThreadPool()
+
+    @AfterEach
+    fun closeConcurrentExecutor() {
+        concurrentExecutor.shutdownNow()
+        assertTrue(concurrentExecutor.awaitTermination(5, TimeUnit.SECONDS), "test concurrent tasks must terminate")
+    }
 
     @Test fun `unbound ground devices delete through the atomic transaction without a fabricated rail permit`() {
         for (kind in listOf("fixed", "route", "entry", "indicator", "attached")) {
@@ -1628,12 +1638,13 @@ class SimpleSignalsWorldRuntimeManagerTest {
             signalSources(), railTargets = rails, modelPresentation = models)
         manager.install(fixture.worldId)
         val current = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
-        val edits = listOf(1.0, 2.0).map { at -> CompletableFuture.supplyAsync {
+        val edits = listOf(1.0, 2.0).map { at -> CompletableFuture.supplyAsync({
             manager.applyDefinitionPatch(fixture.worldId, 0, definitionDraftPatch(current,
                 deviceModelDefinitions(fixture, "fixed", railModel(fixture.entry, at))))
-        } }
-        assertTrue(entered.await(5, TimeUnit.SECONDS))
-        release.countDown()
+        }, concurrentExecutor) }
+        try {
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+        } finally { release.countDown() }
         assertEquals(setOf(SimpleSignalsDefinitionAuthoringStatus.APPLIED, SimpleSignalsDefinitionAuthoringStatus.REVISION_REJECTED),
             edits.map { it.get(5, TimeUnit.SECONDS).status }.toSet())
         assertEquals(1, infrastructure.permitAcquisitionCount)
@@ -3561,10 +3572,10 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val release = CountDownLatch(1)
         sources.beforeCommitAction = { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
         val patch = SimpleSignalsDefinitionPatch(upsertRegions = listOf(fixture.region))
-        val edit = CompletableFuture.supplyAsync { manager.applyDefinitionPatch(fixture.worldId, 0, patch, runtime) }
+        val edit = CompletableFuture.supplyAsync({ manager.applyDefinitionPatch(fixture.worldId, 0, patch, runtime) }, concurrentExecutor)
         try {
             assertTrue(entered.await(5, TimeUnit.SECONDS))
-            val lookup = CompletableFuture.supplyAsync { manager.authoringRuntime(fixture.worldId)!!.authoringPublication() }
+            val lookup = CompletableFuture.supplyAsync({ manager.authoringRuntime(fixture.worldId)!!.authoringPublication() }, concurrentExecutor)
             assertSame(before, lookup.get(1, TimeUnit.SECONDS))
             enabled = false
         } finally { release.countDown() }
@@ -6973,14 +6984,14 @@ class SimpleSignalsWorldRuntimeManagerTest {
         sources.beforeCommitAction = {
             if (first.compareAndSet(true, false)) { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
         }
-        val edit = CompletableFuture.supplyAsync { manager.applyDefinitionPatch(fixture.worldId, 0,
-            SimpleSignalsDefinitionPatch(upsertRegions = listOf(fixture.region)), runtime) }
+        val edit = CompletableFuture.supplyAsync({ manager.applyDefinitionPatch(fixture.worldId, 0,
+            SimpleSignalsDefinitionPatch(upsertRegions = listOf(fixture.region)), runtime) }, concurrentExecutor)
         try {
             assertTrue(entered.await(5, TimeUnit.SECONDS))
             assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED,
-                CompletableFuture.supplyAsync { manager.install(otherId) }.get(2, TimeUnit.SECONDS).status)
+                CompletableFuture.supplyAsync({ manager.install(otherId) }, concurrentExecutor).get(2, TimeUnit.SECONDS).status)
             // This is the exact owner->capture side of the former AB/BA hazard: capture must not wait for A's management gate.
-            val captured = CompletableFuture.supplyAsync { manager.prepareSimulation(fixture.worldId) }.get(2, TimeUnit.SECONDS)
+            val captured = CompletableFuture.supplyAsync({ manager.prepareSimulation(fixture.worldId) }, concurrentExecutor).get(2, TimeUnit.SECONDS)
             assertEquals("simplesignals", captured.id)
             assertEquals(0L, runtime.currentDefinitions().definitionRevision)
             assertFalse(edit.isDone)
@@ -7216,7 +7227,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
                 return original[index]
             }
         })
-        val preparation = CompletableFuture.supplyAsync { runtime.prepareDefinitions(fixture.currentTopology, candidate) }
+        val preparation = CompletableFuture.supplyAsync({ runtime.prepareDefinitions(fixture.currentTopology, candidate) }, concurrentExecutor)
         val models = SimpleSignalsWorldRuntimeManager::class.java.getDeclaredField("modelPackages").also { it.isAccessible = true }
         models.set(manager, null)
         val attach = SimpleSignalsWorldRuntimeManager::class.java.getDeclaredMethod("attachModels", SimpleSignalsWorldRuntime::class.java)
@@ -7224,7 +7235,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         var attachment: CompletableFuture<Void>? = null
         try {
             assertTrue(entered.await(5, TimeUnit.SECONDS))
-            attachment = CompletableFuture.runAsync { attach.invoke(manager, runtime) }
+            attachment = CompletableFuture.runAsync({ attach.invoke(manager, runtime) }, concurrentExecutor)
             val monitor = SimpleSignalsWorldRuntime::class.java.getDeclaredField("lock").also { it.isAccessible = true }.get(runtime)
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
             var waiting = false
@@ -7236,7 +7247,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             }
             assertTrue(waiting, "real attach must wait on the real candidate's publication lock")
             assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED,
-                CompletableFuture.supplyAsync { manager.install(UUID.randomUUID()) }.get(2, TimeUnit.SECONDS).status)
+                CompletableFuture.supplyAsync({ manager.install(UUID.randomUUID()) }, concurrentExecutor).get(2, TimeUnit.SECONDS).status)
             assertFalse(preparation.isDone)
             assertFalse(attachment.isDone)
         } finally { release.countDown() }
@@ -7297,7 +7308,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val replace = CountDownLatch(1)
         val installed = CountDownLatch(1)
         val release = CountDownLatch(1)
-        val replacement = CompletableFuture.runAsync {
+        val replacement = CompletableFuture.runAsync({
             synchronized(old.managementLock) {
                 held.countDown()
                 check(replace.await(5, TimeUnit.SECONDS))
@@ -7313,11 +7324,11 @@ class SimpleSignalsWorldRuntimeManagerTest {
                 installed.countDown()
                 check(release.await(5, TimeUnit.SECONDS))
             }
-        }
+        }, concurrentExecutor)
         var removal: CompletableFuture<Void>? = null
         try {
             assertTrue(held.await(5, TimeUnit.SECONDS))
-            removal = CompletableFuture.runAsync { manager.remove(fixture.worldId) }
+            removal = CompletableFuture.runAsync({ manager.remove(fixture.worldId) }, concurrentExecutor)
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
             while (!old.closed && System.nanoTime() < deadline) Thread.yield()
             assertTrue(old.closed)
@@ -7720,10 +7731,10 @@ class SimpleSignalsWorldRuntimeManagerTest {
             check(release.await(5, TimeUnit.SECONDS))
         }
         val work = queue.removeFirst()
-        val worker = CompletableFuture.runAsync { work() }
+        val worker = CompletableFuture.runAsync({ work() }, concurrentExecutor)
         try {
             assertTrue(entered.await(5, TimeUnit.SECONDS))
-            CompletableFuture.runAsync { infrastructure.commitTopology(fixture.topology(43), setOf(fixture.entry)) }
+            CompletableFuture.runAsync({ infrastructure.commitTopology(fixture.topology(43), setOf(fixture.entry)) }, concurrentExecutor)
                 .get(1, TimeUnit.SECONDS)
             assertSame(before, runtime.authoringPublication())
         } finally { release.countDown() }

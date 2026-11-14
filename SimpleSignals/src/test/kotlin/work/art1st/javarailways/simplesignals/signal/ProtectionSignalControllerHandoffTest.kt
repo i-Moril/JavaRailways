@@ -39,6 +39,8 @@ import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.simpleato.SimpleATOWorldData
 import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
+import work.art1st.javarailways.simpleato.api.depot.DepotStore
+import work.art1st.javarailways.simpleato.api.depot.FixedEmuUnit
 import work.art1st.javarailways.simpleato.api.restriction.RouteSpeedRestriction
 import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
 import work.art1st.javarailways.simpleato.controller.SimpleATO
@@ -158,7 +160,12 @@ class ProtectionSignalControllerHandoffTest {
             }
         )
         val atoData = SimpleATOWorldData(coordinator, dispatcher, epoch, restrictions, inspection,
-            basic.railObjects, basic.safetyInterlock)
+            basic.railObjects, basic.safetyInterlock,
+            depots = DepotStore {
+                world.allTrains.flatMap { physicalTrain ->
+                    physicalTrain.composition.units.map { unit -> FixedEmuUnit(unit.unitId, unit.carIds) }
+                }
+            })
         val atoPlugin = SimpleATOPlugin.instanceOrNull() ?: SimpleATOPlugin(101).also { SimpleATOPlugin.INSTANCE = it }
         world.registerExtensionData(atoPlugin, atoData)
 
@@ -261,8 +268,11 @@ class ProtectionSignalControllerHandoffTest {
         fun tickController() = world.physicsCoordinator.stepSimulation(1.0).await()
         try {
             advanceEpoch()
-            assertTrue(world.onOwnerForTest { dispatcher.startService(world, "handoff-timetable", "handoff-service") }
-                is TimetableServiceStartResult.Started)
+            val startResult = world.onOwnerForTest {
+                dispatcher.startService(world, "handoff-timetable", "handoff-service")
+            }
+            assertTrue(startResult is TimetableServiceStartResult.Started,
+                (startResult as? TimetableServiceStartResult.Failure)?.reason)
             repeat(if (chain) 8 else 5) {
                 tickController()
                 world.onOwnerForTest { dispatcher.tick(world) }

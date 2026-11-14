@@ -214,6 +214,8 @@ candidate worker只比较不可变拓扑、区域定义和compiled route；未�
 当前回归入口是`ProtectionSignalDevicesTest`、`SimpleSignalsWorldRuntimeManagerTest`及`ProtectionSignalControllerHandoffTest`。
 最后一个组合真实Basic准入、SignalEpochRuntime、Dispatcher和SimpleATO控制器：Dispatcher建立路线/授权后停止推进，
 验证信号从允许变0以及恢复时，下一次控制计算仍更新入口限速；另验证初始0仍可申请及和其他运营限速取最小值。
+手工装配`SimpleATOWorldData`时，`DepotStore`须像`OperationalWorldRuntime`一样从Core实际`train.composition.units`
+取得编组信息；空provider会让服务在信号断言前因无法认领物理车厢而失败。启动断言须保留`Failure.reason`。
 
 ## 10. 存档变化与容易混淆的行为
 

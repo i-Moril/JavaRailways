@@ -43,6 +43,11 @@
 ## 质量检查
 
 - [ ] 运行 `./gradlew :BukkitPlugin:test`。
+- [ ] 隔离模拟等长直轨夹具显式使用 `PrimeCurveGenerator.buildStraight(..., step = 1.0)`，保留长度、分段和业务断言。
+      默认采样为 1 毫米；多轨道及 capture/restore 复制曲线时会使测试 JVM OOM。需要细采样的几何测试单独保留，
+      这类夹具降负载须在 512 MiB 测试堆下验证整个模块，不能只检查首个失败方法。
+- [ ] `PlatformDispatchLifecycleTest` 等用 latch 阻塞并发参与者的测试，显式使用测试自有的平台线程执行器，
+      并在失败时释放 latch、关闭执行器且等待退出；JDK 25 的 2 核公共线程池可能只有一个 worker，不能依赖它启动第二个参与者。
 - [ ] 打包/lifecycle/resource 变更运行 `./gradlew :BukkitPlugin:shadowJar`，检查嵌入 WebUI 与 relocation/service merge。
 - [ ] Basic/Core contract 变更连同 `:Core:test :Basic:test`；WebUI bridge 变更连同 `:WebUI:test` 和 frontend tests。
 - [ ] thread 改动覆盖 owner guard、latest-only/coalescing、retired entity、world unload、plugin disable 和 failure cleanup。

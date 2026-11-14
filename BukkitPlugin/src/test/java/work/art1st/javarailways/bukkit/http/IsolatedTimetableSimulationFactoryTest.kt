@@ -80,7 +80,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1, step = 1.0))
             listOf("a" to 30.0, "b" to 150.0, "c" to 270.0).forEach { (id, arc) ->
                 OperationalDestinationService(source).register(OperationalDestination("$id@one", rail.id, arc,
                     ViewDirection.AB, DestinationRole.StationBerthRole(StationId(id), berthId = "one",
@@ -154,7 +154,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(400.0, 1))
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(400.0, 1, step = 1.0))
             source.basicWorldData.railMetadata.put(rail.id, work.art1st.javarailways.basic.rail.RailInfrastructureMetadata(
                 speedLimits = work.art1st.javarailways.basic.rail.SpeedLimitMetadata(listOf(
                     work.art1st.javarailways.basic.rail.SpeedLimitEntry(10.0, work.art1st.javarailways.basic.rail.SpeedLimitType.SUBGRADE)))))
@@ -437,7 +437,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1, step = 1.0))
             source.basicWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
             // The waypoint's own direction wins even when the rail has another direction.
             OperationalDestinationService(source).register(OperationalDestination("origin", rail.id, 100.0,
@@ -489,7 +489,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1, step = 1.0))
             OperationalDestinationService(source).register(OperationalDestination("origin", rail.id, 100.0,
                 ViewDirection.AB, DestinationRole.Regular))
             OperationalDestinationService(source).register(OperationalDestination("west", rail.id, 50.0,
@@ -522,7 +522,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1, step = 1.0))
             OperationalDestinationService(source).register(OperationalDestination("origin", rail.id, 100.0,
                 ViewDirection.AB, DestinationRole.Regular))
             OperationalDestinationService(source).register(OperationalDestination("behind", rail.id, 40.0,
@@ -559,8 +559,8 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val unrestrictedRail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
-            val restrictedRail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+            val unrestrictedRail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1, step = 1.0))
+            val restrictedRail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1, step = 1.0))
             source.basicWorldData.operatingDirections.put(restrictedRail.id, ViewDirection.AB)
             val service = OperationalDestinationService(source)
             for ((pointId, rail, ownDirection) in listOf(
@@ -633,7 +633,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val rails = (1..6).map { createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1)) }
+            val rails = (1..6).map { createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1, step = 1.0)) }
             work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotCodec.decode("""
                 {"formatVersion":2,"infrastructureRevision":7,"wayPoints":[],"operatingDirections":[]}
             """).restore(source)
@@ -678,7 +678,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1, step = 1.0))
             val service = OperationalDestinationService(source)
             service.register(OperationalDestination("home@one", rail.id, 100.0,
                 role = DestinationRole.DepotStablingPointRole("home", "one", usableLengthMeters = 30.0)))
@@ -708,7 +708,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val curves = PrimeCurveGenerator.buildStraight(200.0, 2)
+            val curves = PrimeCurveGenerator.buildStraight(200.0, 2, step = 1.0)
             val tailRail = source.createRailForTest(curves[0].reversed)
             val headRail = source.createRailForTest(curves[1])
             work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker.run {
@@ -744,7 +744,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1, step = 1.0))
             OperationalDestinationService(source).register(OperationalDestination("origin", rail.id, 100.0,
                 ViewDirection.AB, DestinationRole.Regular))
             OperationalDestinationService(source).register(OperationalDestination("east", rail.id, 200.0,
@@ -775,7 +775,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(100.0, 1))
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(100.0, 1, step = 1.0))
             source.basicWorldData.wayPoints.add(WayPoint("origin", rail.id, 2.0))
             val factory = testSimulationFactory()
             val timetable = standaloneCall(emptyList())
@@ -802,7 +802,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val curves = PrimeCurveGenerator.buildStraight(200.0, 2)
+            val curves = PrimeCurveGenerator.buildStraight(200.0, 2, step = 1.0)
             val headRail = source.createRailForTest(curves[1])
             val firstBranch = source.createRailForTest(curves[0])
             val secondBranch = source.createRailForTest(curves[0])
@@ -831,7 +831,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1, step = 1.0))
             val home = DepotId("clone-home")
             OperationalDestinationService(source).register(OperationalDestination("clone-home@one", rail.id, 100.0,
                 ViewDirection.AB, DestinationRole.DepotStablingPointRole(home.value, "one")))
@@ -873,7 +873,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1, step = 1.0))
             val home = DepotId("home")
             OperationalDestinationService(source).register(OperationalDestination("home@one", rail.id, 100.0,
                 ViewDirection.AB, DestinationRole.DepotStablingPointRole("home", "one")))
@@ -940,7 +940,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1, step = 1.0))
             OperationalDestinationService(source).register(OperationalDestination("origin", rail.id, 100.0,
                 ViewDirection.AB, DestinationRole.Regular))
             val timetable = standaloneCall(listOf(TimetableAction.Stop(1_300)), startTick = 10)
@@ -973,7 +973,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1, step = 1.0))
             OperationalDestinationService(source).register(OperationalDestination("origin", rail.id, 100.0,
                 ViewDirection.AB, DestinationRole.Regular))
             val input = ProgramSimulationRequest.parse("""
@@ -1027,7 +1027,7 @@ class IsolatedTimetableSimulationFactoryTest {
     fun `one physical service continues across stopped main and branch segments with their own speed caps`(returning: Boolean) {
         val source = createTestWorld()
         registerWorldData(source)
-        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(340.0, 1))
+        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(340.0, 1, step = 1.0))
         for ((id, arc) in listOf("a" to 20.0, "b" to 60.0, "c" to 110.0, "d" to 180.0, "e" to 280.0)) {
             OperationalDestinationService(source).register(OperationalDestination("$id@one", rail.id, arc,
                 if (returning) ViewDirection.BA else ViewDirection.AB, DestinationRole.StationBerthRole(StationId(id),
@@ -1107,7 +1107,7 @@ class IsolatedTimetableSimulationFactoryTest {
     fun `isolated dynamic station stop reverses and returns using actual selected marker`() {
         val source = createTestWorld()
         registerWorldData(source)
-        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(180.0, 1))
+        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(180.0, 1, step = 1.0))
         OperationalDestinationService(source).register(OperationalDestination("origin", rail.id, 20.0,
             ViewDirection.AB, DestinationRole.Regular))
         OperationalDestinationService(source).register(OperationalDestination("return", rail.id, 20.0,
@@ -1163,7 +1163,7 @@ class IsolatedTimetableSimulationFactoryTest {
                     if (train.id == "one") 8.0 else 9.0, emptySet())
             })
         }
-        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1))
+        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1, step = 1.0))
         val home = DepotId("home")
         val depots = source.simpleAtoWorldData.depots
         val trains = source.onOwnerForTest {
@@ -1303,7 +1303,7 @@ class IsolatedTimetableSimulationFactoryTest {
 
     private fun simulateSplitOutput(storeOutput: Boolean) {
         val source = createTestWorld()
-        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1))
+        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1, step = 1.0))
         registerWorldData(source)
         OperationalDestinationService(source).register(OperationalDestination("origin", rail.id, 30.0,
             ViewDirection.AB, DestinationRole.Regular))
@@ -1377,7 +1377,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         val rail = createStraightRailFromSegments(
             source,
-            PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1)
+            PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1, step = 1.0)
         )
         registerWorldData(source)
         OperationalDestinationService(source).register(OperationalDestination("origin", rail.id, 20.0,
@@ -1411,7 +1411,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         val rail = createStraightRailFromSegments(
             source,
-            PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1)
+            PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1, step = 1.0)
         )
         registerWorldData(source)
         OperationalDestinationService(source).register(OperationalDestination("origin", rail.id, 20.0,
@@ -1486,7 +1486,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         val rail = createStraightRailFromSegments(
             source,
-            PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1)
+            PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1, step = 1.0)
         )
         registerWorldData(source)
         OperationalDestinationService(source).register(OperationalDestination("origin", rail.id, 20.0,
@@ -1542,7 +1542,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(200.0, 1))
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(200.0, 1, step = 1.0))
             OperationalDestinationService(source).register(OperationalDestination("origin", rail.id, 30.0,
                 ViewDirection.AB, DestinationRole.Regular))
             source.onOwnerForTest {
@@ -1566,7 +1566,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(200.0, 1))
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(200.0, 1, step = 1.0))
             OperationalDestinationService(source).register(OperationalDestination("origin", rail.id, 30.0,
                 ViewDirection.AB, DestinationRole.Regular))
             val station = StationId("central")
@@ -1656,7 +1656,7 @@ class IsolatedTimetableSimulationFactoryTest {
     @Test
     fun `one captured snapshot creates new extension and domain state for every target`() {
         val source = createTestWorld()
-        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1))
+        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1, step = 1.0))
         registerWorldData(source)
         OperationalDestinationService(source).register(OperationalDestination("origin", rail.id, 20.0,
             ViewDirection.AB, DestinationRole.Regular))
@@ -1769,7 +1769,7 @@ class IsolatedTimetableSimulationFactoryTest {
     @OptIn(work.art1st.javarailways.core.api.util.plugin.ExtensionData::class)
     fun `mixed installation survives seed and split rebuilds ATO from exact current car profiles`() {
         val source = createTestWorld()
-        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1, step = 1.0))
         registerWorldData(source)
         OperationalDestinationService(source).register(OperationalDestination("origin", rail.id, 60.0,
             ViewDirection.AB, DestinationRole.Regular))
@@ -1843,7 +1843,7 @@ class IsolatedTimetableSimulationFactoryTest {
         val source = createTestWorld()
         registerWorldData(source)
         try {
-            val first = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(600.0, 2))
+            val first = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(600.0, 2, step = 1.0))
             val second = requireNotNull(first.viewAB.activeRail).rail
             val platform = if (direction == ViewDirection.AB) first else second
             val forbidden = if (direction == ViewDirection.AB) second else first

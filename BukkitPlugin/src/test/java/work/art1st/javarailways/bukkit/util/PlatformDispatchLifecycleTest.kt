@@ -1,12 +1,22 @@
 package work.art1st.javarailways.bukkit.util
 
 import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class PlatformDispatchLifecycleTest {
+    private val concurrentExecutor = Executors.newFixedThreadPool(2)
+
+    @AfterEach
+    fun closeConcurrentExecutor() {
+        concurrentExecutor.shutdownNow()
+        assertTrue(concurrentExecutor.awaitTermination(5, TimeUnit.SECONDS), "test concurrent tasks must terminate")
+    }
+
     @Test
     fun `retired dispatcher rejects callbacks even after a new dispatcher starts`() {
         val old = PlatformDispatchLifecycle()
@@ -23,15 +33,16 @@ class PlatformDispatchLifecycleTest {
         val lifecycle = PlatformDispatchLifecycle()
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
-        val action = CompletableFuture.runAsync {
+        val action = CompletableFuture.runAsync({
             lifecycle.execute {
                 entered.countDown()
                 check(release.await(5, TimeUnit.SECONDS))
             }
-        }
-        assertTrue(entered.await(5, TimeUnit.SECONDS))
-        val stopping = CompletableFuture.runAsync { lifecycle.stopAndAwait() }
+        }, concurrentExecutor)
+        val stopping: CompletableFuture<Void>
         try {
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            stopping = CompletableFuture.runAsync({ lifecycle.stopAndAwait() }, concurrentExecutor)
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
             while (lifecycle.isActive() && System.nanoTime() < deadline) Thread.yield()
             assertFalse(lifecycle.isActive())

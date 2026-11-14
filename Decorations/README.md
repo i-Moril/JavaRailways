@@ -75,9 +75,13 @@ Decorations captures all external XML sources once during enable and validates t
 
 Install JavaRailways, then optionally SimpleDisplays. Decorations hard-depends JavaRailways and soft-depends SimpleDisplays. Absence/incompatibility of SimpleDisplays only disables its connection. This is a thin JAR: the host and optional provider supply their APIs/runtime libraries.
 
-The API coordinate is `simpledisplays:simpledisplays-api:0.1.0-SNAPSHOT`, compile-only. Publish the reviewed independent SimpleDisplays source explicitly and record its revision:
+The API coordinate is `simpledisplays:simpledisplays-api:0.1.0-SNAPSHOT`, compile-only. CI checks out [SimpleDisplays](https://github.com/i-Moril/SimpleDisplays) at `ca37ad21ffa134462ab6a5eab646d79a552ca222` into `.ci/SimpleDisplays`, then uses JavaRailways' Gradle wrapper with JDK 21 to publish the API into `${RUNNER_TEMP}/simpledisplays-maven`. The JavaRailways build uses JDK 25 and passes `-PsimpleDisplaysRepository="${RUNNER_TEMP}/simpledisplays-maven"` to resolve that exact prepared API.
+
+For a local build, make JDK 21 available, check out the same source revision and publish to an explicit repository:
 
 ```sh
+git clone https://github.com/i-Moril/SimpleDisplays.git ../SimpleDisplays
+git -C ../SimpleDisplays checkout ca37ad21ffa134462ab6a5eab646d79a552ca222
 ./gradlew -p ../SimpleDisplays publishToMavenLocal -Dmaven.repo.local=/tmp/javarailways-simpledisplays-maven
 ./gradlew -PsimpleDisplaysRepository=/tmp/javarailways-simpledisplays-maven :Decorations:test :Decorations:verifyPluginJar
 ```

@@ -23,9 +23,11 @@ class CompositeModel internal constructor(
 ) : Destroyable {
     internal val affinityEntity get() = rootVisual.affinityEntity
     private val extensionGroups = mutableListOf<ExtensionPartModel>()
+    private val platforms = mutableListOf<PlatformModel>()
     init {
         forEachModelRecursive {
             if (it is DisplayModel) it.mountTo(rootVisual)
+            if (it is PlatformModel) platforms.add(it)
             if (it is ExtensionPartModel) { it.bindRoot(rootVisual); extensionGroups.add(it) }
         }
     }
@@ -49,6 +51,12 @@ class CompositeModel internal constructor(
     fun updateState(rootTransform: CompactTransform, rootVelocity: Vector3dc = Vector3d(), forceTransformUpdate: Boolean = false) {
         val rotatedTransform = CompactTransform(Vector3d(), rootTransform.rotation)
         val worldRoot = CompactTransform(rootTransform.position, Quaterniond())
+        // Display-relative transforms bake in this rotation. Passenger geometry must stay
+        // car/bogie-local so a published train frame applies the root rotation only once.
+        if (platforms.isNotEmpty()) {
+            val inverseRootRotation = CompactTransform(rotation = Quaterniond(rootTransform.rotation).conjugate())
+            platforms.forEach { it.passengerRootInverseRotation = inverseRootRotation }
+        }
 
         val rotationChanged = lastRotation == null || !lastRotation!!.equals(rootTransform.rotation, 1e-12)
         if (rotationChanged) lastRotation = Quaterniond(rootTransform.rotation)

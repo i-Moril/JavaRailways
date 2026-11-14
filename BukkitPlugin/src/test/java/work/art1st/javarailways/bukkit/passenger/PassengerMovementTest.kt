@@ -25,6 +25,12 @@ import org.bukkit.plugin.RegisteredListener
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.joml.Vector3d
+import work.art1st.javarailways.bukkit.render.model.AbstractModel
+import work.art1st.javarailways.bukkit.render.model.CompositeModel
+import work.art1st.javarailways.bukkit.render.model.ModelState
+import work.art1st.javarailways.bukkit.render.model.PlatformModel
+import work.art1st.javarailways.bukkit.config.model.PartPlatformConfig
+import work.art1st.javarailways.bukkit.render.backend.DisplayVisual
 import work.art1st.javarailways.bukkit.render.model.CompactTransform
 import work.art1st.javarailways.bukkit.render.backend.ViewerPacketFrame
 import work.art1st.javarailways.bukkit.util.PlatformDispatchMetrics
@@ -397,9 +403,11 @@ class PassengerMovementTest {
 
     @Test
     fun `bogie platform retains render floor composition and upright collision offset`() = fixture { h ->
-        val source = PassengerSurfaceSource(1.0, 1.0)
         val local = CompactTransform(Vector3d(0.3, -1.0, 0.7), Quaterniond().rotateY(0.2))
-        source.publish(local)
+        val root = h.train.publishedFrame.cars.single().bogies[0].modelTransform(1.25)
+        val (_, platform) = renderedPlatform(h, root,
+            CompactTransform(Vector3d(0.3, 0.0, 0.7), Quaterniond().rotateY(0.2)))
+        val source = platform.passengerSurface
         val registration = PassengerCarPlatforms(h.train.cars.single(), h.train, h.bukkitWorld, 1.25,
             listOf(PassengerPlatformPart(source, 0)))
         val registry = PassengerPlatformRegistry().also { it.register(registration); it.present(registration, h.train.publishedFrame) }
@@ -410,6 +418,89 @@ class PassengerMovementTest {
         val top = Vector3d(expected.position).add(kotlin.math.sin(yaw) * 0.1, COLLISION_TOP_HEIGHT, -kotlin.math.cos(yaw) * 0.1)
         val actual = scene.surfaces.single().pose
         assertEquals(top.x, actual.position.x, 1e-9); assertEquals(top.y, actual.position.y, 1e-9); assertEquals(top.z, actual.position.z, 1e-9)
+    }
+
+    @Test
+    fun `rendered rotated platform does not mount a player standing beside the carriage`() = fixture { h ->
+        val frame = h.train.publishedFrame
+        val root = frame.cars.single().state.modelTransform()
+        val (_, platform) = renderedPlatform(h, root)
+        h.manager.retire(h.registration).toCompletableFuture().join()
+        val registration = PassengerCarPlatforms(h.train.cars.single(), h.train, h.bukkitWorld, 0.0,
+            listOf(PassengerPlatformPart(platform.passengerSurface, null)))
+        h.manager.register(registration)
+        h.manager.present(registration, frame)
+        val actualPose = collisionTop(platform.state.worldTransform)
+        val outside = actualPose.toWorld(PassengerPoint(4.0, 0.0, 0.0))
+        val rider = TestRider(Location(h.bukkitWorld, outside.x, outside.y, outside.z))
+        h.access.riders[rider.player.uniqueId] = rider
+        h.manager.watch(rider.player, platform.passengerSurface)
+        h.dispatcher.tick()
+        assertNull(rider.vehicle, "A station player four meters across the real platform must not board")
+        assertTrue(h.access.created.isEmpty())
+
+        val inside = actualPose.toWorld(PassengerPoint(0.0, 0.0, 4.0))
+        rider.location = Location(h.bukkitWorld, inside.x, inside.y, inside.z)
+        h.dispatcher.tick()
+        assertNotNull(rider.vehicle, "A player on the actual platform must still board")
+    }
+
+    @Test
+    fun `rendered nested platform publishes root local pose across yaw slope and repeated updates`() = fixture { h ->
+        val nested = CompactTransform(Vector3d(0.2, 0.1, 0.7), Quaterniond().rotateY(0.2))
+        val (model, platform) = renderedPlatform(h, CompactTransform(), nested)
+        val local = CompactTransform(Vector3d(0.0, -1.0, 0.0)).applyTo(nested)
+        for (yaw in listOf(0.0, 0.7, Math.PI / 2, Math.PI)) {
+            val root = CompactTransform(Vector3d(100.0, 64.0, 200.0),
+                Quaterniond().rotateY(yaw).rotateX(0.15).rotateZ(-0.1))
+            repeat(2) {
+                model.updateState(root)
+                // Animation callbacks re-enter the part without another CompositeModel update.
+                platform.projectAnimationFrame(null, null, null, null)
+                val published = platform.passengerSurface.current()!!
+                for (point in listOf(PassengerPoint(0.0, 0.0, 0.0), PassengerPoint(0.3, 0.0, 2.0))) {
+                    val expected = PassengerPose.capture(local).toWorld(point)
+                    val actual = published.toWorld(point)
+                    assertEquals(expected.x, actual.x, 1e-9)
+                    assertEquals(expected.y, actual.y, 1e-9)
+                    assertEquals(expected.z, actual.z, 1e-9)
+                    val rendered = PassengerPose.capture(platform.state.worldTransform).toWorld(point)
+                    val projected = PassengerPose.capture(published.transform().applyTo(root)).toWorld(point)
+                    assertEquals(rendered.x, projected.x, 1e-9)
+                    assertEquals(rendered.y, projected.y, 1e-9)
+                    assertEquals(rendered.z, projected.z, 1e-9)
+                }
+                platform.projectAnimationFrame(null, null, CompactTransform(Vector3d(0.25, 0.0, 0.0)), null)
+                val animatedLocal = CompactTransform(Vector3d(0.25, -1.0, 0.0)).applyTo(nested)
+                val expected = PassengerPose.capture(animatedLocal).toWorld(PassengerPoint(0.3, 0.0, 2.0))
+                val actual = platform.passengerSurface.current()!!.toWorld(PassengerPoint(0.3, 0.0, 2.0))
+                assertEquals(expected.x, actual.x, 1e-9)
+                assertEquals(expected.y, actual.y, 1e-9)
+                assertEquals(expected.z, actual.z, 1e-9)
+            }
+        }
+    }
+
+    private fun renderedPlatform(
+        h: Harness,
+        root: CompactTransform,
+        parent: CompactTransform = CompactTransform()
+    ): Pair<CompositeModel, PlatformModel> {
+        val platform = PlatformModel(h.train.world, ModelState(CompactTransform(Vector3d(0.0, -1.0, 0.0))),
+            emptyList(), emptyMap(), Location(h.bukkitWorld, 0.0, 0.0, 0.0),
+            PartPlatformConfig(rows = 3, columns = 18))
+        val group = object : AbstractModel(h.train.world, ModelState(parent), listOf(platform), emptyMap()) {}
+        val model = CompositeModel(h.train.world, listOf(group), proxy<DisplayVisual> { _, _ -> null }, h.bukkitWorld)
+        model.updateState(root)
+        return model to platform
+    }
+
+    private fun collisionTop(pose: CompactTransform): PassengerPose {
+        val forward = pose.rotation.transform(Vector3d(0.0, 0.0, 1.0))
+        val yaw = kotlin.math.atan2(-forward.x, forward.z)
+        val top = Vector3d(pose.position).add(kotlin.math.sin(yaw) * 0.1,
+            COLLISION_TOP_HEIGHT, -kotlin.math.cos(yaw) * 0.1)
+        return PassengerPose.capture(CompactTransform(top, pose.rotation))
     }
 
     private fun fixture(carLengths: List<Double> = listOf(10.0), action: (Harness) -> Unit) {

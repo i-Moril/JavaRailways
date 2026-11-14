@@ -41,6 +41,8 @@ class PlatformModel internal constructor(
     private val platformHalfX = ((platformConfig.rows - 1) * platformConfig.spacingX) / 2.0 + CELL_HALF_EXTENT
     private val platformHalfZ = ((platformConfig.columns - 1) * platformConfig.spacingZ) / 2.0 + CELL_HALF_EXTENT
     internal val passengerSurface = PassengerSurfaceSource(platformHalfX, platformHalfZ)
+    // Set by our CompositeModel before updating the tree, retained for animation-only updates.
+    internal var passengerRootInverseRotation = CompactTransform()
     private val activePlayers = ConcurrentHashMap<UUID, Player>()
     private val lifecycleRevision = AtomicLong(0L)
     private val spawnScheduled = AtomicBoolean(false)
@@ -147,7 +149,7 @@ class PlatformModel internal constructor(
         transformDirty: Boolean
     ) {
         super.updateState(parentRelativeTransform, rootTransform, rootVelocity, transformDirty)
-        passengerSurface.publish(state.rootRelativeTransform)
+        passengerSurface.publish(state.rootRelativeTransform.applyTo(passengerRootInverseRotation))
         if (activePlayers.isNotEmpty() && units.isEmpty()) spawnEntities()
         if (units.isNotEmpty()) syncEntities()
     }

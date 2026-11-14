@@ -86,7 +86,8 @@ data class JavaRailwaysConfig(
     val timetableHttpBridge: TimetableHttpBridgeConfig,
     val timetableWebUi: TimetableWebUiConfig,
     val atoSafetyDistanceMeters: Double = 5.0,
-    val atoAdmissionRetryTicks: Int = 5
+    val atoAdmissionRetryTicks: Int = 5,
+    val passengerMovementEnabled: Boolean = true
 ) {
     companion object {
         fun load(plugin: BukkitPlugin): JavaRailwaysConfig {
@@ -182,6 +183,11 @@ data class JavaRailwaysConfig(
                 trainModelUpdatePolicy = policy,
                 trainKeyBindDistance = bindDistance,
                 trainDebugLog = requireBoolean(yaml, "train-debug-log"),
+                passengerMovementEnabled = if (yaml.contains("passenger-movement-enabled", true)) {
+                    requireBoolean(yaml, "passenger-movement-enabled")
+                } else {
+                    true
+                },
                 displayRenderer = DisplayRendererConfig(
                     backend = displayRendererBackend,
                     playerDistance = PlayerDisplayDistanceConfig(

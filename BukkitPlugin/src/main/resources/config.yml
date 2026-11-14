@@ -27,6 +27,10 @@ train-key-bind-distance: 20.0
 # 仅在短时间采样排障时开启。
 train-debug-log: false
 
+# 是否启用列车 platform 上的自动跟车与相对行走；缺省为 true。
+# false 时不自动挂载跟车载体；保留原有碰撞平台与固定座椅。修改后重启插件生效。
+passenger-movement-enabled: true
+
 # 全局 ATO 安全距离（米），必须是有限非负数；缺省为 5.0。
 # 时刻表路线保护、实际驾驶及隔离模拟使用同一值。修改后重启生效。
 # 移动闭塞停车时为真实轨道授权保留余量，不改变运营停车目标。

@@ -19,6 +19,25 @@ class JavaRailwaysConfigTest {
         assertEquals(TimetableWebUiMode.MANAGED, config.timetableWebUi.mode)
         assertEquals("127.0.0.1", config.timetableHttpBridge.bindAddress)
         assertEquals(5.0, config.atoSafetyDistanceMeters)
+        assertTrue(config.passengerMovementEnabled)
+    }
+
+    @Test
+    fun `passenger movement defaults on and accepts an explicit switch`() {
+        assertTrue(JavaRailwaysConfig.fromYaml(validYaml()).passengerMovementEnabled)
+        for (enabled in listOf(false, true)) {
+            val yaml = validYaml().apply { set("passenger-movement-enabled", enabled) }
+            assertEquals(enabled, JavaRailwaysConfig.fromYaml(yaml).passengerMovementEnabled)
+        }
+    }
+
+    @Test
+    fun `passenger movement switch requires a boolean`() {
+        val yaml = validYaml().apply { set("passenger-movement-enabled", "false") }
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            JavaRailwaysConfig.fromYaml(yaml)
+        }
+        assertTrue(error.message.orEmpty().contains("passenger-movement-enabled"))
     }
 
     @Test

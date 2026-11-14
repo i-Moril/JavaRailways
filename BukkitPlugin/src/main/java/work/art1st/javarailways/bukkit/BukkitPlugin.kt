@@ -345,9 +345,11 @@ class BukkitPlugin : Plugin, JavaPlugin() {
                 if (::trainControlManager.isInitialized) trainControlManager.retireWorld(world)
             }
         )
-        passengerMovement = work.art1st.javarailways.bukkit.passenger.PassengerMovementManager(
-            this, presentationOwner, work.art1st.javarailways.bukkit.passenger.PacketPassengerCarrierAccess(checkNotNull(packetEntityMotion))
-        ).also { it.start() }
+        if (javaRailwaysConfig.passengerMovementEnabled) {
+            passengerMovement = work.art1st.javarailways.bukkit.passenger.PassengerMovementManager(
+                this, presentationOwner, work.art1st.javarailways.bukkit.passenger.PacketPassengerCarrierAccess(checkNotNull(packetEntityMotion))
+            ).also { it.start() }
+        }
         railTargetService = BukkitRailTargetService(this)
         server.pluginManager.registerEvents(worldManager, this)
         server.servicesManager.register(work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService::class.java,

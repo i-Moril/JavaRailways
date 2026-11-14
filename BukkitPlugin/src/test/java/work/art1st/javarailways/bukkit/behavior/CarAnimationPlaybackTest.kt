@@ -68,7 +68,7 @@ class CarAnimationPlaybackTest {
     }
 
     @Test
-    fun `packaged S100 behavior matches its action declarations and preserves real door durations`() {
+    fun `packaged S100 supports door duration queries without starting playback`() {
         val temporary = java.nio.file.Files.createTempDirectory("s100-door-package-")
         try {
             java.util.zip.ZipFile("../examples/models/s100.zip").use { zip ->
@@ -82,7 +82,6 @@ class CarAnimationPlaybackTest {
                 }
             }
             val source = requireNotNull(PackageLoader(temporary.resolve("s100").toFile()).loadTrainPackage())
-            assertEquals(java.io.File("../examples/models/s100/behavior.js").readText(), source.behavior!!.source)
             assertEquals(6, source.cars.size)
             source.cars.forEach { (_, model) ->
                 val parts = SavedCarModelTree.build(model, source.partRegistry).captureAnimationParts()

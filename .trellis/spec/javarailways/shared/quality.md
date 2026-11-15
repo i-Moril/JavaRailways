@@ -30,6 +30,8 @@ npm --prefix docs-site run check
 
 根 CI 的基线在 `.github/workflows/build.yml`：JDK 25、Node 24，执行各主要模块测试并构建 `BukkitPlugin`/`WebUI` shadow JAR。若本地命令与 CI 不同，review 中应说明原因；`TunnelBridgeBuilder` 的 focused test 仍应在改动该模块时显式运行。
 
+成功构建的安装 artifact 只上传 JavaRailways 主插件、SimpleSignals 和 Decorations 三个服务器插件 JAR；WebUI 仍构建并嵌入主插件，不单独上传。失败时的测试报告 artifact 保持独立。
+
 CI 先用 JDK 21 从固定提交构建 SimpleDisplays API，发布到 runner 的临时 Maven 仓库，再通过 `simpleDisplaysRepository` 供 Decorations 编译和测试使用。源码来源、固定提交与本地准备方式见 [Decorations 构建说明](../../../../Decorations/README.md#build-and-dependencies)。
 
 ## 全局审查

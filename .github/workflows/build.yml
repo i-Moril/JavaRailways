@@ -74,7 +74,7 @@ jobs:
           -PsimpleDisplaysRepository="${RUNNER_TEMP}/simpledisplays-maven"
           --no-daemon
 
-      - name: Upload compiled artifacts
+      - name: Upload server plugins
         uses: actions/upload-artifact@v4
         with:
           name: JavaRailways-${{ github.sha }}
@@ -84,7 +84,6 @@ jobs:
             BukkitPlugin/build/libs/*-all.jar
             SimpleSignals/build/libs/*.jar
             Decorations/build/libs/*.jar
-            WebUI/build/libs/*-all.jar
 
       - name: Upload test reports on failure
         if: failure()

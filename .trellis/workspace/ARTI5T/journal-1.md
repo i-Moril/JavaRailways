@@ -1450,3 +1450,38 @@ Implemented view-relative fixed-speed passenger movement and stable carrier hand
 ### Status
 
 [OK] **Completed**
+
+
+## Session 45: 曲线限速倍率与加载重算
+<!-- trellis-session: v=2 fp=69862a4f80d95348 -->
+
+**Date**: 2026-11-15
+**Task**: 曲线限速倍率与加载重算
+**Package**: javarailways
+**Branch**: `main`
+
+### Summary
+
+在 main 新增自动曲线速度倍率，加载与几何编辑时刷新派生速度，保留人工输入。
+
+### Main Changes
+
+- physics.yml track.curve-speed-limit-multiplier 默认1.0；世界恢复后刷新自动CURVE与脱轨阈值；拆分合并重算，隔离模拟继承一次。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9b35c816` | feat(rail): refresh automatic curve limits from physics configuration |
+
+### Testing
+
+- [OK] Core599、Basic499、Bukkit970项测试零失败；Bukkit1项既有跳过；Core/Basic Dokka与git diff --check通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 未推送或部署；SSH/HTTPS/connector认证限制导致远端最新性未核实。

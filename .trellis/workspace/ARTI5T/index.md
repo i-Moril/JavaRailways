@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 44
-- **Last Active**: 2026-11-13
+- **Total Sessions**: 45
+- **Last Active**: 2026-11-15
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1452 | Active |
+| `journal-1.md` | ~1487 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 45 | 2026-11-15 | 曲线限速倍率与加载重算 | `9b35c816` | `main` |
 | 44 | 2026-11-13 | Passenger movement stationary carrier path | `1d13ec5f` | `feat/passenger-movement` |
 | 43 | 2026-11-13 | 乘客同步与边界停顿反馈修复 | `2bbea813` | `feat/passenger-movement` |
 | 42 | 2026-11-13 | 乘客移动 PlugManX 热部署 | `c9d4679b` | `feat/passenger-movement` |

@@ -42,6 +42,7 @@
 
 ## 质量检查
 
+- [ ] 测试优先验证公开行为和实际结果；避免仅检查私有锁、JVM 线程状态，或让等待探针执行额外业务操作。
 - [ ] 运行 `./gradlew :BukkitPlugin:test`。
 - [ ] 隔离模拟等长直轨夹具显式使用 `PrimeCurveGenerator.buildStraight(..., step = 1.0)`，保留长度、分段和业务断言。
       默认采样为 1 毫米；多轨道及 capture/restore 复制曲线时会使测试 JVM OOM。需要细采样的几何测试单独保留，

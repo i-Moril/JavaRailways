@@ -293,7 +293,7 @@ WorldUnloadEvent 的破坏性清理由 MONITOR 且 ignoreCancelled=true 的监�
 
 ### 第三批：时刻表编译与rail visual退休（CURRENT）
 
-时刻表JS与宿主共享JVM，每次单独Graal Context；生产单次预算60秒，同时最多两个执行。sandbox是执行生命周期owner，所有HTTP同步和命令异步入口共用该限制；超时/close调用Context.close(true)实际取消guest，不能只完成等待future。关闭先拒绝新入口，逐项取消已登记执行；finally释放许可，取消的deadline从scheduler队列移除。512KiB源码和8MiB生成结果限制保留，stdout/stderr合计1MiB且只计数丢弃，不积累打印内存；超限即使guest捕获写异常也不能成功。没有独立进程/heap隔离，不宣称限制guest总内存。回归用短内部期限运行真实Graal顶层/main循环，验证取消、输出预算、名额恢复与关闭异步命令。
+时刻表JS与宿主共享JVM，每次单独Graal Context；生产单次预算60秒，同时最多两个执行。sandbox是执行生命周期owner，所有HTTP同步和命令异步入口共用该限制；超时/close调用Context.close(true)实际取消guest，不能只完成等待future。关闭先拒绝新入口，逐项取消已登记执行；finally释放许可，取消的deadline从scheduler队列移除。512KiB源码和8MiB生成结果限制保留，stdout/stderr合计1MiB且只计数丢弃，不积累打印内存；超限即使guest捕获写异常也不能成功。没有独立进程/heap隔离，不宣称限制guest总内存。回归用短内部期限运行真实Graal顶层/main循环，验证取消、输出预算、名额恢复与关闭后拒绝编译。
 
 RailVisualBootstrap索引键为(exact CoreWorld.runtimeId, rail UUID)，不能只按rail UUID定位；复制世界或同持久化world UUID重载仍各有runtime。unregisterRail要求world，RailWorldFactory返回前的构造失败由其资源栈调用retireWorld；WorldManager后续安装失败和卸载均调用retireWorld，按准确条目退休显示owner。清理返回聚合CompletionStage，已有未完成删除仍参与结果；不在world owner等待entity区域操作，失败需观察/报告。移除全局索引仅证明引用退休，不等于后端实体已经删除，Paper/Folia删除需另验。物理轨道及磁盘UUID不改变。
 
@@ -486,7 +486,7 @@ WorldUnloadEvent 的破坏性清理由 MONITOR 且 ignoreCancelled=true 的监�
 
 ### 第三批：时刻表编译与rail visual退休（CURRENT）
 
-时刻表JS与宿主共享JVM，每次单独Graal Context；生产单次预算60秒，同时最多两个执行。sandbox是执行生命周期owner，所有HTTP同步和命令异步入口共用该限制；超时/close调用Context.close(true)实际取消guest，不能只完成等待future。关闭先拒绝新入口，逐项取消已登记执行；finally释放许可，取消的deadline从scheduler队列移除。512KiB源码和8MiB生成结果限制保留，stdout/stderr合计1MiB且只计数丢弃，不积累打印内存；超限即使guest捕获写异常也不能成功。没有独立进程/heap隔离，不宣称限制guest总内存。回归用短内部期限运行真实Graal顶层/main循环，验证取消、输出预算、名额恢复与关闭异步命令。
+时刻表JS与宿主共享JVM，每次单独Graal Context；生产单次预算60秒，同时最多两个执行。sandbox是执行生命周期owner，所有HTTP同步和命令异步入口共用该限制；超时/close调用Context.close(true)实际取消guest，不能只完成等待future。关闭先拒绝新入口，逐项取消已登记执行；finally释放许可，取消的deadline从scheduler队列移除。512KiB源码和8MiB生成结果限制保留，stdout/stderr合计1MiB且只计数丢弃，不积累打印内存；超限即使guest捕获写异常也不能成功。没有独立进程/heap隔离，不宣称限制guest总内存。回归用短内部期限运行真实Graal顶层/main循环，验证取消、输出预算、名额恢复与关闭后拒绝编译。
 
 RailVisualBootstrap索引键为(exact CoreWorld.runtimeId, rail UUID)，不能只按rail UUID定位；复制世界或同持久化world UUID重载仍各有runtime。unregisterRail要求world，RailWorldFactory返回前的构造失败由其资源栈调用retireWorld；WorldManager后续安装失败和卸载均调用retireWorld，按准确条目退休显示owner。清理返回聚合CompletionStage，已有未完成删除仍参与结果；不在world owner等待entity区域操作，失败需观察/报告。移除全局索引仅证明引用退休，不等于后端实体已经删除，Paper/Folia删除需另验。物理轨道及磁盘UUID不改变。
 

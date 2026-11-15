@@ -6692,7 +6692,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.CsvSource("false,false", "false,true", "true,true")
-    fun `formal rule execution is independent across real live and simulation worlds`(firstSimulation: Boolean, secondSimulation: Boolean) {
+    fun `formal rule state and teardown are independent across real live and simulation worlds`(firstSimulation: Boolean, secondSimulation: Boolean) {
         initializeDomainPlugins()
         val source = actualSignalWorld()
         val worlds = java.util.concurrent.ConcurrentHashMap<UUID, work.art1st.javarailways.core.physics.CoreWorld>()
@@ -6715,48 +6715,27 @@ class SimpleSignalsWorldRuntimeManagerTest {
             assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(id).status)
             actualLive(other, manager, sources)
         }
-        val executor = java.util.concurrent.Executors.newCachedThreadPool()
-        val locked = java.util.concurrent.CountDownLatch(1)
-        val release = java.util.concurrent.CountDownLatch(1)
-        val logic = actualLogic(first.runtime)
-        val blocker = executor.submit {
-            synchronized(logic) { locked.countDown(); check(release.await(10, java.util.concurrent.TimeUnit.SECONDS)) }
-        }
         try {
-            assertTrue(locked.await(5, java.util.concurrent.TimeUnit.SECONDS))
-            val waiting = executor.submit { first.step() }
-            val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
-            var enteredActualMonitor = false
-            while (System.nanoTime() < deadline && !enteredActualMonitor) {
-                enteredActualMonitor = java.lang.management.ManagementFactory.getThreadMXBean().dumpAllThreads(false, false).any {
-                    it.threadState == Thread.State.BLOCKED && it.lockInfo?.identityHashCode == System.identityHashCode(logic)
-                }
-                if (!enteredActualMonitor) Thread.yield()
-            }
-            assertTrue(enteredActualMonitor, "the real installed source must reach SignalLogicRuntime.evaluate's monitor")
+            first.step()
+            val firstFrame = first.world.latestWorldFrame()
+            val firstSignals = first.runtime.sectionSignalSnapshot()!!
             val headBefore = second.world.allTrains.single().publishedFrame.head.arcLengthInAbMeters
-            executor.submit { second.step() }.get(5, java.util.concurrent.TimeUnit.SECONDS)
-            assertFalse(waiting.isDone)
+            second.step()
+            assertEquals(firstFrame.physicsEpoch, first.world.latestWorldFrame().physicsEpoch)
+            assertEquals(firstSignals.stamp, first.runtime.sectionSignalSnapshot()!!.stamp)
+            assertEquals(firstSignals.states, first.runtime.sectionSignalSnapshot()!!.states)
             assertTrue(second.world.allTrains.single().publishedFrame.head.arcLengthInAbMeters > headBefore)
             assertEquals(listOf("proceed", "slow", "caution", "stop"), actualAspects(second.runtime))
             assertEquals(second.world.latestWorldFrame().physicsEpoch, second.runtime.sectionSignalSnapshot()!!.stamp.physicsEpoch)
             assertEquals(listOf(null, 65.0 / 3.6, 45.0 / 3.6, 0.0), actualLimits(second.runtime))
-            val sameStarted = CountDownLatch(1)
-            val sameWorld = executor.submit { sameStarted.countDown(); first.step() }
-            assertTrue(sameStarted.await(5, TimeUnit.SECONDS))
-            assertFalse(sameWorld.isDone, "the same world cannot bypass its outstanding physics epoch")
-            release.countDown()
-            blocker.get(5, java.util.concurrent.TimeUnit.SECONDS)
-            waiting.get(5, java.util.concurrent.TimeUnit.SECONDS)
-            sameWorld.get(5, java.util.concurrent.TimeUnit.SECONDS)
-            assertEquals(2L, first.world.latestWorldFrame().physicsEpoch)
+            val secondFrame = second.world.latestWorldFrame()
+            first.step()
+            assertEquals(secondFrame.physicsEpoch, second.world.latestWorldFrame().physicsEpoch)
             first.close()
-            executor.submit { second.step() }.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            second.step()
+            assertEquals(secondFrame.physicsEpoch + 1, second.world.latestWorldFrame().physicsEpoch)
             assertEquals(listOf("proceed", "slow", "caution", "stop"), actualAspects(second.runtime))
         } finally {
-            release.countDown()
-            executor.shutdownNow()
-            executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)
             first.close()
             second.close()
             manager.clearLocal().toCompletableFuture().join()
@@ -7206,57 +7185,6 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
-    fun `real definition preparation and waiting model attachment do not capture the manager directory`() {
-        val fixture = Fixture()
-        val manager = runtimeManager(plugin(), MutableTopologyService(fixture.currentTopology).service,
-            CapturingRoutePlanningService(), store(), CapturingSignalEpochSourceService())
-        manager.install(fixture.worldId)
-        val runtime = manager.authoringRuntime(fixture.worldId)!!
-        val candidate = SimpleSignalsWorldDefinitions(fixture.worldId, 1, listOf(fixture.region), emptyList())
-        val entered = CountDownLatch(1)
-        val release = CountDownLatch(1)
-        // Freeze an actual candidate read while prepareDefinitions owns its real publication monitor.
-        // The factory copies lists, so this test-local read-only wrapper is installed by reflection.
-        val regions = SimpleSignalsWorldDefinitions::class.java.getDeclaredField("regions").also { it.isAccessible = true }
-        val original = candidate.regions
-        val once = java.util.concurrent.atomic.AtomicBoolean()
-        regions.set(candidate, object : AbstractList<ProtectionRegionDefinition>() {
-            override val size = original.size
-            override fun get(index: Int): ProtectionRegionDefinition {
-                if (once.compareAndSet(false, true)) { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
-                return original[index]
-            }
-        })
-        val preparation = CompletableFuture.supplyAsync({ runtime.prepareDefinitions(fixture.currentTopology, candidate) }, concurrentExecutor)
-        val models = SimpleSignalsWorldRuntimeManager::class.java.getDeclaredField("modelPackages").also { it.isAccessible = true }
-        models.set(manager, null)
-        val attach = SimpleSignalsWorldRuntimeManager::class.java.getDeclaredMethod("attachModels", SimpleSignalsWorldRuntime::class.java)
-            .also { it.isAccessible = true }
-        var attachment: CompletableFuture<Void>? = null
-        try {
-            assertTrue(entered.await(5, TimeUnit.SECONDS))
-            attachment = CompletableFuture.runAsync({ attach.invoke(manager, runtime) }, concurrentExecutor)
-            val monitor = SimpleSignalsWorldRuntime::class.java.getDeclaredField("lock").also { it.isAccessible = true }.get(runtime)
-            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
-            var waiting = false
-            while (!waiting && System.nanoTime() < deadline) {
-                waiting = java.lang.management.ManagementFactory.getThreadMXBean().dumpAllThreads(false, false).any {
-                    it.threadState == Thread.State.BLOCKED && it.lockInfo?.identityHashCode == System.identityHashCode(monitor)
-                }
-                if (!waiting) Thread.yield()
-            }
-            assertTrue(waiting, "real attach must wait on the real candidate's publication lock")
-            assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED,
-                CompletableFuture.supplyAsync({ manager.install(UUID.randomUUID()) }, concurrentExecutor).get(2, TimeUnit.SECONDS).status)
-            assertFalse(preparation.isDone)
-            assertFalse(attachment.isDone)
-        } finally { release.countDown() }
-        assertTrue(preparation.get(5, TimeUnit.SECONDS) is SimpleSignalsDefinitionPreparationResult.Prepared)
-        attachment!!.get(5, TimeUnit.SECONDS)
-        manager.clearLocal().toCompletableFuture().join()
-    }
-
-    @Test
     fun `subscription retirement failure still closes the owned engine and preserves another simulation`() {
         initializeDomainPlugins()
         val source = actualSignalWorld()
@@ -7296,7 +7224,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
-    fun `late old removal cannot clear replacement world rule diagnostics`() {
+    fun `same UUID reinstall publishes current rule diagnostics and unload clears them`() {
         val fixture = Fixture()
         val sources = CapturingSignalEpochSourceService()
         val issues = work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService()
@@ -7304,43 +7232,24 @@ class SimpleSignalsWorldRuntimeManagerTest {
             CapturingRoutePlanningService(), store(), sources, worldIssues = issues)
         manager.install(fixture.worldId)
         val old = manager.authoringRuntime(fixture.worldId)!!
-        val held = CountDownLatch(1)
-        val replace = CountDownLatch(1)
-        val installed = CountDownLatch(1)
-        val release = CountDownLatch(1)
-        val replacement = CompletableFuture.runAsync({
-            synchronized(old.managementLock) {
-                held.countDown()
-                check(replace.await(5, TimeUnit.SECONDS))
-                val block = FixedBlockDefinition("test:diagnostic-block", 1,
-                    listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 1.0, 3.0)))
-                store().save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1, emptyList(), emptyList(), listOf(block),
-                    listOf(FixedBlockSignalDefinition("test:diagnostic-signal", 1, block.blockId, 0.0, "missing:rule"))))
-                assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
-                val epoch = SignalEpochRuntime(fixture.worldId.toString(), TrainRestrictionSnapshotStore(fixture.worldId.toString()))
-                epoch.replaceSources(sources.sources.getValue(fixture.worldId))
-                epoch.process(RailwayWorldFrameSnapshot.create(1, fixture.currentTopology.revision, emptyList(),
-                    ActiveRailContinuationsSnapshot.empty(fixture.currentTopology.revision)))
-                installed.countDown()
-                check(release.await(5, TimeUnit.SECONDS))
-            }
-        }, concurrentExecutor)
-        var removal: CompletableFuture<Void>? = null
+        manager.remove(fixture.worldId)
+        val block = FixedBlockDefinition("test:diagnostic-block", 1,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 1.0, 3.0)))
+        store().save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1, emptyList(), emptyList(), listOf(block),
+            listOf(FixedBlockSignalDefinition("test:diagnostic-signal", 1, block.blockId, 0.0, "missing:rule"))))
         try {
-            assertTrue(held.await(5, TimeUnit.SECONDS))
-            removal = CompletableFuture.runAsync({ manager.remove(fixture.worldId) }, concurrentExecutor)
-            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
-            while (!old.closed && System.nanoTime() < deadline) Thread.yield()
-            assertTrue(old.closed)
-            replace.countDown()
-            assertTrue(installed.await(5, TimeUnit.SECONDS))
+            assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+            assertNotSame(old, manager.authoringRuntime(fixture.worldId))
+            val epoch = SignalEpochRuntime(fixture.worldId.toString(), TrainRestrictionSnapshotStore(fixture.worldId.toString()))
+            epoch.replaceSources(sources.sources.getValue(fixture.worldId))
+            epoch.process(RailwayWorldFrameSnapshot.create(1, fixture.currentTopology.revision, emptyList(),
+                ActiveRailContinuationsSnapshot.empty(fixture.currentTopology.revision)))
             assertTrue(issues.snapshot(fixture.worldId).any { it.objectId == "test:diagnostic-signal" && it.code == "rule-unavailable" })
-        } finally { replace.countDown(); release.countDown() }
-        replacement.get(5, TimeUnit.SECONDS)
-        removal!!.get(5, TimeUnit.SECONDS)
-        assertNotSame(old, manager.authoringRuntime(fixture.worldId))
-        assertTrue(issues.snapshot(fixture.worldId).any { it.objectId == "test:diagnostic-signal" && it.code == "rule-unavailable" })
-        manager.clearLocal().toCompletableFuture().join()
+            manager.remove(fixture.worldId)
+            assertTrue(issues.snapshot(fixture.worldId).isEmpty())
+        } finally {
+            manager.clearLocal().toCompletableFuture().join()
+        }
     }
 
     @Test

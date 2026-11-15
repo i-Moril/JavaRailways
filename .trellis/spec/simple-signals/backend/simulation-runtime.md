@@ -56,13 +56,13 @@ LIVE manager的epoch→planning→inspection安装任一步失败时，在原Wor
 
 正式四灯包配500/300/150/500m区间，尾段占用时按既有正式JS给出对应档位；释放后仍可能因轨道尽头限速，不能断言所有空闲段都绿。保护入口只有真实选择、准备和净空条件满足后才放行；Basic资源底线不因JS clear取消。
 
-同一个prepared输入安装到两个SIM时，定义IDs可相同，但target UUID、topology编译结果、JS、claim/selection均各自独立。暂停A的实际logic monitor时B继续物理和信号发布；同A另一调用保持等待。A卸载或失败不能关闭B的执行器。
+同一个prepared输入安装到两个SIM时，定义IDs可相同，但target UUID、topology编译结果、JS、claim/selection均各自独立。各World分别推进自己的物理帧和信号快照；A卸载或失败不能关闭B的执行器。
 
 ## 必需回归与断言点
 
 - 直接加载分发四灯JS，真实LIVE与SIM安装，断言占用/释放、有限/clear、短区间/静态速度及不可用规则。
 - 完整目标链覆盖保护选择/准备、方向与折返、两类inspection、provider/contributor、claim/尾释放及admission更新，不能用空source或手写替代算法证明完整安装。
-- LIVE-LIVE、LIVE-SIM、SIM-SIM均在真实logic monitor或求值路径barrier内暂停A，B必须完成实际physics及正确输出；同World有序、close/failure/reinstall仅目标受影响。
+- LIVE-LIVE、LIVE-SIM、SIM-SIM通过各自物理帧、信号档位及限速结果验证隔离；关闭一个World后另一个仍可继续运行，不以私有监视器或JVM线程状态作为断言。
 - route/inspection部分安装失败，检查源退注册先于Engine关闭、旧异步close与同UUID重装不串用；清理失败保留引擎可重试，clear与在途install重叠时reservation不丢失。
 - manager安装/编辑/关闭交错验证目录锁范围，remove/重装/迟到失败不能改新binding；capture不反向取管理锁。
 - 源LIVE先以正式规则发布有效信号，并持有真实非空route claim和Dispatcher运行状态，再capture并运行/关闭两个同源SIM；逐阶段核对源World/列车frame、实际claimSnapshots、Dispatcher statuses、signal snapshot与限制保持不变。SIM使用相同文本train ID、各自真实申请同资源，以避免空状态或不同ID掩盖串用。

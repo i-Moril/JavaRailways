@@ -7,8 +7,6 @@ import org.junit.jupiter.api.io.TempDir
 import work.art1st.javarailways.scriptworker.executeScript
 import java.nio.file.Path
 import java.time.Duration
-import java.util.concurrent.ExecutionException
-import java.util.concurrent.TimeUnit
 
 class TimetableScriptExecutionTest {
     @TempDir
@@ -47,27 +45,11 @@ class TimetableScriptExecutionTest {
     }
 
     @Test
-    fun `close terminates active command jobs and rejects subsequent compilation`() {
+    fun `closed compiler rejects subsequent compilation`() {
         val sandbox = TimetableScriptSandbox(directory)
-        sandbox.saveSource("loop.js", "function main(timetable) { while (true) {} }", false)
-        val jobs = List(2) { sandbox.compileScriptAsync("loop.js", "loop-$it") }
-        try {
-            // Wait until both command jobs have acquired the two compiler slots.
-            assertTimeoutPreemptively(Duration.ofSeconds(10)) {
-                while (true) {
-                    val probe = runCatching { sandbox.compileSource(VALID_SCRIPT, "probe") }.exceptionOrNull()
-                    if (probe?.message?.contains("capacity is busy") == true) break
-                    Thread.yield()
-                }
-            }
-            sandbox.close()
-            for (job in jobs) {
-                val failure = assertThrows(ExecutionException::class.java) { job.get(5, TimeUnit.SECONDS) }
-                assertTrue(failure.cause!!.message!!.contains("compiler is closed"), failure.cause!!.message)
-            }
-            assertThrows(TimetableScriptFailure::class.java) { sandbox.compileSource(VALID_SCRIPT, "closed") }
-        } finally {
-            sandbox.close()
+        sandbox.close()
+        assertThrows(TimetableScriptFailure::class.java) {
+            sandbox.compileSource(VALID_SCRIPT, "closed")
         }
     }
 

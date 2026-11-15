@@ -37,6 +37,38 @@ class RailInfrastructureMetadataTopologyTest {
     }
 
     @Test
+    fun `merge compares author inputs rather than refreshed automatic snapshots`() {
+        val source = UUID.randomUUID()
+        val before = UUID.randomUUID()
+        val after = UUID.randomUUID()
+        val store = RailInfrastructureMetadataStore()
+        store.put(source, RailInfrastructureMetadata(
+            authoring = RailAuthoringMetadata(designSpeedMetersPerSecond = 30.0),
+            speedLimits = SpeedLimitMetadata(listOf(SpeedLimitEntry(30.0, SpeedLimitType.SUBGRADE)))
+        ))
+        RailInfrastructureMetadataTopology.split(store, source, before, after, "derived-split")
+        listOf(before, after).forEachIndexed { index, id ->
+            val current = store.getValue(id)
+            store.put(id, current.copy(
+                speedLimits = SpeedLimitMetadata(current.speedLimits.entries +
+                    SpeedLimitEntry(10.0 + index, SpeedLimitType.CURVE)),
+                curveSafety = CurveSafetyMetadata(20.0 + index)
+            ))
+        }
+        assertNull(RailInfrastructureMetadataTopology.mergeEligibilityError(store, before, after))
+        listOf(before, after).forEach { id ->
+            val current = store.getValue(id)
+            store.put(id, current.copy(authoring = current.authoring!!.copy(curveSpeedLimitAutomatic = false)))
+        }
+        assertEquals("两段轨道元数据不一致",
+            RailInfrastructureMetadataTopology.mergeEligibilityError(store, before, after))
+        val current = store.getValue(after)
+        store.put(after, current.copy(speedLimits = store.getValue(before).speedLimits))
+        assertNull(RailInfrastructureMetadataTopology.mergeEligibilityError(store, before, after))
+        RailInfrastructureMetadataTopology.merge(store, before, after, UUID.randomUUID())
+    }
+
+    @Test
     fun `split keeps endpoint metadata only on original outer endpoints`() {
         val source = UUID.randomUUID()
         val before = UUID.randomUUID()

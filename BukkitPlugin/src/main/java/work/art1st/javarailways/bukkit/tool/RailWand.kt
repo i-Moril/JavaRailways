@@ -68,6 +68,7 @@ import work.art1st.javarailways.basic.rail.SpeedLimitType
 import work.art1st.javarailways.basic.rail.TurnoutTopology
 import work.art1st.javarailways.basic.rail.resolveLogicalRailLaneIds
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
+import work.art1st.javarailways.basic.safety.RailDerivedSpeedMetadata
 import work.art1st.javarailways.basic.safety.RailSpeedCalculator
 import work.art1st.javarailways.basic.safety.RailSpeedLimits
 import work.art1st.javarailways.bukkit.BukkitPlugin
@@ -195,7 +196,8 @@ internal fun RailInfrastructureMetadata.withRebuiltCurveSpeedLimits(
     speedLimits = SpeedLimitMetadata(buildList {
         addAll(speedLimits.entries.filterNot { it.type == SpeedLimitType.CURVE })
         val designSpeed = authoring?.designSpeedMetersPerSecond
-        if (designSpeed == null || rebuilt.operatingLimitMetersPerSecond < designSpeed) {
+        if (rebuilt.derailSpeedMetersPerSecond != null &&
+            (designSpeed == null || rebuilt.operatingLimitMetersPerSecond < designSpeed)) {
             add(SpeedLimitEntry(rebuilt.operatingLimitMetersPerSecond, SpeedLimitType.CURVE))
         }
     }),
@@ -2143,7 +2145,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             operation = "RailWand.rebuildRailForEndpointEdit",
             supplier = {
                 val curvesByRailId = linkedMapOf<UUID, BuiltCurve>()
-                val derailAcceleration = plugin.physicsConfig.overspeed.derailLateralAccelerationMetersPerSecondSquared
                 for (input in rebuildInputs) {
                     val newStart = if (input.movedEnd == 'A') updatedEndpoint else input.oldStart
                     val newEnd = if (input.movedEnd == 'B') updatedEndpoint else input.oldEnd
@@ -2157,13 +2158,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         )
                     } else settingsSnapshot
                     val curve = createCurveBetweenAnchors(newStart, newEnd, inputSettings)
-                    val limits = RailSpeedCalculator.calculate(
-                        curve,
-                        settingsSnapshot.designSpeedKmH / 3.6,
-                        settingsSnapshot.allowableCantDeficiencyMm / 1000.0,
-                        derailAcceleration,
-                        plugin.physicsConfig.railSpeedPhysics()
-                    )
+                    val limits = calculateSpeedLimits(curve, input.oldMetadata, settingsSnapshot)
                     curvesByRailId[input.railId] = BuiltCurve(curve, limits)
                 }
                 val railCreation = coreWorld.prepareRailCreationBatch(
@@ -4261,6 +4256,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         ).color(NamedTextColor.YELLOW))
     }
 
+    @OptIn(Heavy::class)
     private fun confirmSplit(player: Player, state: WandPlayerState) {
         val railId = state.pendingSplitRail ?: return
         val arcLength = state.pendingSplitArcLength ?: return
@@ -4341,6 +4337,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         RailInfrastructureMetadataTopology.split(
                             store, railId, beforeId, afterId, operationId
                         )
+                        listOf(beforeId, afterId).zip(curves.toList()).forEach { (id, curve) ->
+                            store.put(id, RailDerivedSpeedMetadata.refresh(
+                                store.getOrDefault(id), curve, plugin.physicsConfig.railSpeedPhysics(),
+                                plugin.physicsConfig.overspeed.derailLateralAccelerationMetersPerSecondSquared
+                            ))
+                        }
                     }.snapshot()
                     undoBuilder.replaceMetadataSnapshot(preparedMetadata)
                     undoBuilder.migrateDirections(
@@ -4494,6 +4496,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         )
     }
 
+    @OptIn(Heavy::class)
     internal fun mergeSplitAnchor(player: Player, anchor: Anchor) {
         val operationId = parseSplitAnchorId(anchor.id) ?: run {
             player.sendActionBar(RailWandI18n.component(
@@ -4590,6 +4593,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     val preparedMetadata = RailInfrastructureMetadataStore().also { store ->
                         store.restore(beforeMetadata)
                         RailInfrastructureMetadataTopology.merge(store, before.id, after.id, mergedId)
+                        store.put(mergedId, RailDerivedSpeedMetadata.refresh(
+                            store.getOrDefault(mergedId), mergedCurve, plugin.physicsConfig.railSpeedPhysics(),
+                            plugin.physicsConfig.overspeed.derailLateralAccelerationMetersPerSecondSquared
+                        ))
                     }.snapshot()
                     val template = beforeTemplate
                     undoBuilder.replaceMetadataSnapshot(preparedMetadata)

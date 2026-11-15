@@ -33,10 +33,19 @@ class RebuiltRailMetadataTest {
 
     @Test
     fun `curve rebuild does not invent authoring metadata`() {
-        val rebuilt = RailInfrastructureMetadata.EMPTY.withRebuiltCurveSpeedLimits(RailSpeedLimits(25.0, null))
+        val rebuilt = RailInfrastructureMetadata.EMPTY.withRebuiltCurveSpeedLimits(RailSpeedLimits(25.0, 35.0))
 
         assertNull(rebuilt.authoring)
         assertEquals(25.0, rebuilt.speedLimits.value(SpeedLimitType.CURVE))
+        assertEquals(35.0, rebuilt.curveSafety.baseCurveDerailSpeedMetersPerSecond)
+    }
+
+    @Test
+    fun `straight rebuild releases curve limit without inventing authoring metadata`() {
+        val rebuilt = RailInfrastructureMetadata.EMPTY.withRebuiltCurveSpeedLimits(RailSpeedLimits(25.0, null))
+
+        assertNull(rebuilt.authoring)
+        assertNull(rebuilt.speedLimits.value(SpeedLimitType.CURVE))
         assertNull(rebuilt.curveSafety.baseCurveDerailSpeedMetersPerSecond)
     }
 }

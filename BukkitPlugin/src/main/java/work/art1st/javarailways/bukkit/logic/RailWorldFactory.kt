@@ -21,7 +21,7 @@ import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionConte
 import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContextProvider
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
-import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignalMaterializer
+import work.art1st.javarailways.basic.safety.RailDerivedSpeedMetadata
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
 import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
@@ -209,7 +209,10 @@ object RailWorldFactory {
         basicInfrastructure?.restore(coreWorld)
         simpleAtoInfrastructure?.restore(coreWorld)
         basicRuntime?.restore()
-        OperationalSpeedLimitSignalMaterializer.materialize(coreWorld)
+        RailDerivedSpeedMetadata.refreshWorld(
+            coreWorld, plugin.physicsConfig.railSpeedPhysics(),
+            plugin.physicsConfig.overspeed.derailLateralAccelerationMetersPerSecondSquared
+        )
         // Visual restoration can fail before this factory returns a world to WorldManager.
         // Keep the global visual index under construction ownership until the handoff.
         construction.own {

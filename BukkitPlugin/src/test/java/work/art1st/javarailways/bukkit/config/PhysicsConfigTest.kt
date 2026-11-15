@@ -16,6 +16,7 @@ class PhysicsConfigTest {
         val config = PhysicsConfig.fromYaml(yaml)
 
         assertEquals(2, config.schemaVersion)
+        assertEquals(1.0, config.railSpeedPhysics().curveSpeedLimitMultiplier)
         assertEquals(1.435, config.track.gaugeMeters)
         assertEquals(9.80665, config.track.gravityMetersPerSecondSquared)
         assertEquals(1.0 / 300.0, config.track.maximumCantGradient, 1.0e-12)
@@ -26,6 +27,17 @@ class PhysicsConfigTest {
         assertEquals(listOf(40.0, 30.0, 20.0, 10.0), config.autoRadius.fallbackRadiiMeters)
         assertEquals(180.0, config.turnoutGeometry(StandardTurnout.N9).radiusMeters)
         assertEquals(30.0, config.turnoutGeometry(StandardTurnout.N9).divergingSpeedKmH)
+    }
+
+    @Test
+    fun `curve speed multiplier defaults to one and reaches calculator physics`() {
+        assertEquals(1.0, PhysicsConfig.fromYaml(validYaml()).railSpeedPhysics().curveSpeedLimitMultiplier)
+        val yaml = validYaml().apply { set("track.curve-speed-limit-multiplier", 1.5) }
+        assertEquals(1.5, PhysicsConfig.fromYaml(yaml).railSpeedPhysics().curveSpeedLimitMultiplier)
+        listOf(0.0, -1.0, Double.NaN, Double.POSITIVE_INFINITY, "fast").forEach { invalid ->
+            yaml.set("track.curve-speed-limit-multiplier", invalid)
+            assertThrows(IllegalArgumentException::class.java) { PhysicsConfig.fromYaml(yaml) }
+        }
     }
 
     @Test

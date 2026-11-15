@@ -13,9 +13,11 @@ import kotlin.math.sqrt
 
 data class RailSpeedPhysics(
     val gaugeMeters: Double = RailSpeedCalculator.STANDARD_GAUGE_METERS,
-    val gravityMetersPerSecondSquared: Double = RailSpeedCalculator.GRAVITY_METERS_PER_SECOND_SQUARED
+    val gravityMetersPerSecondSquared: Double = RailSpeedCalculator.GRAVITY_METERS_PER_SECOND_SQUARED,
+    val curveSpeedLimitMultiplier: Double = 1.0
 ) {
     init {
+        require(curveSpeedLimitMultiplier.isFinite() && curveSpeedLimitMultiplier > 0.0)
         require(gaugeMeters.isFinite() && gaugeMeters > 0.0)
         require(gravityMetersPerSecondSquared.isFinite() && gravityMetersPerSecondSquared > 0.0)
     }
@@ -86,7 +88,11 @@ object RailSpeedCalculator {
         }
 
         return RailSpeedLimits(
-            operatingLimitMetersPerSecond = min(requestedLimitMetersPerSecond, geometryOperatingLimit),
+            operatingLimitMetersPerSecond = minOf(
+                requestedLimitMetersPerSecond,
+                geometryOperatingLimit * physics.curveSpeedLimitMultiplier,
+                geometryDerailLimit
+            ),
             derailSpeedMetersPerSecond = geometryDerailLimit.takeIf { it.isFinite() }
         )
     }

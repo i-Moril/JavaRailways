@@ -111,11 +111,19 @@ object RailInfrastructureMetadataTopology {
         if (beforeSplit.parent != afterSplit.parent ||
             beforeSplit.sourceAssemblyRole != afterSplit.sourceAssemblyRole
         ) return "分割谱系不一致"
-        if (before.withoutTopologyState(beforeSplit.parent) != after.withoutTopologyState(afterSplit.parent)) {
+        if (before.withoutTopologyState(beforeSplit.parent).withoutDerivedSpeed() !=
+            after.withoutTopologyState(afterSplit.parent).withoutDerivedSpeed()) {
             return "两段轨道元数据不一致"
         }
         return null
     }
+
+    private fun RailInfrastructureMetadata.withoutDerivedSpeed(): RailInfrastructureMetadata = copy(
+        speedLimits = if (authoring?.curveSpeedLimitAutomatic == true) {
+            SpeedLimitMetadata(speedLimits.entries.filterNot { it.type == SpeedLimitType.CURVE })
+        } else speedLimits,
+        curveSafety = CurveSafetyMetadata()
+    )
 
     fun merge(
         store: RailInfrastructureMetadataStore,

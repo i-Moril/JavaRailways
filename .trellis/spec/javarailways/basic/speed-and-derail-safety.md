@@ -19,9 +19,17 @@ data class RailSpeedLimits(
 
 来源：`Basic/src/main/java/work/art1st/javarailways/basic/safety/RailSpeedCalculator.kt`。
 
-`RailSpeedCalculator.calculate(curve,requestedLimitMetersPerSecond,allowableCantDeficiencyMeters,derailLateralAccelerationMetersPerSecondSquared,physics)`从final tangent/normal求最小 operating/derail。标准gauge `1.435 m`、gravity `9.80665 m/s²`。straight无meaningful horizontal curvature时derail threshold为null。manual operating limit也不得高于geometry/subgrade。
+`RailSpeedCalculator.calculate(curve,requestedLimitMetersPerSecond,allowableCantDeficiencyMeters,derailLateralAccelerationMetersPerSecondSquared,physics)`从final tangent/normal求最小 operating/derail。标准gauge `1.435 m`、gravity `9.80665 m/s²`。straight无meaningful horizontal curvature时derail threshold为null。`RailSpeedPhysics.curveSpeedLimitMultiplier`是全局运营速度倍率（默认1.0），乘在几何运营速度上，不改变独立derail公式；自动结果不得超过derail阈值，最终effective仍取CURVE/SUBGRADE最小值。人工输入不乘倍率；已有人工CURVE作为原始配置保留，物理配置改变后由独立安全监测使用刷新后的脱轨阈值。
 
 `OperationalSpeedLimitSignalMaterializer`在每rail AB/BA entry各建一个direction-filtered signal，namespace固定`javarailways.speed-limit`；metadata empty也materialize release transition。Signal runtime-only，restore后重建。
+
+### 自动限速刷新（CURRENT）
+
+自动CURVE及curveSafety是几何和当前物理配置的派生快照，已保存值不是自动限速的权威来源。`RailDerivedSpeedMetadata`根据authoring的允许欠超高、自动标志与实际curve计算；不得把已保存自动CURVE再乘倍率。人工CURVE和SUBGRADE原值保留，无水平曲率的自动轨道删除CURVE并清空派生脱轨阈值。
+
+真实world构造在Basic infrastructure恢复后、默认限速Signal materialize及world发布前刷新；几何编辑（包括拆分、合并）使用相同公式。运行阶段不每tick遍历几何；隔离模拟使用来源世界已刷新的基础设施快照。无authoring的metadata不猜测自动输入。持久化形状不变，不增加旧数据reader或迁移。
+
+回归覆盖倍率1.0/1.5、独立derail上限、物理配置变化后加载、重复刷新不累计、人工与SUBGRADE保留、直线release及Signal/静态查询一致。
 
 ### 准备阶段的静态限速读取
 
@@ -71,7 +79,7 @@ val derailSpeed = frame.sweptSpans.asSequence()
 - same epoch重复消耗grace；
 - 只看head/current rail；
 - operating cap当derail threshold；
-- manual curve cap超过geometry derail/subgrade；
+- 建造/编辑时接受超过当前自动可达速度的人工请求；加载刷新时不得以此改写既有人工CURVE输入；
 - Signal持久化或restore后不重建release transition；
 - epoch不匹配仍apply request。
 

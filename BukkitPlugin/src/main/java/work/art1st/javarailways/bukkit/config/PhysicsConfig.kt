@@ -12,7 +12,8 @@ data class TrackPhysicsConfig(
     val gaugeMeters: Double,
     val gravityMetersPerSecondSquared: Double,
     val maximumCantGradient: Double,
-    val cantBalanceSpeedOffsetKmH: Double
+    val cantBalanceSpeedOffsetKmH: Double,
+    val curveSpeedLimitMultiplier: Double = 1.0
 )
 
 data class GeometrySamplingConfig(
@@ -79,7 +80,8 @@ data class PhysicsConfig(
 
     fun railSpeedPhysics(): RailSpeedPhysics = RailSpeedPhysics(
         gaugeMeters = track.gaugeMeters,
-        gravityMetersPerSecondSquared = track.gravityMetersPerSecondSquared
+        gravityMetersPerSecondSquared = track.gravityMetersPerSecondSquared,
+        curveSpeedLimitMultiplier = track.curveSpeedLimitMultiplier
     )
 
     fun turnoutGeometry(standard: StandardTurnout): StandardTurnoutGeometry =
@@ -107,6 +109,9 @@ data class PhysicsConfig(
 
             val gauge = requirePositiveDouble(yaml, "track.gauge-meters")
             val gravity = requirePositiveDouble(yaml, "track.gravity")
+            val curveSpeedMultiplier = if (yaml.contains("track.curve-speed-limit-multiplier", true)) {
+                requirePositiveDouble(yaml, "track.curve-speed-limit-multiplier")
+            } else 1.0
             val maximumCantGradient = requirePositiveDouble(yaml, "track.maximum-cant-gradient")
             require(maximumCantGradient <= 1.0) { "track.maximum-cant-gradient must be <= 1.0" }
             val cantBalanceOffset = requireNonNegativeDouble(yaml, "track.cant-balance-speed-offset-kmh")
@@ -182,7 +187,7 @@ data class PhysicsConfig(
             return PhysicsConfig(
                 schemaVersion = schemaVersion,
                 workerThreads = workerThreads,
-                track = TrackPhysicsConfig(gauge, gravity, maximumCantGradient, cantBalanceOffset),
+                track = TrackPhysicsConfig(gauge, gravity, maximumCantGradient, cantBalanceOffset, curveSpeedMultiplier),
                 geometrySampling = sampling,
                 autoRadius = autoRadius,
                 standardTurnouts = standardTurnouts,

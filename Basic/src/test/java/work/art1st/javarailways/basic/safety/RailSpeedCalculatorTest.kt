@@ -45,6 +45,24 @@ class RailSpeedCalculatorTest {
     }
 
     @Test
+    fun `global velocity multiplier preserves derail and requested caps`() {
+        val curve = requireNotNull(StandardTurnoutFactory.build(
+            Anchor("A", Vector3d(), Vector3d(1.0, 0.0, 0.0)),
+            Vector3d(1.0, 0.0, -0.2), StandardTurnoutGeometry(9, 180.0, 30.0)
+        ))
+        val base = RailSpeedCalculator.calculate(curve, 100.0, 0.075, 3.0)
+        val scaled = RailSpeedCalculator.calculate(curve, 100.0, 0.075, 3.0,
+            RailSpeedPhysics(curveSpeedLimitMultiplier = 1.5))
+        assertEquals(base.operatingLimitMetersPerSecond * 1.5, scaled.operatingLimitMetersPerSecond, 1.0e-9)
+        assertEquals(base.derailSpeedMetersPerSecond, scaled.derailSpeedMetersPerSecond)
+        val capped = RailSpeedCalculator.calculate(curve, 100.0, 0.075, 3.0,
+            RailSpeedPhysics(curveSpeedLimitMultiplier = 10.0))
+        assertEquals(base.derailSpeedMetersPerSecond, capped.operatingLimitMetersPerSecond)
+        assertEquals(5.0, RailSpeedCalculator.calculate(curve, 5.0, 0.075, 3.0,
+            RailSpeedPhysics(curveSpeedLimitMultiplier = 1.5)).operatingLimitMetersPerSecond)
+    }
+
+    @Test
     fun `speed limits use configured gauge and gravity`() {
         val turnout = StandardTurnoutGeometry(9, 180.0, 30.0)
         val curve = requireNotNull(StandardTurnoutFactory.build(

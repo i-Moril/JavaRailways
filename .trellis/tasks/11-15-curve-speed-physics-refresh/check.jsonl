@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/javarailways/basic/speed-and-derail-safety.md", "reason": "运营与脱轨阈值及信号合同"}
+{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "配置和持久化版本基线"}
+{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "世界初始化与发布顺序"}
+{"file": ".trellis/tasks/11-15-curve-speed-physics-refresh/design.md", "reason": "用户审阅方案"}

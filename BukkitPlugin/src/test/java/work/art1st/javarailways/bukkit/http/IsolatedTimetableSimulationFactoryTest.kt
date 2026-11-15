@@ -1,5 +1,19 @@
 package work.art1st.javarailways.bukkit.http
 
+import org.joml.Vector3d
+import work.art1st.javarailways.basic.curve.StandardTurnoutFactory
+import work.art1st.javarailways.basic.curve.Anchor
+import work.art1st.javarailways.basic.curve.StandardTurnoutGeometry
+import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
+import work.art1st.javarailways.basic.rail.RailAuthoringMetadata
+import work.art1st.javarailways.basic.rail.SpeedLimitMetadata
+import work.art1st.javarailways.basic.rail.SpeedLimitEntry
+import work.art1st.javarailways.basic.rail.SpeedLimitType
+import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignal
+import work.art1st.javarailways.basic.safety.RailDerivedSpeedMetadata
+import work.art1st.javarailways.basic.safety.RailSpeedPhysics
+import work.art1st.javarailways.core.api.util.annotation.Heavy
+
 import work.art1st.javarailways.core.api.physics.train.TrainComposition
 import work.art1st.javarailways.core.api.physics.train.TrainUnitComposition
 import kotlinx.serialization.json.jsonPrimitive
@@ -75,6 +89,53 @@ import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionDescri
 import work.art1st.javarailways.simpleato.api.timetable.TimetableRuntimeContext
 
 class IsolatedTimetableSimulationFactoryTest {
+    @Test
+    @OptIn(Heavy::class)
+    fun `isolated simulation inherits refreshed automatic limits without applying multiplier twice`() {
+        val source = createTestWorld()
+        registerWorldData(source)
+        try {
+            val route = createStraightRailFromSegments(source,
+                PrimeCurveGenerator.buildStraight(300.0, 1, step = 1.0))
+            OperationalDestinationService(source).register(OperationalDestination(
+                "origin", route.id, 100.0, ViewDirection.AB, DestinationRole.Regular))
+            val curve = requireNotNull(StandardTurnoutFactory.build(
+                Anchor("A", Vector3d(0.0, 0.0, 100.0),
+                    Vector3d(1.0, 0.0, 0.0)),
+                Vector3d(1.0, 0.0, -0.2),
+                StandardTurnoutGeometry(9, 180.0, 30.0)
+            ))
+            val rail = source.createRailForTest(curve)
+            source.basicWorldData.railMetadata.put(rail.id,
+                RailInfrastructureMetadata(
+                    authoring = RailAuthoringMetadata(
+                        designSpeedMetersPerSecond = 100.0),
+                    speedLimits = SpeedLimitMetadata(listOf(
+                        SpeedLimitEntry(100.0,
+                            SpeedLimitType.SUBGRADE)
+                    ))
+                ))
+            RailDerivedSpeedMetadata.refreshWorld(source,
+                RailSpeedPhysics(curveSpeedLimitMultiplier = 1.5), 3.0)
+            val expected = source.basicWorldData.railMetadata.getValue(rail.id)
+            val factory = testSimulationFactory()
+            val timetable = standaloneCall(listOf(TimetableAction.Stop(1)))
+            val snapshot = factory.capture(source, timetable, templateSelection(), standaloneServices())
+            factory.create(snapshot, 1).use { simulation ->
+                val restored = requireNotNull(simulation.world.getRail(rail.id))
+                assertEquals(expected, simulation.world.basicWorldData.railMetadata.getValue(rail.id))
+                listOf(restored.viewAB, restored.viewBA).forEach { view ->
+                    assertEquals(expected.speedLimits.effectiveLimitMetersPerSecond(),
+                        (view.staticRailObjects.single() as
+                            OperationalSpeedLimitSignal).speedLimitMetersPerSecond)
+                }
+            }
+        } finally {
+            source.physicsCoordinator.close()
+            (source.tickManager as AutoCloseable).close()
+        }
+    }
+
     @Test
     fun `line measurement accepts real door completion at deadline but rejects one tick later`() {
         val source = createTestWorld()

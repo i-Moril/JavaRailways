@@ -232,6 +232,7 @@ worker 和信号回调都可读取这份值，不能从公开接口取得可写 
 - sidecar（例如 `RailRenderMetaStore`、model snapshot、Wand PDC）各自是独立 boundary，只在自身 breaking change 时升级。
 - 每车来源包通过`SavedCarRenderState.packageSnapshotHash`引用既有内容寻址包快照，模型树引用与行为包引用分开；默认null字段不升版，不能因联结选择主编组而替换其他车厢的脚本/actions。JS运行时状态不写入存档。具体加载、失败及生命周期见[每车JS行为](car-behavior.md)。
 - 配置 loader 对 invalid bundled/user config fail-fast 并带文件上下文；例如 `loadRailModelConfigFromPlugin()` 不静默 fallback。
+- `physics.yml`的`track.curve-speed-limit-multiplier`是自动曲线运营速度倍率，缺失默认1.0，存在时必须有限且大于0。配置在重启时加载；世界恢复Basic metadata后、限速Signal和运营消费者发布前按当前配置刷新自动限速及派生脱轨阈值。人工CURVE和SUBGRADE保留，倍率不修改脱轨公式；编辑几何后同样重算。新增字段有明确默认值，不升级schema；世界存档形状不变。公式与刷新合同归[Basic speed safety](../../javarailways/basic/speed-and-derail-safety.md)。
 - `physics.yml`当前独立schema为2，重力键是必填正数`track.gravity`。schema 1的`track.gravity-mps2`只由
   `scripts/migrate_physics_config.py`在runtime之外单向升级；脚本默认dry-run，`--apply`写入前保留带时间戳的`.bak`恢复点。
   runtime loader不接受旧version或旧键。

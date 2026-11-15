@@ -350,7 +350,7 @@ JavaRailways 依赖独立安装的 `packetevents`，EntityLib 仍重定位在主
 
 ### 3. 契约
 
-`paper-plugin.yml` 声明必需的 `dependencies.server.packetevents`，加载顺序为 BEFORE 并开放 classpath；编译基线为 2.12.1。启用时检查外部 API 已初始化、未终止，且版本不低于 2.12.1。禁止对共享 API 调用 `setAPI/load/init/terminate/uninject/clearBuildCache/unregisterAllListeners`。关闭只清理本插件的虚拟实体、motion listener 和状态；不得改变其他 consumer 的 listener、在线玩家协议状态或网络 handler。EntityLib 不启用 ViewerEngine、tickTickables、BStats 或更新检查。
+`paper-plugin.yml` 声明必需的 `dependencies.server.packetevents`，加载顺序为 BEFORE 并开放 classpath；编译基线为 2.13.0。内嵌 EntityLib 为 3.3.7-SNAPSHOT，其 Paper 26.2 ID 分配路径使用 `nextEntityId(World)`，并依赖 PacketEvents 的 `V_26_2` 枚举；不得只更新 EntityLib 而保留缺少该枚举的 2.12.1 基线。启用时检查外部 API 已初始化、未终止，且版本不低于 2.13.0。禁止对共享 API 调用 `setAPI/load/init/terminate/uninject/clearBuildCache/unregisterAllListeners`。关闭只清理本插件的虚拟实体、motion listener 和状态；不得改变其他 consumer 的 listener、在线玩家协议状态或网络 handler。EntityLib 不启用 ViewerEngine、tickTickables、BStats 或更新检查。
 
 ### 4. 校验与错误
 

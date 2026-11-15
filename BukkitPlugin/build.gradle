@@ -46,7 +46,7 @@ def prepareFoliaPlugin = tasks.register("prepareFoliaPlugin") {
 runPaper.folia.registerTask {
     minecraftVersion("26.1.2")
     downloadPlugins {
-        github("retrooper", "packetevents", "v2.12.1", "packetevents-spigot-2.12.1.jar")
+        github("retrooper", "packetevents", "v2.13.0", "packetevents-spigot-2.13.0.jar")
     }
     runDirectory = file("run-folia")
     dependsOn(prepareFoliaPlugin, ":TunnelBridgeBuilder:shadowJar", simpleSignalsJar)
@@ -89,15 +89,15 @@ dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     paperweight.paperDevBundle("1.21.11-R0.1-SNAPSHOT")
     // Provided by the independently installed packetevents plugin.
-    compileOnly("com.github.retrooper:packetevents-spigot:2.12.1")
-    testImplementation("com.github.retrooper:packetevents-spigot:2.12.1")
+    compileOnly("com.github.retrooper:packetevents-spigot:2.13.0")
+    testImplementation("com.github.retrooper:packetevents-spigot:2.13.0")
     compileOnly("org.joml:joml:1.10.8")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     // GraalJS is shared by in-process timetable compilation and train behaviors.
     implementation("org.graalvm.polyglot:polyglot:24.2.2")
     implementation("org.graalvm.polyglot:js-community:24.2.2")
-    implementation("io.github.tofaa2:spigot:3.0.3-SNAPSHOT") {
+    implementation("io.github.tofaa2:spigot:3.3.7-SNAPSHOT") {
         exclude group: "com.github.retrooper" // EntityLib uses the server-provided PacketEvents API.
     }
     implementation("net.jcip:jcip-annotations:1.0")
@@ -176,7 +176,7 @@ tasks {
     runServer {
         minecraftVersion("1.21.11")
         downloadPlugins {
-            github("retrooper", "packetevents", "v2.12.1", "packetevents-spigot-2.12.1.jar")
+            github("retrooper", "packetevents", "v2.13.0", "packetevents-spigot-2.13.0.jar")
         }
         pluginJars.from(tasks.shadowJar.archiveFile)
         pluginJars.from(project(":TunnelBridgeBuilder").tasks.named("shadowJar").flatMap { it.archiveFile })

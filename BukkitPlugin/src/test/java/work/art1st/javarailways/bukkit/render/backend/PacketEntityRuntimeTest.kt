@@ -75,10 +75,10 @@ class PacketEntityRuntimeTest {
 
     @Test
     fun `too old external dependency fails with actionable minimum version`() = withApi { shared ->
-        shared.currentVersion = PEVersion.fromString("2.11.1")
+        shared.currentVersion = PEVersion.fromString("2.12.1")
         val runtime = PacketEntityRuntime(uninitializedPlugin(), { shared }, { error("Must not create EntityLib") })
         val failure = assertThrows(IllegalStateException::class.java) { runtime.enable() }
-        assertTrue(failure.message!!.contains("2.12.1"))
+        assertTrue(failure.message!!.contains("2.13.0"))
         runtime.close()
     }
 
@@ -145,7 +145,7 @@ class PacketEntityRuntimeTest {
     private class SharedApi : PacketEventsAPI<Any>() {
         var initialized = true
         var terminated = false
-        var currentVersion = PEVersion.fromString("2.12.1")
+        var currentVersion = PEVersion.fromString("2.13.0")
         override fun load(): Unit = error("Consumer must not load external API")
         override fun init(): Unit = error("Consumer must not initialize external API")
         override fun terminate(): Unit = error("Consumer must not terminate external API")

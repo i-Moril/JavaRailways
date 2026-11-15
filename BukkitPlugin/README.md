@@ -26,7 +26,7 @@
 
 # JavaRailways 安装
 
-JavaRailways 需要 Paper/Folia、Java 25，以及**独立安装的 PacketEvents 2.12.1 或更新兼容版本**。构建与静态验证基于 PacketEvents 2.12.1；更新版本仍需针对服务器版本验证。
+JavaRailways 需要 Paper/Folia、Java 25，以及**独立安装的 PacketEvents 2.13.0 或更新兼容版本**。构建与静态验证基于 PacketEvents 2.13.0；更新版本仍需针对服务器版本验证。
 
 1. 从 [PacketEvents 官方发布页](https://github.com/retrooper/packetevents/releases)下载 Spigot 版本的插件 JAR。
 2. 将 PacketEvents 和 JavaRailways 的插件 JAR 放入服务器 `plugins/`，重启服务器。
@@ -34,11 +34,11 @@ JavaRailways 需要 Paper/Folia、Java 25，以及**独立安装的 PacketEvents
 
 JavaRailways 使用 `paper-plugin.yml` 声明 Paper/Folia 插件入口；PacketEvents 是必需的 server 依赖，PlugManX 是可选依赖，均在 JavaRailways 之前启用并开放所需类访问。主插件继续使用现代 Cloud `PaperCommandManager`，不额外声明 Bukkit `commands`。
 
-JavaRailways 不再包含 PacketEvents，其他插件内嵌的副本不能代替独立安装。EntityLib 仍由 JavaRailways 内嵌并重定位，使用独立 PacketEvents 的共享 API。
+JavaRailways 不再包含 PacketEvents，其他插件内嵌的副本不能代替独立安装。EntityLib 3.3.7-SNAPSHOT（包含 Paper 26.2 的实体 ID API 适配）仍由 JavaRailways 内嵌并重定位，使用独立 PacketEvents 的共享 API。
 
 关闭或重载 JavaRailways 时，它只释放自己的模型和监听器，不关闭 PacketEvents、不撤销玩家网络注入。不要在依赖插件运行时单独卸载 PacketEvents；需要更新它时重启服务器。当前仅以 PlugManX 3.2.1 的 Paper/Folia 路径为支持目标，完整热重载兼容性仍需真实服务器验证。
 
-Gradle 的 `:BukkitPlugin:runServer` 与 `:BukkitPlugin:runFolia` 开发启动任务会单独下载 PacketEvents 2.12.1，不将其打入 JavaRailways JAR。
+Gradle 的 `:BukkitPlugin:runServer` 与 `:BukkitPlugin:runFolia` 开发启动任务会单独下载 PacketEvents 2.13.0，不将其打入 JavaRailways JAR。
 
 
 ## Folia 关闭行为

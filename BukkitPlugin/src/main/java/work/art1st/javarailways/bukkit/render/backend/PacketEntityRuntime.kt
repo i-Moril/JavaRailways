@@ -28,8 +28,8 @@ class PacketEntityRuntime internal constructor(
         check(!enabled && entityLibPlatform == null) { "Packet entity runtime is already enabled" }
         val api = apiProvider()
         check(api.isInitialized && !api.isTerminated) { "The installed packetevents plugin must be enabled before JavaRailways" }
-        check(!api.version.isOlderThan(PEVersion.fromString("2.12.1"))) {
-            "JavaRailways requires PacketEvents 2.12.1 or newer (installed: ${api.version})"
+        check(!api.version.isOlderThan(PEVersion.fromString("2.13.0"))) {
+            "JavaRailways requires PacketEvents 2.13.0 or newer (installed: ${api.version})"
         }
         val platform = platformFactory()
         entityLibPlatform = platform // Keep the partially initialized platform reachable for failure cleanup.

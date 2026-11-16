@@ -10,6 +10,7 @@ import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailView
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.train.Train
+import work.art1st.javarailways.core.api.physics.train.TrainEndRailObject
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.RailSegment
 import work.art1st.javarailways.core.physics.train.TrainEnd
@@ -146,8 +147,8 @@ fun observeTrackObjects(
     path.physicalSegments.forEach { segment ->
         val view = segment.railView
         val objects = buildList<RailObject> {
-            addAll(view.staticRailObjects)
-            addAll(view.dynamicRailObjects)
+            addAll(staticTrackObjects(view))
+            addAll(trackTrainEnds(view))
             addAll(railObjects.objectsOnRail(view.rail.id))
         }
         objects.forEach objectLoop@{ railObject ->
@@ -181,3 +182,88 @@ fun observeTrackObjects(
     }
     return java.util.Collections.unmodifiableMap(result)
 }
+/**
+ * Traces selected physical intervals with a caller-owned segment budget. This first-party query
+ * retains the bounded traversal's arithmetic, including zero-length intervals and repeated rails;
+ * it does not call the uncapped [traceSelectedTrackAhead] traversal. Independent third-party API
+ * compatibility is not promised. The caller chooses the horizon and budget and owns control policy.
+ *
+ * Resolves the captured head through Core's existing location constructor before traversing.
+ * Canonical AB metres are converted to the head's oriented view, preserving Core geometry's
+ * existing sampling and failure behavior. No topology revision is captured, no additional
+ * argument validation is performed, and the returned live views do not prove later currentness.
+ * Read in the world's allowed simulation/physics context; no movement or registration occurs.
+ * Work and output size are bounded by the number of intervals actually visited, up to the budget.
+ *
+ * @param world world supplying current head geometry and selected continuations.
+ * @param head captured head position in canonical AB metres and travel facing.
+ * @param horizonMeters desired forward coverage in metres, used unchanged in interval arithmetic.
+ * @param maximumSegments maximum number of intervals to visit, counting zero-length intervals.
+ * @return detached read-only ordered intervals; the views themselves remain live Core API handles.
+ * @throws IllegalStateException if the head rail is missing, an interval ends before its start,
+ * or no interval was produced. Existing Core geometry failures propagate unchanged.
+ */
+fun traceBoundedSelectedTrackAhead(
+    world: World,
+    head: RailPositionSnapshot,
+    horizonMeters: Double,
+    maximumSegments: Int
+): List<PhysicalTrackSegment> {
+    val position = head
+    val rail = checkNotNull(world.getRail(position.railId)) { "manual head rail is missing" }
+    val location = RailLocationWithFacing(rail.getView(position.facing) as work.art1st.javarailways.core.physics.rail.RailView,
+        if (position.facing == ViewDirection.AB) position.arcLengthInAbMeters
+        else rail.curve.totalArcLength - position.arcLengthInAbMeters)
+    val segments = mutableListOf<PhysicalTrackSegment>()
+    var view = location.railView
+    var start = location.arcLength
+    var observed = 0.0
+    // Selected topology may contain cycles; cap traversal even for zero-length rail chains.
+    for (index in 0 until maximumSegments) {
+        val end = minOf(view.curve.totalArcLength, start + horizonMeters - observed)
+        check(end >= start) { "manual head outside selected route" }
+        segments += PhysicalTrackSegment(view, start, end)
+        observed += end - start
+        if (observed >= horizonMeters) break
+        val next = view.activeRail ?: break
+        view = next
+        start = 0.0
+    }
+    check(segments.isNotEmpty()) { "manual ATP has no forward route" }
+    return java.util.List.copyOf(segments)
+}
+
+/**
+ * Reads Core's static objects for one oriented view. First-party source query, without independent
+ * third-party API compatibility guarantees. Core applies each signal's direction predicate now,
+ * preserving AB source order and reversed BA source order; lifecycle is not filtered here.
+ * The list is detached, but every element is the original live object, so later operational reads
+ * and lifecycle checks remain the caller's responsibility. No Basic registry objects are included.
+ * Call in the world's simulation/physics context; getter failures propagate without new checks.
+ * Work is proportional to the view's static source collection.
+ *
+ * @param view live Core API handle whose original Core source is queried.
+ * @return detached read-only direction-filtered objects in Core's original order.
+ */
+fun staticTrackObjects(view: RailView): List<RailObject> =
+    java.util.List.copyOf((view as work.art1st.javarailways.core.physics.rail.RailView).staticRailObjects)
+
+/**
+ * Returns the original Core dynamic train-end source through a read-only LIVE collection wrapper.
+ * This first-party query has no independent third-party API compatibility guarantee. It does not
+ * snapshot, iterate, filter lifecycle, exclude an observer, or read owners/positions/speeds. The
+ * underlying ConcurrentLinkedQueue iterator is obtained when the caller begins iteration; later
+ * source changes follow that queue's weakly consistent iteration behavior. Thus callers can finish
+ * their static signal reads before starting dynamic observation without premature read-ahead.
+ *
+ * Elements retain original object identity. Read within the world's simulation/physics context;
+ * the caller owns lifecycle/currentness checks. No Basic registry objects or new registrations are
+ * involved. Obtaining the wrapper is constant work; iteration cost follows the live collection.
+ *
+ * @param view live Core API handle whose original Core dynamic source is queried.
+ * @return read-only live collection of original train-end objects, with no lifecycle filtering.
+ */
+fun trackTrainEnds(view: RailView): Collection<TrainEndRailObject> =
+    java.util.Collections.unmodifiableCollection(
+        (view as work.art1st.javarailways.core.physics.rail.RailView).dynamicRailObjects
+    )

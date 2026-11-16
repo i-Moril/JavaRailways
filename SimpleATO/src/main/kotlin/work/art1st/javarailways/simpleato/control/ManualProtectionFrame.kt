@@ -3,40 +3,20 @@ package work.art1st.javarailways.simpleato.control
 import work.art1st.javarailways.basic.api.ato.VehicleControlCapabilities
 import work.art1st.javarailways.basic.api.ato.RailGradeBounds
 import work.art1st.javarailways.basic.api.ato.nativeBodySpeedLimits
+import work.art1st.javarailways.basic.api.ato.traceBoundedSelectedTrackAhead
+import work.art1st.javarailways.basic.api.ato.staticTrackObjects
+import work.art1st.javarailways.basic.api.ato.trackTrainEnds
 import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignal
 import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.core.api.physics.train.Train
-import work.art1st.javarailways.core.api.physics.rail.ViewDirection
-import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
-import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.simpleato.api.atp.AtpTarget
 
 /** Unrouted manual driving supervises visible physical track, obstacles and native speed limits. */
 internal fun manualProtectionFrame(train: Train, capabilities: VehicleControlCapabilities): TrainControlFrame {
         val physicalFrame = requireNotNull(train.publishedFrame) { "manual ATP requires a published frame" }
         val bodyLimits = nativeBodySpeedLimits(train, physicalFrame)
-        val position = physicalFrame.head
-        val rail = checkNotNull(train.world.getRail(position.railId)) { "manual head rail is missing" }
-        val head = RailLocationWithFacing(rail.getView(position.facing) as RailView,
-            if (position.facing == ViewDirection.AB) position.arcLengthInAbMeters
-            else rail.curve.totalArcLength - position.arcLengthInAbMeters)
         val horizon = maxOf(100.0, capabilities.maximumSpeedMetersPerSecond * 30.0)
-        val segments = mutableListOf<work.art1st.javarailways.core.physics.rail.RailSegment>()
-        var view = head.railView
-        var start = head.arcLength
-        var observed = 0.0
-        // Selected topology may contain cycles; cap traversal even for zero-length rail chains.
-        for (index in 0 until 256) {
-            val end = minOf(view.curve.totalArcLength, start + horizon - observed)
-            check(end >= start) { "manual head outside selected route" }
-            segments += work.art1st.javarailways.core.physics.rail.RailSegment(view, start, end)
-            observed += end - start
-            if (observed >= horizon) break
-            val next = view.activeRail ?: break
-            view = next
-            start = 0.0
-        }
-        check(segments.isNotEmpty()) { "manual ATP has no forward route" }
+        val segments = traceBoundedSelectedTrackAhead(train.world, physicalFrame.head, horizon, 256)
         val targets = mutableListOf(AtpTarget("vehicle/max-speed", 0.0, capabilities.maximumSpeedMetersPerSecond))
         // Preserve restrictions under the whole train until the rear has cleared them.
         bodyLimits.forEach { (railId, limit) ->
@@ -47,7 +27,7 @@ internal fun manualProtectionFrame(train: Train, capabilities: VehicleControlCap
             segment.railView.rail.infrastructureMetadata.speedLimits.effectiveLimitMetersPerSecond()?.let {
                 targets += AtpTarget("infrastructure/${segment.railView.rail.id}/$index", distance, it)
             }
-            val signals = segment.railView.staticRailObjects.asSequence()
+            val signals = staticTrackObjects(segment.railView).asSequence()
                 .filter { it.lifecycleState == work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState.ACTIVE }
                 .filterIsInstance<OperationalSpeedLimitSignal>()
                 .sortedBy { it.location.arcLengthIn(segment.railView.viewDirection) }
@@ -66,7 +46,7 @@ internal fun manualProtectionFrame(train: Train, capabilities: VehicleControlCap
                 }
             }
             // A stationary-obstacle assumption is conservative for an unbound manual route.
-            segment.railView.dynamicRailObjects.forEach { end ->
+            trackTrainEnds(segment.railView).forEach { end ->
                 if (end.trainOrNull === train || end.lifecycleState !=
                     work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState.ACTIVE) return@forEach
                 val arc = end.location.arcLengthIn(segment.railView.viewDirection)

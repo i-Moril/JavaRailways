@@ -66,6 +66,38 @@ SimpleATO仍拥有路线revision、ENTER/UPDATE/PASS/EXIT、PASS距离阈值、�
 同实例最近去重与重复ref失败、同向/反向相对速度，以及晚期道岔变化拒绝。
 SimpleATO原回归继续证明事件历史、目标消失、跨epoch重复ref、跟车/联结及入口净空只扫描一次。
 
+## 有界物理前视与分阶段对象来源查询
+
+```kotlin
+fun traceBoundedSelectedTrackAhead(world: World, head: RailPositionSnapshot,
+    horizonMeters: Double, maximumSegments: Int): List<PhysicalTrackSegment>
+fun staticTrackObjects(view: RailView): List<RailObject>
+fun trackTrainEnds(view: RailView): Collection<TrainEndRailObject>
+```
+
+有界查询承接原人工保护的物理遍历算法；SimpleATO仍选择`max(100, maximumSpeed * 30)`米和256段，
+Basic不选择保护策略。查询按原顺序解析车头轨道、通过原Core facing location构造读取曲线点，
+再以`min(curve.length, start + horizon - observed)`截断每段；达到horizon、无当前续接或耗尽段数时结束。
+不改用无界`peekCurve`，不增加topology读取或新的参数检查，原缺轨道、区间非法及空路径错误保留。
+特别是Core公开`getRailLocationAt`额外验证范围，不能以它替代原构造器并改变既有曲线点读取行为。
+返回只读片段列表，固定view-local米制区间并保留原Core API live视图。
+这两种遍历沿用各自现有算法和端点算术，不因共用查询模块而统一数值边界。
+
+`staticTrackObjects`读取当前view方向适用的Core静态对象并返回只读的脱离源集合的列表，保留原顺序和对象身份；
+`trackTrainEnds`只读包装原Core动态车端集合，仍为live `ConcurrentLinkedQueue`视图，不提前枚举或冻结车端。
+两者均不附加ACTIVE过滤、区间过滤、按ID去重或Basic注册对象来源；这些过滤在各调用路径的原阶段执行。
+自动观察复用这些入口后仍按static→dynamic→Basic store合并；人工保护在处理完本段静态信号后才迭代动态端点，
+既不读取Basic store，也不提前读取后续片段的对象或限速。集合结构只读不代表对象状态已冻结。
+
+人工保护对自身端点按精确Train实例排除，端点边界为双侧包含且没有自动路径的stop tolerance；
+其余端点仍投影为静止零速障碍。当前信号转换、前方限速、原生车身限制及最终已观察边界
+如何接入reference/ATP目标，继续由SimpleATO决定。查询不授予运行资源、注册对象、发布状态或写持久化数据。
+调用由原simulation/physics owner同步执行；时间由实际追踪片段及源对象数量决定，有界路径空间由调用方段数上限决定，
+静态列表按本段对象数量分配，动态wrapper本身不复制集合。
+
+回归覆盖256段截断、AB/BA区间、精确端点与原构造器错误、静态列表脱离源集合、live动态集合、
+逐段读取时机、同ID不同Train实例、信号释放与静止障碍目标；已有真实车身限速回归继续验证车尾清除后才解除。
+
 ## 失败与测试
 
 - topology/route revision混用、未排序observation、非法弧长在构造边界拒绝；

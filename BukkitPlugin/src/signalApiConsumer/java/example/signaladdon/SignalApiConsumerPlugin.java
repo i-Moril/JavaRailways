@@ -584,6 +584,12 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         var segment = path.getSegments().getFirst();
         work.art1st.javarailways.core.api.physics.rail.RailView liveView = segment.getRailView();
         double intervalLength = segment.getEndArcLength() - segment.getStartArcLength();
+        var bounded = work.art1st.javarailways.basic.api.ato.SelectedTrackAheadKt
+            .traceBoundedSelectedTrackAhead(train.getWorld(), head, 100.0, 256);
+        List<work.art1st.javarailways.core.api.physics.rail.RailObject> staticObjects =
+            work.art1st.javarailways.basic.api.ato.SelectedTrackAheadKt.staticTrackObjects(liveView);
+        java.util.Collection<work.art1st.javarailways.core.api.physics.train.TrainEndRailObject> liveEnds =
+            work.art1st.javarailways.basic.api.ato.SelectedTrackAheadKt.trackTrainEnds(liveView);
         var observations = work.art1st.javarailways.basic.api.ato.SelectedTrackAheadKt
             .observeTrackObjects(train, path, objects, 0.1, 3.0);
         for (var observation : observations.values()) {

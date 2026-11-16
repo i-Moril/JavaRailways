@@ -24,6 +24,10 @@
   `PhysicalTrackObservation`保留原RailObject实例身份与本次捕获的位置/距离/相对速度。
   这些结果不是跨线程不可变世界快照；调用方仍在原时点检查live续接、signal与车端状态。
   两阶段读取、对象来源、重复身份及控制策略归属见[感知契约](./ato-missions-and-perception.md)。
+- 同包`traceBoundedSelectedTrackAhead`复用原人工有界物理遍历，horizon和段数上限由SimpleATO指定；
+  它与自动无界遍历保留各自原端点算法，不引入新的策略默认值。`staticTrackObjects`提供方向过滤后的只读列表，
+  `trackTrainEnds`提供原动态车端集合的只读live视图；两者不提前执行调用方的生命周期/区间/自身过滤。
+  这些入口仅公开Core API引用，语义、读取时机和复杂度见[感知契约](./ato-missions-and-perception.md)。
 - `basic.api.route` 的 `RailViewRef`、`RouteSegment`、`ExpandedRoute`、`PlannedRoute` 是 SimpleATO 公开路线签名共用的值类型；它们不授予资源或证明拓扑合法性。坐标、不可变性和后续准入职责见[路线契约](./route-planning.md#公开路线值与内部实现的边界)。内部算法和快照转换不随值类型公开；规划查询结果使用下述独立契约。
 - `RailwayObservation`、`RailwayTrainObservation`与`RailwayStateStamp`是公开value投影；它们保留epoch-end保守`occupiedIntervals`、有序tail-to-head `bodyTraversal`、整epoch`sweptSpans`、同epoch有序head/tail movement traversal及Core frame的immutable active-turnout continuation snapshot。这些事实不得互相替代，也不得包含render car或live Core对象。Basic只原样投影live continuation，不解释信号依赖或重建一份选择map。
 - `RailwayOccupancyAreaDefinition`只描述插件拥有的监测区几何和有向边界；公开`RailwayAreaOccupancyEngine`由串行caller喂入连续observation并推导`ENTER`/`LEFT`，不把该area解释成固定闭塞、保护区域或授权资源。详见[监测区占用](./railway-area-occupancy.md)。

@@ -192,6 +192,88 @@ class SelectedTrackAheadTest {
         }
     }
 
+    @ParameterizedTest
+    @EnumSource(ViewDirection::class)
+    fun `bounded traversal counts the zero length head interval and preserves view local arcs`(facing: ViewDirection) {
+        TestWorldFixture.create().use { fixture ->
+            val world = fixture.world
+            val first = world.createRailForTest(straight(0.0, 20.0))
+            val second = world.createRailForTest(straight(20.0, 40.0))
+            world.onOwnerForTest { CoreRail.connect(first, second) }
+            val headRail = if (facing == ViewDirection.AB) first else second
+            val nextRail = if (facing == ViewDirection.AB) second else first
+            val head = RailPositionSnapshot(headRail.id, facing, if (facing == ViewDirection.AB) 20.0 else 0.0)
+
+            val capped = traceBoundedSelectedTrackAhead(world, head, 10.0, 1)
+            assertEquals(1, capped.size)
+            assertSame(headRail.getView(facing), capped.single().railView)
+            assertEquals(20.0, capped.single().startArcLength)
+            assertEquals(20.0, capped.single().endArcLength)
+            val continued = traceBoundedSelectedTrackAhead(world, head, 10.0, 2)
+            assertEquals(2, continued.size)
+            assertSame(nextRail.getView(facing), continued[1].railView)
+            assertEquals(0.0, continued[1].startArcLength)
+            assertEquals(10.0, continued[1].endArcLength)
+            assertThrows(UnsupportedOperationException::class.java) { (continued as MutableList).clear() }
+            assertEquals(2, continued.size)
+        }
+    }
+
+    @Test
+    fun `bounded traversal retains floating residual arithmetic and original geometry failure`() {
+        TestWorldFixture.create().use { fixture ->
+            val world = fixture.world
+            val first = world.createRailForTest(straight(0.0, 20.0))
+            val second = world.createRailForTest(straight(20.0, 40.0))
+            world.onOwnerForTest { CoreRail.connect(first, second) }
+            val head = RailPositionSnapshot(first.id, ViewDirection.AB, 10.0)
+            val segments = traceBoundedSelectedTrackAhead(world, head, 0.1, 256)
+            assertEquals(2, segments.size)
+            assertEquals(10.1, segments[0].endArcLength)
+            assertEquals(0.1 - (10.1 - 10.0), segments[1].endArcLength)
+            assertSame(second.viewAB, segments[1].railView)
+            val invalid = assertThrows(IllegalArgumentException::class.java) {
+                traceBoundedSelectedTrackAhead(world, head.copy(arcLengthInAbMeters = 21.0), 100.0, 256)
+            }
+            assertEquals("Invalid arcLength 21.0. Range: [0, 20.0]", invalid.message)
+            assertSame(second.viewAB, first.viewAB.nextActiveRail)
+        }
+    }
+
+    @Test
+    fun `static sources detach direction order while dynamic source stays live until iteration`() {
+        TestWorldFixture.create().use { fixture ->
+            val world = fixture.world
+            val rail = world.createRailForTest(straight(0.0, 100.0))
+            val train = createTrainWithConfig("source-owner", rail, world, listOf(5.0))
+            val ab = OperationalSpeedLimitSignal(RailObjectRef("test", "ab"),
+                RailLocationWithoutFacing(rail, 20.0), ViewDirection.AB, null)
+            val baFirst = OperationalSpeedLimitSignal(RailObjectRef("test", "ba-first"),
+                RailLocationWithoutFacing(rail, 30.0), ViewDirection.BA, null)
+            val baLast = OperationalSpeedLimitSignal(RailObjectRef("test", "ba-last"),
+                RailLocationWithoutFacing(rail, 40.0), ViewDirection.BA, null)
+            rail.signals.addAll(listOf(ab, baFirst, baLast))
+            baFirst.destroy().toCompletableFuture().join()
+            val static = staticTrackObjects(rail.viewBA)
+            assertEquals(listOf(baLast, baFirst), static)
+            assertEquals(listOf(ab), staticTrackObjects(rail.viewAB))
+            assertEquals(RailObjectLifecycleState.REMOVED, static.last().lifecycleState)
+            rail.signals.clear()
+            assertEquals(listOf(baLast, baFirst), static)
+            assertThrows(UnsupportedOperationException::class.java) { (static as MutableList).clear() }
+
+            val ends = trackTrainEnds(rail.viewAB)
+            val extra = work.art1st.javarailways.core.physics.train.TrainEnd(
+                RailLocationWithFacing(rail.viewAB, 70.0), train,
+                work.art1st.javarailways.core.physics.train.TrainEnd.Type.HEAD)
+            assertSame(extra, ends.last())
+            world.onOwnerForTest { extra.destroy().toCompletableFuture().join() }
+            assertFalse(ends.any { it === extra })
+            assertThrows(UnsupportedOperationException::class.java) { (ends as MutableCollection).clear() }
+            assertTrue(ends.any { it === train.head })
+        }
+    }
+
     private class TestObject(id: String, override val location: RailLocationWithFacing) : RailObject {
         override val ref = RailObjectRef("test", id)
         override var lifecycleState = RailObjectLifecycleState.ACTIVE

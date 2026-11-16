@@ -44,7 +44,13 @@ SimpleATO继续拥有previous/current observation身份比较、ENTER/UPDATE/PAS
 对象回调/inspection之后，路线物理末端仍查询最后view的当前续接；移动前仍逐对检查
 `current.railView.nextActiveRail === next.railView`，选择变化按原消息失败，不能用扫描时捕获的布尔值代替。
 Basic查询的源顺序、容差和重复实例规则归[物理前视契约](../basic/ato-missions-and-perception.md)。
-人工未绑定路线的256段扫描与静止障碍假设继续沿原实现，不因自动前视入口而统一策略。
+人工未绑定路线通过Basic `traceBoundedSelectedTrackAhead`取得物理片段，调用方仍选择256段及原horizon，
+保留原手动端点算术；逐段用`staticTrackObjects`读取静态信号并完成限速处理后，才迭代`trackTrainEnds`。
+前者是方向过滤的只读列表，后者是原动态车端集合的只读live视图；不提前观察后续片段，不加入Basic registry对象。
+自身端点按精确Train实例排除、区间双侧包含且无stop tolerance、其余端点按静止零速障碍处理；
+目标key/顺序、当前signal转换、最末已观察零速边界与reference/ATP双目标仍由SimpleATO按原策略构造。
+现有OperationalSpeedLimitSignal和限速metadata作为稳定领域类型继续复用，不为移除import增加包装接口。
+自动与人工的对象来源、去重、自身判断和相对速度语义保持各自既有规则。
 
 结构输出仍由formation hold停车时，Core只调用`AbstractATO.prepareWhileFormationHeld`，不调用正常tick。
 该边界先清零controller speed和上一编组的lastTravelDistance，再消费命令并执行同一个planner/perception/inspection流程，

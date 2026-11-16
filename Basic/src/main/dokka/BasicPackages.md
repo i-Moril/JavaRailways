@@ -27,6 +27,10 @@ ATO 规划输入使用的不可变 Route 与 Perception 快照。集合在构造
 结果保留Core公开live对象身份供原时点检查，固定距离/位置值不代表整个世界已冻结；
 路线revision、感知事件差分和控制策略仍由SimpleATO拥有。
 
+`traceBoundedSelectedTrackAhead`接收调用方选择的horizon与段数上限，复用原有界物理扫描；
+`staticTrackObjects`返回方向过滤后的只读静态对象列表，`trackTrainEnds`返回原车端集合的只读live视图。
+各控制路径仍在原阶段过滤对象并选择保护目标；这些入口不统一自动与人工策略。
+
 # Package work.art1st.javarailways.basic.api.rail
 
 world-local 通用 RailObject、双索引 store 与 lifecycle 契约；不包含已删除的 ATO Provider/Boundary 切换机制。

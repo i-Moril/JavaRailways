@@ -74,7 +74,13 @@ jobs:
           -PsimpleDisplaysRepository="${RUNNER_TEMP}/simpledisplays-maven"
           --no-daemon
 
-      - name: Upload server plugins
+      - name: Package train and rail models
+        run: |
+          python3 scripts/display-assets/package.py
+          cd examples/models/rails
+          zip -r ../rails.zip .
+
+      - name: Upload server plugins and model packages
         uses: actions/upload-artifact@v4
         with:
           name: JavaRailways-${{ github.sha }}
@@ -84,6 +90,8 @@ jobs:
             BukkitPlugin/build/libs/*-all.jar
             SimpleSignals/build/libs/*.jar
             Decorations/build/libs/*.jar
+            examples/models/s100.zip
+            examples/models/rails.zip
 
       - name: Upload test reports on failure
         if: failure()

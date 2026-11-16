@@ -560,6 +560,17 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         return replacement.getUpdates();
     }
 
+    /** Compile-only first-party track queries, with timing/currentness owned by the caller. */
+    private static Map<UUID, Double> compilePhysicalTrackQueries(
+        work.art1st.javarailways.core.api.physics.train.Train train,
+        work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot frame,
+        work.art1st.javarailways.core.api.physics.curve.PrimeCurve orientedCurve
+    ) {
+        work.art1st.javarailways.basic.api.ato.RailGradeBounds.minimumGrade(orientedCurve);
+        work.art1st.javarailways.basic.api.ato.RailGradeBounds.mostAdverseOccupiedGrade(train);
+        return work.art1st.javarailways.basic.api.ato.NativeBodySpeedLimitsKt.nativeBodySpeedLimits(train, frame);
+    }
+
     private static RouteResourceIntent routeIntentExample(RailwayStateStamp observationStamp) {
         var railId = UUID.randomUUID();
         var route = new RouteSnapshot(

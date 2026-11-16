@@ -81,7 +81,7 @@ class RailwayControlRuntime(private val worldId: String) : VehicleCommandSupervi
         }, train.world.topologyState.revision,
             missionRevision, frame, capabilities)
         val grade = minOf(frame.mostAdverseGrade, capabilities.worstCurrentGrade,
-            RouteGradeBounds.mostAdverseOccupiedGrade(train))
+            RailGradeBounds.mostAdverseOccupiedGrade(train))
         return entry(train).executor.choose(MotionReferenceInput(state, capabilities, frame.referenceTargets,
             delta, maxOf(delta, train.world.maximumPhysicsDeltaSeconds)), frame.protectionTargets, grade,
             mode, proposed, context, frame.unavailableReason)

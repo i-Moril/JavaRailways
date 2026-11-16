@@ -7,6 +7,7 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.ato.ControlDemand
+import work.art1st.javarailways.basic.api.ato.nativeBodySpeedLimits
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.control.HandleTrainActuator
 import work.art1st.javarailways.basic.control.TrainDynamics

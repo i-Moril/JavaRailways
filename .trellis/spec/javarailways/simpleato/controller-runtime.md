@@ -111,7 +111,7 @@ observation stamp。下一次physics tick中controller从route绑定携带的wor
 不能用车头所在轨道、转向架落点或旧 ATO 状态代替整车覆盖。SimpleATO 负责把限制接入普通参考控制和 ATP；
 Basic 仍负责 `CURVE/SUBGRADE` 元数据与独立的脱轨监测，见[速度与脱轨安全](../basic/speed-and-derail-safety.md)。
 
-`nativeBodySpeedLimits(train: Train, frame: TrainFrameSnapshot): Map<UUID, Double>` 是本模块内部共享读取函数，
+`basic.api.ato.nativeBodySpeedLimits(train: Train, frame: TrainFrameSnapshot): Map<UUID, Double>` 是 Basic 拥有的公开查询函数，
 返回轨道 ID 到 m/s 上限的本次计算结果，不保留状态。控制周期从已捕获帧枚举车身轨道并按 ID 去重，读取每轨已有
 `speedLimits.effectiveLimitMetersPerSecond()`，将有限限制加入距离零的当前限速目标。
 自动路径与手动路径共用这一小段读取逻辑，各自接入原有控制帧合成，普通参考与硬保护同时收到限制。
@@ -122,6 +122,7 @@ Basic 仍负责 `CURVE/SUBGRADE` 元数据与独立的脱轨监测，见[速度�
 也不改变下文按车头通过终点释放的信号区间限速。无原生限制的轨道不增加目标；缺失物理帧、
 空车体或已不存在的占用轨道是控制输入错误，沿既有异常路径停止，不能从 live bogie 拼回另一份位置。
 
+查询返回本次新建的脱离元数据存储的 map；SimpleATO 不保留第二份查询实现或兼容转发。
 该计算在原有 worker 决策内执行，时间 O(B)、临时空间 O(B+U)，B 为车身遍历片段数，U 为不同轨道数。
 元数据仍是既有静态值；不新建缓存、信号来源、版本或生命周期，物理帧只读且不逐字段重采样。
 无需持久化迁移。只读车头会过早解除限制，依赖独立脱轨监测事后处理也不能补足普通驾驶/ATP的输入。

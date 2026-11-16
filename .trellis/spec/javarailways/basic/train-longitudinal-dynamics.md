@@ -42,6 +42,19 @@ P/N/B手柄映射为数字指令交给`TrainDynamicsExecutor`；SimpleATO策略�
 坡度输入是`sin(theta)`：正值表示当前物理运行方向上坡。实时输入必须读取
 `Car.operatingDirection.y()`，禁止读取模型朝向`Car.direction.y()`。
 
+`basic.api.ato.RailGradeBounds.minimumGrade(curve)`查询整条不可变有向`PrimeCurve`的最不利坡度，
+不是调用方路线片段的局部下界。算法扫描原切线端点与相邻切线归一化插值的内部极值，
+结果向下舍入并限制于[-1,1]；精确零保留0，避免落入下坡查表格。
+同步`WeakHashMap<PrimeCurve, Double>`按原曲线key语义缓存，首次为O(curve samples)，命中为O(1)，
+反向curve使用自身的有向切线；缺失/非法切线仍沿原校验失败，不假设平坡。
+
+`RailGradeBounds.mostAdverseOccupiedGrade(train)`在调用时读取一次当前published frame，
+按有序tail-to-head `bodyTraversal`的rail/facing查询整条curve。无frame、train ID不符、脱轨、空覆盖或缺几何
+返回NaN，保持“安全证据不可用”的语义。该读取时机独立于上层先前捕获的感知帧，不提前合并采样。
+查询不发布状态或创建world生命周期；调用方在既有physics worker内保证世界读取时序。
+SimpleATO按现有片段顺序折叠这些下界与当前grade；10m/最多256段的局部制动切片及其采样策略仍由SimpleATO拥有，
+不能用全曲线下界替换后宣称只是接口调整。
+
 executor构造时把当前每个实际`Car`实例与输入的`CarDynamicsProfile`配对，保存为身份哈希表。
 每次计算遍历当前`train.cars`，按实例取固有参数，再读取该车此刻的坡度；不保存“第几节车”的参数索引或坡度缓存。
 例如20吨车和10吨车交换位置后，各自质量仍跟随原实例，坡度则来自各自当前线路位置。

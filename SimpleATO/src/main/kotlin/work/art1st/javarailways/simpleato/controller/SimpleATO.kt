@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simpleato.controller
 
+import work.art1st.javarailways.basic.api.ato.RailGradeBounds
 import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
 import work.art1st.javarailways.basic.api.ato.VehicleDeviceState
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
@@ -772,8 +773,9 @@ class SimpleATO(
     override fun controlMissionRevision(): Long? = activeMission?.revision
 
     override fun motionControlFrame(demand: ControlDemand): TrainControlFrame {
-        val grade = RouteGradeBounds.mostAdverseRouteGrade(currentSegments,
-            actuator.controlCapabilities(activeSpeed).worstCurrentGrade)
+        val grade = currentSegments.fold(actuator.controlCapabilities(activeSpeed).worstCurrentGrade) { grade, segment ->
+            minOf(grade, RailGradeBounds.minimumGrade(segment.railView.curve))
+        }
         val snapshot = constraintManager.snapshot()
         val frame = controlFrame(snapshot, safetyProfile, grade)
         val limits = mutableListOf(MotionReferenceConstraint("vehicle/maximum", 0.0, actuator.maximumSpeedMetersPerSecond))
@@ -876,7 +878,7 @@ class SimpleATO(
 
     private fun updateBuiltInConstraints(scan: ScanResult) {
         val infrastructureLimits = buildList {
-            work.art1st.javarailways.simpleato.control.nativeBodySpeedLimits(train, scan.perception.train)
+            work.art1st.javarailways.basic.api.ato.nativeBodySpeedLimits(train, scan.perception.train)
                 .forEach { (railId, limit) ->
                     add(CurrentSpeedLimitConstraint(
                         key = ConstraintKey("basic", "infrastructure-body/$railId"),

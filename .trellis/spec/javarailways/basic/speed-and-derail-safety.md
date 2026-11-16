@@ -39,6 +39,19 @@ data class RailSpeedLimits(
 
 回归必须断言双限制最小值、仅SUBGRADE、无metadata的显式null、缺轨道拒绝、subset去重以及store改变后旧map值和只读性不变。此查询不写存档、不改元数据形状或版本，不计算新的限速或脱轨阈值。
 
+### 控制周期内的整车覆盖限速查询
+
+`basic.api.ato.nativeBodySpeedLimits(train, frame): Map<UUID, Double>`同步读取调用方已捕获的
+`TrainFrameSnapshot.bodyTraversal`，按rail ID去重并读取每轨既有effective limit，返回本次新建map，单位m/s。
+无有限限制的轨道不增加条目；metadata后续变动不修改已返回数值。覆盖按完整保守车身而非车头或转向架落点判断，
+直到后续帧显示车尾清除，调用方才移除限制；AB/BA一致。
+
+frame必须匹配train ID、未脱轨且bodyTraversal非空，占用轨道必须仍可解析，失败沿原check异常返回，
+不从live bogie补全位置。调用由物理worker在原有决策时机执行，函数不重新捕获frame、不写metadata、
+不注册信号或持久化状态。时间O(B)、临时空间O(B+U)，B为遍历片段数，U为不同rail数。
+SimpleATO自动/手动路径消费同一入口，把结果接入普通参考与ATP当前目标；前方信号扫描与控制策略仍归调用方。
+真实Basic设备、AB/BA短轨和车尾清除回归保留在`SimpleATO`的`NativeBodySpeedLimitsTest`。
+
 ## Worker→main request contract
 
 ```kotlin

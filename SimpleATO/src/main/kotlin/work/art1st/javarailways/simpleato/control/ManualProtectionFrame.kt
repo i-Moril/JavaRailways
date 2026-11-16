@@ -1,6 +1,8 @@
 package work.art1st.javarailways.simpleato.control
 
 import work.art1st.javarailways.basic.api.ato.VehicleControlCapabilities
+import work.art1st.javarailways.basic.api.ato.RailGradeBounds
+import work.art1st.javarailways.basic.api.ato.nativeBodySpeedLimits
 import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignal
 import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.core.api.physics.train.Train
@@ -75,6 +77,8 @@ internal fun manualProtectionFrame(train: Train, capabilities: VehicleControlCap
             distance += segment.totalArcLength
         }
         targets += AtpTarget("manual/observed-boundary", distance, 0.0)
-        val grade = RouteGradeBounds.mostAdverseRouteGrade(segments, capabilities.worstCurrentGrade)
+        val grade = segments.fold(capabilities.worstCurrentGrade) { grade, segment ->
+            minOf(grade, RailGradeBounds.minimumGrade(segment.railView.curve))
+        }
         return TrainControlFrame(targets.map { MotionReferenceConstraint(it.id, it.distanceMeters, it.targetSpeedMetersPerSecond) }, targets, grade)
     }

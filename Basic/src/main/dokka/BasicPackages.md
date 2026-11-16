@@ -19,6 +19,10 @@ ATO 规划输入使用的不可变 Route 与 Perception 快照。集合在构造
 最后由Core在物理帧间安装。准备不会安装状态，失败保留已有设备历史与控制参数。
 参数视图由调用方保持稳定；这些接口不定义配置序列化格式，也不创建world注册。
 
+`nativeBodySpeedLimits`按调用方已捕获的完整车身覆盖查询原生轨道限速；`RailGradeBounds`提供
+不可变有向曲线最低坡度的缓存计算，以及调用时已发布车身的坡度查询。这些第一方同步函数不选择控制目标、
+不发布物理状态，也不定义额外注册或持久化生命周期。
+
 # Package work.art1st.javarailways.basic.api.rail
 
 world-local 通用 RailObject、双索引 store 与 lifecycle 契约；不包含已删除的 ATO Provider/Boundary 切换机制。

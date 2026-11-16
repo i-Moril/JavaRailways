@@ -1,5 +1,7 @@
 package experiment.productionemu
 
+import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
+import work.art1st.javarailways.basic.api.ato.TrainDynamicsProfile
 import com.sun.management.ThreadMXBean
 import java.lang.management.ManagementFactory
 import kotlin.math.min
@@ -20,7 +22,7 @@ object ProductionEmuPerformance {
     private const val DT=0.05
     private const val CYCLE=1200
     @Volatile private var sink=0.0
-    private class Profile:TrainDynamics.TrainProfile {
+    private class Profile:TrainDynamicsProfile {
         override val maxSpeed=33.3
         override val powerHandles=listOf("P1","P2","P3","P4","P5")
         override val brakeHandles=listOf("B1","B2","B3","B4","B5","B6","B7","EB")
@@ -33,7 +35,7 @@ object ProductionEmuPerformance {
         override fun normalizedBrakeScale(handle:String)=when(handle){"B1"->0.15;"B2"->0.3;"B3"->0.45;"B4"->0.6;"B5"->0.75;"B6"->0.9;"B7"->1.0;"EB"->1.25;else->0.0}
         override fun resistanceForceAt(speed:Double)=900.0+22.0*speed+5.5*speed*speed
     }
-    private class Car(index:Int):TrainDynamics.CarProfile {
+    private class Car(index:Int):CarDynamicsProfile {
         private val motor=index%2==1
         override val mass=if(motor)37000.0 else if(index%4==0)34000.0 else 32000.0
         override val effectiveMass=mass*1.08

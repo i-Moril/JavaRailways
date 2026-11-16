@@ -4,8 +4,8 @@ import work.art1st.javarailways.basic.api.ato.*
 
 /** Pure prepared vehicle model shared by physical executors and detached travel previews. */
 class VehicleControlCapabilityModel(
-    private val profile: TrainDynamics.TrainProfile,
-    carProfiles: List<TrainDynamics.CarProfile>,
+    private val profile: TrainDynamicsProfile,
+    carProfiles: List<CarDynamicsProfile>,
     private val gravity: Double
 ) {
     private val profiles = carProfiles.toList()

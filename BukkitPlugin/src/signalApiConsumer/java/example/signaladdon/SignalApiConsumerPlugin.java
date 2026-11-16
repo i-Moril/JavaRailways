@@ -46,6 +46,15 @@ import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditBloc
 import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditImpact;
 import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditRequest;
 import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditStatus;
+import work.art1st.javarailways.basic.api.ato.TrainDynamicsProfile;
+import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile;
+import work.art1st.javarailways.basic.api.ato.VehicleDeviceEquipment;
+import work.art1st.javarailways.basic.api.ato.VehicleDeviceState;
+import work.art1st.javarailways.basic.api.ato.DynamicsProfileSource;
+import work.art1st.javarailways.basic.api.ato.ConsistDynamicsActuator;
+import work.art1st.javarailways.basic.api.ato.PreparedDynamicsChange;
+import work.art1st.javarailways.basic.api.ato.ConfigurationDynamicsActuator;
+import work.art1st.javarailways.basic.api.ato.PreparedConfigurationDynamicsChange;
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot;
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot;
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource;
@@ -530,6 +539,25 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             String detail = rejected.getDetail();
         }
         return result;
+    }
+
+    /** Compile-only first-party dynamics contracts; this does not install the returned updates. */
+    private static List<work.art1st.javarailways.core.api.control.PreparedControllerStateUpdate> compileDynamicsPreparationApi(
+        TrainDynamicsProfile trainProfile, List<CarDynamicsProfile> carProfiles,
+        List<work.art1st.javarailways.core.api.physics.train.Car> cars, DynamicsProfileSource source,
+        ConsistDynamicsActuator consist, ConfigurationDynamicsActuator configuration
+    ) {
+        CarDynamicsProfile carProfile = source.dynamicsProfileFor(cars.getFirst());
+        VehicleDeviceState devices = source.dynamicsDeviceStateFor(cars.getFirst());
+        VehicleDeviceEquipment equipment = carProfiles.getFirst().getEquipment();
+        PreparedDynamicsChange structural = consist.prepareDynamicsChange(cars, source);
+        double structuralDeceleration = structural.getServiceDecelerationMetersPerSecondSquared();
+        double structuralReaction = structural.getReactionTimeSeconds();
+        List<work.art1st.javarailways.core.api.control.PreparedControllerStateUpdate> structuralUpdates = structural.getUpdates();
+        PreparedConfigurationDynamicsChange replacement = configuration.prepareConfigurationChange(trainProfile, carProfiles);
+        double configurationDeceleration = replacement.getServiceDecelerationMetersPerSecondSquared();
+        double configurationReaction = replacement.getReactionTimeSeconds();
+        return replacement.getUpdates();
     }
 
     private static RouteResourceIntent routeIntentExample(RailwayStateStamp observationStamp) {

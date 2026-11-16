@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.control
 
+import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
+import work.art1st.javarailways.basic.api.ato.TrainDynamicsProfile
 import work.art1st.javarailways.basic.api.ato.VehicleDeviceState
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -10,7 +12,7 @@ import kotlin.math.max
 
 /** Real nonzero device timings; these fixtures never substitute instant equipment. */
 class TrainEquipmentDynamicsTest {
-    private val profile=object:TrainDynamics.TrainProfile {
+    private val profile=object:TrainDynamicsProfile {
         override val maxSpeed=40.0
         override val powerHandles=listOf("P1","P2","P3","P4")
         override val brakeHandles=(1..7).map { "B$it" }+"EB"
@@ -23,7 +25,7 @@ class TrainEquipmentDynamicsTest {
         override fun normalizedBrakeScale(handle:String)=when {handle=="EB"->1.25;handle.startsWith("B")->handle.drop(1).toDouble()/7.0;else->0.0}
         override fun resistanceForceAt(speed:Double)=400.0+10.0*speed+1.2*speed*speed
     }
-    private fun car(motor:Boolean=true)=object:TrainDynamics.CarProfile {
+    private fun car(motor:Boolean=true)=object:CarDynamicsProfile {
         override val mass=32000.0
         override val effectiveMass=34560.0
         override val motorAdhesionMassRatio=if(motor)1.0 else 0.0
@@ -123,7 +125,7 @@ class TrainEquipmentDynamicsTest {
 
     @Test
     fun `analytical response includes retained excess electric after configuration change`() {
-        val configured = object : TrainDynamics.CarProfile by car() {
+        val configured = object : CarDynamicsProfile by car() {
             override val electricBrakeMaxForce = 0.0
         }
         fun response(electric: Double): work.art1st.javarailways.basic.api.ato.BrakingResponse {
@@ -148,12 +150,12 @@ class TrainEquipmentDynamicsTest {
         val state = TrainDynamics.initialState(listOf(configured), 10.0, brakeScale = 1.0).copy(
             devices = TrainDynamics.DeviceSnapshot.of(listOf(VehicleDeviceState(
                 pressureKpa = 350.0, commandAgeSeconds = 1.0, previousDemand = -1.0))))
-        fun response(activeProfile: TrainDynamics.TrainProfile) = ServiceBrakingResponse.bound(
+        fun response(activeProfile: TrainDynamicsProfile) = ServiceBrakingResponse.bound(
             TrainDynamics.PreviewSession(state, activeProfile,
                 listOf(TrainDynamics.CarInput(configured)), 9.80665, 0.05),
             "B7", listOf("B7"), 0.2)
         val withJerk = response(profile)
-        val instantaneous = response(object : TrainDynamics.TrainProfile by profile {
+        val instantaneous = response(object : TrainDynamicsProfile by profile {
             override val brakeJerk = 0.0
         })
         val deceleration = configured.brakeMaxForce / configured.effectiveMass
@@ -182,13 +184,13 @@ class TrainEquipmentDynamicsTest {
         val order = (7 downTo 1).map { "B$it" } + "N" + (1..4).map { "P$it" }
         repeat(100) { case ->
             val controls = List(4) { index ->
-                object : TrainDynamics.CarProfile by car(index % 2 == 0) {
+                object : CarDynamicsProfile by car(index % 2 == 0) {
                     override val equipment = TrainDynamics.Equipment(
                         commandDelaySeconds = if (case % 3 == 0) 0.0 else 0.1
                     )
                 }
             }
-            val activeProfile = object : TrainDynamics.TrainProfile by profile {
+            val activeProfile = object : TrainDynamicsProfile by profile {
                 override val tractionJerk = listOf(0.0, 0.05, 0.8, 2.0)[case % 4]
                 override fun normalizedBrakeScale(handle: String): Double =
                     profile.normalizedBrakeScale(handle) * if (case % 4 == 0) 2.0 else 1.0

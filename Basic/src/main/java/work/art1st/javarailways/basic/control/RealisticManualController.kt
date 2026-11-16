@@ -1,5 +1,8 @@
 package work.art1st.javarailways.basic.control
 
+import work.art1st.javarailways.basic.api.ato.DynamicsProfileSource
+import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
+import work.art1st.javarailways.basic.api.ato.TrainDynamicsProfile
 import work.art1st.javarailways.basic.api.ato.VehicleDeviceState
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.ato.VehicleControlCommand
@@ -20,11 +23,11 @@ enum class TrainDriveDirection(val label: String) {
 /** Platform-neutral manual handle controller; Bukkit owns only input and lifecycle wiring. */
 class RealisticManualController(
     train: Train,
-    controlProfile: TrainDynamics.TrainProfile,
-    carProfiles: List<TrainDynamics.CarProfile>,
+    controlProfile: TrainDynamicsProfile,
+    carProfiles: List<CarDynamicsProfile>,
     gravityMetersPerSecondSquared: Double,
     initialSpeedMetersPerSecond: Double = train.speed,
-    profileResolver: ((Car) -> TrainDynamics.CarProfile?)? = null,
+    profileResolver: ((Car) -> CarDynamicsProfile?)? = null,
     initialDeviceSource: DynamicsProfileSource? = null
 ) : TrainController(train), DynamicsProfileSource {
     private val dynamics = TrainDynamicsExecutor(
@@ -36,7 +39,7 @@ class RealisticManualController(
         profileResolver,
         initialDeviceSource
     )
-    private val controlProfile: TrainDynamics.TrainProfile get() = dynamics.trainProfile
+    private val controlProfile: TrainDynamicsProfile get() = dynamics.trainProfile
     private val handleRef = AtomicReference(NEUTRAL_HANDLE)
     private val directionRef = AtomicReference(TrainDriveDirection.NEUTRAL)
     private val runningDirectionRef = AtomicReference(TrainDriveDirection.FORWARD)
@@ -59,15 +62,15 @@ class RealisticManualController(
     val gradeForce: Double get() = dynamics.lastResult.gradeForce
     val controlledTrain: Train get() = train
 
-    override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? = dynamics.dynamicsProfileFor(car)
+    override fun dynamicsProfileFor(car: Car): CarDynamicsProfile? = dynamics.dynamicsProfileFor(car)
     override fun dynamicsDeviceStateFor(car: Car): VehicleDeviceState? = dynamics.dynamicsDeviceStateFor(car)
 
     override fun prepareConsistChange(cars: List<Car>, counterpart: TrainController?): List<PreparedControllerStateUpdate> =
         listOf(dynamics.prepareConsistChange(cars, counterpart as? DynamicsProfileSource).update)
 
     fun prepareConfigurationChange(
-        trainProfile: TrainDynamics.TrainProfile,
-        carProfiles: List<TrainDynamics.CarProfile>
+        trainProfile: TrainDynamicsProfile,
+        carProfiles: List<CarDynamicsProfile>
     ): List<PreparedControllerStateUpdate> {
         require(handle == NEUTRAL_HANDLE || (trainProfile.powerHandles + trainProfile.brakeHandles)
             .any { it.equals(handle, ignoreCase = true) }) {

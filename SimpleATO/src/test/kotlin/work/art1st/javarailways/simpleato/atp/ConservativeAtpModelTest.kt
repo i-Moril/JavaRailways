@@ -176,13 +176,13 @@ class ConservativeAtpModelTest {
 
     @Test fun `discrete stop corner uses attainable force instead of unused adhesion capacity`() {
         val fixture = ReferenceEquipmentFixture(0.0, electric = false)
-        val profile = object : TrainDynamics.TrainProfile by fixture.profile {
+        val profile = object : TrainDynamicsProfile by fixture.profile {
             override val adhesionCoefficient = 10.0
             override val brakeApplyTime = 0.0
             override val brakeReleaseTime = 0.0
             override fun resistanceForceAt(speed: Double) = 0.0
         }
-        val car = object : TrainDynamics.CarProfile by fixture.cars.first() {
+        val car = object : CarDynamicsProfile by fixture.cars.first() {
             override val mass = 1.0
             override val effectiveMass = 1.0
             override val brakeMaxForce = 1.0

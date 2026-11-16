@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.control
 
+import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
+import work.art1st.javarailways.basic.api.ato.TrainDynamicsProfile
 import work.art1st.javarailways.basic.api.ato.VehicleDeviceDynamics
 import work.art1st.javarailways.basic.api.ato.VehicleDeviceEquipment
 import work.art1st.javarailways.basic.api.ato.VehicleDeviceState
@@ -11,22 +13,6 @@ import kotlinx.serialization.Serializable
 
 /** Pure longitudinal dynamics shared by live train control and isolated timetable simulation. */
 object TrainDynamics {
-    interface TrainProfile {
-        val maxSpeed: Double
-        val powerHandles: List<String>
-        val brakeHandles: List<String>
-        val brakeApplyTime: Double
-        val brakeReleaseTime: Double
-        val adhesionCoefficient: Double
-        val tractionJerk: Double
-        val brakeJerk: Double
-        val nominalOperatingAcceleration: Double get() = 1.0
-        val nominalOperatingDeceleration: Double get() = 1.0
-        fun normalizedPowerScale(handle: String): Double
-        fun normalizedBrakeScale(handle: String): Double
-        fun resistanceForceAt(speed: Double): Double
-    }
-
     @Serializable
     data class Equipment(
         override val nominalCylinderPressureKpa: Double = 350.0,
@@ -54,22 +40,8 @@ object TrainDynamics {
         }
     }
 
-    interface CarProfile {
-        val mass: Double
-        val effectiveMass: Double
-        val motorAdhesionMassRatio: Double
-        val brakeMaxForce: Double
-        val brakeAdhesionMassRatio: Double
-        val electricBrakeMaxForce: Double get() = 0.0
-        val equipment: Equipment get() = DEFAULT_EQUIPMENT
-        /** Proven unit-traction force ceiling over all speeds; null retains the adhesion ceiling. */
-        val maximumMotorForceUpperBound: Double? get() = null
-        fun motorForceAt(speed: Double): Double
-        fun resistanceForceAt(speed: Double, defaultResistance: (Double) -> Double): Double
-    }
-
     data class CarInput(
-        val control: CarProfile,
+        val control: CarDynamicsProfile,
         /** sin(theta), positive when the train's forward direction is uphill. */
         val grade: Double = 0.0
     )
@@ -156,7 +128,7 @@ object TrainDynamics {
     internal data class TrialResult(val state: TrialState, val distance: Double, val tractionForce: Double,
         val brakeForce: Double, val resistanceForce: Double, val gradeForce: Double)
 
-    fun initialState(cars: List<CarProfile>, speed: Double = 0.0, acceleration: Double = 0.0,
+    fun initialState(cars: List<CarDynamicsProfile>, speed: Double = 0.0, acceleration: Double = 0.0,
                      brakeScale: Double = if (speed == 0.0) 1.0 else 0.0): State = State(speed, acceleration, brakeScale,
         DeviceSnapshot.of(cars.map { car -> VehicleDeviceState(pressureKpa = car.equipment.nominalCylinderPressureKpa * brakeScale) }))
 
@@ -169,7 +141,7 @@ object TrainDynamics {
 
     /** Preview results never escape the captured executor workspace. */
     internal class PreviewSession(
-        state: State, internal val profile: TrainProfile, internal val cars: List<CarInput>,
+        state: State, internal val profile: TrainDynamicsProfile, internal val cars: List<CarInput>,
         internal val gravity: Double, internal val delta: Double,
         private val workspace: PreviewWorkspace = PreviewWorkspace(cars.size)
     ) {
@@ -180,21 +152,21 @@ object TrainDynamics {
         )
     }
 
-    fun commandForHandle(config: TrainProfile, handle: String): VehicleControlCommand = VehicleControlCommand(
+    fun commandForHandle(config: TrainDynamicsProfile, handle: String): VehicleControlCommand = VehicleControlCommand(
         config.normalizedPowerScale(handle.uppercase()), config.normalizedBrakeScale(handle.uppercase()),
         handle.equals("EB", true), handle.uppercase())
 
-    fun maximumTractionRatio(config: TrainProfile): Double =
+    fun maximumTractionRatio(config: TrainDynamicsProfile): Double =
         config.powerHandles.maxOfOrNull(config::normalizedPowerScale) ?: 0.0
 
-    fun emergencyBrakeScale(config: TrainProfile): Double = config.normalizedBrakeScale("EB").takeIf { it > 0.0 }
+    fun emergencyBrakeScale(config: TrainDynamicsProfile): Double = config.normalizedBrakeScale("EB").takeIf { it > 0.0 }
         ?: config.normalizedBrakeScale(strongestServiceBrakeHandle(config))
 
-    fun step(state: State, config: TrainProfile, cars: List<CarInput>, handle: String,
+    fun step(state: State, config: TrainDynamicsProfile, cars: List<CarInput>, handle: String,
              gravityMetersPerSecondSquared: Double, deltaSeconds: Double): StepResult =
         step(state, config, cars, commandForHandle(config, handle), gravityMetersPerSecondSquared, deltaSeconds)
 
-    fun step(state: State, config: TrainProfile, cars: List<CarInput>, command: VehicleControlCommand,
+    fun step(state: State, config: TrainDynamicsProfile, cars: List<CarInput>, command: VehicleControlCommand,
              gravityMetersPerSecondSquared: Double, deltaSeconds: Double): StepResult {
         require(gravityMetersPerSecondSquared.isFinite() && gravityMetersPerSecondSquared > 0.0)
         require(deltaSeconds.isFinite() && deltaSeconds >= 0.0)
@@ -210,7 +182,7 @@ object TrainDynamics {
             result.tractionForce, result.brakeForce, result.resistanceForce, result.gradeForce)
     }
 
-    private fun compute(source: TrialState, destination: DeviceArrays, config: TrainProfile,
+    private fun compute(source: TrialState, destination: DeviceArrays, config: TrainDynamicsProfile,
                         cars: List<CarInput>, command: VehicleControlCommand, gravity: Double, delta: Double): TrialResult {
         require(gravity.isFinite() && gravity > 0.0)
         require(delta.isFinite() && delta >= 0.0)
@@ -267,15 +239,16 @@ object TrainDynamics {
     }
 
     private val DEFAULT_EQUIPMENT = Equipment()
+    internal val defaultEquipment: VehicleDeviceEquipment get() = DEFAULT_EQUIPMENT
 
-    fun strongestServiceBrakeHandle(config: TrainProfile): String = config.brakeHandles.asSequence()
+    fun strongestServiceBrakeHandle(config: TrainDynamicsProfile): String = config.brakeHandles.asSequence()
             .filterNot { it.equals("EB", ignoreCase = true) }
             .maxByOrNull(config::normalizedBrakeScale)
             ?: throw IllegalArgumentException("train profile has no non-emergency brake handle")
 
     fun steadyServiceBrakeForce(
-        config: TrainProfile,
-        cars: List<CarProfile>,
+        config: TrainDynamicsProfile,
+        cars: List<CarDynamicsProfile>,
         gravityMetersPerSecondSquared: Double
     ): Double {
         require(gravityMetersPerSecondSquared.isFinite() && gravityMetersPerSecondSquared > 0.0)
@@ -289,8 +262,8 @@ object TrainDynamics {
     }
 
     fun flatServiceDeceleration(
-        config: TrainProfile,
-        cars: List<CarProfile>,
+        config: TrainDynamicsProfile,
+        cars: List<CarDynamicsProfile>,
         gravityMetersPerSecondSquared: Double
     ): Double {
         require(cars.isNotEmpty()) { "at least one car profile is required" }
@@ -305,7 +278,7 @@ object TrainDynamics {
         } / effectiveMass
     }
 
-    internal fun totalEffectiveMass(cars: List<CarProfile>): Double {
+    internal fun totalEffectiveMass(cars: List<CarDynamicsProfile>): Double {
         val total = cars.sumOf { car ->
             require(car.mass.isFinite() && car.mass > 0.0) { "car mass must be finite and positive" }
             car.effectiveMass.also {

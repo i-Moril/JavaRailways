@@ -47,7 +47,7 @@ class KinematicTrainActuator(
 
     // Ideal, immediate equipment is deliberate here: this fixture tests world/planner plumbing.
     // Real equipment and frozen S100 acceptance are tested separately.
-    private val trainProfile = object : TrainDynamics.TrainProfile {
+    private val trainProfile = object : TrainDynamicsProfile {
         override val maxSpeed = maximumSpeedMetersPerSecond
         override val powerHandles = listOf("P")
         override val brakeHandles = listOf("B", "EB")
@@ -60,7 +60,7 @@ class KinematicTrainActuator(
         override fun normalizedBrakeScale(handle: String) = if (handle == "B" || handle == "EB") 1.0 else 0.0
         override fun resistanceForceAt(speed: Double) = 0.0
     }
-    private val carProfile = object : TrainDynamics.CarProfile {
+    private val carProfile = object : CarDynamicsProfile {
         override val mass = 1.0
         override val effectiveMass = 1.0
         override val motorAdhesionMassRatio = 1.0

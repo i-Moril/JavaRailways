@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit.config.model
 
+import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
+import work.art1st.javarailways.basic.api.ato.TrainDynamicsProfile
 import kotlinx.serialization.Serializable
 import work.art1st.javarailways.basic.control.TrainDynamics
 
@@ -33,7 +35,7 @@ data class TrainControlConfig(
     val jerk: JerkLimitConfig = JerkLimitConfig(),
     override val nominalOperatingAcceleration: Double = 1.0,
     override val nominalOperatingDeceleration: Double = 1.0
-) : TrainDynamics.TrainProfile {
+) : TrainDynamicsProfile {
     init {
         require(nominalOperatingAcceleration.isFinite() && nominalOperatingAcceleration > 0.0)
         require(nominalOperatingDeceleration.isFinite() && nominalOperatingDeceleration > 0.0)
@@ -130,7 +132,7 @@ data class CarControlConfig(
     val brake: CarBrakeControlConfig = CarBrakeControlConfig(),
     val resistance: DavisResistanceConfig? = null,
     override val equipment: TrainDynamics.Equipment = TrainDynamics.Equipment()
-) : TrainDynamics.CarProfile {
+) : CarDynamicsProfile {
     init {
         require(mass.isFinite() && mass > 0.0) { "mass must be finite and positive" }
         require(rotatingMassFactor.isFinite() && rotatingMassFactor > 0.0) {

@@ -12,11 +12,11 @@ import work.art1st.javarailways.basic.basicWorldDataOrNull
 /** Owns committed equipment state. Speculative banks never escape the executor. */
 class TrainDynamicsExecutor(
     private val train: Train,
-    trainProfile: TrainDynamics.TrainProfile,
-    carProfiles: List<TrainDynamics.CarProfile>,
+    trainProfile: TrainDynamicsProfile,
+    carProfiles: List<CarDynamicsProfile>,
     val gravityMetersPerSecondSquared: Double,
     initialSpeedMetersPerSecond: Double = train.speed,
-    private val profileResolver: ((Car) -> TrainDynamics.CarProfile?)? = null,
+    private val profileResolver: ((Car) -> CarDynamicsProfile?)? = null,
     initialDeviceSource: DynamicsProfileSource? = null
 ) : DynamicsProfileSource {
     private class Published(
@@ -31,9 +31,9 @@ class TrainDynamicsExecutor(
     }
 
     private class Binding(
-        val profile: TrainDynamics.TrainProfile,
+        val profile: TrainDynamicsProfile,
         val cars: List<Car>,
-        val profiles: Map<Car, TrainDynamics.CarProfile>,
+        val profiles: Map<Car, CarDynamicsProfile>,
         initial: Published
     ) {
         @Volatile
@@ -43,8 +43,8 @@ class TrainDynamicsExecutor(
     private val history = train.world.basicWorldDataOrNull?.trainDynamicsHistory
     private var knownHistorySnapshot: WorldTrainDynamicsHistory.Snapshot? = null
     private val current: ControllerConsistState<Binding>
-    val trainProfile: TrainDynamics.TrainProfile get() = current.value.profile
-    val carProfiles: List<TrainDynamics.CarProfile>
+    val trainProfile: TrainDynamicsProfile get() = current.value.profile
+    val carProfiles: List<CarDynamicsProfile>
         get() = current.value.let { binding ->
             train.cars.map { car ->
                 checkNotNull(binding.profiles[car]) {
@@ -61,7 +61,7 @@ class TrainDynamicsExecutor(
         require(initialSpeedMetersPerSecond.isFinite() && initialSpeedMetersPerSecond >= 0.0)
         val cars = train.cars.toList()
         require(carProfiles.size == cars.size) { "car profile count does not match train car count" }
-        val profiles = IdentityHashMap<Car, TrainDynamics.CarProfile>()
+        val profiles = IdentityHashMap<Car, CarDynamicsProfile>()
         cars.forEachIndexed { index, car -> profiles[car] = carProfiles[index] }
         val seed = TrainDynamics.initialState(carProfiles, initialSpeedMetersPerSecond)
         // Structure preparation may already have installed incoming cars before the old owner
@@ -80,7 +80,7 @@ class TrainDynamicsExecutor(
         knownHistorySnapshot = inherited
     }
 
-    override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? = current.value.profiles[car]
+    override fun dynamicsProfileFor(car: Car): CarDynamicsProfile? = current.value.profiles[car]
 
     override fun dynamicsDeviceStateFor(car: Car): VehicleDeviceState? {
         val published = current.value.published
@@ -89,7 +89,7 @@ class TrainDynamicsExecutor(
 
     internal fun prepareConsistChange(cars: List<Car>, source: DynamicsProfileSource?): PreparedConsistDynamics {
         val previous = current.value
-        val profiles = IdentityHashMap<Car, TrainDynamics.CarProfile>()
+        val profiles = IdentityHashMap<Car, CarDynamicsProfile>()
         val devices = cars.map { car ->
             profiles[car] = dynamicsProfileFor(car) ?: source?.dynamicsProfileFor(car) ?: profileResolver?.invoke(car)
                 ?: error("Train ${train.id} car '${car.id}' has no dynamics profile for this instance")
@@ -107,14 +107,14 @@ class TrainDynamicsExecutor(
     }
 
     fun prepareConfigurationChange(
-        trainProfile: TrainDynamics.TrainProfile,
-        carProfiles: List<TrainDynamics.CarProfile>
+        trainProfile: TrainDynamicsProfile,
+        carProfiles: List<CarDynamicsProfile>
     ): List<PreparedControllerStateUpdate> {
         val previous = current.value
         val cars = train.cars.toList()
         require(carProfiles.size == cars.size) { "car profile count does not match current consist" }
         TrainDynamics.totalEffectiveMass(carProfiles)
-        val profiles = IdentityHashMap<Car, TrainDynamics.CarProfile>()
+        val profiles = IdentityHashMap<Car, CarDynamicsProfile>()
         cars.forEachIndexed { index, car -> profiles[car] = carProfiles[index] }
         return listOf(current.prepare(Binding(trainProfile, previous.cars, profiles, previous.published)))
     }
@@ -177,7 +177,7 @@ class TrainDynamicsExecutor(
     }
 
     private fun adaptedHistory(snapshot: WorldTrainDynamicsHistory.Snapshot, speed: Double, cars: List<Car>,
-        profiles: List<TrainDynamics.CarProfile>, fallback: TrainDynamics.State): TrainDynamics.State? {
+        profiles: List<CarDynamicsProfile>, fallback: TrainDynamics.State): TrainDynamics.State? {
         val stopped = speed == 0.0 && train.publishedFrame?.speedMetersPerSecond == 0.0
         if (!stopped && kotlin.math.abs(snapshot.state.speed - speed) > 1e-9) return null
         val indices = IdentityHashMap<Car, Int>()
@@ -211,9 +211,9 @@ class TrainDynamicsExecutor(
     }
 
     private var capabilityModel: VehicleControlCapabilityModel? = null
-    private var capabilityProfile: TrainDynamics.TrainProfile? = null
+    private var capabilityProfile: TrainDynamicsProfile? = null
     private var capabilityCars: List<Car> = emptyList()
-    private var capabilityProfiles: List<TrainDynamics.CarProfile> = emptyList()
+    private var capabilityProfiles: List<CarDynamicsProfile> = emptyList()
 
     fun controlCapabilities(speed: Double): VehicleControlCapabilities {
         val binding = current.value

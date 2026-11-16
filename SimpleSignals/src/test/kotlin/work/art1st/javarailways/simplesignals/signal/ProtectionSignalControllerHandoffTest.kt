@@ -12,7 +12,6 @@ import work.art1st.javarailways.basic.api.ato.ActuationStep
 import work.art1st.javarailways.basic.api.ato.BrakingGradeSegment
 import work.art1st.javarailways.basic.api.ato.*
 import work.art1st.javarailways.simplesignals.testing.StationaryTrainActuator as StationaryActuator
-import work.art1st.javarailways.basic.control.TrainDynamics
 import work.art1st.javarailways.basic.control.VehicleControlCapabilityModel
 import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
 import work.art1st.javarailways.basic.api.ato.TrainActuator

@@ -14,7 +14,7 @@ internal class StationaryTrainActuator(override val maximumSpeedMetersPerSecond:
             return ActuationStep(0.0, 0.0)
         }
 
-        private val profile = object : TrainDynamics.TrainProfile {
+        private val profile = object : TrainDynamicsProfile {
             override val maxSpeed = maximumSpeedMetersPerSecond
             override val powerHandles = listOf("P")
             override val brakeHandles = listOf("B", "EB")
@@ -27,7 +27,7 @@ internal class StationaryTrainActuator(override val maximumSpeedMetersPerSecond:
             override fun normalizedBrakeScale(handle: String) = if (handle == "B" || handle == "EB") 1.0 else 0.0
             override fun resistanceForceAt(speed: Double) = 0.0
         }
-        private val car = object : TrainDynamics.CarProfile {
+        private val car = object : CarDynamicsProfile {
             override val mass = 1.0
             override val effectiveMass = 1.0
             override val motorAdhesionMassRatio = 1.0

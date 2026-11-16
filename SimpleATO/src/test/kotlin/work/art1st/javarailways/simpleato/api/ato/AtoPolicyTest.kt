@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.api.ato
 
+import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
+import work.art1st.javarailways.basic.api.ato.TrainDynamicsProfile
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -10,7 +12,6 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.BrakingGradeSegment
 import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.basic.control.TrainDynamics
 import work.art1st.javarailways.simpleato.api.constraint.ConstraintKey
 import work.art1st.javarailways.simpleato.api.constraint.ConstraintManager
 import work.art1st.javarailways.simpleato.api.constraint.ConstraintOwner
@@ -27,7 +28,7 @@ class AtoPolicyTest {
 
     @Test
     fun `distance constraints forward current speed and reaction once to the shared envelope`() {
-        val trainProfile = object : TrainDynamics.TrainProfile {
+        val trainProfile = object : TrainDynamicsProfile {
             override val maxSpeed = 30.0
             override val powerHandles = listOf("P1")
             override val brakeHandles = listOf("B1")
@@ -40,7 +41,7 @@ class AtoPolicyTest {
             override fun normalizedBrakeScale(handle: String) = if (handle == "B1") 1.0 else 0.0
             override fun resistanceForceAt(speed: Double) = 0.0
         }
-        val carProfile = object : TrainDynamics.CarProfile {
+        val carProfile = object : CarDynamicsProfile {
             override val mass = 10_000.0
             override val effectiveMass = mass
             override val motorAdhesionMassRatio = 1.0

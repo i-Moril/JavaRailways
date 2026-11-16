@@ -1,5 +1,6 @@
 package work.art1st.javarailways.bukkit.http
 
+import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.extension.train.SimulationTrainExtension
@@ -246,7 +247,7 @@ internal class IsolatedTimetableSimulationFactory(
                         val profile = requireNotNull(train.simulationTrainProfileOrNull) {
                             "simulation train profile missing for train ${train.id}"
                         }
-                        fun carProfile(car: work.art1st.javarailways.core.api.physics.train.Car): TrainDynamics.CarProfile? =
+                        fun carProfile(car: work.art1st.javarailways.core.api.physics.train.Car): CarDynamicsProfile? =
                             car.simulationBehaviorOrNull?.carProfile
                         val carProfiles = train.cars.map { car -> requireNotNull(carProfile(car)) {
                             "simulation car profile missing for car ${car.id}"
@@ -273,7 +274,7 @@ internal class IsolatedTimetableSimulationFactory(
                                 carProfiles,
                                 gravity,
                                 profileResolver = ::carProfile,
-                                initialDeviceSource = (train as? work.art1st.javarailways.core.physics.train.CoreTrain)?.controller as? work.art1st.javarailways.basic.control.DynamicsProfileSource
+                                initialDeviceSource = (train as? work.art1st.javarailways.core.physics.train.CoreTrain)?.controller as? work.art1st.javarailways.basic.api.ato.DynamicsProfileSource
                             ),
                             safety,
                             inspectionRuntime::maximumDeclaredLeadTimeSeconds

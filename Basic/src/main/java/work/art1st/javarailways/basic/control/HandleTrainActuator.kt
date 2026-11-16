@@ -1,6 +1,13 @@
 package work.art1st.javarailways.basic.control
 
+import work.art1st.javarailways.basic.api.ato.PreparedDynamicsChange
+import work.art1st.javarailways.basic.api.ato.ConsistDynamicsActuator
+import work.art1st.javarailways.basic.api.ato.DynamicsProfileSource
+import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
+import work.art1st.javarailways.basic.api.ato.TrainDynamicsProfile
 import work.art1st.javarailways.basic.api.ato.VehicleDeviceState
+import work.art1st.javarailways.basic.api.ato.ConfigurationDynamicsActuator
+import work.art1st.javarailways.basic.api.ato.PreparedConfigurationDynamicsChange
 import work.art1st.javarailways.basic.api.ato.ActuationStep
 import work.art1st.javarailways.basic.api.ato.VehicleControlCommand
 import work.art1st.javarailways.basic.api.ato.BrakingGradeSegment
@@ -9,18 +16,17 @@ import work.art1st.javarailways.basic.api.ato.TrainActuator
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.core.api.control.ControllerConsistState
-import work.art1st.javarailways.core.api.control.PreparedControllerStateUpdate
 
 /** Executes final physical control commands without selecting an automatic driving strategy. */
 class HandleTrainActuator(
     train: Train,
-    trainProfile: TrainDynamics.TrainProfile,
-    carProfiles: List<TrainDynamics.CarProfile>,
+    trainProfile: TrainDynamicsProfile,
+    carProfiles: List<CarDynamicsProfile>,
     gravityMetersPerSecondSquared: Double,
     initialSpeedMetersPerSecond: Double = train.speed,
-    profileResolver: ((Car) -> TrainDynamics.CarProfile?)? = null,
+    profileResolver: ((Car) -> CarDynamicsProfile?)? = null,
     initialDeviceSource: DynamicsProfileSource? = null
-) : TrainActuator, ConsistDynamicsActuator {
+) : TrainActuator, ConsistDynamicsActuator, ConfigurationDynamicsActuator {
     private val maximumControlDeltaSeconds = train.world.maximumPhysicsDeltaSeconds
     private val dynamics = TrainDynamicsExecutor(
         train,
@@ -54,28 +60,32 @@ class HandleTrainActuator(
 
     val lastDynamicsResult: TrainDynamics.StepResult get() = dynamics.lastResult
 
-    override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? = dynamics.dynamicsProfileFor(car)
+    override fun dynamicsProfileFor(car: Car): CarDynamicsProfile? = dynamics.dynamicsProfileFor(car)
     override fun dynamicsDeviceStateFor(car: Car): VehicleDeviceState? = dynamics.dynamicsDeviceStateFor(car)
 
     override fun prepareDynamicsChange(cars: List<Car>, source: DynamicsProfileSource?): PreparedDynamicsChange {
         val prepared = dynamics.prepareConsistChange(cars, source)
         return PreparedDynamicsChange(
-            prepared.carProfiles,
-            prepared.update,
+            listOf(prepared.update),
             TrainDynamics.flatServiceDeceleration(dynamics.trainProfile, prepared.carProfiles, dynamics.gravityMetersPerSecondSquared),
             serviceBrakeReactionTimeSeconds(dynamics.trainProfile, prepared.carProfiles, dynamics.gravityMetersPerSecondSquared)
         )
     }
 
-    fun prepareConfigurationChange(
-        trainProfile: TrainDynamics.TrainProfile,
-        carProfiles: List<TrainDynamics.CarProfile>
-    ): List<PreparedControllerStateUpdate> {
+    override fun prepareConfigurationChange(
+        trainProfile: TrainDynamicsProfile,
+        carProfiles: List<CarDynamicsProfile>
+    ): PreparedConfigurationDynamicsChange {
         val preparedHandles = prepareHandles(trainProfile)
         require(selectedHandle == "CONTINUOUS" || selectedHandle in preparedHandles.progressiveOrder || selectedHandle == preparedHandles.emergencyBrake) {
             "Updated configuration does not contain active automatic handle '$selectedHandle'"
         }
-        return dynamics.prepareConfigurationChange(trainProfile, carProfiles) + handles.prepare(preparedHandles)
+        val updates = dynamics.prepareConfigurationChange(trainProfile, carProfiles) + handles.prepare(preparedHandles)
+        return PreparedConfigurationDynamicsChange(
+            updates,
+            TrainDynamics.flatServiceDeceleration(trainProfile, carProfiles, gravityMetersPerSecondSquared),
+            serviceBrakeReactionTimeSeconds(trainProfile, carProfiles, gravityMetersPerSecondSquared)
+        )
     }
 
     override fun step(currentSpeedMetersPerSecond: Double, command: VehicleControlCommand,
@@ -115,7 +125,7 @@ class HandleTrainActuator(
         private const val EMERGENCY_BRAKE_HANDLE = "EB"
         private const val NOMINAL_CONTROL_STEP_SECONDS = 0.05
 
-        private fun prepareHandles(profile: TrainDynamics.TrainProfile): HandleConfiguration {
+        private fun prepareHandles(profile: TrainDynamicsProfile): HandleConfiguration {
             require(profile.maxSpeed.isFinite() && profile.maxSpeed >= 0.0)
             return HandleConfiguration(
                 profile.powerHandles.filter { profile.normalizedPowerScale(it) > 0.0 }
@@ -133,8 +143,8 @@ class HandleTrainActuator(
          * ATP uses exact immutable devices; this static horizon cannot credit established force.
          */
         fun serviceBrakeReactionTimeSeconds(
-            trainProfile: TrainDynamics.TrainProfile,
-            carProfiles: List<TrainDynamics.CarProfile>,
+            trainProfile: TrainDynamicsProfile,
+            carProfiles: List<CarDynamicsProfile>,
             gravityMetersPerSecondSquared: Double,
             controlStepSeconds: Double = NOMINAL_CONTROL_STEP_SECONDS,
             planningMarginSeconds: Double = 0.1

@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.api.ato
 
+import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
+import work.art1st.javarailways.basic.api.ato.TrainDynamicsProfile
 import work.art1st.javarailways.basic.api.ato.ControlDemand
 import work.art1st.javarailways.basic.api.ato.TrainActuator
 import work.art1st.javarailways.simpleato.control.*
@@ -11,10 +13,9 @@ import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.control.ControllerConsistState
 import work.art1st.javarailways.core.api.control.PreparedControllerStateUpdate
 import work.art1st.javarailways.core.api.physics.train.Car
-import work.art1st.javarailways.basic.control.HandleTrainActuator
-import work.art1st.javarailways.basic.control.TrainDynamics
-import work.art1st.javarailways.basic.control.ConsistDynamicsActuator
-import work.art1st.javarailways.basic.control.DynamicsProfileSource
+import work.art1st.javarailways.basic.api.ato.ConfigurationDynamicsActuator
+import work.art1st.javarailways.basic.api.ato.ConsistDynamicsActuator
+import work.art1st.javarailways.basic.api.ato.DynamicsProfileSource
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
@@ -50,22 +51,31 @@ abstract class AbstractATO(
             serviceDecelerationMetersPerSecondSquared = prepared.serviceDecelerationMetersPerSecondSquared,
             reactionTimeSeconds = prepared.reactionTimeSeconds
         )
-        return listOf(prepared.update, consistSafety.prepare(safety))
+        return prepared.updates + consistSafety.prepare(safety)
     }
+    /**
+     * Prepares actuator configuration and derived safety limits on the simulation owner with
+     * physics excluded. Uses the optional Basic configuration capability; preparation does not
+     * install state or replace the controller, device history, mission or non-braking overrides.
+     * Core installs the returned ordered updates only after the complete operation succeeds.
+     * @param trainProfile stable replacement train parameters in SI units.
+     * @param carProfiles stable replacement parameters in the current exact-car order.
+     * @return uninstalled actuator updates followed by the controller's safety-profile update.
+     * @throws IllegalStateException if the actuator does not support configuration replacement.
+     * @throws IllegalArgumentException if configuration preparation or safety validation rejects.
+     */
     fun prepareConfigurationChange(
-        trainProfile: TrainDynamics.TrainProfile,
-        carProfiles: List<TrainDynamics.CarProfile>
+        trainProfile: TrainDynamicsProfile,
+        carProfiles: List<CarDynamicsProfile>
     ): List<PreparedControllerStateUpdate> {
-        val handles = actuator as? HandleTrainActuator
+        val dynamics = actuator as? ConfigurationDynamicsActuator
             ?: error("ATO actuator does not support configuration replacement")
-        val updates = handles.prepareConfigurationChange(trainProfile, carProfiles)
+        val prepared = dynamics.prepareConfigurationChange(trainProfile, carProfiles)
         val safety = safetyProfile.copy(
-            serviceDecelerationMetersPerSecondSquared = TrainDynamics.flatServiceDeceleration(
-                trainProfile, carProfiles, handles.gravityMetersPerSecondSquared),
-            reactionTimeSeconds = HandleTrainActuator.serviceBrakeReactionTimeSeconds(
-                trainProfile, carProfiles, handles.gravityMetersPerSecondSquared)
+            serviceDecelerationMetersPerSecondSquared = prepared.serviceDecelerationMetersPerSecondSquared,
+            reactionTimeSeconds = prepared.reactionTimeSeconds
         )
-        return updates + consistSafety.prepare(safety)
+        return prepared.updates + consistSafety.prepare(safety)
     }
 
     protected data class PublishedAtoState(

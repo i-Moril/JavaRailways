@@ -289,7 +289,7 @@ class ReferenceStrategyTest {
 }
 
 internal class ReferenceEquipmentFixture(jerk: Double = 1.0, grade: Double = 0.0, electric: Boolean = true, upwardJerk: Double = jerk, adhesion: Double = .4) {
-    val profile = object : TrainDynamics.TrainProfile {
+    val profile = object : TrainDynamicsProfile {
         override val maxSpeed = 10.0
         override val powerHandles = (1..4).map { "P$it" }
         override val brakeHandles = (1..8).map { "B$it" } + "EB"
@@ -306,7 +306,7 @@ internal class ReferenceEquipmentFixture(jerk: Double = 1.0, grade: Double = 0.0
         }
         override fun resistanceForceAt(speed: Double) = 10.0
     }
-    val cars = (0..1).map { index -> object : TrainDynamics.CarProfile {
+    val cars = (0..1).map { index -> object : CarDynamicsProfile {
         override val mass = 1000.0
         override val effectiveMass = 1000.0
         override val motorAdhesionMassRatio = 1.0
@@ -329,7 +329,7 @@ internal class ReferenceEquipmentFixture(jerk: Double = 1.0, grade: Double = 0.0
 }
 
 internal class ImmediateEquipmentFixture {
-    val profile = object : TrainDynamics.TrainProfile {
+    val profile = object : TrainDynamicsProfile {
         override val maxSpeed = 8.0
         override val powerHandles = listOf("P")
         override val brakeHandles = listOf("B", "EB")
@@ -342,7 +342,7 @@ internal class ImmediateEquipmentFixture {
         override fun normalizedBrakeScale(handle: String) = if (handle == "B" || handle == "EB") 1.0 else 0.0
         override fun resistanceForceAt(speed: Double) = 0.0
     }
-    val car = object : TrainDynamics.CarProfile {
+    val car = object : CarDynamicsProfile {
         override val mass = 1.0
         override val effectiveMass = 1.0
         override val motorAdhesionMassRatio = 1.0

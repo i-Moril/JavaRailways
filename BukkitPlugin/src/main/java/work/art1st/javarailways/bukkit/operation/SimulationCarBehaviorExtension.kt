@@ -1,7 +1,7 @@
 package work.art1st.javarailways.bukkit.operation
 
+import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
 import work.art1st.javarailways.basic.api.operation.DoorSide
-import work.art1st.javarailways.basic.control.TrainDynamics
 import work.art1st.javarailways.bukkit.behavior.CarBehavior
 import work.art1st.javarailways.bukkit.behavior.TrainBehaviorActionDefinition
 import work.art1st.javarailways.bukkit.behavior.TrainBehaviorScriptException
@@ -39,7 +39,7 @@ internal sealed interface SimulationBehaviorEffect {
 /** Exact-car state survives structural transfer; real animation timing runs without display or audio outlets. */
 internal class SimulationCarBehaviorExtension(
     val definition: CapturedCarBehavior,
-    val carProfile: TrainDynamics.CarProfile,
+    val carProfile: CarDynamicsProfile,
     private val effectObserver: ((Car, SimulationBehaviorEffect) -> Unit)? = null,
     val candidateFacts: work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts? = null
 ) : RenderableExtension<Car>, AutoCloseable {

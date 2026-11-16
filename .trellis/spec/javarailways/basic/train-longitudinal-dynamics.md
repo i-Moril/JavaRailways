@@ -9,7 +9,7 @@
 
 ## 2. 模块工作方式
 
-正常实时流程是：Bukkit从当前有效模型解析`TrainProfile`和逐车`CarProfile`，注入
+正常实时流程是：Bukkit从当前有效模型解析`TrainDynamicsProfile`和逐车`CarDynamicsProfile`，注入
 `physics.yml`的`track.gravity`，然后构造Basic controller/actuator。人工控制把玩家选择的
 P/N/B手柄映射为数字指令交给`TrainDynamicsExecutor`；SimpleATO策略和监督器决定最终数字指令，
 `HandleTrainActuator`仅执行。两者最终都只调用`TrainDynamics.step`，再把同一个`StepResult`的距离和post-step速度通过
@@ -42,7 +42,7 @@ P/N/B手柄映射为数字指令交给`TrainDynamicsExecutor`；SimpleATO策略�
 坡度输入是`sin(theta)`：正值表示当前物理运行方向上坡。实时输入必须读取
 `Car.operatingDirection.y()`，禁止读取模型朝向`Car.direction.y()`。
 
-executor构造时把当前每个实际`Car`实例与输入的`CarProfile`配对，保存为身份哈希表。
+executor构造时把当前每个实际`Car`实例与输入的`CarDynamicsProfile`配对，保存为身份哈希表。
 每次计算遍历当前`train.cars`，按实例取固有参数，再读取该车此刻的坡度；不保存“第几节车”的参数索引或坡度缓存。
 例如20吨车和10吨车交换位置后，各自质量仍跟随原实例，坡度则来自各自当前线路位置。
 公开`carProfiles`也按当前车厢顺序投影，供制动包络使用，已移出当前编组的车不再参与该列表。
@@ -52,11 +52,30 @@ executor构造时把当前每个实际`Car`实例与输入的`CarProfile`配对�
 表通过Core的prepared state update随结构安装；执行器身份、已选手柄及历史`lastResult`保留，
 运动状态沿用，设备快照按新车厢实例顺序投影，不要求结构变化后的`State`对象身份相同。
 资源重载可调用`RealisticManualController.prepareConfigurationChange`和`HandleTrainActuator.prepareConfigurationChange`，
-返回Core拥有的prepared assignment tokens。准备替换immutable train profile、逐实例car profile与ATO手柄表，
+人工控制器返回Core拥有的prepared assignment tokens；自动执行器通过下述配置准备结果返回同类tokens与制动值。
+准备替换immutable train profile、逐实例car profile与ATO手柄表，
 不修改executor `State`/`lastResult`、已选手柄或controller身份；当前手柄不被新配置支持时拒绝准备。
 安装由Core在排除worker后执行，不能通过重建controller丢失驾驶或ATO状态。
 
-这些Basic capability只供第一方controller/actuator协作，不是另一个公开插件注册接口。
+`basic.api.ato`的`TrainDynamicsProfile`与`CarDynamicsProfile`定义第一方配置参数契约，保留原字段、
+默认值与函数；它们是调用方提供的只读参数视图，接口不复制实现或其档位列表，调用方须在使用期间保持稳定。
+`CarDynamicsProfile.equipment`只以已有`VehicleDeviceEquipment`表达；原`TrainDynamics.Equipment`配置模型、
+serializer、字段和默认值保持原位，默认参数仍复用同一个共享设备实例，不改变配置或存档格式。
+
+`DynamicsProfileSource`和可选的`ConsistDynamicsActuator`也归`basic.api.ato`。来源只按确切Car实例查询，
+null表示该实例没有绑定；不按ID匹配、不转移状态所有权。Basic内部仍准备参数表并计算制动能力，
+`PreparedDynamicsChange`向ATO交付Core拥有的待安装更新、常用制动减速度及反应时间，原正值/有限性校验保持不变。
+无此能力的actuator维持无编组更新语义，不因为接口整理变成强制能力。
+
+配置准备使用独立的可选`ConfigurationDynamicsActuator`能力及`PreparedConfigurationDynamicsChange`结果。
+`HandleTrainActuator`先按原顺序准备实例绑定和手柄表，再以相同函数计算新配置的减速度与反应时间；
+结果本身不添加数值校验，ATO仍在原来的`AtoSafetyProfile.copy`位置校验。两种准备结果均不安装任何状态，
+也不将配置参数表交给SimpleATO重新派生。ATO只保留非制动安全覆盖值、追加自己的安全profile更新，
+由Core在物理帧间完成安装；失败时整批候选不安装，更新token顺序保持原样。
+
+这些Basic capability只供第一方controller/actuator协作，不承诺独立第三方插件的长期二进制兼容，
+不是另一个公开插件注册接口。参数、来源、准备结果均不新增持久化格式或独立world生命周期；
+准备工作为O(cars)加原有制动派生成本，安装保持Core既有引用替换，不进入每tick配置解析。
 
 `HandleTrainActuator`执行`VehicleControlCommand`，不选择档位或进行候选试算。
 `TrainDynamics.step`保留人工字符串映射便利入口，最终进入同一个数字执行路径。
@@ -82,7 +101,7 @@ Re为电制动释放速率，k=min(1,Ra/Re)、L=F-(1-k)*min(Emax,F)，最终按�
 EB等待残余牵引/电制动释放及空气建立，不能把全EB空气能力直接套到当前帧。
 
 控制能力按immutable配置和精确编组准备/惰性构造，复用速度性能样本与设备系数。
-全速度牵引上界优先使用`CarProfile.maximumMotorForceUpperBound`的声明证明，再按最大牵引比例和黏着限制；
+全速度牵引上界优先使用`CarDynamicsProfile.maximumMotorForceUpperBound`的声明证明，再按最大牵引比例和黏着限制；
 未知曲线使用黏着上界，不用速度采样推断全区间上界。样本和各档净加速度只供名义操作参考。
 
 `BasicWorldData.trainDynamicsHistory`在成功step保存精确Train/Car的设备状态与最后指令，使用弱身份关联避免保活删除实体。
@@ -97,7 +116,7 @@ EB等待残余牵引/电制动释放及空气建立，不能把全EB空气能力
 ```kotlin
 fun TrainDynamics.step(
     state: TrainDynamics.State,
-    config: TrainDynamics.TrainProfile,
+    config: TrainDynamicsProfile,
     cars: List<TrainDynamics.CarInput>,
     command: VehicleControlCommand,
     gravityMetersPerSecondSquared: Double,
@@ -106,18 +125,18 @@ fun TrainDynamics.step(
 
 class TrainDynamicsExecutor(
     train: Train,
-    trainProfile: TrainDynamics.TrainProfile,
-    carProfiles: List<TrainDynamics.CarProfile>,
+    trainProfile: TrainDynamicsProfile,
+    carProfiles: List<CarDynamicsProfile>,
     gravityMetersPerSecondSquared: Double,
     initialSpeedMetersPerSecond: Double = train.speed,
-    profileResolver: ((Car) -> TrainDynamics.CarProfile?)? = null
+    profileResolver: ((Car) -> CarDynamicsProfile?)? = null
 )
 
 data class BrakingGradeSegment(val lengthMeters: Double, val grade: Double)
 
 // GradeAwareBrakingEnvelope的companion object入口：
-fun fromDynamics(trainProfile: TrainDynamics.TrainProfile,
-    carProfiles: List<TrainDynamics.CarProfile>, gravityMetersPerSecondSquared: Double,
+fun fromDynamics(trainProfile: TrainDynamicsProfile,
+    carProfiles: List<CarDynamicsProfile>, gravityMetersPerSecondSquared: Double,
     segments: List<BrakingGradeSegment>,
     currentAccelerationMetersPerSecondSquared: Double = 0.0): GradeAwareBrakingEnvelope
 // 包络查询，距离m、速度m/s、时间s：

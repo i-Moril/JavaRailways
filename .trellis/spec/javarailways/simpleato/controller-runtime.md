@@ -159,7 +159,8 @@ Basic 仍负责 `CURVE/SUBGRADE` 元数据与独立的脱轨监测，见[速度�
 新参数表与安全profile均通过Core prepared state update安装。派生失败不改变当前profile、actuator历史或手柄，
 不在成功事件中事后补算。无真实动力学的测试actuator无需实现该capability。
 
-对方参数来源能力由非API具体`SimpleATO`代理给actuator，不给公开`AbstractATO`新增返回Basic内部profile的签名。
+对方参数来源能力由具体`SimpleATO`通过`basic.api.ato.DynamicsProfileSource`代理给actuator；
+来源返回Basic API参数契约与设备值，公开签名不再依赖Basic内部参数类型。
 解编保留侧保持原controller；分离侧不会自动复制mission或controller。联结安装仍须完整碰撞事务验收，
 不以这里的参数准备测试代替接触位置及资源/运营元数据的验证。
 
@@ -209,9 +210,13 @@ git diff --check
 
 ## 配置重载的准备与安装
 
-`AbstractATO.prepareConfigurationChange(trainProfile, carProfiles)`只支持真实`HandleTrainActuator`，
-其他自定义actuator明确拒绝。先准备新profile、实例绑定和手柄表，再按新profile重算
-service deceleration与reaction time，保留其他safety覆盖值。全部成功才返回Core prepared tokens；
+`AbstractATO.prepareConfigurationChange(trainProfile, carProfiles)`只依赖可选的
+`basic.api.ato.ConfigurationDynamicsActuator`，当前真实实现为`HandleTrainActuator`；无此能力仍按原错误拒绝。
+Basic先准备新profile、实例绑定和手柄表，再按新profile重算service deceleration与reaction time，
+通过`PreparedConfigurationDynamicsChange`返回待安装更新与这两个值。结果不新增数值校验，
+ATO仍在原`AtoSafetyProfile.copy`位置验证，仅替换两项并保留其他safety覆盖值。
+编组路径的`PreparedDynamicsChange`保留原Basic结果校验，两者不为统一形状而改变失败位置。
+全部成功才返回Core prepared tokens，依次为原执行器更新和ATO安全profile更新；
 失败保持旧引用，不清mission、route、命令队列、距离历史、手柄或actuator积分状态。
 平台按车型完成所有实例准备后，在排除worker的边界通过Core安装整批tokens。
 

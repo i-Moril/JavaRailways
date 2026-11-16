@@ -187,7 +187,7 @@ class TrainControlManager internal constructor(
                 plugin.physicsConfig.track.gravityMetersPerSecondSquared,
                 initialSpeedMetersPerSecond = transferSpeedMetersPerSecond,
                 profileResolver = { car -> car.carRendererOrNull?.resolveCarControl() },
-                initialDeviceSource = coreTrain.controller as? work.art1st.javarailways.basic.control.DynamicsProfileSource
+                initialDeviceSource = coreTrain.controller as? work.art1st.javarailways.basic.api.ato.DynamicsProfileSource
             ).also { coreTrain.setController(it) }
         }
         controller.markCurrentPhysicalDirectionAsForward()

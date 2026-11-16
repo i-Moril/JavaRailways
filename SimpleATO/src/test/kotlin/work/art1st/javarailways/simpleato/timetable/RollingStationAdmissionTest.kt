@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
+import work.art1st.javarailways.basic.api.ato.TrainDynamicsProfile
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
@@ -9,7 +11,6 @@ import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.basic.api.route.*
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.control.HandleTrainActuator
-import work.art1st.javarailways.basic.control.TrainDynamics
 import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmissionRuntime
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
@@ -240,7 +241,7 @@ class RollingStationAdmissionTest {
         }
     }
 
-    private object Dynamics : TrainDynamics.TrainProfile {
+    private object Dynamics : TrainDynamicsProfile {
         override val maxSpeed = 35.0
         override val powerHandles = listOf("P1")
         override val brakeHandles = listOf("B1", "EB")
@@ -254,7 +255,7 @@ class RollingStationAdmissionTest {
         override fun resistanceForceAt(speed: Double) = 0.0
     }
 
-    private object CarDynamics : TrainDynamics.CarProfile {
+    private object CarDynamics : CarDynamicsProfile {
         override val mass = 10_000.0
         override val effectiveMass = mass
         override val brakeMaxForce = 10_000.0

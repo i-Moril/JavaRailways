@@ -1,5 +1,8 @@
 package work.art1st.javarailways.basic.control
 
+import work.art1st.javarailways.basic.api.ato.DynamicsProfileSource
+import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
+import work.art1st.javarailways.basic.api.ato.TrainDynamicsProfile
 import org.junit.jupiter.api.function.Executable
 import org.junit.jupiter.api.Assertions.assertAll
 import org.junit.jupiter.api.AfterEach
@@ -149,7 +152,7 @@ class TrainDynamicsTest {
         val executor = TrainDynamicsExecutor(train, trainProfile, listOf(own, own), 10.0,
             profileResolver = { car -> assertSame(incoming, car); resolutions++; resolved })
         val source = object : DynamicsProfileSource {
-            override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? = if (car === incoming) other else null
+            override fun dynamicsProfileFor(car: Car): CarDynamicsProfile? = if (car === incoming) other else null
         }
 
         val union = executor.prepareConsistChange(listOf(incoming, second, first), source)
@@ -193,11 +196,11 @@ class TrainDynamicsTest {
         val train = fixture.original as work.art1st.javarailways.core.physics.train.CoreTrain
         val data = BasicWorldData()
         TestBasicWorldDataRegistry.register(train.world, data)
-        val profile = object : TrainDynamics.TrainProfile by trainProfile {
+        val profile = object : TrainDynamicsProfile by trainProfile {
             override val brakeApplyTime = 1.2
             override val brakeReleaseTime = 1.8
         }
-        val car = object : TrainDynamics.CarProfile by carProfile {
+        val car = object : CarDynamicsProfile by carProfile {
             override val equipment = TrainDynamics.Equipment()
         }
         val controller = RealisticManualController(train, profile, listOf(car, car), 10.0)
@@ -275,7 +278,7 @@ class TrainDynamicsTest {
         train.setControllerForTest(controller)
         controller.setHandle("P2")
         val replacement = TestCarProfile(mass = 20_000.0)
-        val nextProfile = object : TrainDynamics.TrainProfile by trainProfile {
+        val nextProfile = object : TrainDynamicsProfile by trainProfile {
             override val powerHandles = listOf("P2", "P3")
         }
         val originalDevices=train.cars.map { controller.dynamicsDeviceStateFor(it) }
@@ -508,7 +511,7 @@ class TrainDynamicsTest {
             carProfile.equipment.tractionReleaseRateNewtonsPerSecond
         assertEquals(0.1 + 0.05 + cutout + 1.2 + (adhesionAcceleration + serviceDeceleration) / 2.0,
             reaction, 1e-12)
-        val extraNotches = object : TrainDynamics.TrainProfile by profile {
+        val extraNotches = object : TrainDynamicsProfile by profile {
             override val powerHandles = profile.powerHandles + "P1"
         }
         assertEquals(reaction, HandleTrainActuator.serviceBrakeReactionTimeSeconds(extraNotches,
@@ -635,7 +638,7 @@ class TrainDynamicsTest {
     private class TestTrainProfile(
         override val brakeApplyTime: Double = 0.0,
         override val brakeJerk: Double = 100.0
-    ) : TrainDynamics.TrainProfile {
+    ) : TrainDynamicsProfile {
         override val maxSpeed = 30.0
         override val powerHandles = listOf("P1", "P2")
         override val brakeHandles = listOf("B1", "B2", "EB")
@@ -658,13 +661,13 @@ class TrainDynamicsTest {
 
     @Test
     fun `explicit commands retain real device release and pressure hold semantics`() = withDynamicsTrain { train ->
-        val delayedProfile = object : TrainDynamics.TrainProfile by trainProfile {
+        val delayedProfile = object : TrainDynamicsProfile by trainProfile {
             override val brakeApplyTime = 1.2
             override val brakeReleaseTime = 1.8
             override val tractionJerk = 0.8
             override val brakeJerk = 0.8
         }
-        val delayedCar = object : TrainDynamics.CarProfile by carProfile {
+        val delayedCar = object : CarDynamicsProfile by carProfile {
             override val equipment = TrainDynamics.Equipment()
         }
         val actuator = HandleTrainActuator(train, delayedProfile, listOf(delayedCar, delayedCar), 9.80665)
@@ -685,11 +688,11 @@ class TrainDynamicsTest {
 
     @Test
     fun `explicit device source preserves prepared physical cars without controller lookup`() = withDynamicsTrain { train ->
-        val profile = object : TrainDynamics.TrainProfile by trainProfile {
+        val profile = object : TrainDynamicsProfile by trainProfile {
             override val brakeApplyTime = 1.2
             override val brakeReleaseTime = 1.8
         }
-        val car = object : TrainDynamics.CarProfile by carProfile {
+        val car = object : CarDynamicsProfile by carProfile {
             override val equipment = TrainDynamics.Equipment()
         }
         val previous = TrainDynamicsExecutor(train, profile, listOf(car, car), 9.80665, 5.0)
@@ -705,17 +708,17 @@ class TrainDynamicsTest {
     @Test
     fun `real per-car devices follow exact identities through reordered controller handoff`() = withDynamicsTrain { train ->
         TestBasicWorldDataRegistry.register(train.world, BasicWorldData())
-        val profile = object : TrainDynamics.TrainProfile by trainProfile {
+        val profile = object : TrainDynamicsProfile by trainProfile {
             override val brakeApplyTime = 1.0
             override val brakeReleaseTime = 1.5
             override val brakeJerk = 0.8
         }
-        val firstCarProfile = object : TrainDynamics.CarProfile by carProfile {
+        val firstCarProfile = object : CarDynamicsProfile by carProfile {
             override val electricBrakeMaxForce = 3000.0
             override val equipment = TrainDynamics.Equipment(nominalCylinderPressureKpa = 300.0,
                 commandDelaySeconds = 0.1)
         }
-        val secondCarProfile = object : TrainDynamics.CarProfile by carProfile {
+        val secondCarProfile = object : CarDynamicsProfile by carProfile {
             override val electricBrakeMaxForce = 1000.0
             override val equipment = TrainDynamics.Equipment(nominalCylinderPressureKpa = 400.0,
                 commandDelaySeconds = 0.1)
@@ -761,7 +764,7 @@ class TrainDynamicsTest {
 
     @Test
     fun `numeric traction respects authored physical range including ratios above one`() {
-        val profile = object : TrainDynamics.TrainProfile by trainProfile {
+        val profile = object : TrainDynamicsProfile by trainProfile {
             override fun normalizedPowerScale(handle: String) = if (handle == "P2") 1.5 else
                 trainProfile.normalizedPowerScale(handle)
         }
@@ -782,7 +785,7 @@ class TrainDynamicsTest {
     fun `proven motor force ceiling tightens bound while unknown curves retain adhesion fallback`() = withDynamicsTrain { train ->
         val known = HandleTrainActuator(train, trainProfile, listOf(carProfile, carProfile), 10.0)
         assertEquals(1.0, known.controlCapabilities(0.0).maximumTractionAccelerationMetersPerSecondSquared)
-        val arbitrary = object : TrainDynamics.CarProfile by carProfile {
+        val arbitrary = object : CarDynamicsProfile by carProfile {
             override val maximumMotorForceUpperBound: Double? get() = null
             override fun motorForceAt(speed: Double) = if (speed > 0.12 && speed < 0.13) 1000000.0 else 1.0
         }
@@ -1009,7 +1012,7 @@ class TrainDynamicsTest {
         private val motorForce: Double = 10_000.0,
         override val brakeMaxForce: Double = 20_000.0,
         override val effectiveMass: Double = mass
-    ) : TrainDynamics.CarProfile {
+    ) : CarDynamicsProfile {
         override val motorAdhesionMassRatio = 1.0
         override val brakeAdhesionMassRatio = 1.0
         // These force/grade arithmetic fixtures deliberately isolate device delays. Real equipment

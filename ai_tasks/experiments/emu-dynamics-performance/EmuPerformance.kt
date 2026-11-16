@@ -1,5 +1,7 @@
 package experiment
 
+import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
+import work.art1st.javarailways.basic.api.ato.TrainDynamicsProfile
 import work.art1st.javarailways.basic.control.TrainDynamics
 import java.lang.management.ManagementFactory
 import com.sun.management.ThreadMXBean
@@ -10,7 +12,7 @@ object EmuPerformance {
     private const val dt = 0.05
     private const val gravity = 9.80665
     @Volatile private var sink = 0.0
-    private class Profile : TrainDynamics.TrainProfile {
+    private class Profile : TrainDynamicsProfile {
         override val maxSpeed = 40.0
         override val powerHandles = (1..4).map { "P$it" }
         override val brakeHandles = (1..7).map { "B$it" } + "EB"
@@ -27,7 +29,7 @@ object EmuPerformance {
         }
         override fun resistanceForceAt(speed: Double) = 400.0 + 10.0*speed + 1.2*speed*speed
     }
-    private class Car(private val motor: Boolean) : TrainDynamics.CarProfile {
+    private class Car(private val motor: Boolean) : CarDynamicsProfile {
         override val mass = 32000.0
         override val effectiveMass = mass*1.08
         override val motorAdhesionMassRatio = if (motor) 1.0 else 0.0

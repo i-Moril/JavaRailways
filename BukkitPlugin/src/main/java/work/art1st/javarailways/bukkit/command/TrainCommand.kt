@@ -429,7 +429,7 @@ object TrainCommand {
                 train, controlConfig, carControls,
                 BukkitPlugin.INSTANCE.physicsConfig.track.gravityMetersPerSecondSquared,
                 profileResolver = { car -> car.carRendererOrNull?.resolveCarControl() },
-                initialDeviceSource = train.controller as? work.art1st.javarailways.basic.control.DynamicsProfileSource
+                initialDeviceSource = train.controller as? work.art1st.javarailways.basic.api.ato.DynamicsProfileSource
             )
             train.setController(controller)
             playerControllers[playerId] = controller

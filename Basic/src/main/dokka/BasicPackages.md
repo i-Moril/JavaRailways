@@ -14,6 +14,11 @@ ATO 规划输入使用的不可变 Route 与 Perception 快照。集合在构造
 设备参数与纯设备响应计算；这部分不承诺独立第三方插件的长期二进制兼容。状态与能力按同次捕获的实际车厢顺序对应，
 设备响应计算不积分速度或位移，设备历史仍由Basic物理执行器维护。
 
+`TrainDynamicsProfile`、`CarDynamicsProfile`及`DynamicsProfileSource`定义同一第一方参数与精确车辆实例来源契约。
+编组和配置准备是可选能力；Basic返回待安装更新与派生制动值，SimpleATO追加自己的安全profile更新，
+最后由Core在物理帧间安装。准备不会安装状态，失败保留已有设备历史与控制参数。
+参数视图由调用方保持稳定；这些接口不定义配置序列化格式，也不创建world注册。
+
 # Package work.art1st.javarailways.basic.api.rail
 
 world-local 通用 RailObject、双索引 store 与 lifecycle 契约；不包含已删除的 ATO Provider/Boundary 切换机制。

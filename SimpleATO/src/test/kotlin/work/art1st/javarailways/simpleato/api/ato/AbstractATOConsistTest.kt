@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.api.ato
 
+import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
+import work.art1st.javarailways.basic.api.ato.TrainDynamicsProfile
 import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 import org.junit.jupiter.api.function.Executable
 import org.junit.jupiter.api.Assertions.assertAll
@@ -13,6 +15,10 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import work.art1st.javarailways.basic.api.ato.ControlDemand
+import work.art1st.javarailways.basic.api.ato.ConfigurationDynamicsActuator
+import work.art1st.javarailways.basic.api.ato.PreparedConfigurationDynamicsChange
+import work.art1st.javarailways.core.api.control.ControllerConsistState
+import work.art1st.javarailways.simpleato.testing.KinematicTrainActuator
 import work.art1st.javarailways.basic.api.ato.TrainActuator
 import work.art1st.javarailways.basic.control.HandleTrainActuator
 import work.art1st.javarailways.basic.control.TrainDynamics
@@ -125,7 +131,7 @@ class AbstractATOConsistTest {
                     val history = actuator.lastDynamicsResult
                     val device = actuator.dynamicsDeviceStateFor(train.cars.single())
                     assertNotNull(device)
-                    val nextProfile = object : TrainDynamics.TrainProfile by TrainProfile { override val maxSpeed = 15.0 }
+                    val nextProfile = object : TrainDynamicsProfile by TrainProfile { override val maxSpeed = 15.0 }
                     val updates = controller.prepareConfigurationChange(nextProfile, listOf(nextCar))
                     assertSame(safety, controller.currentSafety)
                     assertSame(oldCar, actuator.dynamicsProfileFor(train.cars.single()))
@@ -141,14 +147,98 @@ class AbstractATOConsistTest {
                         controller.currentSafety.reactionTimeSeconds, 1.0e-12)
                     assertEquals(17.0, controller.currentSafety.safetyDistanceMeters)
                     assertSame(nextCar, actuator.dynamicsProfileFor(train.cars.single()))
+                    val installedSafety = controller.currentSafety
+                    val rejectedProfile = object : TrainDynamicsProfile by nextProfile { override val maxSpeed = 12.0 }
                     assertThrows(IllegalArgumentException::class.java) {
-                        controller.prepareConfigurationChange(nextProfile, listOf(CarProfile(20_000.0, 0.0)))
+                        controller.prepareConfigurationChange(rejectedProfile, listOf(CarProfile(20_000.0, 0.0)))
                     }
+                    assertSame(installedSafety, controller.currentSafety)
+                    assertEquals(15.0, actuator.maximumSpeedMetersPerSecond)
+                    assertEquals("P1", actuator.selectedHandle)
                     assertSame(nextCar, actuator.dynamicsProfileFor(train.cars.single()))
                     assertEquals(device, actuator.dynamicsDeviceStateFor(train.cars.single()))
                     assertSame(history, actuator.lastDynamicsResult)
                 }
             }
+        }
+    }
+
+    @Test
+    fun `API configuration capability prepares without installing and failures preserve all live state`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
+        val train = createTrainWithConfig("api-configuration", rail, world, listOf(10.0))
+        val safety = AtoSafetyProfile(safetyDistanceMeters = 17.0)
+        val actuator = ApiConfigurationActuator(KinematicTrainActuator(30.0, safety))
+        val controller = TestATO(train, actuator, safety)
+        train.setControllerForTest(controller)
+        val nextProfile = object : TrainDynamicsProfile by TrainProfile { override val maxSpeed = 15.0 }
+        val nextCars = listOf(CarProfile(20_000.0, 40_000.0))
+
+        val updates = controller.prepareConfigurationChange(nextProfile, nextCars)
+        assertSame(safety, controller.currentSafety)
+        assertEquals(30.0, actuator.maximumSpeedMetersPerSecond)
+        assertEquals(1, actuator.preparedCount)
+        world.onOwnerForTest { train.applyControllerConfiguration(controller, updates) }
+        assertEquals(15.0, actuator.maximumSpeedMetersPerSecond)
+        assertEquals(safety.copy(serviceDecelerationMetersPerSecondSquared = 2.0, reactionTimeSeconds = 0.4),
+            controller.currentSafety)
+        val installedSafety = controller.currentSafety
+        val rejectedProfile = object : TrainDynamicsProfile by TrainProfile { override val maxSpeed = 12.0 }
+
+        actuator.failAfterPreparation = true
+        assertEquals("device derivation failed", assertThrows(IllegalStateException::class.java) {
+            controller.prepareConfigurationChange(rejectedProfile, nextCars)
+        }.message)
+        assertEquals(2, actuator.preparedCount)
+        assertSame(installedSafety, controller.currentSafety)
+        assertEquals(15.0, actuator.maximumSpeedMetersPerSecond)
+
+        actuator.failAfterPreparation = false
+        actuator.serviceDeceleration = 0.0
+        assertThrows(IllegalArgumentException::class.java) {
+            controller.prepareConfigurationChange(rejectedProfile, nextCars)
+        }
+        assertEquals(3, actuator.preparedCount)
+        assertSame(installedSafety, controller.currentSafety)
+        assertEquals(15.0, actuator.maximumSpeedMetersPerSecond)
+        assertSame(controller, train.controller)
+    }
+
+    @Test
+    fun `actuator without optional capabilities retains empty consist updates and configuration rejection`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
+        val train = createTrainWithConfig("optional-capabilities", rail, world, listOf(10.0))
+        val safety = AtoSafetyProfile()
+        val actuator = KinematicTrainActuator(30.0, safety)
+        val controller = TestATO(train, actuator, safety)
+
+        assertTrue(controller.prepareConsistChange(train.cars, null).isEmpty())
+        assertEquals("ATO actuator does not support configuration replacement",
+            assertThrows(IllegalStateException::class.java) {
+                controller.prepareConfigurationChange(TrainProfile, listOf(CarProfile(20_000.0, 40_000.0)))
+            }.message)
+        assertSame(safety, controller.currentSafety)
+        assertEquals(30.0, actuator.maximumSpeedMetersPerSecond)
+    }
+
+    /** Exercises only the API preparation seam; physical response remains the delegated test fixture. */
+    private class ApiConfigurationActuator(delegate: TrainActuator) :
+        TrainActuator by delegate, ConfigurationDynamicsActuator {
+        private val maximumSpeed = ControllerConsistState(delegate.maximumSpeedMetersPerSecond)
+        override val maximumSpeedMetersPerSecond: Double get() = maximumSpeed.value
+        var serviceDeceleration = 2.0
+        var failAfterPreparation = false
+        var preparedCount = 0
+            private set
+
+        override fun prepareConfigurationChange(trainProfile: TrainDynamicsProfile,
+            carProfiles: List<CarDynamicsProfile>): PreparedConfigurationDynamicsChange {
+            val update = maximumSpeed.prepare(trainProfile.maxSpeed)
+            preparedCount++
+            if (failAfterPreparation) error("device derivation failed")
+            return PreparedConfigurationDynamicsChange(listOf(update), serviceDeceleration, 0.4)
         }
     }
 
@@ -167,7 +257,7 @@ class AbstractATOConsistTest {
         override fun prepareLink(masterTrain: Train, removedTrain: Train, counterpart: TrainExtension?): TrainExtension = error("not used")
     }
 
-    private object TrainProfile : TrainDynamics.TrainProfile {
+    private object TrainProfile : TrainDynamicsProfile {
         override val maxSpeed = 30.0
         override val powerHandles = listOf("P1")
         override val brakeHandles = listOf("B1", "EB")
@@ -181,7 +271,7 @@ class AbstractATOConsistTest {
         override fun resistanceForceAt(speed: Double) = 0.0
     }
 
-    private class CarProfile(override val mass: Double, override val brakeMaxForce: Double) : TrainDynamics.CarProfile {
+    private class CarProfile(override val mass: Double, override val brakeMaxForce: Double) : CarDynamicsProfile {
         override val effectiveMass = mass
         override val motorAdhesionMassRatio = 1.0
         override val brakeAdhesionMassRatio = 1.0

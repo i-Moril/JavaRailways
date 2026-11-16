@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.admission
 
+import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
+import work.art1st.javarailways.basic.api.ato.TrainDynamicsProfile
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -11,7 +13,6 @@ import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.route.*
 import work.art1st.javarailways.basic.control.HandleTrainActuator
-import work.art1st.javarailways.basic.control.TrainDynamics
 import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmissionRuntime
 import work.art1st.javarailways.core.api.event.CollisionEvent
 import work.art1st.javarailways.core.api.event.processor.EventListener
@@ -256,7 +257,7 @@ class AdmittedCouplingPhysicalIntegrationTest {
             }
         }
     }
-    private object Dynamics : TrainDynamics.TrainProfile {
+    private object Dynamics : TrainDynamicsProfile {
         override val maxSpeed = 2.0
         override val powerHandles = listOf("P1")
         override val brakeHandles = listOf("B1", "EB")
@@ -269,7 +270,7 @@ class AdmittedCouplingPhysicalIntegrationTest {
         override fun normalizedBrakeScale(handle: String) = if (handle in brakeHandles) 1.0 else 0.0
         override fun resistanceForceAt(speed: Double) = 0.0
     }
-    private object CarDynamics : TrainDynamics.CarProfile {
+    private object CarDynamics : CarDynamicsProfile {
         override val mass = 10_000.0
         override val effectiveMass = mass
         override val brakeMaxForce = 20_000.0

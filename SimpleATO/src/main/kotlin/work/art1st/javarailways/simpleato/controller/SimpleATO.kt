@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simpleato.controller
 
+import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
 import work.art1st.javarailways.basic.api.ato.VehicleDeviceState
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.api.ato.AbstractATO
@@ -11,8 +12,7 @@ import work.art1st.javarailways.simpleato.control.*
 import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
 import work.art1st.javarailways.simpleato.api.ato.MinimumConstraintPlanner
 import work.art1st.javarailways.basic.api.ato.TrainActuator
-import work.art1st.javarailways.basic.control.DynamicsProfileSource
-import work.art1st.javarailways.basic.control.TrainDynamics
+import work.art1st.javarailways.basic.api.ato.DynamicsProfileSource
 import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.basic.api.ato.command.CommandOfferResult
 import work.art1st.javarailways.basic.api.ato.command.RevisionedCommandQueue
@@ -119,7 +119,7 @@ class SimpleATO(
     safetyProfile: AtoSafetyProfile = AtoSafetyProfile(),
     private val inspectionMaximumLeadTimeSeconds: (String) -> Double
 ) : AbstractATO(train, world, actuator, safetyProfile, world.simpleAtoWorldData.atoCoordinator), DynamicsProfileSource {
-    override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? =
+    override fun dynamicsProfileFor(car: Car): CarDynamicsProfile? =
         (actuator as? DynamicsProfileSource)?.dynamicsProfileFor(car)
     override fun dynamicsDeviceStateFor(car: Car): VehicleDeviceState? =
         (actuator as? DynamicsProfileSource)?.dynamicsDeviceStateFor(car)

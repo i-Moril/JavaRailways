@@ -936,7 +936,7 @@ class SimpleATOTest {
     }
 
     @Test fun `real equipment releases held brakes and stops at station mark within independent authority`() {
-        val dynamics = object : work.art1st.javarailways.basic.control.TrainDynamics.TrainProfile {
+        val dynamics = object : work.art1st.javarailways.basic.api.ato.TrainDynamicsProfile {
             override val maxSpeed = 8.0
             override val powerHandles = listOf("P1", "P2")
             override val brakeHandles = listOf("B1", "B2", "EB")
@@ -949,7 +949,7 @@ class SimpleATOTest {
             override fun normalizedBrakeScale(handle: String) = when(handle) { "B1" -> 0.5; "B2", "EB" -> 1.0; else -> 0.0 }
             override fun resistanceForceAt(speed: Double) = 300.0
         }
-        val car = object : work.art1st.javarailways.basic.control.TrainDynamics.CarProfile {
+        val car = object : work.art1st.javarailways.basic.api.ato.CarDynamicsProfile {
             override val mass = 30_000.0
             override val effectiveMass = 32_000.0
             override val motorAdhesionMassRatio = 1.0

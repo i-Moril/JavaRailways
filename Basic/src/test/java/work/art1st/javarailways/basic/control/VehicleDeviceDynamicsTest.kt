@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.control
 
+import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
+import work.art1st.javarailways.basic.api.ato.TrainDynamicsProfile
 import work.art1st.javarailways.basic.api.ato.VehicleDeviceDynamics
 import work.art1st.javarailways.basic.api.ato.VehicleDeviceState
 import org.junit.jupiter.api.Assertions.*
@@ -7,7 +9,7 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.VehicleControlCommand
 
 class VehicleDeviceDynamicsTest {
-    private val profile = object : TrainDynamics.TrainProfile {
+    private val profile = object : TrainDynamicsProfile {
         override val maxSpeed = 30.0
         override val powerHandles = listOf("P1")
         override val brakeHandles = listOf("B1", "EB")
@@ -20,7 +22,7 @@ class VehicleDeviceDynamicsTest {
         override fun normalizedBrakeScale(handle: String) = when (handle) { "B1" -> 1.0; "EB" -> 1.25; else -> 0.0 }
         override fun resistanceForceAt(speed: Double) = 300.0
     }
-    private val car = object : TrainDynamics.CarProfile {
+    private val car = object : CarDynamicsProfile {
         override val mass = 32000.0
         override val effectiveMass = 34560.0
         override val motorAdhesionMassRatio = 1.0
@@ -70,7 +72,7 @@ class VehicleDeviceDynamicsTest {
 
     @Test
     fun `zero interval returns identical snapshot even with instantaneous pneumatic rates`() {
-        val instant = object : TrainDynamics.TrainProfile by profile {
+        val instant = object : TrainDynamicsProfile by profile {
             override val brakeApplyTime = 0.0
             override val brakeReleaseTime = 0.0
         }
@@ -87,7 +89,7 @@ class VehicleDeviceDynamicsTest {
             val equipment = TrainDynamics.Equipment(commandDelaySeconds = 0.12,
                 electricBrakeApplyRateNewtonsPerSecond = 120000.0,
                 electricBrakeReleaseRateNewtonsPerSecond = 90000.0)
-            val selectedCar = object : TrainDynamics.CarProfile by car {
+            val selectedCar = object : CarDynamicsProfile by car {
                 override val electricBrakeMaxForce = 80000.0
                 override val equipment = equipment
             }

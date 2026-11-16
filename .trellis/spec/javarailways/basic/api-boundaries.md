@@ -12,7 +12,9 @@
 - Basic以`compileOnly(project(":Core"))`、`compileOnly(ConfigLib/JOML)`编译；artifact不自动携带这些runtime。
 - 新Basic API优先stable ID、immutable/value snapshot、sealed result与最小interface；collection defensive copy。
 - `basic.api.ato`中的逐车设备状态、设备参数与纯设备计算是第一方控制模块契约，不暴露`TrainDynamics`内部类型，
-  不承诺独立第三方插件的长期二进制兼容。设备状态所有权、采样对应和共享计算规则见[列车纵向动力学](./train-longitudinal-dynamics.md)。
+  不承诺独立第三方插件的长期二进制兼容。`TrainDynamicsProfile`、`CarDynamicsProfile`、精确实例参数来源及
+  可选编组/配置准备能力同属该第一方契约；准备结果只交付Core待安装更新和派生制动值，SimpleATO不识别具体执行器。
+  设备状态所有权、采样对应、失败与安装顺序见[列车纵向动力学](./train-longitudinal-dynamics.md)。
 - `basic.api.route` 的 `RailViewRef`、`RouteSegment`、`ExpandedRoute`、`PlannedRoute` 是 SimpleATO 公开路线签名共用的值类型；它们不授予资源或证明拓扑合法性。坐标、不可变性和后续准入职责见[路线契约](./route-planning.md#公开路线值与内部实现的边界)。内部算法和快照转换不随值类型公开；规划查询结果使用下述独立契约。
 - `RailwayObservation`、`RailwayTrainObservation`与`RailwayStateStamp`是公开value投影；它们保留epoch-end保守`occupiedIntervals`、有序tail-to-head `bodyTraversal`、整epoch`sweptSpans`、同epoch有序head/tail movement traversal及Core frame的immutable active-turnout continuation snapshot。这些事实不得互相替代，也不得包含render car或live Core对象。Basic只原样投影live continuation，不解释信号依赖或重建一份选择map。
 - `RailwayOccupancyAreaDefinition`只描述插件拥有的监测区几何和有向边界；公开`RailwayAreaOccupancyEngine`由串行caller喂入连续observation并推导`ENTER`/`LEFT`，不把该area解释成固定闭塞、保护区域或授权资源。详见[监测区占用](./railway-area-occupancy.md)。

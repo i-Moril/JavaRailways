@@ -148,8 +148,8 @@ class GradeAwareBrakingEnvelope private constructor(
          * instead provide current acceleration and reserve their own explicit reaction time.
          */
         fun fromDynamics(
-            trainProfile: TrainDynamics.TrainProfile,
-            carProfiles: List<TrainDynamics.CarProfile>,
+            trainProfile: TrainDynamicsProfile,
+            carProfiles: List<CarDynamicsProfile>,
             gravityMetersPerSecondSquared: Double,
             segments: List<BrakingGradeSegment>,
             currentAccelerationMetersPerSecondSquared: Double = 0.0,
@@ -164,7 +164,7 @@ class GradeAwareBrakingEnvelope private constructor(
                 gravityMetersPerSecondSquared
             )
             val effectiveMass = TrainDynamics.totalEffectiveMass(carProfiles)
-            val physicalMass = carProfiles.sumOf(TrainDynamics.CarProfile::mass)
+            val physicalMass = carProfiles.sumOf(CarDynamicsProfile::mass)
             val entries = ArrayList<Entry>(segments.size)
             var distance = 0.0
             var work = 0.0

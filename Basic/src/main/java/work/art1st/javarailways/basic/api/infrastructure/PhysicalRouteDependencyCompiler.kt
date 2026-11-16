@@ -1,6 +1,10 @@
-package work.art1st.javarailways.basic.infrastructure
+package work.art1st.javarailways.basic.api.infrastructure
 
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.infrastructure.PhysicalTopologyResources
+import work.art1st.javarailways.basic.infrastructure.ProjectedEdgeDirection
+import work.art1st.javarailways.basic.infrastructure.TopologyRouteProjectionResult
+import work.art1st.javarailways.basic.infrastructure.TopologyRouteProjector
 import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencies
 import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.core.api.physics.infrastructure.StableTopologyNodeKey
@@ -8,12 +12,26 @@ import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 
-/** Result of compiling already-selected routes into non-exclusive edit dependencies. */
+/**
+ * Detached result of compiling already-selected routes into non-exclusive edit dependencies.
+ * First-party module contract, without independent third-party API compatibility guarantees.
+ * No result registers dependencies or grants a live train claim or movement authority.
+ */
 sealed interface PhysicalRouteDependencyCompilation {
+    /** The supplied route collection was empty; this query contributes no physical dependencies. */
     data object NoDependencies : PhysicalRouteDependencyCompilation
 
+    /**
+     * Immutable union of physical references from every supplied route; retains no live world.
+     * @property dependencies Non-exclusive rail, structural-node and physical-resource references.
+     */
     data class Compiled(val dependencies: InfrastructureDependencies) : PhysicalRouteDependencyCompilation
 
+    /**
+     * The compilation failed, with a nonblank diagnostic and no partial dependency result.
+     * Route rejection includes its zero-based collection index, route ID and projection detail.
+     * @property detail The existing projection or compilation failure diagnostic.
+     */
     data class Rejected(val detail: String) : PhysicalRouteDependencyCompilation {
         init {
             require(detail.isNotBlank())
@@ -22,12 +40,30 @@ sealed interface PhysicalRouteDependencyCompilation {
 }
 
 /**
- * Compiles known routes against one immutable topology root without selecting another path.
+ * Compiles frozen routes against one caller-captured immutable topology root without path search.
+ * First-party module contract, without independent third-party API compatibility guarantees.
  *
  * The result contains persistent rail identities, stable structural-node keys and Basic-owned
- * turnout/diamond resources. It is an edit dependency declaration, not a live train claim.
+ * turnout/diamond resources as non-exclusive edit dependencies, not grants or live train claims.
+ * Calls are synchronous pure queries: no world access, registration, mutation or blocking I/O.
+ * Callers own checking currentness and applying the result through the existing dependency service.
+ * These detached runtime declarations do not define a persistence format.
  */
 object PhysicalRouteDependencyCompiler {
+    /**
+     * Validates each already-selected traversal against [topology], using route segment distances
+     * in metres local to each segment's view direction. Route revision metadata alone does not
+     * determine validity; geometry and legal continuations are checked against the supplied root.
+     * The caller must keep [routes] stable for this call and use one captured immutable topology.
+     *
+     * Work follows the supplied route occurrences/transitions and their indexed rail crossings,
+     * including normalization of traversed structural-node ports; it does not search the graph.
+     *
+     * @return [PhysicalRouteDependencyCompilation.NoDependencies] for an empty collection,
+     * or a detached immutable union when every route is valid. The first invalid route in iteration
+     * order returns [PhysicalRouteDependencyCompilation.Rejected] with its existing projection
+     * diagnostic; accumulated references are discarded. No dependency registration occurs here.
+     */
     @JvmStatic
     fun compile(
         topology: TopologyState,

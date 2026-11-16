@@ -31,6 +31,9 @@ world-local 通用 RailObject、双索引 store 与 lifecycle 契约；不包含
 Infrastructure dependency以persistent rail ID、stable topology-node key和runtime resource ID三类引用阻止相关编辑，
 但不占用列车资源。Live claim使用独立的原子resource footprint；edit permit使用同三类影响集合并返回逐字段冲突诊断。
 
+`PhysicalRouteDependencyCompiler`与`PhysicalRouteDependencyCompilation`为第一方模块提供已选路线的物理编辑依赖查询，
+不承诺独立第三方插件的长期二进制兼容。编译结果是依赖声明；调用方通过既有依赖服务安装保护，编译本身不授予资源。
+
 # Package work.art1st.javarailways.basic.api.observation
 
 由同一个 Core world frame 投影得到的不可变铁路观察；物理 epoch、拓扑 revision、frame revision、列车位置、epoch末保守占用、整epoch扫过范围与有序边界穿越始终来自同一次发布。插件可用通用监测区定义获取带边界身份的`ENTER`/`LEFT`物理变化，但信号含义仍由插件拥有。

@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.infrastructure
 
+import work.art1st.javarailways.basic.api.infrastructure.PhysicalRouteDependencyCompilation
+import work.art1st.javarailways.basic.api.infrastructure.PhysicalRouteDependencyCompiler
 import work.art1st.javarailways.core.api.physics.infrastructure.TurnoutResourceIdentity
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
@@ -106,6 +108,59 @@ class PhysicalRouteDependencyCompilerTest {
         )
 
         assertTrue(result.detail.contains("illegal turnout continuation"))
+    }
+
+    @Test
+    fun `multiple known routes union rails and shared diamond dependencies`() {
+        val first = rail(1)
+        val second = rail(2)
+        val crossing = AtGradeRailCrossing(
+            RailCrossingPoint(first, 5.0), RailCrossingPoint(second, 5.0)
+        )
+        val topology = topologyState(
+            revision = 3L,
+            railIds = listOf(first, second),
+            connections = emptyList(),
+            atGradeCrossings = listOf(crossing)
+        )
+        val routes = listOf(first, second).mapIndexed { index, railId ->
+            RouteSnapshot("test:timetable/route-$index", 0L, topology.revision,
+                listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 10.0)))
+        }
+
+        val result = assertInstanceOf(
+            PhysicalRouteDependencyCompilation.Compiled::class.java,
+            PhysicalRouteDependencyCompiler.compile(topology, routes)
+        )
+
+        assertEquals(setOf(first, second), result.dependencies.railIds)
+        assertTrue(result.dependencies.topologyNodeKeys.isEmpty())
+        assertEquals(setOf(PhysicalTopologyResources.diamondResource(crossing)), result.dependencies.resourceIds)
+    }
+
+    @Test
+    fun `invalid later route rejects the complete compilation with its index and detail`() {
+        val present = rail(1)
+        val missing = rail(2)
+        val topology = topologyState(
+            revision = 4L,
+            railIds = listOf(present),
+            connections = emptyList()
+        )
+        val valid = RouteSnapshot("test:timetable/valid", 0L, topology.revision,
+            listOf(RouteSegmentSnapshot(present, ViewDirection.AB, 0.0, 10.0)))
+        val invalid = RouteSnapshot("test:timetable/missing", 0L, topology.revision,
+            listOf(RouteSegmentSnapshot(missing, ViewDirection.AB, 0.0, 10.0)))
+
+        val result = assertInstanceOf(
+            PhysicalRouteDependencyCompilation.Rejected::class.java,
+            PhysicalRouteDependencyCompiler.compile(topology, listOf(valid, invalid))
+        )
+
+        assertEquals(
+            "route #1 (${invalid.routeId}) is invalid: route references missing rail $missing",
+            result.detail
+        )
     }
 
     private fun rail(value: Long) = UUID(0L, value)

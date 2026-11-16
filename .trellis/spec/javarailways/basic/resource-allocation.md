@@ -49,13 +49,22 @@ Infrastructure dependency mutation与edit decision使用独立typed result。Cla
 各自的交集。设当前dependency数为`D`、live claim数为`C`、permit数为`E`，编辑检查为`O(D+C+E)`次持有者扫描，集合相交
 为hash lookup；该低频路径不进入physics tick。未来若规模证明需要索引，再按三类identity建立倒排索引。
 
-`PhysicalRouteDependencyCompiler`只编译调用方已经验证、已经选定的`RouteSnapshot`，不寻路也不选择替代支路。
+`basic.api.infrastructure.PhysicalRouteDependencyCompiler`与`PhysicalRouteDependencyCompilation`是第一方模块共用的
+冻结路线物理编辑依赖契约，不承诺独立第三方插件的长期二进制兼容。编译器只处理调用方已经选定的`RouteSnapshot`，
+不寻路也不选择替代支路。
 它复用同一`TopologyRouteProjector`验证每段连续性，从投影直接收集persistent rail ID、实际跨越的structural node key
 和turnout identity；diamond通过`TopologyState.atGradeCrossingsOn(railId)`反向索引按route实际覆盖的canonical AB范围命中。
 因此apply-time工作量与已知route occurrence/transition以及这些rail上的crossing数量有关，不扫描世界空间、全图resource
 或第二份registry。没有已知route的合法计划编译为“无物理依赖”，不伪造空dependency owner，也不因此拒绝应用。
 这个编译结果只表达Basic拥有的物理依赖；具体signal plugin的静态配置依赖仍由其自身后续声明，不能
 伪装成Basic物理依赖。
+
+一次调用对传入的同一不可变`TopologyState`验证全部路线并收集三类依赖并集；路线段坐标沿用其view-local米制语义。
+空路线集合返回`NoDependencies`；全部成功返回含不可变`InfrastructureDependencies`的`Compiled`；
+第一条无法投影的路线返回`Rejected`，诊断保留从0开始的路线序号与route ID，不返回此前成功路线的部分依赖。
+编译器不注册owner、不安装编辑保护、不申请claim，也不读取live world；调用方保持输入集合在调用期间不变，
+随后通过既有依赖服务完成当前引用校验与原子安装。来源topology revision不同不单独导致拒绝，仍按传入拓扑验证实际路径。
+内部`TopologyRouteProjector`、投影结果与物理资源构造保持Basic内部可见，不随该查询契约开放。
 
 编辑器必须在mutation前生成精确`TopologyEditImpact`。不得从空间broad-phase候选、整图incident扫描或完整rail
 interval猜测影响范围。Rail replacement/removal调用方只提交实际被替换的source rail ID；Basic通过同一
@@ -238,6 +247,7 @@ Dispatcher只提交冻结route与目标authority；Basic编译完整物理底线
 - `TimetableDispatcherTest.kt`与`TimetableDispatcherSharedAdmissionTest.kt`：authority/retry、stable conflict、tail release、sameTick Stall、manual modes。
 - `TimetableStationCallDispatcherTest.kt`：berth/old mission tail release。
 - `InfrastructureCoordinationRegistryTest.kt`：重叠infrastructure dependencies、exclusive claims、held edit permit、owner revision、编辑候选的双重topology check、稳定引用不因无关revision变化过期、provider failure和无partial mutation。
+- `PhysicalRouteDependencyCompilerTest.kt`：空集合、准确rail/node/turnout/diamond依赖、多条路线并集，以及后续路线拒绝时不返回部分成功；`FrozenRouteEditProtectionTest`验证调用方原子替换与失败保留。
 - `InfrastructureCoordinationRegistryTest.kt`：claim shrink按准确身份原子删除、保留剩余顺序与owner revision，支持重叠interval，并在missing/wrong owner/pending/closed时保持不变。
 - `LiveClaimTailReleaseTest.kt`：先shrink后出队、单调进度、重叠identity独立释放、unexpected result锁存
   fail closed、全部释放后的幂等completed、active queue追加、empty queue恢复和非法suffix原子拒绝。

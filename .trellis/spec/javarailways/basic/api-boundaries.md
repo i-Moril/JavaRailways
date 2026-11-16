@@ -19,6 +19,8 @@
 - `InfrastructureResource`只表示运行资源；`InfrastructureDependencies`和`TopologyEditImpact`分别以rail ID、stable
   topology-node key、runtime resource ID三类集合表达非独占编辑依赖与编辑影响。它们的typed result/read-only snapshot属于
   公开host contract；raw live-claim mutation只属于Basic路线准入实现，不进入add-on API。
+- `basic.api.infrastructure.PhysicalRouteDependencyCompiler`及其结果是第一方冻结路线物理编辑依赖查询契约，
+  只接收Core/Basic API值并返回非独占依赖声明，不授予资源或注册owner。结果、坐标与应用职责见[资源协调](./resource-allocation.md)。
 - 目标`work.art1st.javarailways.basic.api.route.RouteResourceIntent`复用现有`RouteSnapshot`，并只携带nonblank stable
   train ID、同一观察stamp及从冻结路线起点起算的米制authority boundary。ATO request不得携带具体resource identity、
   preparation descriptor、topology revision副本、可信列车长度或替代Basic物理推导的raw footprint。Basic自行加入

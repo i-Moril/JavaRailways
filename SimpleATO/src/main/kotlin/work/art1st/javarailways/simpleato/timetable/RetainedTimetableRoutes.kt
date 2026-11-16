@@ -3,8 +3,8 @@ package work.art1st.javarailways.simpleato.timetable
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.route.ExpandedRoute
 import work.art1st.javarailways.basic.api.route.RouteSegment
-import work.art1st.javarailways.basic.infrastructure.PhysicalRouteDependencyCompilation
-import work.art1st.javarailways.basic.infrastructure.PhysicalRouteDependencyCompiler
+import work.art1st.javarailways.basic.api.infrastructure.PhysicalRouteDependencyCompilation
+import work.art1st.javarailways.basic.api.infrastructure.PhysicalRouteDependencyCompiler
 import work.art1st.javarailways.basic.route.toSnapshot
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection

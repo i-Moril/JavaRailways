@@ -68,8 +68,8 @@ import work.art1st.javarailways.simpleato.admission.RouteAuthorityAdmissionClien
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.infrastructure.PhysicalRouteDependencyCompilation
-import work.art1st.javarailways.basic.infrastructure.PhysicalRouteDependencyCompiler
+import work.art1st.javarailways.basic.api.infrastructure.PhysicalRouteDependencyCompilation
+import work.art1st.javarailways.basic.api.infrastructure.PhysicalRouteDependencyCompiler
 import work.art1st.javarailways.basic.route.toSnapshot
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRoute
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRouteAssembler

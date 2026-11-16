@@ -14,6 +14,9 @@
 
 列车、车厢、转向架与渲染扩展接口。结构修改必须遵守宿主提供的线程边界。
 
+`Train.controller`读取当前控制器绑定，`Train.setController`在宿主已进入的帧间阶段同步安装、替换或卸下控制器。
+该入口不自行排队；控制器替换不改变设备历史或ATP确认状态的归属。
+
 `TrainEndRailObject`提供车端的live owner与运行方向HEAD/TAIL身份。它复用原RailObject引用与生命周期，
 不表示不可变车端快照，也不把HEAD/TAIL当作永久物理端A/B。
 

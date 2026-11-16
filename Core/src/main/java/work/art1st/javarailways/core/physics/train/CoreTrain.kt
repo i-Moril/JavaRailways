@@ -97,7 +97,7 @@ open class CoreTrain @MainThread internal constructor(
 
     @Volatile
     private var _controller: TrainController? = null
-    val controller: TrainController?
+    final override val controller: TrainController?
         get() = _controller
     @Volatile
     var movementHeld: Boolean = false
@@ -1352,7 +1352,7 @@ open class CoreTrain @MainThread internal constructor(
         steps.finish()
     }
 
-    fun setController(value: TrainController?) {
+    final override fun setController(value: TrainController?) {
         if (_controller === value) return
         world.physicsCoordinator.ensureBetweenFrames("CoreTrain.setController")
         check(world.getTrain(id) === this) { "Cannot control a retired train '$id'" }

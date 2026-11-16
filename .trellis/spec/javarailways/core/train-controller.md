@@ -76,10 +76,26 @@ Bukkit换向命令在Future完成后经entity scheduler告知玩家，不把“�
 ## 控制器生命周期（CURRENT，第3b批）
 
 外部手动接管、释放和导航请求先由所属world的协调器排队；宿主等待完整ticket以后，
-在同一阶段内完成运营状态与控制器交接。内部同步`setController(value: TrainController?)`不再自行调度：
+在同一阶段内完成运营状态与控制器交接。公共 `core.api.physics.train.Train` 定义
+`val controller: TrainController?` 与 `fun setController(value: TrainController?)`，由 `CoreTrain`
+以 `final override` 直接实现，保留原方法不可被子类覆盖的约束；调用方不应仅为读取或安装
+controller 转换成 `CoreTrain`。读取返回当前绑定的确切实例，
+不是 controller 状态的物理帧快照。同步 `setController` 不自行排队或等待：
 不同实例的安装先验证帧间作用域、world仍持有该train实例，以及新controller确实属于该train。
 随后协调器`replaceController`核对注册表仍指向确切旧controller，更新注册表后才替换train引用。
 重复设置同一引用直接返回，不产生交接。校验失败在写入前抛出，不留下半安装状态。
+
+`null` 表示卸下当前 controller。重复设置同一引用（包括空绑定再设 `null`）在帧间、退休列车及
+归属检查以前返回；不能为接口公开而将检查移到这个短路分支之前。不同引用时依次检查帧间阶段、
+world 中列车身份、新 controller 的 `train === this`，再核对 coordinator 旧注册并安装。
+阶段外、退休列车或注册身份不符抛出 `IllegalStateException`；新 controller 属于其他列车抛出
+`IllegalArgumentException`，失败均保留原绑定。全局 halt 的拒绝沿用协调器原检查。
+
+该入口不额外比较调用方曾捕获的旧实例；例如玩家排队操作仍在执行时检查旧 controller，
+Dispatcher 清理仍只卸下自己拥有的 ATO。不能把这些检查删除后仅靠 setter 避免覆盖新绑定。
+安装不重建 controller，不清除 Basic 世界设备历史或 SimpleATO 按确切列车实例保存的 ATP 状态。
+单次安装的写入前校验不等于 Dispatcher、控制器与玩家会话的复合事务；手动接管失败仍走现有
+停止或恢复分支，不因接口公开引入整体回滚。
 
 例如旧controller的worker尚未完成时，替换请求只排队，旧controller仍有效；帧间交接完成后，
 下一次worker快照只包含新controller。移除后两者都不再tick。不能先移除旧controller，再校验新controller的归属。
@@ -91,6 +107,8 @@ Bukkit换向命令在Future完成后经entity scheduler告知玩家，不把“�
 
 `BetweenFramesOperationsTest`用真实阻塞worker检查阶段外替换拒绝且旧引用不变、排队期间不提前tick新controller、
 exact ticket完成后的替换、下一epoch只执行新controller，以及旧请求拒绝和移除后无controller继续tick。
+绑定用例通过公共 `Train` 引用操作，另验证错误归属拒绝保留旧绑定，以及同引用设置的原有短路行为；
+Java consumer 编译 `getController()` 和 `setController(...)`，防止仅 Kotlin 实现类可调用的签名漂移。
 Basic方向输入在物理换向成功后才更新有效/显示方向；平台手动会话及Dispatcher完整操作见对应模块契约。
 
 ## 项目内正确示例

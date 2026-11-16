@@ -571,6 +571,17 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         return work.art1st.javarailways.basic.api.ato.NativeBodySpeedLimitsKt.nativeBodySpeedLimits(train, frame);
     }
 
+    /** Compile-only binding calls; the caller must already own the between-frames operation. */
+    private static work.art1st.javarailways.core.api.control.TrainController compileControllerBindingApi(
+        work.art1st.javarailways.core.api.physics.train.Train train,
+        work.art1st.javarailways.core.api.control.TrainController replacement
+    ) {
+        var previous = train.getController();
+        train.setController(replacement);
+        train.setController(null);
+        return previous;
+    }
+
     /** Compile-only two-phase probing; route/perception policy remains with the caller. */
     private static void compileSelectedTrackAheadApi(
         work.art1st.javarailways.core.api.physics.train.Train train,

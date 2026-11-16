@@ -8,7 +8,8 @@
 
 ## Owner、签名与 lifecycle
 
-每个 `CoreWorld` 拥有一个 `PhysicsCoordinator`；generic `TickManagerImpl` 是另一条独立路径。`CoreTrain.setController` 只注册 coordinator。
+每个 `CoreWorld` 拥有一个 `PhysicsCoordinator`；generic `TickManagerImpl` 是另一条独立路径。公共
+`Train.setController` 由 `CoreTrain` 实现，只注册 coordinator；绑定与帧间调用条件见[controller 合同](./train-controller.md)。
 
 ### 每World领域执行归属（2026-10-19）
 

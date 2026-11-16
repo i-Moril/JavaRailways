@@ -1,6 +1,7 @@
 package work.art1st.javarailways.core.api.physics.train
 
 import org.jetbrains.annotations.ApiStatus
+import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.WorldElement
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.RailLocation
@@ -39,6 +40,38 @@ interface Train : WorldElement, Destroyable, Synchronizable, Extendable<TrainExt
 
     /** Published speed in metres per second; non-negative. */
     val speed: Double
+
+    /**
+     * Current live controller binding, or null when none is installed. This constant-time identity
+     * read does not capture a physics frame or authorize access to the controller's mutable state.
+     * Core publishes the reference through its existing volatile binding; it can change after a
+     * read. Callers making a queued handoff must recheck the expected source identity on the world's
+     * simulation owner, inside the same between-frames operation as their other handoff decisions.
+     */
+    val controller: TrainController?
+
+    /**
+     * Synchronously installs, replaces or removes this train's controller in the world's existing
+     * between-frames simulation-owner scope. External callers must arrange that scope through
+     * their owner scheduler before invoking this method; it neither enqueues work nor waits for
+     * an in-flight physics epoch. No new physics epoch or persistent state is created.
+     *
+     * Setting the exact current reference, including null, is a no-op before all scope, train
+     * lifecycle and controller-ownership checks, even outside the between-frames scope. A changed
+     * reference first checks that scope, then that the world still holds this exact train instance,
+     * then that the new controller belongs to this exact train. Registration is replaced before
+     * the binding reference; validation failures leave the previous binding and registration intact.
+     *
+     * This operation does not compare a caller's previously captured controller, reset device
+     * histories or coordinate other modules' state. The caller retains those handoff responsibilities
+     * and performs any source-identity check inside its existing serialized owner operation.
+     *
+     * @param value controller whose [TrainController.train] is this exact train, or null to uninstall.
+     * @throws IllegalStateException for a changed binding outside the required owner scope, a retired
+     * train, or an inconsistent existing coordinator registration.
+     * @throws IllegalArgumentException if a changed, non-null controller belongs to another train.
+     */
+    fun setController(value: TrainController?)
 
     /** Whether physics has marked the train as derailed. */
     val isDerailed: Boolean

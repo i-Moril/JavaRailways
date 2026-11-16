@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import work.art1st.javarailways.core.api.control.TrainController
+import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.event.TrainSwitchDirectionEvent
 import work.art1st.javarailways.core.api.event.processor.EventListener
 import work.art1st.javarailways.core.api.event.processor.HandlesEvent
@@ -217,6 +218,7 @@ class BetweenFramesOperationsTest {
             try {
                 val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
                 val train = createTrainWithConfig("frame-operation", rail, world, listOf(10.0))
+                val publicTrain: Train = train
                 var oldTicks = 0
                 var newTicks = 0
                 val oldController = object : TrainController(train) {
@@ -233,8 +235,11 @@ class BetweenFramesOperationsTest {
                 coordinator.start()
                 val ticket = coordinator.stepSimulation(50.0)
                 assertTrue(entered.await(5, TimeUnit.SECONDS))
-                assertThrows(IllegalStateException::class.java) { train.setController(replacement) }
-                assertSame(oldController, train.controller)
+                // Same-reference binding remains a no-op even while the old worker is in flight.
+                publicTrain.setController(oldController)
+                assertSame(oldController, publicTrain.controller)
+                assertThrows(IllegalStateException::class.java) { publicTrain.setController(replacement) }
+                assertSame(oldController, publicTrain.controller)
                 val result = coordinator.submitBetweenFrames {
                     assertTrue(ticket.isDone)
                     assertEquals(ticket.epoch, world.latestWorldFrame().physicsEpoch)
@@ -244,12 +249,16 @@ class BetweenFramesOperationsTest {
                         coordinator.wakeFromMainThread()
                     }.get(5, TimeUnit.SECONDS)
                     assertSame(ticket, otherThreadWake)
-                    assertSame(oldController, train.controller)
-                    train.setController(replacement)
+                    assertSame(oldController, publicTrain.controller)
+                    val differentTrainInstance = object : Train by publicTrain {}
+                    val wrongOwner = object : TrainController(differentTrainInstance) {}
+                    assertThrows(IllegalArgumentException::class.java) { publicTrain.setController(wrongOwner) }
+                    assertSame(oldController, publicTrain.controller)
+                    publicTrain.setController(replacement)
                     "applied"
                 }
                 assertFalse(result.isDone)
-                assertSame(oldController, train.controller)
+                assertSame(oldController, publicTrain.controller)
                 assertEquals(0, newTicks)
                 helper.submit { release.countDown() }
                 coordinator.processBetweenFrames { completed ->
@@ -266,19 +275,34 @@ class BetweenFramesOperationsTest {
                 assertEquals(ticket.epoch + 1, next.epoch)
                 assertEquals(1, oldTicks)
                 assertEquals(1, newTicks)
-                assertSame(replacement, train.controller)
+                assertSame(replacement, publicTrain.controller)
                 val staleReplacement = coordinator.submitBetweenFrames {
-                    check(train.controller === oldController) { "captured controller was replaced" }
-                    train.setController(oldController)
+                    check(publicTrain.controller === oldController) { "captured controller was replaced" }
+                    publicTrain.setController(oldController)
                 }
-                val removal = coordinator.submitBetweenFrames { train.setController(null) }
+                val removal = coordinator.submitBetweenFrames { publicTrain.setController(null) }
                 coordinator.processBetweenFrames { coordinator.drainBetweenFramesOperations() }
                 assertThrows(ExecutionException::class.java) { staleReplacement.get(5, TimeUnit.SECONDS) }
                 removal.get(5, TimeUnit.SECONDS)
                 coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
                 assertEquals(1, oldTicks)
                 assertEquals(1, newTicks)
-                assertEquals(null, train.controller)
+                assertEquals(null, publicTrain.controller)
+                // Null identity is also a no-op outside a between-frames operation.
+                publicTrain.setController(null)
+                val destroyed = publicTrain.destroy().toCompletableFuture()
+                coordinator.processBetweenFrames { coordinator.drainBetweenFramesOperations() }
+                destroyed.get(5, TimeUnit.SECONDS)
+                assertEquals(null, world.getTrain(publicTrain.id))
+                // Identity short-circuit precedes even the retired-train check.
+                publicTrain.setController(null)
+                coordinator.processBetweenFrames {
+                    val failure = assertThrows(IllegalStateException::class.java) {
+                        publicTrain.setController(replacement)
+                    }
+                    assertEquals("Cannot control a retired train '${publicTrain.id}'", failure.message)
+                    assertEquals(null, publicTrain.controller)
+                }
             } finally {
                 release.countDown()
                 coordinator.close()

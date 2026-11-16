@@ -51,6 +51,11 @@ Infrastructure dependency以persistent rail ID、stable topology-node key和runt
 局部自由通行。具体信号插件可把私有联锁/区域模型编译成这些值；本 package 不暴露保护区域、
 信号或资源占用模型。
 
+`TopologyRoutePlanner`及其位置、阻挡点、请求和结果类型提供第一方模块共用的规划与校验契约，
+不承诺独立第三方插件的长期二进制兼容。起终点使用canonical AB米，结果路线段使用view-local米；
+默认按物理距离选最短路，显式唯一性查询在无法完成证明时拒绝。搜索实现保留在Basic内部，调用不授予行车权限。
+调用方负责输入稳定性与结果应用时的拓扑有效性，来源revision不同仍按实际引用重新验证。
+
 `PhysicalRailDistance.between`提供只读的两点物理最短弧长查询：位置为rail UUID与canonical AB米，
 忽略运营方向、信号和当前道岔选择，但遵守拓扑合法连接；不可达返回null，非法位置抛出参数异常。
 调用不申请资源，结果只对应传入的不可变拓扑，调用方负责世界/拓扑有效性。

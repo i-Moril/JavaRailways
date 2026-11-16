@@ -13,7 +13,7 @@
 - 新Basic API优先stable ID、immutable/value snapshot、sealed result与最小interface；collection defensive copy。
 - `basic.api.ato`中的逐车设备状态、设备参数与纯设备计算是第一方控制模块契约，不暴露`TrainDynamics`内部类型，
   不承诺独立第三方插件的长期二进制兼容。设备状态所有权、采样对应和共享计算规则见[列车纵向动力学](./train-longitudinal-dynamics.md)。
-- `basic.api.route` 的 `RailViewRef`、`RouteSegment`、`ExpandedRoute`、`PlannedRoute` 是 SimpleATO 公开路线签名共用的值类型；它们不授予资源或证明拓扑合法性。坐标、不可变性和后续准入职责见[路线契约](./route-planning.md#公开路线值与内部实现的边界)。算法、内部结果和快照转换不随值类型公开。
+- `basic.api.route` 的 `RailViewRef`、`RouteSegment`、`ExpandedRoute`、`PlannedRoute` 是 SimpleATO 公开路线签名共用的值类型；它们不授予资源或证明拓扑合法性。坐标、不可变性和后续准入职责见[路线契约](./route-planning.md#公开路线值与内部实现的边界)。内部算法和快照转换不随值类型公开；规划查询结果使用下述独立契约。
 - `RailwayObservation`、`RailwayTrainObservation`与`RailwayStateStamp`是公开value投影；它们保留epoch-end保守`occupiedIntervals`、有序tail-to-head `bodyTraversal`、整epoch`sweptSpans`、同epoch有序head/tail movement traversal及Core frame的immutable active-turnout continuation snapshot。这些事实不得互相替代，也不得包含render car或live Core对象。Basic只原样投影live continuation，不解释信号依赖或重建一份选择map。
 - `RailwayOccupancyAreaDefinition`只描述插件拥有的监测区几何和有向边界；公开`RailwayAreaOccupancyEngine`由串行caller喂入连续observation并推导`ENTER`/`LEFT`，不把该area解释成固定闭塞、保护区域或授权资源。详见[监测区占用](./railway-area-occupancy.md)。
 - `InfrastructureResource`只表示运行资源；`InfrastructureDependencies`和`TopologyEditImpact`分别以rail ID、stable
@@ -40,7 +40,8 @@
   `RoutePlanningRestrictionSource`在搜索前低频编译一次immutable value；Dijkstra扩展期间不回调source。该API不得加入
   protection region、fixed block、signal aspect、resource claim或live world对象。完整编译/校验算法见
   [route planning](./route-planning.md)。
-- 同包`PhysicalRailDistance.between`是只读物理测距入口，只接收不可变拓扑、rail UUID和canonical AB米，返回可空距离；内部planner/input/result不随之公开。无运营限制不等于无物理连接约束，且测距结果不授予运行资源。零长、错误与算法复用见[测距合同](./route-planning.md#只读物理测距)。
+- 同包`TopologyRoutePlanner`及其请求/结果是第一方纯规划与校验契约，内部搜索由`basic.route.TopologyRoutePlannerEngine`唯一实现。坐标、输入稳定性、唯一性预算及拒绝语义见[路线契约](./route-planning.md)。
+- 同包`PhysicalRailDistance.between`是只读物理测距入口，只接收不可变拓扑、rail UUID和canonical AB米，返回可空距离；内部测距实现与查询图不随之公开。无运营限制不等于无物理连接约束，且测距结果不授予运行资源。零长、错误与算法复用见[测距合同](./route-planning.md#只读物理测距)。
 - 非Core模块优先`core.api.*`；能力不足先设计最小Core API/value DTO，不能以现存internal import为先例。
 - BukkitPlugin是同仓库composition root，不是第三方add-on contract；它不能把Basic non-API object重新包装成稳定API。
 - Bukkit `InfrastructureResourceService.routeAdmission(plugin, worldId)` 是公开准入service的认证入口：返回值绑定

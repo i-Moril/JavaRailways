@@ -14,6 +14,8 @@
 owner/world lifecycle注册，并与运行方向在每次查询前编译、确定性合并。Mission、Station、Line、Timetable、
 observation-based frozen route和Bukkit route diagnostic均经过同一个`OperationalRoutePlanner` planning seam；
 legacy live-`RailView` planner与二次live compiler已经删除。
+SimpleATO通过`basic.api.route.planning.TopologyRoutePlanner`及其请求/结果访问Basic纯规划能力；
+Basic内部查询图与搜索实现不由SimpleATO直接引用。运营限制组合、严格唯一性选择与结果适配仍由SimpleATO持有。
 
 ## 2. 模块工作方式
 

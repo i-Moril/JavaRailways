@@ -10,8 +10,8 @@ import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
 import work.art1st.javarailways.basic.api.route.planning.DirectedRailSpan
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions
-import work.art1st.javarailways.basic.route.OperationalRouteLocation
-import work.art1st.javarailways.basic.route.TopologyRoutePlanningRejection
+import work.art1st.javarailways.basic.api.route.planning.OperationalRouteLocation
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningRejection
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailwayOccupancySnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection

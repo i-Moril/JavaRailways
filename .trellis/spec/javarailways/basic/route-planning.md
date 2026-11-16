@@ -10,6 +10,14 @@
 
 ## Owner、输入输出与坐标
 
+`basic.api.route.planning`拥有第一方模块共用的`TopologyRoutePlanner`查询入口，以及
+`OperationalRouteLocation`、`OperationalRouteBlocker`、`TopologyRoutePlanningInput`、
+`TopologyRoutePlanningResult`和`TopologyRoutePlanningRejection`。这部分不承诺独立第三方插件的长期二进制兼容。
+入口直接复用`basic.route.TopologyRoutePlannerEngine`，内部查询图、限制编译、Dijkstra和唯一性搜索不进入公开契约。
+所有查询只处理调用方捕获的不可变拓扑，不读取live world、不申请资源、不安装编辑保护，也不定义持久化格式。
+调用方负责查询期间保持输入稳定及使用结果时的世界/拓扑当前性；请求的`blockedLocations`沿用调用方列表引用，
+规划时按现有逻辑复制处理，不将整个请求宣称为防御复制的不可变快照。
+
 `TopologyRoutePlanningInput`输入同一个`TopologyState`、编译后的neutral restrictions、canonical AB米表示的起终点、route identity/revision与optional start/end `ViewDirection`。通用planner不查询Destination、Station或OperatingDirection store，也不推断运营方向；未传入端点方向表示该端点没有额外要求。
 
 ```kotlin
@@ -70,14 +78,14 @@ Dokka 须生成四个值类型的页面，而不是放开整个实现包。非�
 
 `CURRENT`（2026-10-15）：公开`basic.api.route.planning.PhysicalRailDistance.between(topology, startRailId, startAbMeters, endRailId, endAbMeters): Double?`，位置以轨道UUID和canonical AB米表示。返回最短物理弧长（米），仅不可达返回null；缺失轨道、非有限/越界位置抛`IllegalArgumentException`。两端均合法且为同一位置时返回0。无端点朝向限制，不查询运营方向、信号、占用或当前道岔选择；合法continuation仍由Core拓扑决定。
 
-该API是对现有内部`TopologyRoutePlanner.physicalDistance`的最小纯查询入口：构造空运营限制，复用现有查询图与Dijkstra，直接求所选图边的米制权重之和，不构造运营RouteSnapshot。这样合法公共端点可返回0，而运营`plan`原有零长拒绝保持不变；不复制算法，不公开内部planner/input/result类型，不申请资源或创建world注册。输入只读且可跨线程查询，结果只对传入拓扑成立；调用方负责检查world生命周期与拓扑是否仍有效。构图、搜索与空间成本沿用本页现有算法，低频按需执行，不增加缓存或搜索上限。
+该API是对现有内部`TopologyRoutePlannerEngine.physicalDistance`的最小纯查询入口：构造空运营限制，复用现有查询图与Dijkstra，直接求所选图边的米制权重之和，不构造运营RouteSnapshot。这样合法公共端点可返回0，而运营`plan`原有零长拒绝保持不变；不复制算法，不公开内部测距实现或查询图，不申请资源或创建world注册。运营规划的请求与结果由同包独立的第一方查询契约公开。输入只读且可跨线程查询，结果只对传入拓扑成立；调用方负责检查world生命周期与拓扑是否仍有效。构图、搜索与空间成本沿用本页现有算法，低频按需执行，不增加缓存或搜索上限。
 
 Basic测试需覆盖同点校验、非法输入、断开、跨轨道分支和环的米制最短结果；API签名/KDoc与Dokka公开范围同步。比如空间重合但无合法连接的交叉轨道不能返回0；不能用几何最近点或当前道岔选通替代物理最短路。它是几何工具能力而非SimpleATO运营选路seam，不改变既有运营调用链，无持久化格式或版本变化。
 沿用搜索的`1e-9`米位置判等精度，处于该精度内的合法位置可能测为0；非法坐标仍须先拒绝，不能以“同点”跳过输入校验。
 
 ## 不可变拓扑寻路与限制
 
-`basic.api.route.planning`只暴露物理中立值：`DirectedRailSpan`、`PhysicalTraversalPath`、
+`basic.api.route.planning`的规划限制只暴露物理中立值：`DirectedRailSpan`、`PhysicalTraversalPath`、
 `PathReplacement`、`RoutePlanningRestrictions`和低频编译用的
 `RoutePlanningRestrictionSource`。其中span使用canonical AB米范围加行驶方向；restriction绑定一个
 topology revision并防御性复制集合。接口不知道保护区域、闭塞、信号、联锁或资源claim。
@@ -101,13 +109,20 @@ SimpleATO的source snapshot读取为`O(1)`，稳定顺序在低频replacement时
 
 ## Route result矩阵
 
+公开入口保留现有四项查询：`plan(input)`返回完整`Planned`或带原因和诊断的`Rejected`；
+`isValidLocation`只判断物理位置是否能解析；`invalidRouteReason`和`invalidRestrictionsReason`在有效时返回null、
+无效时返回诊断。后二者重新验证传入拓扑中的实际引用，不因来源revision不同单独拒绝；路线校验不另行寻路。
+请求构造仍按现有规则拒绝非有限位置、空白route ID、负route revision或非正搜索预算；不会将这些构造异常改成规划结果。
+`STALE_RESTRICTIONS`枚举项保持现状，但当前`plan`不会仅因revision不同返回它。默认最短路与严格唯一性模式、
+零长度方向marker、拒绝原因和诊断文本均沿用内部实现，不能在API入口增加第二套校验或策略。
+
 | 条件 | result |
 | --- | --- |
 | missing rail/required direction无候选 | `Failure`含waypoint/方向 |
 | disconnected/unreachable | `Failure`，无partial segments |
 | 多条route | actual meter total最短；不按hop数 |
 | same rail goal behind | direct非法；若loop存在可成功重复rail |
-| stale restrictions/topology mismatch | typed rejection，无partial route |
+| 来源restrictions revision与当前拓扑不同 | 重新验证实际引用；有效则继续，无效返回`INVALID_RESTRICTIONS`，无partial route |
 | transition非endpoint/不合法continuation | query graph不生成该arc |
 | plugin禁止branch或完整path | 只在query-local graph收紧/替换 |
 | facing/trailing turnout | planner只选择Core legal continuation；后续物理资源编译投影canonical turnout identity |
@@ -123,7 +138,7 @@ Planner把canonical rail facing到normalized edge direction的转换集中在一
 val runsFirstToSecond = if (facing == ViewDirection.AB) railRunsFirstToSecond else !railRunsFirstToSecond
 ```
 
-来源：`TopologyRoutePlanner.kt`。这避免caller多次翻转或把BA view arc写回persisted WayPoint。
+来源：`TopologyRoutePlannerEngine.kt`。这避免caller多次翻转或把BA view arc写回persisted WayPoint。
 
 ## 禁止实现
 
@@ -148,10 +163,9 @@ val runsFirstToSecond = if (facing == ViewDirection.AB) railRunsFirstToSecond el
 - SimpleATO `MissionRouteProgressTest.kt`：AB/BA和loop monotonic projection。
 
 ```bash
-./gradlew :Basic:test --tests '*TopologyRouteRestrictionTest' --tests '*ExpandedRouteTest' \
-  --tests '*TopologyRouteProjectorTest'
-./gradlew :SimpleATO:test --tests '*TopologyRoutePlannerTest' \
-  --tests '*OperationalRoutePlannerTest' --tests '*MissionRouteProgressTest'
+./gradlew :Basic:test --tests '*TopologyRoutePlannerTest' --tests '*TopologyRouteRestrictionTest' \
+  --tests '*TopologyRouteUniquenessTest' --tests '*ExpandedRouteTest' --tests '*TopologyRouteProjectorTest'
+./gradlew :SimpleATO:test --tests '*OperationalRoutePlannerTest' --tests '*MissionRouteProgressTest'
 ```
 
 ## 拓扑来源与局部重新验证

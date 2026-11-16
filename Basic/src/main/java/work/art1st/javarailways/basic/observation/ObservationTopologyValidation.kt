@@ -3,7 +3,7 @@ package work.art1st.javarailways.basic.observation
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
-import work.art1st.javarailways.basic.route.TopologyRoutePlanner
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanner
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState

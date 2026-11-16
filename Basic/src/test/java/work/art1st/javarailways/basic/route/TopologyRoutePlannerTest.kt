@@ -11,11 +11,11 @@ import work.art1st.javarailways.basic.api.route.planning.DirectedRailSpan
 import work.art1st.javarailways.basic.api.route.planning.PathReplacement
 import work.art1st.javarailways.basic.api.route.planning.PhysicalTraversalPath
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions
-import work.art1st.javarailways.basic.route.OperationalRouteLocation
-import work.art1st.javarailways.basic.route.TopologyRoutePlanner
-import work.art1st.javarailways.basic.route.TopologyRoutePlanningInput
-import work.art1st.javarailways.basic.route.TopologyRoutePlanningRejection
-import work.art1st.javarailways.basic.route.TopologyRoutePlanningResult
+import work.art1st.javarailways.basic.api.route.planning.OperationalRouteLocation
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanner
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningInput
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningRejection
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningResult
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef

@@ -27,7 +27,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
-import work.art1st.javarailways.basic.route.OperationalRouteLocation
+import work.art1st.javarailways.basic.api.route.planning.OperationalRouteLocation
 import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencies
 import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest
@@ -76,9 +76,9 @@ import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditDeci
 import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditOverlap
 import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditRequest
 import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditStatus
-import work.art1st.javarailways.basic.route.TopologyRoutePlanner
-import work.art1st.javarailways.basic.route.TopologyRoutePlanningInput
-import work.art1st.javarailways.basic.route.TopologyRoutePlanningResult
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanner
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningInput
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningResult
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceService
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureEditPermit
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureEditPermitResult

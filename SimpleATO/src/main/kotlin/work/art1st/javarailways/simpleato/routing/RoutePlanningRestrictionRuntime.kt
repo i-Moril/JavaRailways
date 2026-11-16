@@ -45,7 +45,7 @@ class RoutePlanningRestrictionRuntime {
         captured.forEach { binding ->
             val contribution = try {
                 binding.source.restrictions(topology).also {
-                    val invalid = work.art1st.javarailways.basic.route.TopologyRoutePlanner
+                    val invalid = work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanner
                         .invalidRestrictionsReason(topology, it)
                     require(invalid == null) { invalid.orEmpty() }
                 }

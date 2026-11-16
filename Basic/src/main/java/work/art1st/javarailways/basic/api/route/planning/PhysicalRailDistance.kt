@@ -1,7 +1,6 @@
 package work.art1st.javarailways.basic.api.route.planning
 
-import work.art1st.javarailways.basic.route.OperationalRouteLocation
-import work.art1st.javarailways.basic.route.TopologyRoutePlanner
+import work.art1st.javarailways.basic.route.TopologyRoutePlannerEngine
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import java.util.UUID
 
@@ -23,6 +22,6 @@ object PhysicalRailDistance {
         endRailId: UUID, endAbMeters: Double): Double? {
         val start = OperationalRouteLocation(startRailId, startAbMeters)
         val end = OperationalRouteLocation(endRailId, endAbMeters)
-        return TopologyRoutePlanner.physicalDistance(topology, start, end)
+        return TopologyRoutePlannerEngine.physicalDistance(topology, start, end)
     }
 }

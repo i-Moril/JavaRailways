@@ -7,10 +7,10 @@ import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
-import work.art1st.javarailways.basic.route.OperationalRouteLocation
-import work.art1st.javarailways.basic.route.TopologyRoutePlanner
-import work.art1st.javarailways.basic.route.TopologyRoutePlanningRejection
-import work.art1st.javarailways.basic.route.TopologyRoutePlanningResult
+import work.art1st.javarailways.basic.api.route.planning.OperationalRouteLocation
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanner
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningRejection
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningResult
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 
 /** One observation-scoped train lookup shared by all route selections in a Dispatcher pass. */

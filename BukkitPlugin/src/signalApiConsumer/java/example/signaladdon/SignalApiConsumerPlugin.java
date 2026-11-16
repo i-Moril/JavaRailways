@@ -64,6 +64,13 @@ import work.art1st.javarailways.basic.api.route.PlannedRoute;
 import work.art1st.javarailways.basic.api.route.RailViewRef;
 import work.art1st.javarailways.basic.api.route.RouteSegment;
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions;
+import work.art1st.javarailways.basic.api.route.planning.OperationalRouteBlocker;
+import work.art1st.javarailways.basic.api.route.planning.OperationalRouteLocation;
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanner;
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningInput;
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningRejection;
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningResult;
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState;
 import work.art1st.javarailways.basic.api.observation.RailwayAreaOccupancyEngine;
 import work.art1st.javarailways.basic.api.observation.RailwayObservation;
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefinition;
@@ -500,6 +507,29 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         );
         var plannedRoute = new PlannedRoute("example.signaladdon:route/main", 1L, lineLeg.getRoute());
         return new AtoMissionLeg(0, new AtoMissionPoint.Via(new WayPointRef("destination")), plannedRoute);
+    }
+
+    /** Compile-only visibility coverage for the first-party planning contract, not an add-on compatibility promise. */
+    private static TopologyRoutePlanningResult compileTopologyPlanningApi(
+        TopologyState topology, RoutePlanningRestrictions restrictions, UUID startRailId, UUID endRailId
+    ) {
+        var start = new OperationalRouteLocation(startRailId, 0.0);
+        var end = new OperationalRouteLocation(endRailId, 5.0);
+        var input = new TopologyRoutePlanningInput(
+            topology, restrictions, start, end, "example.signaladdon:planning/main", 1L,
+            ViewDirection.AB, null, false, List.of(new OperationalRouteBlocker(start, null)), 100_000
+        );
+        TopologyRoutePlanner.isValidLocation(topology, start);
+        TopologyRoutePlanner.invalidRestrictionsReason(topology, restrictions);
+        var result = TopologyRoutePlanner.plan(input);
+        if (result instanceof TopologyRoutePlanningResult.Planned planned) {
+            RouteSnapshot route = planned.getRoute();
+            TopologyRoutePlanner.invalidRouteReason(topology, route);
+        } else if (result instanceof TopologyRoutePlanningResult.Rejected rejected) {
+            TopologyRoutePlanningRejection reason = rejected.getReason();
+            String detail = rejected.getDetail();
+        }
+        return result;
     }
 
     private static RouteResourceIntent routeIntentExample(RailwayStateStamp observationStamp) {

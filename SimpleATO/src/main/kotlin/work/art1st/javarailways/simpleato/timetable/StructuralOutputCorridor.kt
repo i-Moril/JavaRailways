@@ -4,7 +4,7 @@ import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions
 import work.art1st.javarailways.basic.api.infrastructure.PhysicalRouteDependencyCompilation
-import work.art1st.javarailways.basic.route.TopologyRoutePlanner
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanner
 import work.art1st.javarailways.basic.api.infrastructure.PhysicalRouteDependencyCompiler
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection

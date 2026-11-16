@@ -1,5 +1,9 @@
 package work.art1st.javarailways.basic.route
 
+import work.art1st.javarailways.basic.api.route.planning.OperationalRouteLocation
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningInput
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningRejection
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningResult
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.route.planning.DirectedRailSpan
@@ -20,69 +24,6 @@ import java.util.PriorityQueue
 import java.util.UUID
 import kotlin.math.abs
 
-/** One route endpoint in canonical rail A-to-B metres. */
-data class OperationalRouteLocation(
-    val railId: UUID,
-    val arcLengthInAbMeters: Double
-) {
-    init {
-        require(arcLengthInAbMeters.isFinite()) { "route location must be finite" }
-    }
-}
-
-/** A query-local forbidden position, optionally restricted to traversal facing on its owning rail. */
-data class OperationalRouteBlocker(
-    val location: OperationalRouteLocation,
-    val facing: ViewDirection? = null
-)
-
-data class TopologyRoutePlanningInput(
-    val topology: TopologyState,
-    val restrictions: RoutePlanningRestrictions,
-    val start: OperationalRouteLocation,
-    val end: OperationalRouteLocation,
-    val routeId: String,
-    val routeRevision: Long,
-    /** Restricts the first traversal to the authoritative physical facing when supplied. */
-    val startFacing: ViewDirection? = null,
-    /** Restricts arrival at the target to the caller's required physical facing when supplied. */
-    val endFacing: ViewDirection? = null,
-    /** Reject distinct legal physical paths, including longer alternatives. */
-    val requireUniquePath: Boolean = false,
-    /** Query-local forbidden positions and optional local facing, including macro interiors. */
-    val blockedLocations: List<OperationalRouteBlocker> = emptyList(),
-    /** Work limit for exhaustive uniqueness proof; exhaustion is a rejection, never success. */
-    val uniqueSearchLimit: Int = 100_000
-) {
-    init {
-        require(uniqueSearchLimit > 0) { "uniqueSearchLimit must be positive" }
-        require(routeId.isNotBlank()) { "routeId must not be blank" }
-        require(routeRevision >= 0L) { "routeRevision must be non-negative" }
-    }
-}
-
-enum class TopologyRoutePlanningRejection {
-    STALE_RESTRICTIONS,
-    INVALID_RESTRICTIONS,
-    INVALID_LOCATION,
-    AMBIGUOUS,
-    SEARCH_LIMIT_EXCEEDED,
-    UNREACHABLE
-}
-
-sealed interface TopologyRoutePlanningResult {
-    data class Planned(val route: RouteSnapshot) : TopologyRoutePlanningResult
-
-    data class Rejected(
-        val reason: TopologyRoutePlanningRejection,
-        val detail: String
-    ) : TopologyRoutePlanningResult {
-        init {
-            require(detail.isNotBlank())
-        }
-    }
-}
-
 /**
  * Pure shortest-route selector over one immutable normalized Core topology.
  *
@@ -90,7 +31,7 @@ sealed interface TopologyRoutePlanningResult {
  * become atomic graph arcs, so the search cannot enter or leave a permitted path in its interior.
  * The planner never reads live rails, invokes plugin code during expansion or mutates topology.
  */
-object TopologyRoutePlanner {
+internal object TopologyRoutePlannerEngine {
     /** Distance-only seam: reuse the query graph/search without the operational positive-route rule. */
     internal fun physicalDistance(topology: TopologyState, startLocation: OperationalRouteLocation,
         endLocation: OperationalRouteLocation): Double? {

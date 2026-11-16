@@ -4,10 +4,10 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions
-import work.art1st.javarailways.basic.route.OperationalRouteLocation
-import work.art1st.javarailways.basic.route.TopologyRoutePlanner
-import work.art1st.javarailways.basic.route.TopologyRoutePlanningInput
-import work.art1st.javarailways.basic.route.TopologyRoutePlanningResult
+import work.art1st.javarailways.basic.api.route.planning.OperationalRouteLocation
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanner
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningInput
+import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningResult
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.topology.TestTopologyRail
 import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology

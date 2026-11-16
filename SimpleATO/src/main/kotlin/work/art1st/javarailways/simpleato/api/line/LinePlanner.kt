@@ -87,7 +87,7 @@ class LinePlanner(private val world: World) {
                     )
                     if (planned is RouteBuildResult.Failure) {
                         lastFailure = planned
-                        if (requireUniquePath && planned.planningRejection != work.art1st.javarailways.basic.route.TopologyRoutePlanningRejection.UNREACHABLE) {
+                        if (requireUniquePath && planned.planningRejection != work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningRejection.UNREACHABLE) {
                             throw IllegalArgumentException("Line leg $index: ${planned.reason}")
                         }
                     }

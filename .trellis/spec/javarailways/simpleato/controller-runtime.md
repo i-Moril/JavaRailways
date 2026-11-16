@@ -9,7 +9,7 @@ factory facade或转发访问器。
 
 SimpleATO同时拥有`AbstractATO`、mission、constraint与world Stall coordinator；详细机制见
 [ATO policy runtime](./ato-policy-runtime.md)。SimpleATO拥有`AtoSafetyProfile`；Basic只提供actuator、坡度制动包络、
-不可变拓扑、route/perception值对象与world safety interlock，不拥有或转发ATO可写状态。
+不可变拓扑、物理前视查询、route/perception值对象与world safety interlock，不拥有或转发ATO可写状态。
 
 ## 正常流程与内部机制
 
@@ -31,6 +31,20 @@ SimpleATO同时拥有`AbstractATO`、mission、constraint与world Stall coordina
 Mission、constraint和station-call的mutable集合都只存在于该controller实例，不在
 `SimpleATOWorldData`或Basic创建第二份镜像。每列车每tick的route/perception扫描仍为线性；controller只从world-local
 inspection runtime读取编译好的声明及最大提前时间；controller按最高速度转换为保守距离并并入原有horizon。
+
+物理前视经Basic `SelectedTrackAhead`两阶段入口取得：先沿当前选中续接追踪一次路径，
+SimpleATO再按有序rail ID/facing计算原route key并更新revision、构造`RouteSnapshot`，然后观察该路径上的对象。
+路线端点弧长变化本身不改变route revision；对象getter和异常仍在路线revision/快照构造之后发生。
+SimpleATO继续拥有previous/current observation身份比较、ENTER/UPDATE/PASS/EXIT差分、稳定距离排序、
+独立perception epoch和最终`PerceptionSnapshot`，不把这些可写历史转交给Basic。
+
+扫描返回固定区间及位置值，但保留Core API live `RailView`与原`RailObject`实例，
+以便在原阶段读取signal限速、REMOVED状态和`TrainEndRailObject.trainOrNull/isHead`。
+联结目标仍由SimpleATO按现有proof/reversed映射识别；反向前车的相对速度仍采用原零速假设。
+对象回调/inspection之后，路线物理末端仍查询最后view的当前续接；移动前仍逐对检查
+`current.railView.nextActiveRail === next.railView`，选择变化按原消息失败，不能用扫描时捕获的布尔值代替。
+Basic查询的源顺序、容差和重复实例规则归[物理前视契约](../basic/ato-missions-and-perception.md)。
+人工未绑定路线的256段扫描与静止障碍假设继续沿原实现，不因自动前视入口而统一策略。
 
 结构输出仍由formation hold停车时，Core只调用`AbstractATO.prepareWhileFormationHeld`，不调用正常tick。
 该边界先清零controller speed和上一编组的lastTravelDistance，再消费命令并执行同一个planner/perception/inspection流程，

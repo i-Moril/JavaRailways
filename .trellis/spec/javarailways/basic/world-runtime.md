@@ -26,7 +26,8 @@ data class BasicWorldData(
 
 `World.basicWorldData`与`World.basicWorldDataOrNull`位于`work.art1st.javarailways.basic`，直接访问显式注册的
 Basic extension data。旧`pathFinding.RailMap`目的地索引已删除；通用运营轨道对象由`RailObjectStore`维护，
-不再为每个世界创建另一份目的地索引。ATO仍合并Core已有的静态信号和动态车端，不用该store替代物理对象来源。
+不再为每个世界创建另一份目的地索引。Basic两阶段物理前视查询合并Core已有的静态信号和动态车端，不用该store替代物理对象来源；
+SimpleATO只消费该查询并拥有感知历史，见[物理前视契约](./ato-missions-and-perception.md)。
 `basicWorldDataOrNull`在plugin/data缺失时返回null，
 required accessor仍按原有条件抛错，不隐式创建数据或回退到测试注册器。
 

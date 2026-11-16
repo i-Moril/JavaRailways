@@ -3,7 +3,7 @@ package work.art1st.javarailways.core.physics.train
 import java.util.concurrent.CompletionStage
 import java.util.concurrent.CompletableFuture
 import work.art1st.javarailways.core.api.util.Destruction
-import work.art1st.javarailways.core.api.physics.rail.RailObject
+import work.art1st.javarailways.core.api.physics.train.TrainEndRailObject
 import work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState
 import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
 import work.art1st.javarailways.core.api.physics.rail.Reversible
@@ -21,7 +21,7 @@ open class TrainEnd(
     location: RailLocationWithFacing,
     train: CoreTrain,
     val type: Type
-) : RailObject, Reversible, Destroyable, Synchronizable {
+) : TrainEndRailObject, Reversible, Destroyable, Synchronizable {
     init {
         location.rail.addTrainEnd(this)
     }
@@ -37,8 +37,10 @@ open class TrainEnd(
 
     private val ownerTrain = train
 
-    val trainOrNull: CoreTrain?
+    final override val trainOrNull: CoreTrain?
         get() = ownerTrain.takeUnless { lifecycleState == RailObjectLifecycleState.REMOVED }
+
+    final override val isHead: Boolean get() = type == Type.HEAD
 
     val train: CoreTrain
         get() = trainOrNull ?: throw IllegalStateException("TrainEnd no longer references a live train")

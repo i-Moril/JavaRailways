@@ -14,6 +14,10 @@
 
 列车、车厢、转向架与渲染扩展接口。结构修改必须遵守宿主提供的线程边界。
 
+`TrainEndRailObject`提供车端的live owner与运行方向HEAD/TAIL身份。它复用原RailObject引用与生命周期，
+不表示不可变车端快照，也不把HEAD/TAIL当作永久物理端A/B。
+
+
 # Package work.art1st.javarailways.core.api.control
 
 列车控制器和控制命令。控制器由物理 Coordinator 调度，不是 Bukkit 主线程回调。

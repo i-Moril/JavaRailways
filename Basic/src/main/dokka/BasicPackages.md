@@ -23,6 +23,10 @@ ATO 规划输入使用的不可变 Route 与 Perception 快照。集合在构造
 不可变有向曲线最低坡度的缓存计算，以及调用时已发布车身的坡度查询。这些第一方同步函数不选择控制目标、
 不发布物理状态，也不定义额外注册或持久化生命周期。
 
+`SelectedTrackAhead`及物理片段/对象观察为第一方物理worker提供两阶段前视查询。
+结果保留Core公开live对象身份供原时点检查，固定距离/位置值不代表整个世界已冻结；
+路线revision、感知事件差分和控制策略仍由SimpleATO拥有。
+
 # Package work.art1st.javarailways.basic.api.rail
 
 world-local 通用 RailObject、双索引 store 与 lifecycle 契约；不包含已删除的 ATO Provider/Boundary 切换机制。

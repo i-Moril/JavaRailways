@@ -571,6 +571,33 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         return work.art1st.javarailways.basic.api.ato.NativeBodySpeedLimitsKt.nativeBodySpeedLimits(train, frame);
     }
 
+    /** Compile-only two-phase probing; route/perception policy remains with the caller. */
+    private static void compileSelectedTrackAheadApi(
+        work.art1st.javarailways.core.api.physics.train.Train train,
+        RailPositionSnapshot head,
+        work.art1st.javarailways.basic.api.rail.RailObjectStore objects
+    ) {
+        var path = work.art1st.javarailways.basic.api.ato.SelectedTrackAheadKt
+            .traceSelectedTrackAhead(train.getWorld(), head, 100.0);
+        long topologyRevision = path.getTopologyRevision();
+        double coveredLength = path.getCoveredLengthMeters();
+        var segment = path.getSegments().getFirst();
+        work.art1st.javarailways.core.api.physics.rail.RailView liveView = segment.getRailView();
+        double intervalLength = segment.getEndArcLength() - segment.getStartArcLength();
+        var observations = work.art1st.javarailways.basic.api.ato.SelectedTrackAheadKt
+            .observeTrackObjects(train, path, objects, 0.1, 3.0);
+        for (var observation : observations.values()) {
+            var snapshot = observation.getSnapshot();
+            double distance = observation.getDistanceMeters();
+            Double relativeSpeed = observation.getRelativeSpeedMetersPerSecond();
+            if (observation.getRailObject() instanceof
+                work.art1st.javarailways.core.api.physics.train.TrainEndRailObject end) {
+                work.art1st.javarailways.core.api.physics.train.Train owner = end.getTrainOrNull();
+                boolean headEnd = end.isHead();
+            }
+        }
+    }
+
     private static RouteResourceIntent routeIntentExample(RailwayStateStamp observationStamp) {
         var railId = UUID.randomUUID();
         var route = new RouteSnapshot(

@@ -57,15 +57,17 @@ import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailObject
 import work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState
 import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
-import work.art1st.javarailways.core.api.physics.rail.RailObjectSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
-import work.art1st.javarailways.core.physics.rail.RailSegment
-import work.art1st.javarailways.core.physics.train.TrainEnd
+import work.art1st.javarailways.basic.api.ato.PhysicalTrackSegment
+import work.art1st.javarailways.basic.api.ato.PhysicalTrackObservation
+import work.art1st.javarailways.basic.api.ato.traceSelectedTrackAhead
+import work.art1st.javarailways.basic.api.ato.observeTrackObjects
+import work.art1st.javarailways.core.api.physics.train.TrainEndRailObject
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionConstraintAdapter
@@ -171,20 +173,13 @@ class SimpleATO(
         val reversed: Boolean
     )
 
-    private data class Observed(
-        val railObject: RailObject,
-        val snapshot: RailObjectSnapshot,
-        val distanceMeters: Double,
-        val relativeSpeedMetersPerSecond: Double?
-    )
-
     private data class ScanResult(
         val route: RouteSnapshot,
-        val segments: List<RailSegment>,
+        val segments: List<PhysicalTrackSegment>,
         val perception: PerceptionSnapshot,
         val perceptionHorizonMeters: Double,
-        val currentObservedByRef: Map<RailObjectRef, Observed>,
-        val eventObjectsByRef: Map<RailObjectRef, Observed>
+        val currentObservedByRef: Map<RailObjectRef, PhysicalTrackObservation>,
+        val eventObjectsByRef: Map<RailObjectRef, PhysicalTrackObservation>
     )
 
     private val worldData = world.basicWorldData
@@ -204,8 +199,8 @@ class SimpleATO(
     private var infrastructureLimitInitialized = false
     private var infrastructureLimitRailId: java.util.UUID? = null
     private var infrastructureLimitDirection: work.art1st.javarailways.core.api.physics.rail.ViewDirection? = null
-    private var previousObserved: Map<RailObjectRef, Observed> = emptyMap()
-    private var currentSegments: List<RailSegment> = emptyList()
+    private var previousObserved: Map<RailObjectRef, PhysicalTrackObservation> = emptyMap()
+    private var currentSegments: List<PhysicalTrackSegment> = emptyList()
     private var routeRevision = 0L
     private var previousRouteKey: List<Pair<java.util.UUID, work.art1st.javarailways.core.api.physics.rail.ViewDirection>> = emptyList()
     private var perceptionEpoch = 0L
@@ -863,7 +858,7 @@ class SimpleATO(
 
     override fun validateBeforeMovement() {
         currentSegments.zipWithNext().forEach { (current, next) ->
-            check(current.railView.activeRail === next.railView) {
+            check(current.railView.nextActiveRail === next.railView) {
                 "turnout changed while ATO was planning at rail ${current.railView.rail.id}"
             }
         }
@@ -892,7 +887,7 @@ class SimpleATO(
                 ))
             }
             scan.currentObservedByRef.values
-                .sortedBy(Observed::distanceMeters)
+                .sortedBy(PhysicalTrackObservation::distanceMeters)
                 .forEach { observed ->
                     val signal = observed.railObject as? OperationalSpeedLimitSignal ?: return@forEach
                     val limit = signal.speedLimitMetersPerSecond ?: return@forEach
@@ -907,7 +902,7 @@ class SimpleATO(
 
         val lastSegment = scan.segments.last()
         val observedRouteDistance = scan.segments.sumOf { it.totalArcLength }
-        val reachesPhysicalRouteEnd = lastSegment.railView.activeRail == null &&
+        val reachesPhysicalRouteEnd = lastSegment.railView.nextActiveRail == null &&
             lastSegment.endArcLength >=
             lastSegment.railView.curve.totalArcLength - safetyProfile.stopToleranceMeters
         val routeEnd = if (reachesPhysicalRouteEnd) {
@@ -933,15 +928,15 @@ class SimpleATO(
 
         val nearestTrain = scan.currentObservedByRef.values
             .asSequence()
-            .filter { it.railObject is TrainEnd }
+            .filter { it.railObject is TrainEndRailObject }
             .filterNot { observed ->
                 val contact = activeContactAuthority ?: return@filterNot false
-                val end = observed.railObject as TrainEnd
+                val end = observed.railObject as TrainEndRailObject
                 val proof = contact.proof
                 val targetIsHead = (proof.request.stationaryEnd ==
                     work.art1st.javarailways.core.api.physics.train.TrainEndSide.A) != proof.stationaryFrame.reversed
                 end.trainOrNull?.id == proof.request.stationaryTrainId &&
-                    end.type == if (targetIsHead) TrainEnd.Type.HEAD else TrainEnd.Type.TAIL
+                    end.isHead == targetIsHead
             }
             .minByOrNull { it.distanceMeters }
         val following = nearestTrain?.let { observed ->
@@ -1189,14 +1184,8 @@ class SimpleATO(
     }
 
     private fun scanRouteAndObjects(horizon: Double, trainFrame: TrainFrameSnapshot): ScanResult {
-        val topology = world.topologyState
-        val position = trainFrame.head
-        val rail = requireNotNull(world.getRail(position.railId)) { "ATO frame references a missing head rail" }
-        val head = RailLocationWithFacing(rail.getView(position.facing) as work.art1st.javarailways.core.physics.rail.RailView,
-            if (position.facing == work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB) position.arcLengthInAbMeters
-            else rail.curve.totalArcLength - position.arcLengthInAbMeters)
-        val segments = head.peekCurve(horizon).toList()
-        check(segments.isNotEmpty()) { "SimpleATO cannot build a route from the train head" }
+        val path = traceSelectedTrackAhead(world, trainFrame.head, horizon)
+        val segments = path.segments
 
         val routeKey = segments.map { it.railView.rail.id to it.railView.viewDirection }
         if (routeKey != previousRouteKey) {
@@ -1206,7 +1195,7 @@ class SimpleATO(
         val route = RouteSnapshot(
             routeId = "simple-ato/${train.id}",
             revision = routeRevision,
-            topologyRevision = topology.revision,
+            topologyRevision = path.topologyRevision,
             segments = segments.map { segment ->
                 RouteSegmentSnapshot(
                     segment.railView.rail.id,
@@ -1217,7 +1206,7 @@ class SimpleATO(
             }
         )
 
-        val current = collectObserved(segments)
+        val current = observeTrackObjects(train, path, worldData.railObjects, safetyProfile.stopToleranceMeters, activeSpeed)
         current.forEach { (ref, observed) ->
             val previous = previousObserved[ref] ?: return@forEach
             check(previous.railObject === observed.railObject ||
@@ -1261,49 +1250,7 @@ class SimpleATO(
         return ScanResult(route, segments, perception, horizon, current, allObserved)
     }
 
-    private fun collectObserved(segments: List<RailSegment>): Map<RailObjectRef, Observed> {
-        val result = LinkedHashMap<RailObjectRef, Observed>()
-        var distanceToSegment = 0.0
-        segments.forEach { segment ->
-            val view = segment.railView
-            val objects = buildList<RailObject> {
-                addAll(view.staticRailObjects)
-                addAll(view.dynamicRailObjects)
-                addAll(worldData.railObjects.objectsOnRail(view.rail.id))
-            }
-            objects.forEach objectLoop@{ railObject ->
-                if (railObject.lifecycleState != RailObjectLifecycleState.ACTIVE) return@objectLoop
-                val trainEnd = railObject as? TrainEnd
-                val otherTrain = trainEnd?.trainOrNull
-                if (otherTrain?.id == train.id) return@objectLoop
-                val objectArc = railObject.location.arcLengthIn(view.viewDirection)
-                if (objectArc + safetyProfile.stopToleranceMeters < segment.startArcLength ||
-                    objectArc > segment.endArcLength
-                ) return@objectLoop
-                val distance = distanceToSegment + (objectArc - segment.startArcLength).coerceAtLeast(0.0)
-                val observed = Observed(
-                    railObject = railObject,
-                    snapshot = RailObjectSnapshot.capture(railObject, view.viewDirection),
-                    distanceMeters = distance,
-                    relativeSpeedMetersPerSecond = otherTrain?.let {
-                        val speedAlongRoute = if (trainEnd.location.facing == view.viewDirection) it.speed else 0.0
-                        speedAlongRoute - activeSpeed
-                    }
-                )
-                val existing = result[railObject.ref]
-                check(existing == null || existing.railObject === railObject) {
-                    "duplicate RailObjectRef ${railObject.ref} refers to distinct live objects"
-                }
-                if (existing == null || observed.distanceMeters < existing.distanceMeters) {
-                    result[railObject.ref] = observed
-                }
-            }
-            distanceToSegment += segment.totalArcLength
-        }
-        return result
-    }
-
-    private fun buildBrakingGradeSegments(segments: List<RailSegment>): List<BrakingGradeSegment> {
+    private fun buildBrakingGradeSegments(segments: List<PhysicalTrackSegment>): List<BrakingGradeSegment> {
         val result = ArrayList<BrakingGradeSegment>()
         segments.forEachIndexed { segmentIndex, segment ->
             var start = segment.startArcLength
@@ -1334,7 +1281,7 @@ class SimpleATO(
         return result
     }
 
-    private fun worstGrade(segment: RailSegment, startArc: Double, endArc: Double): Double {
+    private fun worstGrade(segment: PhysicalTrackSegment, startArc: Double, endArc: Double): Double {
         val curve = segment.railView.curve
         val middleArc = (startArc + endArc) * 0.5
         return minOf(

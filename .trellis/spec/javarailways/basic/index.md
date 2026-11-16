@@ -15,7 +15,7 @@
 | [world runtime](./world-runtime.md) | 构造/查找`BasicWorldData`或world stores | world-local composition与RailObject lifecycle |
 | [threading 与 publication](./threading-and-publication.md) | main↔physics command、observation publication、Dispatcher顺序 | cross-thread handoff与Basic safety interlock |
 | [监测区占用](./railway-area-occupancy.md) | 区间占用、边界ENTER/LEFT、响应式信号输入 | Basic通用物理派生，不包含信号制式策略 |
-| [ATO snapshot](./ato-missions-and-perception.md) | route/perception snapshot与revision queue | Basic immutable input primitive；mission归SimpleATO |
+| [ATO snapshot与物理前视](./ato-missions-and-perception.md) | route/perception snapshot、两阶段物理前视与revision queue | Basic物理查询与immutable input primitive；事件历史/mission归SimpleATO |
 | [自动/手动物理控制 primitive](./ato-control-and-constraints.md) | actuator、control demand、braking envelope、world safety latch | Basic共享物理执行；ATO policy归SimpleATO |
 | [列车纵向动力学](./train-longitudinal-dynamics.md) | 牵引/制动/阻力/坡度、人工或ATO手柄执行、重力注入 | Basic共享动力学、真实手柄执行与坡度制动包络 |
 | [RailObject store](./ato-providers.md) | 注册/删除通用RailObject | generic lifecycle；不包含ATO provider切换 |

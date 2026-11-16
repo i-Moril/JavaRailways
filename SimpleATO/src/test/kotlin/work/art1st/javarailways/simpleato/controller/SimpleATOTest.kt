@@ -845,6 +845,47 @@ class SimpleATOTest {
     }
 
     @Test
+    fun `turnout changed during object observation stalls before movement`() {
+        lateinit var approach: CoreRail
+        lateinit var straight: CoreRail
+        lateinit var branch: CoreRail
+        val fixture = fixture("late-turnout-change", railLengthMeters = 40.0, configureTrack = { world, rail ->
+            approach = rail
+            straight = world.createRailForTest(
+                straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(140.0, 0.0, 0.0)))
+            branch = world.createRailForTest(
+                straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(140.0, 0.0, 20.0)))
+            configureTurnoutForTest(approach, listOf(straight, branch))
+        })
+        var changeOnRead = false
+        var changed = false
+        val target = object : RailObject {
+            override val ref = RailObjectRef("test", "switch-during-observation")
+            override val lifecycleState = RailObjectLifecycleState.ACTIVE
+            override val location: RailLocationWithFacing get() {
+                if (changeOnRead && !changed) {
+                    changed = true
+                    fixture.world.onOwnerForTest { approach.viewAB.selectNextRail(branch.viewAB) }
+                }
+                return RailLocationWithFacing(approach.viewAB, 25.0)
+            }
+        }
+        fixture.data.railObjects.register(target)
+        val headBefore = fixture.train.publishedFrame.head
+        changeOnRead = true
+
+        tickAndPublish(fixture.ato, 50.0)
+
+        assertTrue(changed)
+        assertSame(branch.viewAB, approach.viewAB.activeRail)
+        assertTrue(fixture.coordinator.isStalled)
+        assertEquals("turnout changed while ATO was planning at rail ${approach.id}",
+            fixture.coordinator.lastStall?.message)
+        assertEquals(headBefore, fixture.train.publishedFrame.head)
+        assertEquals(0.0, fixture.train.speed)
+    }
+
+    @Test
     fun `route end is treated as a stop target`() {
         val fixture = fixture("route-end", railLengthMeters = 30.0)
         authorizeMovement(fixture)

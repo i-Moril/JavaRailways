@@ -12,6 +12,10 @@
 - Dokka publication 只保留 `work.art1st.javarailways.core.api.*`；普通 `public` implementation 不成为 API。
 - 认可的跨线程 value 类型：`RailPositionSnapshot(UUID, ViewDirection, Double)`、`RailTraversalSegmentSnapshot`、revision-rooted `TopologyState`及其`RailCrossingPoint/AtGradeRailCrossing`、`ActiveRailContinuationsSnapshot`、`RailObjectRef(namespace,id)`、`RailObjectSnapshot`、`Vector3Snapshot`、`RenderableFrameSnapshot`、`CarFrameSnapshot`、`TrainFrameSnapshot`、`RailwayOccupancySnapshot`、`RailwayWorldFrameSnapshot`。`RailwayEpochProcessor`是同步value-only callback，不暴露live Core对象。
 - live 类型：`World`、`Train`、`Rail`、`RailView`。`World.allTrains` 与 `RailView.nextRails` 不得当 immutable collection 缓存。
+- `core.api.physics.train.TrainEndRailObject`是live RailObject的最小车端能力，当前由Core `TrainEnd`实现。
+  `trainOrNull`在读取时按原生命周期返回当前owner，REMOVED返回null；`isHead`表示物理运行方向的HEAD/TAIL，
+  不等于永久车体端A/B。它复用原ref、location和lifecycle，不创建wrapper、索引或另一份publication。
+  consumer在原simulation/physics读取边界使用；跨线程仍应发布RailObjectSnapshot，不缓存live owner当作冻结证据。
 - `@MainThread`、`@Heavy`、`@Concurrent`、`@Pure` 只表达 contract，不调度；只有实现显式调用 `core.api.threading.ThreadGuard.ensure*` 才 runtime fail-fast。
 - `core.api.threading` 是普通 consumer 的只读线程身份契约：`ThreadContext` 仅用于诊断，`ThreadGuard` 只提供 `is*`、`currentContext` 和 `ensure*`，不公开注册、清除或自行进入 owner context 的能力。
 - `core.api.threading.host` 只供可信平台宿主的启动/停用集成。`ThreadGuardHost.registerPlatformBridge` 的 first live registration wins，重复注册失败；返回的 identity token 幂等关闭且只能清理自己的 exact bridge，旧 token 不能清掉后续注册。bridge 查询非阻塞且不执行调度，volatile publication 只负责并发可见性。

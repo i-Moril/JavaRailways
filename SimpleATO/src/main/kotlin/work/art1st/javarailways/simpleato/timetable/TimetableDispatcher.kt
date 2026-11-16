@@ -1417,12 +1417,12 @@ class TimetableDispatcher(
                 run.state == TimetableServiceRunState.REPLAN_REQUIRED
             val controlTransferred = manualRouted || fullManual
             if (run.currentUnitIds.isNotEmpty()) refreshUnitDisplays(world,run)
-            if (run.reverseOperation == null && run.displayPosition.observe(run.train.publishedFrame))
+            if (run.reverseOperation == null && run.displayPosition.observe(capturePublishedTrainFrame(run)))
                 displayRuntime.progressChanged()
             val publishedAtoState = run.ato.publishedState
             // A past berth observation must not survive a departure, even if the train later returns.
             run.confirmedDoorStop?.let { stop ->
-                val frame = run.train.publishedFrame
+                val frame = capturePublishedTrainFrame(run)
                 if (!run.ato.isStopped(frame.speedMetersPerSecond) ||
                     run.reverseOperation == null && !doorStopPlacementMatches(run, stop)) run.confirmedDoorStop = null
             }
@@ -2161,7 +2161,7 @@ class TimetableDispatcher(
             "cannot reset timetables while structural output protections remain active"
         }
         val selected = runs.values.filter { it.id.timetableId in timetableIds }
-        if (selected.any { !it.ato.isStopped(it.train.publishedFrame.speedMetersPerSecond) }) return false
+        if (selected.any { !it.ato.isStopped(capturePublishedTrainFrame(it).speedMetersPerSecond) }) return false
         var complete = true
         selected.filter { it.admissionClient != null && !it.admissionEnded }.forEach { run ->
             if (!run.admissionClient!!.forceEnd()) {
@@ -2833,7 +2833,7 @@ class TimetableDispatcher(
                 }
             }
         }
-        val outputHandoff = run.structuralEventInstanceId?.takeIf { run.train.movementHeld }
+        val outputHandoff = run.structuralEventInstanceId?.takeIf { (run.train as CoreTrain).movementHeld }
             ?.let { fixedFormations[it]?.handoff }
         try {
             outputHandoff?.beginOutputReversal(run.train.id)
@@ -3026,9 +3026,9 @@ class TimetableDispatcher(
         run.admissionCandidate = null
         run.nextAdmissionAttemptTick = 0L
         run.reverseOperation = null
-        if (run.displayPosition.rebaseReversal(run.train.publishedFrame)) displayRuntime.progressChanged()
+        if (run.displayPosition.rebaseReversal(capturePublishedTrainFrame(run))) displayRuntime.progressChanged()
         run.confirmedDoorStop = run.confirmedDoorStop?.let { previous ->
-            val frame = run.train.publishedFrame
+            val frame = capturePublishedTrainFrame(run)
             previous.copy(side = reversedDoorSide(previous.side), head = frame.head, tail = frame.tail,
                 reversed = frame.reversed, carIds = frame.cars.map { it.carId })
         }
@@ -3247,8 +3247,9 @@ class TimetableDispatcher(
         }
     }
 
+    // Both ActiveRun admission paths require CoreTrain, whose published frame is always present.
     private fun capturePublishedTrainFrame(run: ActiveRun): TrainFrameSnapshot =
-        run.train.publishedFrame
+        run.train.publishedFrame!!
 
     private fun releasePassedBerth(run: ActiveRun) {
         val stationCall = run.stationCall ?: return
@@ -3947,7 +3948,7 @@ class TimetableDispatcher(
         if (world.simpleAtoWorldData.atoCoordinator.isStalled) return false
         val grant = run.admissionClient?.committedGrantSnapshot ?: return true
         val route = run.admissionCandidate ?: run.admittedRoute
-        val frame = run.train.publishedFrame
+        val frame = capturePublishedTrainFrame(run)
         if (frame.derailed || route == null) {
             stallRun(world, run, "RouteAuthorityViolation", "a route transition has no valid physical train/path")
             return false
@@ -4197,7 +4198,7 @@ class TimetableDispatcher(
                 startStationProgramAction(world, run, execution, action, taskId, instruction)
             }, { operationGateway.estimateDoorCloseDurationTicks(run.train.id, DoorSide.BOTH) })
         run.confirmedDoorStop = run.confirmedDoorStop?.copy(side = effectiveSide)
-        if (run.displayPosition.updateDoorSide(effectiveSide,run.train.publishedFrame)) displayRuntime.progressChanged()
+        if (run.displayPosition.updateDoorSide(effectiveSide,capturePublishedTrainFrame(run))) displayRuntime.progressChanged()
         run.ato.setOperatingHold(stationProgramHoldKey(run))
         run.state = TimetableServiceRunState.DWELLING
         run.message = "station ${programs.stationId}/${programs.callId} ${programs.role.name.lowercase()} tasks"
@@ -4379,7 +4380,7 @@ class TimetableDispatcher(
 
     private fun confirmDoorStop(world: World, run: ActiveRun, ref: StationBerthRef, side: DoorSide) {
         val berth = world.simpleAtoWorldData.stations.berth(ref)
-        val frame = run.train.publishedFrame
+        val frame = capturePublishedTrainFrame(run)
         run.confirmedDoorStop = if (berth == null ||
             berth.lifecycleState != work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState.ACTIVE ||
             !run.ato.isStopped(frame.speedMetersPerSecond)) null else
@@ -4399,7 +4400,7 @@ class TimetableDispatcher(
     }
 
     private fun doorStopPlacementMatches(run: ActiveRun, stop: ConfirmedDoorStop): Boolean {
-        val frame = run.train.publishedFrame
+        val frame = capturePublishedTrainFrame(run)
         return frame.head == stop.head && frame.tail == stop.tail && frame.reversed == stop.reversed &&
             frame.cars.map { it.carId } == stop.carIds
     }
@@ -4421,7 +4422,7 @@ class TimetableDispatcher(
             val side = if (open) (action as TimetableAction.OpenDoors).doorSideOverride ?: inheritedDoorSide(world, run)
                 else DoorSide.BOTH
             if (open && side == DoorSide.NONE) {
-                if (run.displayPosition.updateDoorSide(side,run.train.publishedFrame)) displayRuntime.progressChanged()
+                if (run.displayPosition.updateDoorSide(side,capturePublishedTrainFrame(run))) displayRuntime.progressChanged()
                 run.programCursor = run.programCursor.advance()
                 advanceService(world, run)
                 return
@@ -4438,7 +4439,7 @@ class TimetableDispatcher(
             }
             val checked = operationTicket(result.ticket, request)
             run.doorOperation = DispatcherDoorOperation(result.ticket, checked, open, dispatcherTick, run.programCursor.advance())
-            if (open && run.displayPosition.updateDoorSide(side,run.train.publishedFrame)) displayRuntime.progressChanged()
+            if (open && run.displayPosition.updateDoorSide(side,capturePublishedTrainFrame(run))) displayRuntime.progressChanged()
             run.state = TimetableServiceRunState.WAITING_DOOR_OPERATION
             pollDoorOperation(world, run)
         } catch (failure: Exception) {
@@ -4517,7 +4518,7 @@ class TimetableDispatcher(
                     confirmWaypointDoorStop(world, run, step.wayPointId)
                     run.currentSegment?.let { segment ->
                         run.displayCallCursor?.originForCheck(step.wayPointId)?.let { call ->
-                            if (run.displayPosition.arrive(Triple(run.service.id,segment.runId,call.id),run.train.publishedFrame,
+                            if (run.displayPosition.arrive(Triple(run.service.id,segment.runId,call.id),capturePublishedTrainFrame(run),
                                 run.confirmedDoorStop?.takeIf { doorStopPlacementMatches(run,it) }?.side))
                                 displayRuntime.progressChanged()
                         }
@@ -4655,7 +4656,7 @@ class TimetableDispatcher(
                                 key.eventId == structuralOutput.first && key.outputId == structuralOutput.second &&
                                     key.serviceId == run.service.id && key.stepIndex == run.nextStepIndex &&
                                     key.sourceCandidate == run.structuralCandidate && key.branchTrace == run.branchTrace &&
-                                    key.startFacing == run.train.publishedFrame.head.facing &&
+                                    key.startFacing == capturePublishedTrainFrame(run).head.facing &&
                                     key.stablingPointRef.depotId == action.depotId &&
                                     (action.stablingPointIds.isEmpty() || key.stablingPointRef.pointId in action.stablingPointIds)
                             }
@@ -4993,7 +4994,7 @@ class TimetableDispatcher(
         }
     }
 
-    private fun candidateMetadata(world: World, train: CoreTrain): FormationOutputMetadata =
+    private fun candidateMetadata(world: World, train: Train): FormationOutputMetadata =
         FormationOutputMetadata.source(
             world.simpleAtoWorldData.candidateFacts(train) ?: work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts(null, emptySet(), null, emptySet()),
             train.cars.map { it.id }, train.cars.associate { it.id to it.length })
@@ -5618,7 +5619,7 @@ class TimetableDispatcher(
             return null
         }
         val revision = nextMissionRevision()
-        val facing = run.requiredNextStartDirection ?: run.train.publishedFrame.head.facing
+        val facing = run.requiredNextStartDirection ?: capturePublishedTrainFrame(run).head.facing
         val resolutions = candidates.associate { candidate ->
             val ref = StationBerthRef(action.selection.stationId, candidate.berthId)
             val berth = checkNotNull(world.simpleAtoWorldData.stations.berth(ref))
@@ -5638,7 +5639,7 @@ class TimetableDispatcher(
                     address = address, stoppingOffsetMeters = offset, branchTrace = trace)
                 run.structural.routes[structuralKey]?.let { evidence ->
                     evidence.requireCurrent(world)
-                    val frame = run.train.publishedFrame
+                    val frame = capturePublishedTrainFrame(run)
                     val resolved = evidence.proof.resolve(frame, world.topologyState, evidence.outputCarIds, evidence.expectedReversed)
                     val origin = AtoMissionOrigin.FormationOutput(checkNotNull(run.structuralEventInstanceId), output.second, frame.head)
                     val berthEnd = resolved.movement.totalLengthMeters - evidence.stoppingOffsetFromRetainedEndMeters + offset
@@ -5858,9 +5859,9 @@ class TimetableDispatcher(
     }
 
     /** Exact current body only: this acquires protection, never a movement or a searched path. */
-    private fun fixedBodyRoute(world: World, train: CoreTrain, id: String,
+    private fun fixedBodyRoute(world: World, train: Train, id: String,
         revision: Long = nextMissionRevision()): RouteSnapshot =
-        RouteSnapshot(id, revision, world.topologyState.revision, train.publishedFrame.bodyTraversal.map { span ->
+        RouteSnapshot(id, revision, world.topologyState.revision, train.publishedFrame!!.bodyTraversal.map { span ->
             val rail = world.topologyState.railProjection[span.railId]!!.single()
             val length = abs(rail.railEndAbMeters - rail.railStartAbMeters)
             RouteSegmentSnapshot(span.railId, span.facing,
@@ -5932,7 +5933,7 @@ class TimetableDispatcher(
 
     /** A braking frame may end at zero speed while still recording movement during that frame. */
     private fun awaitStoppedFormationSource(run: ActiveRun): Boolean {
-        val frame = run.train.publishedFrame
+        val frame = capturePublishedTrainFrame(run)
         check(!frame.derailed) { "formation source is derailed" }
         val stationary = frame.speedMetersPerSecond == 0.0 &&
             (frame.headTraversal + frame.tailTraversal).all {
@@ -5964,7 +5965,7 @@ class TimetableDispatcher(
             val source = checkNotNull(run.structural.sources[ValidatedStructuralSourceKey(event.id, candidate, run.branchTrace)]) {
                 "source has no retained structural eligibility evidence"
             }
-            val frame = run.train.publishedFrame
+            val frame = capturePublishedTrainFrame(run)
             check(source.window.acceptsSource(frame, world.topologyState)) { "split source is outside its validated stopped window" }
             source.envelope.requireContains(frame, world.topologyState, source.sourceCarIds, source.expectedReversed)
             if (!ensureFixedFormationSourceGrant(world, run)) return
@@ -6502,7 +6503,7 @@ class TimetableDispatcher(
             check(plan.points.lastOrNull() is AtoMissionPoint.Stop) {
                 "structural output continuation requires a retained final stop"
             }
-            val frame = run.train.publishedFrame
+            val frame = capturePublishedTrainFrame(run)
             val key = ValidatedStructuralRouteKey(output.first, output.second, run.service.id,
                 plan.address.topLevelIndex, checkNotNull(run.structuralCandidate), frame.head.facing, plan.target.id,
                 address = plan.address, stoppingOffsetMeters = (plan.points.last() as AtoMissionPoint.Stop).offsetMetersBefore,
@@ -6642,7 +6643,7 @@ class TimetableDispatcher(
         }
     }
 
-    private fun validateAtWayPoint(world: World, train: CoreTrain, wayPointId: String): String? {
+    private fun validateAtWayPoint(world: World, train: Train, wayPointId: String): String? {
         val wayPoint = world.basicWorldData.wayPoints[wayPointId]
             ?: return "waypoint not found: $wayPointId"
         val trainArc = train.headLocation.arcLengthIn(ViewDirection.AB)
@@ -6707,7 +6708,7 @@ class TimetableDispatcher(
 
     private fun actionValues(run: ActiveRun, literal: kotlinx.serialization.json.JsonObject,
         bindings: Map<String, TrainInfoField>): kotlinx.serialization.json.JsonObject =
-        if (bindings.isEmpty()) literal else resolveTrainInfo(bindings, run.train.publishedFrame)
+        if (bindings.isEmpty()) literal else resolveTrainInfo(bindings, capturePublishedTrainFrame(run))
 
     private fun registeredOperatingUnits(world: World, run: ActiveRun): List<String> {
         val cars = run.train.cars.map { it.id }.let { if (run.train.isReversed) it.reversed() else it }
@@ -6748,7 +6749,7 @@ class TimetableDispatcher(
                         proof.berth.lifecycleState == work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState.ACTIVE &&
                         call.destinationId == OperationalDestinationIds.stationBerth(proof.berth.berthRef.stationId,proof.berth.berthRef.berthId)
                 }?.let { proof ->
-                    if (run.displayPosition.arrive(Triple(run.service.id,segment.runId,call.id),run.train.publishedFrame,proof.side))
+                    if (run.displayPosition.arrive(Triple(run.service.id,segment.runId,call.id),capturePublishedTrainFrame(run),proof.side))
                         displayRuntime.progressChanged()
                 }
                 displayRuntime.reached(timetable.id,run.cycleIndex,run.service.id,segment.runId,call.id,units)
@@ -7067,7 +7068,7 @@ class TimetableDispatcher(
         val id: TimetableServiceRunId,
         val service: TimetableService,
         val retainedRoutes: Map<ValidatedTimetableRouteKey, ValidatedTimetableRoute>,
-        val train: CoreTrain,
+        val train: Train,
         var ato: SimpleATO,
         var controllerOwned: Boolean,
         var missionRevision: Long,
@@ -7189,7 +7190,7 @@ class TimetableDispatcher(
             state.isTerminal() &&
                 (admissionClient == null || admissionEnded) &&
                 stationCall?.registrationKey == null && storageReservation == null &&
-                ato.isStopped(train.publishedFrame.speedMetersPerSecond)
+                ato.isStopped(train.publishedFrame!!.speedMetersPerSecond)
 
         /**
          * A completed duty may hand its stopped train and tail-held route directly to the next
@@ -7202,15 +7203,15 @@ class TimetableDispatcher(
             canBeReplaced() || isStoredTerminal() ||
                 (state == TimetableServiceRunState.COMPLETED &&
                     stationCall?.registrationKey == null && storageReservation == null &&
-                    ato.isStopped(train.publishedFrame.speedMetersPerSecond))
+                    ato.isStopped(train.publishedFrame!!.speedMetersPerSecond))
 
         fun isStoredTerminal(): Boolean =
             state == TimetableServiceRunState.COMPLETED && storageCompleted &&
                 storageReservation == null && stationCall?.registrationKey == null &&
-                ato.isStopped(train.publishedFrame.speedMetersPerSecond)
+                ato.isStopped(train.publishedFrame!!.speedMetersPerSecond)
 
         fun snapshot(): TimetableServiceRunSnapshot {
-            val frame = train.publishedFrame
+            val frame = train.publishedFrame!!
             var operationError: String? = null
             val operationTicket = stationCall?.operationTicket
                 ?: destinationStop?.operationTicket

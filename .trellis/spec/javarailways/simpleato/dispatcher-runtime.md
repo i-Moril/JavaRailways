@@ -19,6 +19,18 @@ fun startService(world: World, timetableId: String, serviceId: String): Timetabl
 
 来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt`。
 
+运行记录 `ActiveRun.train` 保存公共 `Train` 引用，控制器读取、安装和卸下使用
+[Core 绑定合同](../core/train-controller.md)。候选元数据、目的地位置校验和冻结车体路线的私有方法也只接收
+`Train`，不把具体列车实现类型传播到普通运营状态处理。原有取车、候选筛选与编组输出入口仍只准入
+`CoreTrain`；这次类型收敛不扩大支持的列车实现。运行记录只由这些入口构造，因此其
+`publishedFrame` 始终满足 Core 的非空发布约束；在公共可空签名处使用非空断言，不增加缺帧回退。
+
+`capturePublishedTrainFrame(run)` 每次调用只读取一次当前列车帧；调用位置与原始读取逐一对应，
+不能为这次收敛合并读取或缓存整个 Dispatcher tick 的帧。运行记录内部和冻结车体路线同样在原位置
+读取一次。人工接管后必须继续读取列车当前帧，不能改读已卸下 ATO 的旧发布状态。
+结构换向交接判断仍在原位置读取 `CoreTrain.movementHeld`，该局部实现访问不赋予释放编组保持的权限。
+世界帧间调度、编组结构操作及既有控制器身份检查保留原归属；不引入复合事务或新的失败恢复行为。
+
 修改controller或运行状态的同步入口在Core world上要求协调器帧间阶段；production宿主的Dispatcher tick已处于该阶段，
 命令将整项操作排队，而不把这些内部方法改成异步setter。隔离simulation启动时的beginTimetable与scheduleInitialCycle也由同一
 帧间作用域包住，不依赖尚未开始的host tick来drain自身请求。完整创建/摆位的发布迁移另见后续批次，不能由入口guard推断其已完成。

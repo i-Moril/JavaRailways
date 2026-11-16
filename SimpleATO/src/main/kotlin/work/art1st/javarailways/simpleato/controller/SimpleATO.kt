@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simpleato.controller
 
+import work.art1st.javarailways.basic.api.ato.VehicleDeviceState
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.api.ato.AbstractATO
 import work.art1st.javarailways.simpleato.api.ato.AtoPlanningContext
@@ -120,7 +121,7 @@ class SimpleATO(
 ) : AbstractATO(train, world, actuator, safetyProfile, world.simpleAtoWorldData.atoCoordinator), DynamicsProfileSource {
     override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? =
         (actuator as? DynamicsProfileSource)?.dynamicsProfileFor(car)
-    override fun dynamicsDeviceStateFor(car: Car): TrainDynamics.CarDeviceState? =
+    override fun dynamicsDeviceStateFor(car: Car): VehicleDeviceState? =
         (actuator as? DynamicsProfileSource)?.dynamicsDeviceStateFor(car)
 
     private sealed interface Command {

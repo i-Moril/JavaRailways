@@ -1,8 +1,6 @@
 package work.art1st.javarailways.simpleato.atp
 
 import work.art1st.javarailways.basic.api.ato.*
-import work.art1st.javarailways.basic.control.TrainDynamics
-import work.art1st.javarailways.basic.control.VehicleDeviceDynamics
 import work.art1st.javarailways.simpleato.api.atp.*
 import kotlin.math.*
 

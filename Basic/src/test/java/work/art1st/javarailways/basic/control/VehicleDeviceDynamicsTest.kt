@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.control
 
+import work.art1st.javarailways.basic.api.ato.VehicleDeviceDynamics
+import work.art1st.javarailways.basic.api.ato.VehicleDeviceState
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.VehicleControlCommand
@@ -127,7 +129,7 @@ class VehicleDeviceDynamicsTest {
             ratio, car.electricBrakeMaxForce, profile.brakeApplyTime,
             car.equipment.electricBrakeReleaseRateNewtonsPerSecond)
         val command = VehicleControlCommand(brakeRatio = ratio)
-        val retained = TrainDynamics.CarDeviceState(electricBrakeForceNewtons = 150000.0,
+        val retained = VehicleDeviceState(electricBrakeForceNewtons = 150000.0,
             commandAgeSeconds = 1.0, previousDemand = -ratio)
         var state = TrainDynamics.State(speed = 5.0, devices = TrainDynamics.DeviceSnapshot.of(listOf(retained)))
         assertTrue(retained.electricBrakeForceNewtons > car.electricBrakeMaxForce)

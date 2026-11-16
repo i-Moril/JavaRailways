@@ -42,7 +42,7 @@ internal class StationaryTrainActuator(override val maximumSpeedMetersPerSecond:
         private val model = VehicleControlCapabilityModel(profile, listOf(car), 9.80665)
         override fun controlState(currentSpeedMetersPerSecond: Double) = VehicleControlState(
             currentSpeedMetersPerSecond, 0.0, 0.0, lastCommand,
-            listOf(TrainDynamics.CarDeviceState(0.0)))
+            listOf(VehicleDeviceState(0.0)))
         override fun controlCapabilities(currentSpeedMetersPerSecond: Double) = model.snapshot(
             currentSpeedMetersPerSecond, listOf(TrainDynamics.CarInput(car, 0.0)))
 

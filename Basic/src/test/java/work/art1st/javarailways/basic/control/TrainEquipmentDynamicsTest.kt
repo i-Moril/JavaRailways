@@ -1,5 +1,6 @@
 package work.art1st.javarailways.basic.control
 
+import work.art1st.javarailways.basic.api.ato.VehicleDeviceState
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.BrakingGradeSegment
@@ -47,7 +48,7 @@ class TrainEquipmentDynamicsTest {
         repeat(120) { state=TrainDynamics.step(state,profile,inputs,"P4",9.80665,0.05).state }
         assertTrue(state.speed>0.0)
         assertEquals(retained,initial.devices.toList())
-        val exported=initial.devices.toList().toMutableList();exported[0]=TrainDynamics.CarDeviceState()
+        val exported=initial.devices.toList().toMutableList();exported[0]=VehicleDeviceState()
         assertEquals(retained,initial.devices.toList())
     }
 
@@ -127,7 +128,7 @@ class TrainEquipmentDynamicsTest {
         }
         fun response(electric: Double): work.art1st.javarailways.basic.api.ato.BrakingResponse {
             val state = TrainDynamics.State(5.0, -0.1, 1.0,
-                TrainDynamics.DeviceSnapshot.of(listOf(TrainDynamics.CarDeviceState(
+                TrainDynamics.DeviceSnapshot.of(listOf(VehicleDeviceState(
                     pressureKpa = 350.0, electricBrakeForceNewtons = electric,
                     commandAgeSeconds = 1.0, previousDemand = -1.0))))
             val preview = TrainDynamics.PreviewSession(state, profile,
@@ -145,7 +146,7 @@ class TrainEquipmentDynamicsTest {
     fun `analytical response reserves the full brake jerk ramp after air is held`() {
         val configured = car(false)
         val state = TrainDynamics.initialState(listOf(configured), 10.0, brakeScale = 1.0).copy(
-            devices = TrainDynamics.DeviceSnapshot.of(listOf(TrainDynamics.CarDeviceState(
+            devices = TrainDynamics.DeviceSnapshot.of(listOf(VehicleDeviceState(
                 pressureKpa = 350.0, commandAgeSeconds = 1.0, previousDemand = -1.0))))
         fun response(activeProfile: TrainDynamics.TrainProfile) = ServiceBrakingResponse.bound(
             TrainDynamics.PreviewSession(state, activeProfile,
@@ -165,7 +166,7 @@ class TrainEquipmentDynamicsTest {
     fun `analytical response does not credit transient electric braking on a downhill grade`() {
         val configured = car()
         val state = TrainDynamics.State(5.0, 0.0, 0.0,
-            TrainDynamics.DeviceSnapshot.of(listOf(TrainDynamics.CarDeviceState(
+            TrainDynamics.DeviceSnapshot.of(listOf(VehicleDeviceState(
                 electricBrakeForceNewtons = 35000.0, commandAgeSeconds = 1.0, previousDemand = -1.0))))
         val preview = TrainDynamics.PreviewSession(state, profile,
             listOf(TrainDynamics.CarInput(configured, -0.01)), 9.80665, 0.05)
@@ -199,7 +200,7 @@ class TrainEquipmentDynamicsTest {
                 speed = listOf(0.0, 0.01, 0.3, 3.0, 12.0)[case % 5],
                 acceleration = random.nextDouble() * 1.8 - 0.6,
                 devices = TrainDynamics.DeviceSnapshot.of(controls.map {
-                    TrainDynamics.CarDeviceState(
+                    VehicleDeviceState(
                         pressureKpa = random.nextDouble() * 450.0,
                         electricBrakeForceNewtons = random.nextDouble() * 70000.0,
                         tractionForceNewtons = random.nextDouble() * 100000.0,

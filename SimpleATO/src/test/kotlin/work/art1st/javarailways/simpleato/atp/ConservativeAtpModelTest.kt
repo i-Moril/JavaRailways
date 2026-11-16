@@ -15,7 +15,7 @@ class ConservativeAtpModelTest {
                 for (variable in listOf(false, true)) for (service in listOf(false, true))
                     for (initialAcceleration in listOf(-.4, .4)) for (establishing in listOf(false, true)) {
                     val fixture = ReferenceEquipmentFixture(jerk, grade)
-                    val devices = fixture.cars.mapIndexed { index, _ -> TrainDynamics.CarDeviceState(
+                    val devices = fixture.cars.mapIndexed { index, _ -> VehicleDeviceState(
                         350.0 * pressure, if (index == 0) 1200.0 else 0.0, if (pressure == 0.0) 1700.0 else 0.0,
                         if (establishing) .3 else .05, previousTractionRatio = 0.0,
                         previousBrakeRatio = if (establishing) 1.25 else .5, previousEmergencyBrake = establishing) }
@@ -54,7 +54,7 @@ class ConservativeAtpModelTest {
                 for (service in listOf(false, true)) for (candidate in listOf(VehicleControlCommand.COAST,
                     VehicleControlCommand(tractionRatio = .5), VehicleControlCommand(brakeRatio = .5))) {
                     val fixture = ReferenceEquipmentFixture(jerk, grade)
-                    val devices = fixture.cars.mapIndexed { index, _ -> TrainDynamics.CarDeviceState(
+                    val devices = fixture.cars.mapIndexed { index, _ -> VehicleDeviceState(
                         87.5 * (index + 1), if (index == 0) 1200.0 else 0.0, 700.0 * (index + 1),
                         .15, previousBrakeRatio = .5) }
                     var physical = TrainDynamics.State(speed, .3, .5, TrainDynamics.DeviceSnapshot.of(devices))
@@ -127,8 +127,8 @@ class ConservativeAtpModelTest {
     @Test fun `service transition reserve disappears with established pneumatic force`() {
         val fixture = ReferenceEquipmentFixture(.2, .01)
         val state = TrainDynamics.State(2.336735, -1.0980665, .5, TrainDynamics.DeviceSnapshot.of(listOf(
-            TrainDynamics.CarDeviceState(87.805, 398.606, 0.0, .4, previousBrakeRatio = .5),
-            TrainDynamics.CarDeviceState(175.0, 0.0, 0.0, .4, previousBrakeRatio = .5))))
+            VehicleDeviceState(87.805, 398.606, 0.0, .4, previousBrakeRatio = .5),
+            VehicleDeviceState(175.0, 0.0, 0.0, .4, previousBrakeRatio = .5))))
         val input = fixture.input(state, VehicleControlCommand(brakeRatio = .5), 2.682209, .05)
         val model = ConservativeAtpModel(input.capabilities)
         val candidate = VehicleControlCommand(brakeRatio = 1.0)
@@ -147,7 +147,7 @@ class ConservativeAtpModelTest {
     @Test fun `candidate prefix uses this frame motor coefficient with cached constant brake model`() {
         val fixture = ReferenceEquipmentFixture(2.0)
         val state = TrainDynamics.State(2.0, 1.5, 0.0, TrainDynamics.DeviceSnapshot.of(
-            fixture.cars.map { TrainDynamics.CarDeviceState(0.0, 0.0, 1500.0, 1.0,
+            fixture.cars.map { VehicleDeviceState(0.0, 0.0, 1500.0, 1.0,
                 previousTractionRatio = 1.0) }))
         val input = fixture.input(state, VehicleControlCommand(tractionRatio = 1.0), 100.0, .2)
         val fresh = input.capabilities.copy(deviceCapabilities = input.capabilities.deviceCapabilities.map {

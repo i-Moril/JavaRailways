@@ -52,8 +52,8 @@ class VehicleControlExecutorTest {
         val fixture = ReferenceEquipmentFixture(.2, -.01, upwardJerk = 1.0)
         val command = VehicleControlCommand(brakeRatio = 1.0, handle = "B8")
         val physical = TrainDynamics.State(4.50232, -.97943, 1.0, TrainDynamics.DeviceSnapshot.of(listOf(
-            TrainDynamics.CarDeviceState(131.25, 1000.0, 0.0, .45, previousBrakeRatio = 1.0),
-            TrainDynamics.CarDeviceState(350.0, 0.0, 0.0, .45, previousBrakeRatio = 1.0))))
+            VehicleDeviceState(131.25, 1000.0, 0.0, .45, previousBrakeRatio = 1.0),
+            VehicleDeviceState(350.0, 0.0, 0.0, .45, previousBrakeRatio = 1.0))))
         val input = fixture.input(physical, command, 8.88436, .05)
         val targets = listOf(AtpTarget("speed", 0.0, 10.0), AtpTarget("authority", 9.18436, 0.0))
         val events = mutableListOf<AtpControlEvent>()

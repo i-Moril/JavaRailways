@@ -24,12 +24,18 @@ data class VehicleControlCommand(
     }
 }
 
+/**
+ * Captured control values. [devices] and [VehicleControlCapabilities.deviceCapabilities] are
+ * aligned by exact car order for the same captured consist/configuration on the physics worker.
+ * Consumers must pair matching captures; these values carry no car identity or revision token.
+ * Published lists are read-only to consumers; constructing this value does not copy the list.
+ */
 data class VehicleControlState(
     val speedMetersPerSecond: Double,
     val accelerationMetersPerSecondSquared: Double,
     val actualBrakeRatio: Double,
     val lastCommand: VehicleControlCommand,
-    val devices: List<work.art1st.javarailways.basic.control.TrainDynamics.CarDeviceState> = emptyList()
+    val devices: List<VehicleDeviceState> = emptyList()
 )
 
 data class VehicleHandleCapability(
@@ -89,4 +95,4 @@ data class VehicleCarControlCapabilities(
     override val tractionReleasePressureKpa: Double,
     override val electricReleaseForceThresholdNewtons: Double,
     val motorForceAtCurrentSpeedNewtons: Double
-) : work.art1st.javarailways.basic.control.VehicleDeviceEquipment
+) : VehicleDeviceEquipment

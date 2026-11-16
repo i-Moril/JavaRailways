@@ -1,5 +1,8 @@
 package work.art1st.javarailways.basic.control
 
+import work.art1st.javarailways.basic.api.ato.VehicleDeviceDynamics
+import work.art1st.javarailways.basic.api.ato.VehicleDeviceEquipment
+import work.art1st.javarailways.basic.api.ato.VehicleDeviceState
 import kotlin.math.abs
 import work.art1st.javarailways.basic.api.ato.VehicleControlCommand
 import kotlin.math.min
@@ -87,24 +90,13 @@ object TrainDynamics {
         val gradeForce: Double
     )
 
-    data class CarDeviceState(
-        val pressureKpa: Double = 0.0,
-        val electricBrakeForceNewtons: Double = 0.0,
-        val tractionForceNewtons: Double = 0.0,
-        val commandAgeSeconds: Double = 0.0,
-        val previousDemand: Double = 0.0,
-        val previousTractionRatio: Double = previousDemand.coerceAtLeast(0.0),
-        val previousBrakeRatio: Double = (-previousDemand).coerceAtLeast(0.0),
-        val previousEmergencyBrake: Boolean = false
-    )
-
     /** Stable owned storage: no public mutable arrays, and no view of a speculative workspace. */
     class DeviceSnapshot private constructor(internal val values: DeviceArrays) {
         val size: Int get() = values.pressure.size
-        operator fun get(index: Int) = CarDeviceState(values.pressure[index], values.electric[index],
+        operator fun get(index: Int) = VehicleDeviceState(values.pressure[index], values.electric[index],
             values.traction[index], values.age[index], values.previous[index], values.previousPower[index],
             values.previousBrake[index], values.previousEmergency[index])
-        fun toList(): List<CarDeviceState> = (0 until size).map(::get)
+        fun toList(): List<VehicleDeviceState> = (0 until size).map(::get)
         override fun equals(other: Any?): Boolean = other is DeviceSnapshot &&
             values.pressure.contentEquals(other.values.pressure) && values.electric.contentEquals(other.values.electric) &&
             values.traction.contentEquals(other.values.traction) && values.age.contentEquals(other.values.age) &&
@@ -125,7 +117,7 @@ object TrainDynamics {
         companion object {
             private val EMPTY = DeviceSnapshot(DeviceArrays(0))
             fun empty(): DeviceSnapshot = EMPTY
-            fun of(states: List<CarDeviceState>): DeviceSnapshot {
+            fun of(states: List<VehicleDeviceState>): DeviceSnapshot {
                 val arrays = DeviceArrays(states.size)
                 states.forEachIndexed { i, s ->
                     require(listOf(s.pressureKpa, s.electricBrakeForceNewtons, s.tractionForceNewtons, s.commandAgeSeconds)
@@ -166,7 +158,7 @@ object TrainDynamics {
 
     fun initialState(cars: List<CarProfile>, speed: Double = 0.0, acceleration: Double = 0.0,
                      brakeScale: Double = if (speed == 0.0) 1.0 else 0.0): State = State(speed, acceleration, brakeScale,
-        DeviceSnapshot.of(cars.map { car -> CarDeviceState(pressureKpa = car.equipment.nominalCylinderPressureKpa * brakeScale) }))
+        DeviceSnapshot.of(cars.map { car -> VehicleDeviceState(pressureKpa = car.equipment.nominalCylinderPressureKpa * brakeScale) }))
 
     private fun initialized(state: State, cars: List<CarInput>): State {
         // A new scalar State has no car count until its first dynamics invocation.

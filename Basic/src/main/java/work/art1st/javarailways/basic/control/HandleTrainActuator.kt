@@ -1,5 +1,6 @@
 package work.art1st.javarailways.basic.control
 
+import work.art1st.javarailways.basic.api.ato.VehicleDeviceState
 import work.art1st.javarailways.basic.api.ato.ActuationStep
 import work.art1st.javarailways.basic.api.ato.VehicleControlCommand
 import work.art1st.javarailways.basic.api.ato.BrakingGradeSegment
@@ -54,7 +55,7 @@ class HandleTrainActuator(
     val lastDynamicsResult: TrainDynamics.StepResult get() = dynamics.lastResult
 
     override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? = dynamics.dynamicsProfileFor(car)
-    override fun dynamicsDeviceStateFor(car: Car): TrainDynamics.CarDeviceState? = dynamics.dynamicsDeviceStateFor(car)
+    override fun dynamicsDeviceStateFor(car: Car): VehicleDeviceState? = dynamics.dynamicsDeviceStateFor(car)
 
     override fun prepareDynamicsChange(cars: List<Car>, source: DynamicsProfileSource?): PreparedDynamicsChange {
         val prepared = dynamics.prepareConsistChange(cars, source)

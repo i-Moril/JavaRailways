@@ -27,10 +27,17 @@ P/N/B手柄映射为数字指令交给`TrainDynamicsExecutor`；SimpleATO策略�
 未低于联锁阈值时不得建立牵引力。停止初始化持有空气制动，起步必须经历真实缓解过程。
 
 公开`State.devices`是独立拥有存储的稳定快照，不暴露可变数组。
-`CarDeviceState`包含压力、实际电制动力、实际牵引力、指令年龄及上次独立牵引/制动/EB身份，
+`basic.api.ato.VehicleDeviceState`包含压力、实际电制动力、实际牵引力、指令年龄及上次独立牵引/制动/EB身份，
 只有有效数字指令改变才重置延迟，诊断handle变化不能重启设备延迟。
 实际kernel与`VehicleDeviceDynamics.advanceDeviceState`共用同一个内联设备代数；后者只更新已知当前区间设备，
 不积分运动、不循环未来tick。旧PreviewSession限离线或物理测试，不得进入生产ATO热路径；旧`ServiceBrakingResponse`只保留在test source作为离线物理对照。
+
+`VehicleDeviceState`、`VehicleDeviceEquipment`与`VehicleDeviceDynamics`位于`basic.api.ato`，是第一方模块共用的设备契约，
+不承诺独立第三方插件的长期二进制兼容。设备状态是无world引用的不可变值；`VehicleControlState.devices`与同次捕获的
+`VehicleControlCapabilities.deviceCapabilities`按相同实际车厢顺序对应。状态字段、默认值和既有校验位置保持原语义，
+设备历史仍由Basic执行器按精确Car身份维护，不因值类型公开而转移所有权。
+纯设备计算保留原输入校验；有效零时长调用返回原状态实例，失败不修改输入或发布历史。
+实际kernel调用的内联数组写入入口仍为Basic模块内部能力；SimpleATO只消费设备值与既有纯计算入口。
 
 坡度输入是`sin(theta)`：正值表示当前物理运行方向上坡。实时输入必须读取
 `Car.operatingDirection.y()`，禁止读取模型朝向`Car.direction.y()`。

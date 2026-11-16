@@ -1,5 +1,6 @@
 package work.art1st.javarailways.basic.control
 
+import work.art1st.javarailways.basic.api.ato.VehicleDeviceState
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.ato.VehicleControlCommand
 import work.art1st.javarailways.core.api.control.TrainController
@@ -59,7 +60,7 @@ class RealisticManualController(
     val controlledTrain: Train get() = train
 
     override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? = dynamics.dynamicsProfileFor(car)
-    override fun dynamicsDeviceStateFor(car: Car): TrainDynamics.CarDeviceState? = dynamics.dynamicsDeviceStateFor(car)
+    override fun dynamicsDeviceStateFor(car: Car): VehicleDeviceState? = dynamics.dynamicsDeviceStateFor(car)
 
     override fun prepareConsistChange(cars: List<Car>, counterpart: TrainController?): List<PreparedControllerStateUpdate> =
         listOf(dynamics.prepareConsistChange(cars, counterpart as? DynamicsProfileSource).update)

@@ -82,7 +82,7 @@ class TrainDynamicsExecutor(
 
     override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? = current.value.profiles[car]
 
-    override fun dynamicsDeviceStateFor(car: Car): TrainDynamics.CarDeviceState? {
+    override fun dynamicsDeviceStateFor(car: Car): VehicleDeviceState? {
         val published = current.value.published
         return published.indices[car]?.let { published.state.devices[it] }
     }
@@ -93,7 +93,7 @@ class TrainDynamicsExecutor(
         val devices = cars.map { car ->
             profiles[car] = dynamicsProfileFor(car) ?: source?.dynamicsProfileFor(car) ?: profileResolver?.invoke(car)
                 ?: error("Train ${train.id} car '${car.id}' has no dynamics profile for this instance")
-            dynamicsDeviceStateFor(car) ?: source?.dynamicsDeviceStateFor(car) ?: TrainDynamics.CarDeviceState(
+            dynamicsDeviceStateFor(car) ?: source?.dynamicsDeviceStateFor(car) ?: VehicleDeviceState(
                 pressureKpa = if (previous.published.state.speed == 0.0) {
                     profiles.getValue(car).equipment.nominalCylinderPressureKpa
                 } else 0.0

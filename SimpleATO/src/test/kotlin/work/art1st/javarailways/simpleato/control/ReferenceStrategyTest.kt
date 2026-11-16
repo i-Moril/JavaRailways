@@ -132,7 +132,7 @@ class ReferenceStrategyTest {
     @Test fun `pending accepted demand finishes delivery but safety can interrupt`() {
         val fixture = ReferenceEquipmentFixture()
         val pending = TrainDynamics.commandForHandle(fixture.profile, "B3")
-        val devices = fixture.cars.map { TrainDynamics.CarDeviceState(0.0, 0.0, 0.0, .05,
+        val devices = fixture.cars.map { VehicleDeviceState(0.0, 0.0, 0.0, .05,
             -pending.brakeRatio, 0.0, pending.brakeRatio, false) }
         val state = TrainDynamics.State(1.0, 0.0, 0.0, TrainDynamics.DeviceSnapshot.of(devices))
         val input = fixture.input(state, pending, 80.0, .05)
@@ -220,7 +220,7 @@ class ReferenceStrategyTest {
         for (adhesion in listOf(.08, .4)) for ((jerk, upwardJerk) in listOf(.2 to .2, 1.0 to 1.0, .2 to 1.0, 1.0 to .2)) for (grade in listOf(-.01, 0.0, .01)) {
             val fixture = ReferenceEquipmentFixture(jerk, grade, electric = false, upwardJerk = upwardJerk, adhesion = adhesion)
             for (pressure in listOf(0.0, .4, 1.25)) for (follow in listOf(0.0, .125, 1.0)) {
-                val devices = fixture.cars.mapIndexed { index, _ -> TrainDynamics.CarDeviceState(
+                val devices = fixture.cars.mapIndexed { index, _ -> VehicleDeviceState(
                     350.0 * pressure, 0.0, 100.0 * (index + 1), .04, 0.0) }
                 var state = TrainDynamics.State(2.0, -.3, pressure, TrainDynamics.DeviceSnapshot.of(devices))
                 val candidate = TrainDynamics.commandForHandle(fixture.profile, "B3")

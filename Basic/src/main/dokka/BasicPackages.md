@@ -10,6 +10,10 @@ ATO 规划输入使用的不可变 Route 与 Perception 快照。集合在构造
 
 自动/手动控制共用的控制需求、车辆 Actuator 和坡度感知制动包络。它们不选择 mission、ATO安全参数或信号策略。
 
+`VehicleDeviceState`、`VehicleDeviceEquipment`和`VehicleDeviceDynamics`定义第一方控制模块共用的逐车设备值、
+设备参数与纯设备响应计算；这部分不承诺独立第三方插件的长期二进制兼容。状态与能力按同次捕获的实际车厢顺序对应，
+设备响应计算不积分速度或位移，设备历史仍由Basic物理执行器维护。
+
 # Package work.art1st.javarailways.basic.api.rail
 
 world-local 通用 RailObject、双索引 store 与 lifecycle 契约；不包含已删除的 ATO Provider/Boundary 切换机制。

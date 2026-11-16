@@ -1,5 +1,6 @@
 package work.art1st.javarailways.basic.control
 
+import work.art1st.javarailways.basic.api.ato.VehicleDeviceState
 import work.art1st.javarailways.basic.api.ato.VehicleControlCommand
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.Car
@@ -22,10 +23,10 @@ class WorldTrainDynamicsHistory {
             other is CarReference && get()?.let { it === other.get() } == true
     }
     private val carQueue = ReferenceQueue<Car>()
-    private val carDevices = ConcurrentHashMap<CarReference, TrainDynamics.CarDeviceState>()
+    private val carDevices = ConcurrentHashMap<CarReference, VehicleDeviceState>()
 
     /** Exact physical car state survives a controllerless split without retaining the car. */
-    fun deviceForCar(car: Car): TrainDynamics.CarDeviceState? {
+    fun deviceForCar(car: Car): VehicleDeviceState? {
         discardCollectedCars()
         return carDevices[CarReference(car)]
     }

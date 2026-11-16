@@ -1,9 +1,9 @@
 package work.art1st.javarailways.simpleato.control
 
+import work.art1st.javarailways.basic.api.ato.VehicleDeviceState
 import work.art1st.javarailways.basic.api.ato.VehicleCarControlCapabilities
 import work.art1st.javarailways.basic.api.ato.VehicleControlCommand
-import work.art1st.javarailways.basic.control.TrainDynamics
-import work.art1st.javarailways.basic.control.VehicleDeviceDynamics
+import work.art1st.javarailways.basic.api.ato.VehicleDeviceDynamics
 import work.art1st.javarailways.simpleato.control.AffineActuatorResponse.Signal
 import work.art1st.javarailways.simpleato.control.AffineActuatorResponse.Segment
 import work.art1st.javarailways.simpleato.control.AffineActuatorResponse.LAST
@@ -75,7 +75,7 @@ object NominalServiceBrakeModel {
         return firstDistance + distanceToRest(accelerationProfile, nextSpeed, h)
     }
 
-    private fun response(car: VehicleCarControlCapabilities, device: TrainDynamics.CarDeviceState,
+    private fun response(car: VehicleCarControlCapabilities, device: VehicleDeviceState,
         ratio: Double, speed: Double, h: Double): Pair<Signal, Signal> {
         val changed = device.previousTractionRatio != 0.0 || device.previousBrakeRatio != ratio || device.previousEmergencyBrake
         val remainingDelay = if (changed) car.commandDelaySeconds else car.commandDelaySeconds - device.commandAgeSeconds - h

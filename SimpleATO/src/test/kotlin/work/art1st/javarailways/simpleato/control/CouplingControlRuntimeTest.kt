@@ -138,8 +138,101 @@ class CouplingControlRuntimeTest {
             } finally { runtime.close() }
         }
 
-    private fun withContact(action: (CoreWorld, CoreTrain, CoreTrain, CouplingContactAuthority) -> Unit) {
-        TestWorldFixture.create().use { fixture ->
+    @Test
+    fun `temporary manual coupling holds retain exact ownership and keep observation alive without dynamics or ATP latch`() {
+        work.art1st.javarailways.core.physics.tick.PhysicsCoordinator(1, automaticFallback = false).use { physics ->
+            withContact(physics) { world, moving, _, _ ->
+                val runtime = RailwayControlRuntime("held-manual")
+                val data = TestBasicWorldDataRegistry.getOrCreate(world)
+                data.commandSupervisor = runtime
+                val equipment = ImmediateEquipmentFixture()
+                val controller = work.art1st.javarailways.basic.control.RealisticManualController(moving,
+                    equipment.profile, listOf(equipment.car), 9.80665)
+                moving.setControllerForTest(controller)
+                world.onOwnerForTest { controller.applyDirection(work.art1st.javarailways.basic.control.TrainDriveDirection.FORWARD) }
+                controller.setHandle("P")
+                var observations = 0
+                runtime.registerProtectionSource(moving) {
+                    observations++
+                    manualProtectionFrame(moving, equipment.model.snapshot(0.0, equipment.cars))
+                }
+                val first = runtime.acquireCouplingHold(moving)
+                val second = runtime.acquireCouplingHold(moving)
+                try {
+                    val before = moving.publishedFrame
+                    physics.start()
+                    repeat(2) { physics.stepSimulation(50.0).await() }
+                    assertEquals(before.head, moving.publishedFrame.head)
+                    assertEquals(0.0, moving.publishedFrame.speedMetersPerSecond)
+                    assertNull(data.trainDynamicsHistory.latest(moving), "a held controller must not invent a dynamics step")
+                    assertEquals(2, observations)
+                    assertTrue(runtime.incidents.isEmpty())
+                    assertFalse(runtime.isAcknowledgementRequired(moving))
+                    first.close(); first.close()
+                    assertTrue(runtime.isMovementHeld(moving), "another exact token still owns a hold")
+                    val different = object : Train by moving {}
+                    assertFalse(runtime.isMovementHeld(different))
+                    assertThrows(IllegalStateException::class.java) { runtime.acquireCouplingHold(different) }
+                    physics.stepSimulation(50.0).await()
+                    assertEquals(before.head, moving.publishedFrame.head)
+                    assertEquals(3, observations)
+                    second.close()
+                    assertFalse(runtime.isMovementHeld(moving))
+                    repeat(5) { physics.stepSimulation(50.0).await() }
+                    assertTrue(moving.publishedFrame.head.arcLengthInAbMeters > before.head.arcLengthInAbMeters)
+                    assertNotNull(data.trainDynamicsHistory.latest(moving))
+                    assertSame(controller, moving.controller)
+                } finally { first.close(); second.close(); runtime.close() }
+            }
+        }
+    }
+
+    @Test
+    fun `temporary coupling stop brakes a moving manual train before holding instead of truncating its velocity`() {
+        work.art1st.javarailways.core.physics.tick.PhysicsCoordinator(1, automaticFallback = false).use { physics ->
+            withContact(physics) { world, moving, _, _ ->
+                val runtime = RailwayControlRuntime("stopping-manual")
+                val data = TestBasicWorldDataRegistry.getOrCreate(world)
+                data.commandSupervisor = runtime
+                val equipment = ImmediateEquipmentFixture()
+                val controller = work.art1st.javarailways.basic.control.RealisticManualController(moving,
+                    equipment.profile, listOf(equipment.car), 9.80665, initialSpeedMetersPerSecond = 1.0)
+                moving.setControllerForTest(controller)
+                world.onOwnerForTest { controller.applyDirection(work.art1st.javarailways.basic.control.TrainDriveDirection.FORWARD) }
+                physics.start()
+                physics.stepSimulation(50.0).await()
+                val before = moving.publishedFrame
+                assertEquals(1.0, before.speedMetersPerSecond, 1e-8)
+                val hold = runtime.acquireCouplingHold(moving)
+                try {
+                    controller.setHandle("P")
+                    assertFalse(runtime.isMovementHeld(moving))
+                    physics.stepSimulation(50.0).await()
+                    val braking = moving.publishedFrame
+                    assertTrue(braking.speedMetersPerSecond in 0.0..before.speedMetersPerSecond)
+                    assertTrue(braking.speedMetersPerSecond > 0.0, "the moving train must brake through real dynamics")
+                    assertTrue(braking.head.arcLengthInAbMeters > before.head.arcLengthInAbMeters)
+                    var steps = 1
+                    while (!runtime.isMovementHeld(moving) && steps++ < 100) physics.stepSimulation(50.0).await()
+                    assertTrue(runtime.isMovementHeld(moving))
+                    val stopped = moving.publishedFrame
+                    assertEquals(0.0, stopped.speedMetersPerSecond)
+                    assertTrue(stopped.head.arcLengthInAbMeters > braking.head.arcLengthInAbMeters)
+                    assertTrue(stopped.head.arcLengthInAbMeters < 51.4, "stopping must precede the actual peer contact")
+                    val history = data.trainDynamicsHistory.latest(moving)
+                    repeat(3) { physics.stepSimulation(50.0).await() }
+                    assertEquals(stopped.head, moving.publishedFrame.head)
+                    assertSame(history, data.trainDynamicsHistory.latest(moving))
+                    assertTrue(runtime.incidents.isEmpty(), runtime.incidents.toString())
+                    assertEquals("P", controller.handle, "parking must not replace player input or its controller")
+                } finally { hold.close(); runtime.close() }
+            }
+        }
+    }
+
+    private fun withContact(physics: work.art1st.javarailways.core.physics.tick.PhysicsCoordinator? = null,
+                            action: (CoreWorld, CoreTrain, CoreTrain, CouplingContactAuthority) -> Unit) {
+        TestWorldFixture.create(physics).use { fixture ->
             val world = fixture.world
             TestBasicWorldDataRegistry.getOrCreate(world)
             try {

@@ -20,6 +20,8 @@ class JavaRailwaysConfigTest {
         assertEquals("127.0.0.1", config.timetableHttpBridge.bindAddress)
         assertEquals(5.0, config.atoSafetyDistanceMeters)
         assertTrue(config.passengerMovementEnabled)
+        assertEquals(5.0, config.couplingMaximumEntryGapMeters)
+        assertEquals(0.5, config.couplingMaximumApproachSpeedMetersPerSecond)
     }
 
     @Test
@@ -73,6 +75,44 @@ class JavaRailwaysConfigTest {
                 JavaRailwaysConfig.fromYaml(yaml)
             }
             assertTrue(error.message.orEmpty().contains("ato"))
+        }
+    }
+
+    @Test
+    fun `coupling entry gap defaults to five meters and accepts configured values`() {
+        assertEquals(5.0, JavaRailwaysConfig.fromYaml(validYaml()).couplingMaximumEntryGapMeters)
+        for (distance in listOf(0.0, 3.0, 8.5)) {
+            val yaml = validYaml().apply { set("coupling.maximum-entry-gap-meters", distance) }
+            assertEquals(distance, JavaRailwaysConfig.fromYaml(yaml).couplingMaximumEntryGapMeters)
+        }
+    }
+
+    @Test
+    fun `coupling entry gap rejects invalid types and distances`() {
+        for (invalid in listOf(-1.0, Double.NaN, Double.POSITIVE_INFINITY, "5.0", true)) {
+            val yaml = validYaml().apply { set("coupling.maximum-entry-gap-meters", invalid) }
+            val error = assertThrows(IllegalArgumentException::class.java) { JavaRailwaysConfig.fromYaml(yaml) }
+            assertTrue(error.message.orEmpty().contains("coupling.maximum-entry-gap-meters"))
+        }
+        val yaml = validYaml().apply { set("coupling", 5.0) }
+        assertThrows(IllegalArgumentException::class.java) { JavaRailwaysConfig.fromYaml(yaml) }
+    }
+
+    @Test
+    fun `coupling approach speed defaults to half a meter per second and accepts configured values`() {
+        assertEquals(0.5, JavaRailwaysConfig.fromYaml(validYaml()).couplingMaximumApproachSpeedMetersPerSecond)
+        for (speed in listOf(0.1, 0.5, 1.0)) {
+            val yaml = validYaml().apply { set("coupling.maximum-approach-speed-meters-per-second", speed) }
+            assertEquals(speed, JavaRailwaysConfig.fromYaml(yaml).couplingMaximumApproachSpeedMetersPerSecond)
+        }
+    }
+
+    @Test
+    fun `coupling approach speed rejects invalid types and nonpositive values`() {
+        for (invalid in listOf(0.0, -1.0, Double.NaN, Double.POSITIVE_INFINITY, "0.5", true)) {
+            val yaml = validYaml().apply { set("coupling.maximum-approach-speed-meters-per-second", invalid) }
+            val error = assertThrows(IllegalArgumentException::class.java) { JavaRailwaysConfig.fromYaml(yaml) }
+            assertTrue(error.message.orEmpty().contains("coupling.maximum-approach-speed-meters-per-second"))
         }
     }
 

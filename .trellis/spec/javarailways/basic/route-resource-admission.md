@@ -572,9 +572,29 @@ Correct: the host authenticates contributors; Basic validates their bounded resu
 
 ## Fixed formation contact and output ownership
 
-`prepareFormationChange` binds exact live source grants, ordered car identities and output directions under one authenticated requester. It freezes their ordinary extension/reversal/end and tail release without releasing or transferring any registry owner. Only an unchanged unsealed event can abort. Core decision guards reject unmatched manual structural operations, including a held split child. Physical success installs separate Core output fences before publication; a coherent observation advances to `OUTPUTS_HELD`.
+`prepareFormationChange` binds exact live source grants, ordered car identities and output directions under one authenticated requester. It freezes their ordinary extension/reversal/end and tail release without releasing or transferring any registry owner. An unchanged unsealed event can abort. A sealed coupling may also abort before any READY
+contact grant or physical change: exact stopped sources must remain unchanged, and a pending ticket
+must confirm ABORTED_SAFE before its exact reservation rollback. PREPARING returns REQUEST_BUSY;
+READY, unsafe preparation, changed sources or uncertain publication retain protection. Core decision guards reject unmatched manual structural operations, including a held split child. Physical success installs separate Core output fences before publication; a coherent observation advances to `OUTPUTS_HELD`.
 
 `requestCouplingApproach` requires the sealed host proof's exact body+contact traversal, contact boundary, positive speed cap and unchanged stopped target. It runs normal physical compilation and occupancy queries excluding only the requesting train, preserves retained preparations, acquires actual missing delta and requires explicit provider/contributor formation authorization. No peer occupancy or signal restriction is bypassed. A READY grant includes `maximumSpeedMetersPerSecond` and purpose-bound `couplingContactAuthority`; its actual route is published to domain owners. Core's actual solved collision contact must match the proof before the prepared link is admitted.
+
+`completeCouplingContact(handle)` requires the same authenticated requester's sealed coupling,
+no pending preparation, unchanged source identities and the exact READY contact grant/proof.
+It delegates actual stopped contact to Core's semantic completion operation. A valid pair still apart
+returns the unchanged sealed snapshot; actual publication follows the existing synchronous success
+listener into PHYSICAL_OBSERVED and then coherent observation into OUTPUTS_HELD. Source claims,
+guards and independent Core output fences remain effective. It does not grant movement or admit
+an unmatched pair. The collision callback's nonzero-traversal requirement below remains unchanged.
+
+Exact zero-gap, zero-connector unassigned sources retain the ordinary initial body-admission
+boundary: closed-interval physical occupancy and independent source claims meet at the same point,
+so ordinary admission may reject PHYSICALLY_OCCUPIED before a formation handle exists. The new
+stationary completion operation does not bypass that source-grant requirement or change generic
+interval overlap semantics. Core physical completion itself supports zero-length connectors;
+Basic tests cover admitted zero-gap contact with nonzero connectors and an explicit no-mutation
+rejection for unassigned zero-gap/zero-connector body initialization. Resolving that grouped source
+initialization requires a separately designed resource contract, not an invented minimum gap.
 
 `bindFormationOutputs` validates every exact stopped output as one batch: unique owner, actual tail initialization, full ordered published body prefix, body-only authority, inherited source coverage and complete provider clearance declarations on the **complete selected frozen route**. Null clearance explicitly means not needed; missing/duplicate/unauthorized declarations reject. The operating coordinator owns ledger commit and every mission/disposition installation. Binding alone keeps all Core fences.
 

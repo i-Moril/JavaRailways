@@ -67,6 +67,7 @@ class CloudCommandRegistrar(plugin: BukkitPlugin) {
 
             parent("train")
             args("train", "create"); args("train", "rename"); parent("train", "key")
+            args("train", "couple")
             args("train", "anim"); args("train", "animation"); args("train", "action"); args("train", "behavior")
             parent("train", "info"); parent("train", "list"); args("train", "delete")
             parent("train", "sit"); parent("train", "stand")

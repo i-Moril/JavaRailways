@@ -129,8 +129,18 @@ object RailWorldFactory {
                     owner
                 )
         }
+        val couplingControlReleased: (work.art1st.javarailways.core.api.physics.train.Train) -> Unit = { train ->
+            plugin.trainControlManager.retireCouplingControl(train)
+            work.art1st.javarailways.bukkit.command.TrainCommand.retireCouplingControl(train)
+        }
         OperationalWorldRuntime.create(
             coreWorld, bukkitWorld.uid.toString(),
+            couplingModeSettings = work.art1st.javarailways.simpleato.api.coupling.CouplingModeSettings(
+                plugin.javaRailwaysConfig.couplingMaximumEntryGapMeters,
+                plugin.javaRailwaysConfig.couplingMaximumApproachSpeedMetersPerSecond
+            ),
+            couplingAdmissionContextProvider = routeAdmissionProvider,
+            couplingControlReleased = couplingControlReleased,
             candidateFacts = { train ->
                 work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts.fromCars(
                     train.cars.associate { car -> car.id to (car.carRendererOrNull?.resolveCandidateFacts()
@@ -162,6 +172,9 @@ object RailWorldFactory {
                 TimetableDispatcher(
                     authorityStoppingMarginMeters = atoSafetyDistanceMeters,
                     admissionRetryTicks = plugin.javaRailwaysConfig.atoAdmissionRetryTicks,
+                    maximumCouplingGapMeters = plugin.javaRailwaysConfig.couplingMaximumEntryGapMeters,
+                    maximumCouplingApproachSpeedMetersPerSecond = plugin.javaRailwaysConfig.couplingMaximumApproachSpeedMetersPerSecond,
+                    couplingControlReleased = couplingControlReleased,
                     routeAdmissionContextProvider = routeAdmissionProvider,
                     signalRestrictionSnapshots = signalRestrictions,
                     inspectionRuntime = inspectionRuntime,

@@ -55,6 +55,24 @@ class RouteAuthorityAdmissionClientTest {
     private val client = client(service, publisher)
 
     @Test
+    fun `actual output protection replacement preserves grant owner and restriction revision`() {
+        val first = grant(50.0)
+        service.onRequest = { RouteAdmissionResult.Granted(first) }
+        client.request(selection, RouteBoundary(50.0))
+        val originalSnapshots = publisher.snapshots.size
+        val originalRevision = publisher.snapshots.last().revision
+        val replacement = RecordingPublisher()
+        client.rebindRestrictionPublisher(replacement)
+        assertSame(first, client.committedGrantSnapshot)
+        client.adoptFormationGrant(selection, first)
+        assertEquals(originalSnapshots, publisher.snapshots.size)
+        assertEquals(originalRevision + 1, replacement.snapshots.single().revision)
+        assertEquals(first.owner, client.committedGrantSnapshot!!.owner)
+        assertSame(first.grantId, client.committedGrantSnapshot!!.grantId)
+        assertEquals(1, service.intents.size, "publisher handoff must not request or release a Basic grant")
+    }
+
+    @Test
     fun `station terminal arithmetic accepts roundoff but keeps real grant and rejects missing clearance`() {
         val terminalRoute = RouteSnapshot(route.routeId, route.revision, route.topologyRevision,
             listOf(RouteSegmentSnapshot(UUID(0L, 99L), ViewDirection.AB, 590.0, 610.3)))

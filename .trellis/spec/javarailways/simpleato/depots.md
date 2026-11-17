@@ -43,7 +43,7 @@ SimpleATO 拥有 Depot/StablingPoint 定义、时刻表选车及具体任务归�
 
 `claimFixedFormation(trainId, physicalCarIds, assignmentId)` 先验证所有完整单元、成员顺序和唯一任务归属，再一次写入 claims；失败无部分写入。`releaseFixedFormation` 仅释放准确 train/assignment，未完成结构保护不得被无关取消清除。
 
-普通成员解析和取车不要求控制族标注。现有自动重联的声明兼容检查仍保留：缺失或冲突不能伪装成通过；相同声明不是完整动力/制动兼容证明。控制声明按单元 ID 保存，失去实际 Core 单元的孤儿声明不进入快照。
+普通成员解析和取车不要求控制族标注。现有时刻表重联的声明兼容检查仍保留：缺失或冲突不能伪装成通过；相同声明不是完整动力/制动兼容证明。控制声明按单元 ID 保存，失去实际 Core 单元的孤儿声明不进入快照。
 
 ## 重联与解编
 

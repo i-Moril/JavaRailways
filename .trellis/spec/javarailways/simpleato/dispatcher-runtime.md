@@ -255,21 +255,32 @@ fresh apply 在显式 recovery handling 前也拒绝。保留 disabled diagnosti
 
 ### 固定会合重联
 
-两条 duty 必须停在同一 cycle 的同一固定 Couple 事件；等待另一方不会消费事件或重新提交动作。
-Dispatcher 从 applied plan 的 `(event, approaching candidate, stationary candidate)` 取得独立接触可行性证明和
-输出路线证明。首先保持两方零速并取得真实 body grant，安装 approaching 方的 Physical FormationContact
-mission 与零 authority，等待实际 controller/inspection publication。之后重新向 Core 取得 fresh host proof，
-与静态几何模板核对，再于同一 owner callback 封存完整单元变更并提交 contact admission。
+两条 duty 必须停在同一 cycle 的同一 Couple 事件。玩家负责把接近车停到目标车后方；Dispatcher 不代为摆位。
+进入模式时调用 Core `inspectCouplingModeEntry`：两车均停稳、所选连通轨道上的运行车头指向目标运行车尾，
+实际车钩间距不超过 `maximumCouplingGapMeters`（配置默认 5 m）。拒绝只保留停车与原因，不封存事件，
+不把邻线欧氏距离或未来停车窗口模拟当作入场依据。静态验证仅传播真实 Core 单元身份、车序、方向与控制族兼容性。
 
-Pending 只推进原 handle；READY 后同一个 admission client 消费接触限速/终点，控制器执行实际接近，
-Core 碰撞与 Basic 精确参与者许可共同决定物理联挂。没有测试或 Dispatcher 直接调用 link。
-完整 approaching body、桥接段和 stationary body 均保留编辑保护，HOLD 输出也不得省略接触路径。
-物理输出使用与 Split 相同的 held-output 安装/台账/恢复流程；原 ATO 转给另一 duty 时仅移除原 duty 的
-`timetable-line` cap，外部限速和安全约束保持。
+先取得双方真实 body grant，再为接近车安装 Physical FormationContact mission 和零 authority；自动控制等待
+相同 controller/inspection publication，人工控制沿用原 `MANUAL_ROUTED` controller 及其共享保护回调。
+封存前重新检查现场入场条件。接近速度取事件上限与全局 `maximumCouplingApproachSpeedMetersPerSecond`
+（配置默认 0.5 m/s）的较小者，同一值进入 plan、Basic grant、接触权限与共享自动/手动保护，不重复解释。
 
-封存前操作员停止可取消准备，保留两方零速、source grant 和编辑保护；封存后停止进入显式 recovery，
-不能释放已经参与物理事件的资源。结构操作期间拒绝控制权转移。接触模板可来自 exact initial pair，
-或独立静态证明覆盖的全部来源停车窗口组合；不能把 onward route 存在当作能联挂的证明。
+Pending 只推进原 handle；正常拒绝保持双方停车和原 claims，按既有 admission retry 间隔重试。
+READY 后登记同一 Basic contact authority，解除接近车的作业停车限制；其他目标、信号与 ATP 约束保持。
+Core 真实碰撞接触与 Basic 精确参与者许可决定联挂，不调用远程 link 或制造接近位移。
+已经零间距接触时不创建空 movement mission，而在 READY 后调用 `completeCouplingContact`，复用同一真实接触事务。
+完整接近车身、桥接段和目标车身均保留编辑保护；发布后解除已消费的共享接触权限。
+
+实际联挂成功后先绑定真实新车身的 held body grant、提交原单元台账和输出归属，再从该发布帧的
+FormationOutput 起点调用既有 `AtoMissionResolver` / `OperationalRoutePlanner` 规划后续任务并走普通 Basic 准入。
+不在联挂前要求未来输出包络或预保留后续路线。缺少可用路线时输出保持停止、body grant、Core fence 和台账，
+记录 `REPLAN_REQUIRED`；普通无路不使整个世界 Stall。人工存活容器继承原 controller、controlMode 与 transfer owner，
+不得因输出接管擅自开启 ATO。真实输出已绑定并完成停止状态交接后，通过 `couplingControlReleased`
+通知宿主清理已消费源车的控制会话；仍在存续列车上安装的原人工 controller 及其会话保留。
+入口拒绝或交接未成功时不发这项通知。实际继续路线取得前不得解除输出 fence。
+
+封存前停止可取消准备并保留源资源；封存后明确恢复故障沿用原恢复保护，不能提前释放已经参与物理事件的资源。
+联挂之后的后代解编仍使用原 Split API、真实停稳源车身和相同资源交接；普通未经过联挂的 Split 保留原静态车体证明。
 
 ### 定时分支与真实停车点选择
 

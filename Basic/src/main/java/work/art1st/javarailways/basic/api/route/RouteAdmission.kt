@@ -232,7 +232,12 @@ interface RouteResourceAdmissionService {
         FormationChangeResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
             "service does not support fixed formation changes"))
 
-    /** Only unsealed, unchanged stopped sources can abort; publication uncertainty retains claims. */
+    /**
+     * Unsealed unchanged stopped sources can abort. A sealed coupling may also abort before any
+     * READY contact grant or physical change: pending preparation must report ABORTED_SAFE and
+     * its exact claim delta must roll back first. PREPARING returns REQUEST_BUSY; unsafe, changed
+     * or READY/published events retain their claims and guards for reconciliation.
+     */
     @MainThread
     fun abortFormationChange(handle: FormationChangeHandle): FormationChangeResult =
         FormationChangeResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
@@ -242,6 +247,17 @@ interface RouteResourceAdmissionService {
     fun requestCouplingApproach(handle: FormationChangeHandle, intent: RouteResourceIntent): RouteAdmissionResult =
         RouteAdmissionResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
             "service does not support fixed formation approach"))
+
+    /**
+     * Tries the real stationary contact transaction after this exact sealed coupling has a READY
+     * approach grant. A valid pair still apart returns the unchanged sealed snapshot; it never
+     * moves either source. Actual contact uses the ordinary Core decision guards and publishes a
+     * fenced output while retaining every source claim. Unsupported services reject explicitly.
+     */
+    @MainThread
+    fun completeCouplingContact(handle: FormationChangeHandle): FormationChangeResult =
+        FormationChangeResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            "service does not support stationary coupling contact completion"))
 
     /** Called after the operating owner commits its exact staged mapping; keeps every output fenced. */
     @MainThread

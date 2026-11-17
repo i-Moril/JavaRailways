@@ -8,6 +8,27 @@
 - 嵌套配置的唯一有效条目与值快照归[Wand配置UI合同](./wand-config.md)。Dialog显示、触发按钮与回复捕获只消费`BuiltGroup.effectiveItems`，不能拼回原始子组items；初始值来自该构建的snapshot，不临时重读session。CR-041实现状态以该合同及审查记录为准。
 - 玩家文本使用 Adventure `Component` 和资源/locale owner；固定 enum/JSON token 不翻译。
 
+### 联挂入口与配置
+
+`/jr train couple <targetTrainId>` 只捕获驾驶座列车、controller 和 manual session 身份，
+在 `submitBetweenFrames` 中重新核对这些身份后调用 `World.couplingModes.enter`。
+seat vacate 和 player quit 撤销 pending token；physics owner 内不读取 Bukkit 玩家状态。
+成功消息表示模式已接受，真实联挂及进度归 SimpleATO coupling service；拒绝原样报告其领域原因。
+
+`config.yml` 的 `coupling.maximum-entry-gap-meters` 默认 `5.0`（有限非负米），
+`coupling.maximum-approach-speed-meters-per-second` 默认 `0.5`（有限正米/秒）。
+这是有明确默认值的配置新增字段，当前 reader 可直接读取缺省配置，不升 schema、不添加迁移或旧形状检测。
+production 把同一组设置注入普通 coupling runtime 和 dispatcher；隔离仿真从 live dispatcher 捕获这两个值。
+准入仍复用同一个 authenticated bound service 和 coherent observation supplier。
+
+普通联挂完成时，实际 output 仍在 Core movement hold 内，runtime 向 composition 回调两份原 source 实例。
+Bukkit 只退休这些实例对应的 pending acquisition 和 driver session/map；随后 runtime 解绑旧 controller 并完成 Basic 手动收尾。
+时刻表联挂复用同一回调，只退休被消费且没有继续持有实际输出控制器的来源 session，保留存活输出的手动驾驶员。
+不通过列车 ID 扫描其他世界。
+
+验证包括配置默认/合法值/非法类型与数值、Cloud route/末尾空 token 补全、console/player 参数边界、
+准确来源 session 退休及其他世界不变。真实 Folia 驾驶座交互与客户端联挂仍需单独验收。
+
 ### 列车稳定 ID 与显示名称（CURRENT）
 
 `/jr train create <type> <name>` 以创建时给定的名称作为既有 `train.id`，初始 `train.name` 相同；

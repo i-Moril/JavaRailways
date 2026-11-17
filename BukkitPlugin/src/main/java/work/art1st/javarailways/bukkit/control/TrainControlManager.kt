@@ -342,6 +342,12 @@ class TrainControlManager internal constructor(
         }
     }
 
+    /** Retire adapter references after a standalone physical link, while its output is still held. */
+    internal fun retireCouplingControl(train: Train) {
+        pendingAcquisitions.entries.removeIf { it.value.train === train }
+        sessionsByTrain[train]?.let(::retireSession)
+    }
+
     private fun retireSession(session: ManualControlSession) {
         return withPlayer(session.playerId) {
             sessionsByPlayer.remove(session.playerId, session)
@@ -386,7 +392,7 @@ class TrainControlManager internal constructor(
 
     @EventHandler
     fun onPlayerQuit(event: PlayerQuitEvent) {
-        work.art1st.javarailways.bukkit.command.TrainCommand.revokePendingAtpAcknowledgement(event.player.uniqueId)
+        work.art1st.javarailways.bukkit.command.TrainCommand.revokePendingControlRequests(event.player.uniqueId)
         bindingScanTasks.remove(event.player.uniqueId)?.cancel()
         releaseManualControl(event.player.uniqueId)
     }

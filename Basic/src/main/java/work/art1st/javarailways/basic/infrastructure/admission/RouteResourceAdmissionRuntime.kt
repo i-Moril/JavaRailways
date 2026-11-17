@@ -87,6 +87,10 @@ class RouteResourceAdmissionRuntime private constructor(
         if (closed) formationUnavailable() else engine.abortFormationChange(requester, handle)
 
     @MainThread
+    fun completeCouplingContact(requester: Any, handle: FormationChangeHandle): FormationChangeResult =
+        if (closed) formationUnavailable() else engine.completeCouplingContact(requester, handle)
+
+    @MainThread
     fun bindFormationOutputs(requester: Any, handle: FormationChangeHandle, intents: List<RouteResourceIntent>): FormationChangeResult =
         if (closed) formationUnavailable() else engine.bindFormationOutputs(requester, handle, intents)
 

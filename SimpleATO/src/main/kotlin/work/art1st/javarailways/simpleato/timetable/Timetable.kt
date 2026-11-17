@@ -497,11 +497,7 @@ class TimetableValidator(
                     depotValidationOrigins(selector).map { it.point.destinationId }
                 }.validate(timetable)
             }
-            if (timetable.formationEvents.any { it is TimetableFormationEvent.Couple }) {
-                val core = world as? work.art1st.javarailways.core.physics.CoreWorld
-                    ?: error("coupling static proof requires the Core serialized owner")
-                core.physicsCoordinator.withStructuralMutation { validateStructural() }
-            } else validateStructural()
+            validateStructural()
         } catch (failure: Exception) {
             StructuralTimetableValidation(listOf("formation output has no retained onward-route proof: ${failure.message ?: failure.javaClass.simpleName}"))
         }

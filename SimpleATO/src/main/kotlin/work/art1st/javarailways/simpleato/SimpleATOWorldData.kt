@@ -42,6 +42,7 @@ data class SimpleATOWorldData(
     val routePlanningRestrictions: RoutePlanningRestrictionRuntime = RoutePlanningRestrictionRuntime(),
     val stationCallResolvers: StationCallResolverRegistry = StationCallResolverRegistry(),
     val operationalRuntime: OperationalWorldRuntime? = null,
+    val couplingModes: work.art1st.javarailways.simpleato.api.coupling.CouplingModeService? = null,
     val controlRuntime: work.art1st.javarailways.simpleato.control.RailwayControlRuntime =
         work.art1st.javarailways.simpleato.control.RailwayControlRuntime(atoCoordinator.worldId)
 ) {

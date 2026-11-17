@@ -87,7 +87,9 @@ data class JavaRailwaysConfig(
     val timetableWebUi: TimetableWebUiConfig,
     val atoSafetyDistanceMeters: Double = 5.0,
     val atoAdmissionRetryTicks: Int = 5,
-    val passengerMovementEnabled: Boolean = true
+    val passengerMovementEnabled: Boolean = true,
+    val couplingMaximumEntryGapMeters: Double = 5.0,
+    val couplingMaximumApproachSpeedMetersPerSecond: Double = 0.5
 ) {
     companion object {
         fun load(plugin: BukkitPlugin): JavaRailwaysConfig {
@@ -126,6 +128,25 @@ data class JavaRailwaysConfig(
                 5
             }
             require(atoAdmissionRetryTicks > 0) { "ato.admission-retry-ticks must be > 0" }
+            require(!yaml.contains("coupling", true) || yaml.isConfigurationSection("coupling")) {
+                "Config key 'coupling' must be a section"
+            }
+            val couplingMaximumEntryGap = if (yaml.contains("coupling.maximum-entry-gap-meters", true)) {
+                requireDouble(yaml, "coupling.maximum-entry-gap-meters")
+            } else {
+                5.0
+            }
+            require(couplingMaximumEntryGap.isFinite() && couplingMaximumEntryGap >= 0.0) {
+                "coupling.maximum-entry-gap-meters must be finite and >= 0.0"
+            }
+            val couplingMaximumApproachSpeed = if (yaml.contains("coupling.maximum-approach-speed-meters-per-second", true)) {
+                requireDouble(yaml, "coupling.maximum-approach-speed-meters-per-second")
+            } else {
+                0.5
+            }
+            require(couplingMaximumApproachSpeed.isFinite() && couplingMaximumApproachSpeed > 0.0) {
+                "coupling.maximum-approach-speed-meters-per-second must be finite and > 0.0"
+            }
             val displayRendererBackend = DisplayRendererBackend.fromConfig(
                 requireString(yaml, "display-renderer.backend")
             )
@@ -205,6 +226,8 @@ data class JavaRailwaysConfig(
                 ),
                 atoSafetyDistanceMeters = atoSafetyDistance,
                 atoAdmissionRetryTicks = atoAdmissionRetryTicks,
+                couplingMaximumEntryGapMeters = couplingMaximumEntryGap,
+                couplingMaximumApproachSpeedMetersPerSecond = couplingMaximumApproachSpeed,
                 timetableWebUi = TimetableWebUiConfig(
                     mode = webUiMode,
                     bindAddress = webUiBindAddress,

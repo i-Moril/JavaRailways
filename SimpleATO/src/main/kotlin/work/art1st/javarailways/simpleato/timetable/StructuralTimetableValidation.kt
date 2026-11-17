@@ -12,13 +12,10 @@ import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningIn
 import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningResult
 import work.art1st.javarailways.basic.route.toSnapshot
 import work.art1st.javarailways.core.api.physics.World
-import work.art1st.javarailways.core.api.physics.train.CouplingApproachRequest
-import work.art1st.javarailways.core.api.physics.train.CouplingApproachInspection
 import work.art1st.javarailways.core.api.physics.train.TrainEndSide
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
-import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.train.StoppedBodyGeometry
 import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector
 import work.art1st.javarailways.simpleato.api.depot.DepotStablingPoint
@@ -34,12 +31,17 @@ internal data class ValidatedStructuralCouplingKey(val eventId: String,
     val approachingCandidate: StructuralSourceCandidateKey, val stationaryCandidate: StructuralSourceCandidateKey,
     val approachingTrace: StructuralBranchTrace = StructuralBranchTrace.EMPTY,
     val stationaryTrace: StructuralBranchTrace = StructuralBranchTrace.EMPTY)
-internal class ValidatedStructuralCoupling(val approachingSource: ValidatedStructuralSource,
-    val stationarySource: ValidatedStructuralSource, val outputCandidateKey: StructuralSourceCandidateKey,
-    val outputEnvelope: CertifiedStructuralCorridor, val protectedRoute: RouteSnapshot,
-    val contactFeasibility: StructuralContactFeasibility) {
-    val outputCarIds: List<String> get() = outputEnvelope.memberCarIds
-    val outputReversed: Boolean get() = outputEnvelope.reversed
+/** Logical complete-unit identity; contact geometry is inspected only when entering coupling mode. */
+internal class ValidatedStructuralCoupling(val outputCandidateKey: StructuralSourceCandidateKey,
+    outputCarIds: List<String>, val outputReversed: Boolean) {
+    val outputCarIds: List<String> = java.util.List.copyOf(outputCarIds)
+}
+internal data class ValidatedStructuralStepMembershipKey(val serviceId: String, val stepIndex: Int,
+    val sourceCandidate: StructuralSourceCandidateKey, val branchTrace: StructuralBranchTrace)
+internal class ValidatedStructuralMembership(carIds: List<String>, val reversed: Boolean,
+    val markerId: String?, outputCandidateKeys: Map<String, StructuralSourceCandidateKey> = emptyMap()) {
+    val carIds: List<String> = java.util.List.copyOf(carIds)
+    val outputCandidateKeys: Map<String, StructuralSourceCandidateKey> = java.util.Map.copyOf(outputCandidateKeys)
 }
 internal data class ValidatedStructuralRouteKey(val eventId: String, val outputId: String, val serviceId: String,
     val stepIndex: Int, val sourceCandidate: StructuralSourceCandidateKey, val startFacing: ViewDirection, val targetId: String,
@@ -77,7 +79,15 @@ internal class StructuralTimetableValidation(errors: Collection<String> = emptyL
     routes: Map<ValidatedStructuralRouteKey, ValidatedStructuralOutputRoute> = emptyMap(),
     sources: Map<ValidatedStructuralSourceKey, ValidatedStructuralSource> = emptyMap(),
     storageRoutes: Map<ValidatedStructuralStorageKey, ValidatedStructuralStorageRoute> = emptyMap(),
-    couplings: Map<ValidatedStructuralCouplingKey, ValidatedStructuralCoupling> = emptyMap()) {
+    couplings: Map<ValidatedStructuralCouplingKey, ValidatedStructuralCoupling> = emptyMap(),
+    memberships: Map<ValidatedStructuralSourceKey, ValidatedStructuralMembership> = emptyMap(),
+    initialCandidates: Collection<StructuralSourceCandidateKey> = emptyList(),
+    outputMemberships: Map<ValidatedStructuralStepMembershipKey, ValidatedStructuralMembership> = emptyMap(),
+    sourceBodyRoutes: Collection<RouteSnapshot> = emptyList()) {
+    val sourceBodyRoutes: List<RouteSnapshot> = java.util.List.copyOf(sourceBodyRoutes)
+    val outputMemberships: Map<ValidatedStructuralStepMembershipKey, ValidatedStructuralMembership> = java.util.Map.copyOf(outputMemberships)
+    val memberships: Map<ValidatedStructuralSourceKey, ValidatedStructuralMembership> = java.util.Map.copyOf(memberships)
+    val initialCandidates: List<StructuralSourceCandidateKey> = java.util.List.copyOf(initialCandidates)
     val couplings: Map<ValidatedStructuralCouplingKey, ValidatedStructuralCoupling> = java.util.Map.copyOf(couplings)
     val errors: List<String> = java.util.List.copyOf(errors)
     val routes: Map<ValidatedStructuralRouteKey, ValidatedStructuralOutputRoute> = java.util.Map.copyOf(routes)
@@ -85,7 +95,7 @@ internal class StructuralTimetableValidation(errors: Collection<String> = emptyL
     val storageRoutes: Map<ValidatedStructuralStorageKey, ValidatedStructuralStorageRoute> = java.util.Map.copyOf(storageRoutes)
 }
 
-/** Snapshot-bound finite-candidate proof; no runtime search, hypothetical train frame or nominal output origin. */
+/** Split corridors retain geometric evidence; coupling propagates membership and plans from the real output. */
 internal class StructuralTimetableValidator(private val world: World,
     private val retained: Map<ValidatedTimetableRouteKey, ValidatedTimetableRoute>,
     private val retainedSelections: Set<ValidatedStationSelectionKey>,
@@ -93,8 +103,8 @@ internal class StructuralTimetableValidator(private val world: World,
     private val topology = world.topologyState
     private val restrictions: RoutePlanningRestrictions = world.simpleAtoWorldData.routePlanningRestrictions.compile(
         topology, world.operatingDirectionOverlay(topology))
-    private val capturedTrains = world.allTrains.filterIsInstance<CoreTrain>().toList()
-    private val frames = capturedTrains.associate { it.id to it.publishedFrame }
+    private val capturedTrains = world.allTrains.toList()
+    private val frames = capturedTrains.associate { it.id to requireNotNull(it.publishedFrame) { "structural source has no published frame: ${it.id}" } }
     private val candidateFacts = capturedTrains.mapNotNull { train ->
         world.simpleAtoWorldData.candidateFacts(train)?.let { train.id to it }
     }.toMap()
@@ -103,14 +113,20 @@ internal class StructuralTimetableValidator(private val world: World,
     private val sources = linkedMapOf<ValidatedStructuralSourceKey, ValidatedStructuralSource>()
     private val storageRoutes = linkedMapOf<ValidatedStructuralStorageKey, ValidatedStructuralStorageRoute>()
     private val couplings = linkedMapOf<ValidatedStructuralCouplingKey, ValidatedStructuralCoupling>()
+    private val memberships = linkedMapOf<ValidatedStructuralSourceKey, ValidatedStructuralMembership>()
+    private val initialCandidates = linkedSetOf<StructuralSourceCandidateKey>()
+    private val outputMemberships = linkedMapOf<ValidatedStructuralStepMembershipKey, ValidatedStructuralMembership>()
+    private val sourceBodyRoutes = linkedSetOf<RouteSnapshot>()
     private val completedCouplings = hashSetOf<String>()
     private val produced = linkedMapOf<Pair<String, String>, List<Candidate>>()
-    private data class Candidate(val key: StructuralSourceCandidateKey, val envelope: CertifiedStructuralCorridor,
+    private data class Candidate(val key: StructuralSourceCandidateKey, val envelope: CertifiedStructuralCorridor?,
         val carIds: List<String>, val window: StructuralEventWindow?, val pointId: String?,
         val output: Pair<String, String>? = null, val classification: FormationOutputMetadata? = null,
-        val exactInitialEligible: Boolean = true, val branchTrace: StructuralBranchTrace = StructuralBranchTrace.EMPTY,
+        val branchTrace: StructuralBranchTrace = StructuralBranchTrace.EMPTY,
         val pendingOffset: Double = 0.0, val pendingStation: TimetableAction.CallStation? = null,
-        val pendingStopReverse: Boolean = false)
+        val pendingStopReverse: Boolean = false,
+        val reversed: Boolean = requireNotNull(envelope).reversed,
+        val carLengths: Map<String, Double>)
     private data class Cursor(val service: TimetableService, var index: Int = 0, var candidates: List<Candidate>? = null,
         var failed: Boolean = false)
 
@@ -136,10 +152,15 @@ internal class StructuralTimetableValidator(private val world: World,
                     stepLoop@ while (cursor.index < cursor.service.steps.size && !cursor.failed) {
                         val index = cursor.index
                         val step = cursor.service.steps[index]
+                        cursor.candidates!!.filter { it.output != null && it.envelope == null }.forEach { candidate ->
+                            outputMemberships[ValidatedStructuralStepMembershipKey(cursor.service.id, index, candidate.key,
+                                candidate.branchTrace)] = ValidatedStructuralMembership(candidate.carIds, candidate.reversed, candidate.pointId)
+                        }
                         when (step) {
                             is TimetableStep.Check -> cursor.candidates = cursor.candidates!!.map { candidate ->
-                                val window = window(step.wayPointId, end(candidate.envelope.retainedPath).facing)
-                                require(position(candidate.envelope.retainedPath, window.forwardBoundary) != null) {
+                                val envelope = candidate.envelope
+                                val window = envelope?.let { window(step.wayPointId, end(it.retainedPath).facing) }
+                                if (envelope != null) require(position(envelope.retainedPath, checkNotNull(window).forwardBoundary) != null) {
                                     "Check eligibility window is not covered by the complete retained source corridor" }
                                 candidate.copy(window = window, pointId = step.wayPointId)
                             }
@@ -154,10 +175,10 @@ internal class StructuralTimetableValidator(private val world: World,
                                     cursor.candidates = cursor.candidates!!.map { it.copy(pendingStation = action, pendingStopReverse = action.stopPrograms?.reverseParity() == 1) }
                                 }
                                 is TimetableAction.BeginStationStop -> if (action.stopPrograms.reverseParity() == 1) {
-                                    cursor.candidates = cursor.candidates!!.map { it.copy(envelope = it.envelope.reoriented(true), window = null, exactInitialEligible = false) }
+                                    cursor.candidates = cursor.candidates!!.map { it.copy(envelope = it.envelope?.reoriented(true), reversed = !it.reversed, window = null) }
                                 }
                                 TimetableAction.Reverse -> cursor.candidates = cursor.candidates!!.map {
-                                    it.copy(envelope = it.envelope.reoriented(true), window = null, exactInitialEligible = false) }
+                                    it.copy(envelope = it.envelope?.reoriented(true), reversed = !it.reversed, window = null) }
                                 is TimetableAction.GoTo, is TimetableAction.GoVia -> {
                                     val targets = if (action is TimetableAction.GoTo) listOf(action.wayPointId) else (action as TimetableAction.GoVia).wayPointIds
                                     cursor.candidates = cursor.candidates!!.map { move(cursor, index, it, targets) }
@@ -167,29 +188,36 @@ internal class StructuralTimetableValidator(private val world: World,
                                         ?: error("split event declaration is missing")
                                     val children = event.outputs.associate { it.id to arrayListOf<Candidate>() }
                                     for (candidate in cursor.candidates!!) {
-                                        val eligible = requireNotNull(candidate.window) { "split source has no explicit checked/stopped marker eligibility" }
+                                        val envelope = candidate.envelope
+                                        val eligible = if (envelope == null) null else requireNotNull(candidate.window) {
+                                            "split source has no explicit checked/stopped marker eligibility" }
+                                        require(candidate.pointId != null) { "split source has no explicit checked/stopped marker" }
                                         val outputKeys = linkedMapOf<String, StructuralSourceCandidateKey>()
                                         val units = world.simpleAtoWorldData.depots.fixedUnitsForFormation(candidate.carIds)
                                         require(event.firstUnitCount < units.size) { "HEAD partition must leave complete units in both outputs" }
-                                        val cut = if (candidate.envelope.reversed) units.size - event.firstUnitCount else event.firstUnitCount
+                                        val cut = if (candidate.reversed) units.size - event.firstUnitCount else event.firstUnitCount
                                         val carCut = units.take(cut).sumOf { it.carIds.size }
                                         val stableFirst = candidate.carIds.take(carCut)
                                         val stableRest = candidate.carIds.drop(carCut)
-                                        val firstCars = if (candidate.envelope.reversed) stableRest else stableFirst
-                                        val restCars = if (candidate.envelope.reversed) stableFirst else stableRest
+                                        val firstCars = if (candidate.reversed) stableRest else stableFirst
+                                        val restCars = if (candidate.reversed) stableFirst else stableRest
                                         for ((output, cars) in listOf(event.first to firstCars, event.rest to restCars)) {
                                             val childKey = candidate.key.copy(lineage = candidate.key.lineage + outputLineage(event.id, output.id, candidate.branchTrace))
                                             outputKeys[output.id] = childKey
                                             children.getValue(output.id) += candidate.copy(
                                                 key = childKey,
-                                                envelope = candidate.envelope.splitOutput(cars),
+                                                envelope = envelope?.splitOutput(cars),
+                                                carLengths = candidate.carLengths.filterKeys { it in cars },
                                                 carIds = java.util.List.copyOf(cars), window = null, pointId = null,
-                                                output = event.id to output.id, exactInitialEligible = false,
+                                                output = event.id to output.id,
                                                 classification = candidate.classification?.let { FormationOutputMetadata.split(it,
-                                                    candidate.carIds, cars, requireNotNull(candidate.envelope.geometry).configuredLengths(candidate.carIds)) })
+                                                    candidate.carIds, cars, candidate.carLengths) })
                                         }
-                                        sources[ValidatedStructuralSourceKey(event.id, candidate.key, candidate.branchTrace)] =
-                                            ValidatedStructuralSource(candidate.envelope, eligible, candidate.carIds, candidate.envelope.reversed, outputKeys)
+                                        val sourceKey = ValidatedStructuralSourceKey(event.id, candidate.key, candidate.branchTrace)
+                                        memberships[sourceKey] = ValidatedStructuralMembership(candidate.carIds, candidate.reversed,
+                                            candidate.pointId, outputKeys)
+                                        if (envelope != null) sources[sourceKey] = ValidatedStructuralSource(envelope,
+                                            checkNotNull(eligible), candidate.carIds, candidate.reversed, outputKeys)
                                     }
                                     event.outputs.forEach { produced[event.id to it.id] = children.getValue(it.id) }
                                     cursor.candidates = event.outputs.singleOrNull {
@@ -201,8 +229,7 @@ internal class StructuralTimetableValidator(private val world: World,
                                 is TimetableAction.SelectStop -> cursor.candidates = selectStop(cursor, cursor.candidates!!,
                                     TimetableStepAddress(index), action)
                                 is TimetableAction.Couple -> break@stepLoop
-                                is TimetableAction.Extension -> cursor.candidates = cursor.candidates!!.map {
-                                    it.copy(exactInitialEligible = false) }
+                                is TimetableAction.Extension -> Unit
                                 is TimetableAction.StoreAtDepot -> {
                                     cursor.candidates!!.filter { it.output != null }.forEach { candidate ->
                                         store(cursor, index, candidate, action)
@@ -239,7 +266,7 @@ internal class StructuralTimetableValidator(private val world: World,
                         participant.index++
                     }
                 } catch (failure: Exception) {
-                    errors += "[${timetable.id}] formation event ${event.id} contact feasibility not certified: ${failure.message ?: failure.javaClass.simpleName}"
+                    errors += "[${timetable.id}] formation event ${event.id} unit membership is invalid: ${failure.message ?: failure.javaClass.simpleName}"
                     participants.forEach { it.failed = true }
                 }
                 completedCouplings += event.id
@@ -249,54 +276,37 @@ internal class StructuralTimetableValidator(private val world: World,
         cursors.filter { !it.failed && it.index < it.service.steps.size }.forEach {
             errors += "[${timetable.id}/${it.service.id}] formation output has no producer corridor proof" }
         if (world.topologyState !== topology) errors += "structural validation topology changed"
-        return StructuralTimetableValidation(errors, routes, sources, storageRoutes, couplings)
+        return StructuralTimetableValidation(errors, routes, sources, storageRoutes, couplings, memberships, initialCandidates, outputMemberships, sourceBodyRoutes)
     }
 
     private fun couple(event: TimetableFormationEvent.Couple, a: Candidate, b: Candidate): Candidate {
         require(a.carIds.toSet().intersect(b.carIds.toSet()).isEmpty()) { "coupling participants share a physical asset" }
         require(a.pointId == event.rendezvous.approachDestinationId && b.pointId == event.rendezvous.stationaryDestinationId) {
             "participant stopped markers do not match the declared rendezvous" }
-        val aw = requireNotNull(a.window) { "approaching source lacks stopped event eligibility" }
-        val bw = requireNotNull(b.window) { "stationary source lacks stopped event eligibility" }
-        val movingEnd = if (a.envelope.reversed) TrainEndSide.B else TrainEndSide.A
-        val stationaryHead = if (b.envelope.reversed) TrainEndSide.B else TrainEndSide.A
-        val stationaryEnd = if (event.stationaryEnd == FormationStationaryEnd.HEAD) stationaryHead
-            else if (stationaryHead == TrainEndSide.A) TrainEndSide.B else TrainEndSide.A
+        require(event.stationaryEnd == FormationStationaryEnd.TAIL) {
+            "coupling mode requires the stationary train operational tail"
+        }
+        val movingEnd = if (a.reversed) TrainEndSide.B else TrainEndSide.A
+        val stationaryEnd = if (b.reversed) TrainEndSide.A else TrainEndSide.B
         val incoming = if (movingEnd == stationaryEnd) b.carIds.asReversed() else b.carIds
         val cars = if (movingEnd == TrainEndSide.B) a.carIds + incoming else incoming + a.carIds
         world.simpleAtoWorldData.depots.fixedUnitsForFormation(cars)
         world.simpleAtoWorldData.depots.validateFixedUnitCoupling(cars)
-        val asource = ValidatedStructuralSource(a.envelope, aw, a.carIds, a.envelope.reversed)
-        val bsource = ValidatedStructuralSource(b.envelope, bw, b.carIds, b.envelope.reversed)
-        val contact: StructuralContactFeasibility
-        val envelope: CertifiedStructuralCorridor
-        if (a.exactInitialEligible && b.exactInitialEligible) {
-            val af = a.envelope.initialFrames.single()
-            val bf = b.envelope.initialFrames.single()
-            val inspected = world.inspectCouplingApproach(CouplingApproachRequest(af.trainId, movingEnd, bf.trainId, stationaryEnd))
-            require(inspected is CouplingApproachInspection.Accepted) {
-                (inspected as? CouplingApproachInspection.Rejected)?.reason ?: "host contact inspection rejected" }
-            val proof = inspected.proof
-            contact = ExactInitialStructuralContact.capture(world, topology, proof, asource, bsource)
-            envelope = CertifiedStructuralCorridor.fromCoupling(a.envelope, b.envelope, proof, cars, restrictions)
-        } else {
-            val result = CertifiedStructuralCorridor.fromStraightCoupling(a.envelope, b.envelope, aw, bw,
-                event.stationaryEnd == FormationStationaryEnd.HEAD, cars, movingEnd == stationaryEnd, restrictions)
-            envelope = result.first
-            contact = StraightWindowStructuralContact(world, topology, result.second, asource, bsource, movingEnd, stationaryEnd)
-        }
         val mergedTrace = a.branchTrace.merge(b.branchTrace)
         val key = a.key.copy(lineage = a.key.lineage + outputLineage(event.id, event.output.id, mergedTrace),
             parents = StructuralCandidatePair(a.key, b.key))
-        sources[ValidatedStructuralSourceKey(event.id, a.key, a.branchTrace)] = asource
-        sources[ValidatedStructuralSourceKey(event.id, b.key, b.branchTrace)] = bsource
-        couplings[ValidatedStructuralCouplingKey(event.id, a.key, b.key, a.branchTrace, b.branchTrace)] = ValidatedStructuralCoupling(
-            asource, bsource, key, envelope, envelope.retainedPath, contact)
+        memberships[ValidatedStructuralSourceKey(event.id, a.key, a.branchTrace)] =
+            ValidatedStructuralMembership(a.carIds, a.reversed, a.pointId)
+        memberships[ValidatedStructuralSourceKey(event.id, b.key, b.branchTrace)] =
+            ValidatedStructuralMembership(b.carIds, b.reversed, b.pointId)
+        couplings[ValidatedStructuralCouplingKey(event.id, a.key, b.key, a.branchTrace, b.branchTrace)] =
+            ValidatedStructuralCoupling(key, cars, a.reversed)
+        val lengths = a.carLengths + b.carLengths
         val classification = if (a.classification != null && b.classification != null)
-            FormationOutputMetadata.combine(listOf(a.classification, b.classification), listOf(a.carIds, b.carIds), cars,
-                requireNotNull(a.envelope.geometry).configuredLengths(a.carIds) + requireNotNull(b.envelope.geometry).configuredLengths(b.carIds))
+            FormationOutputMetadata.combine(listOf(a.classification, b.classification), listOf(a.carIds, b.carIds), cars, lengths)
             else null
-        return Candidate(key, envelope, cars, null, null, event.id to event.output.id, classification, false, mergedTrace)
+        return Candidate(key, null, cars, null, null, event.id to event.output.id, classification, mergedTrace,
+            reversed = a.reversed, carLengths = lengths)
     }
 
     private var branchProofStates = 0
@@ -314,12 +324,12 @@ internal class StructuralTimetableValidator(private val world: World,
                     is TimetableAction.Conditional -> branch(cursor, candidates, childAddress, child, depth + 1)
                     is TimetableAction.GoTo -> candidates.map { move(cursor, address.topLevelIndex, it, listOf(child.wayPointId), childAddress) }
                     is TimetableAction.GoVia -> candidates.map { move(cursor, address.topLevelIndex, it, child.wayPointIds, childAddress) }
-                    TimetableAction.Reverse -> candidates.map { it.copy(envelope = it.envelope.reoriented(true),
-                        window = null, exactInitialEligible = false) }
+                    TimetableAction.Reverse -> candidates.map { it.copy(envelope = it.envelope?.reoriented(true), reversed = !it.reversed,
+                        window = null) }
                     is TimetableAction.DestinationOptions -> candidates.map { it.copy(pendingOffset = child.stoppingOffsetMetersBefore ?: 0.0, pendingStopReverse = child.stopPrograms?.reverseParity() == 1) }
                     is TimetableAction.CallStation -> candidates.map { it.copy(pendingStation = child, pendingStopReverse = child.stopPrograms?.reverseParity() == 1) }
                     is TimetableAction.SelectStop -> selectStop(cursor, candidates, childAddress, child)
-                    is TimetableAction.Extension -> candidates.map { it.copy(exactInitialEligible = false) }
+                    is TimetableAction.Extension -> candidates
                     is TimetableAction.OpenDoors, TimetableAction.CloseDoors, is TimetableAction.SetDisplay, is TimetableAction.ResetDisplay, is TimetableAction.Stop, TimetableAction.WaitUntil -> candidates
                     else -> error("unsupported structural branch action at $childAddress: ${child.javaClass.simpleName}")
                 }
@@ -372,6 +382,9 @@ internal class StructuralTimetableValidator(private val world: World,
             else -> listOfNotNull(service.steps.filterIsInstance<TimetableStep.Check>().firstOrNull()?.wayPointId)
         }
         require(origins.isNotEmpty()) { "source has no finite initial acquisition/check origins" }
+        val firstStructure = service.steps.filterIsInstance<TimetableStep.At>().map { it.action }
+            .firstOrNull { it is TimetableAction.Split || it is TimetableAction.Couple }
+        val needsSplitCorridor = firstStructure is TimetableAction.Split
         return origins.flatMap { origin ->
             val point = requireNotNull(world.wayPoints[origin]) { "source origin does not exist: $origin" }
             val possible = when (val selector = service.trainSelector) {
@@ -398,12 +411,19 @@ internal class StructuralTimetableValidator(private val world: World,
                 require(endArc >= headArc)
                 val incoming = RouteSnapshot("structural-initial:${service.id}:$origin", 0, topology.revision,
                     listOf(RouteSegmentSnapshot(to.railId, to.facing, headArc, endArc)))
-                Candidate(StructuralSourceCandidateKey(frame.trainId, frame.revision, origin),
-                    CertifiedStructuralCorridor.fromInitial(frame, incoming, topology,
-                        StoppedBodyGeometry.capture(requireNotNull(world.getTrain(frame.trainId)))), frame.cars.map { it.carId }, eligibility, origin,
+                val key = StructuralSourceCandidateKey(frame.trainId, frame.revision, origin)
+                initialCandidates += key
+                if (!needsSplitCorridor) sourceBodyRoutes += RouteSnapshot("structural-source-body:${frame.trainId}", 0, topology.revision,
+                    frame.bodyTraversal.map { span -> RouteSegmentSnapshot(span.railId, span.facing,
+                        if (span.facing == ViewDirection.AB) span.startArcLengthInAbMeters else length(span.railId) - span.startArcLengthInAbMeters,
+                        if (span.facing == ViewDirection.AB) span.endArcLengthInAbMeters else length(span.railId) - span.endArcLengthInAbMeters) })
+                val lengths = frame.cars.associate { it.carId to it.lengthMeters }
+                val envelope = if (needsSplitCorridor) CertifiedStructuralCorridor.fromInitial(frame, incoming, topology,
+                    StoppedBodyGeometry.capture(requireNotNull(world.getTrain(frame.trainId)))) else null
+                Candidate(key, envelope, frame.cars.map { it.carId }, eligibility, origin,
                     classification = candidateFacts[frame.trainId]?.let {
-                        FormationOutputMetadata.source(it, frame.cars.map { car -> car.carId },
-                            frame.cars.associate { car -> car.carId to car.lengthMeters }) })
+                        FormationOutputMetadata.source(it, frame.cars.map { car -> car.carId }, lengths) },
+                    reversed = frame.reversed, carLengths = lengths)
             }
         }
     }
@@ -411,7 +431,16 @@ internal class StructuralTimetableValidator(private val world: World,
     private fun move(cursor: Cursor, index: Int, candidate: Candidate, targets: List<String>,
         address: TimetableStepAddress = TimetableStepAddress(index)): Candidate {
         require(targets.isNotEmpty())
-        val base = candidate.envelope.retainedPath
+        val envelope = candidate.envelope
+        if (envelope == null) {
+            // A coupling output has no predicted pose or body corridor. Keep only the declared
+            // next marker and real unit identity; ordinary runtime planning uses its actual frame.
+            targets.forEach { requireNotNull(world.wayPoints[it]) { "onward target is missing: $it" } }
+            return candidate.copy(window = null, pointId = targets.last(), pendingOffset = 0.0,
+                pendingStation = null, pendingStopReverse = false,
+                reversed = candidate.reversed xor candidate.pendingStopReverse)
+        }
+        val base = envelope.retainedPath
         var effectiveOffset = candidate.pendingOffset
         val finalTarget = requireNotNull(world.wayPoints[targets.last()])
         val stationAction = candidate.pendingStation
@@ -493,7 +522,7 @@ internal class StructuralTimetableValidator(private val world: World,
         }
         require(end(bounded).let { it.railId == eligible.forwardBoundary.railId && it.facing == eligible.forwardBoundary.facing &&
             abs(it.arcLengthInAbMeters - eligible.forwardBoundary.arcLengthInAbMeters) <= 1e-7 }) { "selected stop bound differs from same-rail eligibility window" }
-        val proof = StructuralOutputCorridor.prove(candidate.envelope, bounded, restrictions, false, ahead)
+        val proof = StructuralOutputCorridor.prove(envelope, bounded, restrictions, false, ahead)
         if (candidate.output != null) {
             var previousMarker = base.totalLengthMeters
             for ((_, marker) in intermediatePositions) {
@@ -509,13 +538,14 @@ internal class StructuralTimetableValidator(private val world: World,
             val key = ValidatedStructuralRouteKey(candidate.output.first, candidate.output.second, cursor.service.id,
                 index, candidate.key, start(base).facing, targets.last(), address, effectiveOffset, branchTrace = candidate.branchTrace)
             require(routes.put(key, ValidatedStructuralOutputRoute(proof, eligible, selected, ahead, candidate.carIds,
-                candidate.envelope.reversed, StructuralRouteBindings.capture(world,
+                candidate.reversed, StructuralRouteBindings.capture(world,
                     listOfNotNull(candidate.pointId) + targets, stationAction?.berthRef), markers)) == null) { "duplicate structural route proof" }
         }
         val arrived = proof.outputEnvelope(candidate.carIds).narrowedAt(eligible)
         return candidate.copy(envelope = if (candidate.pendingStopReverse) arrived.reoriented(true) else arrived,
             window = if (candidate.pendingStopReverse) null else eligible, pointId = targets.last(),
-            exactInitialEligible = false, pendingOffset = 0.0, pendingStation = null, pendingStopReverse = false)
+            pendingOffset = 0.0, pendingStation = null, pendingStopReverse = false,
+            reversed = candidate.reversed xor candidate.pendingStopReverse)
     }
 
     private fun store(cursor: Cursor, index: Int, candidate: Candidate, action: TimetableAction.StoreAtDepot) {
@@ -531,6 +561,10 @@ internal class StructuralTimetableValidator(private val world: World,
             metadata.accepts(it.point) }.sortedBy { it.point.ref.pointId }
         require(points.isNotEmpty()) { "storage Depot has no classification/length-compatible StablingPoint: ${action.depotId}" }
         val byTarget = points.groupBy { it.point.destinationId }
+        if (candidate.envelope == null) {
+            byTarget.keys.forEach { requireNotNull(world.wayPoints[it]) { "storage target is missing: $it" } }
+            return
+        }
         for ((target, targetPoints) in byTarget) {
             move(cursor, index, candidate, listOf(target))
             val key = ValidatedStructuralRouteKey(output.first, output.second, cursor.service.id, index,

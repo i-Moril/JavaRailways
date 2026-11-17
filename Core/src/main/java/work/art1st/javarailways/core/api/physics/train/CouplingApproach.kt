@@ -54,3 +54,13 @@ sealed interface CouplingApproachInspection {
         init { require(reason.isNotBlank()) }
     }
 }
+
+/** Owner-side outcome for an already admitted pair of physically touching, stopped couplers. */
+sealed interface CouplingContactCompletion {
+    /** Actual surviving live train after the ordinary guarded structural transaction publishes. */
+    data class Completed(val train: Train) : CouplingContactCompletion
+    /** Both valid participants remain apart; no movement, structural event or publication occurs. */
+    data object NotInContact : CouplingContactCompletion
+    /** Invalid/stale participants or a normal structural veto; no permission is invented. */
+    data class Rejected(val reason: String) : CouplingContactCompletion
+}

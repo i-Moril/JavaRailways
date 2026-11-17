@@ -14,6 +14,10 @@ import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
+import work.art1st.javarailways.simpleato.api.coupling.CouplingModeSettings
+import work.art1st.javarailways.simpleato.coupling.CouplingModeRuntime
+import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContextProvider
+import work.art1st.javarailways.core.api.physics.train.Train
 import java.util.UUID
 
 /** The existing Core/Basic/ATO domain chain, owned by one world in either execution mode. */
@@ -31,6 +35,7 @@ class OperationalWorldRuntime private constructor(
     private var topologySubscription: AutoCloseable? = null
     private var speedMonitor: SpeedSafetyMonitor? = null
     private var closed = false
+    private var couplingRuntime: CouplingModeRuntime? = null
 
     fun attachSpeedSafety(config: SpeedSafetyMonitor.Config) {
         check(!closed && speedMonitor == null) { "speed safety must be attached once before startup" }
@@ -57,6 +62,7 @@ class OperationalWorldRuntime private constructor(
             if (train.publishedFrame.physicsEpoch == request.observedPhysicsEpoch) train.derail(request.reason)
         }
         beforeDispatcher()
+        couplingRuntime?.tick()
         if (operationalTick == null) data.dispatcher.tick(world)
         else data.dispatcher.tick(world, operationalTick)
         world.tickManager.postTick()
@@ -72,6 +78,7 @@ class OperationalWorldRuntime private constructor(
             }
         }
         if (this::data.isInitialized) attempt { data.dispatcher.cancelPendingActionsForShutdown(world) }
+        attempt { couplingRuntime?.close() }
         if (this::data.isInitialized) attempt { data.controlRuntime.close() }
         basicData.commandSupervisor = null
         attempt { topologySubscription?.close() }
@@ -90,6 +97,9 @@ class OperationalWorldRuntime private constructor(
             reportStall: (AtoStallReport) -> Unit = {},
             candidateFacts: (work.art1st.javarailways.core.api.physics.train.Train) ->
                 work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts? = { null },
+            couplingModeSettings: CouplingModeSettings = CouplingModeSettings(),
+            couplingAdmissionContextProvider: TimetableRouteAdmissionContextProvider = TimetableRouteAdmissionContextProvider { null },
+            couplingControlReleased: (Train) -> Unit = {},
             dispatcherFactory: (OperationalWorldRuntime) -> TimetableDispatcher
         ): OperationalWorldRuntime {
             val restrictions = TrainRestrictionSnapshotStore(worldId)
@@ -104,6 +114,8 @@ class OperationalWorldRuntime private constructor(
                 AtoWorldCoordinator(worldId, basic.safetyInterlock, reportStall)
             )
             try {
+                val coupling = CouplingModeRuntime(world, couplingModeSettings, couplingAdmissionContextProvider, couplingControlReleased)
+                runtime.couplingRuntime = coupling
                 runtime.data = SimpleATOWorldData(
                     runtime.atoCoordinator, dispatcherFactory(runtime), signal, restrictions, inspection,
                     basic.railObjects, basic.safetyInterlock,
@@ -113,7 +125,8 @@ class OperationalWorldRuntime private constructor(
                         } }
                     },
                     candidateFacts = candidateFacts,
-                    timetableExtensions = timetableExtensions, stationCallResolvers = stationCallResolvers, operationalRuntime = runtime
+                    timetableExtensions = timetableExtensions, stationCallResolvers = stationCallResolvers, operationalRuntime = runtime,
+                    couplingModes = coupling
                 )
                 world.registerExtensionData(SimpleATOPlugin.INSTANCE, runtime.data)
                 basic.commandSupervisor = runtime.data.controlRuntime

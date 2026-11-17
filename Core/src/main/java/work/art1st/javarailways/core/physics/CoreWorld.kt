@@ -1675,6 +1675,13 @@ class CoreWorld(
         }
     }
 
+    override fun completeCouplingContact(
+        proof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof
+    ): work.art1st.javarailways.core.api.physics.train.CouplingContactCompletion {
+        physicsCoordinator.ensureBetweenFrames("CoreWorld.completeCouplingContact")
+        return railTopologyLock.write { TrainCoupling.completeContact(this, proof) }
+    }
+
     override fun validateCouplingApproach(
         proof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof
     ): Boolean {

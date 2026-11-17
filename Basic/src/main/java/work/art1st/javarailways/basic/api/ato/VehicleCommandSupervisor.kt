@@ -20,6 +20,13 @@ interface VehicleCommandSupervisor {
      */
     fun constrainMovementDistance(train: Train, requestedDistanceMeters: Double): Double = requestedDistanceMeters
 
+    /**
+     * Whether an exact stopped train has an owner-requested control hold. Controllers still
+     * process commands and observations, then publish zero motion without integrating dynamics.
+     * A moving train must brake through the ordinary supervised command path before this is true.
+     */
+    fun isMovementHeld(train: Train): Boolean = false
+
     fun isAcknowledgementRequired(train: Train): Boolean
 
     /** Rechecks safety on the physics owner before accepting an explicit player acknowledgement. */

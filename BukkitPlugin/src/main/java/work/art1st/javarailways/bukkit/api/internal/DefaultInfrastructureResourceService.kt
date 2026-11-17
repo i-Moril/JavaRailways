@@ -528,6 +528,9 @@ internal class DefaultInfrastructureResourceService(
         override fun abortFormationChange(handle: FormationChangeHandle): FormationChangeResult =
             withAdmission(::formationUnavailable) { it.abortFormationChange(requester, handle) }
 
+        override fun completeCouplingContact(handle: FormationChangeHandle): FormationChangeResult =
+            withAdmission(::formationUnavailable) { it.completeCouplingContact(requester, handle) }
+
         override fun requestCouplingApproach(handle: FormationChangeHandle, intent: RouteResourceIntent): RouteAdmissionResult =
             withAdmission(::routeAdmissionUnavailable) { it.requestCouplingApproach(requester, handle, intent) }
 

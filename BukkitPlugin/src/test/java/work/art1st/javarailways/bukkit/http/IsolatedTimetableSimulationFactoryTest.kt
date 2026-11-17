@@ -93,7 +93,7 @@ class IsolatedTimetableSimulationFactoryTest {
     @OptIn(Heavy::class)
     fun `isolated simulation inherits refreshed automatic limits without applying multiplier twice`() {
         val source = createTestWorld()
-        registerWorldData(source)
+        registerWorldData(source, maximumCouplingGapMeters = 2.5, maximumCouplingApproachSpeedMetersPerSecond = 0.15)
         try {
             val route = createStraightRailFromSegments(source,
                 PrimeCurveGenerator.buildStraight(300.0, 1, step = 1.0))
@@ -121,7 +121,11 @@ class IsolatedTimetableSimulationFactoryTest {
             val factory = testSimulationFactory()
             val timetable = standaloneCall(listOf(TimetableAction.Stop(1)))
             val snapshot = factory.capture(source, timetable, templateSelection(), standaloneServices())
+            assertEquals(2.5, snapshot.maximumCouplingGapMeters)
+            assertEquals(0.15, snapshot.maximumCouplingApproachSpeedMetersPerSecond)
             factory.create(snapshot, 1).use { simulation ->
+                assertEquals(2.5, simulation.world.simpleAtoWorldData.dispatcher.maximumCouplingGapMeters)
+                assertEquals(0.15, simulation.world.simpleAtoWorldData.dispatcher.maximumCouplingApproachSpeedMetersPerSecond)
                 val restored = requireNotNull(simulation.world.getRail(rail.id))
                 assertEquals(expected, simulation.world.basicWorldData.railMetadata.getValue(rail.id))
                 listOf(restored.viewAB, restored.viewBA).forEach { view ->
@@ -1990,6 +1994,8 @@ class IsolatedTimetableSimulationFactoryTest {
     }
 
     private fun registerWorldData(world: CoreWorld,
+        maximumCouplingGapMeters: Double = 5.0,
+        maximumCouplingApproachSpeedMetersPerSecond: Double = 0.5,
         candidateFacts: (work.art1st.javarailways.core.api.physics.train.Train) -> TrainCandidateFacts? = { null }) {
         val basicData = BasicWorldData()
         world.registerExtensionData(BasicPlugin.INSTANCE, basicData)
@@ -2017,7 +2023,9 @@ class IsolatedTimetableSimulationFactoryTest {
                     InfrastructureDependencyMutationResult(
                         InfrastructureDependencyMutationStatus.REMOVED
                     )
-            }
+            },
+            maximumCouplingGapMeters = maximumCouplingGapMeters,
+            maximumCouplingApproachSpeedMetersPerSecond = maximumCouplingApproachSpeedMetersPerSecond
         )
         world.registerExtensionData(
             SimpleATOPlugin.INSTANCE,

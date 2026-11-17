@@ -274,7 +274,107 @@ class CouplingApproachAdmissionTest {
         }
     }
 
-    private class Fixture(curved: Boolean, private val connectorLength: Double = 0.3) : AutoCloseable {
+    @Test
+    fun `READY zero gap contact links immediately with unchanged claims and a fenced actual output`() {
+        Fixture(false, connectorLength = 0.3, gapMeters = 0.0).use { f ->
+            val handle = f.prepare()
+            val originalFrames = f.moving.publishedFrame to f.target.publishedFrame
+            val originalClaims = f.world.infrastructureCoordination.claimSnapshots().map { it.owner to it.footprint }
+            assertInstanceOf(FormationChangeResult.Rejected::class.java,
+                f.owner { f.runtime.completeCouplingContact(f.requester, handle) })
+            assertSame(originalFrames.first, f.moving.publishedFrame)
+            assertSame(originalFrames.second, f.target.publishedFrame)
+            assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+                f.owner { f.runtime.requestCouplingApproach(f.requester, handle, f.approachIntent()) })
+            val retainedClaims = f.world.infrastructureCoordination.claimSnapshots().map { it.owner to it.footprint }
+            assertTrue(retainedClaims.map { it.first }.containsAll(originalClaims.map { it.first }))
+            assertInstanceOf(FormationChangeResult.Rejected::class.java,
+                f.owner { f.runtime.completeCouplingContact(Any(), handle) })
+            val completed = f.owner { assertInstanceOf(FormationChangeResult.Accepted::class.java,
+                f.runtime.completeCouplingContact(f.requester, handle)).snapshot }
+            assertEquals(FormationChangePhase.PHYSICAL_OBSERVED, completed.phase)
+            assertEquals(1, f.world.allTrains.size)
+            assertSame(f.moving, f.world.allTrains.single())
+            assertTrue(f.moving.hasFormationMovementHold)
+            assertEquals(0.0, f.moving.publishedFrame.speedMetersPerSecond)
+            assertTrue(f.moving.publishedFrame.headTraversal.isEmpty())
+            assertEquals(retainedClaims, f.world.infrastructureCoordination.claimSnapshots().map { it.owner to it.footprint })
+            f.owner { f.refresh(); f.runtime.consumeObservation(f.observation) }
+            assertEquals(FormationChangePhase.OUTPUTS_HELD, f.owner {
+                assertInstanceOf(FormationChangeResult.Accepted::class.java,
+                    f.runtime.formationChangeState(f.requester, handle)).snapshot.phase })
+            assertTrue(f.stalls.isEmpty(), f.stalls.toString())
+        }
+    }
+
+    @Test
+    fun `unassigned exact zero connector gap retains ordinary typed body admission rejection without mutation`() {
+        Fixture(false, connectorLength = 0.0, gapMeters = 0.0).use { f ->
+            val before = f.moving.publishedFrame to f.target.publishedFrame
+            val claims = f.world.infrastructureCoordination.claimSnapshots().map { it.owner to it.footprint }
+            f.owner {
+                assertInstanceOf(CouplingApproachInspection.Accepted::class.java,
+                    f.world.inspectCouplingModeEntry(f.moving.id, f.target.id, 5.0))
+                val frame = f.moving.publishedFrame
+                val result = f.runtime.request(f.requester, RouteResourceIntent("test:touching-body",
+                    InfrastructureOwner("test:touching-owner", 1), f.moving.id, f.observation.stamp,
+                    RouteSnapshot("test:touching-route", 1, f.world.topologyState.revision,
+                        listOf(RouteSegmentSnapshot(f.rail.id, ViewDirection.AB, frame.tail.arcLengthInAbMeters,
+                            f.rail.curve.totalArcLength))),
+                    RouteBoundary(frame.head.arcLengthInAbMeters - frame.tail.arcLengthInAbMeters)))
+                val rejected = assertInstanceOf(RouteAdmissionResult.Rejected::class.java, result, result.toString())
+                assertEquals(RouteAdmissionFailureCode.PHYSICALLY_OCCUPIED, rejected.failure.code)
+                assertTrue(rejected.failure.blockers.contains(RouteAdmissionBlocker.OccupyingTrain(f.target.id)))
+            }
+            assertSame(before.first, f.moving.publishedFrame)
+            assertSame(before.second, f.target.publishedFrame)
+            assertEquals(claims, f.world.infrastructureCoordination.claimSnapshots().map { it.owner to it.footprint })
+            assertTrue(f.runtime.activeAdmissions().isEmpty())
+            assertTrue(f.stalls.isEmpty())
+        }
+    }
+
+    @Test
+    fun `READY stationary completion keeps positive gap sources and claims unchanged`() {
+        Fixture(false, gapMeters = 0.01).use { f ->
+            val handle = f.prepare()
+            f.owner { assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+                f.runtime.requestCouplingApproach(f.requester, handle, f.approachIntent())) }
+            val before = f.moving.publishedFrame to f.target.publishedFrame
+            val claims = f.world.infrastructureCoordination.claimSnapshots().map { it.owner to it.footprint }
+            val pending = f.owner { assertInstanceOf(FormationChangeResult.Accepted::class.java,
+                f.runtime.completeCouplingContact(f.requester, handle)).snapshot }
+            assertEquals(FormationChangePhase.PUBLICATION_SEALED, pending.phase)
+            assertSame(before.first, f.moving.publishedFrame)
+            assertSame(before.second, f.target.publishedFrame)
+            assertEquals(claims, f.world.infrastructureCoordination.claimSnapshots().map { it.owner to it.footprint })
+            assertTrue(f.stalls.isEmpty())
+        }
+    }
+
+    @Test
+    fun `sealed contact denied before READY aborts without leaking or releasing source claims`() {
+        Fixture(false).use { f ->
+            val handle = f.prepare()
+            val claims = f.world.infrastructureCoordination.claimSnapshots().map { it.owner to it.footprint }
+            f.policyAllowed = false
+            f.owner { assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+                f.runtime.requestCouplingApproach(f.requester, handle, f.approachIntent())) }
+            val aborted = f.owner { assertInstanceOf(FormationChangeResult.Accepted::class.java,
+                f.runtime.abortFormationChange(f.requester, handle)).snapshot }
+            assertEquals(FormationChangePhase.ABORTED, aborted.phase)
+            assertEquals(claims, f.world.infrastructureCoordination.claimSnapshots().map { it.owner to it.footprint })
+            assertInstanceOf(FormationChangeResult.Rejected::class.java,
+                f.owner { f.runtime.completeCouplingContact(f.requester, handle) })
+            f.policyAllowed = true
+            assertTrue(f.owner { f.runtime.forceEndRoute(f.requester, InfrastructureOwner("test:owner/moving", 1)) })
+            assertTrue(f.owner { f.runtime.forceEndRoute(f.requester, InfrastructureOwner("test:owner/target", 1)) })
+            assertTrue(f.world.infrastructureCoordination.claimSnapshots().isEmpty())
+            assertTrue(f.stalls.isEmpty())
+        }
+    }
+
+    private class Fixture(curved: Boolean, private val connectorLength: Double = 0.3, gapMeters: Double? = null) : AutoCloseable {
         val coordinator = PhysicsCoordinator(1, automaticFallback = false)
         val physical = TestWorldFixture.create(coordinator)
         val world = physical.world
@@ -300,7 +400,9 @@ class CouplingApproachAdmissionTest {
         init {
             owner {
                 moving.setLocation(RailLocationWithFacing(rail.viewAB, 99.0)); moving.commitMaintenancePlacement()
-                target.setLocation(RailLocationWithFacing(rail.viewAB, 110.5)); target.commitMaintenancePlacement()
+                target.setLocation(RailLocationWithFacing(rail.viewAB,
+                    if (gapMeters == null) 110.5 else 109.0 + connectorLength * 2.0 + gapMeters))
+                target.commitMaintenancePlacement()
             }
             refresh()
         }
@@ -317,12 +419,13 @@ class CouplingApproachAdmissionTest {
         fun prepare(): FormationChangeHandle = owner {
             fun source(train: CoreTrain): RouteGrantSnapshot {
                 val frame = train.publishedFrame
-                return assertInstanceOf(RouteAdmissionResult.Granted::class.java, runtime.request(requester,
+                val result = runtime.request(requester,
                     RouteResourceIntent("test:request/${train.id}", InfrastructureOwner("test:owner/${train.id}", 1),
                         train.id, observation.stamp, RouteSnapshot("test:route/${train.id}", 1, world.topologyState.revision,
                             listOf(RouteSegmentSnapshot(rail.id, ViewDirection.AB, frame.tail.arcLengthInAbMeters,
                                 rail.curve.totalArcLength))),
-                        RouteBoundary(frame.head.arcLengthInAbMeters - frame.tail.arcLengthInAbMeters)))).grant
+                        RouteBoundary(frame.head.arcLengthInAbMeters - frame.tail.arcLengthInAbMeters)))
+                return assertInstanceOf(RouteAdmissionResult.Granted::class.java, result, result.toString()).grant
             }
             val a = source(moving)
             val b = source(target)

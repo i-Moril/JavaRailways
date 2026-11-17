@@ -116,7 +116,7 @@ Validator 在扩展经路的同一次 cursor 遍历中传播车门证据。`Open
 无数据迁移和待决定项。错误实现是单独新建一个约 180 行的门状态 cursor，它会与路由证明的预算、memo、`SelectStop`
 和分支合流漂移。正确实现是在既有 `State` 中增加 `DoorProof`，并让 `process/walk` 成为唯一传播管线。
 
-Manual parser/factory、timetable model、validator、runtime store、extension registry 与 JSON 展示均由 `SimpleATO` 拥有。token `+id` 表示 pass；final 必须 stop。stop JSON strict 且只允许 `minimumDwellTicks/stoppingOffsetMetersBefore/doorSide`；unknown/type error拒绝。Line、Destination、Station、Depot与任务归属均由`SimpleATOWorldData`提供，列车事实读取Core与宿主查询。validator先从canonical Destination解析route anchor与approach direction，再把方向显式传给SimpleATO共用`OperationalRoutePlanner`；它和Mission/Station/Line看到相同运行方向及plugin source，不在apply或Dispatcher阶段重新寻路。
+Manual parser/factory、timetable model、validator、runtime store、extension registry 与 JSON 展示均由 `SimpleATO` 拥有。token `+id` 表示 pass；final 必须 stop。stop JSON strict 且只允许 `minimumDwellTicks/stoppingOffsetMetersBefore/doorSide`；unknown/type error拒绝。Line、Destination、Station、Depot与任务归属均由`SimpleATOWorldData`提供，列车事实读取Core与宿主查询。validator先从canonical Destination解析route anchor与approach direction，再把方向显式传给SimpleATO共用`OperationalRoutePlanner`；它和Mission/Station/Line看到相同运行方向及plugin source。普通命名起点及纯 Split 保留静态路线；Couple 输出及其后代从真实发布车身在 Dispatcher 阶段复用同一 planner，不预测未来联挂输出起点。
 
 ## 项目内正确示例
 
@@ -204,7 +204,11 @@ model防御复制孩子列表；编译trace保留top-level `stepIndex`并增加�
 相同完整address、传播State和深度上下文的后继结果可复用不可变证明；发布路线数组去重，
 避免连续空分支反复复制同一后继经路。
 
-结构事件传播实际初始车体证据和不透明后继包络。`StructuralBranchTrace`同时记录
+纯 Split 传播实际初始车体证据和不透明后继包络；Couple 仅传播真实初始成员经完整单元变换后的逻辑身份，
+不生成接触模板或未来输出包络。`StructuralTimetableValidation.outputMemberships` 按 service、步骤、候选和历史
+保留后续车次可消费的单元身份，`TimetableMetadataValidator` 不再借助尚不存在的路线证明判断 Couple 输出槽位。
+联挂后再 Split 的链在现场核对真实停稳成员和命名停点后调用原 Split API；未经过 Couple 的 Split 门禁不变。
+`StructuralBranchTrace`同时记录
 按service ID和完整address命名的条件arm及实际提交的berth选择；继承到输出，重联合并两来源历史，
 冲突历史不得配对。固定事件source、output、route与storage键必须包含准确历史；
 解编输出候选键从`ValidatedStructuralSource.outputCandidateKeys`取得，运行时不得重造字符串。

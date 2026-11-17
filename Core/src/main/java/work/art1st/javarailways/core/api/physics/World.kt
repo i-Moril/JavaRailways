@@ -80,6 +80,22 @@ interface World : Extendable<Any> {
         work.art1st.javarailways.core.api.physics.train.CouplingApproachInspection.Rejected(
             "world does not support coupling-mode entry inspection")
 
+    /**
+     * Completes an already touching stopped pair through the same physical link transaction used
+     * for collision contact. Serialized simulation-owner call between frames, immediate and
+     * nonblocking. It validates this issuing world's current proof and exact connected couplers;
+     * a positive gap returns NotInContact without moving either source. Normal TrainLink decision
+     * guards, controller/extension preparation, occupancy publication and requested output fences
+     * remain authoritative. This method adds no route/resource permission and never moves a train
+     * into contact. Unexpected transaction failures retain the existing fail-closed error path.
+     */
+    @org.jetbrains.annotations.ApiStatus.Experimental
+    fun completeCouplingContact(
+        proof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof
+    ): work.art1st.javarailways.core.api.physics.train.CouplingContactCompletion =
+        work.art1st.javarailways.core.api.physics.train.CouplingContactCompletion.Rejected(
+            "world does not support stationary coupling contact completion")
+
     /** Rechecks an issuing-world proof on the same serialized owner; never refreshes stale proof. */
     fun validateCouplingApproach(
         proof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof

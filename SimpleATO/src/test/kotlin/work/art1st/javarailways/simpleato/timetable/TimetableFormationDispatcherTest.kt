@@ -21,6 +21,7 @@ import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmi
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
+import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.physics.train.*
 import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
@@ -433,6 +434,115 @@ class TimetableFormationDispatcherTest {
     }
 
     @Test
+    fun `coupled actual consist moves then splits without future envelope evidence`() {
+        Fixture(false, coupling = true, coupledSplit = true).use { f ->
+            f.begin()
+            f.physics.start()
+            repeat(2200) { f.tick() }
+            assertEquals(2, f.world.allTrains.size)
+            assertEquals(2, f.preparations)
+            assertEquals(listOf(FixedFormationChangeKind.COUPLE, FixedFormationChangeKind.SPLIT),
+                f.preparedIntents.map { intent -> if (intent is FixedFormationChangeIntent.Couple) FixedFormationChangeKind.COUPLE else FixedFormationChangeKind.SPLIT })
+            assertEquals(listOf(1, 2), f.world.allTrains.map { it.cars.size }.sorted())
+            assertEquals(3, f.world.allTrains.flatMap { it.cars }.map { it.id }.distinct().size)
+            assertTrue(f.world.allTrains.all { it.speed == 0.0 && it.movementHeld })
+            assertTrue(f.world.allTrains.all { it.publishedFrame!!.head.arcLengthInAbMeters > 80.0 })
+        }
+    }
+
+    @Test
+    fun `missing actual onward route leaves joined body stopped and protected`() {
+        Fixture(false, coupling = true, coupledContinuation = true).use { f ->
+            val disconnected = createStraightRailFromSegments(f.world, PrimeCurveGenerator.buildStraight(50.0, 1))
+            f.world.basicWorldData.wayPoints.add(WayPoint("end", disconnected.id, 40.0))
+            f.begin()
+            f.physics.start()
+            repeat(500) { f.tick() }
+            assertEquals(1, f.world.allTrains.size)
+            assertEquals(3, f.train.cars.size)
+            assertEquals(0.0, f.train.speed)
+            assertTrue(f.train.movementHeld)
+            val output = f.dispatcher.statuses().single { it.id.serviceId == "source" }
+            assertEquals(TimetableServiceRunState.REPLAN_REQUIRED, output.state)
+            assertTrue(output.message.orEmpty().contains("actual formation route unavailable"), output.toString())
+            assertTrue(output.routeGrantActive)
+            assertEquals(3, f.world.simpleAtoWorldData.depots.allFixedUnitAssignments().size)
+            assertTrue(f.outputBindings.single().route.segments.all { it.railId == f.rail.id })
+            assertTrue(f.outputRequests.isEmpty(), "an unavailable path must not manufacture a departure request")
+        }
+    }
+
+    @Test
+    fun `configured approach speed is the cap admitted for the real coupling`() {
+        Fixture(false, coupling = true, couplingSpeedLimit = 0.15, couplingEventSpeed = 1.0).use { f ->
+            f.begin()
+            f.physics.start()
+            repeat(600) { f.tick() }
+            assertEquals(1, f.world.allTrains.size)
+            assertEquals(0.15, (f.preparedIntents.single() as FixedFormationChangeIntent.Couple).maximumApproachSpeedMetersPerSecond)
+        }
+    }
+
+    @Test
+    fun `invalid live entry gap retains stopped separate trains without sealing an event`() {
+        Fixture(false, coupling = true, couplingGapLimit = 0.1).use { f ->
+            f.begin()
+            f.physics.start()
+            repeat(20) { f.tick() }
+            assertEquals(2, f.world.allTrains.size)
+            assertEquals(0, f.preparations)
+            assertTrue(f.world.allTrains.all { it.speed == 0.0 })
+            assertTrue(f.releasedControlTrains.isEmpty(), "rejected preparation retains both control sessions")
+            val statuses = f.dispatcher.statuses()
+            assertTrue(statuses.any { it.message.orEmpty().contains("coupling mode rejected") }, statuses.toString())
+        }
+    }
+
+    @Test
+    fun `both manual routed participants release only consumed control after actual handoff`() {
+        Fixture(false, coupling = true, coupledContinuation = true, couplingEventTick = 5L).use { f ->
+            f.begin()
+            val target = checkNotNull(f.world.getTrain("stationary"))
+            val manual = f.owner {
+                assertInstanceOf(TimetableControlTransferResult.ManualRouted::class.java,
+                    f.dispatcher.enterManualRoutedControl(f.world, target.id, "target-driver"))
+                work.art1st.javarailways.basic.control.RealisticManualController(target, Dynamics,
+                    List(target.cars.size) { CarDynamics }, 9.8).also {
+                    target.setController(it)
+                    assertTrue(f.dispatcher.bindManualRoutedController(target.id, "target-driver", it))
+                    it.setHandle("N")
+                }
+                assertInstanceOf(TimetableControlTransferResult.ManualRouted::class.java,
+                    f.dispatcher.enterManualRoutedControl(f.world, f.train.id, "driver"))
+                work.art1st.javarailways.basic.control.RealisticManualController(f.train, Dynamics,
+                    List(f.train.cars.size) { CarDynamics }, 9.8).also {
+                    f.train.setController(it)
+                    assertTrue(f.dispatcher.bindManualRoutedController(f.train.id, "driver", it))
+                    f.world.basicWorldData.commandSupervisor = f.world.simpleAtoWorldData.controlRuntime
+                    it.setDirection(work.art1st.javarailways.basic.control.TrainDriveDirection.FORWARD)
+                    it.setHandle("N")
+                }
+            }
+            f.physics.start()
+            repeat(700) {
+                val permitted = f.world.simpleAtoWorldData.controlRuntime.couplingAuthority(f.train) != null
+                manual.setHandle(if (f.train.cars.size == 3 && f.train.speed < 0.8 || permitted && f.train.speed < 0.1) "P1" else "N")
+                f.tick()
+            }
+            assertEquals(1, f.world.allTrains.size)
+            assertEquals(3, f.train.cars.size)
+            assertSame(manual, f.train.controller)
+            assertEquals(1, f.releasedControlTrains.size)
+            assertSame(target, f.releasedControlTrains.single(), "only the consumed target loses its host control session")
+            assertEquals(3, f.atoCreationCarCounts.last(), "replacement protection must resolve every actual output car")
+            val run = f.dispatcher.statuses().single { it.id.serviceId == "source" }
+            assertEquals(TimetableControlMode.MANUAL_ROUTED, run.controlMode)
+            assertEquals("driver", run.controlTransferOwner)
+            assertTrue(f.train.publishedFrame.head.arcLengthInAbMeters > 45.0, run.toString())
+        }
+    }
+
+    @Test
     fun `operator can cancel unsealed coupling preparation without losing source claims`() {
         Fixture(false, coupling = true).use { f ->
             f.begin()
@@ -656,7 +766,8 @@ class TimetableFormationDispatcherTest {
         }
     }
 
-    private class Fixture(private val newDuty: Boolean, sourceReversed: Boolean = false, outputReversed: Boolean = false, orientationCase: Boolean = false, separateDutyCaps: Boolean = false, private val coupling: Boolean = false, coupledContinuation: Boolean = false, viaOutput: Boolean = false, deferredOutput: Boolean = false, chooseOutputBranch: Boolean = true, reverseOutputBranch: Boolean = false, safetyDistanceMeters: Double = 0.5, marginCrossesRail: Boolean = false, measureTasks: Boolean = false, stationOffset: Double? = null, stationDwellTicks: Long? = null) : AutoCloseable {
+    private class Fixture(private val newDuty: Boolean, sourceReversed: Boolean = false, outputReversed: Boolean = false, orientationCase: Boolean = false, separateDutyCaps: Boolean = false, private val coupling: Boolean = false, coupledContinuation: Boolean = false, coupledSplit: Boolean = false, couplingEventTick: Long = 0L,
+        couplingSpeedLimit: Double = 0.5, couplingEventSpeed: Double = 0.2, couplingGapLimit: Double = 5.0, viaOutput: Boolean = false, deferredOutput: Boolean = false, chooseOutputBranch: Boolean = true, reverseOutputBranch: Boolean = false, safetyDistanceMeters: Double = 0.5, marginCrossesRail: Boolean = false, measureTasks: Boolean = false, stationOffset: Double? = null, stationDwellTicks: Long? = null) : AutoCloseable {
         val physics = PhysicsCoordinator(1, automaticFallback = false)
         private val fixture = TestWorldFixture.create(physics)
         val world = fixture.world
@@ -688,18 +799,21 @@ class TimetableFormationDispatcherTest {
             authorizeFormationRoute = { _, _ -> FormationRoutePolicyResult.Accepted(emptyList()) },
             stallWorld = { detail, _ -> failures += detail })
         var preparations = 0
+        val preparedIntents = arrayListOf<FixedFormationChangeIntent>()
         val outputBindings = arrayListOf<RouteResourceIntent>()
         val outputRequests = arrayListOf<RouteResourceIntent>()
         val observedBranchCarCounts = arrayListOf<Int?>()
         private val service = object : RouteResourceAdmissionService {
             override fun prepareFormationChange(intent: FixedFormationChangeIntent): FormationChangeResult {
                 preparations++
+                preparedIntents += intent
                 return runtime.prepareFormationChange(requester, intent)
             }
             override fun sealFormationPublication(handle: FormationChangeHandle) = runtime.sealFormationPublication(requester, handle)
             override fun formationChangeState(handle: FormationChangeHandle) = runtime.formationChangeState(requester, handle)
             override fun abortFormationChange(handle: FormationChangeHandle) = runtime.abortFormationChange(requester, handle)
             override fun requestCouplingApproach(handle: FormationChangeHandle, intent: RouteResourceIntent) = runtime.requestCouplingApproach(requester, handle, intent)
+            override fun completeCouplingContact(handle: FormationChangeHandle) = runtime.completeCouplingContact(requester, handle)
             override fun bindFormationOutputs(handle: FormationChangeHandle, intents: List<RouteResourceIntent>): FormationChangeResult {
                 outputBindings += intents
                 return runtime.bindFormationOutputs(requester, handle, intents)
@@ -721,13 +835,20 @@ class TimetableFormationDispatcherTest {
             serviceDecelerationMetersPerSecondSquared = 2.0, reactionTimeSeconds = 0.0,
             safetyDistanceMeters = safetyDistanceMeters)
         val dependencies = RecordingInfrastructureDependencyService()
+        val atoCreationCarCounts = arrayListOf<Int>()
+        val releasedControlTrains = arrayListOf<Train>()
         val dispatcher = TimetableDispatcher(authorityStoppingMarginMeters = profile.safetyDistanceMeters,
+            maximumCouplingGapMeters = couplingGapLimit, maximumCouplingApproachSpeedMetersPerSecond = couplingSpeedLimit,
+            couplingControlReleased = { releasedControlTrains += it },
             routeAdmissionContextProvider = TimetableRouteAdmissionContextProvider { TimetableRouteAdmissionContext(observation, service) },
             signalRestrictionSnapshots = signals, inspectionRuntime = inspection,
             infrastructureDependencyService = dependencies,
-            atoFactory = TimetableAtoFactory { selected, selectedWorld -> SimpleATO(selected, selectedWorld,
-                HandleTrainActuator(selected, Dynamics, List(selected.cars.size) { CarDynamics }, 9.8), profile,
-                inspection::maximumDeclaredLeadTimeSeconds) })
+            atoFactory = TimetableAtoFactory { selected, selectedWorld ->
+                atoCreationCarCounts += selected.cars.size
+                SimpleATO(selected, selectedWorld,
+                    HandleTrainActuator(selected, Dynamics, List(selected.cars.size) { CarDynamics }, 9.8), profile,
+                    inspection::maximumDeclaredLeadTimeSeconds)
+            })
         init {
             val depot = DepotId("home")
             val point = StablingPointRef(depot, "p")
@@ -813,16 +934,20 @@ class TimetableFormationDispatcherTest {
                 work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry.setCandidateFacts(world, peer.id, work.art1st.javarailways.simpleato.api.depot.TrainCandidateFacts("emu", emptySet(), 2.0, emptySet()))
                 world.basicWorldData.wayPoints.add(WayPoint("peer-origin", rail.id, peer.publishedFrame.head.arcLengthInAbMeters))
                 val joinAction = if (measureTasks) listOf(TimetableStep.At(0, TimetableAction.TaskStart("join-task")),
-                    TimetableStep.At(0, TimetableAction.Couple("join")), TimetableStep.At(0, TimetableAction.TaskEnd("join-task")))
-                    else listOf(TimetableStep.At(0, TimetableAction.Couple("join")))
+                    TimetableStep.At(couplingEventTick, TimetableAction.Couple("join")), TimetableStep.At(couplingEventTick, TimetableAction.TaskEnd("join-task")))
+                    else listOf(TimetableStep.At(couplingEventTick, TimetableAction.Couple("join")))
                 val joinSteps = listOf(TimetableStep.Check("origin")) + joinAction +
-                    if (coupledContinuation) listOf(TimetableStep.At(0, TimetableAction.GoTo("end"))) else emptyList()
+                    (if (coupledContinuation || coupledSplit) listOf(TimetableStep.At(couplingEventTick, TimetableAction.GoTo("end"))) else emptyList()) +
+                    (if (coupledSplit) listOf(TimetableStep.At(couplingEventTick, TimetableAction.Split("divide-after-join"))) else emptyList())
                 world.simpleAtoWorldData.timetables.add(Timetable("split", services = listOf(
                     TimetableService("source", TrainSelector.TrainId(train.id), joinSteps),
                     TimetableService("peer", TrainSelector.TrainId(peer.id), (listOf(TimetableStep.Check("peer-origin")) + joinAction))),
                     formationEvents = TimetableFormationCatalog(listOf(TimetableFormationEvent.Couple("join", "source", "source", "peer",
-                        FormationStationaryEnd.TAIL, FormationRendezvous("origin", "peer-origin"), 0.2,
-                        TimetableFormationOutput("combined", if (coupledContinuation) FormationOutputDisposition.Duty("source") else FormationOutputDisposition.Hold))))))
+                        FormationStationaryEnd.TAIL, FormationRendezvous("origin", "peer-origin"), couplingEventSpeed,
+                        TimetableFormationOutput("combined", if (coupledContinuation || coupledSplit) FormationOutputDisposition.Duty("source") else FormationOutputDisposition.Hold))) +
+                        (if (coupledSplit) listOf(TimetableFormationEvent.Split("divide-after-join", "source", 1,
+                            TimetableFormationOutput("head", FormationOutputDisposition.Hold),
+                            TimetableFormationOutput("tail", FormationOutputDisposition.Hold))) else emptyList()))))
             } else world.simpleAtoWorldData.timetables.add(Timetable("split", services = configuredDuties,
                 lineSpeedLimits = if (separateDutyCaps) listOf(TimetableLineSpeedLimit(slow, 0.2),
                     TimetableLineSpeedLimit(fast, 2.0)) else emptyList(),
@@ -831,8 +956,12 @@ class TimetableFormationDispatcherTest {
         fun begin() = owner {
             val result = dispatcher.beginTimetable(world, "split")
             assertInstanceOf(TimetableEpochStartResult.Started::class.java, result, result.toString())
-            assertInstanceOf(TimetableServiceStartResult.Started::class.java, dispatcher.startService(world, "split", "source"))
-            if (coupling) assertInstanceOf(TimetableServiceStartResult.Started::class.java, dispatcher.startService(world, "split", "peer"))
+            val source = dispatcher.startService(world, "split", "source")
+            assertInstanceOf(TimetableServiceStartResult.Started::class.java, source, source.toString())
+            if (coupling) {
+                val peer = dispatcher.startService(world, "split", "peer")
+                assertInstanceOf(TimetableServiceStartResult.Started::class.java, peer, peer.toString())
+            }
         }
         fun tick() {
             physics.stepSimulation(50.0).await()

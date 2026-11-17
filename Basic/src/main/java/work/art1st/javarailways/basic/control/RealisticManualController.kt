@@ -165,6 +165,11 @@ class RealisticManualController(
         val command = if (controlledTrain.world.basicWorldData.safetyInterlock.isEngaged) VehicleControlCommand.EMERGENCY_BRAKE
             else supervisor?.supervise(controlledTrain,
                 dynamics.controlState(activeSpeed), dynamics.controlCapabilities(activeSpeed), proposed, deltaSeconds) ?: proposed
+        if (supervisor?.isMovementHeld(controlledTrain) == true) {
+            speed = 0.0
+            moveControlledTrain(0.0, 0.0)
+            return
+        }
         val result = dynamics.step(activeSpeed, command, deltaSeconds)
         speed = result.state.speed
         val distance = supervisor?.constrainMovementDistance(controlledTrain, result.distance) ?: result.distance

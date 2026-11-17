@@ -456,6 +456,8 @@ class SimulationRouteAdmissionHost internal constructor(
             checkNotNull(runtime).abortFormationChange(requester, handle)
         override fun requestCouplingApproach(handle: FormationChangeHandle, intent: RouteResourceIntent): RouteAdmissionResult =
             checkNotNull(runtime).requestCouplingApproach(requester, handle, intent)
+        override fun completeCouplingContact(handle: FormationChangeHandle): FormationChangeResult =
+            checkNotNull(runtime).completeCouplingContact(requester, handle)
         override fun bindFormationOutputs(handle: FormationChangeHandle, outputBodyIntents: List<RouteResourceIntent>): FormationChangeResult =
             checkNotNull(runtime).bindFormationOutputs(requester, handle, outputBodyIntents)
         override fun requestFormationOutput(handle: FormationChangeHandle, intent: RouteResourceIntent): RouteAdmissionResult =

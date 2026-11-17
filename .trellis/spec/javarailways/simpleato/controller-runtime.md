@@ -129,6 +129,20 @@ ATO/ATP路径调用未来多tick的真实动力学预演。参考策略见[参�
 `CouplingControlRuntimeTest`覆盖精确peer端豁免、保留更严格native/signal及第三列车限制、手动/自动同一速度cap和失效证明；
 `SimpleATOTest`用真实epoch验证匹配的contact mission可驱动，以及无route、错误boundary、已移动target均保持停车。
 
+`RailwayControlRuntime.acquireCouplingHold(train)`为一次联挂操作返回独立exact token；close幂等且只清自己的请求。
+当前Train身份由owner入口验证，退役Train不能重新取得hold，也不替换controller或覆盖其他owner的token。
+有请求且列车移动时，只在reference加入运营停车目标，手动也复用同一ordinary stopping策略并真实积分制动；
+原signal/obstacle/native hard targets仍参与ATP。完全停稳后，manual监督继续构建观察但不触发等待造成的ATP ack，
+AbstractATO继续处理commands、plan、perception和inspection再复用freeze保持0；两者不做动力学积分或伪造设备历史。
+联挂操作在READY时只关闭approaching token，stationary token由同一操作保持到实际结构交接。
+
+`SimpleATO.attachTransferredProtection()`显式安装既有refreshTransferredProtection callback，
+使尚未执行过第一次ATO motion的控制器也能作为MANUAL_ROUTED保护来源，不复制第二套扫描。
+同exact stopped Train的serialized owner handoff可调用`transferOperationalProtectionTo(replacement)`：
+先消费source待处理命令，再把外部限速、运营保持及stopAt的stable ref/offset转给尚未运行的新保护ATO。
+不复制旧mission、route mapping、following、perception或累计里程；dispatcher须先在结构前使原physical Mission命令就绪，
+不能用此方法绕过过期origin检查。`SimpleATOTest`验证已应用/待应用命令保留及后续按原key清除。
+
 普通非车站mission Stop显式使用零几何停车margin，曲线瞄准原运营目标；停车容差用于接受到达，不把普通目标退到容差边缘。
 车站Stop同样使用零几何停车margin，瞄准既有停车点（含明确设置的停车偏移），不添加固定提前量，也不根据到站容差平移目标。由`AtoMissionPoint.Stop.stationStop`或同revision实际terminal StationCall明确标识的终点，mission授权余量为0.3米；普通mission和独立红灯/资源约束默认保留全局安全距离。`MovementAuthorityConstraint.stoppingMarginMeters`为空时使用profile全局值，否则使用明确值；公开`terminalMovementAuthorityLimitMeters(routeEndDistanceMeters, stationTerminal)`只使用显式参数，不读取physics私有active状态；资源准入如何证明车站终点及保留原始grant见[终点授权合同](terminal-route-completion.md)。外部Stop/物理边界的原默认margin和连挂contact规则不受影响。
 

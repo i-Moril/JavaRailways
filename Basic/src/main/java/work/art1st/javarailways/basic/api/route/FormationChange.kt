@@ -21,8 +21,9 @@ data class FormationTrainIdentity private constructor(
 
 /**
  * Fixed-event physical identities prepared under one authenticated admission service binding.
- * This DTO does not certify whole EMU units or actual control compatibility: the operating owner
- * must validate both before submission. Core still performs physical/controller preparation.
+ * This DTO does not certify complete EMU units or operating compatibility policies. Operating
+ * owners that require those policies, such as timetables, validate them before submission.
+ * Core still performs physical composition and controller preparation for every actual change.
  */
 sealed interface FixedFormationChangeIntent {
     val eventId: String

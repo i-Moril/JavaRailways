@@ -17,7 +17,8 @@ internal class FixedUnitCouplePlan private constructor(
         fun prepare(event: TimetableFormationEvent.Couple, instanceId: String,
             proof: CouplingApproachProof, approachingAssignmentId: String, stationaryAssignmentId: String,
             approachingGrant: RouteGrantSnapshot, stationaryGrant: RouteGrantSnapshot,
-            outputAssignmentId: String, depots: DepotStore
+            outputAssignmentId: String, depots: DepotStore,
+            maximumApproachSpeedMetersPerSecond: Double = event.maximumApproachSpeedMetersPerSecond
         ): FixedUnitCouplePlan {
             val moving = proof.approachingFrame
             val stationary = proof.stationaryFrame
@@ -30,8 +31,10 @@ internal class FixedUnitCouplePlan private constructor(
             }
             val movingEnd = if (moving.reversed) TrainEndSide.B else TrainEndSide.A
             val stationaryHead = if (stationary.reversed) TrainEndSide.B else TrainEndSide.A
-            val stationaryEnd = if (event.stationaryEnd == FormationStationaryEnd.HEAD) stationaryHead
-                else if (stationaryHead == TrainEndSide.A) TrainEndSide.B else TrainEndSide.A
+            require(event.stationaryEnd == FormationStationaryEnd.TAIL) {
+                "coupling mode requires the stationary train operational tail"
+            }
+            val stationaryEnd = if (stationaryHead == TrainEndSide.A) TrainEndSide.B else TrainEndSide.A
             require(proof.request.approachingEnd == movingEnd && proof.request.stationaryEnd == stationaryEnd) {
                 "contact proof does not match the authored operational ends"
             }
@@ -52,7 +55,7 @@ internal class FixedUnitCouplePlan private constructor(
             return FixedUnitCouplePlan(FixedFormationChangeIntent.Couple(instanceId,
                 approachingGrant.grantId, stationaryGrant.grantId, proof,
                 FormationTrainIdentity(output.trainId, output.carIds, output.reversed),
-                event.maximumApproachSpeedMetersPerSecond),
+                maximumApproachSpeedMetersPerSecond),
                 FixedFormationChange(instanceId, FixedFormationChangeKind.COUPLE,
                     listOf(FixedFormationOwner(moving.trainId, approachingAssignmentId, movingCars, moving.reversed),
                         FixedFormationOwner(stationary.trainId, stationaryAssignmentId, stationaryCars, stationary.reversed)),

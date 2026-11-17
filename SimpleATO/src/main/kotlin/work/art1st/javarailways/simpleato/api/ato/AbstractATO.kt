@@ -135,6 +135,10 @@ abstract class AbstractATO(
                 return
             }
             if (deltaTimeSeconds <= 0.0) return
+            if (railwayControlRuntime.isMovementHeld(train)) {
+                freeze()
+                return
+            }
             val command = railwayControlRuntime.automatic(train, actuator.controlState(activeSpeed),
                 actuator.controlCapabilities(activeSpeed), motionControlFrame(demand), deltaTimeSeconds, controlMissionRevision())
             val step = actuator.step(activeSpeed, command, deltaTimeSeconds)

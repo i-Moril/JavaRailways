@@ -201,6 +201,119 @@ class CouplingApproachTest {
         }
     }
 
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource("false,0.0", "false,0.3", "true,0.0", "true,0.3")
+    fun `already touching stopped couplers link through the real guarded transaction without movement`(reversed: Boolean, connector: Double) {
+        TestWorldFixture.create().use { fixture ->
+            val world = fixture.world
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
+            val moving = createTrainWithConfig("touch-moving", rail, world, listOf(10.0),
+                connectorLength = connector, carIdPrefix = "moving-")
+            val target = createTrainWithConfig("touch-target", rail, world, listOf(10.0),
+                connectorLength = connector, carIdPrefix = "target-")
+            world.onOwnerForTest {
+                val ahead = 60.0 + connector * 2.0
+                moving.setLocation(RailLocationWithFacing(rail.viewAB, if (reversed) ahead else 50.0))
+                target.setLocation(RailLocationWithFacing(rail.viewAB, if (reversed) 50.0 else ahead))
+                moving.commitMaintenancePlacement(); target.commitMaintenancePlacement()
+                if (reversed) { moving.reverse(); target.reverse() }
+            }
+            val proof = world.onOwnerForTest { assertInstanceOf(CouplingApproachInspection.Accepted::class.java,
+                world.inspectCouplingModeEntry(moving.id, target.id, 5.0)).proof }
+            assertEquals(0.0, proof.couplerGapMeters, 1e-8)
+            assertEquals(0.0, proof.distanceToContactMeters, 0.002)
+            val sourceStates = (moving.publishedFrame.cars + target.publishedFrame.cars).associateBy { it.carId }
+            var decisions = 0
+            var successes = 0
+            MainRailEventBus.register(object : EventListener {
+                @HandlesEvent fun decide(event: TrainLinkEvent) {
+                    if (event.world !== world) return
+                    decisions++
+                    event.requestMasterTrain(moving)
+                    event.requestMovementHold()
+                }
+                @HandlesEvent fun observe(event: work.art1st.javarailways.core.api.event.TrainLinkSuccessEvent) {
+                    if (event.world === world) successes++
+                }
+            }).use {
+                val completed = world.onOwnerForTest { assertInstanceOf(
+                    work.art1st.javarailways.core.api.physics.train.CouplingContactCompletion.Completed::class.java,
+                    world.completeCouplingContact(proof)) }
+                assertSame(moving, completed.train)
+            }
+            assertEquals(1, decisions)
+            assertEquals(1, successes)
+            assertEquals(1, world.allTrains.size)
+            assertTrue(moving.hasFormationMovementHold)
+            val output = moving.publishedFrame
+            assertEquals(0.0, output.speedMetersPerSecond)
+            assertEquals(sourceStates.keys, output.cars.map { it.carId }.toSet())
+            output.cars.forEach { car ->
+                val original = sourceStates.getValue(car.carId)
+                assertEquals(original.bogies.size, car.bogies.size)
+                (listOf(original.state) + original.bogies).zip(listOf(car.state) + car.bogies).forEach { (before, after) ->
+                    assertTrue(before.positionVector().distance(after.positionVector()) <= 1e-8,
+                        "stationary coupling must preserve the actual car/bogie position")
+                    assertTrue(before.directionVector().distance(after.directionVector()) <= 1e-8)
+                    assertTrue(before.normalVector().distance(after.normalVector()) <= 1e-8)
+                    assertEquals(0.0, after.velocityX)
+                    assertEquals(0.0, after.velocityY)
+                    assertEquals(0.0, after.velocityZ)
+                }
+            }
+            assertTrue(output.headTraversal.isEmpty())
+            assertTrue(output.tailTraversal.isEmpty())
+            assertFalse(world.validatePublishedCouplingApproach(proof))
+        }
+    }
+
+    @Test
+    fun `stationary contact completion never moves a positive gap or bypasses a structural veto`() {
+        TestWorldFixture.create().use { fixture ->
+            val world = fixture.world
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
+            val moving = createTrainWithConfig("contact-moving", rail, world, listOf(10.0), carIdPrefix = "moving-")
+            val target = createTrainWithConfig("contact-target", rail, world, listOf(10.0), carIdPrefix = "target-")
+            world.onOwnerForTest {
+                moving.setLocation(RailLocationWithFacing(rail.viewAB, 50.0)); moving.commitMaintenancePlacement()
+                target.setLocation(RailLocationWithFacing(rail.viewAB, 60.01)); target.commitMaintenancePlacement()
+            }
+            val apart = world.onOwnerForTest { assertInstanceOf(CouplingApproachInspection.Accepted::class.java,
+                world.inspectCouplingModeEntry(moving.id, target.id, 5.0)).proof }
+            val original = moving.publishedFrame to target.publishedFrame
+            var decisions = 0
+            MainRailEventBus.register(object : EventListener {
+                @HandlesEvent fun decide(event: TrainLinkEvent) {
+                    if (event.world !== world) return
+                    decisions++
+                    event.reject("test veto")
+                }
+            }).use {
+                assertSame(work.art1st.javarailways.core.api.physics.train.CouplingContactCompletion.NotInContact,
+                    world.onOwnerForTest { world.completeCouplingContact(apart) })
+                assertEquals(0, decisions)
+                assertSame(original.first, moving.publishedFrame)
+                assertSame(original.second, target.publishedFrame)
+                world.onOwnerForTest {
+                    target.setLocation(RailLocationWithFacing(rail.viewAB, 60.0)); target.commitMaintenancePlacement()
+                }
+                assertInstanceOf(work.art1st.javarailways.core.api.physics.train.CouplingContactCompletion.Rejected::class.java,
+                    world.onOwnerForTest { world.completeCouplingContact(apart) })
+                val touching = world.onOwnerForTest { assertInstanceOf(CouplingApproachInspection.Accepted::class.java,
+                    world.inspectCouplingModeEntry(moving.id, target.id, 5.0)).proof }
+                val beforeVeto = moving.publishedFrame to target.publishedFrame
+                val rejected = world.onOwnerForTest { assertInstanceOf(
+                    work.art1st.javarailways.core.api.physics.train.CouplingContactCompletion.Rejected::class.java,
+                    world.completeCouplingContact(touching)) }
+                assertTrue(rejected.reason.contains("test veto"))
+                assertEquals(1, decisions)
+                assertSame(beforeVeto.first, moving.publishedFrame)
+                assertSame(beforeVeto.second, target.publishedFrame)
+                assertEquals(2, world.allTrains.size)
+            }
+        }
+    }
+
     @Test
     fun `wrong end and distant target reject and frame changes invalidate issued proof`() {
         TestWorldFixture.create().use { fixture ->

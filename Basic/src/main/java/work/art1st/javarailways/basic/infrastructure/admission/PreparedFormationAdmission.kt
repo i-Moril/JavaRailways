@@ -387,13 +387,50 @@ internal class PreparedFormationAdmission(
     fun abort(requester: Any, handle: FormationChangeHandle): FormationChangeResult {
         val state = owned(requester, handle) ?: return reject("unknown or foreign formation handle")
         if (state.phase == FormationChangePhase.ABORTED) return accepted(state)
-        if (state.phase != FormationChangePhase.PREPARED || !unchangedStoppedSources(state))
-            return reject("sealed or changed formations retain claims for recovery")
+        val sealedCoupling = state.phase == FormationChangePhase.PUBLICATION_SEALED &&
+            state.intent is FixedFormationChangeIntent.Couple
+        if ((state.phase != FormationChangePhase.PREPARED && !sealedCoupling) ||
+            state.approachGrant != null || !unchangedStoppedSources(state))
+            return reject("READY, published or changed formations retain claims for recovery")
+        state.pendingApproach?.let { pending ->
+            val attempt = approaches[pending] ?: return reject("pending approach preparation is unavailable")
+            val abortedState = try { attempt.ticket.abort(); attempt.ticket.snapshot().state }
+            catch (failure: Exception) { return reject("approach preparation could not confirm a safe abort: ${failure.message}") }
+            when (abortedState) {
+                ResourcePreparationState.PREPARING -> return FormationChangeResult.Rejected(RouteAdmissionFailure(
+                    RouteAdmissionFailureCode.REQUEST_BUSY, "approach preparation is still stopping safely"))
+                ResourcePreparationState.READY, ResourcePreparationState.UNSAFE ->
+                    return reject("approach preparation has not safely aborted; claims retained")
+                ResourcePreparationState.ABORTED_SAFE -> {
+                    if (!attempt.rollback()) return reject("safe approach reservation rollback failed; claims retained")
+                    approaches.remove(pending)
+                    state.pendingApproach = null
+                    approachResults[pending] = requester to RouteAdmissionResult.Rejected(RouteAdmissionFailure(
+                        RouteAdmissionFailureCode.PREPARATION_ABORTED_SAFE, "approach preparation safely aborted"))
+                }
+            }
+        }
         state.bindings.forEach { it.setFormationHold(null) }
         state.phase = FormationChangePhase.ABORTED
         states.remove(handle)
         aborted[handle] = state
+        publishContactPermissions()
         return accepted(state)
+    }
+
+    fun completeContact(requester: Any, handle: FormationChangeHandle): FormationChangeResult {
+        val state = owned(requester, handle) ?: return reject("unknown or foreign formation handle")
+        val intent = state.intent as? FixedFormationChangeIntent.Couple ?: return reject("event is not coupling")
+        val contact = state.approachGrant?.couplingContactAuthority
+        if (state.phase != FormationChangePhase.PUBLICATION_SEALED || state.pendingApproach != null ||
+            contact?.proof !== intent.proof || state.bindings.any { it.isInvalidated() } ||
+            !unchangedSourceIdentities(state) || world?.validateCouplingApproachGeometry(intent.proof) != true)
+            return reject("stationary contact requires the exact sealed READY approach grant")
+        return when (val result = world.completeCouplingContact(intent.proof)) {
+            is work.art1st.javarailways.core.api.physics.train.CouplingContactCompletion.Rejected -> reject(result.reason)
+            is work.art1st.javarailways.core.api.physics.train.CouplingContactCompletion.NotInContact -> accepted(state)
+            is work.art1st.javarailways.core.api.physics.train.CouplingContactCompletion.Completed -> accepted(state)
+        }
     }
 
     fun guardLink(event: TrainLinkEvent) {

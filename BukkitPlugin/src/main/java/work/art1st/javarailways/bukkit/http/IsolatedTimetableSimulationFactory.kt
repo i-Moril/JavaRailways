@@ -67,7 +67,9 @@ internal data class IsolatedTimetableSimulationSnapshot(
     val stationCallResolvers: StationCallSimulationExtensions =
         work.art1st.javarailways.simpleato.api.station.StationCallResolverRegistry().prepareSimulation(),
     val candidateFactsByService: Map<String, TrainCandidateFacts> = emptyMap(),
-    val candidateCarIdsByService: Map<String, List<String>> = emptyMap()
+    val candidateCarIdsByService: Map<String, List<String>> = emptyMap(),
+    val maximumCouplingGapMeters: Double = 5.0,
+    val maximumCouplingApproachSpeedMetersPerSecond: Double = 0.5
 )
 
 /** Captures static configuration on the live thread, then creates a runtime with no live trains. */
@@ -203,7 +205,9 @@ internal class IsolatedTimetableSimulationFactory(
                     liveWorld.getTrain(selection.profileId)?.let { train ->
                         service.id to java.util.List.copyOf(train.cars.map { it.id })
                     } else null
-            }.toMap()
+            }.toMap(),
+            maximumCouplingGapMeters = liveWorld.simpleAtoWorldData.dispatcher.maximumCouplingGapMeters,
+            maximumCouplingApproachSpeedMetersPerSecond = liveWorld.simpleAtoWorldData.dispatcher.maximumCouplingApproachSpeedMetersPerSecond
         )
     }
 
@@ -235,6 +239,8 @@ internal class IsolatedTimetableSimulationFactory(
                 TimetableDispatcher(
                     authorityStoppingMarginMeters = snapshot.atoSafetyDistanceMeters,
                     admissionRetryTicks = snapshot.atoAdmissionRetryTicks,
+                    maximumCouplingGapMeters = snapshot.maximumCouplingGapMeters,
+                    maximumCouplingApproachSpeedMetersPerSecond = snapshot.maximumCouplingApproachSpeedMetersPerSecond,
                     routeAdmissionContextProvider = routeAdmissionContextProvider,
                     signalRestrictionSnapshots = signalRestrictions,
                     inspectionRuntime = inspectionRuntime,

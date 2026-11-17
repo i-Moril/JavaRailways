@@ -38,6 +38,13 @@ ato:
   safety-distance-meters: 5.0
   admission-retry-ticks: 5
 
+# 进入联挂模式时，两车必须均已停车，接近车位于目标车后方。
+# 两车钩的最大间距（米）；缺省为 5.0，必须是有限非负数。
+coupling:
+  maximum-entry-gap-meters: 5.0
+  # 联挂接近的最高速度（米/秒），自动和手动共用；默认 0.5（1.8 km/h），必须为有限正数。
+  maximum-approach-speed-meters-per-second: 0.5
+
 # 轨道工程、曲线采样、物理 Worker、超速脱轨与道岔安全参数位于 physics.yml。
 
 # Timetable WebUI process mode:

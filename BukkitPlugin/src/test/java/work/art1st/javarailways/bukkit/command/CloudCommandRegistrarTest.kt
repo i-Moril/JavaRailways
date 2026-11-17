@@ -51,6 +51,25 @@ class CloudCommandRegistrarTest {
     }
 
     @Test
+    fun `coupling mode has a native argument route and a command suggestion`() {
+        assertTrue("train couple" in CloudCommandRegistrar.registeredRoutePaths())
+        assertTrue(CloudCommandRegistrar.routeAcceptsArguments("train couple"))
+        val command = JavaRailwaysCommand()
+        assertEquals(listOf("couple"), command.suggest(sender(CommandSender::class.java), arrayOf("train", "cou")))
+        assertTrue("couple" in command.suggest(sender(CommandSender::class.java), CloudCommandRegistrar.tokenize("train ").toTypedArray()))
+    }
+
+    @Test
+    fun `coupling rejects console and missing target before accessing world runtime`() {
+        val messages = mutableListOf<Component>()
+        assertTrue(TrainCommand.onCommand(sender(CommandSender::class.java, messages = messages), listOf("couple", "target")))
+        assertEquals(listOf(Component.text("此命令需要玩家执行")), messages)
+        messages.clear()
+        assertTrue(TrainCommand.onCommand(sender(Player::class.java, messages = messages), listOf("couple")))
+        assertEquals(listOf(Component.text("用法: /jr train couple <目标列车ID>")), messages)
+    }
+
+    @Test
     fun `issues route accepts optional world and issue selection arguments`() {
         assertTrue("issues" in CloudCommandRegistrar.registeredRoutePaths())
         assertTrue(CloudCommandRegistrar.routeAcceptsArguments("issues"))
@@ -137,7 +156,13 @@ class CloudCommandRegistrarTest {
             when (method.name) {
                 "hasPermission" -> permitted
                 "locale" -> Locale.US
-                "sendMessage" -> { messages += args!!.filterIsInstance<Component>(); null }
+                "sendMessage" -> {
+                    args!!.forEach { message -> when (message) {
+                        is Component -> messages += message
+                        is String -> messages += Component.text(message)
+                    } }
+                    null
+                }
                 "hashCode" -> System.identityHashCode(instance)
                 "equals" -> instance === args?.get(0)
                 "toString" -> "CommandTestSender"

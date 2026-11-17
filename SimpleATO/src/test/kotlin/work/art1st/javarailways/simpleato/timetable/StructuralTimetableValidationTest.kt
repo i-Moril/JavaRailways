@@ -305,92 +305,72 @@ class StructuralTimetableValidationTest {
 
     @ParameterizedTest
     @ValueSource(booleans = [false, true])
-    fun `initial coupling certifies both bodies and rejects changed contact geometry`(stationaryReversed: Boolean) {
+    fun `coupling validation retains unit identity without predicting contact or onward geometry`(reversed: Boolean) {
         TestWorldFixture.create().use { fixture ->
             val world = fixture.world
             TestSimpleATOWorldDataRegistry.getOrCreate(world)
             try {
-                val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(220.0, segmentCount = 1, step = 1.0))
+                val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(220.0, 1))
                 fun train(id: String, head: Double) = world.onOwnerForTest {
                     val anchor = work.art1st.javarailways.core.physics.rail.RailLocationWithFacing(rail.viewAB, head)
                     val car = CoreCar.create("$id-car", CoreBogie.create(anchor), CoreBogie.create(anchor),
                         length = 10.0, bogieAOffset = 3.0, bogieBOffset = -3.0,
                         connectorLengthAtA = 0.3, connectorLengthAtB = 0.3, world = world)
-                    CoreTrain.create(id, listOf(car), world, composition = work.art1st.javarailways.simpleato.testing.testTrainComposition("unit-$id" to listOf(car.id))).also { it.setLocation(anchor); it.commitMaintenancePlacement() }
+                    CoreTrain.create(id, listOf(car), world, composition =
+                        work.art1st.javarailways.simpleato.testing.testTrainComposition("unit-$id" to listOf(car.id))).also {
+                        it.setLocation(anchor); it.commitMaintenancePlacement()
+                        if (reversed) it.reverse()
+                    }
                 }
-                val moving = train("moving", 99.0)
-                val stationary = train("stationary", if (stationaryReversed) 120.5 else 110.5)
-                if (stationaryReversed) world.onOwnerForTest { stationary.reverse() }
-                val home = DepotId("home")
+                // Deliberately outside the entry gap. Static validation checks real members;
+                // only the live mode-entry inspection is allowed to decide physical eligibility.
+                val moving = train("moving", if (reversed) 160.0 else 80.0)
+                val stationary = train("stationary", 120.0)
                 val store = world.simpleAtoWorldData.depots
-                store.addStablingPoint(home, "Home", DepotStablingPoint(StablingPointRef(home,"p"), "approach"))
-                listOf(moving to "approach", stationary to "meeting").forEach { (train, point) ->
-                    world.basicWorldData.wayPoints.add(WayPoint(point, rail.id, train.publishedFrame.head.arcLengthInAbMeters))
-                    val ids = train.cars.map { it.id }
-                    store.registerUnitControlCompatibility("unit-${train.id}", "emu")
+                val home = DepotId("home")
+                store.addStablingPoint(home, "Home", DepotStablingPoint(StablingPointRef(home, "p"), "approach"))
+                for ((source, marker) in listOf(moving to "approach", stationary to "meeting")) {
+                    world.basicWorldData.wayPoints.add(WayPoint(marker, rail.id, source.publishedFrame.head.arcLengthInAbMeters))
+                    store.registerUnitControlCompatibility("unit-${source.id}", "emu")
                 }
-                val event = TimetableFormationEvent.Couple("join", "a", "a", "b",
-                    if (stationaryReversed) FormationStationaryEnd.HEAD else FormationStationaryEnd.TAIL,
-                    FormationRendezvous("approach", "meeting"), 0.4, output("joined"))
+                world.basicWorldData.wayPoints.add(WayPoint("end", rail.id, if (reversed) 20.0 else 200.0))
+                val event = TimetableFormationEvent.Couple("join", "a", "a", "b", FormationStationaryEnd.TAIL,
+                    FormationRendezvous("approach", "meeting"), 0.4, output("joined", "a"))
+                val divide = TimetableFormationEvent.Split("divide", "a", 1, output("first"), output("rest"))
                 val plan = Timetable("coupling", services = listOf(
-                    TimetableService("a", TrainSelector.TrainId(moving.id), listOf(TimetableStep.Check("approach"), at(TimetableAction.Couple("join")))),
+                    TimetableService("a", TrainSelector.TrainId(moving.id), listOf(TimetableStep.Check("approach"),
+                        at(TimetableAction.Couple("join")), at(TimetableAction.GoTo("end")), at(TimetableAction.Split("divide")))),
                     TimetableService("b", TrainSelector.TrainId(stationary.id), listOf(TimetableStep.Check("meeting"), at(TimetableAction.Couple("join"))))
-                ), formationEvents = TimetableFormationCatalog(listOf(event)))
-                val result = world.onOwnerForTest { TimetableValidator(world).validate(plan) }
+                ), formationEvents = TimetableFormationCatalog(listOf(event, divide)))
+                val result = TimetableValidator(world).validate(plan)
                 assertTrue(result.isSuccess, result.errors.toString())
                 val pair = result.structural.couplings.values.single()
-                assertEquals(2, result.structural.sources.size)
-                assertEquals(listOf("stationary-car", "moving-car"), pair.outputCarIds)
+                assertEquals(if (reversed) listOf("moving-car", "stationary-car") else listOf("stationary-car", "moving-car"), pair.outputCarIds)
+                assertEquals(reversed, pair.outputReversed)
                 assertNotNull(pair.outputCandidateKey.parents)
+                assertTrue(result.structural.sources.isEmpty(), "coupling descendants must not retain a future body envelope")
+                assertTrue(result.structural.routes.isEmpty(), "onward routing waits for actual physical publication")
+                assertEquals(2, result.structural.initialCandidates.size)
+                assertEquals(pair.outputCarIds, result.structural.memberships.entries.single { it.key.eventId == "divide" }.value.carIds)
+                assertTrue(result.structural.outputMemberships.values.any { it.carIds == pair.outputCarIds })
+                val onward = plan.copy(services = plan.services.map { service -> if (service.id != "a") service else service.copy(
+                    runSegments = listOf(TimetableRunSegment("joined-run", work.art1st.javarailways.simpleato.api.line.LineId("line"), 2, 3, true))) },
+                    operationalTrips = listOf(TimetableOperationalTrip("joined-trip", segments = listOf(
+                        TimetableOperationalTripSegment("a", "joined-run", listOf(1, 2))))))
+                assertTrue(TimetableMetadataValidator.validatePhysical(world, onward, result.structural).isEmpty(),
+                    "operational trip membership must not depend on a future retained route")
+                val absentSlot = onward.copy(operationalTrips = listOf(TimetableOperationalTrip("joined-trip", segments = listOf(
+                    TimetableOperationalTripSegment("a", "joined-run", listOf(3))))))
+                assertTrue(TimetableMetadataValidator.validatePhysical(world, absentSlot, result.structural).any {
+                    "absent complete-unit slot" in it })
                 world.onOwnerForTest {
-                    fun proof() = (world.inspectCouplingApproach(work.art1st.javarailways.core.api.physics.train.CouplingApproachRequest(
-                        moving.id, work.art1st.javarailways.core.api.physics.train.TrainEndSide.A,
-                        stationary.id, work.art1st.javarailways.core.api.physics.train.TrainEndSide.B)) as
-                        work.art1st.javarailways.core.api.physics.train.CouplingApproachInspection.Accepted).proof
-                    assertDoesNotThrow { pair.contactFeasibility.requireContact(proof(), world.topologyState) }
-                    stationary.setLocation(rail.viewAB.getRailLocationAt(if (stationaryReversed) 120.4 else 110.6))
-                    stationary.commitMaintenancePlacement()
-                    if (stationaryReversed) stationary.reverse()
-                    assertThrows(IllegalArgumentException::class.java) {
-                        pair.contactFeasibility.requireContact(proof(), world.topologyState)
-                    }
-                    run {
-                        val futureA = if (stationaryReversed) 102.0 else 140.0
-                        val futureB = if (stationaryReversed) 107.0 else 160.5
-                        listOf("future-a" to futureA, "future-b" to futureB).forEach { (id, arc) ->
-                            world.basicWorldData.wayPoints.add(WayPoint(id, rail.id, arc)) }
-                        fun explicitMovement(origin: String, target: String): TimetableAction {
-                            val start = world.basicWorldData.wayPoints[origin]!!.arcLength
-                            val end = world.basicWorldData.wayPoints[target]!!.arcLength
-                            val via = world.basicWorldData.wayPoints.all().filter { point ->
-                                point.railId == rail.id && point.arcLength > minOf(start,end) + 1e-7 && point.arcLength < maxOf(start,end) - 1e-7
-                            }.sortedBy { if (end >= start) it.arcLength else -it.arcLength }.map { it.id }
-                            return if (via.isEmpty()) TimetableAction.GoTo(target) else TimetableAction.GoVia(via + target)
-                        }
-                        val future = plan.copy(services = plan.services.map { service -> service.copy(steps =
-                            listOf(service.steps.first(), at(explicitMovement((service.steps.first() as TimetableStep.Check).wayPointId, if (service.id == "a") "future-a" else "future-b")),
-                                service.steps.last())) }, formationEvents = TimetableFormationCatalog(listOf(event.copy(
-                                    rendezvous = FormationRendezvous("future-a", "future-b")))))
-                        val futureResult = TimetableValidator(world).validate(future)
-                        assertTrue(futureResult.isSuccess, futureResult.errors.toString())
-                        val futurePair = futureResult.structural.couplings.values.single()
-                        val unsafeArc = if (stationaryReversed) 106.4 else 149.9
-                        world.basicWorldData.wayPoints.add(WayPoint("unsafe-a", rail.id, unsafeArc))
-                        val unsafe = future.copy(services = future.services.map { service -> service.copy(steps = listOf(service.steps.first(),
-                            at(explicitMovement((service.steps.first() as TimetableStep.Check).wayPointId, if(service.id == "a") "unsafe-a" else "future-b")), service.steps.last())) },
-                            formationEvents = TimetableFormationCatalog(listOf(event.copy(rendezvous = FormationRendezvous("unsafe-a", "future-b")))))
-                        val unsafeResult = TimetableValidator(world).validate(unsafe)
-                        assertFalse(unsafeResult.isSuccess)
-                        assertTrue(unsafeResult.errors.any { it.contains("not every future stopped-window pair") }, unsafeResult.errors.toString())
-                        for (aHead in listOf(futureA - .3, futureA + .3)) for (bHead in listOf(futureB - .3, futureB + .3)) {
-                            moving.setLocation(rail.viewAB.getRailLocationAt(aHead)); moving.commitMaintenancePlacement()
-                            stationary.setLocation(rail.viewAB.getRailLocationAt(bHead + if (stationaryReversed) 10.0 else 0.0))
-                            stationary.commitMaintenancePlacement()
-                            if (stationaryReversed) stationary.reverse()
-                            assertDoesNotThrow { futurePair.contactFeasibility.requireContact(proof(), world.topologyState) }
-                        }
-                    }
+                    assertInstanceOf(work.art1st.javarailways.core.api.physics.train.CouplingApproachInspection.Rejected::class.java,
+                        world.inspectCouplingModeEntry(moving.id, stationary.id, 5.0))
                 }
+                val sameAsset = plan.copy(services = listOf(plan.services.first(), plan.services.last().copy(
+                    trainSelector = TrainSelector.TrainId(moving.id), steps = listOf(TimetableStep.Check("approach"), at(TimetableAction.Couple("join"))))),
+                    formationEvents = TimetableFormationCatalog(listOf(event.copy(rendezvous = FormationRendezvous("approach", "approach")), divide)))
+                assertTrue(TimetableValidator(world).validate(sameAsset).errors.any { "share a physical asset" in it })
             } finally { TestSimpleATOWorldDataRegistry.unregister(world) }
         }
     }

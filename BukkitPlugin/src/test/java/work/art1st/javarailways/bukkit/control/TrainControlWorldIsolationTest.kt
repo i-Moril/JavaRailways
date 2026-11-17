@@ -62,6 +62,37 @@ class TrainControlWorldIsolationTest {
         }
     }
 
+    @Test
+    fun `standalone coupling retires exact source sessions and preserves another world`() {
+        val worlds = List(2) { createTestWorld(PhysicsCoordinator(1, automaticFallback = false)) }
+        val manager = TrainControlManager { error("coupling retirement must not access Bukkit") }
+        try {
+            val trains = worlds.map { world ->
+                val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, step = 1.0))
+                createTrainWithConfig("same-train", rail, world, listOf(10.0)).also { train ->
+                    train.setControllerForTest(RealisticManualController(
+                        train, TrainControlConfig(), listOf(CarControlConfig()), 9.80665))
+                }
+            }
+            trains.forEach { train -> train.world.onOwnerForTest {
+                manager.registerManualControl(UUID.randomUUID(), train, train.controller as RealisticManualController, null)
+            } }
+            val source = trains[0]
+            val other = trains[1]
+            source.world.onOwnerForTest {
+                manager.retireCouplingControl(source)
+                source.setController(null)
+            }
+            assertNull(manager.sessionFor(source))
+            assertNotNull(manager.sessionFor(other))
+            // The original player no longer owns an installed manual controller after completion.
+            assertNull(manager.ownerOf(source))
+            assertNotNull(other.controller)
+        } finally {
+            worlds.forEach(::close)
+        }
+    }
+
     private fun close(world: CoreWorld) {
         world.physicsCoordinator.close()
         (world.tickManager as AutoCloseable).close()

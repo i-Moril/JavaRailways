@@ -124,10 +124,11 @@ class JavaRailwaysCommand {
         return when (args[0].lowercase()) {
             "resources", "resource" -> if (args.size == 2) filtered(listOf("reload")) else emptyList()
             "train" -> when (args.size) {
-                2 -> filtered(listOf("create", "rename", "key", "anim", "action", "behavior", "info", "list", "delete", "sit", "stand"))
+                2 -> filtered(listOf("create", "rename", "key", "anim", "action", "behavior", "info", "list", "delete", "sit", "stand", "couple"))
                 3 -> when (args[1].lowercase()) {
                     "create" -> filtered(plugin.modelManager.trainPackages.keys)
                     "rename", "delete" -> filtered(trains())
+                    "couple" -> filtered(playerWorld()?.allTrains.orEmpty().map { it.id })
                     "action" -> filtered(plugin.modelManager.trainPackages.values.flatMap { it.actions.keys })
                     else -> emptyList()
                 }
@@ -1338,6 +1339,7 @@ class JavaRailwaysCommand {
     private fun sendHelp(sender: CommandSender) {
         sender.sendMessage("=== JavaRailways 命令帮助 ===")
         sender.sendMessage("/jr train create - 在轨道上创建列车")
+        sender.sendMessage("/jr train couple <目标列车ID> - 两车停车后进入联挂模式")
         sender.sendMessage("/jr train start - 启动列车（手动驾驶）")
         sender.sendMessage("/jr train stop - 停止列车")
         sender.sendMessage("/jr train anim <name> [scene] - 触发列车部件动画")

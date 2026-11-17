@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simpleato.api.mission
 
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.basic.api.route.wayPoints
 import work.art1st.javarailways.basic.api.route.PlannedRoute
 import work.art1st.javarailways.basic.api.route.ExpandedRoute
@@ -200,21 +201,31 @@ class AtoMissionResolver(private val world: World) {
     private val routePlanner = OperationalRoutePlanner(world)
 
     @MainThread
-    fun resolve(request: AtoMissionRequest): AtoMissionResolutionResult {
+    fun resolve(request: AtoMissionRequest): AtoMissionResolutionResult = resolve(request, null)
+
+    /** Reuses ordinary route planning from a real published origin without registering a marker. */
+    @MainThread
+    fun resolveFromPhysicalOrigin(request: AtoMissionRequest, origin: AtoMissionOrigin.Physical): AtoMissionResolutionResult =
+        resolve(request, origin)
+
+    private fun resolve(request: AtoMissionRequest, physicalOrigin: AtoMissionOrigin.Physical?): AtoMissionResolutionResult {
         val wayPoints = world.wayPoints
-        if (wayPoints[request.origin.id] == null) {
+        if (physicalOrigin == null && wayPoints[request.origin.id] == null) {
             return AtoMissionResolutionResult.TargetUnresolved(request.origin)
         }
 
         val legs = ArrayList<AtoMissionLeg>(request.points.size)
-        var from = request.origin
+        val origin = physicalOrigin ?: request.origin
+        var from = WayPointRef(origin.id)
         var currentDirection = request.requiredStartDirection
         request.points.forEachIndexed { index, point ->
             val to = point.target
             if (wayPoints[to.id] == null) {
                 return AtoMissionResolutionResult.TargetUnresolved(to)
             }
-            val fromWayPoint = requireNotNull(wayPoints[from.id])
+            val fromWayPoint = if (index == 0 && physicalOrigin != null)
+                WayPoint(origin.id, physicalOrigin.position.railId, physicalOrigin.position.arcLengthInAbMeters)
+            else requireNotNull(wayPoints[from.id])
             val toWayPoint = requireNotNull(wayPoints[to.id])
             val expanded = when (val result = routePlanner.buildRoute(
                 fromWayPoint,
@@ -244,7 +255,7 @@ class AtoMissionResolver(private val world: World) {
             currentDirection = expanded.segments.last().railViewRef.direction
         }
         return AtoMissionResolutionResult.Success(
-            AtoMission(request.id, request.revision, request.origin, legs)
+            AtoMission(request.id, request.revision, origin, legs)
         )
     }
 }

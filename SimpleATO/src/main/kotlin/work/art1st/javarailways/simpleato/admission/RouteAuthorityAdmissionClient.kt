@@ -36,7 +36,7 @@ internal class RouteAuthorityAdmissionClient(
     private val requestId: String,
     private val owner: InfrastructureOwner,
     private val admissionService: RouteResourceAdmissionService,
-    private val restrictionPublisher: TrainRestrictionPublisher
+    private var restrictionPublisher: TrainRestrictionPublisher
 ) {
     private var active: ActiveRoute? = null
     private var restrictionRevision = -1L
@@ -57,6 +57,15 @@ internal class RouteAuthorityAdmissionClient(
 
     /** Exact Basic publication retained by this client, never an operationally clipped boundary. */
     val committedGrantSnapshot: RouteGrantSnapshot? get() = active?.committedGrant
+
+    /** Rebind a stopped structural output's protection controller without restarting its stream. */
+    @MainThread
+    fun rebindRestrictionPublisher(publisher: TrainRestrictionPublisher) {
+        check(active?.let { it.pending == null && !it.reversalPending && !it.unsafeFailure } != false) {
+            "cannot hand off a pending or unsafe restriction stream"
+        }
+        restrictionPublisher = publisher
+    }
 
     /**
      * Installs a READY grant returned by the fixed-formation admission path. Basic, not this

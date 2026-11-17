@@ -47,6 +47,11 @@ Basic不依赖SimpleATO。零步长不执行监督、ack判定或设备积分。
 `acknowledgeAtp`只提交帧间请求并验证当前controller精确身份；返回接受表示请求已记录，
 是否解除仍由监督器在下一有效物理帧的新鲜安全检查决定。
 
+`VehicleCommandSupervisor.isMovementHeld(train)`只在运营owner已请求停车且当前published frame完全停稳时为true。
+人工仍处理输入并刷新同一监督来源，然后通过原Core seam发布0位移/0速度，不积分设备或制造历史。
+移动中的车不因hold直接截断速度；共用上层先用普通停车reference和真实动力学制动，停稳后才进入此分支。
+默认false，Basic不保存联挂owner或接触几何。
+
 既有`WorldSafetyInterlock`仍为world-local fail-closed latch，优先于普通人工指令；
 不得因普通mission拒绝锁住，也不得在controller tick擅自reset。
 

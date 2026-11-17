@@ -93,6 +93,29 @@ class AtoMissionTest {
     }
 
     @Test
+    fun `real formation origin reuses route planning without registering a waypoint`() {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        val data = BasicWorldData()
+        TestSimpleATOWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        data.wayPoints.add(WayPoint("end", rail.id, 80.0))
+        val origin = AtoMissionOrigin.FormationOutput("join-instance", "joined",
+            work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot(rail.id, ViewDirection.AB, 37.0))
+        val request = AtoMissionRequest("actual-output", 9L, WayPointRef(origin.id),
+            listOf(AtoMissionPoint.Stop(WayPointRef("end"))), requiredStartDirection = ViewDirection.AB)
+        val result = AtoMissionResolver(world).resolveFromPhysicalOrigin(request, origin)
+        assertTrue(result is AtoMissionResolutionResult.Success)
+        val mission = (result as AtoMissionResolutionResult.Success).mission
+        assertEquals(origin, mission.origin)
+        assertEquals(43.0, mission.legs.single().plannedRoute.expandedRoute.totalLength, 1e-10)
+        assertEquals(listOf("end"), data.wayPoints.all().map { it.id })
+        world.basicWorldData.operatingDirections.put(rail.id, ViewDirection.BA)
+        assertTrue(AtoMissionResolver(world).resolveFromPhysicalOrigin(request, origin) is AtoMissionResolutionResult.RouteUnavailable)
+        assertEquals(AtoMissionResolutionResult.TargetUnresolved(WayPointRef("missing")),
+            AtoMissionResolver(world).resolveFromPhysicalOrigin(AtoMissionRequest("actual-output", 10L, WayPointRef(origin.id), listOf(AtoMissionPoint.Stop(WayPointRef("missing")))), origin))
+    }
+
+    @Test
     fun `reports the first unresolved mission target`() {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val data = BasicWorldData()

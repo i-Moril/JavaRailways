@@ -15,7 +15,7 @@ import work.art1st.javarailways.simpleato.api.depot.*
 class FixedUnitCouplePlanTest {
     @ParameterizedTest
     @ValueSource(booleans = [false, true])
-    fun `host contact preserves whole units and binds authored end to operating direction`(stationaryReversed: Boolean) {
+    fun `host contact preserves whole units and binds authored end to operating direction`(reversed: Boolean) {
         TestWorldFixture.create().use { fixture ->
             val world = fixture.world
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
@@ -26,13 +26,13 @@ class FixedUnitCouplePlanTest {
                     connectorLengthAtA = 0.3, connectorLengthAtB = 0.3, world = world)
                 CoreTrain.create(id, listOf(car), world, composition = work.art1st.javarailways.simpleato.testing.testTrainComposition("unit-$id" to listOf(car.id))).also { it.setLocation(anchor); it.commitMaintenancePlacement() }
             }
-            val moving = train("moving", 99.0)
+            val moving = train("moving", if (reversed) 123.0 else 99.0)
             val stationary = train("stationary", 110.5)
-            if (stationaryReversed) world.onOwnerForTest { stationary.reverse() }
+            if (reversed) world.onOwnerForTest { moving.reverse(); stationary.reverse() }
             val proof = world.onOwnerForTest {
                 assertInstanceOf(CouplingApproachInspection.Accepted::class.java,
-                    world.inspectCouplingApproach(CouplingApproachRequest(moving.id, TrainEndSide.A,
-                        stationary.id, TrainEndSide.B))).proof
+                    world.inspectCouplingApproach(CouplingApproachRequest(moving.id, if (reversed) TrainEndSide.B else TrainEndSide.A,
+                        stationary.id, if (reversed) TrainEndSide.A else TrainEndSide.B))).proof
             }
             val depot = DepotId("home")
             fun store(stationaryFamily: String = "emu") = DepotStore { listOf(moving, stationary).flatMap { train -> train.composition.units.map { FixedEmuUnit(it.unitId, it.carIds) } } }.also { store ->
@@ -47,20 +47,20 @@ class FixedUnitCouplePlanTest {
                 RailwayStateStamp("world", train.publishedFrame.physicsEpoch, world.topologyState.revision), RouteBoundary(100.0))
             val movingGrant = grant(moving)
             val stationaryGrant = grant(stationary)
-            val end = if (stationaryReversed) FormationStationaryEnd.HEAD else FormationStationaryEnd.TAIL
+            val end = FormationStationaryEnd.TAIL
             val event = TimetableFormationEvent.Couple("join", "moving-duty", "moving-duty", "stationary-duty",
                 end, FormationRendezvous("approach", "meeting"), 0.4,
                 TimetableFormationOutput("joined", FormationOutputDisposition.Duty("onward")))
             val depots = store()
             fun plan(definition: TimetableFormationEvent.Couple = event, selectedStore: DepotStore = depots) =
                 FixedUnitCouplePlan.prepare(definition, "cycle-1/join", proof, "moving-owner", "stationary-owner",
-                    movingGrant, stationaryGrant, "onward-owner", selectedStore)
+                    movingGrant, stationaryGrant, "onward-owner", selectedStore, 0.2)
             val result = plan()
-            assertEquals(stationary.cars.map { it.id } + moving.cars.map { it.id }, result.output.carIds)
+            assertEquals(if (reversed) moving.cars.map { it.id } + stationary.cars.map { it.id } else stationary.cars.map { it.id } + moving.cars.map { it.id }, result.output.carIds)
             assertEquals(moving.id, result.output.trainId)
-            assertFalse(result.output.reversed)
+            assertEquals(reversed, result.output.reversed)
             assertSame(proof, result.intent.proof)
-            assertEquals(0.4, result.intent.maximumApproachSpeedMetersPerSecond)
+            assertEquals(0.2, result.intent.maximumApproachSpeedMetersPerSecond)
             assertEquals(listOf("moving-owner", "stationary-owner"), result.ledgerChange.sources.map { it.assignmentId })
             assertThrows(IllegalArgumentException::class.java) { plan(event.copy(stationaryEnd =
                 if (end == FormationStationaryEnd.HEAD) FormationStationaryEnd.TAIL else FormationStationaryEnd.HEAD)) }

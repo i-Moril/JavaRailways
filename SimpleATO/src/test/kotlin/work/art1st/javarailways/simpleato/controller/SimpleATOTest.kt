@@ -1027,6 +1027,87 @@ class SimpleATOTest {
     }
 
     @Test
+    fun `temporary coupling hold processes queued missions and perception without actuation or motion`() {
+        PhysicsCoordinator(1, automaticFallback = false).use { physics ->
+            val equipment = work.art1st.javarailways.simpleato.control.ImmediateEquipmentFixture()
+            val fixture = fixture("coupling-held-ato", physicsCoordinator = physics,
+                actuatorFactory = { train -> work.art1st.javarailways.basic.control.HandleTrainActuator(train,
+                    equipment.profile, listOf(equipment.car), 9.80665) })
+            val runtime = fixture.world.simpleAtoWorldData.controlRuntime
+            val first = runtime.acquireCouplingHold(fixture.train)
+            val second = runtime.acquireCouplingHold(fixture.train)
+            try {
+                submitPhysicalMission(fixture, 1L)
+                fixture.ato.attachTransferredProtection()
+                val before = fixture.train.publishedFrame
+                physics.start()
+                physics.stepSimulation(50.0).await()
+                val planned = fixture.ato.publishedState
+                assertEquals(1L, planned.currentMission?.revision)
+                assertTrue(planned.perception != null)
+                assertEquals(before.head, planned.trainFrame.head)
+                assertEquals(0.0, planned.trainFrame.speedMetersPerSecond)
+                assertNull(fixture.data.trainDynamicsHistory.latest(fixture.train))
+                assertTrue(runtime.incidents.isEmpty())
+                first.close()
+                physics.stepSimulation(50.0).await()
+                assertEquals(before.head, fixture.train.publishedFrame.head)
+                assertTrue(runtime.isMovementHeld(fixture.train))
+                assertFalse(fixture.coordinator.isStalled, fixture.coordinator.lastStall.toString())
+                second.close()
+                repeat(5) { physics.stepSimulation(50.0).await() }
+                assertTrue(fixture.train.publishedFrame.head.arcLengthInAbMeters > before.head.arcLengthInAbMeters)
+                assertTrue(fixture.data.trainDynamicsHistory.latest(fixture.train) != null)
+                assertSame(fixture.ato, fixture.train.controller)
+                assertFalse(fixture.coordinator.isStalled, fixture.coordinator.lastStall.toString())
+            } finally { first.close(); second.close() }
+        }
+    }
+
+    @Test
+    fun `replacement routed protection retains applied and pending external limits holds and stop targets`() {
+        val fixture = fixture("transferred-external-protection")
+        val head = fixture.train.head.location
+        val target = object : RailObject {
+            override val ref = RailObjectRef("test", "transferred-stop-target")
+            override val lifecycleState = RailObjectLifecycleState.ACTIVE
+            override val location = RailLocationWithFacing(head.railView, head.arcLength + 20.0)
+        }
+        fixture.data.railObjects.register(target)
+        fixture.ato.setSpeedLimit("retained-limit", 2.0)
+        tickAndPublish(fixture.ato, 0.0)
+        fixture.ato.setSpeedLimit("retained-limit", 3.0)
+        fixture.ato.setOperatingHold("retained-hold")
+        fixture.ato.stopAt("retained-stop", target, 1.0)
+        val replacement = SimpleATO(fixture.train, fixture.world,
+            KinematicTrainActuator(10.0, profile), profile) { 0.0 }
+        val before = fixture.train.publishedFrame
+        fixture.world.onOwnerForTest {
+            fixture.ato.transferOperationalProtectionTo(replacement)
+            fixture.train.setController(replacement)
+            replacement.attachTransferredProtection()
+        }
+        tickAndPublish(replacement, 0.0)
+        val constraints = replacement.runtimeDiagnostics.constraints
+        assertTrue(constraints.any { it.contains("retained-limit") && it.contains("maximumSpeedMetersPerSecond=3.0") },
+            constraints.toString())
+        assertTrue(constraints.any { it.contains("retained-hold") && it.contains("operatingTarget=true") },
+            constraints.toString())
+        assertTrue(constraints.any { it.contains("retained-stop") && it.contains("remainingDistanceMeters=19.0") },
+            constraints.toString())
+        assertNull(replacement.currentMission, "only external operational inputs may transfer")
+        assertEquals(before.head, fixture.train.publishedFrame.head)
+        assertEquals(0.0, replacement.lifetimeTravelDistanceMeters)
+        assertFalse(fixture.coordinator.isStalled, fixture.coordinator.lastStall.toString())
+        replacement.removeSpeedLimit("retained-hold")
+        replacement.removeSpeedLimit("retained-stop")
+        tickAndPublish(replacement, 0.0)
+        assertFalse(replacement.runtimeDiagnostics.constraints.any {
+            it.contains("retained-hold") || it.contains("retained-stop") })
+        assertTrue(replacement.runtimeDiagnostics.constraints.any { it.contains("retained-limit") })
+    }
+
+    @Test
     fun `route end is treated as a stop target`() {
         val fixture = fixture("route-end", railLengthMeters = 30.0)
         authorizeMovement(fixture)

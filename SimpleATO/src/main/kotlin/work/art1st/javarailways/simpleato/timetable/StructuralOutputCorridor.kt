@@ -11,8 +11,6 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
-import work.art1st.javarailways.core.api.physics.train.CouplingApproachProof
-import work.art1st.javarailways.core.api.physics.train.TrainEndSide
 import work.art1st.javarailways.core.physics.train.StoppedBodyGeometry
 import work.art1st.javarailways.core.physics.train.StoppedBodyEnvelope
 import kotlin.math.abs
@@ -46,8 +44,7 @@ internal class CertifiedStructuralCorridor private constructor(
     private val parentProof: StructuralOutputCorridor?,
     private val parentEnvelope: CertifiedStructuralCorridor? = null,
     internal val geometry: StoppedBodyGeometry? = null,
-    private val bodyBound: StoppedBodyEnvelope? = null,
-    private val couplingParents: Pair<CertifiedStructuralCorridor, CertifiedStructuralCorridor>? = null
+    private val bodyBound: StoppedBodyEnvelope? = null
 ) {
     val initialFrames: List<TrainFrameSnapshot> = java.util.List.copyOf(initialFrames)
     val memberCarIds: List<String> = java.util.Collections.unmodifiableList(ArrayList(memberCarIds))
@@ -117,66 +114,6 @@ internal class CertifiedStructuralCorridor private constructor(
             CorridorPath(normalize(canonical(retained, topology)))
             validateGeometry(topology, listOf(retained) + if (incoming.segments.isNotEmpty()) listOf(incoming) else emptyList())
             return CertifiedStructuralCorridor(topology, retained, memberIds, initial.reversed, listOf(initial), null, geometry = geometry)
-        }
-
-        /** Host contact existence and both complete source bodies are independent prerequisites. */
-        internal fun fromCoupling(approaching: CertifiedStructuralCorridor,
-            stationary: CertifiedStructuralCorridor, proof: CouplingApproachProof,
-            outputCarIds: List<String>, restrictions: RoutePlanningRestrictions): CertifiedStructuralCorridor {
-            val topology = approaching.topology
-            require(stationary.topology === topology) { "coupling roots have different captured topologies" }
-            approaching.requireContains(proof.approachingFrame, topology, approaching.memberCarIds, approaching.reversed)
-            stationary.requireContains(proof.stationaryFrame, topology, stationary.memberCarIds, stationary.reversed)
-            val movingEnd = if (approaching.reversed) TrainEndSide.B else TrainEndSide.A
-            require(proof.request.approachingEnd == movingEnd)
-            val flip = proof.request.stationaryEnd == movingEnd
-            val incoming = if (flip) stationary.memberCarIds.asReversed() else stationary.memberCarIds
-            require(outputCarIds == if (movingEnd == TrainEndSide.B) approaching.memberCarIds + incoming
-                else incoming + approaching.memberCarIds) { "coupling output order differs from actual stable-end composition" }
-            val path = normalize(proof.protectedTraversal)
-            require(path.isNotEmpty()) { "host coupling proof has no complete protected traversal" }
-            val route = snapshot(path, approaching.retainedPath, topology)
-            validateGeometry(topology, listOf(route))
-            val corridor = CorridorPath(path)
-            val head = corridor.uniquePosition(proof.approachingFrame.head)
-            val contact = corridor.uniquePosition(proof.contactHead)
-            require(contact >= head) { "contact lies behind the approaching operating head" }
-            validateRestrictions(corridor, restrictions, StructuralOriginInterval(head, contact))
-            val geometry = StoppedBodyGeometry.combine(requireNotNull(approaching.geometry), approaching.memberCarIds,
-                requireNotNull(stationary.geometry), stationary.memberCarIds, outputCarIds, flip)
-            return CertifiedStructuralCorridor(topology, route, outputCarIds, approaching.reversed,
-                (approaching.initialFrames + stationary.initialFrames).distinctBy { it.trainId }, null,
-                geometry = geometry, couplingParents = approaching to stationary)
-        }
-
-        internal fun fromStraightCoupling(approaching: CertifiedStructuralCorridor,
-            stationary: CertifiedStructuralCorridor, aw: StructuralEventWindow, bw: StructuralEventWindow,
-            stationaryAtHead: Boolean, outputCarIds: List<String>, flipStationary: Boolean,
-            restrictions: RoutePlanningRestrictions): Pair<CertifiedStructuralCorridor,
-                work.art1st.javarailways.core.physics.train.StraightStoppedContact> {
-            val topology = approaching.topology
-            require(stationary.topology === topology)
-            fun window(value: StructuralEventWindow) = work.art1st.javarailways.core.physics.train.StoppedContactHeadWindow(
-                value.marker.railId, value.marker.facing, value.lowerAbMeters, value.upperAbMeters)
-            val contact = StoppedBodyGeometry.straightContact(topology, requireNotNull(approaching.geometry),
-                approaching.memberCarIds, approaching.reversed, canonical(approaching.retainedPath, topology), window(aw),
-                requireNotNull(stationary.geometry), stationary.memberCarIds, stationary.reversed,
-                canonical(stationary.retainedPath, topology), window(bw), stationaryAtHead)
-            val path = listOf(contact.protectedTraversal)
-            val route = snapshot(path, approaching.retainedPath, topology)
-            validateGeometry(topology, listOf(route))
-            val corridor = CorridorPath(path)
-            val earliest = aw.marker.copy(arcLengthInAbMeters = if (aw.marker.facing == ViewDirection.AB)
-                aw.lowerAbMeters else aw.upperAbMeters)
-            val latest = aw.marker.copy(arcLengthInAbMeters = if (aw.marker.facing == ViewDirection.AB)
-                contact.upperContactAbMeters else contact.lowerContactAbMeters)
-            validateRestrictions(corridor, restrictions, StructuralOriginInterval(corridor.uniquePosition(earliest),
-                corridor.uniquePosition(latest)))
-            val geometry = StoppedBodyGeometry.combine(requireNotNull(approaching.geometry), approaching.memberCarIds,
-                requireNotNull(stationary.geometry), stationary.memberCarIds, outputCarIds, flipStationary)
-            return CertifiedStructuralCorridor(topology, route, outputCarIds, approaching.reversed,
-                (approaching.initialFrames + stationary.initialFrames).distinctBy { it.trainId }, null,
-                geometry = geometry, couplingParents = approaching to stationary) to contact
         }
 
         /** Only a complete existing proof can introduce a derived envelope. */

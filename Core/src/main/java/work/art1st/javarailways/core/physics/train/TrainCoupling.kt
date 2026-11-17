@@ -174,6 +174,33 @@ internal object TrainCoupling {
         return minOf(requested, remaining.coerceAtLeast(0.0))
     }
 
+    /** No synthetic movement or collision: only current exact physical contact can enter commit. */
+    fun completeContact(world: CoreWorld, proof: CouplingApproachProof):
+        work.art1st.javarailways.core.api.physics.train.CouplingContactCompletion {
+        fun rejected(reason: String) =
+            work.art1st.javarailways.core.api.physics.train.CouplingContactCompletion.Rejected(reason)
+        if (!validateApproachGeometry(world, proof)) return rejected("coupling contact geometry is stale")
+        val evidence = proof.hostEvidence as ApproachEvidence
+        val moving = evidence.approaching
+        val fixed = evidence.stationary
+        val own = world.collisionEnvelope(moving.id) ?: return rejected("approaching contact envelope is unavailable")
+        val incoming = world.collisionEnvelope(fixed.id) ?: return rejected("stationary contact envelope is unavailable")
+        if (own.frame !== moving.publishedFrame || incoming.frame !== fixed.publishedFrame ||
+            own.frame.physicsEpoch != incoming.frame.physicsEpoch ||
+            !own.dependencies.matches(moving) || !incoming.dependencies.matches(fixed) ||
+            !own.frame.isStationary() || !incoming.frame.isStationary())
+            return rejected("coupling contact requires two current stopped participants")
+        if (!own.ends.getValue(proof.request.approachingEnd).touches(incoming.ends.getValue(proof.request.stationaryEnd)) ||
+            own.bridge(proof.request.approachingEnd, incoming, proof.request.stationaryEnd) == null)
+            return work.art1st.javarailways.core.api.physics.train.CouplingContactCompletion.NotInContact
+        return try {
+            work.art1st.javarailways.core.api.physics.train.CouplingContactCompletion.Completed(
+                couple(moving, fixed, own.frame, incoming.frame, mapOf(moving to own, fixed to incoming)))
+        } catch (failure: CouplingRejectedException) {
+            rejected(checkNotNull(failure.message))
+        }
+    }
+
     /** Collision-only owner transaction. The two input frames precede collision stabilization. */
     fun linkFromCollisionOnOwner(
         first: CoreTrain,

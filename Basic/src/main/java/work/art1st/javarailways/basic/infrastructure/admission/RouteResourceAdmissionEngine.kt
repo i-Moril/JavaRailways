@@ -934,6 +934,12 @@ internal class RouteResourceAdmissionEngine(
         formations.abort(requester, handle)
 
     @MainThread
+    fun completeCouplingContact(requester: Any, handle: FormationChangeHandle): FormationChangeResult =
+        if (worldStalled) FormationChangeResult.Rejected(
+            RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_STALLED, "world is stalled"))
+        else formations.completeContact(requester, handle)
+
+    @MainThread
     fun requestCouplingApproach(requester: Any, handle: FormationChangeHandle,
                                 intent: RouteResourceIntent): RouteAdmissionResult =
         if (worldStalled) rejected(RouteAdmissionFailureCode.WORLD_STALLED, "world is stalled")

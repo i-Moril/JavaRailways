@@ -281,8 +281,12 @@ internal object TimetableMetadataValidator {
             val key=service.id to segment.runId
             val assigned = timetable.operationalTrips.any { trip -> trip.segments.any { !it.unassignedUnits && it.serviceId==service.id && it.runId==segment.runId } }
             val outputs=structural.routes.filterKeys { it.serviceId==service.id && it.stepIndex in segment.startStepIndex until segment.endStepIndexExclusive }.values
-            var candidates=outputs.mapNotNull { units(it.outputCarIds,it.expectedReversed) }.distinct()
-            if (assigned && outputs.any { units(it.outputCarIds,it.expectedReversed)==null }) add("[${service.id}/${segment.runId}] output has no complete registered-unit evidence")
+            val logicalOutputs=structural.outputMemberships.filterKeys { it.serviceId==service.id &&
+                it.stepIndex in segment.startStepIndex until segment.endStepIndexExclusive }.values
+            var candidates=(outputs.mapNotNull { units(it.outputCarIds,it.expectedReversed) } +
+                logicalOutputs.mapNotNull { units(it.carIds,it.reversed) }).distinct()
+            if (assigned && (outputs.any { units(it.outputCarIds,it.expectedReversed)==null } ||
+                logicalOutputs.any { units(it.carIds,it.reversed)==null })) add("[${service.id}/${segment.runId}] output has no complete registered-unit evidence")
             val prefix=service.steps.take(segment.startStepIndex)
             if (candidates.isEmpty() && prefix.none { val a=(it as? TimetableStep.At)?.action; a is TimetableAction.Couple || a is TimetableAction.Split || a is TimetableAction.TakeFromFormationOutput }) {
                 val take=(service.steps.firstOrNull() as? TimetableStep.At)?.action

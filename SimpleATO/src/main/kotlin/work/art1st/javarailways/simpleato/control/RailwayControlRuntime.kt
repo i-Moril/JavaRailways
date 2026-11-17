@@ -26,6 +26,7 @@ class RailwayControlRuntime(private val worldId: String) : VehicleCommandSupervi
     private class Entry(val train: Train, val executor: VehicleControlExecutor) {
         @Volatile var routedSource: ((Double) -> TrainControlFrame)? = null
         @Volatile var couplingAuthority: CouplingContactAuthority? = null
+        val couplingHolds = ConcurrentHashMap.newKeySet<Any>()
     }
     private val entries = ConcurrentHashMap<String, Entry>()
     private val history = ConcurrentLinkedDeque<AtpIncident>()
@@ -70,6 +71,35 @@ class RailwayControlRuntime(private val worldId: String) : VehicleCommandSupervi
     fun couplingAuthority(train: Train): CouplingContactAuthority? =
         entries[train.id]?.takeIf { it.train === train }?.couplingAuthority
 
+    /**
+     * One coupling operation's ordinary stop request and subsequent stationary control hold.
+     * Owner-side acquisition/close; worker reads remain nonblocking. A moving train uses the
+     * existing ordinary stopping strategy and physical dynamics before the hold freezes motion.
+     * The exact token cannot release another operation's hold or attach to a retired replacement.
+     */
+    fun acquireCouplingHold(train: Train): AutoCloseable {
+        check(train.world.getTrain(train.id) === train) { "coupling hold requires the current physical train" }
+        val current = entry(train)
+        val token = Any()
+        current.couplingHolds.add(token)
+        return AutoCloseable { current.couplingHolds.remove(token) }
+    }
+    private fun hasCouplingHold(train: Train): Boolean =
+        entries[train.id]?.takeIf { it.train === train }?.couplingHolds?.isNotEmpty() == true
+
+    override fun isMovementHeld(train: Train): Boolean {
+        if (!hasCouplingHold(train)) return false
+        val frame = train.publishedFrame ?: return false
+        return !frame.derailed && frame.speedMetersPerSecond == 0.0 &&
+            (frame.headTraversal + frame.tailTraversal).all { it.startArcLengthInAbMeters == it.endArcLengthInAbMeters } &&
+            frame.cars.all { car -> (car.bogies + car.state).all {
+                it.velocityX == 0.0 && it.velocityY == 0.0 && it.velocityZ == 0.0
+            } }
+    }
+    private fun withCouplingStop(train: Train, frame: TrainControlFrame): TrainControlFrame =
+        if (!hasCouplingHold(train)) frame else frame.copy(referenceTargets = frame.referenceTargets +
+            MotionReferenceConstraint("coupling/operating-stop", 0.0, 0.0))
+
     fun prepare(train: Train, capabilities: VehicleControlCapabilities) {
         // A replacement controller must not reconfigure the active physics worker's executor.
         entries.compute(train.id) { _, previous ->
@@ -79,7 +109,7 @@ class RailwayControlRuntime(private val worldId: String) : VehicleCommandSupervi
 
     fun automatic(train: Train, state: VehicleControlState, capabilities: VehicleControlCapabilities,
         frame: TrainControlFrame, deltaSeconds: Double, missionRevision: Long? = null): VehicleControlCommand =
-        decide(train, state, capabilities, withCouplingSpeedLimit(train, frame), deltaSeconds,
+        decide(train, state, capabilities, withCouplingStop(train, withCouplingSpeedLimit(train, frame)), deltaSeconds,
             if (simulation) VehicleExecutionMode.SIMULATION else VehicleExecutionMode.AUTO, null, missionRevision)
 
     override fun supervise(train: Train, state: VehicleControlState, capabilities: VehicleControlCapabilities,
@@ -92,8 +122,13 @@ class RailwayControlRuntime(private val worldId: String) : VehicleCommandSupervi
             TrainControlFrame(emptyList(), emptyList(), capabilities.worstCurrentGrade,
                 "${failure.javaClass.simpleName}: ${failure.message}")
         }
-        return decide(train, state, capabilities, frame, deltaTimeSeconds,
-            if (simulation) VehicleExecutionMode.SIMULATION else VehicleExecutionMode.MANUAL, command, null)
+        // The held branch still constructed the current protection frame, but it cannot move or
+        // create a new ATP acknowledgement latch merely by waiting beside its coupling peer.
+        if (isMovementHeld(train)) return VehicleControlCommand.COAST
+        val stopping = hasCouplingHold(train)
+        return decide(train, state, capabilities, withCouplingStop(train, frame), deltaTimeSeconds,
+            if (simulation) VehicleExecutionMode.SIMULATION else if (stopping) VehicleExecutionMode.AUTO
+                else VehicleExecutionMode.MANUAL, if (stopping) null else command, null)
     }
     private fun withCouplingSpeedLimit(train: Train, frame: TrainControlFrame): TrainControlFrame {
         val authority = couplingAuthority(train) ?: return frame

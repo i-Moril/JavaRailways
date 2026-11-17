@@ -302,6 +302,10 @@ class SimpleATO(
         return submitMission(mission)
     }
 
+    /** Read on the serialized owner immediately before submission; includes accepted, unpublished missions. */
+    @MainThread
+    internal fun nextMissionRevision(): Long = maxOf(1L, missionCommands.latestAcceptedRevision + 1L)
+
     /** Queue the exact Mission already resolved and verified by the Dispatcher. */
     @MainThread
     fun submitMission(mission: AtoMission): AtoMissionSubmissionResult {
@@ -779,9 +783,32 @@ class SimpleATO(
         if (activeMission == null) {
             limits += MotionReferenceConstraint("mission/absent", 0.0, 0.0)
         }
-        railwayControlRuntime.registerProtectionSource(train) { delta -> refreshTransferredProtection(delta) }
+        attachTransferredProtection()
         return frame.copy(referenceTargets = java.util.List.copyOf(frame.referenceTargets + limits),
             protectionTargets = java.util.List.copyOf(frame.protectionTargets + protection))
+    }
+
+    /** Owner-only stopped handoff of external commands; route/mission/perception stay with their owners. */
+    @MainThread
+    internal fun transferOperationalProtectionTo(replacement: SimpleATO) {
+        check(replacement !== this && replacement.train === train && replacement.world === world &&
+            world.getTrain(train.id) === train) {
+            "operational protection handoff requires the same exact physical train"
+        }
+        val frame = requireNotNull(train.publishedFrame)
+        check(!frame.derailed && frame.speedMetersPerSecond == 0.0 &&
+            (frame.headTraversal + frame.tailTraversal).all { it.startArcLengthInAbMeters == it.endArcLengthInAbMeters } &&
+            frame.cars.all { car -> (car.bogies + car.state).all {
+                it.velocityX == 0.0 && it.velocityY == 0.0 && it.velocityZ == 0.0
+            } }) { "operational protection handoff requires a stopped physical train" }
+        processPendingCommands()
+        replacement.externalConstraints.putAll(externalConstraints)
+        replacement.stopTargets.putAll(stopTargets)
+    }
+
+    /** Installs the existing routed protection callback before an ATO has driven its first tick. */
+    internal fun attachTransferredProtection() {
+        railwayControlRuntime.registerProtectionSource(train) { delta -> refreshTransferredProtection(delta) }
     }
 
     /**

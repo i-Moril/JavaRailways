@@ -401,6 +401,17 @@ disconnected rails, front/wrong-end rejection and a curved gap that differs from
 
 `clampCouplingApproachDistance` is physics-worker-only: it computes raw leading-bogie travel to the solved contact bogie on the captured path, rejects invalid/stale/off-path proof and never returns extra movement beyond contact. Head-arc displacement on a curve is not interchangeable with raw bogie movement. Actual structural events expose Core-solved contact heads so the admission guard can verify the final geometry.
 
+`World.completeCouplingContact(proof)` is the serialized owner counterpart for a pair already
+physically touching and stopped. It checks the current proof, exact source identities, coherent
+stopped frames, selected bridge and actual coupler contact before entering the same `couple`
+transaction used by collision resolution. A real positive gap returns typed `NotInContact` with
+no movement, event or publication; invalid geometry and normal veto return `Rejected`.
+Actual completion retains ordinary TrainLink decision guards, controller/extension preparation,
+occupancy publication and requested output fences, then returns the actual survivor.
+It does not fabricate traversal or a CollisionEvent. `CouplingApproachTest` covers zero and nonzero
+connector lengths in both operating directions, unchanged physical car/bogie poses within 1e-8m,
+no recorded movement, positive-gap noncompletion, stale target and structural veto.
+
 Prepared link/split decisions can request sticky independent `FormationMovementHold` capabilities. Core installs every result fence before publication; controllers and explicit distance movement cannot move fenced outputs. Releasing one exact live token preserves configuration quarantine. Strict `restoreFormationMovementHold` accepts only exact current ordered cars, coherent direction, nonderailed stopped frame and zero car/bogie velocities; no stale or foreign token releases another output. No capability is serialized.
 
 Only an unquarantined formation hold permits `TrainController.prepareWhileFormationHeld` on the physics worker instead of normal `tick`. Configuration quarantine, derailment and pending collision exclude this callback. It prepares controller value state without actuation, movement, reversal or structural mutation. Core unconditionally freezes the controller speed buffer and complete car/bogie motion afterward, including when preparation throws; the independent physical fence remains authoritative. The default callback does nothing. `FormationHeldControllerPreparationTest` exercises these exclusions and a faulty callback attempting movement.

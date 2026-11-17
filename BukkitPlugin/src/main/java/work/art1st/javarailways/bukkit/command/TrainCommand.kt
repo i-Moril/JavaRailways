@@ -6,6 +6,8 @@ import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.simpleAtoWorldDataOrNull
+import work.art1st.javarailways.simpleato.api.coupling.CouplingModeEntryResult
+import work.art1st.javarailways.simpleato.api.coupling.couplingModes
 import work.art1st.javarailways.basic.control.RealisticManualController
 import work.art1st.javarailways.basic.basicWorldDataOrNull
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
@@ -44,10 +46,12 @@ object TrainCommand {
     private val heavyOperationGate = PlayerOperationGate()
     // Seat events revoke requests before their owner-side operation runs; no Bukkit entity reads on physics.
     private val pendingAtpAcknowledgements = ConcurrentHashMap<UUID, Any>()
+    private val pendingCouplingEntries = ConcurrentHashMap<UUID, Any>()
 
     init {
         SeatModel.SeatInteractionListener.addDriverSeatVacatedHandler { player, train ->
             pendingAtpAcknowledgements.remove(player.uniqueId)
+            pendingCouplingEntries.remove(player.uniqueId)
             val controller = playerControllers[player.uniqueId] ?: return@addDriverSeatVacatedHandler
             if (controller.controlledTrain === train) {
                 controller.coast()
@@ -57,7 +61,7 @@ object TrainCommand {
 
     fun onCommand(sender: CommandSender, args: List<String>): Boolean {
         if (args.isEmpty()) {
-            sender.sendMessage("用法: /jr train <create|rename|key|anim|action|behavior|info|list|delete|sit|stand>")
+            sender.sendMessage("用法: /jr train <create|rename|key|anim|action|behavior|info|list|delete|sit|stand|couple>")
             return true
         }
 
@@ -69,6 +73,7 @@ object TrainCommand {
             "action" -> return handleAction(sender, args.drop(1))
             "behavior" -> return handleBehavior(sender, args.drop(1))
             "atp" -> return handleAtp(sender, args.drop(1))
+            "couple" -> return handleCouple(sender, args.drop(1))
             "info" -> return handleInfo(sender)
             "list" -> return handleList(sender)
             "delete" -> return handleDelete(sender, args.drop(1))
@@ -79,8 +84,50 @@ object TrainCommand {
         return true
     }
 
-    internal fun revokePendingAtpAcknowledgement(playerId: UUID) {
+    internal fun revokePendingControlRequests(playerId: UUID) {
         pendingAtpAcknowledgements.remove(playerId)
+        pendingCouplingEntries.remove(playerId)
+    }
+
+    /** Called by the standalone coupling owner before it releases the stopped output. */
+    internal fun retireCouplingControl(train: Train) {
+        playerControllers.entries.removeIf { (playerId, controller) ->
+            if (controller.controlledTrain !== train) false else {
+                revokePendingControlRequests(playerId)
+                true
+            }
+        }
+    }
+
+    private fun handleCouple(sender: CommandSender, args: List<String>): Boolean {
+        if (sender !is Player) { sender.sendMessage("此命令需要玩家执行"); return true }
+        if (args.size != 1) { sender.sendMessage("用法: /jr train couple <目标列车ID>"); return true }
+        val world = getPlayerWorld(sender) as? CoreWorld ?: return true
+        val train = findDrivenTrain(sender, world) ?: run {
+            sender.sendMessage("请先坐在驾驶座上"); return true
+        }
+        val expectedController = train.controller
+        val manager = BukkitPlugin.INSTANCE.trainControlManager
+        val expectedSession = manager.sessionFor(train)
+        val playerId = sender.uniqueId
+        val request = Any()
+        pendingCouplingEntries[playerId] = request
+        val targetId = args.single()
+        reportControllerOperation(sender, world.physicsCoordinator.submitBetweenFrames {
+            try {
+                check(pendingCouplingEntries[playerId] === request && world.getTrain(train.id) === train &&
+                    train.controller === expectedController && manager.sessionFor(train) === expectedSession) {
+                    "驾驶员或控制器已变化，请重新请求"
+                }
+                when (val result = world.couplingModes.enter(train.id, targetId)) {
+                    is CouplingModeEntryResult.Accepted -> listOf("已进入联挂模式：${train.id} → $targetId")
+                    is CouplingModeEntryResult.Rejected -> listOf("无法进入联挂模式：${result.detail}")
+                }
+            } finally {
+                pendingCouplingEntries.remove(playerId, request)
+            }
+        })
+        return true
     }
 
     private fun handleAtp(sender: CommandSender, args: List<String>): Boolean {

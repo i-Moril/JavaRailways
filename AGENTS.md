@@ -19,6 +19,9 @@
 
 涉及世界存档、配置文件、extension payload、WebUI 本地恢复数据或其他持久化格式时，必须先阅读[版本号与发布基线](.trellis/spec/javarailways/shared/versioning.md)，再遵守 [`ai_tasks/persistence_schema_evolution_rules.md`](ai_tasks/persistence_schema_evolution_rules.md)
 
+## Plugin Rules
+
+所有插件模块(指除了Core和Basic以外的其他模块)必须尽可能使用专用的语义清晰的插件API，不要耦合实现类。如果有必须使用实现类的地方，应征求意见后再使用。
 
 <!-- TRELLIS:START -->
 # Trellis Instructions

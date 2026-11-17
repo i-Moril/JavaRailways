@@ -66,6 +66,13 @@ class MissionRouteLayout(
     fun project(
         position: RailPositionSnapshot,
         previousProgressMeters: Double? = null
+    ): Double? = project(position, previousProgressMeters, null)
+
+    /** Expected progress only selects an occurrence; it never changes membership or monotonicity. */
+    internal fun project(
+        position: RailPositionSnapshot,
+        previousProgressMeters: Double?,
+        expectedProgressMeters: Double?
     ): Double? {
         val candidates = segments.mapNotNull { segment ->
             if (segment.railViewRef.railId != position.railId ||
@@ -80,10 +87,9 @@ class MissionRouteLayout(
             ) return@mapNotNull null
             segment.cumulativeStartMeters + (arcInView - segment.startArcLengthMeters)
         }
-        if (candidates.isEmpty()) return null
-        if (previousProgressMeters == null) return candidates.minOrNull()
-        return candidates
-            .filter { it >= previousProgressMeters }
-            .minOrNull()
+        val forwardCandidates = if (previousProgressMeters == null) candidates
+            else candidates.filter { it >= previousProgressMeters }
+        return if (expectedProgressMeters == null) forwardCandidates.minOrNull()
+            else forwardCandidates.minByOrNull { abs(it - expectedProgressMeters) }
     }
 }

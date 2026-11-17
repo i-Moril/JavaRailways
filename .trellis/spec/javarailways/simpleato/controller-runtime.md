@@ -236,8 +236,8 @@ Dispatcher的物理状态和状态展示必须直接读取当前Core帧，不依
 ## Failure与禁止实现
 
 - mission resolve失败或stale revision不改变active mission，也不误触发world Stall；
-- physics invariant或controller异常由同一SimpleATO world coordinator fail-close并freeze，同时锁住Basic物理interlock；
-- 已Stall、validation异常或actuation异常的freeze epoch必须调用同一controller seam发布0 m/s和0 m位移，清除上一成功epoch的car/bogie motion；只改train标量speed不算完成freeze；
+- physics invariant或controller普通路径异常由同一SimpleATO world coordinator记录Stall并锁住Basic物理interlock；自身异常controller在本次报告期间继续freeze，其他健康ATO通过公开actuator执行真实EB，详见[世界Stall机制](./ato-policy-runtime.md#world-stall与共享物理interlock)；
+- 自身异常的freeze epoch必须调用同一controller seam发布0 m/s和0 m位移，清除上一成功epoch的car/bogie motion；健康车的EB epoch提交同一步真实速度/位移，不能伪造零速；EB路径失败交给Core失败ticket与物理halt；
 - 不得在Basic恢复具体SimpleATO subclass、兼容alias或callback bridge；
 - 不得让Bukkit直接更新active mission/constraint集合；
 - 不得为本次inspection线程ownership迁移增加第二套冻结路线生命周期、资源registry或控制器。
@@ -245,7 +245,8 @@ Dispatcher的物理状态和状态展示必须直接读取当前Core帧，不依
 ## 必需测试
 
 - `SimpleATOTest`覆盖mission boundary、constraint归约、publication原子性、Stall与freeze；
-- `AbstractATOMotionPublicationTest`用真实PhysicsCoordinator证明actuator distance/speed进入同一frame，并证明下一异常freeze epoch把train/car/bogie frame速度全部清零；
+- `AbstractATOMotionPublicationTest`用真实PhysicsCoordinator证明actuator distance/speed进入同一frame，并证明自身异常freeze epoch把train/car/bogie frame速度全部清零；
+- `AbstractATOStallBrakingTest`证明健康车真实EB、故障车持续freeze、物理暂停不积分、EB失败不伪造成功publication；`SimpleATOTest`证明恢复规划不漏算或重复记账制动距离，Stall期间不消费任务与普通命令；
 - `InspectionRuntimeTest`覆盖两列车并发投影/独立dirty消费、旧route view完成后新route baseline、折返/移除/reset；
 - 区间限制覆盖只有范围而没有入口声明的首次投影、稳定声明失效、范围越界/重复限制 ID 拒绝、
   入口前制动目标、入口后持续上限、车头在终点及越过终点；折返使用新绑定范围，不提前释放已有资源；

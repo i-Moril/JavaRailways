@@ -518,6 +518,64 @@ class SimpleATOTest {
         assertFalse(coordinator.isStalled, coordinator.lastStall.toString())
     }
 
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
+    fun `multi frame EB across a loop retains actual mission and physical authority occurrence`(bound: Boolean) {
+        val world = createTestWorld()
+        val curves = PrimeCurveGenerator.buildCircle(20.0 / kotlin.math.PI, 2, step = 0.1)
+        val first = world.createRailForTest(curves[0])
+        val second = world.createRailForTest(curves[1])
+        world.onOwnerForTest {
+            work.art1st.javarailways.core.physics.rail.RailView.connect(first.viewAB, second.viewBA)
+            work.art1st.javarailways.core.physics.rail.RailView.connect(second.viewAB, first.viewBA)
+        }
+        val train = createTrainWithConfig("stall-loop-$bound", first, world, listOf(2.0), isLoop = true)
+        val coordinator = AtoWorldCoordinator("stall-loop-$bound", reportSink = {})
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
+        val ato = SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile) { 0.0 }
+        train.setControllerForTest(ato)
+        val fixture = Fixture(world, train, ato, coordinator, data)
+        val firstLength = first.curve.totalArcLength
+        val secondLength = second.curve.totalArcLength
+        val lap = firstLength + secondLength
+        val initial = train.publishedFrame.head
+        val physicalSegments = (0 until 6).flatMap { listOf(
+            RouteSegmentSnapshot(first.id, ViewDirection.AB, 0.0, firstLength),
+            RouteSegmentSnapshot(second.id, ViewDirection.AB, 0.0, secondLength)) }
+        val origin = work.art1st.javarailways.simpleato.api.mission.ObservedAtoMissionOrigin("stall-origin", initial)
+        val missionSegments = physicalSegments.mapIndexed { index, segment ->
+            RouteSegment(RailViewRef(segment.railId, segment.facing),
+                if (index == 0) initial.arcLengthInAbMeters else segment.startArcLengthMeters, segment.endArcLengthMeters)
+        }
+        val route = ExpandedRoute(origin.id, "loop-target", missionSegments)
+        assertTrue(ato.submitMission(AtoMission("stall-loop", 1L, origin,
+            listOf(AtoMissionLeg(0, AtoMissionPoint.Stop(WayPointRef("loop-target")),
+                PlannedRoute("stall-mission", 1L, route))))) is AtoMissionSubmissionResult.Accepted)
+        ato.setMovementAuthority(1L, route.totalLength)
+        val physical = RouteSnapshot("stall-physical", 1L, world.topologyState.revision, physicalSegments)
+        if (bound) bindPhysicalAuthority(fixture, physical, initial.arcLengthInAbMeters, physical.totalLengthMeters, 1L)
+        tickAndPublish(ato, 0.0)
+        repeat(170) { tickAndPublish(ato, 50.0) }
+        assertFalse(coordinator.isStalled, coordinator.lastStall.toString())
+        val before = ato.lifetimeTravelDistanceMeters
+        coordinator.stall(work.art1st.javarailways.simpleato.api.ato.AtoStallReport(
+            coordinator.worldId, train.id, 1, "test", "world failure", "test", null, null, null, null, emptyMap()))
+        repeat(200) { tickAndPublish(ato, 50.0) }
+        assertEquals(0.0, train.speed)
+        assertTrue(ato.lifetimeTravelDistanceMeters - before > lap * 0.5,
+            "EB must travel far enough to make old occurrence hints ambiguous")
+        coordinator.reset()
+        tickAndPublish(ato, 0.0)
+        assertFalse(coordinator.isStalled, coordinator.lastStall.toString())
+        assertEquals(ato.lifetimeTravelDistanceMeters, ato.runtimeDiagnostics.projectedProgressMeters!!, 1e-8)
+        if (bound) assertEquals(physical.totalLengthMeters - initial.arcLengthInAbMeters -
+            ato.lifetimeTravelDistanceMeters, externalAuthorityDistance(fixture), 1e-8)
+        val once = ato.runtimeDiagnostics.projectedProgressMeters
+        tickAndPublish(ato, 0.0)
+        assertEquals(once, ato.runtimeDiagnostics.projectedProgressMeters)
+    }
+
     private fun bindPhysicalAuthority(fixture: Fixture, route: RouteSnapshot, headProgress: Double,
         boundary: Double, missionRevision: Long, publicationRevision: Long = 0L) {
         val stamp = RailwayStateStamp(fixture.coordinator.worldId, fixture.train.publishedFrame.physicsEpoch,
@@ -1262,6 +1320,52 @@ class SimpleATOTest {
         assertTrue(peak > 1.0, "held-brake departure must not remain neutral: peak=$peak\n${trace.joinToString("\n")}")
         assertEquals(100.0, fixture.train.head.location.arcLength - origin, 0.15)
         assertTrue(fixture.ato.isStopped(fixture.train.speed))
+    }
+
+    @Test
+    fun `world Stall retains real EB travel until planning resumes and leaves queued work untouched`() {
+        val fixture = fixture("stall-odometer")
+        val origin = fixture.train.publishedFrame.head.arcLengthInAbMeters
+        authorizeMovement(fixture)
+        repeat(40) { tickAndPublish(fixture.ato, 50.0) }
+        assertTrue(fixture.train.speed > 1.0)
+        val mission = fixture.ato.currentMission
+        val before = fixture.ato.publishedState
+        fixture.coordinator.stall(work.art1st.javarailways.simpleato.api.ato.AtoStallReport(
+            fixture.coordinator.worldId, fixture.train.id, 1, "test", "world failure", "test",
+            null, null, null, null, emptyMap()))
+        fixture.ato.setSpeedLimit("queued-during-stall", 0.0)
+        repeat(100) { tickAndPublish(fixture.ato, 50.0) }
+        assertEquals(0.0, fixture.train.speed)
+        assertTrue(fixture.ato.lifetimeTravelDistanceMeters > before.lifetimeTravelDistanceMeters)
+        assertEquals(fixture.train.publishedFrame.head.arcLengthInAbMeters - origin,
+            fixture.ato.lifetimeTravelDistanceMeters, 1e-9)
+        assertSame(mission, fixture.ato.currentMission)
+        assertFalse(fixture.ato.runtimeDiagnostics.constraints.any { it.contains("queued-during-stall") })
+        // Perception/mission planning stays at its last completed planning sample during EB.
+        assertSame(before.perception, fixture.ato.publishedState.perception)
+        fixture.coordinator.reset()
+        tickAndPublish(fixture.ato, 0.0)
+        val expectedDistance = fixture.ato.lifetimeTravelDistanceMeters
+        assertEquals(expectedDistance, fixture.ato.runtimeDiagnostics.odometerProgressMeters, 1e-9)
+        assertTrue(fixture.ato.runtimeDiagnostics.constraints.any { it.contains("queued-during-stall") })
+        tickAndPublish(fixture.ato, 0.0)
+        assertEquals(expectedDistance, fixture.ato.runtimeDiagnostics.odometerProgressMeters, 1e-9,
+            "planning again must not double count EB travel")
+        assertFalse(fixture.coordinator.isStalled, fixture.coordinator.lastStall.toString())
+
+        fixture.coordinator.stall(work.art1st.javarailways.simpleato.api.ato.AtoStallReport(
+            fixture.coordinator.worldId, fixture.train.id, 2, "test", "second failure", "test",
+            null, null, null, null, emptyMap()))
+        submitPhysicalMission(fixture, 2L)
+        tickAndPublish(fixture.ato, 50.0)
+        assertSame(mission, fixture.ato.currentMission, "Stall must not activate a queued mission")
+        fixture.coordinator.reset()
+        tickAndPublish(fixture.ato, 0.0)
+        assertEquals(2L, fixture.ato.currentMission?.revision)
+        assertEquals(0.0, fixture.ato.runtimeDiagnostics.odometerProgressMeters, 1e-9,
+            "new mission must not inherit old mission's brake travel")
+        assertFalse(fixture.coordinator.isStalled, fixture.coordinator.lastStall.toString())
     }
 
     private fun authorizeMovement(fixture: Fixture) {

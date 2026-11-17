@@ -80,6 +80,31 @@ class CouplingModeRuntimeTest {
     }
 
     @Test
+    fun `world Stall retains an in flight coupling session and its operational holds until reset`() {
+        Fixture(true, 0.0).use { f ->
+            f.owner { assertInstanceOf(CouplingModeEntryResult.Accepted::class.java,
+                f.mode.enter(f.moving.id, f.target.id)) }
+            val phase = f.mode.status(f.moving.id)?.phase
+            val controllers = f.moving.controller to f.target.controller
+            f.coordinator.stall(work.art1st.javarailways.simpleato.api.ato.AtoStallReport(
+                WORLD, f.moving.id, 1, "test", "world stalled", "test", null, null, null, null, emptyMap()))
+            f.physics.start()
+            repeat(10) { f.tick() }
+            assertEquals(phase, f.mode.status(f.moving.id)?.phase)
+            assertSame(controllers.first, f.moving.controller)
+            assertSame(controllers.second, f.target.controller)
+            assertTrue(f.releasedControls.isEmpty())
+            assertTrue(f.data.controlRuntime.isMovementHeld(f.target))
+            f.coordinator.reset()
+            var steps = 0
+            while (f.mode.status(f.moving.id)?.phase != CouplingModePhase.COMPLETED && steps++ < 100) f.tick()
+            assertEquals(CouplingModePhase.COMPLETED, f.mode.status(f.moving.id)?.phase,
+                f.mode.status(f.moving.id).toString())
+            assertEquals(listOf(f.moving, f.target), f.releasedControls)
+        }
+    }
+
+    @Test
     fun `contact mission follows an accepted ordinary mission before its first publication`() {
         Fixture(true).use { f ->
             val ato = checkNotNull(f.ato)

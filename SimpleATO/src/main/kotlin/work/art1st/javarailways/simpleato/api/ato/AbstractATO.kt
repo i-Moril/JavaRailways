@@ -4,6 +4,7 @@ import work.art1st.javarailways.basic.api.ato.CarDynamicsProfile
 import work.art1st.javarailways.basic.api.ato.TrainDynamicsProfile
 import work.art1st.javarailways.basic.api.ato.ControlDemand
 import work.art1st.javarailways.basic.api.ato.TrainActuator
+import work.art1st.javarailways.basic.api.ato.VehicleControlCommand
 import work.art1st.javarailways.simpleato.control.*
 import work.art1st.javarailways.simpleato.api.atp.AtpTarget
 import work.art1st.javarailways.simpleato.simpleAtoWorldDataOrNull
@@ -23,7 +24,7 @@ import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.simpleato.api.constraint.AtoConstraint
 import work.art1st.javarailways.simpleato.api.constraint.ConstraintOwner
 
-/** Fixed ATO Tick boundary: plan, actuate, move, or freeze the world-local ATO subsystem. */
+/** Fixed ATO Tick boundary: plan and move, brake for a world Stall, or freeze a local failure. */
 abstract class AbstractATO(
     train: Train,
     world: World,
@@ -94,6 +95,7 @@ abstract class AbstractATO(
 
     private var activeLifetimeTravelDistanceMeters: Double = 0.0
     private var atoTick: Long = 0L
+    private var localFailureStall: AtoStallReport? = null
 
     @Volatile
     private var publishedState = PublishedAtoState(
@@ -120,40 +122,67 @@ abstract class AbstractATO(
 
     final override fun tick(deltaT: Double) {
         atoTick++
-        if (atoCoordinator.isStalled) {
-            freeze()
-            return
+        val deltaTimeSeconds = deltaT * 0.001
+        if (!atoCoordinator.isStalled) {
+            localFailureStall = null
+            try {
+                if (tickWhileRunning(deltaTimeSeconds)) return
+            } catch (failure: Exception) {
+                stallLocally(failure)
+                freeze()
+                return
+            }
         }
 
-        try {
-            val deltaTimeSeconds = deltaT * 0.001
-            processPendingCommands()
-            val demand = plan(deltaTimeSeconds)
-            validateBeforeMovement()
-            if (atoCoordinator.isStalled) {
-                freeze()
-                return
-            }
-            if (deltaTimeSeconds <= 0.0) return
-            if (railwayControlRuntime.isMovementHeld(train)) {
-                freeze()
-                return
-            }
-            val command = railwayControlRuntime.automatic(train, actuator.controlState(activeSpeed),
-                actuator.controlCapabilities(activeSpeed), motionControlFrame(demand), deltaTimeSeconds, controlMissionRevision())
-            val step = actuator.step(activeSpeed, command, deltaTimeSeconds)
-            val distance = constrainMovementDistance(step.distanceMeters)
-            check(distance.isFinite() && distance >= 0.0 && distance <= step.distanceMeters) {
-                "controller movement boundary may only shorten the actuator step"
-            }
-            speed = step.speedMetersPerSecond
-            moveControlledTrain(distance, step.speedMetersPerSecond)
-            lastTravelDistanceMeters = distance
-            activeLifetimeTravelDistanceMeters += distance
-        } catch (failure: Exception) {
-            atoCoordinator.stall(createStallReport(failure))
+        // Emergency dynamics must reach Core's worker-failure path if they fail. Converting an
+        // unsafe braking result into a successful frozen epoch would conceal that failure.
+        if (localFailureStall != null && localFailureStall === atoCoordinator.lastStall) {
             freeze()
+        } else {
+            localFailureStall = null
+            if (deltaTimeSeconds <= 0.0) return
+            if (railwayControlRuntime.isMovementHeld(train)) freeze()
+            else actuateAndMove(VehicleControlCommand.EMERGENCY_BRAKE, deltaTimeSeconds)
         }
+    }
+
+    /** Returns false when a world Stall interrupts ordinary control before actuation. */
+    private fun tickWhileRunning(deltaTimeSeconds: Double): Boolean {
+        processPendingCommands()
+        if (atoCoordinator.isStalled) return false
+        val demand = plan(deltaTimeSeconds)
+        if (atoCoordinator.isStalled) return false
+        validateBeforeMovement()
+        if (atoCoordinator.isStalled) return false
+        if (deltaTimeSeconds <= 0.0) return true
+        if (railwayControlRuntime.isMovementHeld(train)) {
+            freeze()
+            return true
+        }
+        val command = railwayControlRuntime.automatic(train, actuator.controlState(activeSpeed),
+            actuator.controlCapabilities(activeSpeed), motionControlFrame(demand), deltaTimeSeconds, controlMissionRevision())
+        if (atoCoordinator.isStalled) return false
+        actuateAndMove(command, deltaTimeSeconds)
+        return true
+    }
+
+    private fun actuateAndMove(command: VehicleControlCommand, deltaTimeSeconds: Double) {
+        val step = actuator.step(activeSpeed, command, deltaTimeSeconds)
+        val distance = constrainMovementDistance(step.distanceMeters)
+        check(distance.isFinite() && distance >= 0.0 && distance <= step.distanceMeters) {
+            "controller movement boundary may only shorten the actuator step"
+        }
+        speed = step.speedMetersPerSecond
+        moveControlledTrain(distance, step.speedMetersPerSecond)
+        lastTravelDistanceMeters = distance
+        activeLifetimeTravelDistanceMeters += distance
+    }
+
+    private fun stallLocally(failure: Exception) {
+        atoCoordinator.stall(createStallReport(failure))
+        // The winning report identifies this incident even if another controller failed first.
+        // A reset followed by a new Stall must not keep this controller frozen for an old fault.
+        localFailureStall = atoCoordinator.lastStall
     }
 
     /** Publish mission/inspection readiness without advancing actuator history or physical motion. */
@@ -163,12 +192,15 @@ abstract class AbstractATO(
         // The last movement belongs to the pre-publication formation, never the new mission.
         lastTravelDistanceMeters = 0.0
         if (atoCoordinator.isStalled) return
+        localFailureStall = null
         try {
             processPendingCommands()
+            if (atoCoordinator.isStalled) return
             plan(deltaT * 0.001)
+            if (atoCoordinator.isStalled) return
             validateBeforeMovement()
         } catch (failure: Exception) {
-            atoCoordinator.stall(createStallReport(failure))
+            stallLocally(failure)
         } finally {
             speed = 0.0
             lastTravelDistanceMeters = 0.0

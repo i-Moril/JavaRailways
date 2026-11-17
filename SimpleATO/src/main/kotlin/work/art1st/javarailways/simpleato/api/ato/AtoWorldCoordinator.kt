@@ -49,31 +49,28 @@ class AtoWorldCoordinator(
     val safetyInterlock: WorldSafetyInterlock = WorldSafetyInterlock(),
     private val reportSink: (AtoStallReport) -> Unit = { System.err.println(it.format()) }
 ) {
-    private val stateRef = AtomicReference(AtoWorldState.RUNNING)
+    private val stallReport = AtomicReference<AtoStallReport?>(null)
 
-    @Volatile
-    var lastStall: AtoStallReport? = null
-        private set
+    val lastStall: AtoStallReport?
+        get() = stallReport.get()
 
     val state: AtoWorldState
-        get() = stateRef.get()
+        get() = if (lastStall == null) AtoWorldState.RUNNING else AtoWorldState.STALLED
 
     val isStalled: Boolean
         get() = state == AtoWorldState.STALLED || safetyInterlock.isEngaged
 
     /** The first failure wins; later failures observe the same world Stall. */
     fun stall(report: AtoStallReport): Boolean {
-        if (!stateRef.compareAndSet(AtoWorldState.RUNNING, AtoWorldState.STALLED)) return false
+        if (!stallReport.compareAndSet(null, report)) return false
         safetyInterlock.engage()
-        lastStall = report
         reportSink(report)
         return true
     }
 
     /** Admin-only reset after trains have been restored manually. */
     fun reset() {
-        lastStall = null
-        stateRef.set(AtoWorldState.RUNNING)
+        stallReport.set(null)
         safetyInterlock.reset()
     }
 }

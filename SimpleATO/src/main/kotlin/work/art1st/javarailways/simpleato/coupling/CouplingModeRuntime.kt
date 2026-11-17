@@ -79,6 +79,7 @@ internal class CouplingModeRuntime(private val world: World, private val setting
     }
 
     fun tick() {
+        if (data.atoCoordinator.isStalled) return
         val context = contextProvider.current() ?: return
         sessions.values.filter(::active).toList().forEach { session ->
             try {

@@ -17,8 +17,37 @@ route/perception scan生成车辆、停车、跟车、授权与外部restriction
 
 `SimpleATOWorldData`持有每world唯一`AtoWorldCoordinator`。controller、Dispatcher、Depot reset、
 隔离仿真和Bukkit诊断全部解析这一份owner。coordinator首次Stall保存结构化报告并锁住Basic同world
-`WorldSafetyInterlock`；后续失败不覆盖first-failure报告。reset同时清除报告、恢复coordinator并释放interlock。
-因此manual controller仍fail closed，但Basic无需知道ATO报告或constraint类型。
+`WorldSafetyInterlock`；后续失败不覆盖first-failure报告。Stall状态由同一个原子报告引用派生，
+不能先发布STALLED再安装报告，否则并发controller无法绑定自己的本次故障。reset清除报告并释放interlock；
+这是运行期状态，不增加持久化字段或schema版本。Basic无需知道ATO报告或constraint类型。
+
+当前ATO Stall与Core物理Stall有不同职责：ATO Stall锁住普通运营控制，但物理epoch继续推进。
+健康ATO在下一次观察到Stall时跳过命令消费、规划、inspection和普通ATP选挡，直接用Basic公开
+`TrainActuator.step(currentSpeed, VehicleControlCommand.EMERGENCY_BRAKE, dtSeconds)`积分一次，
+沿原接触夹紧和movement seam提交真实距离、速度及累计里程。手动controller通过同一interlock执行真实EB。
+例如一列车故障时，另一列以2 m/s行驶的健康列车应先有制动位移，再随真实设备响应停稳，不能直接发布0速度。
+Core物理Stall则排除worker推进；暂停期间不执行EB积分，恢复物理后才继续。
+
+只有controller本身捕获的普通规划、校验或执行异常保留既有freeze。controller私有记录当前锁定的报告引用，
+在同一故障期间持续冻结；不能按报告trainId判定故障车，因为Dispatcher也可能报告一列健康车。
+reset后新报告不继承旧冻结标记，即使controller尚未经历正常tick。已停稳的结构/联挂保持继续保持零运动。
+真实EB执行、接触边界或运动提交失败必须冒泡至Core失败ticket/物理halt，不能吞掉异常后伪造成功零速帧。
+Stall检查本身为O(1)，制动沿用既有逐车积分与接触边界成本，不重建路线或运行候选选挡。
+
+恢复规划时，用自上次规划以来的累计物理里程增量更新任务里程、StationCall末端进度和PASS/EXIT判断，
+不只读取最后一个EB帧的距离。仍在原规划采样时机更新感知、任务诊断和站停通知；Stall期间不推进任务事件。
+任务激活、退休或折返重置任务自身里程起点；扫描的累计位移基线仍只在规划时消费，
+因此上一任务的制动距离不计入新任务，却仍可用于独立StationCall和既有对象的PASS判断。
+
+重复轨道的圈次也必须使用自上次投影以来的累计位移，而不是只看最后一帧。
+冻结物理路线游标保留已消费的controller lifetime基线，加入尚未消费的制动距离；
+最新帧若来自额外显式移动，再加入其traversal一次，不能重复加入已包含在lifetime的末帧。
+无冻结restriction的Mission和独立StationCall在原真实位置候选及非倒退筛选后，
+选择最接近“旧进度+累计位移”的出现位置；这个期望值只选择圈次，不改变坐标、轨道成员范围或容差。
+例如A→B→A上的列车从10m制动到225m，最终位于第二次A的25m处，恢复后必须得到225m，不能退回25m并放大剩余授权。
+`AbstractATOStallBrakingTest`覆盖真实逐车设备EB、故障冻结、外部报告/直接interlock、规划中Stall、
+reset后新故障、物理暂停和EB失败不发布伪帧；`SimpleATOTest`覆盖多帧制动后恢复记账、绑定/未绑定物理路线的跨圈定位及命令/任务队列保持。
+不增加迁移路径或新的恢复策略；错误做法是将世界Stall统一转成freeze，正确做法是仅冻结自身故障并让健康车真实制动。
 `SimpleATOWorldData`在组合边界要求coordinator引用的必须是同一Basic world的exact interlock实例；
 不允许ATO与手动控制各自锁定一份彼此隔离的latch。
 
@@ -72,7 +101,7 @@ carCount取frame.cars.size；旧诊断revision按ATO/感知上下文的计数写
 
 ## 失败、复杂度与测试
 
-mission resolve和stale revision是typed rejection，不Stall；controller/invariant异常Stall并freeze。mission route
+mission resolve和stale revision是typed rejection，不Stall；controller/invariant异常触发世界Stall，自身freeze、健康车真实EB。mission route
 编译对segment数为`O(S)`，每次position投影当前实现扫描compiled segments为`O(S)`；constraint归约为`O(C)`。
 不得逐tick重新寻路或累计旧constraint。
 

@@ -170,7 +170,8 @@ class SimpleATO(
     private class RestrictionProgress(
         var distanceMeters: Double,
         var frameRevision: Long,
-        val reversed: Boolean
+        val reversed: Boolean,
+        var accountedLifetimeTravelDistanceMeters: Double
     )
 
     private data class ScanResult(
@@ -207,6 +208,8 @@ class SimpleATO(
     private var activePerceptionHorizonMeters = 0.0
     private var activeBrakingEnvelope: GradeAwareBrakingEnvelope? = null
     private var missionProgressMeters = 0.0
+    private var missionStartLifetimeTravelDistanceMeters = 0.0
+    private var accountedLifetimeTravelDistanceMeters = 0.0
     private var missionRouteLayout: MissionRouteLayout? = null
     private var missionProjectedProgressMeters: Double? = null
 
@@ -273,7 +276,8 @@ class SimpleATO(
                 (previous.frozenRoute.selection.route === route.selection.route ||
                     (oldSegments != null && oldSegments.size <= newSegments.size &&
                         oldSegments.indices.all { index -> oldSegments[index] == newSegments[index] }))
-        } ?: RestrictionProgress(route.headDistanceFromRouteStartMeters, frame.revision, frame.reversed)
+        } ?: RestrictionProgress(route.headDistanceFromRouteStartMeters, frame.revision, frame.reversed,
+            lifetimeTravelDistanceMeters)
         restrictionRoute = RestrictionRoute(
             observationStamp = observationStamp,
             binding = FrozenRouteBinding.from(route.selection.route),
@@ -553,6 +557,7 @@ class SimpleATO(
             }
             constraintManager.remove(MISSION_OWNER)
             missionProgressMeters = 0.0
+            missionStartLifetimeTravelDistanceMeters = activeLifetimeTravelDistance
             missionRouteLayout = MissionRouteLayout(world, mission)
             missionProjectedProgressMeters = null
             movementAuthorityRevision = mission.revision
@@ -643,6 +648,7 @@ class SimpleATO(
                         missionRouteLayout = null
                         missionProjectedProgressMeters = null
                         missionProgressMeters = 0.0
+                        missionStartLifetimeTravelDistanceMeters = activeLifetimeTravelDistance
                         movementAuthorityRevision = -1L
                         movementAuthorityLimitMeters = 0.0
                         constraintManager.remove(MISSION_OWNER)
@@ -674,6 +680,7 @@ class SimpleATO(
                     missionRouteLayout = null
                     missionProjectedProgressMeters = null
                     missionProgressMeters = 0.0
+                    missionStartLifetimeTravelDistanceMeters = activeLifetimeTravelDistance
                     movementAuthorityRevision = -1L
                     movementAuthorityLimitMeters = 0.0
                     constraintManager.remove(MISSION_OWNER)
@@ -686,7 +693,10 @@ class SimpleATO(
     override fun plan(deltaTimeSeconds: Double): ControlDemand {
         activeContactAuthority = null
         perceptionEpoch++
-        missionProgressMeters += lastTravelDistanceMeters
+        // World Stall skips planning while emergency braking still advances physical motion.
+        val travelDistanceMeters = activeLifetimeTravelDistance - accountedLifetimeTravelDistanceMeters
+        accountedLifetimeTravelDistanceMeters = activeLifetimeTravelDistance
+        missionProgressMeters = activeLifetimeTravelDistance - missionStartLifetimeTravelDistanceMeters
         val restriction = restrictionRoute
         val hasClearanceRequirements = restriction?.inspectionBinding?.entryClearances?.sourceIds?.isNotEmpty() == true
         val frame = requireNotNull(train.publishedFrame) { "ATO requires a published frame for ${train.id}" }
@@ -695,7 +705,7 @@ class SimpleATO(
             missionProjectedProgressMeters = if (restriction?.missionRevision == layout.mission.revision) {
                 checkNotNull(progress) - restriction.headDistanceFromRouteStartMeters +
                     restriction.missionHeadProgressAtSelectionMeters
-            } else projectMissionProgress(layout, frame.head)
+            } else projectMissionProgress(layout, frame.head, travelDistanceMeters)
         }
         val nominalHorizon = routePerceptionHorizonMeters(
             restriction?.inspectionBinding?.maximumDeclaredLeadTimeSeconds
@@ -713,7 +723,7 @@ class SimpleATO(
                 safetyProfile.stopToleranceMeters + ROUTE_PERCEPTION_MARGIN_METERS
             if (end.isFinite()) maxOf(nominalHorizon, end - checkNotNull(progress)) else nominalHorizon
         } ?: nominalHorizon
-        val scan = scanRouteAndObjects(horizon, frame)
+        val scan = scanRouteAndObjects(horizon, frame, travelDistanceMeters)
         latestRouteSnapshot = scan.route
         latestPerceptionSnapshot = scan.perception
         activePerceptionHorizonMeters = scan.perceptionHorizonMeters
@@ -726,7 +736,7 @@ class SimpleATO(
         processSpeedLimitTransitions(scan)
         updateBuiltInConstraints(scan)
         updateMissionConstraints()
-        updateStationCallConstraints(scan)
+        updateStationCallConstraints(scan, travelDistanceMeters)
         constraintManager.remove(ENTRY_CLEARANCE_OWNER)
         if (restriction != null && hasClearanceRequirements) {
             val routeProgress = checkNotNull(progress)
@@ -819,8 +829,13 @@ class SimpleATO(
         route.signalSnapshots.completedObservationStamp()
             ?.takeIf { it.physicsEpoch >= route.observationStamp.physicsEpoch } ?: route.observationStamp
 
-    private fun projectMissionProgress(layout: MissionRouteLayout, head: RailPositionSnapshot): Double =
-        checkNotNull(layout.project(head, missionProjectedProgressMeters)) {
+    private fun projectMissionProgress(
+        layout: MissionRouteLayout,
+        head: RailPositionSnapshot,
+        travelDistanceMeters: Double
+    ): Double =
+        checkNotNull(layout.project(head, missionProjectedProgressMeters,
+            missionProjectedProgressMeters?.plus(travelDistanceMeters))) {
             "ATO train head $head left active Mission ${layout.mission.id}@${layout.mission.revision}; " +
                 "previous progress=$missionProjectedProgressMeters"
         }
@@ -836,14 +851,21 @@ class SimpleATO(
             // the retained forward grant until Basic rebases it; reversal does not release it.
             frame.tail.copy(facing = if (frame.tail.facing == ViewDirection.AB) ViewDirection.BA else ViewDirection.AB)
         } else frame.head
-        val travelled = if (!reversedBeforeRebase && frame.revision != cursor.frameRevision)
+        val controllerState = publishedAtoState()
+        val controllerTravel = controllerState.lifetimeTravelDistanceMeters - cursor.accountedLifetimeTravelDistanceMeters
+        // The controller's latest frame is already represented by its lifetime distance. A later
+        // explicit move has separate traversal evidence; consume that frame only once as before.
+        val externalTravel = if (frame.revision != cursor.frameRevision &&
+            frame.revision != controllerState.trainFrame.revision)
             frame.headTraversal.sumOf { kotlin.math.abs(it.endArcLengthInAbMeters - it.startArcLengthInAbMeters) }
         else 0.0
+        val travelled = if (reversedBeforeRebase) 0.0 else controllerTravel + externalTravel
         val progress = checkNotNull(route.frozenRoute.physicalHeadProgressMeters(
             world.topologyState, head, cursor.distanceMeters + travelled
         )) { "ATO train end $head left frozen restriction route ${route.binding}; previous progress=${cursor.distanceMeters}" }
         cursor.distanceMeters = progress
         cursor.frameRevision = frame.revision
+        cursor.accountedLifetimeTravelDistanceMeters = controllerState.lifetimeTravelDistanceMeters
         return progress
     }
 
@@ -1052,7 +1074,7 @@ class SimpleATO(
         constraintManager.replace(MISSION_OWNER, constraints)
     }
 
-    private fun updateStationCallConstraints(scan: ScanResult) {
+    private fun updateStationCallConstraints(scan: ScanResult, travelDistanceMeters: Double) {
         val active = activeStationCall
         if (active == null || active.departed) {
             stationPositionErrorMeters = null
@@ -1075,7 +1097,8 @@ class SimpleATO(
         val followsActiveMission = activeMission?.revision == resolved.call.missionRevision
         val directProjection = if (followsActiveMission) null else active.missionLayout.project(
             scan.perception.train.head,
-            active.projectedProgressMeters
+            active.projectedProgressMeters,
+            active.projectedProgressMeters?.plus(travelDistanceMeters)
         )
         active.projectedProgressMeters = when {
             followsActiveMission -> checkNotNull(missionProjectedProgressMeters) {
@@ -1085,7 +1108,7 @@ class SimpleATO(
             active.projectedProgressMeters != null &&
                 active.projectedProgressMeters!! >=
                 resolved.stoppingDistanceMeters - resolved.positionToleranceMeters ->
-                active.projectedProgressMeters!! + lastTravelDistanceMeters
+                active.projectedProgressMeters!! + travelDistanceMeters
             else -> error("train head left the StationCall Mission route before its berth: ${resolved.berthRef}")
         }
         val positionError = resolved.stoppingDistanceMeters - requireNotNull(active.projectedProgressMeters)
@@ -1218,7 +1241,11 @@ class SimpleATO(
             }
     }
 
-    private fun scanRouteAndObjects(horizon: Double, trainFrame: TrainFrameSnapshot): ScanResult {
+    private fun scanRouteAndObjects(
+        horizon: Double,
+        trainFrame: TrainFrameSnapshot,
+        travelDistanceMeters: Double
+    ): ScanResult {
         val path = traceSelectedTrackAhead(world, trainFrame.head, horizon)
         val segments = path.segments
 
@@ -1265,7 +1292,7 @@ class SimpleATO(
         }
         previousObserved.forEach { (ref, observed) ->
             if (ref in current) return@forEach
-            val transition = if (observed.distanceMeters <= lastTravelDistanceMeters + 1.0e-9) {
+            val transition = if (observed.distanceMeters <= travelDistanceMeters + 1.0e-9) {
                 ObservationTransition.PASS
             } else {
                 ObservationTransition.EXIT

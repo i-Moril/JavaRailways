@@ -30,7 +30,7 @@ interface CouplingModeService {
 
 `enter` 返回 `Accepted(snapshot)` 或 `Rejected(detail)`。接受表示模式已经进入运行时管理，不能据此断言已联挂或一定能完成。快照包含事件 ID、两个入口列车 ID、阶段和可选详情；阶段为 `PREPARING`、`APPROACHING`、`COMPLETED`、`REJECTED` 或 `RECOVERY_REQUIRED`。`status` 优先返回使用该车的活动操作，随后返回以它为接近车的最近操作。完成的目标车可能已被 Core 从 world 移除，不能把其旧 ID 当成新物理列车。
 
-调用与推进均在 world owner、完整 physics frame 之间执行。`OperationalWorldRuntime.afterPublication` 在观察与信号 epoch 完成后、Dispatcher 推进前调用普通联挂 tick。运行时复用组合层注入的 `TimetableRouteAdmissionContextProvider`，只接受本次操作最初捕获的同一 admission service。不存在第二份资源 registry、claim ledger、控制器工厂或物理执行器。
+调用与推进均在 world owner、完整 physics frame 之间执行。`OperationalWorldRuntime.afterPublication` 在观察与信号 epoch 完成后、Dispatcher 推进前调用普通联挂 tick。世界 ATO Stall 时 tick 立即返回，保留活动 session、资源和保护请求，不继续运营准入、输出绑定或控制交还；reset 后从原阶段继续。物理车钩接触及结构保护仍由 Core/Basic 处理。运行时复用组合层注入的 `TimetableRouteAdmissionContextProvider`，只接受本次操作最初捕获的同一 admission service。不存在第二份资源 registry、claim ledger、控制器工厂或物理执行器。
 
 `OperationalWorldRuntime.create` 的组合参数为 `couplingModeSettings`、`couplingAdmissionContextProvider` 与 `couplingControlReleased: (Train) -> Unit`。最后一个回调在输出实际车体已经被 Basic 保持时执行，参数依次是两个原始 source 对象，包括已被移除的目标对象。平台在此释放由自己拥有的控制会话和命令索引；运行时只处理领域 controller 与保护绑定，避免旧平台会话继续指向已消费的物理对象。该回调不得把“移除 controller”误认为新输出已获行车授权。
 
@@ -60,4 +60,4 @@ Source 或接近准入拒绝时，运行时撤除本次接触授权并保持或�
 
 Session、pending handle、临时 token 和查询快照只存在于当前进程，不加入世界存档或 SimpleATO runtime snapshot；实际物理列车组成仍由 Core 既有持久化负责。不能在重启后根据旧事件 ID 恢复一份没有资源凭据的联挂模式，也不新增旧格式兼容路径。批量摆位不属于本接口。
 
-`CouplingModeRuntimeTest` 必须使用真实 Basic 准入、Core 物理、`RealisticManualController` 和既有列车设备执行器覆盖手动/ATO、非零车钩的正间距/零间距。完成后断言实际单列车两车体、停稳、旧控制会话均在 fence 内释放、资源和 admission 无遗留、Depot 无新增归属，随后实际重新手动驾驶并观察新编组移动。独立零速限制必须能阻止 ATO 接近；source 和 contact 拒绝必须保持原 controller、清理本次资源、不 Stall 且允许重试。`CouplingApproachAdmissionTest` 另断言双零长度车钩精确贴靠且无已有 source grants 时的 `PHYSICALLY_OCCUPIED` 拒绝及无状态变更。这些是源代码与单元/集成夹具层面的验收，不能代替真实服务端玩家驾驶与客户端显示验收。
+`CouplingModeRuntimeTest` 必须使用真实 Basic 准入、Core 物理、`RealisticManualController` 和既有列车设备执行器覆盖手动/ATO、非零车钩的正间距/零间距。完成后断言实际单列车两车体、停稳、旧控制会话均在 fence 内释放、资源和 admission 无遗留、Depot 无新增归属，随后实际重新手动驾驶并观察新编组移动。入模式后触发世界 Stall 必须暂停阶段推进和控制释放，reset 后可继续完成；独立零速限制必须能阻止 ATO 接近；source 和 contact 拒绝必须保持原 controller、清理本次资源、不 Stall 且允许重试。`CouplingApproachAdmissionTest` 另断言双零长度车钩精确贴靠且无已有 source grants 时的 `PHYSICALLY_OCCUPIED` 拒绝及无状态变更。这些是源代码与单元/集成夹具层面的验收，不能代替真实服务端玩家驾驶与客户端显示验收。

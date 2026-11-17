@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.basic.api.ato.ControlDemand
 import work.art1st.javarailways.basic.api.ato.nativeBodySpeedLimits
 import work.art1st.javarailways.basic.basicWorldData

@@ -1,6 +1,8 @@
 package work.art1st.javarailways.simpleato.api.destination
 
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.operatingDirection
+import work.art1st.javarailways.basic.api.route.wayPoints
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.simpleato.api.depot.DepotId
 import work.art1st.javarailways.simpleato.api.depot.DepotStablingPoint
 import work.art1st.javarailways.simpleato.api.depot.StablingPointRef
@@ -8,7 +10,6 @@ import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.simpleato.api.station.StationBerth
 import work.art1st.javarailways.simpleato.api.station.StationBerthRef
 import work.art1st.javarailways.simpleato.api.station.StationId
-import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.util.annotation.Heavy
@@ -171,7 +172,7 @@ class OperationalDestinationStore {
 
 /** Main-thread atomic adapter keeping Destination-owned operational stores in sync. */
 class OperationalDestinationService(private val world: World) {
-    private val basicData = world.basicWorldData
+    private val wayPoints = world.wayPoints
     private val data = world.simpleAtoWorldData
 
     /**
@@ -187,7 +188,7 @@ class OperationalDestinationService(private val world: World) {
         check(data.destinations[destination.id] == null) {
             "Destination already registered: ${destination.id}"
         }
-        check(basicData.wayPoints[destination.id] == null) {
+        check(wayPoints[destination.id] == null) {
             "WayPoint ID already registered: ${destination.id}"
         }
         val rail = world.getRail(destination.railId)
@@ -213,10 +214,10 @@ class OperationalDestinationService(private val world: World) {
             )
         }
         try {
-            basicData.wayPoints.add(destination.toWayPoint())
+            wayPoints.add(destination.toWayPoint())
             data.destinations.add(destination)
         } catch (failure: Exception) {
-            basicData.wayPoints.remove(destination.id)
+            wayPoints.remove(destination.id)
             if (stationRole != null) data.stations.removeBerth(stationRole.berthRef)
             if (depotRole != null) data.depots.removeStablingPoint(depotRole.pointRef)
             throw failure
@@ -233,8 +234,8 @@ class OperationalDestinationService(private val world: World) {
                 "Destination changed while deleting rail $railId: ${destination.id}"
             }
         }
-        basicData.wayPoints.all().filter { it.railId == railId }.forEach { wayPoint ->
-            basicData.wayPoints.remove(wayPoint.id)
+        wayPoints.all().filter { it.railId == railId }.forEach { wayPoint ->
+            wayPoints.remove(wayPoint.id)
         }
         return attached
     }
@@ -265,7 +266,7 @@ class OperationalDestinationService(private val world: World) {
         }
         val originals = data.destinations.all().filter { it.railId in replacements }
         val destinationIds = data.destinations.all().mapTo(HashSet()) { it.id }
-        val standaloneWayPoints = basicData.wayPoints.all().filter {
+        val standaloneWayPoints = wayPoints.all().filter {
             it.id !in destinationIds && it.railId in replacements
         }
         val plans = originals.map { original ->
@@ -301,7 +302,7 @@ class OperationalDestinationService(private val world: World) {
                 replace(original.id, next)
                 migrated += next
             }
-            wayPointPlans.forEach(basicData.wayPoints::add)
+            wayPointPlans.forEach(wayPoints::add)
         } catch (failure: Exception) {
             plans.asReversed().forEach { (original, next) ->
                 if (data.destinations[original.id] == next) {
@@ -336,10 +337,10 @@ class OperationalDestinationService(private val world: World) {
             }
         }
         plans.forEach { replace(it.id, it) }
-        basicData.wayPoints.all().filter {
+        wayPoints.all().filter {
             it.railId == oldRailId && data.destinations[it.id] == null
         }.forEach { original ->
-            basicData.wayPoints.add(
+            wayPoints.add(
                 if (original.arcLength <= splitArcLengthInAbMeters) {
                     original.copy(railId = beforeRailId)
                 } else {
@@ -376,10 +377,10 @@ class OperationalDestinationService(private val world: World) {
                 )
             }
         plans.forEach { replace(it.id, it) }
-        basicData.wayPoints.all().filter {
+        wayPoints.all().filter {
             (it.railId == beforeRailId || it.railId == afterRailId) && data.destinations[it.id] == null
         }.forEach { original ->
-            basicData.wayPoints.add(
+            wayPoints.add(
                 original.copy(
                     railId = mergedRailId,
                     arcLength = if (original.railId == beforeRailId) {
@@ -401,7 +402,7 @@ class OperationalDestinationService(private val world: World) {
             check(data.destinations[destination.id] == null) {
                 "Destination already registered: ${destination.id}"
             }
-            check(basicData.wayPoints[destination.id] == null) {
+            check(wayPoints[destination.id] == null) {
                 "WayPoint ID already registered: ${destination.id}"
             }
         }
@@ -444,7 +445,7 @@ class OperationalDestinationService(private val world: World) {
         check(data.destinations.remove(id) == destination) {
             "Destination changed during main-thread removal: $id"
         }
-        basicData.wayPoints.remove(id)
+        wayPoints.remove(id)
         return destination
     }
 
@@ -463,7 +464,7 @@ class OperationalDestinationService(private val world: World) {
     ) {
         val rail = requireNotNull(world.getRail(destination.railId))
         val placementDirection = destination.approachDirection
-            ?: basicData.operatingDirections[rail.id]
+            ?: world.operatingDirection(rail.id)
             ?: ViewDirection.AB
         val view = rail.getView(placementDirection)
         val arcInView = when (placementDirection) {

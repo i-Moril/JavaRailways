@@ -1,10 +1,11 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.basic.api.route.planning.operatingDirectionOverlay
+import work.art1st.javarailways.basic.api.route.wayPoints
 import work.art1st.javarailways.simpleato.routing.OperationalRoutePlanner
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions
-import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.route.planning.OperationalRouteLocation
 import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanner
 import work.art1st.javarailways.basic.api.route.planning.TopologyRoutePlanningInput
@@ -91,7 +92,7 @@ internal class StructuralTimetableValidator(private val world: World,
     private val depotOrigins: (DepotTrainSelector) -> List<String>) {
     private val topology = world.topologyState
     private val restrictions: RoutePlanningRestrictions = world.simpleAtoWorldData.routePlanningRestrictions.compile(
-        topology, world.basicWorldData.operatingDirections.overlay(topology))
+        topology, world.operatingDirectionOverlay(topology))
     private val capturedTrains = world.allTrains.filterIsInstance<CoreTrain>().toList()
     private val frames = capturedTrains.associate { it.id to it.publishedFrame }
     private val candidateFacts = capturedTrains.mapNotNull { train ->
@@ -372,7 +373,7 @@ internal class StructuralTimetableValidator(private val world: World,
         }
         require(origins.isNotEmpty()) { "source has no finite initial acquisition/check origins" }
         return origins.flatMap { origin ->
-            val point = requireNotNull(world.basicWorldData.wayPoints[origin]) { "source origin does not exist: $origin" }
+            val point = requireNotNull(world.wayPoints[origin]) { "source origin does not exist: $origin" }
             val possible = when (val selector = service.trainSelector) {
                 is TrainSelector.TrainId -> {
                     // Match Dispatcher/World lookup: the authored selector is a train name,
@@ -412,7 +413,7 @@ internal class StructuralTimetableValidator(private val world: World,
         require(targets.isNotEmpty())
         val base = candidate.envelope.retainedPath
         var effectiveOffset = candidate.pendingOffset
-        val finalTarget = requireNotNull(world.basicWorldData.wayPoints[targets.last()])
+        val finalTarget = requireNotNull(world.wayPoints[targets.last()])
         val stationAction = candidate.pendingStation
         val stationBerth = stationAction?.let { requireNotNull(world.simpleAtoWorldData.stations.berth(it.berthRef)) }
         val finalBerth = stationBerth?.takeIf {
@@ -447,7 +448,7 @@ internal class StructuralTimetableValidator(private val world: World,
         } else {
             var result = base
             for ((targetIndex, target) in targets.withIndex()) {
-                val point = requireNotNull(world.basicWorldData.wayPoints[target]) { "onward target is missing: $target" }
+                val point = requireNotNull(world.wayPoints[target]) { "onward target is missing: $target" }
                 val last = end(result)
                 val planned = TopologyRoutePlanner.plan(TopologyRoutePlanningInput(topology, restrictions,
                     OperationalRouteLocation(last.railId, last.arcLengthInAbMeters), OperationalRouteLocation(point.railId, point.arcLength),
@@ -545,7 +546,7 @@ internal class StructuralTimetableValidator(private val world: World,
     }
 
     private fun window(pointId: String, facing: ViewDirection): StructuralEventWindow {
-        val point = requireNotNull(world.basicWorldData.wayPoints[pointId]) { "checked structural marker is missing: $pointId" }
+        val point = requireNotNull(world.wayPoints[pointId]) { "checked structural marker is missing: $pointId" }
         return StructuralEventWindow.at(RailPositionSnapshot(point.railId, facing, point.arcLength), topology)
     }
     private fun length(rail: java.util.UUID): Double = topology.railProjection[rail]?.singleOrNull()?.let {

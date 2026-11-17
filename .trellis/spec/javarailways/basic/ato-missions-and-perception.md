@@ -89,6 +89,10 @@ Basic不选择保护策略。查询按原顺序解析车头轨道、通过原Cor
 自动观察复用这些入口后仍按static→dynamic→Basic store合并；人工保护在处理完本段静态信号后才迭代动态端点，
 既不读取Basic store，也不提前读取后续片段的对象或限速。集合结构只读不代表对象状态已冻结。
 
+限速识别通过`basic.api.rail.OperationalSpeedLimitTransition`能力，而不要求消费具体signal实现；
+仍保留同一RailObject实例且不提前读限速值。单轨限速/当前live车头查询和转换release语义归
+[速度安全](./speed-and-derail-safety.md)，不能改变以上逐段采样与PASS时机。
+
 人工保护对自身端点按精确Train实例排除，端点边界为双侧包含且没有自动路径的stop tolerance；
 其余端点仍投影为静止零速障碍。当前信号转换、前方限速、原生车身限制及最终已观察边界
 如何接入reference/ATP目标，继续由SimpleATO决定。查询不授予运行资源、注册对象、发布状态或写持久化数据。

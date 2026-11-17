@@ -3,7 +3,7 @@ package work.art1st.javarailways.bukkit.tool
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.DestinationRoleType
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination

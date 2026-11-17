@@ -11,6 +11,11 @@
 - `Basic/build.gradle.kts` Dokka只保留`work.art1st.javarailways.basic.api.*`；`Module.md`定义`1.0-SNAPSHOT`实验面，无binary compatibility promise。
 - Basic以`compileOnly(project(":Core"))`、`compileOnly(ConfigLib/JOML)`编译；artifact不自动携带这些runtime。
 - 新Basic API优先stable ID、immutable/value snapshot、sealed result与最小interface；collection defensive copy。
+- `basic.api.route.WayPoint`是无方向canonical AB米制路径点值；`World.wayPoints`通过`WayPointAccess`直接访问唯一
+  Basic存储。接口保留原get/all/add/rename/remove行为，不新建投影或事务owner；Destination事务继续由SimpleATO负责。
+  单轨`operatingDirection`、指定轨道`operatingDirections`与规划`operatingDirectionOverlay`复用同一锁内查询，
+  线程、稀疏复杂度、原子捕获和失败规则见[公共方向](./operating-directions.md)及[world runtime](./world-runtime.md)。
+  `basic.api.rail.World.railObjects`同样直接返回已注册的唯一RailObjectStore，不注册或回退到第二份数据。
 - `basic.api.ato`中的逐车设备状态、设备参数与纯设备计算是第一方控制模块契约，不暴露`TrainDynamics`内部类型，
   不承诺独立第三方插件的长期二进制兼容。`TrainDynamicsProfile`、`CarDynamicsProfile`、精确实例参数来源及
   可选编组/配置准备能力同属该第一方契约；准备结果只交付Core待安装更新和派生制动值，SimpleATO不识别具体执行器。
@@ -19,6 +24,9 @@
   输入使用Core公开Train/frame/PrimeCurve；查询在调用方的物理worker内同步执行，不注册owner或授予资源。
   整车限速的覆盖与失败规则见[速度与脱轨安全](./speed-and-derail-safety.md)，全曲线坡度下界、缓存和采样规则见
   [列车纵向动力学](./train-longitudinal-dynamics.md)。SimpleATO仍负责控制目标和制动切片策略。
+- 同包`nativeRailSpeedLimit`与`nativeHeadSpeedLimitContext`收口实时单轨限速和当前车头上下文；前者返回nullable m/s，
+  后者只捕获Core API rail/facing且不读metadata。`basic.api.rail.OperationalSpeedLimitTransition`由原运行对象直接实现，
+  保留其ref/location/lifecycle及live限速、方向能力。采样次序、release与失败归[速度安全](./speed-and-derail-safety.md)。
 - `basic.api.ato`的选定物理前视查询为第一方worker提供live读取边界：`SelectedTrackAhead`保留有序物理片段、
   捕获的topology revision和覆盖距离；`PhysicalTrackSegment`仅公开Core API `RailView`及view-local米制区间，
   `PhysicalTrackObservation`保留原RailObject实例身份与本次捕获的位置/距离/相对速度。

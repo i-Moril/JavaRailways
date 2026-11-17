@@ -1,8 +1,8 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.basic.api.route.wayPoints
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.physics.CoreWorld
-import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.simpleato.api.depot.StablingPointRef
 import kotlin.math.abs
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
@@ -28,7 +28,7 @@ internal object CurrentUnitCirculation {
             if (train.derailed || train.speedMetersPerSecond != 0.0 || train.bodyTraversal.isEmpty() ||
                 train.cars.any { !stopped(it.state) || it.bogies.any { bogie -> !stopped(bogie) } }) continue
             val matches = depot.points.mapNotNull { captured ->
-                val point = world.basicWorldData.wayPoints[captured.point.destinationId] ?: return@mapNotNull null
+                val point = world.wayPoints[captured.point.destinationId] ?: return@mapNotNull null
                 val approach = data.destinations[captured.point.destinationId]?.approachDirection
                 captured.point.ref.takeIf { train.head.railId == point.railId &&
                     abs(train.head.arcLengthInAbMeters - point.arcLength) <= TIMETABLE_ORIGIN_TOLERANCE_METERS &&

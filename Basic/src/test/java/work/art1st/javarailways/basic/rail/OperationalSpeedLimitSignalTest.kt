@@ -3,10 +3,13 @@ package work.art1st.javarailways.basic.rail
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.testing.TestBasicWorldDataRegistry
 import work.art1st.javarailways.basic.basicWorldData
+import work.art1st.javarailways.basic.api.rail.OperationalSpeedLimitTransition
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
@@ -58,6 +61,15 @@ class OperationalSpeedLimitSignalTest {
         assertEquals(0.0, ba.location.arcLengthIn(ViewDirection.BA))
         assertEquals(20.0, ab.speedLimitMetersPerSecond)
         assertEquals(20.0, ba.speedLimitMetersPerSecond)
+        val publicAb: OperationalSpeedLimitTransition = ab
+        val publicBa: OperationalSpeedLimitTransition = ba
+        assertSame(ab, publicAb)
+        assertSame(ba, publicBa)
+        assertTrue(publicAb.appliesTo(ViewDirection.AB))
+        assertFalse(publicAb.appliesTo(ViewDirection.BA))
+        assertTrue(publicBa.appliesTo(ViewDirection.BA))
+        assertFalse(publicBa.appliesTo(ViewDirection.AB))
+        assertEquals(20.0, publicAb.speedLimitMetersPerSecond)
         assertTrue(ab !in rail.viewBA.staticRailObjects)
         assertTrue(ba !in rail.viewAB.staticRailObjects)
     }
@@ -73,7 +85,7 @@ class OperationalSpeedLimitSignalTest {
 
         OperationalSpeedLimitSignalMaterializer.materialize(world)
 
-        val signal = rail.viewAB.staticRailObjects.single() as OperationalSpeedLimitSignal
+        val signal = rail.viewAB.staticRailObjects.single() as OperationalSpeedLimitTransition
         assertNull(signal.speedLimitMetersPerSecond)
     }
 }

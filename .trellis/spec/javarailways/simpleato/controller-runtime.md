@@ -43,6 +43,14 @@ SimpleATO继续拥有previous/current observation身份比较、ENTER/UPDATE/PAS
 联结目标仍由SimpleATO按现有proof/reversed映射识别；反向前车的相对速度仍采用原零速假设。
 对象回调/inspection之后，路线物理末端仍查询最后view的当前续接；移动前仍逐对检查
 `current.railView.nextActiveRail === next.railView`，选择变化按原消息失败，不能用扫描时捕获的布尔值代替。
+
+线路速度通过Basic公开`nativeRailSpeedLimit`和`OperationalSpeedLimitTransition`消费，不直接识别具体signal或metadata存储。
+当前限速仍在scan及restriction更新后调用`nativeHeadSpeedLimitContext`读取一次live车头rail/facing，
+只在首次或rail/facing变化时同步metadata；不改成先前的perception frame。PASS按既有稳定距离顺序读取原对象的
+方向与nullable转换值，null解除当前转换上限；可见前方限制也按该观察位置的facing执行同一纯方向判断，
+以覆盖generic RailObjectStore中的转换能力对象，之后才读取限速值并使用同一ref及既有约束key。不影响其感知事件。
+人工保护每段继续先取metadata、再处理方向适用的ACTIVE静态转换、最后处理动态车端；第一段当前转换的
+null release不得回退到更早限制。接口仅收口读取，不新增查询阶段或另建感知/控制状态。
 Basic查询的源顺序、容差和重复实例规则归[物理前视契约](../basic/ato-missions-and-perception.md)。
 人工未绑定路线通过Basic `traceBoundedSelectedTrackAhead`取得物理片段，调用方仍选择256段及原horizon，
 保留原手动端点算术；逐段用`staticTrackObjects`读取静态信号并完成限速处理后，才迭代`trackTrainEnds`。

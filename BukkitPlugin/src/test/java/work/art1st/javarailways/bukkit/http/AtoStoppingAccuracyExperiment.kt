@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Assertions.*
 import work.art1st.javarailways.bukkit.config.model.PackageLoader
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.BasicWorldData
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.basic.control.HandleTrainActuator
 import work.art1st.javarailways.basic.control.TrainDynamics
 import work.art1st.javarailways.core.api.physics.curve.Curve

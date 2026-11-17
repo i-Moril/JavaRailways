@@ -22,7 +22,16 @@ data class BasicWorldData(
 
 来源：`Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`。
 
-`WayPoint(id, railId, arcLength)` 保存唯一 ID、Core rail UUID 与 canonical AB 弧长；展示、查找和 `WayPointStore.rename(oldId,newId)` 均使用 ID。当前持久化 `SavedWayPointV1` 保存相同身份和坐标信息。
+`basic.api.route.WayPoint(id, railId, arcLength)` 保存唯一 ID、Core rail UUID 与 canonical AB 弧长；展示、查找和 rename 均使用 ID。当前持久化 `SavedWayPointV1` 保存相同身份和坐标信息；值类型移入 API 不改变磁盘格式或版本，不保留旧包别名。
+
+第一方 consumer 使用 `basic.api.route.World.wayPoints: WayPointAccess`，直接取得本 container 的唯一 `WayPointStore`，
+不建立 facade 状态、镜像索引或第二份 snapshot。公开操作为 `get/all/add/rename/remove`：`all` 按 ID 排序并返回新列表，
+不承诺并发写入间的整集合原子快照；`add` 保留同 ID 覆盖行为。`rename` 保留 blank/new-ID 碰撞/missing-old 校验与原错误，
+相同 old/new ID 仍允许；串行 authoring 内的校验失败不改变 store。跨 Destination/Station/Depot 的事务与回滚由 SimpleATO service 拥有，
+不能因 collection 使用 ConcurrentHashMap 就宣称跨 store 原子。查询和写入仍遵守原 world lifecycle/authoring 执行上下文。
+
+`basic.api.rail.World.railObjects` 同样直接取得已有 `RailObjectStore`，不创建或复制 registry；原注册、删除、对象生命周期检查不变。
+这两个 required API accessor 继续使用显式注册的 Basic data；缺失时抛出原错误，不创建空 store 或 fallback。
 
 `World.basicWorldData`与`World.basicWorldDataOrNull`位于`work.art1st.javarailways.basic`，直接访问显式注册的
 Basic extension data。旧`pathFinding.RailMap`目的地索引已删除；通用运营轨道对象由`RailObjectStore`维护，

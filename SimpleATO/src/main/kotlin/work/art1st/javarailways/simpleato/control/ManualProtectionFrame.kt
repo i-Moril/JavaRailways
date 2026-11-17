@@ -6,8 +6,8 @@ import work.art1st.javarailways.basic.api.ato.nativeBodySpeedLimits
 import work.art1st.javarailways.basic.api.ato.traceBoundedSelectedTrackAhead
 import work.art1st.javarailways.basic.api.ato.staticTrackObjects
 import work.art1st.javarailways.basic.api.ato.trackTrainEnds
-import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignal
-import work.art1st.javarailways.basic.rail.infrastructureMetadata
+import work.art1st.javarailways.basic.api.ato.nativeRailSpeedLimit
+import work.art1st.javarailways.basic.api.rail.OperationalSpeedLimitTransition
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.simpleato.api.atp.AtpTarget
 
@@ -24,12 +24,12 @@ internal fun manualProtectionFrame(train: Train, capabilities: VehicleControlCap
         }
         var distance = 0.0
         segments.forEachIndexed { index, segment ->
-            segment.railView.rail.infrastructureMetadata.speedLimits.effectiveLimitMetersPerSecond()?.let {
+            nativeRailSpeedLimit(segment.railView.rail)?.let {
                 targets += AtpTarget("infrastructure/${segment.railView.rail.id}/$index", distance, it)
             }
             val signals = staticTrackObjects(segment.railView).asSequence()
                 .filter { it.lifecycleState == work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState.ACTIVE }
-                .filterIsInstance<OperationalSpeedLimitSignal>()
+                .filterIsInstance<OperationalSpeedLimitTransition>()
                 .sortedBy { it.location.arcLengthIn(segment.railView.viewDirection) }
                 .toList()
             if (index == 0) {

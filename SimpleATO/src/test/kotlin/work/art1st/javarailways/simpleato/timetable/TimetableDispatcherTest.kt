@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.simpleato.api.mission.ObservedAtoMissionOrigin

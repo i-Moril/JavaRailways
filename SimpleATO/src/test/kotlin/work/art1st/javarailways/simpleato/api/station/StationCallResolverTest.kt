@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.simpleato.api.mission.WayPointRef
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry

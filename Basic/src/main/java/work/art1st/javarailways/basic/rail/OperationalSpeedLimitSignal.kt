@@ -4,6 +4,7 @@ import java.util.concurrent.CompletionStage
 import java.util.concurrent.CompletableFuture
 import work.art1st.javarailways.core.api.util.Destruction
 import org.joml.Vector3d
+import work.art1st.javarailways.basic.api.rail.OperationalSpeedLimitTransition
 import work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState
 import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -16,7 +17,7 @@ class OperationalSpeedLimitSignal(
     location: RailLocationWithoutFacing,
     val appliesTo: ViewDirection,
     val resultingLimits: SpeedLimitMetadata?
-) : Signal(ref, location) {
+) : Signal(ref, location), OperationalSpeedLimitTransition {
     @Volatile
     private var state = RailObjectLifecycleState.ACTIVE
 
@@ -28,7 +29,7 @@ class OperationalSpeedLimitSignal(
     override fun appliesTo(direction: ViewDirection): Boolean = direction == appliesTo
 
     /** Same value for every train; this signal carries no per-train policy. */
-    val speedLimitMetersPerSecond: Double?
+    override val speedLimitMetersPerSecond: Double?
         get() = resultingLimits?.effectiveLimitMetersPerSecond()
 
     private val destruction = Destruction()

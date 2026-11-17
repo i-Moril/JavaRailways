@@ -36,7 +36,7 @@ class RailMapPreviewServiceTest {
             world.registerExtensionData(plugin, data)
             val first = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
             val second = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
-            val marker = work.art1st.javarailways.basic.WayPoint("stop", first.id, 20.0)
+            val marker = work.art1st.javarailways.basic.api.route.WayPoint("stop", first.id, 20.0)
             data.wayPoints.add(marker)
             RailMapPreviewService(directory).use { service ->
                 val before = service.render(service.capture("world", world))

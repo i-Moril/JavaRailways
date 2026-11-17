@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.basic.api.route.operatingDirection
+import work.art1st.javarailways.basic.api.route.wayPoints
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationIds
 import work.art1st.javarailways.simpleato.api.depot.DepotId
@@ -19,7 +21,6 @@ import work.art1st.javarailways.simpleato.api.station.StationCallResolutionResul
 import work.art1st.javarailways.simpleato.api.station.StationCallResolver
 import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.simpleato.api.station.StationStopSelection
-import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.route.ExpandedRoute
 import work.art1st.javarailways.simpleato.routing.RouteBuildResult
 import work.art1st.javarailways.core.api.physics.World
@@ -547,10 +548,10 @@ class TimetableValidator(
         var initialSimulationDirection: ViewDirection? = null
         if (standaloneSimulation) {
             val take = (service.steps.firstOrNull() as? TimetableStep.At)?.action as? TimetableAction.TakeFromWaypoint
-            val point = take?.wayPointIds?.singleOrNull()?.let { world.basicWorldData.wayPoints[it] }
+            val point = take?.wayPointIds?.singleOrNull()?.let { world.wayPoints[it] }
             initialSimulationDirection = point?.let {
                 world.simpleAtoWorldData.destinations[it.id]?.approachDirection
-                    ?: world.basicWorldData.operatingDirections[it.railId]
+                    ?: world.operatingDirection(it.railId)
             }
             if (point == null || world.getRail(point.railId) == null || initialSimulationDirection == null)
                 errors += "$prefix simulation initial waypoint must have an explicit waypoint or rail direction"
@@ -1200,7 +1201,7 @@ class TimetableValidator(
                     val candidates = world.allTrains.filter { train ->
                         val frame = train.publishedFrame ?: return@filter false
                         selector.matches(world.simpleAtoWorldData.candidateFacts(train), train.cars.size) &&
-                            origins.any { id -> world.basicWorldData.wayPoints[id]?.let { origin ->
+                            origins.any { id -> world.wayPoints[id]?.let { origin ->
                                 frame.head.railId == origin.railId &&
                                     abs(frame.head.arcLengthInAbMeters - origin.arcLength) <= 0.5
                             } == true }
@@ -1412,7 +1413,7 @@ class TimetableValidator(
     /** Acquisition candidates use actual physical placement and the host's detached facts. */
     private fun depotValidationOrigins(selector: DepotTrainSelector): List<work.art1st.javarailways.simpleato.api.depot.StablingPointSnapshot> =
         world.simpleAtoWorldData.depots.stablingPoints(selector.depotId).filter { point ->
-            val waypoint = world.basicWorldData.wayPoints[point.point.destinationId] ?: return@filter false
+            val waypoint = world.wayPoints[point.point.destinationId] ?: return@filter false
             world.allTrains.any { train ->
                 val frame = train.publishedFrame ?: return@any false
                 frame.head.railId == waypoint.railId &&
@@ -1421,7 +1422,7 @@ class TimetableValidator(
             }
         }.sortedBy { it.point.ref.pointId }
 
-    private fun wayPointExists(id: String): Boolean = world.basicWorldData.wayPoints[id] != null
+    private fun wayPointExists(id: String): Boolean = world.wayPoints[id] != null
 
     private fun destinationDirection(id: String): ViewDirection? =
         world.simpleAtoWorldData.destinations[id]?.approachDirection

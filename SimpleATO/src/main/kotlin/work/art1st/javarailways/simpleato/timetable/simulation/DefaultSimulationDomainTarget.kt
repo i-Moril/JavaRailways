@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simpleato.timetable.simulation
 
+import work.art1st.javarailways.basic.api.route.operatingDirections
 import work.art1st.javarailways.basic.api.route.FormationRouteContext
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
@@ -26,7 +27,7 @@ internal class DefaultSimulationDomainTarget(
     private val planning = arrayListOf<List<RoutePlanningRestrictionBinding>>()
 
     override fun operatingDirections(railIds: Collection<UUID>) =
-        domain.basicData.operatingDirections.snapshot(topology, railIds)
+        world.operatingDirections(topology, railIds)
 
     override fun railSpeedLimits(railIds: Collection<UUID>) =
         domain.basicData.railMetadata.speedLimits(topology, railIds)

@@ -1,7 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.basic.api.route.wayPoints
 import work.art1st.javarailways.basic.api.operation.DoorSide
-import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -34,7 +34,7 @@ internal class StructuralRouteBindings private constructor(
             StructuralRouteBindings(destinationIds.distinct().map { destination(world, it) }, berth?.let { station(world, it) })
 
         private fun destination(world: World, id: String): Destination {
-            val point = requireNotNull(world.basicWorldData.wayPoints[id]) { "structural destination is missing: $id" }
+            val point = requireNotNull(world.wayPoints[id]) { "structural destination is missing: $id" }
             return Destination(id, point.railId, point.arcLength, world.simpleAtoWorldData.destinations[id]?.approachDirection)
         }
         private fun station(world: World, ref: StationBerthRef): StationBinding {

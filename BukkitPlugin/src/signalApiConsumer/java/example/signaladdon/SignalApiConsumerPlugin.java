@@ -588,6 +588,10 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         RailPositionSnapshot head,
         work.art1st.javarailways.basic.api.rail.RailObjectStore objects
     ) {
+        var limitContext = work.art1st.javarailways.basic.api.ato.NativeRailSpeedLimitsKt
+            .nativeHeadSpeedLimitContext(train);
+        Double nativeLimit = work.art1st.javarailways.basic.api.ato.NativeRailSpeedLimitsKt
+            .nativeRailSpeedLimit(limitContext.getRail());
         var path = work.art1st.javarailways.basic.api.ato.SelectedTrackAheadKt
             .traceSelectedTrackAhead(train.getWorld(), head, 100.0);
         long topologyRevision = path.getTopologyRevision();
@@ -608,11 +612,38 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             double distance = observation.getDistanceMeters();
             Double relativeSpeed = observation.getRelativeSpeedMetersPerSecond();
             if (observation.getRailObject() instanceof
+                work.art1st.javarailways.basic.api.rail.OperationalSpeedLimitTransition transition) {
+                Double speedLimit = transition.getSpeedLimitMetersPerSecond();
+                boolean applies = transition.appliesTo(snapshot.getPosition().getFacing());
+            }
+            if (observation.getRailObject() instanceof
                 work.art1st.javarailways.core.api.physics.train.TrainEndRailObject end) {
                 work.art1st.javarailways.core.api.physics.train.Train owner = end.getTrainOrNull();
                 boolean headEnd = end.isHead();
             }
         }
+    }
+
+    /** Compile-only world access; mutations belong to the caller's serialized authoring operation. */
+    private static void compileInfrastructureAccessApi(
+        work.art1st.javarailways.core.api.physics.World world,
+        work.art1st.javarailways.core.api.physics.rail.topology.TopologyState topology,
+        UUID railId
+    ) {
+        var points = work.art1st.javarailways.basic.api.route.WayPointAccessKt.getWayPoints(world);
+        var point = new work.art1st.javarailways.basic.api.route.WayPoint("example:anchor", railId, 1.0);
+        points.add(point);
+        var current = points.get(point.getId());
+        var ordered = points.all();
+        var renamed = points.rename(point.getId(), "example:renamed");
+        points.remove(renamed.getId());
+        var permitted = work.art1st.javarailways.basic.api.route.OperatingDirectionQueriesKt
+            .operatingDirection(world, railId);
+        var directions = work.art1st.javarailways.basic.api.route.OperatingDirectionQueriesKt
+            .operatingDirections(world, topology, List.of(railId));
+        var overlay = work.art1st.javarailways.basic.api.route.planning.OperatingDirectionQueriesKt
+            .operatingDirectionOverlay(world, topology);
+        var objects = work.art1st.javarailways.basic.api.rail.RailObjectAccessorsKt.getRailObjects(world);
     }
 
     private static RouteResourceIntent routeIntentExample(RailwayStateStamp observationStamp) {

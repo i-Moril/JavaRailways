@@ -1,6 +1,6 @@
 package work.art1st.javarailways.simpleato.timetable
 
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.basic.api.route.ExpandedRoute
 import work.art1st.javarailways.basic.api.route.RouteSegment
 import work.art1st.javarailways.basic.api.infrastructure.PhysicalRouteDependencyCompilation

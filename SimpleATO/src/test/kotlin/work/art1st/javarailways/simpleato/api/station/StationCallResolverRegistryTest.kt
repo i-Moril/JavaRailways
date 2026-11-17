@@ -4,7 +4,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.core.api.physics.World

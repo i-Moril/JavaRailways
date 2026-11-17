@@ -52,6 +52,32 @@ frame必须匹配train ID、未脱轨且bodyTraversal非空，占用轨道必须
 SimpleATO自动/手动路径消费同一入口，把结果接入普通参考与ATP当前目标；前方信号扫描与控制策略仍归调用方。
 真实Basic设备、AB/BA短轨和车尾清除回归保留在`SimpleATO`的`NativeBodySpeedLimitsTest`。
 
+### 实时单轨、车头上下文与限速转换
+
+`basic.api.ato.nativeRailSpeedLimit(rail)`在原simulation/physics读取上下文同步返回既有metadata的
+effective CURVE/SUBGRADE最小值，单位m/s；null表示没有有限限制。它只做一次metadata读取，不重新计算几何、
+捕获frame、遍历路径、缓存或改变持久化格式；返回标量不随后续metadata改变。复杂度为O(1)查找加既有限速项最小值计算。
+
+同包`nativeHeadSpeedLimitContext(train)`在调用时只读一次live `train.headLocation`，返回原Core API rail及物理facing，
+不查询metadata或published frame。SimpleATO在前视及restriction更新之后调用，继续仅在首次、rail ID变化或facing变化时
+读取单轨限制；不得为了去除internal type而改用本轮更早捕获的frame或增加每tick metadata读取。
+不提供物理facing时保留原`SimpleATO requires a facing-aware train head location`异常，底层getter失败原样传播。
+context中的rail仍是live引用，只允许原owner阶段使用，不作为跨线程位置快照。两项查询不注册owner、不调度或授予资源。
+
+`basic.api.rail.OperationalSpeedLimitTransition : RailObject`由既有`OperationalSpeedLimitSignal`直接实现，
+不包装或更换对象身份。`speedLimitMetersPerSecond`仍在getter调用时读取转换结果，null表示解除此前转换上限；
+`appliesTo(ViewDirection)`保留原方向语义，ref/location/lifecycle仍归同一RailObject。
+对象来源/ACTIVE/方向过滤和消费时机保持原调用路径：自动路径先保留原对象，PASS阶段按方向检查后更新当前上限，
+当前可见转换按观察位置facing调用同一纯`appliesTo`方向判断后，才读取限速并按距离生成前方约束；
+这是generic RailObjectStore对象也能实现转换能力所需的检查，不过滤或删除其感知事件。原内建静态转换已由view过滤方向。
+人工路径先查询每段metadata，再枚举该段方向适用的静态对象、过滤ACTIVE、
+按弧长排序，第一段取当前位置之前最后一项（release不回退到更早限制），再处理双侧包含的前方区间，最后读取动态车端。
+不新增对象源、扫描、默认策略或跨tick缓存，RailObject及query异常仍在原阶段传播。
+
+`NativeRailSpeedLimitsTest`覆盖实际metadata的双限制最小值、SUBGRADE及release、值脱离store和live head单次读取；
+`OperationalSpeedLimitSignalTest`覆盖公开转换能力、原对象身份和双向过滤；SimpleATO自动PASS回归验证精确ref的
+进入及release，人工回归验证当前release、方向过滤与前方目标，原逐段读取和车尾清除测试继续约束采样时序。
+
 ## Worker→main request contract
 
 ```kotlin

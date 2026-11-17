@@ -66,8 +66,8 @@ import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.admission.RollingRouteAuthorityPlanner
 import work.art1st.javarailways.simpleato.admission.RouteAuthorityAdmissionClient
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
-import work.art1st.javarailways.basic.basicWorldData
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.WayPoint
+import work.art1st.javarailways.basic.api.route.planning.operatingDirectionOverlay
 import work.art1st.javarailways.basic.api.infrastructure.PhysicalRouteDependencyCompilation
 import work.art1st.javarailways.basic.api.infrastructure.PhysicalRouteDependencyCompiler
 import work.art1st.javarailways.basic.route.toSnapshot
@@ -749,7 +749,7 @@ class TimetableDispatcher(
         ) {
             return startupFailure("train is already assigned to a service: $trainId")
         }
-        val train = world.getTrain(trainId) as? CoreTrain
+        val train = world.getTrain(trainId)
             ?: return startupFailure("train not found: $trainId")
         if (train.isDerailed) return startupFailure("train is derailed: $trainId")
 
@@ -2043,7 +2043,7 @@ class TimetableDispatcher(
     fun unitDisplaysForTrain(world: World, trainId: String, timetableId: String, cycleIndex: Long): List<TimetableUnitDisplaySnapshot> {
         ensureOwner(world)
         check(boundWorld === world) { "display runtime belongs to a different or unbound world" }
-        val train = requireNotNull(world.getTrain(trainId) as? CoreTrain) { "train not found: $trainId" }
+        val train = requireNotNull(world.getTrain(trainId)) { "train not found: $trainId" }
         val timetable = requireNotNull(world.simpleAtoWorldData.timetables[timetableId]) { "timetable not found: $timetableId" }
         val cars = train.cars.map { it.id }.let { if (train.isReversed) it.reversed() else it }
         val units = world.simpleAtoWorldData.depots.fixedUnitsForFormation(cars).map { it.id }
@@ -3247,7 +3247,7 @@ class TimetableDispatcher(
         }
     }
 
-    // Both ActiveRun admission paths require CoreTrain, whose published frame is always present.
+    // ATO construction requires a published frame; active runs keep that physical-frame contract.
     private fun capturePublishedTrainFrame(run: ActiveRun): TrainFrameSnapshot =
         run.train.publishedFrame!!
 
@@ -3707,7 +3707,7 @@ class TimetableDispatcher(
         operatingEnd: Double, stoppingMarginMeters: Double = authorityStoppingMarginMeters): TerminalMarginProposal {
         val topology = world.topologyState
         val restrictions = world.simpleAtoWorldData.routePlanningRestrictions.compile(topology,
-            world.basicWorldData.operatingDirections.overlay(topology))
+            world.operatingDirectionOverlay(topology))
         return TerminalRouteMargin.propose(topology, restrictions, route,
             maxOf(route.totalLengthMeters, operatingEnd + stoppingMarginMeters))
     }
@@ -3722,7 +3722,7 @@ class TimetableDispatcher(
 
     private fun routeDirectionLimit(world: World, route: RouteSnapshot): RouteOperatingDirectionLimit {
         val topology = world.topologyState
-        val directions = world.basicWorldData.operatingDirections.snapshot(topology,
+        val directions = world.operatingDirections(topology,
             route.segments.map { it.railId })
         return RouteOperatingDirectionLimit.calculate(world.simpleAtoWorldData.atoCoordinator.worldId,
             route, topology, directions)
@@ -3732,7 +3732,7 @@ class TimetableDispatcher(
         requiredEndRouteMeters: Double, selectedEndRouteMeters: Double) {
         val topology = world.topologyState
         val restrictions = world.simpleAtoWorldData.routePlanningRestrictions.compile(topology,
-            world.basicWorldData.operatingDirections.overlay(topology))
+            world.operatingDirectionOverlay(topology))
         TerminalRouteMargin.requireLegalPrefix(topology, restrictions, route,
             requiredEndRouteMeters, selectedEndRouteMeters)
     }
@@ -4688,7 +4688,7 @@ class TimetableDispatcher(
                                 }
                                 .filter { it.point.ref !in physicalStorageReservations }
                                 .filter { candidate ->
-                                    world.allTrains.filterIsInstance<CoreTrain>().none { other ->
+                                    world.allTrains.none { other ->
                                         other.id != run.train.id &&
                                             validateAtWayPoint(world, other, candidate.point.destinationId) == null
                                     }
@@ -5472,13 +5472,12 @@ class TimetableDispatcher(
         points.forEach { point ->
             val wayPointId = point.point.destinationId
             val candidate = world.allTrains.asSequence()
-                .filterIsInstance<CoreTrain>()
-                .sortedWith(compareBy<CoreTrain>({ it.name }, { it.id }))
+                .sortedWith(compareBy<Train>({ it.name }, { it.id }))
                 .firstOrNull { train ->
                     val locationFailure = validateAtWayPoint(world, train, wayPointId)
                     val operationalFailure = when {
                         train.isDerailed -> "derailed"
-                        train.publishedFrame.speedMetersPerSecond != 0.0 -> "moving"
+                        requireNotNull(train.publishedFrame) { "ATO requires a published frame for ${train.id}" }.speedMetersPerSecond != 0.0 -> "moving"
                         runs.values.any {
                             it.train.id == train.id && !it.canHandOffToSuccessor()
                         } -> "assigned to another service"
@@ -5517,7 +5516,6 @@ class TimetableDispatcher(
         val rejected = ArrayList<String>()
         take.wayPointIds.forEach { wayPointId ->
             val candidates = world.allTrains.asSequence()
-                .filterIsInstance<CoreTrain>()
                 .sortedBy { it.id }
                 .mapNotNull { train ->
                     if (validateAtWayPoint(world, train, wayPointId) != null) return@mapNotNull null
@@ -5529,7 +5527,7 @@ class TimetableDispatcher(
                             rejected += "$wayPointId/${train.id}: derailed"
                             null
                         }
-                        train.publishedFrame.speedMetersPerSecond != 0.0 -> {
+                        requireNotNull(train.publishedFrame) { "ATO requires a published frame for ${train.id}" }.speedMetersPerSecond != 0.0 -> {
                             rejected += "$wayPointId/${train.id}: moving"
                             null
                         }
@@ -5803,7 +5801,7 @@ class TimetableDispatcher(
         }
         val finalStationOffset = stationCallSpec?.action?.let { call ->
             val berth = world.simpleAtoWorldData.stations.berth(call.berthRef)
-            val target = finalTargetId?.let { world.basicWorldData.wayPoints[it] }
+            val target = finalTargetId?.let { world.wayPoints[it] }
             if (berth != null && target != null && target.railId == berth.location.rail.id &&
                 abs(target.arcLength - berth.location.arcLengthIn(ViewDirection.AB)) <= 1e-6)
                 call.stoppingOffsetMetersBefore ?: berth.stoppingOffsetMetersBefore else null
@@ -6279,8 +6277,8 @@ class TimetableDispatcher(
         val outputs = linkedMapOf<String, Pair<ActiveRun?, RouteResourceIntent>>()
         for (definition in event.event.outputs) {
             val owner = event.outputOwners.getValue(definition.id)
-            val train = world.getTrain(owner.trainId) as? CoreTrain ?: error("published split output is missing")
-            val frame = train.publishedFrame
+            val train = world.getTrain(owner.trainId) ?: error("published split output is missing")
+            val frame = requireNotNull(train.publishedFrame) { "published split output has no physical frame" }
             val continuation = event.continuations[definition.id]
             val outputRun: ActiveRun?
             val route: RouteSnapshot
@@ -6363,7 +6361,7 @@ class TimetableDispatcher(
                 if (run == null) {
                     // The structural fence owns HOLD. A consumed contact mission describes the
                     // pre-coupling head and must not plan against the newly combined body.
-                    val held = checkNotNull(world.getTrain(output.owner.trainId)) as CoreTrain
+                    val held = checkNotNull(world.getTrain(output.owner.trainId))
                     held.setController(null)
                     inspectionRuntime.removeTrain(held.id)
                     val unitIds=world.simpleAtoWorldData.depots.fixedUnitsForFormation(output.owner.carIds).map { it.id }
@@ -6543,12 +6541,12 @@ class TimetableDispatcher(
                 initialSnapshot.head
             )
         } else null
-        var from = world.basicWorldData.wayPoints[plan.origin.id]
+        var from = world.wayPoints[plan.origin.id]
             ?: return MissionSubmission(null, "mission target not found: ${plan.origin.id}")
         var direction = plan.requiredStartDirection ?: initialSnapshot.head.facing
         val legs = ArrayList<AtoMissionLeg>()
         for ((index, point) in plan.points.withIndex()) {
-            val target = world.basicWorldData.wayPoints[point.target.id]
+            val target = world.wayPoints[point.target.id]
                 ?: return MissionSubmission(null, "mission target not found: ${point.target.id}")
             val key = ValidatedTimetableRouteKey(runId.serviceId, plan.address.topLevelIndex,
                 plan.origin.id, index, target.id, direction, address = plan.address,
@@ -6644,7 +6642,7 @@ class TimetableDispatcher(
     }
 
     private fun validateAtWayPoint(world: World, train: Train, wayPointId: String): String? {
-        val wayPoint = world.basicWorldData.wayPoints[wayPointId]
+        val wayPoint = world.wayPoints[wayPointId]
             ?: return "waypoint not found: $wayPointId"
         val trainArc = train.headLocation.arcLengthIn(ViewDirection.AB)
         val destination = world.simpleAtoWorldData.destinations[wayPointId]

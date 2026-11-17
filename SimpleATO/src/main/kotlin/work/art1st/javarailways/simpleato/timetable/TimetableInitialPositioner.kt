@@ -1,8 +1,9 @@
 package work.art1st.javarailways.simpleato.timetable
 
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.operatingDirection
+import work.art1st.javarailways.basic.api.route.wayPoints
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.simpleato.api.ato.AtoStallReport
-import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.CoreWorld
@@ -52,7 +53,7 @@ class TimetableInitialPositioner(private val world: World) {
                         "$label cannot move controlled train(s): $controlled; " +
                             "release manual/ATO control before resetting the timetable"
                     }
-                    val matchingWayPoints = world.basicWorldData.wayPoints.all().asSequence()
+                    val matchingWayPoints = world.wayPoints.all().asSequence()
                         .filter { constraint.wayPointSelector.matches(it.id) }
                     val depotWayPoints = world.simpleAtoWorldData.depots.allDepots().asSequence()
                         .filter { constraint.wayPointSelector.matches(it.id.value) }
@@ -116,7 +117,7 @@ class TimetableInitialPositioner(private val world: World) {
         val rail = world.getRail(wayPoint.railId) as? CoreRail
             ?: error("waypoint ${wayPoint.id} references missing rail ${wayPoint.railId}")
         val direction = world.simpleAtoWorldData.destinations[wayPoint.id]?.approachDirection
-            ?: world.basicWorldData.operatingDirections[rail.id]
+            ?: world.operatingDirection(rail.id)
             ?: ViewDirection.AB
         val arcInView = when (direction) {
             ViewDirection.AB -> wayPoint.arcLength

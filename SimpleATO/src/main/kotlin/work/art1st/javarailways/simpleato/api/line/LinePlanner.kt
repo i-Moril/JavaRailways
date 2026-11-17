@@ -1,8 +1,8 @@
 package work.art1st.javarailways.simpleato.api.line
 
+import work.art1st.javarailways.basic.api.route.wayPoints
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.station.StationId
-import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.route.ExpandedRoute
 import work.art1st.javarailways.simpleato.routing.RouteBuildResult
 import work.art1st.javarailways.core.api.physics.World
@@ -52,7 +52,7 @@ class LinePlanner(private val world: World) {
     ): List<CompiledLineResetCandidate> {
         require(viaIds.size == stationIds.size && viaIds.firstOrNull().orEmpty().isEmpty()) { "viaIds must match station count and the origin must have no incoming via points" }
         require(viaIds.flatten().all { it.isNotBlank() }) { "via waypoint IDs must not be blank" }
-        viaIds.flatten().forEach { id -> require(world.basicWorldData.wayPoints[id] != null) { "Unknown via waypoint: $id" } }
+        viaIds.flatten().forEach { id -> require(world.wayPoints[id] != null) { "Unknown via waypoint: $id" } }
         require(stationIds.size >= 2) { "A line section requires at least two stations" }
         require(destinationIds.size == stationIds.size) { "Selected berth count must match station count" }
         val destinationService = world.simpleAtoWorldData.destinations
@@ -124,15 +124,15 @@ class LinePlanner(private val world: World) {
     }
 
     private fun buildViaRoute(
-        from: work.art1st.javarailways.basic.WayPoint,
-        to: work.art1st.javarailways.basic.WayPoint,
+        from: work.art1st.javarailways.basic.api.route.WayPoint,
+        to: work.art1st.javarailways.basic.api.route.WayPoint,
         viaIds: List<String>,
         requiredGoalDirection: ViewDirection?,
         requiredStartDirection: ViewDirection?,
         requireUniquePath: Boolean,
         pruneNonTargetWaypoints: Boolean
     ): RouteBuildResult {
-        val via = viaIds.map { id -> world.basicWorldData.wayPoints[id]
+        val via = viaIds.map { id -> world.wayPoints[id]
             ?: return RouteBuildResult.Failure("Unknown via waypoint: $id") }
         var previous = from
         var facing = requiredStartDirection

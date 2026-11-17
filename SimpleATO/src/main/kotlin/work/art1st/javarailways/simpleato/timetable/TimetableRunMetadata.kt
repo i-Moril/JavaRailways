@@ -1,8 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.basic.api.route.wayPoints
 import work.art1st.javarailways.simpleato.api.metadata.JsonMetadata
-import work.art1st.javarailways.basic.basicWorldData
-
 import kotlinx.serialization.json.*
 import work.art1st.javarailways.simpleato.api.line.LineId
 import work.art1st.javarailways.simpleato.api.line.LineDirection
@@ -247,7 +246,7 @@ internal object TimetableMetadataValidator {
         }
         if (expected != authored) add("$prefix planned calls and ordered via waypoints do not match scoped compiled movement occurrences/PASS/STOP status")
         segment.calls.forEach { call -> call.viaIds.forEach { waypoint ->
-            if (world.basicWorldData.wayPoints[waypoint] == null) add("$prefix call ${call.id} via waypoint is missing: $waypoint")
+            if (world.wayPoints[waypoint] == null) add("$prefix call ${call.id} via waypoint is missing: $waypoint")
         } }
         var origin: String? = null
         for (step in service.steps.take(segment.startStepIndex)) {

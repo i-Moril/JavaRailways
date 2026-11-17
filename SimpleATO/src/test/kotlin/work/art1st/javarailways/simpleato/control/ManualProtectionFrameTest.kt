@@ -264,6 +264,45 @@ class ManualProtectionFrameTest {
         }
     }
 
+    @Test
+    fun `manual transition limits retain current release direction and inclusive upcoming semantics`() {
+        TestWorldFixture.create().use { fixture ->
+            val world = fixture.world
+            TestBasicWorldDataRegistry.getOrCreate(world)
+            try {
+                val rail = world.createRailForTest(straight(0.0, 150.0))
+                val train = createTrainWithConfig("manual-speed-transitions", rail, world, listOf(10.0))
+                val head = train.head.location.arcLength
+                fun signal(id: String, arc: Double, limit: Double?, direction: ViewDirection = ViewDirection.AB) =
+                    OperationalSpeedLimitSignal(RailObjectRef("test", id), RailLocationWithoutFacing(rail, arc),
+                        direction, limit?.let { SpeedLimitMetadata(listOf(SpeedLimitEntry(it, SpeedLimitType.SUBGRADE))) })
+                val current = signal("current", head - 2.0, 3.0)
+                val upcoming = signal("upcoming", head + 4.0, 5.0)
+                val wrongDirection = signal("opposite", head + 5.0, 0.1, ViewDirection.BA)
+                val futureRelease = signal("future-release", head + 6.0, null)
+                rail.signals.addAll(listOf(current, upcoming, wrongDirection, futureRelease))
+
+                val limited = manualProtectionFrame(train, capabilities())
+                assertEquals(3.0, limited.protectionTargets.single {
+                    it.id == "infrastructure/current-transition" }.targetSpeedMetersPerSecond)
+                val ahead = limited.protectionTargets.single { it.id == "infrastructure/${upcoming.ref.id}/0" }
+                assertEquals(4.0, ahead.distanceMeters)
+                assertEquals(5.0, ahead.targetSpeedMetersPerSecond)
+                assertFalse(limited.protectionTargets.any { it.id.contains(wrongDirection.ref.id) })
+                assertFalse(limited.protectionTargets.any { it.id.contains(futureRelease.ref.id) })
+
+                val currentRelease = signal("current-release", head - 1.0, null)
+                rail.signals += currentRelease
+                val released = manualProtectionFrame(train, capabilities())
+                assertFalse(released.protectionTargets.any { it.id == "infrastructure/current-transition" })
+                assertTrue(released.protectionTargets.any { it.id == ahead.id })
+                assertSame(currentRelease, rail.viewAB.staticRailObjects.single { it.ref == currentRelease.ref })
+            } finally {
+                TestBasicWorldDataRegistry.unregister(world)
+            }
+        }
+    }
+
     private class QuerySignal(id: String, location: RailLocationWithoutFacing, val queried: () -> Unit) :
         Signal(RailObjectRef("test", id), location) {
         override val lifecycleState = RailObjectLifecycleState.ACTIVE

@@ -32,7 +32,7 @@ import work.art1st.javarailways.simpleato.api.mission.AtoMission
 import work.art1st.javarailways.simpleato.api.mission.AtoMissionLeg
 import work.art1st.javarailways.simpleato.api.mission.AtoMissionOrigin
 import work.art1st.javarailways.basic.BasicWorldData
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
@@ -48,6 +48,8 @@ import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignal
+import work.art1st.javarailways.basic.api.rail.OperationalSpeedLimitTransition
+import work.art1st.javarailways.basic.api.ato.snapshot.ObservationTransition
 import work.art1st.javarailways.core.physics.rail.RailLocationWithoutFacing
 import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
@@ -709,6 +711,81 @@ class SimpleATOTest {
         assertTrue(constraints.any {
             it.contains("external/line") && it.contains("maximumSpeedMetersPerSecond=8.0")
         })
+    }
+
+    @Test
+    fun `public speed transitions retain exact observation identity and PASS cap release`() {
+        val fixture = fixture("public-speed-transition")
+        val head = fixture.train.head.location
+        fun transition(id: String, distance: Double, limit: Double?) = object : OperationalSpeedLimitTransition {
+            override val ref = RailObjectRef("test", id)
+            override val lifecycleState = RailObjectLifecycleState.ACTIVE
+            override val location = RailLocationWithFacing(head.railView, head.arcLength + distance)
+            override val speedLimitMetersPerSecond = limit
+            override fun appliesTo(direction: ViewDirection) = direction == head.facing
+        }
+        val entry = transition("speed-entry", 2.0, 5.0)
+        val release = transition("speed-release", 5.0, null)
+        fixture.data.railObjects.register(entry)
+        fixture.data.railObjects.register(release)
+        authorizeMovement(fixture)
+        assertSame(entry, fixture.data.railObjects.get(entry.ref))
+        assertSame(release, fixture.data.railObjects.get(release.ref))
+        var entered = false
+        var released = false
+        repeat(300) {
+            tickAndPublish(fixture.ato, 50.0)
+            assertFalse(fixture.coordinator.isStalled, fixture.coordinator.lastStall.toString())
+            val published = fixture.ato.publishedState
+            val passed = published.perception!!.observations
+                .filter { it.transition == ObservationTransition.PASS }.map { it.subject.ref }
+            val current = published.runtimeDiagnostics.constraints.filter { it.contains("value=infrastructure-current") }
+            if (entry.ref in passed) {
+                entered = true
+                assertTrue(current.single().contains("maximumSpeedMetersPerSecond=5.0"))
+            }
+            if (release.ref in passed) {
+                released = true
+                assertTrue(entered)
+                assertTrue(current.isEmpty(), current.toString())
+            }
+        }
+        assertTrue(entered, "the entry must become the current cap on PASS")
+        assertTrue(released, "the null transition must release that cap on PASS")
+    }
+
+    @Test
+    fun `opposite facing generic speed transition adds neither forward nor PASS cap`() {
+        val fixture = fixture("opposite-generic-speed-transition")
+        val head = fixture.train.head.location
+        val opposite = if (head.facing == ViewDirection.AB) ViewDirection.BA else ViewDirection.AB
+        val transition = object : OperationalSpeedLimitTransition {
+            override val ref = RailObjectRef("test", "opposite-speed-entry")
+            override val lifecycleState = RailObjectLifecycleState.ACTIVE
+            override val location = RailLocationWithFacing(head.railView, head.arcLength + 2.0)
+            override val speedLimitMetersPerSecond = 0.01
+            override fun appliesTo(direction: ViewDirection) = direction == opposite
+        }
+        // The generic store intentionally keeps the object observable in either direction.
+        fixture.data.railObjects.register(transition)
+        authorizeMovement(fixture)
+        assertTrue(fixture.ato.publishedState.perception!!.observations.any { it.subject.ref == transition.ref })
+        fun assertNoCap() {
+            val constraints = fixture.ato.publishedState.runtimeDiagnostics.constraints
+            assertFalse(constraints.any { it.contains("infrastructure-signal/${transition.ref.id}") }, constraints.toString())
+            assertFalse(constraints.any { it.contains("value=infrastructure-current") }, constraints.toString())
+        }
+        assertNoCap()
+        var passed = false
+        repeat(300) {
+            tickAndPublish(fixture.ato, 50.0)
+            assertFalse(fixture.coordinator.isStalled, fixture.coordinator.lastStall.toString())
+            assertNoCap()
+            if (fixture.ato.publishedState.perception!!.observations.any {
+                    it.subject.ref == transition.ref && it.transition == ObservationTransition.PASS
+                }) passed = true
+        }
+        assertTrue(passed, "opposite-facing transition must remain observable through PASS without adding a cap")
     }
 
     @Test

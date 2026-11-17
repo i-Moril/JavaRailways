@@ -5,7 +5,7 @@ import work.art1st.javarailways.basic.api.ato.TrainDynamicsProfile
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.basic.api.route.*

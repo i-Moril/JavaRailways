@@ -1,7 +1,7 @@
 package work.art1st.javarailways.bukkit.tool
 
 import java.util.UUID
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.bukkit.api.wand.config.ConfigConstraints

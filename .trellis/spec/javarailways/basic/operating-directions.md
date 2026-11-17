@@ -29,6 +29,16 @@ Basic 不依赖 SimpleATO 的信号运行时。`RailWorldFactory` 创建原有 `
 现有方向读取宿主入口 `InfrastructureResourceService.operatingDirections(worldId, topology, railIds)` 保留；
 返回的不可变值是 `basic.api.route.RailOperatingDirections`，不新增服务注册层，不保留 SimpleATO 转发别名。
 requested rails 完整覆盖、null 表示两向、精确拓扑根与世界有效性校验保持不变。
+平台无关的第一方 consumer 通过 Basic API 读取同一存储：
+
+- `basic.api.route.World.operatingDirection(railId)` 是锁内 O(1) 单点读取；null 只表示无记录，rail 存在性由原调用上下文保证。
+- `basic.api.route.World.operatingDirections(topology, railIds)` 在同一锁内捕获精确请求子集，保留 null 值与传入的 topology 根，
+  请求缺失 rail 时沿用 `RailOperatingDirections` 校验。结果不可变，后续写入不改变该读数。
+- `basic.api.route.planning.World.operatingDirectionOverlay(topology)` 在同一锁内捕获全部稀疏单向记录，复杂度 O(D)，
+  不遍历全世界 rails。capture 不提前拒绝 orphan 记录，仍由后续 `toRestrictions(topology)` 按原规则返回不可规划结果。
+
+这三个查询不创建方向 store，不替调用方捕获 topology，也不增加 world/topology 校验或异常转换；
+caller 继续拥有世界和读取阶段一致性。缺少 Basic data 时传播 required accessor 的原错误，绝不解释为双向。
 选路前使用 `basic.api.route.planning.OperatingDirectionOverlay.toRestrictions(topology)`，
 将稀疏许可记录转换为相反方向的全轨道 `forbiddenTraversals`；SimpleATO 再叠加其他选路限制。
 
@@ -66,6 +76,7 @@ Core、外层 infrastructure、全部 runtime 边界和 SimpleSignals sidecar �
 ## 9. 必需验证
 
 验证 Basic 独立世界的方向读写、默认两向、原子子集读取及变化通知；SimpleATO 不保留方向成员或兼容别名。
+`InfrastructureAccessorsTest` 验证公开查询与原 store 为同一份数据、子集完整/不可变、overlay 稀疏且 detached，以及缺 Basic data 时失败而不初始化。
 验证正反向寻路、分割/合并/删除/撤销、编辑保护、ATO 方向边界、无关编辑 IDLE 和原有手动路径。
 当前 Basic format 2 fixture 缺新增列表时得到空列表且版本不变；当前格式 round-trip 保留方向。
 当前完整存档只在 Basic 保存方向，SimpleATO format 1 不含该字段，Destination/Line/revision 和 runtime 数据不变。

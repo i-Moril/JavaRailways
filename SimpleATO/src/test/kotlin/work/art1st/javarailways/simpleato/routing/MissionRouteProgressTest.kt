@@ -20,7 +20,7 @@ import work.art1st.javarailways.simpleato.api.mission.AtoMission
 import work.art1st.javarailways.simpleato.api.mission.AtoMissionLeg
 import work.art1st.javarailways.simpleato.api.mission.AtoMissionOrigin
 import work.art1st.javarailways.basic.BasicWorldData
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments

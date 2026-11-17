@@ -48,9 +48,10 @@ import work.art1st.javarailways.simpleato.api.station.StationCallResolutionFailu
 import work.art1st.javarailways.simpleato.api.station.StationCallSubmissionResult
 import work.art1st.javarailways.simpleato.timetable.LineMaximumSpeedResolver
 import work.art1st.javarailways.simpleato.timetable.TimetableService
-import work.art1st.javarailways.basic.basicWorldData
-import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignal
-import work.art1st.javarailways.basic.rail.infrastructureMetadata
+import work.art1st.javarailways.basic.api.ato.nativeHeadSpeedLimitContext
+import work.art1st.javarailways.basic.api.ato.nativeRailSpeedLimit
+import work.art1st.javarailways.basic.api.rail.OperationalSpeedLimitTransition
+import work.art1st.javarailways.basic.api.rail.railObjects
 import work.art1st.javarailways.simpleato.routing.MissionRouteLayout
 import work.art1st.javarailways.simpleato.routing.RouteAllocationTiming
 import work.art1st.javarailways.core.api.physics.World
@@ -62,7 +63,6 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.util.annotation.MainThread
-import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.basic.api.ato.PhysicalTrackSegment
 import work.art1st.javarailways.basic.api.ato.PhysicalTrackObservation
 import work.art1st.javarailways.basic.api.ato.traceSelectedTrackAhead
@@ -182,7 +182,7 @@ class SimpleATO(
         val eventObjectsByRef: Map<RailObjectRef, PhysicalTrackObservation>
     )
 
-    private val worldData = world.basicWorldData
+    private val railObjects = world.railObjects
     private val commands = RevisionedCommandQueue<Command>()
     private val missionCommands = RevisionedCommandQueue<AtoMission>()
     private val stationCallCommands = RevisionedCommandQueue<ResolvedStationCall>()
@@ -889,7 +889,8 @@ class SimpleATO(
             scan.currentObservedByRef.values
                 .sortedBy(PhysicalTrackObservation::distanceMeters)
                 .forEach { observed ->
-                    val signal = observed.railObject as? OperationalSpeedLimitSignal ?: return@forEach
+                    val signal = observed.railObject as? OperationalSpeedLimitTransition ?: return@forEach
+                    if (!signal.appliesTo(observed.snapshot.position.facing)) return@forEach
                     val limit = signal.speedLimitMetersPerSecond ?: return@forEach
                     add(RouteSpeedLimitConstraint(
                         key = ConstraintKey("basic", "infrastructure-signal/${signal.ref.id}"),
@@ -1031,7 +1032,7 @@ class SimpleATO(
         }
         val berth = world.simpleAtoWorldData.stations.berth(resolved.berthRef)
         check(berth != null && berth.lifecycleState == RailObjectLifecycleState.ACTIVE &&
-            worldData.railObjects.get(berth.ref) === berth
+            railObjects.get(berth.ref) === berth
         ) {
             "active StationBerth disappeared: ${resolved.berthRef}"
         }
@@ -1158,13 +1159,12 @@ class SimpleATO(
     }
 
     private fun synchronizeInfrastructureLimitWithHead() {
-        val head = train.headLocation as? RailLocationWithFacing
-            ?: error("SimpleATO requires a facing-aware train head location")
+        val head = nativeHeadSpeedLimitContext(train)
         val railChanged = infrastructureLimitRailId != head.rail.id
         val directionChanged = infrastructureLimitDirection != head.facing
         if (!infrastructureLimitInitialized || railChanged || directionChanged) {
             activeInfrastructureLimitMetersPerSecond =
-                head.rail.infrastructureMetadata.speedLimits.effectiveLimitMetersPerSecond()
+                nativeRailSpeedLimit(head.rail)
             infrastructureLimitInitialized = true
             infrastructureLimitRailId = head.rail.id
             infrastructureLimitDirection = head.facing
@@ -1177,7 +1177,7 @@ class SimpleATO(
             .sortedBy(RailObservationSnapshot::routeDistanceMeters)
             .forEach { observation ->
                 val signal = scan.eventObjectsByRef[observation.subject.ref]?.railObject
-                    as? OperationalSpeedLimitSignal ?: return@forEach
+                    as? OperationalSpeedLimitTransition ?: return@forEach
                 if (!signal.appliesTo(observation.subject.position.facing)) return@forEach
                 activeInfrastructureLimitMetersPerSecond = signal.speedLimitMetersPerSecond
             }
@@ -1206,7 +1206,7 @@ class SimpleATO(
             }
         )
 
-        val current = observeTrackObjects(train, path, worldData.railObjects, safetyProfile.stopToleranceMeters, activeSpeed)
+        val current = observeTrackObjects(train, path, railObjects, safetyProfile.stopToleranceMeters, activeSpeed)
         current.forEach { (ref, observed) ->
             val previous = previousObserved[ref] ?: return@forEach
             check(previous.railObject === observed.railObject ||

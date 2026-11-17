@@ -52,8 +52,8 @@ class LinePlannerTest {
             id = "$id@one", railId = rail.id, arcLengthInAbMeters = position,
             approachDirection = ViewDirection.AB,
             role = DestinationRole.StationBerthRole(StationId(id), "one", DoorSide.LEFT)))
-        world.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("via1", rail.id, 40.0))
-        world.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("via2", rail.id, 60.0))
+        world.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.api.route.WayPoint("via1", rail.id, 40.0))
+        world.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.api.route.WayPoint("via2", rail.id, 60.0))
         val line = Line(LineId("L"), listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a")))
         val planner = LinePlanner(world)
         fun compile(via: List<String>) = planner.compileResetCandidates(line, line.upStationIds, listOf("a@one", "b@one"),

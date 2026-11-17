@@ -1,6 +1,6 @@
 package work.art1st.javarailways.simpleato.api.mission
 
-import work.art1st.javarailways.basic.basicWorldData
+import work.art1st.javarailways.basic.api.route.wayPoints
 import work.art1st.javarailways.basic.api.route.PlannedRoute
 import work.art1st.javarailways.basic.api.route.ExpandedRoute
 import work.art1st.javarailways.simpleato.routing.RouteBuildResult
@@ -201,7 +201,7 @@ class AtoMissionResolver(private val world: World) {
 
     @MainThread
     fun resolve(request: AtoMissionRequest): AtoMissionResolutionResult {
-        val wayPoints = world.basicWorldData.wayPoints
+        val wayPoints = world.wayPoints
         if (wayPoints[request.origin.id] == null) {
             return AtoMissionResolutionResult.TargetUnresolved(request.origin)
         }

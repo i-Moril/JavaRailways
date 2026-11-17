@@ -1,10 +1,10 @@
 package work.art1st.javarailways.simpleato.api.station
 
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.wayPoints
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.simpleato.api.mission.WayPointRef
 import work.art1st.javarailways.simpleato.api.mission.AtoMissionOrigin
 import work.art1st.javarailways.basic.api.operation.DoorSide
-import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.route.PlannedRoute
 import work.art1st.javarailways.basic.api.route.ExpandedRoute
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
@@ -101,11 +101,11 @@ class StationCallResolver(private val world: World) {
         retainedTopology: TopologyState? = null
     ): StationCallResolutionResult {
         require(trainLengthMeters == null || trainLengthMeters.isFinite() && trainLengthMeters > 0.0)
-        val basicData = world.basicWorldData
+        val wayPoints = world.wayPoints
         val operationalData = world.simpleAtoWorldData
         require((retainedRoute == null) == (retainedTopology == null)) { "retained station route requires its captured topology" }
         val origin = when (val source = request.origin) {
-            is WayPointRef -> basicData.wayPoints[source.id] ?: return failure(
+            is WayPointRef -> wayPoints[source.id] ?: return failure(
                 StationCallResolutionFailure.ORIGIN_UNRESOLVED,
                 "station call origin not found: ${request.origin.id}"
             )

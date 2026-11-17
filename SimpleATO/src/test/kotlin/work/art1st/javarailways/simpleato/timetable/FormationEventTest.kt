@@ -2,7 +2,7 @@ package work.art1st.javarailways.simpleato.timetable
 
 import org.junit.jupiter.api.Assertions.*
 import work.art1st.javarailways.basic.basicWorldData
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator

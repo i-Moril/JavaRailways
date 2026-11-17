@@ -25,7 +25,7 @@ import work.art1st.javarailways.simpleato.persistence.SavedTimetableClockV1
 import work.art1st.javarailways.simpleato.persistence.SavedActiveRunCheckpointV1
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.simpleato.testing.KinematicTrainActuator

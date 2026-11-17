@@ -1,8 +1,9 @@
 package work.art1st.javarailways.simpleato.routing
 
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.planning.operatingDirectionOverlay
+import work.art1st.javarailways.basic.api.route.wayPoints
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.basic.api.route.planning.OperatingDirectionOverlay
-import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.route.ExpandedRoute
 import work.art1st.javarailways.basic.api.route.planning.OperationalRouteBlocker
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
@@ -36,7 +37,7 @@ class OperationalRoutePlanner(private val world: World) {
         requireUniquePath: Boolean = false,
         pruneNonTargetWaypoints: Boolean = false
     ): RouteBuildResult {
-        val wayPoints = world.basicWorldData.wayPoints
+        val wayPoints = world.wayPoints
         val from = wayPoints[fromWayPointId]
             ?: return RouteBuildResult.Failure("路径点不存在: $fromWayPointId")
         val to = wayPoints[toWayPointId]
@@ -57,7 +58,7 @@ class OperationalRoutePlanner(private val world: World) {
         val blockers = if (pruneNonTargetWaypoints) waypointBlockers(from.id, to.id) else emptyList()
         return when (val result = plan(
             topology = topology,
-            operatingDirections = world.basicWorldData.operatingDirections.overlay(topology),
+            operatingDirections = world.operatingDirectionOverlay(topology),
             planningRestrictions = simpleAto.routePlanningRestrictions,
             start = OperationalRouteLocation(from.railId, from.arcLength),
             end = OperationalRouteLocation(to.railId, to.arcLength),
@@ -98,7 +99,7 @@ class OperationalRoutePlanner(private val world: World) {
         val endpointStations = listOfNotNull(fromId, toId).mapNotNull {
             (simpleAto.destinations[it]?.role as? DestinationRole.StationBerthRole)?.stationId
         }.toSet()
-        return world.basicWorldData.wayPoints.all().mapNotNull { waypoint ->
+        return world.wayPoints.all().mapNotNull { waypoint ->
             // Endpoints are always traversable, including depot stabling points whose role has no
             // stationId; otherwise a route to a depot target blocks its own destination.
             if (waypoint.id == fromId || waypoint.id == toId) return@mapNotNull null

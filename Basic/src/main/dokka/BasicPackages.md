@@ -23,6 +23,9 @@ ATO 规划输入使用的不可变 Route 与 Perception 快照。集合在构造
 不可变有向曲线最低坡度的缓存计算，以及调用时已发布车身的坡度查询。这些第一方同步函数不选择控制目标、
 不发布物理状态，也不定义额外注册或持久化生命周期。
 
+`nativeHeadSpeedLimitContext`在调用时读取当前车头的轨道和朝向，`nativeRailSpeedLimit`在调用时读取
+该轨道原生限速；调用方保留方向/轨道变化检测及限速切换策略，不隐式改用较早捕获的物理帧。
+
 `SelectedTrackAhead`及物理片段/对象观察为第一方物理worker提供两阶段前视查询。
 结果保留Core公开live对象身份供原时点检查，固定距离/位置值不代表整个世界已冻结；
 路线revision、感知事件差分和控制策略仍由SimpleATO拥有。
@@ -34,6 +37,9 @@ ATO 规划输入使用的不可变 Route 与 Perception 快照。集合在构造
 # Package work.art1st.javarailways.basic.api.rail
 
 world-local 通用 RailObject、双索引 store 与 lifecycle 契约；不包含已删除的 ATO Provider/Boundary 切换机制。
+
+`World.railObjects`直接访问当前世界已注册的同一对象存储。`OperationalSpeedLimitTransition`公开限速变化值及
+方向适用性，保留原RailObject身份；读取、生命周期过滤和越过事件仍由调用方按现有阶段处理。
 
 # Package work.art1st.javarailways.basic.api.safety
 
@@ -57,12 +63,18 @@ Infrastructure dependency以persistent rail ID、stable topology-node key和runt
 
 # Package work.art1st.javarailways.basic.api.route
 
+`WayPoint`保存无方向的canonical AB米制路径点；`World.wayPoints`通过`WayPointAccess`访问Basic唯一存储。
+查询返回当前值，更新沿用覆盖、重命名冲突和删除语义；Destination事务仍由SimpleATO拥有。
+`operatingDirection`查询单轨限制，`operatingDirections`在同一锁内捕获指定轨道的方向值。
+
 运营规划使用的不可变候选路线值：稳定有向轨道引用、view-local 米制区间、展开路线和调用方 plan revision。
 它们不绑定 live world/topology、不证明连通性或资源所有权；资源准入仍需单独验证。
 
 冻结 route intent、route-metre authority/release boundary、插件附加资源、设备准备参数及 grant result。调用方不提交完整 footprint；Basic 按权威拓扑推导不可删除的 rail、turnout 与 route-bound physical resources，并把经过认证的插件 additions 合并进同一个原子 claim。保护区域与固定闭塞属于具体信号插件，不在本 package 定义。
 
 # Package work.art1st.javarailways.basic.api.route.planning
+
+`World.operatingDirectionOverlay`从同一方向存储捕获稀疏规划overlay，按已记录限制数处理，不扫描全世界轨道。
 
 绑定一个不可变 topology revision 的中立寻路限制：禁止有向轨道区间，以及用完整物理路径替代
 局部自由通行。具体信号插件可把私有联锁/区域模型编译成这些值；本 package 不暴露保护区域、

@@ -1,6 +1,6 @@
 package work.art1st.javarailways.bukkit.tool
 
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
 import work.art1st.javarailways.bukkit.extension.rail.RailTemplateSnapshot

@@ -2,7 +2,7 @@ package work.art1st.javarailways.bukkit.util
 
 import org.joml.Vector3d
 import org.joml.Vector3dc
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.core.api.util.annotation.Heavy
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.api.threading.ThreadGuard

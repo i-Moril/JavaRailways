@@ -1,6 +1,6 @@
 package work.art1st.javarailways.bukkit.tool
 
-import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.DestinationRoleType
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination

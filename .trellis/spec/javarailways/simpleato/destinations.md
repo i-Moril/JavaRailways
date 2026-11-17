@@ -29,6 +29,11 @@ data class OperationalDestination(
 
 `SimpleATOWorldData.destinations`是唯一canonical writable store。`OperationalDestinationService(world)`是mutation的main-thread owner；它原子维护SimpleATO Station投影、SimpleATO Depot投影及Basic通用WayPoint route-anchor投影。Basic WayPoint不是第二个Destination owner。`service[id]`提供只读查询，返回当前不可变`OperationalDestination`值或`null`。
 
+通用路径点值为 `basic.api.route.WayPoint`；service 通过 `World.wayPoints: WayPointAccess` 操作同一 Basic store，
+方向通过 `World.operatingDirection(railId)` 读取，不取得 Basic composition container。`WayPointAccess.add` 仍允许同 ID 覆盖，
+因此 destination register/replace 必须保留原有碰撞预校验、写入顺序和 rollback，不能把 API collection 当作第二份 canonical owner。
+这次入口整理不改变 destination、standalone WayPoint 或其他持久化字段、版本和默认值。
+
 ## Transaction与结果矩阵
 
 | 操作/条件 | 结果 | rollback/side effect |
@@ -49,10 +54,10 @@ Service在最后两次写入失败时清已materialize role：
 
 ```kotlin
 try {
-    basicData.wayPoints.add(destination.toWayPoint())
+    wayPoints.add(destination.toWayPoint())
     data.destinations.add(destination)
 } catch (failure: Exception) {
-    basicData.wayPoints.remove(destination.id)
+    wayPoints.remove(destination.id)
     if (stationRole != null) data.stations.removeBerth(stationRole.berthRef)
     if (depotRole != null) data.depots.removeStablingPoint(depotRole.pointRef)
     throw failure

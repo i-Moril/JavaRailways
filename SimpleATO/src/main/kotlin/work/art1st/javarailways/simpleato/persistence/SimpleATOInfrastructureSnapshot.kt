@@ -1,10 +1,11 @@
 package work.art1st.javarailways.simpleato.persistence
 
+import work.art1st.javarailways.basic.api.rail.railObjects
+import work.art1st.javarailways.basic.api.route.wayPoints
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import work.art1st.javarailways.basic.api.operation.DoorSide
-import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
@@ -154,7 +155,8 @@ data class SimpleATOInfrastructureSnapshotV1(
             "SimpleATO infrastructure snapshot contains duplicate lines: ${duplicateLineIds.joinToString()}"
         }
         val data = world.simpleAtoWorldData
-        val basicData = world.basicWorldData
+        val wayPoints = world.wayPoints
+        val railObjects = world.railObjects
         check(data.destinations.all().isEmpty()) { "SimpleATO DestinationStore is not empty" }
         check(data.stations.all().isEmpty()) { "SimpleATO StationStore is not empty" }
         check(data.depots.allDepots().isEmpty()) {
@@ -180,7 +182,7 @@ data class SimpleATOInfrastructureSnapshotV1(
                 outOfRange.joinToString { "${it.id}@${it.arcLengthInAbMeters}" }
         }
         val projectedIdCollisions = restoredDestinations.map(OperationalDestination::id)
-            .filter { basicData.wayPoints[it] != null }
+            .filter { wayPoints[it] != null }
         check(projectedIdCollisions.isEmpty()) {
             "SimpleATO destination IDs collide with standalone Basic WayPoints: " +
                 projectedIdCollisions.joinToString()
@@ -189,7 +191,7 @@ data class SimpleATOInfrastructureSnapshotV1(
             it.role as? DestinationRole.StationBerthRole
         }
         val stationRailObjectCollisions = stationRoles.filter {
-            basicData.railObjects.get(it.berthRef.railObjectRef) != null
+            railObjects.get(it.berthRef.railObjectRef) != null
         }
         check(stationRailObjectCollisions.isEmpty()) {
             "SimpleATO StationBerths collide with existing RailObjects: " +

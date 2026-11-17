@@ -87,6 +87,31 @@ class CoreWorld(
     private val extensionDataContainer: ExtensionDataContainer<Any> = ExtensionDataContainer(),
     override val executionMode: WorldExecutionMode = WorldExecutionMode.LIVE
 ) : World, Extendable<Any> by extensionDataContainer {
+    private val physicsMaintenance = ThreadLocal<CorePhysicsMaintenance?>()
+
+    override fun <T> withPhysicsStalled(
+        action: (work.art1st.javarailways.core.api.physics.PhysicsMaintenance) -> T
+    ): T = physicsCoordinator.withPhysicsStalled {
+        val parent = physicsMaintenance.get()
+        val scope = CorePhysicsMaintenance(this, parent)
+        physicsMaintenance.set(scope)
+        try {
+            val result = action(scope)
+            scope.finish()
+            result
+        } catch (failure: Throwable) {
+            scope.fail(failure)
+            throw failure
+        } finally {
+            scope.close()
+            physicsMaintenance.set(parent)
+        }
+    }
+
+    internal fun maintenanceSelectionRevision(): Long = synchronized(activeRailSelectionLock) {
+        activeRailSelectionRevision
+    }
+
     override val maximumPhysicsDeltaSeconds: Double
         get() = physicsCoordinator.maximumPhysicsDeltaSeconds
 
@@ -1340,7 +1365,10 @@ class CoreWorld(
      * All candidates are prepared before installation. Mailbox frames and direction notifications
      * follow the single shared occupancy/world publication; installation failure stalls physics.
      */
-    fun publishOwnerChanges(changedTrains: Collection<CoreTrain>) {
+    fun publishOwnerChanges(changedTrains: Collection<CoreTrain>) =
+        publishMaintenanceChanges(changedTrains) {}
+
+    internal fun publishMaintenanceChanges(changedTrains: Collection<CoreTrain>, beforeInstall: () -> Unit) {
         physicsCoordinator.ensureBetweenFrames("CoreWorld.publishOwnerChanges")
         val epoch = physicsCoordinator.captureCurrentTicket().epoch
         val changed = changedTrains.distinct()
@@ -1352,6 +1380,7 @@ class CoreWorld(
             "Owner publication requires all unchanged train frames at completed epoch $epoch"
         }
         try {
+            beforeInstall()
             prepared.forEach { (train, frame) -> train.applyMaintenancePublication(frame) }
             rebuildSweptOccupancyIndex(epoch)
             publishWorldFrame(epoch)

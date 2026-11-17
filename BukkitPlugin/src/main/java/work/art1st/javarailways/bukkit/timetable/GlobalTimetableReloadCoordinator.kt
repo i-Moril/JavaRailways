@@ -263,10 +263,12 @@ class GlobalTimetableReloadCoordinator(private val plugin: BukkitPlugin) : AutoC
                 }
                 if (data.atoCoordinator.isStalled) data.atoCoordinator.reset()
                 data.timetables.replaceAll(reload.replacements)
-                val placement = TimetableInitialPositioner(world).apply(
-                    reload.replacements,
-                    data.dispatcher.saveCheckpoint().dispatcherTick
-                )
+                val placement = world.withPhysicsStalled { maintenance ->
+                    TimetableInitialPositioner(world, maintenance).apply(
+                        reload.replacements,
+                        data.dispatcher.saveCheckpoint().dispatcherTick
+                    )
+                }
                 when (placement) {
                     is TimetableInitialPositionResult.Applied -> Applied(discarded, placement.placements,
                         selectedTrainIds.map { id ->

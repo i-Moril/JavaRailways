@@ -194,6 +194,32 @@ next physics epoch captures controllers and computes from the resulting state
 
 回归使用注入clock及现有timer seam验证作用域内epoch不前移、显式wake复用ticket、结束后可推进；真实worker用例检查回调开始时ticket已完成，并确定性验证回调期间其他线程可取得状态锁。等待在锁外由源码审查确认，该用例不保证每次调度都实际阻塞在await。异常与shutdown/stall/close不能破坏原生命周期；真实split决策触发timer验证生产入口确实持有作用域。验证结果归任务记录；并发源码检查不等于现场压力测试。
 
+### 维护用物理停帧（CURRENT，2026-11-17）
+
+`PhysicsCoordinator.withPhysicsStalled(action)`由公开World维护入口复用，是同步、可重入的物理停帧作用域。
+它先检查现有main/simulation身份，取得该World的execution owner，再复用`withFrameBoundary`关闭新epoch准入、
+捕获并成功等待exact ticket；只有上一epoch已经完整发布，才增加独立的manual stall depth并执行action。
+等待期间还不能观察到维护STALLED；action期间`status`呈现STALLED，Core的owner查询、维护发布与嵌套停帧仍可用。
+`ensurePhysicsStalled(operation)`只断言当前线程处于该owner的帧间维护作用域，不调度、不开启停帧，也不能将普通
+帧间callback或其他线程观察到的STALLED当作维护准入。
+
+manual stall depth不是永久故障状态。底层`localStatus`和进程级`RailwaySimulationHalt`继续拥有失败、overload和关闭；
+内部准入与发布检查不能仅按对外`status == STALLED`拒绝合法维护。内部`isUsableForOwnerOperations`只区分底层RUNNING与
+真实fault/close，供失败创建清理等既有owner路径使用；维护期间为true，shutdown本身不改变既有失败清理规则。
+现有`stall()`仍触发全局故障停止，不能用于正常维护。
+`resetStall()`仍只恢复真实overload；维护期间正常local RUNNING返回false，不能解除维护作用域。已start的静态
+railway-epoch processors不能借维护期间对外STALLED绕过增删限制。
+
+作用域不自动drain普通操作队列，维护前及维护期间提交的普通请求继续等待原host批次。timer不创建新epoch，main和
+simulation wake复用同一已完成ticket，`captureCurrentTicket`可读取该真实边界。最外层退出只减少自己的manual depth并
+清除墙钟delta起点、更新主线程heartbeat；维护耗时不计入下一物理步，下一wall-clock步沿用50ms首步合同。
+action异常原样传播，scope释放后可继续正常推进；shutdown、CLOSED或全局halt已经发生时，finally不得写RUNNING或重新开放准入。
+在途ticket失败时不执行维护action，也不回退到旧成功ticket。该机制只串行物理和owner操作，不暂停平台动画、任意插件线程或其他World。
+
+回归`PhysicsMaintenanceStallTest`使用真实processor barrier和exact ticket验证等待完整发布、跨线程main/timer/simulation
+不推进，以及退出后真实下一epoch；另验证嵌套异常、队列FIFO、processor静态性、overload reset不解维护、外层异常恢复和
+shutdown/close/global halt不被复活。每个故意全局halt invocation使用`IsolateGlobalHalt`，不重置生产故障状态。
+
 ### 其他发布边界
 
 `close()`撤销ticket并中断executor，**不是quiesce**：它不回滚此前已经flip的单列车frame，也不撤销processor已执行的外部副作用；消化中断的worker/processor也可能稍后返回。即使失败ticket已完成，也不证明所有失败worker退出，不能拿失败结果捕获最终快照或把abort等价为成功shutdown边界。

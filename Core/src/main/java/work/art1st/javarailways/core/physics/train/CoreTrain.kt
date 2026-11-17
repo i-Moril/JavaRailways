@@ -424,6 +424,68 @@ open class CoreTrain @MainThread internal constructor(
         }
     }
 
+    internal data class PreparedTeleportGeometry(
+        val geometry: PreparedTrainGeometry,
+        val carGeometry: List<CoreCar.PreparedCarGeometry>,
+        val source: PlacementSnapshot
+    )
+
+    /** Read-only equivalent of explicit setLocation, including its forward consist normalization. */
+    internal fun prepareTeleportGeometry(target: RailLocationWithFacing): PreparedTeleportGeometry {
+        world.physicsCoordinator.ensurePhysicsStalled("CoreTrain.prepareTeleportGeometry")
+        check(world.getTrain(id) === this) { "Cannot place a retired train '$id'" }
+        val source = capturePlacementSnapshot()
+        val preparedCars = ArrayList<CoreCar.PreparedCarGeometry>()
+        cars.forEachIndexed { index, car ->
+            val desiredReversed = car.isReversed xor isReversed
+            preparedCars += if (index == 0) {
+                val headOffset = if (desiredReversed) car.bogieBToEndPointOffset else car.bogieAToEndPointOffset
+                car.prepareTeleportLeading(target.forward(-headOffset) ?: throw CannotMoveForwardException(this),
+                    desiredReversed)
+            } else car.prepareTeleportFollowing(cars[index - 1], preparedCars.last(), desiredReversed)
+        }
+        val first = preparedCars.first()
+        val last = preparedCars.last()
+        val firstCar = cars.first()
+        val lastCar = cars.last()
+        val headBogie = if (first.desiredReversed) first.bogieBLocation else first.bogieALocation
+        val tailBogie = if (last.desiredReversed) last.bogieALocation else last.bogieBLocation
+        val headOffset = if (first.desiredReversed) firstCar.bogieBToEndPointOffset else firstCar.bogieAToEndPointOffset
+        val tailOffset = if (last.desiredReversed) lastCar.bogieAToEndPointOffset else lastCar.bogieBToEndPointOffset
+        val preparedHead = headBogie.forward(headOffset) ?: throw CannotMoveForwardException(this)
+        val preparedTail = tailBogie.forward(-tailOffset) ?: throw CannotMoveForwardException(this)
+        val geometry = prepareStructureGeometry(cars.toList(), preparedHead, preparedTail,
+            placementSegments(preparedTail, preparedHead))
+        // Frame preparation is read-only too; reject impossible car snapshots before installation.
+        cars.zip(preparedCars).forEach { (car, prepared) -> car.prepareStationaryFrame(prepared) }
+        return PreparedTeleportGeometry(geometry, preparedCars.toList(), source)
+    }
+
+    internal fun applyPreparedTeleport(prepared: PreparedTeleportGeometry, beforeInstall: () -> Unit) {
+        world.physicsCoordinator.ensurePhysicsStalled("CoreTrain.applyPreparedTeleport")
+        val current = capturePlacementSnapshot()
+        val source = prepared.source
+        check(world.getTrain(id) === this && current.frame === source.frame &&
+            current.headLocation == source.headLocation && current.tailLocation == source.tailLocation &&
+            current.reversed == source.reversed && current.derailed == source.derailed &&
+            current.derailReason == source.derailReason && current.carStates == source.carStates &&
+            cars.size == prepared.geometry.cars.size && cars.zip(prepared.geometry.cars).all { (a, b) -> a === b }) {
+            "Prepared teleport source changed: $id"
+        }
+        beforeInstall()
+        if (stagedPlacementDirection == null) stagedPlacementDirection = isReversed
+        cars.zip(prepared.carGeometry).forEach { (car, geometry) -> car.applyPreparedTeleportGeometry(geometry) }
+        isReversed = false
+        head.location = prepared.geometry.headLocation
+        tail.location = prepared.geometry.tailLocation
+        head.publishPhysicsState()
+        tail.publishPhysicsState()
+        clearDerailed()
+        pendingSweptSpans = prepared.geometry.sweptSpans
+        pendingHeadTraversal = null
+        pendingTailTraversal = null
+    }
+
     /** Capture a stable maintenance rollback point after the current physics epoch is published. */
     @MainThread
     fun capturePlacementSnapshot(): PlacementSnapshot {

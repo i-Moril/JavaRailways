@@ -413,20 +413,24 @@ class CoreCar @MainThread internal constructor(
     /** The same stationary axle solve, with a captured backwards support path. */
     private fun calculatePositionByHeadBogieOnPath(
         headLocation: RailLocationWithFacing,
-        path: SolvePath
+        path: SolvePath,
+        desiredReversed: Boolean = activeIsReversed
     ): IntermediateResult {
         val headPosition = connectorPosition(headLocation)
         val distance = solveDistance(path.length, bogieDistance, GEOMETRY_SOLVE_TOLERANCE_METERS,
             { it }, { distance -> connectorPosition(path.locationAt(distance).reversed).distance(headPosition) - bogieDistance }
-        ) ?: throw BogieException(activeTailBogie)
-        return positionFromBogies(headLocation, path.locationAt(distance).reversed)
+        ) ?: throw BogieException(if (desiredReversed) bogieA else bogieB)
+        return positionFromBogies(headLocation, path.locationAt(distance).reversed, desiredReversed)
             .copy(headPathDistance = 0.0, tailPathDistance = distance)
     }
 
     @Throws(BogieException::class)
-    protected fun calculatePositionByTailBogie(tailBogieNewLocation: RailLocationWithFacing): IntermediateResult {
+    protected fun calculatePositionByTailBogie(
+        tailBogieNewLocation: RailLocationWithFacing,
+        desiredReversed: Boolean = activeIsReversed
+    ): IntermediateResult {
         val path = SolvePath(tailBogieNewLocation.peekCurve(bogieDistance * 2 + FORWARD_SEARCH_RADIUS_METERS))
-        return calculatePositionByTailBogie(tailBogieNewLocation, path, 0.0, bogieDistance)
+        return calculatePositionByTailBogie(tailBogieNewLocation, path, 0.0, bogieDistance, desiredReversed)
     }
 
     private fun calculatePositionByTailBogie(
@@ -563,6 +567,56 @@ class CoreCar @MainThread internal constructor(
             requireNotNull(result.tailPathDistance))
     }
 
+    /** Same selected-path stationary solve as explicit placement, with no live writes. */
+    internal fun prepareTeleportLeading(
+        headBogieLocation: RailLocationWithFacing,
+        desiredReversed: Boolean
+    ): PreparedCarGeometry = prepareGeometry(calculatePositionByHeadBogieOnPath(
+        headBogieLocation, SolvePath(headBogieLocation.peekCurve(-placementAxleSearchDistance)), desiredReversed
+    ), desiredReversed)
+
+    internal fun prepareTeleportFollowing(
+        predecessor: CoreCar,
+        predecessorGeometry: PreparedCarGeometry,
+        desiredReversed: Boolean
+    ): PreparedCarGeometry {
+        val predecessorReversed = predecessorGeometry.desiredReversed
+        val predecessorDirection = predecessorGeometry.direction.toVector3d().let {
+            if (predecessorReversed) -it else it
+        }
+        return prepareStationaryFollowing(
+            if (predecessorReversed) predecessorGeometry.bogieALocation else predecessorGeometry.bogieBLocation,
+            getTailPosition(predecessorGeometry.position.toVector3d(), predecessorDirection, predecessor.length),
+            if (predecessorReversed) predecessor.connectorLengthAtA else predecessor.connectorLengthAtB,
+            if (predecessorReversed) predecessor.bogieAToEndPointOffset else predecessor.bogieBToEndPointOffset,
+            desiredReversed
+        )
+    }
+
+    /** Retains explicit placement's backward outer search and each candidate's selected forward solve. */
+    private fun prepareStationaryFollowing(
+        predecessorTailBogie: RailLocationWithFacing,
+        predecessorTailPosition: Vector3dc,
+        predecessorTailConnectorLength: Double,
+        predecessorTailOffset: Double,
+        desiredReversed: Boolean
+    ): PreparedCarGeometry {
+        val headConnector = if (desiredReversed) connectorLengthAtB else connectorLengthAtA
+        val tailOffset = if (desiredReversed) bogieAToEndPointOffset else bogieBToEndPointOffset
+        val couplerLength = headConnector + predecessorTailConnectorLength
+        val searchDistance = predecessorTailOffset + couplerLength + length - tailOffset
+        val result = if (searchDistance <= 0.0) {
+            calculatePositionByTailBogie(predecessorTailBogie, desiredReversed)
+        } else {
+            val path = SolvePath(predecessorTailBogie.peekCurve(-searchDistance * 2))
+            solveDistance(path.length, searchDistance, GEOMETRY_SOLVE_TOLERANCE_METERS,
+                { distance -> calculatePositionByTailBogie(path.locationAt(distance).reversed, desiredReversed) },
+                couplerError(predecessorTailPosition, couplerLength)
+            ) ?: throw BogieException(if (desiredReversed) bogieA else bogieB)
+        }
+        return prepareGeometry(result, desiredReversed)
+    }
+
     private fun prepareGeometry(result: IntermediateResult, reversed: Boolean): PreparedCarGeometry {
         val direction = if (reversed) -result.carNewDirection else result.carNewDirection
         val normal = (result.headBogieNewLocation.normal + result.tailBogieNewLocation.normal).projection(direction)
@@ -597,6 +651,13 @@ class CoreCar @MainThread internal constructor(
 
     /** Install owner-prepared geometry in the current operating facing, then publish zero motion.
      * Any result-consist facing reversal is separately prepared and installed by the owner. */
+    internal fun applyPreparedTeleportGeometry(prepared: PreparedCarGeometry) {
+        if (isReversed != prepared.desiredReversed) {
+            applyPreparedOperatingReversal(listOf(prepared.bogieALocation, prepared.bogieBLocation))
+        }
+        applyPreparedStructuralGeometry(prepared)
+    }
+
     internal fun applyPreparedStructuralGeometry(prepared: PreparedCarGeometry) {
         applyPreparedGeometry(prepared)
         clearMotionState()
@@ -660,19 +721,11 @@ class CoreCar @MainThread internal constructor(
 
         // Runtime searches forward from this car's published tail; explicit placement retains the
         // backward fallback because it has no previous-tick movement interval.
-        val couplerError = couplerError(prevCarTailPosition, couplerLength)
         val prepared = when {
-            tailBogieSearchDistance <= 0 ->
-                prepareGeometry(calculatePositionByTailBogie(prevCar.activeTailBogie.activeLocation), activeIsReversed)
-            deltaS != null -> searchForwardFromPreviousTail(deltaS, prevCarTailPosition, prevCar.activeTailConnectorLength)
-            else -> {
-                val path = SolvePath(prevCar.activeTailBogie.activeLocation.peekCurve(-tailBogieSearchDistance * 2))
-                val result = solveDistance(path.length, tailBogieSearchDistance, GEOMETRY_SOLVE_TOLERANCE_METERS,
-                    { distance -> calculatePositionByTailBogie(path.locationAt(distance).reversed) },
-                    couplerError
-                ) ?: throw BogieException(activeTailBogie)
-                prepareGeometry(result, activeIsReversed)
-            }
+            tailBogieSearchDistance > 0 && deltaS != null ->
+                searchForwardFromPreviousTail(deltaS, prevCarTailPosition, prevCar.activeTailConnectorLength)
+            else -> prepareStationaryFollowing(prevCar.activeTailBogie.activeLocation, prevCarTailPosition,
+                prevCar.activeTailConnectorLength, prevCar.activeTailBogieToEndPointOffset, activeIsReversed)
         }
         applyPreparedGeometry(prepared)
         updateMotionStateByHead(prevCar.tailVelocity())

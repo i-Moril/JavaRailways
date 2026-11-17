@@ -578,8 +578,11 @@ class TimetableDispatcher(
         }
         runs.values.filter { it.id.timetableId == timetableId && it.canBeReplaced() }
             .toList().forEach { discardRun(world, it) }
-        if (initialPositionMode == TimetableInitialPositionMode.RESET) {
-            when (val initialPositions = TimetableInitialPositioner(world).apply(timetable, dispatcherTick)) {
+        if (initialPositionMode == TimetableInitialPositionMode.RESET && timetable.initialPositions.isNotEmpty()) {
+            val initialPositions = world.withPhysicsStalled { maintenance ->
+                TimetableInitialPositioner(world, maintenance).apply(timetable, dispatcherTick)
+            }
+            when (initialPositions) {
                 is TimetableInitialPositionResult.Applied -> Unit
                 is TimetableInitialPositionResult.Failure -> {
                     val rollbackFailure = rollbackAppliedPlan(timetableId, installedPlan, previousPlan)

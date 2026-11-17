@@ -56,6 +56,29 @@ CoreTrain 复用已有原子 publication，不另建 snapshot。不能提供帧�
 
 `AtGradeRailCrossing`只携带按UUID稳定排序的两项`RailCrossingPoint(railId,arcLengthAbMeters)`；弧长为canonical AB米制位置。它是所属immutable `TopologyState`的几何观测，不是persistent资源身份、可跨线port或独立持久化边界。consumer必须与同一topology root的rail projection一起使用。
 
+## 停帧维护与单车 TP
+
+`World.withPhysicsStalled { maintenance -> ... }`是公开的同步 simulation-owner 入口。
+它等待本World的exact in-flight ticket完成，并在回调整个生命周期关闭新epoch准入；
+回调内物理状态显示`STALLED`，退出后仅释放本次维护暂停，不清除真实故障或关闭状态。
+不得从physics worker调用，不能在回调等待负责该owner执行的任务。它与SimpleATO运营Stall/EB没有等价关系。
+
+`PhysicsMaintenance`是仅在回调内有效的live capability；`world` getter也检查owner、停帧及存活状态。
+`inspectTeleport(train, RailPositionSnapshot)`对exact registered列车执行只读完整刚体求解，
+返回`TrainTeleportInspection.Ready(PreparedTrainTeleport)`或`Rejected(reason)`。
+目标使用该rail的canonical AB米制弧长，facing明确；沿当前active path求解，既不枚举其它分支也不改变道岔。
+Ready公开train ID、head/tail value位置和不可变`List<RailInterval>`；它仍是scope-local opaque候选，
+不是可跨线程保存的value snapshot或持久化数据。普通显式摆位一样归一到正序consist，保留各车安装方向。
+
+`teleport(prepared)`只安装同一活跃scope求出的完整car/bogie候选，不重算；不同world、过期scope、
+已消费或源列车/拓扑/active选择已变的候选在安装前拒绝。每列车成功安装暂存到共享维护事务，
+嵌套scope不能提前发布，最外层正常结束才统一刷新train/world/occupancy及mailbox。
+发布前异常精确恢复本事务改过的列车，不增加frame/revision；即使consumer捕获teleport异常，
+事务仍失效，不能以成功返回提交先前半批。发布开始后的故障保持halt，不回滚可被观察的结果。若真实快照恢复失败（例如callback已通过现有入口发布该列车），保留原异常和suppressed恢复错误并进入既有Core halt，禁止释放暂停后继续物理推进。
+
+Core不选择批次、不检查跨列车重叠，也不定义时刻表/Depot放置政策。SimpleATO等consumer负责先检查全部
+目标间及与未移动列车的占用，再逐车TP；检查与执行都位于同一公开停帧维护scope。
+
 ## World来源与运行模式
 
 `World.executionMode: WorldExecutionMode`在创建时固定为`LIVE/SIMULATION`，不写入设施或runtime存档，也不等同于线程owner权限。`WorldEvent.world`直接提供运行实例；TrainEvent从train.world派生，碰撞和物理epoch事件直接携带World。该引用用于选择所属模块状态/效果出口；physics listener仍通过对应不可变frame观察一致结果，不能据此任意读写live集合。事件的阶段、线程与失败合同归[事件总线](./event-bus.md)，不增加独立environment对象或每次发布的归属校验。

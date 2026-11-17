@@ -77,7 +77,11 @@ class TimetableInitialPositionerTest {
             )
         )
 
-        val result = world.onOwnerForTest { TimetableInitialPositioner(world).apply(timetable, tick = 0L) }
+        val result = world.onOwnerForTest {
+            world.withPhysicsStalled { maintenance ->
+                TimetableInitialPositioner(world, maintenance).apply(timetable, tick = 0L)
+            }
+        }
 
         assertEquals(TimetableInitialPositionResult.Applied(1), result)
         assertEquals(70.0, train.headLocation.arcLengthIn(ViewDirection.AB), 0.01)
@@ -127,7 +131,11 @@ class TimetableInitialPositionerTest {
         )
 
         world.drainPublishedTrainFrames()
-        val result = world.onOwnerForTest { TimetableInitialPositioner(world).apply(timetable, tick = 0L) }
+        val result = world.onOwnerForTest {
+            world.withPhysicsStalled { maintenance ->
+                TimetableInitialPositioner(world, maintenance).apply(timetable, tick = 0L)
+            }
+        }
 
         assertEquals(TimetableInitialPositionResult.Applied(2), result)
         assertEquals(setOf(80.0, 180.0), setOf(
@@ -170,7 +178,11 @@ class TimetableInitialPositionerTest {
             ))
         )
 
-        val result = world.onOwnerForTest { TimetableInitialPositioner(world).apply(timetable, tick = 0L) }
+        val result = world.onOwnerForTest {
+            world.withPhysicsStalled { maintenance ->
+                TimetableInitialPositioner(world, maintenance).apply(timetable, tick = 0L)
+            }
+        }
 
         assertTrue(result is TimetableInitialPositionResult.Failure)
         val reason = (result as TimetableInitialPositionResult.Failure).reason
@@ -207,7 +219,11 @@ class TimetableInitialPositionerTest {
             )
         )
 
-        val result = world.onOwnerForTest { TimetableInitialPositioner(world).apply(timetable, tick = 3L) }
+        val result = world.onOwnerForTest {
+            world.withPhysicsStalled { maintenance ->
+                TimetableInitialPositioner(world, maintenance).apply(timetable, tick = 3L)
+            }
+        }
 
         assertEquals(TimetableInitialPositionResult.Applied(1), result)
         assertEquals(70.0, train.headLocation.arcLengthIn(ViewDirection.AB), 0.01)
@@ -215,7 +231,7 @@ class TimetableInitialPositionerTest {
     }
 
     @Test
-    fun `overlapping staged placements retain original train world and mailbox frames`() {
+    fun `overlapping target placements retain original train world and mailbox frames`() {
         val world = createTestWorld().also(worlds::add)
         val coordinator = AtoWorldCoordinator("initial-overlap", reportSink = {})
         TestSimpleATOWorldDataRegistry.register(
@@ -243,7 +259,11 @@ class TimetableInitialPositionerTest {
         val beforeWorld = world.latestWorldFrame()
         world.drainPublishedTrainFrames()
 
-        val result = world.onOwnerForTest { TimetableInitialPositioner(world).apply(timetable, 0L) }
+        val result = world.onOwnerForTest {
+            world.withPhysicsStalled { maintenance ->
+                TimetableInitialPositioner(world, maintenance).apply(timetable, 0L)
+            }
+        }
 
         assertTrue(result is TimetableInitialPositionResult.Failure)
         assertSame(beforeFirst, first.publishedFrame)
@@ -270,18 +290,132 @@ class TimetableInitialPositionerTest {
         val selector = TimetableObjectSelector.Regex("train")
 
         val result = world.onOwnerForTest {
-            TimetableInitialPositioner(world).apply(listOf(
-                Timetable("a", initialPositions = listOf(TimetableInitialPosition(
-                    selector, TimetableObjectSelector.Regex("one")
-                ))),
-                Timetable("b", initialPositions = listOf(TimetableInitialPosition(
-                    selector, TimetableObjectSelector.Regex("two")
-                )))
-            ), 0L)
+            world.withPhysicsStalled { maintenance ->
+                TimetableInitialPositioner(world, maintenance).apply(listOf(
+                    Timetable("a", initialPositions = listOf(TimetableInitialPosition(
+                        selector, TimetableObjectSelector.Regex("one")
+                    ))),
+                    Timetable("b", initialPositions = listOf(TimetableInitialPosition(
+                        selector, TimetableObjectSelector.Regex("two")
+                    )))
+                ), 0L)
+            }
         }
 
         assertTrue(result is TimetableInitialPositionResult.Failure)
         assertEquals(before, train.headLocation.arcLengthIn(ViewDirection.AB), 0.01)
         assertTrue(coordinator.isStalled)
     }
+
+    @Test
+    fun `trains can exchange positions using the final batch layout`() {
+        val (world, rail) = newPlacementWorld("swap")
+        val first = createTrainWithConfig("first", rail, world, listOf(8.0), isLoop = false)
+        val second = createTrainWithConfig("second", rail, world, listOf(8.0), isLoop = false)
+        world.onOwnerForTest {
+            first.setLocation(rail.viewAB.getRailLocationAt(60.0))
+            second.setLocation(rail.viewAB.getRailLocationAt(160.0))
+            world.publishOwnerChanges(listOf(first, second))
+        }
+        world.basicWorldData.wayPoints.add(WayPoint("one", rail.id, 160.0))
+        world.basicWorldData.wayPoints.add(WayPoint("two", rail.id, 60.0))
+        val timetable = twoTrainTimetable()
+        world.drainPublishedTrainFrames()
+
+        val result = world.onOwnerForTest {
+            world.withPhysicsStalled { maintenance ->
+                TimetableInitialPositioner(world, maintenance).apply(timetable, 0L)
+            }
+        }
+
+        assertEquals(TimetableInitialPositionResult.Applied(2), result)
+        assertEquals(160.0, first.publishedFrame.head.arcLengthInAbMeters, 0.01)
+        assertEquals(60.0, second.publishedFrame.head.arcLengthInAbMeters, 0.01)
+        assertEquals(listOf(first.publishedFrame, second.publishedFrame), world.latestWorldFrame().trains)
+        assertEquals(setOf(first.publishedFrame, second.publishedFrame), world.drainPublishedTrainFrames().toSet())
+        assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
+    @Test
+    fun `occupied target rejects the batch before moving any train`() {
+        val (world, rail) = newPlacementWorld("occupied")
+        val first = createTrainWithConfig("first", rail, world, listOf(8.0), isLoop = false)
+        val second = createTrainWithConfig("second", rail, world, listOf(8.0), isLoop = false)
+        world.onOwnerForTest {
+            first.setLocation(rail.viewAB.getRailLocationAt(60.0))
+            second.setLocation(rail.viewAB.getRailLocationAt(160.0))
+            world.publishOwnerChanges(listOf(first, second))
+        }
+        world.basicWorldData.wayPoints.add(WayPoint("occupied", rail.id, 160.0))
+        val timetable = Timetable("occupied", initialPositions = listOf(TimetableInitialPosition(
+            TimetableObjectSelector.Regex("first"), TimetableObjectSelector.Regex("occupied")
+        )))
+        val beforeFirst = first.publishedFrame
+        val beforeSecond = second.publishedFrame
+        val beforeWorld = world.latestWorldFrame()
+        world.drainPublishedTrainFrames()
+
+        val result = world.onOwnerForTest {
+            world.withPhysicsStalled { maintenance ->
+                TimetableInitialPositioner(world, maintenance).apply(timetable, 0L)
+            }
+        }
+
+        assertTrue(result is TimetableInitialPositionResult.Failure)
+        assertTrue((result as TimetableInitialPositionResult.Failure).reason.contains("overlaps trains"))
+        assertSame(beforeFirst, first.publishedFrame)
+        assertSame(beforeSecond, second.publishedFrame)
+        assertSame(beforeWorld, world.latestWorldFrame())
+        assertTrue(world.drainPublishedTrainFrames().isEmpty())
+    }
+
+    @Test
+    fun `unplaceable second target leaves the first candidate and all publications unchanged`() {
+        val (world, rail) = newPlacementWorld("unplaceable")
+        val first = createTrainWithConfig("first", rail, world, listOf(8.0), isLoop = false)
+        val second = createTrainWithConfig("second", rail, world, listOf(8.0), isLoop = false)
+        world.onOwnerForTest {
+            first.setLocation(rail.viewAB.getRailLocationAt(60.0))
+            second.setLocation(rail.viewAB.getRailLocationAt(160.0))
+            world.publishOwnerChanges(listOf(first, second))
+        }
+        world.basicWorldData.wayPoints.add(WayPoint("one", rail.id, 100.0))
+        world.basicWorldData.wayPoints.add(WayPoint("two", rail.id, 2.0))
+        val beforeFirst = first.publishedFrame
+        val beforeSecond = second.publishedFrame
+        val beforeWorld = world.latestWorldFrame()
+        val beforeFirstBogie = first.cars.single().headBogie.location
+        world.drainPublishedTrainFrames()
+
+        val result = world.onOwnerForTest {
+            world.withPhysicsStalled { maintenance ->
+                TimetableInitialPositioner(world, maintenance).apply(twoTrainTimetable(), 0L)
+            }
+        }
+
+        assertTrue(result is TimetableInitialPositionResult.Failure)
+        assertTrue((result as TimetableInitialPositionResult.Failure).reason.contains("cannot place train second"), result.reason)
+        assertSame(beforeFirst, first.publishedFrame)
+        assertSame(beforeSecond, second.publishedFrame)
+        assertSame(beforeWorld, world.latestWorldFrame())
+        assertSame(beforeFirstBogie, first.cars.single().headBogie.location)
+        assertTrue(world.drainPublishedTrainFrames().isEmpty())
+    }
+
+    private fun newPlacementWorld(id: String): Pair<CoreWorld, work.art1st.javarailways.core.physics.rail.CoreRail> {
+        val world = createTestWorld().also(worlds::add)
+        val coordinator = AtoWorldCoordinator(id, reportSink = {})
+        TestSimpleATOWorldDataRegistry.register(
+            world, BasicWorldData(safetyInterlock = coordinator.safetyInterlock), coordinator
+        )
+        return world to createStraightRailFromSegments(
+            world, PrimeCurveGenerator.buildStraight(240.0, segmentCount = 1)
+        )
+    }
+
+    private fun twoTrainTimetable(): Timetable = Timetable("batch", initialPositions = listOf(
+        TimetableInitialPosition(TimetableObjectSelector.Regex("first"), TimetableObjectSelector.Regex("one")),
+        TimetableInitialPosition(TimetableObjectSelector.Regex("second"), TimetableObjectSelector.Regex("two"))
+    ))
+
 }

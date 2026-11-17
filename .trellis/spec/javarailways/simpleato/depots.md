@@ -59,7 +59,15 @@ HOLD 或尚未放行的结果仍需要明确归属，不能在没有 ActiveRun �
 
 摆位唯一规则是时刻表的 `initialPositions`。使用现有 timetable apply/reset 与 `TimetableInitialPositioner`，不保留 `/jr depot assign/list/reset/reset-all` 的库存登记和独立摆位路径。
 
-初始位置只在明确的 apply/reset 边界应用，正常周期推进不反复搬车。保留现有控制权、停车与资源清理检查、完整候选摆位及包络验证；候选准备失败恢复旧位置，不能只重置部分列车。没有初始位置规则时，不根据所属车辆段猜测目标。
+初始位置只在明确的 apply/reset 边界应用，正常周期推进不反复搬车。保留现有控制权、停车与资源清理检查；没有初始位置规则时，不根据所属车辆段猜测目标。
+
+`TimetableInitialPositioner(world, maintenance)`要求调用方已经通过公开`World.withPhysicsStalled`取得该World的活跃`PhysicsMaintenance`。这是物理帧停顿，不检查或依赖ATO的`isStalled`；正常启动和全局reload分别在自己的调用边界建立作用域，隔离模拟复用同一Dispatcher启动流程。退出作用域是否允许继续物理推进由Core维护合同决定，不由批量摆位函数复位ATO或物理故障。
+
+SimpleATO按既有selector顺序分配互不重复的列车与目标，优先保留已经满足的位置。位置值统一用`RailPositionSnapshot`的canonical AB米制弧长，朝向仍依次取Destination、Basic线路配置、既有AB默认。对需要移动的每一列车调用公开`maintenance.inspectTeleport`，全部得到完整候选后才比较最终布局：参与搬移的列车使用候选`occupiedRailIntervals`，其余使用已发布的`occupiedIntervals`，重用`RailInterval.overlaps`的闭区间与容差规则。只检查至少包含一列本批列车的配对，不把无关旧重叠升级为本批错误。
+
+所有候选通过后，SimpleATO逐车调用`maintenance.teleport`；Core仅负责单车几何安装与停帧期的一致发布，不接收时刻表或批量选车规则。候选和维护作用域的生命周期、几何求解与发布失败规则归[Core维护摆位](../core/train-physics.md)。SimpleATO不再导入`CoreWorld`、`CoreTrain`、`CoreRail`或内部位置、快照、包络、发布方法。
+
+目标互相重叠、占用未搬移列车、第二列车无法完整摆放或selector重复使用列车，都在任何TP之前返回`Failure`并沿用原ATO故障诊断；旧几何、train/world帧和mailbox不变。两车交换位置则按最终目标比较，允许旧位置被同批另一列车接替。选择及配对沿用既有成本：每项规则扫描候选，最终布局最坏进行列车对及各自区间的重叠比较；只在apply/reset执行，不增加普通tick扫描。`TimetableInitialPositionerTest`覆盖上述成功与失败场景；无持久化格式或版本变化。
 
 ## 拒绝与失败行为
 

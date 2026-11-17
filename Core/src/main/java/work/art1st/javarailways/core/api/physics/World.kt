@@ -49,6 +49,18 @@ interface World : Extendable<Any> {
         listener: work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChangeListener
     ): AutoCloseable = throw UnsupportedOperationException("world does not support topology transactions")
 
+    /**
+     * Runs one synchronous owner-local maintenance callback with physical frames suspended.
+     * Entry waits for this world's exact in-flight physics ticket; it never joins an owner task or
+     * waits on platform work. Requires the simulation owner and is not a physics-worker operation.
+     * Nested calls share the existing maintenance transaction; only its outermost successful exit
+     * publishes changed trains together. Callback failure restores unpublished changes; the world's
+     * preexisting running/suspended state is retained. A real physics fault is not a recoverable pause.
+     * The supplied live capability and all its prepared placements expire when the callback returns.
+     */
+    fun <T> withPhysicsStalled(action: (PhysicsMaintenance) -> T): T =
+        throw UnsupportedOperationException("world does not support stalled physics maintenance")
+
     /** Find a train by its world-unique player-assigned name; implementations may also accept an internal ID. */
     fun getTrain(name: String): Train?
 

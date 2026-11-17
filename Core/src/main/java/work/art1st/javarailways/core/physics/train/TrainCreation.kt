@@ -149,9 +149,7 @@ class TrainCreation internal constructor(private val world: CoreWorld) {
         closed = true
         if (published) return
         // A failed publication may already have committed physical state. Halt preserves it.
-        if (train != null && world.physicsCoordinator.status !=
-            work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus.RUNNING
-        ) return
+        if (train != null && !world.physicsCoordinator.isUsableForOwnerOperations) return
         val cleanup = DestructionSteps()
         rollback.asReversed().forEach { cleanup.action(it) }
         train?.let { created -> cleanup.await { created.destroy() } }

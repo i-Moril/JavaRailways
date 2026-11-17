@@ -6,11 +6,10 @@ import work.art1st.javarailways.basic.api.route.WayPoint
 import work.art1st.javarailways.simpleato.api.ato.AtoStallReport
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
-import work.art1st.javarailways.core.physics.CoreWorld
-import work.art1st.javarailways.core.physics.rail.CoreRail
-import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
-import work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus
-import work.art1st.javarailways.core.physics.train.CoreTrain
+import work.art1st.javarailways.core.api.physics.PhysicsMaintenance
+import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.api.physics.train.Train
+import work.art1st.javarailways.core.api.physics.train.TrainTeleportInspection
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import kotlin.math.abs
 
@@ -19,16 +18,19 @@ sealed interface TimetableInitialPositionResult {
     data class Failure(val reason: String) : TimetableInitialPositionResult
 }
 
-/** Main-thread, rollback-safe placement of one train/waypoint pair per declared constraint. */
-class TimetableInitialPositioner(private val world: World) {
-    private data class Target(val wayPoint: WayPoint, val location: RailLocationWithFacing)
-    private data class Placement(val train: CoreTrain, val target: Target)
+/** Selects and checks all initial positions before teleporting, within the caller's physics stall. */
+class TimetableInitialPositioner(
+    private val world: World,
+    private val maintenance: PhysicsMaintenance
+) {
+    private data class Target(val wayPoint: WayPoint, val location: RailPositionSnapshot)
+    private data class Placement(val train: Train, val target: Target)
 
     fun apply(timetable: Timetable, tick: Long): TimetableInitialPositionResult =
         apply(listOf(timetable), tick)
 
     fun apply(timetables: Collection<Timetable>, tick: Long): TimetableInitialPositionResult {
-        (world as CoreWorld).physicsCoordinator.ensureBetweenFrames("TimetableInitialPositioner.apply")
+        check(maintenance.world === world) { "initial positioning requires this world's active physics stall" }
         if (timetables.all { it.initialPositions.isEmpty() }) return TimetableInitialPositionResult.Applied(0)
         val usedTrainIds = HashSet<String>()
         val usedWayPointIds = HashSet<String>()
@@ -38,9 +40,8 @@ class TimetableInitialPositioner(private val world: World) {
                 timetable.initialPositions.forEachIndexed { index, constraint ->
                     val label = "timetable ${timetable.id} initial position #$index"
                     val matchingTrains = world.allTrains.asSequence()
-                        .filterIsInstance<CoreTrain>()
                         .filter { it.id !in usedTrainIds && constraint.trainSelector.matches(it.name) }
-                        .sortedWith(compareBy<CoreTrain>({ it.name }, { it.id }))
+                        .sortedWith(compareBy<Train>({ it.name }, { it.id }))
                         .toList()
                     require(matchingTrains.isNotEmpty()) {
                         "$label has no unused train matching its selector"
@@ -90,7 +91,7 @@ class TimetableInitialPositioner(private val world: World) {
                     placements += Placement(train, target)
                 }
             }
-            applyAtomically(placements)
+            applyChecked(placements)
             TimetableInitialPositionResult.Applied(placements.size)
         } catch (failure: Exception) {
             val reason = failure.message ?: failure::class.java.simpleName
@@ -113,61 +114,53 @@ class TimetableInitialPositioner(private val world: World) {
         }
     }
 
-    private fun resolveLocation(wayPoint: WayPoint): RailLocationWithFacing {
-        val rail = world.getRail(wayPoint.railId) as? CoreRail
+    private fun resolveLocation(wayPoint: WayPoint): RailPositionSnapshot {
+        val rail = world.getRail(wayPoint.railId)
             ?: error("waypoint ${wayPoint.id} references missing rail ${wayPoint.railId}")
         val direction = world.simpleAtoWorldData.destinations[wayPoint.id]?.approachDirection
             ?: world.operatingDirection(rail.id)
             ?: ViewDirection.AB
-        val arcInView = when (direction) {
-            ViewDirection.AB -> wayPoint.arcLength
-            ViewDirection.BA -> rail.curve.totalArcLength - wayPoint.arcLength
-        }
-        require(arcInView in 0.0..rail.curve.totalArcLength) {
+        require(wayPoint.arcLength in 0.0..rail.curve.totalArcLength) {
             "waypoint ${wayPoint.id} arc ${wayPoint.arcLength} is outside rail ${rail.id}"
         }
-        return RailLocationWithFacing(rail.getView(direction), arcInView)
+        return RailPositionSnapshot(rail.id, direction, wayPoint.arcLength)
     }
 
-    private fun isAt(train: CoreTrain, target: RailLocationWithFacing): Boolean =
-        train.headLocation.rail.id == target.rail.id &&
-            (train.headLocation as? RailLocationWithFacing)?.facing == target.facing &&
-            abs(train.headLocation.arcLengthIn(ViewDirection.AB) -
-                target.arcLengthIn(ViewDirection.AB)) <= POSITION_TOLERANCE_METERS
+    private fun isAt(train: Train, target: RailPositionSnapshot): Boolean {
+        val head = requireNotNull(train.publishedFrame) {
+            "train ${train.id} has no published physical frame"
+        }.head
+        return head.railId == target.railId && head.facing == target.facing &&
+            abs(head.arcLengthInAbMeters - target.arcLengthInAbMeters) <= POSITION_TOLERANCE_METERS
+    }
 
-    private fun applyAtomically(placements: List<Placement>) {
-        val snapshots = placements.associate { it.train to it.train.capturePlacementSnapshot() }
-        val changed = placements.filter { !isAt(it.train, it.target.location) }
-        try {
-            changed.forEach { placement ->
-                placement.train.setLocation(placement.target.location)
+    private fun applyChecked(placements: List<Placement>) {
+        val prepared = placements.filter { !isAt(it.train, it.target.location) }.associate { placement ->
+            val inspected = maintenance.inspectTeleport(placement.train, placement.target.location)
+            placement.train.id to when (inspected) {
+                is TrainTeleportInspection.Ready -> inspected.placement
+                is TrainTeleportInspection.Rejected -> error(
+                    "cannot place train ${placement.train.name} at ${placement.target.wayPoint.id}: ${inspected.reason}"
+                )
             }
-            val spans = world.allTrains.filterIsInstance<CoreTrain>().associateWith {
-                it.activePlacementEnvelope()
-            }
-            val trains = spans.keys.toList()
-            val selectedIds = placements.mapTo(HashSet()) { it.train.id }
-            for (i in trains.indices) for (j in i + 1 until trains.size) {
-                val first = trains[i]
-                val second = trains[j]
-                if (first.id !in selectedIds && second.id !in selectedIds) continue
-                check(spans.getValue(first).none { a ->
-                    spans.getValue(second).any { b -> a.overlaps(b) }
-                }) { "initial placement overlaps trains ${first.name} and ${second.name}" }
-            }
-            if (changed.isNotEmpty()) {
-                (world as CoreWorld).publishOwnerChanges(changed.map { it.train })
-            }
-        } catch (failure: Exception) {
-            // Core stalls if publication has begun: published observations cannot be rolled back.
-            if ((world as CoreWorld).physicsCoordinator.status == PhysicsCoordinatorStatus.RUNNING) {
-                snapshots.forEach { (train, snapshot) ->
-                    runCatching { train.restorePlacementSnapshot(snapshot) }
-                        .exceptionOrNull()?.let(failure::addSuppressed)
-                }
-            }
-            throw failure
         }
+        // Compare the final layout: participating trains vacate their old positions together.
+        val trains = world.allTrains.toList()
+        val selectedIds = placements.mapTo(HashSet()) { it.train.id }
+        val intervals = trains.associate { train ->
+            train.id to (prepared[train.id]?.occupiedRailIntervals ?: requireNotNull(train.publishedFrame) {
+                "train ${train.id} has no published physical frame"
+            }.occupiedIntervals)
+        }
+        for (i in trains.indices) for (j in i + 1 until trains.size) {
+            val first = trains[i]
+            val second = trains[j]
+            if (first.id !in selectedIds && second.id !in selectedIds) continue
+            check(intervals.getValue(first.id).none { a ->
+                intervals.getValue(second.id).any { b -> a.overlaps(b) }
+            }) { "initial placement overlaps trains ${first.name} and ${second.name}" }
+        }
+        prepared.values.forEach(maintenance::teleport)
     }
 
     private companion object {

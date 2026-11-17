@@ -187,10 +187,20 @@ class PhysicsCoordinator(
 
     @Volatile
     private var localStatus: PhysicsCoordinatorStatus = PhysicsCoordinatorStatus.RUNNING
+    @Volatile
+    private var manualStallDepth = 0
+
     var status: PhysicsCoordinatorStatus
-        get() = if (localStatus != PhysicsCoordinatorStatus.CLOSED && RailwaySimulationHalt.isHalted)
-            PhysicsCoordinatorStatus.STALLED else localStatus
+        get() = when {
+            localStatus == PhysicsCoordinatorStatus.CLOSED -> PhysicsCoordinatorStatus.CLOSED
+            RailwaySimulationHalt.isHalted || manualStallDepth > 0 -> PhysicsCoordinatorStatus.STALLED
+            else -> localStatus
+        }
         private set(value) { localStatus = value }
+
+    /** Maintenance is usable owner time; a real failure or close must preserve failed state. */
+    internal val isUsableForOwnerOperations: Boolean
+        get() = localStatus == PhysicsCoordinatorStatus.RUNNING && !RailwaySimulationHalt.isHalted
 
     @Volatile
     private var lastMetrics: PhysicsEpochMetrics? = null
@@ -315,7 +325,7 @@ class PhysicsCoordinator(
     /** Registers serialized value-only work in deterministic registration order. */
     fun registerRailwayEpochProcessor(processor: RailwayEpochProcessor) {
         synchronized(stateLock) {
-            check(status == PhysicsCoordinatorStatus.RUNNING) {
+            check(!RailwaySimulationHalt.isHalted && localStatus == PhysicsCoordinatorStatus.RUNNING) {
                 "railway epoch processors cannot be registered after coordinator stall or close"
             }
             check(!started) { "railway epoch processors must be registered before coordinator start" }
@@ -325,7 +335,7 @@ class PhysicsCoordinator(
 
     fun unregisterRailwayEpochProcessor(processor: RailwayEpochProcessor) {
         synchronized(stateLock) {
-            check(!started || status != PhysicsCoordinatorStatus.RUNNING) {
+            check(!started || RailwaySimulationHalt.isHalted || localStatus != PhysicsCoordinatorStatus.RUNNING) {
                 "railway epoch processors remain static while the coordinator is running"
             }
             railwayEpochProcessors.remove(processor)
@@ -368,7 +378,7 @@ class PhysicsCoordinator(
         val operation = BetweenFramesOperation(action)
         val rejection = synchronized(stateLock) {
             when {
-                RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING ->
+                RailwaySimulationHalt.isHalted || localStatus != PhysicsCoordinatorStatus.RUNNING ->
                     PhysicsStalledException("PhysicsCoordinator is ${status.name.lowercase()}")
                 !acceptingWakes -> IllegalStateException("PhysicsCoordinator shutdown has begun")
                 else -> {
@@ -462,6 +472,47 @@ class PhysicsCoordinator(
         return executionOwner.run { withFrameBoundary { action() } }
     }
 
+    /**
+     * Stops epoch admission for synchronous maintenance on this World's simulation owner.
+     * The exact in-flight ticket must finish successfully before [action] runs; no ordinary
+     * queued work is drained. [status] reports STALLED only for the lexical maintenance scope,
+     * while owner reads/publication and nested maintenance remain legal. A thrown action releases
+     * only its own scope, and never clears an overload, invariant halt, shutdown or close.
+     * Waiting and [action] execute outside [stateLock]; the outermost exit resets wall-clock delta.
+     */
+    fun <T> withPhysicsStalled(action: () -> T): T {
+        ThreadGuard.ensureMainThread("PhysicsCoordinator.withPhysicsStalled")
+        return executionOwner.run {
+            withFrameBoundary {
+                synchronized(stateLock) {
+                    ensureUsableLocked()
+                    manualStallDepth++
+                }
+                try {
+                    action()
+                } finally {
+                    synchronized(stateLock) {
+                        manualStallDepth--
+                        if (manualStallDepth == 0) {
+                            previousPhysicsStartNanos = 0L
+                            lastMainWakeNanos = nanoTime()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Asserts this owner's active maintenance scope, without scheduling or entering a scope. */
+    fun ensurePhysicsStalled(operation: String) {
+        ensureBetweenFrames(operation)
+        synchronized(stateLock) {
+            ensureUsableLocked()
+            check(acceptingWakes) { "PhysicsCoordinator shutdown has begun" }
+            check(manualStallDepth > 0) { "$operation requires physics to be stalled for maintenance" }
+        }
+    }
+
     private fun <T> withFrameBoundary(action: (PhysicsTicket) -> T): T {
         val ticket = synchronized(stateLock) {
             ensureUsableLocked()
@@ -521,13 +572,13 @@ class PhysicsCoordinator(
             coordinatorExecutor.execute { settleHalt(failure) }
         } catch (closed: java.util.concurrent.RejectedExecutionException) {
             // Close may retire a coordinator after the global registry captured it.
-            if (status != PhysicsCoordinatorStatus.CLOSED) throw closed
+            if (localStatus != PhysicsCoordinatorStatus.CLOSED) throw closed
         }
     }
 
     private fun settleHalt(failure: PhysicsStalledException) {
         val (ticket, pending) = synchronized(stateLock) {
-            if (status == PhysicsCoordinatorStatus.CLOSED) return
+            if (localStatus == PhysicsCoordinatorStatus.CLOSED) return
             status = PhysicsCoordinatorStatus.STALLED
             acceptingWakes = false
             val ticket = inFlight
@@ -621,7 +672,7 @@ class PhysicsCoordinator(
     internal fun timerWake() {
         synchronized(stateLock) {
             if (!started || !acceptingWakes || structuralMutationDepth > 0 ||
-                RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING) return
+                RailwaySimulationHalt.isHalted || localStatus != PhysicsCoordinatorStatus.RUNNING) return
             if (nanoTime() - lastMainWakeNanos >= TimeUnit.MILLISECONDS.toNanos(mainHeartbeatTimeoutMillis)) {
                 // Keep eligibility and request allocation under the same state lock: shutdown
                 // either captures this timer epoch or makes this wake a quiet no-op.
@@ -677,7 +728,7 @@ class PhysicsCoordinator(
     ) {
         try {
             val attachedWorld = synchronized(stateLock) {
-                if (RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) return
+                if (RailwaySimulationHalt.isHalted || localStatus != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) return
                 checkNotNull(world)
             }
             AsyncTickThreadMarker.runInAsyncTickContext {
@@ -733,7 +784,7 @@ class PhysicsCoordinator(
             snapshot.forEach { controller ->
                 val published = attachedWorld.withRailTopologyReadLock {
                     synchronized(stateLock) {
-                        if (RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
+                        if (RailwaySimulationHalt.isHalted || localStatus != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
                             false
                         } else {
                             controller.publishPhysicsBuffers()
@@ -748,7 +799,7 @@ class PhysicsCoordinator(
             // state belongs to this epoch and must cross the same publication boundary.
             val framesPublished = attachedWorld.withRailTopologyReadLock {
                 synchronized(stateLock) {
-                    if (RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
+                    if (RailwaySimulationHalt.isHalted || localStatus != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
                         false
                     } else {
                         attachedWorld.allTrains.filterIsInstance<CoreTrain>().forEach { train ->
@@ -774,14 +825,14 @@ class PhysicsCoordinator(
             // Controllers observe this epoch's complete frame, never the previous epoch's head
             // combined with freshly flipped speed. Extension hooks remain outside Core locks.
             snapshot.forEach { controller ->
-                if (RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING) return
+                if (RailwaySimulationHalt.isHalted || localStatus != PhysicsCoordinatorStatus.RUNNING) return
                 controller.notifyPhysicsStatePublished()
             }
-            if (RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING) return
+            if (RailwaySimulationHalt.isHalted || localStatus != PhysicsCoordinatorStatus.RUNNING) return
             runPublishedFrameProcessors(publishedTrains.toList(), ticket.epoch)
             val capturedWorldFrame = attachedWorld.withRailTopologyReadLock {
                 synchronized(stateLock) {
-                    if (RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
+                    if (RailwaySimulationHalt.isHalted || localStatus != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
                         null
                     } else {
                         attachedWorld.rebuildSweptOccupancyIndex(ticket.epoch)
@@ -828,7 +879,7 @@ class PhysicsCoordinator(
                         "${epochOverloadThresholdMillis}ms within ${overloadWindowMillis}ms"
                 )
                 val pending = synchronized(stateLock) {
-                    if (RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) return
+                    if (RailwaySimulationHalt.isHalted || localStatus != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) return
                     lastMetrics = metrics
                     lastControllerNanos = controllerDurations.toMap()
                     overloadRecoveryFrame = capturedWorldFrame
@@ -850,7 +901,7 @@ class PhysicsCoordinator(
             // topology before stateLock. Close and exact-ticket publication then serialize here.
             val committed = attachedWorld.withRailTopologyReadLock {
                 synchronized(stateLock) {
-                    if (RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
+                    if (RailwaySimulationHalt.isHalted || localStatus != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
                         return@withRailTopologyReadLock false
                     }
                     attachedWorld.publishCapturedWorldFrame(capturedWorldFrame)
@@ -871,7 +922,7 @@ class PhysicsCoordinator(
             val failure = if (t is PhysicsStalledException) t else {
                 PhysicsStalledException("Physics epoch ${ticket.epoch} failed", t)
             }
-            if (status == PhysicsCoordinatorStatus.CLOSED) return
+            if (localStatus == PhysicsCoordinatorStatus.CLOSED) return
             val globalFailure = RailwaySimulationHalt.halt("Physics epoch ${ticket.epoch} failed", failure)
             settleHalt(globalFailure)
         }
@@ -948,7 +999,7 @@ class PhysicsCoordinator(
 
     private fun ensureUsableLocked() {
         RailwaySimulationHalt.ensureRunning()
-        when (status) {
+        when (localStatus) {
             PhysicsCoordinatorStatus.RUNNING -> Unit
             PhysicsCoordinatorStatus.STALLED -> {
                 if (overloadRecoveryFrame != null) throw PhysicsOverloadException("PhysicsCoordinator is stalled by overload")
@@ -997,7 +1048,7 @@ class PhysicsCoordinator(
             } catch (failure: Throwable) {
                 val pending = synchronized(stateLock) {
                     acceptingWakes = false
-                    if (status != PhysicsCoordinatorStatus.CLOSED) status = PhysicsCoordinatorStatus.STALLED
+                    if (localStatus != PhysicsCoordinatorStatus.CLOSED) status = PhysicsCoordinatorStatus.STALLED
                     inFlight?.completion?.completeExceptionally(failure)
                     inFlight = null
                     removePendingBetweenFramesLocked()
@@ -1028,7 +1079,7 @@ class PhysicsCoordinator(
     override fun close() {
         RailwaySimulationHalt.unregister(this)
         val pending = synchronized(stateLock) {
-            if (status == PhysicsCoordinatorStatus.CLOSED) return
+            if (localStatus == PhysicsCoordinatorStatus.CLOSED) return
             status = PhysicsCoordinatorStatus.CLOSED
             acceptingWakes = false
             inFlight?.completion?.completeExceptionally(
@@ -1091,7 +1142,7 @@ class PhysicsCoordinator(
         futures.forEach { future ->
             try { future.get() } catch (error: java.util.concurrent.ExecutionException) {
                 val cause = error.cause ?: error
-                if (status != PhysicsCoordinatorStatus.CLOSED) RailwaySimulationHalt.halt("Physics worker failed", cause)
+                if (localStatus != PhysicsCoordinatorStatus.CLOSED) RailwaySimulationHalt.halt("Physics worker failed", cause)
                 if (failure == null) failure = cause else if (failure !== cause) failure!!.addSuppressed(cause)
             }
         }

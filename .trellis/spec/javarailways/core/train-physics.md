@@ -320,13 +320,21 @@ Core拥有状态准备及发布；平台将完整创建/删除操作排队，初
 每车快照保存原不可变frame及车体/转向架几何、方向与运动值；发布前失败用`restorePlacementSnapshot`精确恢复，
 不重新求解旧位置，不增加revision、不替换mailbox，不提前通知方向变化。已发布后恢复明确拒绝。
 
+插件维护摆位使用公开`World.withPhysicsStalled`与`PhysicsMaintenance.inspectTeleport/teleport`，
+不再直接调用上述CoreTrain内部方法。完整scope及候选生命周期归[API边界](./api-boundaries.md#停帧维护与单车-tp)。
+CoreCar只读候选求解复用普通显式摆位的静态分支：leading axle向后按当前选择求解，following car先从前车尾
+向后搜索候选尾转向架，再从每个候选尾按正向active path求头；不改成唯一创建放置的分支枚举，
+不把反向支持path重建当作相同策略。显式desiredReversed贯穿刚体中心与A/B转向架映射，
+train运营换向归一化时同时翻转bogie的model-facing标记，保持物理模型方向。
+inspection成功或失败均不修改live方向、car/bogie几何、运动、frame、mailbox或turnout。
+
 批量发布先验证确切live train和其他列车的epoch，准备全部候选frame，再安装所有候选；复用既有构建器
 重建一次共享occupancy/world，最后提交变化列车的mailbox并发出其暂存方向通知。维护位移没有时间基准，
 车体/转向架发布速度为0且不将瞬移路径作为移动穿越证据；不因此重建controller或清除其控制速度，下一物理步仍按控制器输入运行。只使用最近完整physics epoch，不分配假epoch，不重跑signal processor。
 空集合仍刷新共享观测，供删除及低频运行时选择变化使用。
 
 准备失败不发布；开始安装或共享发布失败令Core进入STALLED，不能再按普通创建/加载失败反向删除实体。
-创建者只在未成功发布且Core仍RUNNING时清理自己拥有的候选。方向通知发生在提交之后，通知失败不代表可以回滚。
+创建者只在未成功发布且Core仍可执行owner操作时清理自己拥有的候选；维护暂停显示STALLED不属于故障halt。方向通知发生在提交之后，通知失败不代表可以回滚。
 `destroy(): CompletionStage<Void>`在当前owner作用域内直接执行，否则排队。owner同步撤销注册和刷新共享观测，随后异步汇总所有子资源结果；禁止在owner线程join/get等待平台任务。
 
 准备及安装随变化列车车厢/路径数量增长，共享索引每批低频重建一次；不增加普通tick扫描或另一套占用索引。

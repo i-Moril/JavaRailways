@@ -99,6 +99,10 @@ class RouteResourceAdmissionRuntime private constructor(
         if (closed) formationUnavailable() else engine.resumeFormationOutput(requester, handle, grant)
 
     @MainThread
+    fun finishFormationForManual(requester: Any, handle: FormationChangeHandle, grant: RouteGrantId): FormationChangeResult =
+        if (closed) formationUnavailable() else engine.finishFormationForManual(requester, handle, grant)
+
+    @MainThread
     fun requestCouplingApproach(requester: Any, handle: FormationChangeHandle,
                                 intent: RouteResourceIntent): RouteAdmissionResult =
         if (closed) unavailable() else engine.requestCouplingApproach(requester, handle, intent)

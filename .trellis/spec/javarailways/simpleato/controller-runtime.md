@@ -117,6 +117,18 @@ ATO/ATP路径调用未来多tick的真实动力学预演。参考策略见[参�
 才以准入grant携带的接近速度为目标。接近速度与grant上限必须一致；Core仍夹紧实际接触位移。
 独立停车、红灯、跟车和授权约束不因存在接触动作而删除或放宽。
 
+`RailwayControlRuntime`的精确Train实例entry可由运营owner登记Basic已准入的
+`CouplingContactAuthority`；`registerCouplingAuthority`不创造资源或放行信号，登记前仍要求当前Core接触几何有效。
+`couplingAuthority`只返回同一Train实例的capability，切换手动/ATO不复制一份联挂几何状态。
+人工无绑定路线时复用原有逐段扫描，只豁免proof指定的目标train与车端，其余端点、原生车身/前方限速、信号转换
+及观察末端仍原样进入保护。该接近速度以距离零的上限同时进入reference和ATP，routed manual与automatic同样叠加。
+已有ATO restriction adapter的接触授权与runtime登记授权复用同一mission revision、MA终点、冻结路线contact boundary
+以及Core published geometry校验；没有bound restriction route、边界不符或目标失效时停止，不能只凭低速上限驶向普通任务。
+人工积分后的距离通过Basic supervisor movement seam调用同一Core raw-bogie contact clamp；失效或离路证明拒绝运动，
+不因ATP已发出EB而省略物理夹紧。运营owner在联挂完成/终止时显式detach该authority；普通protection source的转交不代替此生命周期。
+`CouplingControlRuntimeTest`覆盖精确peer端豁免、保留更严格native/signal及第三列车限制、手动/自动同一速度cap和失效证明；
+`SimpleATOTest`用真实epoch验证匹配的contact mission可驱动，以及无route、错误boundary、已移动target均保持停车。
+
 普通非车站mission Stop显式使用零几何停车margin，曲线瞄准原运营目标；停车容差用于接受到达，不把普通目标退到容差边缘。
 车站Stop同样使用零几何停车margin，瞄准既有停车点（含明确设置的停车偏移），不添加固定提前量，也不根据到站容差平移目标。由`AtoMissionPoint.Stop.stationStop`或同revision实际terminal StationCall明确标识的终点，mission授权余量为0.3米；普通mission和独立红灯/资源约束默认保留全局安全距离。`MovementAuthorityConstraint.stoppingMarginMeters`为空时使用profile全局值，否则使用明确值；公开`terminalMovementAuthorityLimitMeters(routeEndDistanceMeters, stationTerminal)`只使用显式参数，不读取physics私有active状态；资源准入如何证明车站终点及保留原始grant见[终点授权合同](terminal-route-completion.md)。外部Stop/物理边界的原默认margin和连挂contact规则不受影响。
 

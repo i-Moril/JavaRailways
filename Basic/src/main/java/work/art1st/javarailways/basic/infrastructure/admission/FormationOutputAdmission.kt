@@ -40,6 +40,7 @@ internal class FormationOutputAdmission(
     val grants get() = outputs.values.map { it.grant }
     val activeGrants get() = outputs.values.filterNot { it.detached }.map { it.grant }
     fun isDetached(trainId: String): Boolean = outputs[trainId]?.detached == true
+    fun routesForManualHandoff(): List<FormationOutputRoute> = outputs.values.toList()
     private class Pending(
         val output: FormationOutputRoute,
         val request: RouteResourceIntent,
@@ -317,6 +318,44 @@ internal class FormationOutputAdmission(
         if (!world.releaseFormationMovementHold(output.hold)) return rejected("output fence no longer belongs to this event")
         output.resumed = true
         return FormationChangeResult.Accepted(snapshot())
+    }
+
+    /** Sole stopped coupling output; no route is invented merely to release its structural hold. */
+    fun finishForManual(grantId: RouteGrantId, endAdmissions: () -> Unit): FormationChangeResult {
+        val output = outputs.values.singleOrNull()?.takeIf { it.grant.grantId === grantId }
+            ?: return rejected("manual handoff requires the exact sole output grant")
+        if (pending != null || output.resumed || output.detached || output.reversalFrom != null ||
+            output.exclusive.isNotEmpty() ||
+            kotlin.math.abs(output.grant.committedAuthority.distanceFromRouteStartMeters -
+                output.compiled.observedHeadMeters) > Curve.TOLERANCE ||
+            kotlin.math.abs(output.compiled.intent.route.totalLengthMeters - output.compiled.observedHeadMeters) > Curve.TOLERANCE)
+            return rejected("manual handoff requires an unchanged body-only output without departure preparation")
+        val frame = world.getTrain(output.grant.trainId)?.publishedFrame
+            ?: return rejected("manual handoff output is absent")
+        val observed = latestObservation()?.trains?.singleOrNull { it.trainId == frame.trainId }
+        val held = output.heldFrame
+        if (observed?.frameRevision != frame.revision || !stopped(frame) || frame.reversed != held.reversed ||
+            frame.head != held.head || frame.tail != held.tail ||
+            !sameHeldBody(frame.bodyTraversal, held.bodyTraversal) || !sameCarPoses(frame, held))
+            return rejected("manual handoff output differs from its coherent stopped body evidence")
+        try {
+            // Shrink only this event's exact originals: an owner can still protect another
+            // formation group, so releasing the owner's entire registry claim would be wrong.
+            originals.forEach { (owner, resources) ->
+                if (resources.isNotEmpty()) {
+                    check(registry.shrinkClaimWithEvidence(hostOwner, owner, resources.toList()).mutation.successful)
+                    resources.clear()
+                }
+            }
+            endAdmissions()
+            check(world.releaseFormationMovementHold(output.hold)) { "manual handoff output fence is no longer owned" }
+            output.detached = true
+            promoted = true
+            return FormationChangeResult.Accepted(snapshot())
+        } catch (failure: Exception) {
+            recovery("completed coupling manual handoff failed; output fence retained: ${failure.message}")
+            return rejected("completed coupling manual handoff requires recovery: ${failure.message}")
+        }
     }
 
     fun consume(observation: RailwayObservation) {

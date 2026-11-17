@@ -33,6 +33,13 @@ class CouplingApproachAdmissionTest {
             val handle = f.prepare()
             val grant = f.owner { assertInstanceOf(RouteAdmissionResult.Granted::class.java,
                 f.runtime.requestCouplingApproach(f.requester, handle, f.approachIntent())).grant }
+            assertEquals(f.approachIntent().desiredAuthority, grant.committedAuthority,
+                "protecting the future physical connectors must not extend movement authority")
+            val protection = f.policyRequests.last { it.formationContext?.purpose == FormationRoutePurpose.COUPLING_APPROACH }
+            assertTrue(protection.route.totalLengthMeters > grant.committedAuthority.distanceFromRouteStartMeters)
+            assertEquals(f.proof.stationaryFrame.head.arcLengthInAbMeters, protection.route.segments.last().endArcLengthMeters)
+            assertTrue(f.contributionRequests.any { it.route == protection.route },
+                "the complete physical protection must pass ordinary contribution validation")
             assertEquals(0.2, grant.maximumSpeedMetersPerSecond)
             assertEquals(grant.committedAuthority, checkNotNull(grant.couplingContactAuthority).contactBoundary)
             assertEquals(grant.maximumSpeedMetersPerSecond, grant.couplingContactAuthority.maximumApproachSpeedMetersPerSecond)
@@ -168,6 +175,105 @@ class CouplingApproachAdmissionTest {
 
     enum class InvalidContact { NO_READY_GRANT, STALE_PEER, UNRELATED_PAIR }
 
+    @Test
+    fun `third train inside connector bridge cannot borrow captured stationary body occupancy`() {
+        Fixture(false).use { f ->
+            val handle = f.prepare()
+            val start = f.proof.contactHead.arcLengthInAbMeters
+            val end = f.proof.stationaryFrame.tail.arcLengthInAbMeters
+            assertTrue(end > start, "nonzero connectors must leave a bridge beyond contactHead")
+            val third = createTrainWithConfig("bridge-blocker", f.rail, f.world, listOf(0.05))
+            f.owner {
+                third.setLocation(RailLocationWithFacing(f.rail.viewAB, (start + end) * 0.5))
+                third.commitMaintenancePlacement()
+                f.refresh()
+            }
+            val before = f.world.infrastructureCoordination.claimSnapshots().map { it.owner to it.footprint }
+            val rejected = f.owner { assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+                f.runtime.requestCouplingApproach(f.requester, handle, f.approachIntent())) }
+            assertEquals(RouteAdmissionFailureCode.PHYSICALLY_OCCUPIED, rejected.failure.code)
+            assertTrue(rejected.failure.blockers.contains(RouteAdmissionBlocker.OccupyingTrain(third.id)))
+            assertEquals(before, f.world.infrastructureCoordination.claimSnapshots().map { it.owner to it.footprint })
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `completed sole coupling hands actual body back to unrouted manual control`(changeHeldPose: Boolean) {
+        Fixture(false).use { f ->
+            val handle = f.prepare()
+            val contactGrant = f.owner { assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+                f.runtime.requestCouplingApproach(f.requester, handle, f.approachIntent())).grant }
+            f.moving.setControllerForTest(object : TrainController(f.moving) {
+                override fun tick(deltaT: Double) {
+                    speed = 0.2
+                    moveControlledTrain(f.world.clampCouplingApproachDistance(f.proof, speed * deltaT * 0.001), speed)
+                }
+            })
+            f.coordinator.start()
+            var steps = 0
+            while (f.world.allTrains.size == 2 && steps++ < 200) {
+                f.coordinator.stepSimulation(50.0).await()
+                f.owner { f.coordinator.drainBetweenFramesOperations(); f.refresh(); f.runtime.consumeObservation(f.observation) }
+            }
+            assertEquals(1, f.world.allTrains.size, "the fixture must use real physical contact")
+            assertTrue(f.moving.movementHeld)
+            val output = f.owner {
+                val frame = f.moving.publishedFrame
+                val route = RouteSnapshot("test:manual-output", 0, f.world.topologyState.revision,
+                    frame.bodyTraversal.map { RouteSegmentSnapshot(it.railId, it.facing,
+                        it.startArcLengthInAbMeters, it.endArcLengthInAbMeters) })
+                val bound = f.runtime.bindFormationOutputs(f.requester,
+                    handle, listOf(RouteResourceIntent("test:manual-output/request", InfrastructureOwner("test:manual-output", 0),
+                        f.moving.id, f.observation.stamp, route, RouteBoundary(route.totalLengthMeters))))
+                assertInstanceOf(FormationChangeResult.Accepted::class.java, bound, bound.toString()).snapshot.outputGrants.single()
+            }
+            val protectedClaims = f.world.infrastructureCoordination.claimSnapshots().map { it.owner to it.footprint }
+            assertInstanceOf(FormationChangeResult.Rejected::class.java, f.owner {
+                f.runtime.finishFormationForManual(f.requester, handle, contactGrant.grantId)
+            })
+            assertTrue(f.moving.movementHeld)
+            assertEquals(protectedClaims, f.world.infrastructureCoordination.claimSnapshots().map { it.owner to it.footprint })
+            if (changeHeldPose) {
+                f.owner {
+                    f.moving.setLocation(RailLocationWithFacing(f.rail.viewAB, f.moving.headLocation.arcLengthIn(ViewDirection.AB) + 0.1))
+                    f.moving.commitMaintenancePlacement()
+                    f.refresh()
+                }
+                assertInstanceOf(FormationChangeResult.Rejected::class.java, f.owner {
+                    f.runtime.finishFormationForManual(f.requester, handle, output.grantId)
+                })
+                assertTrue(f.moving.movementHeld)
+                assertEquals(protectedClaims, f.world.infrastructureCoordination.claimSnapshots().map { it.owner to it.footprint })
+            } else {
+                val finished = f.owner { assertInstanceOf(FormationChangeResult.Accepted::class.java,
+                    f.runtime.finishFormationForManual(f.requester, handle, output.grantId)).snapshot }
+                assertEquals(FormationChangePhase.COMPLETED, finished.phase)
+                assertFalse(f.moving.movementHeld)
+                assertTrue(f.world.infrastructureCoordination.claimSnapshots().isEmpty())
+                assertTrue(f.runtime.activeAdmissions().isEmpty())
+                val before = f.moving.publishedFrame.head
+                var manualTicks = 0
+                f.moving.setControllerForTest(object : TrainController(f.moving) {
+                    override fun tick(deltaT: Double) {
+                        manualTicks++
+                        // speed's public getter is the previous published epoch, not this setter.
+                        val commandedSpeed = 0.2
+                        speed = commandedSpeed
+                        moveControlledTrain(commandedSpeed * deltaT * 0.001, commandedSpeed)
+                    }
+                })
+                f.coordinator.stepSimulation(50.0).await()
+                f.owner { f.coordinator.drainBetweenFramesOperations(); f.refresh(); f.runtime.consumeObservation(f.observation) }
+                assertEquals(1, manualTicks, "the released output must execute its newly installed controller")
+                assertNotEquals(before, f.moving.publishedFrame.head, "manual takeover must move the real combined body")
+                assertEquals(0.2, f.moving.publishedFrame.speedMetersPerSecond)
+                assertEquals(2, f.moving.cars.size)
+                assertTrue(f.stalls.isEmpty(), f.stalls.toString())
+            }
+        }
+    }
+
     private class Fixture(curved: Boolean, private val connectorLength: Double = 0.3) : AutoCloseable {
         val coordinator = PhysicsCoordinator(1, automaticFallback = false)
         val physical = TestWorldFixture.create(coordinator)
@@ -188,6 +294,8 @@ class CouplingApproachAdmissionTest {
         val requester = Any()
         val stalls = arrayListOf<String>()
         var policyAllowed = true
+        val contributionRequests = arrayListOf<RouteResourceIntent>()
+        val policyRequests = arrayListOf<RouteResourceIntent>()
         lateinit var observation: RailwayObservation
         init {
             owner {
@@ -197,8 +305,8 @@ class CouplingApproachAdmissionTest {
             refresh()
         }
         val runtime = RouteResourceAdmissionRuntime.create("contact", world, world.infrastructureCoordination,
-            Any(), { observation }, { emptyList() }, { _, _ -> null }, { _, _ -> null },
-            authorizeFormationRoute = { _, _ -> if (policyAllowed) FormationRoutePolicyResult.Accepted(emptyList())
+            Any(), { observation }, { intent -> contributionRequests += intent; emptyList() }, { _, _ -> null }, { _, _ -> null },
+            authorizeFormationRoute = { _, intent -> policyRequests += intent; if (policyAllowed) FormationRoutePolicyResult.Accepted(emptyList())
                 else FormationRoutePolicyResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
                     "policy rejected contact")) }, stallWorld = { reason, _ -> stalls += reason })
         val proof = owner { assertInstanceOf(CouplingApproachInspection.Accepted::class.java, world.inspectCouplingApproach(

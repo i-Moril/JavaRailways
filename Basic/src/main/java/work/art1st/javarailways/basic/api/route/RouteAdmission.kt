@@ -261,6 +261,20 @@ interface RouteResourceAdmissionService {
             "service does not support fixed formation output resume"))
 
     /**
+     * Ends one completed coupling's reservation and returns its stopped sole output to ordinary
+     * unrouted manual control. The exact actual body must already be bound at zero forward
+     * authority. No departure preparation, movement or output delta may have started.
+     *
+     * Immediate owner-thread call: the host keeps the structural movement fence until every
+     * event-owned reservation and admission state has ended, then releases that exact fence.
+     * Core's published physical occupancy remains live throughout. This grants no new route.
+     */
+    @MainThread
+    fun finishFormationForManual(handle: FormationChangeHandle, outputGrantId: RouteGrantId): FormationChangeResult =
+        FormationChangeResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            "service does not support completed coupling handoff to manual control"))
+
+    /**
      * Requests a farther authority boundary on one operating route, with or without a prior grant.
      * A host may accept a strict forward continuation after the committed route end; it retains the
      * same grant and rejects modified prefixes or reversal.

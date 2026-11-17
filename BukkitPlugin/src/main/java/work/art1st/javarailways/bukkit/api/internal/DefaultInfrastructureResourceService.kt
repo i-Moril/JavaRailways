@@ -540,6 +540,9 @@ internal class DefaultInfrastructureResourceService(
         override fun resumeFormationOutput(handle: FormationChangeHandle, outputGrantId: RouteGrantId): FormationChangeResult =
             withAdmission(::formationUnavailable) { it.resumeFormationOutput(requester, handle, outputGrantId) }
 
+        override fun finishFormationForManual(handle: FormationChangeHandle, outputGrantId: RouteGrantId): FormationChangeResult =
+            withAdmission(::formationUnavailable) { it.finishFormationForManual(requester, handle, outputGrantId) }
+
         override fun endGrant(grantId: RouteGrantId): Boolean =
             withAdmission({ false }) { it.endGrant(requester, grantId) }
 

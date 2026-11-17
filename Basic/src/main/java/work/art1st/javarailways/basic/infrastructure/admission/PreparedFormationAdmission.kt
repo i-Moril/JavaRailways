@@ -53,6 +53,7 @@ internal class PreparedFormationAdmission(
     private val publishOutput: (Any, FormationChangeHandle, FormationOutputRoute) -> Unit,
     private val detachOutput: (Any, FormationOutputRoute) -> Unit,
     private val completeOutputs: (Any, List<FormationSourceGrant>, List<FormationOutputRoute>) -> Unit,
+    private val endManualOutputs: (Any, FormationChangeHandle, List<FormationSourceGrant>, List<FormationOutputRoute>) -> Unit,
     private val outputOwnerAvailable: (Any, InfrastructureOwner, String, List<FormationSourceGrant>) -> Boolean,
     private val outputInvalidated: (InfrastructureOwner) -> Boolean
 ) {
@@ -163,7 +164,7 @@ internal class PreparedFormationAdmission(
         }
         if (!samePath(prefix(compiled, boundary), intent.proof.approachingFrame.bodyTraversal + intent.proof.headTraversal))
             return routeRejected("approach traversal differs from the host contact proof")
-        val policy = authorize(context, request)
+        val policy = authorize(context, compiled.policyIntent)
         if (policy is FormationRoutePolicyResult.Rejected) return RouteAdmissionResult.Rejected(policy.failure)
         if ((policy as FormationRoutePolicyResult.Accepted).clearances.isNotEmpty())
             return routeRejected("contact permission cannot assert output clearance")
@@ -223,7 +224,7 @@ internal class PreparedFormationAdmission(
                         check(refreshed is FormationRouteCompilation.Compiled &&
                             refreshed.admission.resources == attempt.compiled.admission.resources &&
                             refreshed.admission.preparations == attempt.compiled.admission.preparations)
-                        val policy = authorize(checkNotNull(request.formationContext), request)
+                        val policy = authorize(checkNotNull(request.formationContext), refreshed.policyIntent)
                         check(policy is FormationRoutePolicyResult.Accepted && policy.clearances.isEmpty())
                         check(attempt.complete()) { "approach resource reservation disappeared" }
                         publishApproach(state, request, refreshed, attempt.delta)
@@ -567,6 +568,21 @@ internal class PreparedFormationAdmission(
         val result = state.outputAdmission?.resume(grantId) ?: return reject("outputs have not been bound")
         if (result is FormationChangeResult.Accepted && state.phase != FormationChangePhase.COMPLETED)
             state.phase = FormationChangePhase.OUTPUTS_ACTIVE
+        return result
+    }
+
+    fun finishForManual(requester: Any, handle: FormationChangeHandle, grantId: RouteGrantId): FormationChangeResult {
+        val state = owned(requester, handle) ?: return reject("unknown or foreign formation handle")
+        if (state.intent !is FixedFormationChangeIntent.Couple || state.phase != FormationChangePhase.OUTPUTS_BOUND)
+            return reject("manual handoff requires one completed coupling with bound stopped output")
+        val output = state.outputAdmission ?: return reject("outputs have not been bound")
+        val result = output.finishForManual(grantId) {
+            endManualOutputs(requester, handle, state.bindings, output.routesForManualHandoff())
+        }
+        if (result is FormationChangeResult.Accepted) {
+            state.phase = FormationChangePhase.COMPLETED
+            return FormationChangeResult.Accepted(state.snapshot())
+        }
         return result
     }
 

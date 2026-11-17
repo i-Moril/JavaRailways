@@ -5,6 +5,8 @@ import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.atomic.AtomicLong
 import java.util.logging.Logger
 import work.art1st.javarailways.basic.api.ato.*
+import work.art1st.javarailways.basic.api.route.CouplingContactAuthority
+import work.art1st.javarailways.simpleato.api.atp.AtpTarget
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 
@@ -23,6 +25,7 @@ data class AtpIncident(val sequence: Long, val event: AtpControlEvent)
 class RailwayControlRuntime(private val worldId: String) : VehicleCommandSupervisor {
     private class Entry(val train: Train, val executor: VehicleControlExecutor) {
         @Volatile var routedSource: ((Double) -> TrainControlFrame)? = null
+        @Volatile var couplingAuthority: CouplingContactAuthority? = null
     }
     private val entries = ConcurrentHashMap<String, Entry>()
     private val history = ConcurrentLinkedDeque<AtpIncident>()
@@ -50,6 +53,23 @@ class RailwayControlRuntime(private val worldId: String) : VehicleCommandSupervi
     fun detachProtectionSource(train: Train) {
         entries[train.id]?.takeIf { it.train === train }?.routedSource = null
     }
+    /** Owner-side registration after the exact contact route has passed Basic admission. */
+    fun registerCouplingAuthority(train: Train, authority: CouplingContactAuthority) {
+        require(authority.proof.request.approachingTrainId == train.id) {
+            "coupling authority belongs to another approaching train"
+        }
+        check(train.world.validatePublishedCouplingApproach(authority.proof)) {
+            "coupling authority has no current physical contact geometry"
+        }
+        entry(train).couplingAuthority = authority
+    }
+    fun detachCouplingAuthority(train: Train) {
+        entries[train.id]?.takeIf { it.train === train }?.couplingAuthority = null
+    }
+    /** Exact physical-train capability; consumers must validate its current geometry and route. */
+    fun couplingAuthority(train: Train): CouplingContactAuthority? =
+        entries[train.id]?.takeIf { it.train === train }?.couplingAuthority
+
     fun prepare(train: Train, capabilities: VehicleControlCapabilities) {
         // A replacement controller must not reconfigure the active physics worker's executor.
         entries.compute(train.id) { _, previous ->
@@ -59,13 +79,15 @@ class RailwayControlRuntime(private val worldId: String) : VehicleCommandSupervi
 
     fun automatic(train: Train, state: VehicleControlState, capabilities: VehicleControlCapabilities,
         frame: TrainControlFrame, deltaSeconds: Double, missionRevision: Long? = null): VehicleControlCommand =
-        decide(train, state, capabilities, frame, deltaSeconds,
+        decide(train, state, capabilities, withCouplingSpeedLimit(train, frame), deltaSeconds,
             if (simulation) VehicleExecutionMode.SIMULATION else VehicleExecutionMode.AUTO, null, missionRevision)
 
     override fun supervise(train: Train, state: VehicleControlState, capabilities: VehicleControlCapabilities,
         command: VehicleControlCommand, deltaTimeSeconds: Double): VehicleControlCommand {
         val frame = try {
-            entry(train).routedSource?.invoke(deltaTimeSeconds) ?: manualProtectionFrame(train, capabilities)
+            val source = entry(train).routedSource
+            if (source != null) withCouplingSpeedLimit(train, source(deltaTimeSeconds))
+            else manualProtectionFrame(train, capabilities, couplingAuthority(train))
         } catch (failure: Exception) {
             TrainControlFrame(emptyList(), emptyList(), capabilities.worstCurrentGrade,
                 "${failure.javaClass.simpleName}: ${failure.message}")
@@ -73,6 +95,21 @@ class RailwayControlRuntime(private val worldId: String) : VehicleCommandSupervi
         return decide(train, state, capabilities, frame, deltaTimeSeconds,
             if (simulation) VehicleExecutionMode.SIMULATION else VehicleExecutionMode.MANUAL, command, null)
     }
+    private fun withCouplingSpeedLimit(train: Train, frame: TrainControlFrame): TrainControlFrame {
+        val authority = couplingAuthority(train) ?: return frame
+        check(train.world.validatePublishedCouplingApproach(authority.proof)) {
+            "coupling contact geometry is no longer available"
+        }
+        val id = "coupling/${authority.eventId}/maximum-approach-speed"
+        val limit = authority.maximumApproachSpeedMetersPerSecond
+        return frame.copy(referenceTargets = frame.referenceTargets + MotionReferenceConstraint(id, 0.0, limit),
+            protectionTargets = frame.protectionTargets + AtpTarget(id, 0.0, limit))
+    }
+    override fun constrainMovementDistance(train: Train, requestedDistanceMeters: Double): Double =
+        couplingAuthority(train)?.let {
+            train.world.clampCouplingApproachDistance(it.proof, requestedDistanceMeters)
+        } ?: requestedDistanceMeters
+
     private fun decide(train: Train, state: VehicleControlState, capabilities: VehicleControlCapabilities,
         frame: TrainControlFrame, delta: Double, mode: VehicleExecutionMode,
         proposed: VehicleControlCommand?, missionRevision: Long?): VehicleControlCommand {

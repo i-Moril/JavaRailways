@@ -962,6 +962,70 @@ class SimpleATOTest {
         assertEquals(0.0, fixture.train.speed)
     }
 
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = ["valid", "no-route", "wrong-boundary", "stale-target"])
+    fun `registered contact authority drives only its exact current mission and route boundary`(mode: String) {
+        PhysicsCoordinator(1, automaticFallback = false).use { physics ->
+            val fixture = fixture("registered-contact-$mode", physicsCoordinator = physics)
+            val train = fixture.train
+            val world = fixture.world
+            val rail = checkNotNull(world.getRail(train.publishedFrame.head.railId))
+            val target = createTrainWithConfig("contact-target", rail, world, listOf(10.0), carIdPrefix = "target-")
+            val proof = world.onOwnerForTest {
+                target.setLocation(RailLocationWithFacing(rail.viewAB, train.publishedFrame.head.arcLengthInAbMeters + 12.0))
+                target.commitMaintenancePlacement()
+                org.junit.jupiter.api.Assertions.assertInstanceOf(
+                    work.art1st.javarailways.core.api.physics.train.CouplingApproachInspection.Accepted::class.java,
+                    world.inspectCouplingModeEntry(train.id, target.id, 5.0)).proof
+            }
+            val head = proof.approachingFrame.head
+            val origin = AtoMissionOrigin.FormationContact("test:contact", head)
+            val mission = AtoMission("registered-contact", 1L, origin,
+                listOf(AtoMissionLeg(0, AtoMissionPoint.Stop(WayPointRef("contact")),
+                    PlannedRoute("contact", 1L, ExpandedRoute(origin.id, "contact",
+                        listOf(RouteSegment(RailViewRef(rail.id, head.facing), head.arcLengthInAbMeters,
+                            proof.contactHead.arcLengthInAbMeters)))))))
+            assertTrue(fixture.ato.submitMission(mission) is AtoMissionSubmissionResult.Accepted)
+            fixture.ato.setMovementAuthority(mission.revision, proof.distanceToContactMeters +
+                if (mode == "wrong-boundary") 0.1 else 0.0)
+            val bodyLength = head.arcLengthInAbMeters - proof.approachingFrame.tail.arcLengthInAbMeters
+            val boundary = RouteBoundary(bodyLength + proof.distanceToContactMeters)
+            val authority = work.art1st.javarailways.basic.api.route.RouteAdmissionTestFixtures
+                .couplingContactAuthority("test:contact", proof, boundary, 0.2)
+            world.simpleAtoWorldData.controlRuntime.registerCouplingAuthority(train, authority)
+            if (mode != "no-route") {
+                val stamp = RailwayStateStamp(fixture.coordinator.worldId, train.publishedFrame.physicsEpoch,
+                    world.topologyState.revision)
+                val route = RouteSnapshot("contact-frozen", 1L, world.topologyState.revision,
+                    listOf(RouteSegmentSnapshot(rail.id, head.facing, proof.approachingFrame.tail.arcLengthInAbMeters,
+                        proof.contactHead.arcLengthInAbMeters)))
+                fixture.ato.bindTrainRestrictionRoute(stamp, FrozenMissionRoute(
+                    FrozenRouteSelectionResult.Selected(train.id, stamp, route), bodyLength, 0.0),
+                    mission.revision, TrainRestrictionSnapshotProvider { emptyList() })
+            }
+            if (mode == "stale-target") world.onOwnerForTest {
+                target.setLocation(RailLocationWithFacing(rail.viewAB, target.publishedFrame.head.arcLengthInAbMeters + 0.5))
+                target.commitMaintenancePlacement()
+            }
+            val before = train.publishedFrame
+            physics.start()
+            physics.stepSimulation(50.0).await()
+            if (mode == "valid") {
+                assertFalse(fixture.coordinator.isStalled, fixture.coordinator.lastStall.toString())
+                assertTrue(train.publishedFrame.head.arcLengthInAbMeters > before.head.arcLengthInAbMeters)
+                assertTrue(train.publishedFrame.speedMetersPerSecond <= 0.2)
+                assertTrue(world.simpleAtoWorldData.controlRuntime.incidents.isEmpty())
+            } else {
+                assertTrue(fixture.coordinator.isStalled)
+                assertEquals(before.head, train.publishedFrame.head)
+                assertEquals(0.0, train.publishedFrame.speedMetersPerSecond)
+                val message = fixture.coordinator.lastStall?.message.orEmpty()
+                assertTrue(message.contains(if (mode == "no-route") "requires a bound restriction route"
+                    else "does not match the current mission"), message)
+            }
+        }
+    }
+
     @Test
     fun `route end is treated as a stop target`() {
         val fixture = fixture("route-end", railLengthMeters = 30.0)

@@ -38,6 +38,12 @@ Basic保留纯物理preview供离线/物理测试使用，生产ATO不得调用�
 `BasicWorldData.commandSupervisor`为可选world-local `VehicleCommandSupervisor`。
 人工控制将玩家数字指令、当前状态/能力和实际正物理步长交给它，再执行返回指令。
 Basic不依赖SimpleATO。零步长不执行监督、ack判定或设备积分。
+同一正物理tick只捕获一次supervisor；执行器完成真实动力学积分后调用
+`VehicleCommandSupervisor.constrainMovementDistance(train, requestedDistanceMeters)`，再通过Core移动seam提交。
+默认方法原样保留位移；联挂监督器用Core真实接触求解夹紧距离，结果必须finite、非负且不大于本次积分位移。
+此回调不再积分动力学，不修改玩家手柄、设备历史或当次速度。失效接触证明沿既有异常/停车边界拒绝，
+不能静默撤销接触边界后继续运动。`TrainDynamicsTest`用真实physics epoch验证监督→积分→夹紧→发布的顺序与实际位移，
+并验证零步长不调用这些回调。
 `acknowledgeAtp`只提交帧间请求并验证当前controller精确身份；返回接受表示请求已记录，
 是否解除仍由监督器在下一有效物理帧的新鲜安全检查决定。
 

@@ -612,3 +612,74 @@ Held-body equality normalizes only adjacent contiguous pieces of the same orient
 A still-fenced output bound only to its exact body may select its first departure by appending an immutable directed suffix: same route ID, increasing revision, exact occurrence prefix, old authority at body end, and no previously acquired output delta. Basic recompiles and reserves the suffix while retaining the body grant; safe abort leaves that grant and cursor unchanged. Only successful installation extends the cursor and replaces the clearance proof. Resume still waits for any moving sibling to clear retained originals. A later deferred sibling may select its own departure; resources already released must be reacquired. After departure, an exact immutable-prefix append is also allowed once authority reaches the old route end. Existing original last-use may extend while still retained; if this output had certified a resource clear, it cannot re-enter while a moving sibling still relies on that resource. Exclusive last-use boundaries are recomputed without shortening, and cursor/release evidence change only after READY. Newly required or previously released resources go through ordinary delta reservation; route replacement remains forbidden.
 
 A structurally fenced output with no forward authority, pending preparation or acquired output delta may suspend release for an explicit reversal. Its selected route may already contain a suffix; suspension retains all original claims and blocks resume and resource release. Only the exact stopped reversal is accepted: swapped head/tail with reversed facing, reversed ordered body traversal, and unchanged canonical car/bogie positions, directions and normals. Core reversal changes operating direction, not physical render orientation. Rebase compiles a body-only route under the same owner/grant, requires inherited coverage and unchanged preparation obligations, and atomically replaces its cursor, held frame, clearances and expected output orientation. The operating coordinator updates the exact pending ledger owner in the same reversal callback; no historical source identity or physical membership changes.
+
+### 非零车钩的完整接触保护
+
+`requestCouplingApproach` 的可行驶路线仍严格是接近车实际车身加到 `contactHead` 的位移；
+但联挂后发布的完整车身还覆盖两车钩间的连接段。只保护前者会让非零车钩的真实输出在
+`bindFormationOutputs` 时出现未预约的物理区间。Basic 因此同时消费 Core 本次 inspection 的
+`proof.protectedTraversal`，不能通过放宽 output body 覆盖检查忽略这段间隙。
+
+完整保护路径使用独立派生 route ID，经过同一个 `TopologyRouteProjector`、
+`PhysicalRouteResourceCompiler`、贡献资源校验与 formation provider 授权。区间、道岔选择、平面交叉
+以及设备准备都由普通编译器生成，不手工添加 rail interval。新增物理 delta 仍归原接近车 owner，
+原 stationary source 的预约保持不动；pending READY 时重新检查原 stopped sources、Core 几何和
+同一完整保护路径的资源/准备要求、provider 授权。拓扑依赖同时包含接触路线和完整保护路径的所有
+rails，所以贡献者执行期间改变连接段或目标车身轨道也会拒绝本次准入。
+
+内部 `FormationRouteCompilation.Compiled.policyIntent` 保留 host 派生保护路径，供贡献与授权统一消费。
+其 `intent`、`projection`、`routeProgressPath`、公开 grant 的 authority 以及实际 movement occupancy
+仍对应原来的接触路线；保护路径的长度不能变成更远的行车许可。完整资源的释放元数据在结构操作
+期间被冻结，实际输出绑定后由既有 output 车身和 route clearance 接管。
+
+实际 movement occupancy 继续只容许旧规则中的精确目标接触边界。完整保护区间额外检查第三车；
+对目标车也只接受同一 proof 中捕获的实际 stationary `occupiedIntervals` 所覆盖的交叠，并核对当前
+目标零速、方向和完整车身未变。不能把整辆目标从所有 movement/occupancy 检查中排除。
+
+`CouplingApproachAdmissionTest` 对零/非零车钩及曲线真实接触断言 movement authority 不变，普通
+contributor 和 provider 均看到完整保护路径；在 connector bridge 中单独放置第三车会拒绝且不改
+claims。非零车钩真实联挂后进一步绑定完整实际 output body，再执行下面的人工交还流程。
+
+### 普通联挂结束后交回无绑定路线的人工控制
+
+`finishFormationForManual(handle: FormationChangeHandle, outputGrantId: RouteGrantId): FormationChangeResult`
+是已实现的 Basic 资源收尾能力，供一次真实完成的普通联挂使用；普通联挂的 SimpleATO 入口、配置和
+运营记录收尾仍需单独组合，不能因这个接口已经存在而声称玩家流程已经完成。Basic 只结束自己的
+结构预约和移动保持，不改 Depot 任务归属、不安装控制器，也不授予新的行车路线。
+
+调用方先等待 Core 真正发布联挂结果，再通过 `bindFormationOutputs` 绑定实际完整车身；输出保持停车，
+预先消费或停用原接近任务。随后调用此接口，Basic 在原来的串行 world owner、两个完整物理帧之间，
+先检查真实输出与绑定时的停车证据，结束本事件的资源预约和全部 source/output admission state，
+最后释放它持有的精确 Core `FormationMovementHold`。Core 完整已发布车身的实际占用始终存在；后续
+人工驾驶使用原有未绑定运营路线的物理占用与 ATP。接口不计算、不伪造一小段前方授权来触发放行。
+
+允许的状态严格是 `Couple` 的 `OUTPUTS_BOUND`：一个输出、精确 output grant、冻结路径只包含
+车尾到车头的实际车身、已授权距离仍在车头，且没有 pending preparation、前方扩权、已获得的
+exclusive delta、折返或已经放行的输出。单纯 body grant 不会因此获得正的可行驶授权。
+当前 coherent observation 的 frame revision 必须与当前 Core output frame 相同；方向、车头、
+车尾、归一化有序车身以及每车和转向架完整 pose 必须与绑定证据相同，并保持零速、未脱轨。
+
+精确资源身份保存在既有 formation 的 originals 中。清理按原 owner 对这些身份调用
+`shrinkClaimWithEvidence`，逐项从该事件的 originals 移除；不能直接 `releaseClaim(owner)`，因为
+同一 owner 可能还为较早的独立 formation group 保留资源。清理只触及该事件被冻结的 source routes
+及实际绑定 output route。所有 route 必须仍属于同一 authenticated requester、handle，且没有 pending
+请求；最后才释放 Core hold，并将 phase 标为 `COMPLETED`。这些 handle、grant 和计数都是本进程运行
+状态，不新增持久化字段或 schema version。
+
+未知或外部 handle、错误 grant、Split、多输出、前方准备和改变后的停车证据返回
+`ROUTE_STATE_MISMATCH`，不改变 claims、route state 或 hold；不支持此能力的 service 明确返回
+`WORLD_UNAVAILABLE`。世界已经 Stall 时也不执行收尾。移除资源或发布 admission 清理时异常进入既有
+`RECOVERY_REQUIRED`，已清理部分不会重新声称仍有预约，未完成记录及 output hold 保留以供恢复；
+失败不会调用正常放行。此操作按涉及的车/转向架、source owner、资源和现有 route 数量执行一次，
+不新增物理 tick 扫描、路线搜索或无限路线游标。
+
+例如，两车真实低速接触后，普通联挂的唯一输出可以在完整车身绑定期间交回人工驾驶；错误地传入
+原 approach grant 或在绑定后维护摆位则仍保留全部保护。计划继续按时刻表行驶的输出应继续通过
+`requestFormationOutput` 和 `resumeFormationOutput` 获得真实后续路线，不能用这个接口清掉它的预约。
+同样，body-only grant 不能直接转成无限制人工 grant：普通 grant 的车尾游标只能沿它冻结的路径推进。
+
+`CouplingApproachAdmissionTest` 使用真正的 Core 碰撞联挂验证：正确停车输出收尾后 source/output
+admission 消失、事件预约清空、精确 hold 解除，然后新手动接管测试控制器能够再次移动实际双车编组；错误
+approach grant 与摆位后的输出均拒绝，原 claims 和 hold 保持。源编组的运营 assignment 交接及玩家
+命令、真实手柄动力学与客户端操作尚不在这个 Basic 协议测试的验收范围内。测试控制器使用当前
+commanded speed 计算本 tick 位移，不能在写 `speed` 后读取它的上一 epoch 公开值来代替当前指令。

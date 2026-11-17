@@ -46,6 +46,28 @@ internal object TrainCoupling {
         val stationaryGeometryIdentity: Any = stationary.formationGeometryIdentity
     )
 
+    /** Rear-coupling entry policy over the same current physical observation and contact solver. */
+    fun inspectModeEntry(world: CoreWorld, approachingTrainId: String, stationaryTrainId: String,
+                         maximumGapMeters: Double): CouplingApproachInspection {
+        require(maximumGapMeters.isFinite() && maximumGapMeters >= 0.0) {
+            "maximum coupling gap must be finite and non-negative"
+        }
+        fun rejected(reason: String) = CouplingApproachInspection.Rejected(reason)
+        if (approachingTrainId == stationaryTrainId) return rejected("coupling requires two different trains")
+        val moving = world.getTrain(approachingTrainId) ?: return rejected("approaching train is absent")
+        val fixed = world.getTrain(stationaryTrainId) ?: return rejected("stationary train is absent")
+        if (!moving.publishedFrame.isStationary() || !fixed.publishedFrame.isStationary())
+            return rejected("both trains must be stopped before entering coupling mode")
+        val request = CouplingApproachRequest(moving.id,
+            if (moving.isReversed) TrainEndSide.B else TrainEndSide.A,
+            fixed.id, if (fixed.isReversed) TrainEndSide.A else TrainEndSide.B)
+        return when (val inspection = inspectApproach(world, request)) {
+            is CouplingApproachInspection.Accepted -> if (inspection.proof.couplerGapMeters > maximumGapMeters)
+                rejected("coupler gap exceeds $maximumGapMeters metres") else inspection
+            is CouplingApproachInspection.Rejected -> inspection
+        }
+    }
+
     /** Same finite route support and rigid leading-car solve as collision preparation. No writes. */
     fun inspectApproach(world: CoreWorld, request: CouplingApproachRequest): CouplingApproachInspection {
         fun rejected(reason: String) = CouplingApproachInspection.Rejected(reason)
@@ -90,7 +112,8 @@ internal object TrainCoupling {
                         canonical(segment.startArcLength), canonical(segment.endArcLength))
                 }
             CouplingApproachInspection.Accepted(CouplingApproachProof(request, own.frame, incoming.frame,
-                RailPositionSnapshot.capture(contact.head, contact.head.facing), path, protected,
+                RailPositionSnapshot.capture(contact.head, contact.head.facing),
+                own.ends.getValue(request.approachingEnd).gap(incoming.ends.getValue(request.stationaryEnd)), path, protected,
                 ApproachEvidence(world, moving, fixed, own, incoming, evidence, moving.headBogie,
                     checkNotNull(evidence.distanceTo(if (moving.headCar.isReversed)
                         contact.geometry.bogieBLocation else contact.geometry.bogieALocation)))))

@@ -7,4 +7,13 @@ object RouteAdmissionTestFixtures {
 
     @JvmStatic
     fun grantId(): RouteGrantId = RouteGrantId()
+
+    @JvmStatic
+    fun couplingContactAuthority(
+        eventId: String,
+        proof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof,
+        contactBoundary: RouteBoundary,
+        maximumApproachSpeedMetersPerSecond: Double
+    ): CouplingContactAuthority = CouplingContactAuthority(eventId, proof, contactBoundary,
+        maximumApproachSpeedMetersPerSecond)
 }

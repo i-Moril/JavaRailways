@@ -29,6 +29,12 @@ class CouplingApproachProof internal constructor(
     val approachingFrame: TrainFrameSnapshot,
     val stationaryFrame: TrainFrameSnapshot,
     val contactHead: RailPositionSnapshot,
+    /**
+     * Actual endpoint separation less both connector lengths, in metres, using Core's collision
+     * contact geometry. This is distinct from selected head travel and raw leading-bogie travel;
+     * the selected connected path has already been established before this value is issued.
+     */
+    val couplerGapMeters: Double,
     headTraversal: Collection<RailTraversalSegmentSnapshot>,
     protectedTraversal: Collection<RailTraversalSegmentSnapshot>,
     internal val hostEvidence: Any

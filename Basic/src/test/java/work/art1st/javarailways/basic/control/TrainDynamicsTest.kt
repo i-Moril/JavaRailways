@@ -1007,6 +1007,53 @@ class TrainDynamicsTest {
         assertEquals("P2", controller.handle, "supervision must not overwrite player input")
     }
 
+    @Test
+    fun `manual movement boundary clamps the integrated distance on the same published epoch`() {
+        PhysicsCoordinator(1, automaticFallback = false).use { coordinator ->
+            TestWorldFixture.create(coordinator).use { fixture ->
+                val world = fixture.world
+                val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
+                val train = createTrainWithConfig("manual-contact-clamp", rail, world, listOf(10.0))
+                val calls = mutableListOf<String>()
+                var requested = 0.0
+                val data = BasicWorldData()
+                data.commandSupervisor = object : VehicleCommandSupervisor {
+                    override fun supervise(train: Train, state: VehicleControlState,
+                        capabilities: VehicleControlCapabilities, command: VehicleControlCommand,
+                        deltaTimeSeconds: Double): VehicleControlCommand {
+                        calls += "supervise"
+                        return command
+                    }
+                    override fun constrainMovementDistance(train: Train, requestedDistanceMeters: Double): Double {
+                        calls += "clamp"
+                        requested = requestedDistanceMeters
+                        return minOf(requestedDistanceMeters, 0.02)
+                    }
+                    override fun isAcknowledgementRequired(train: Train) = false
+                    override fun acknowledge(train: Train) = false
+                }
+                TestBasicWorldDataRegistry.register(world, data)
+                try {
+                    val controller = RealisticManualController(train, trainProfile, listOf(carProfile),
+                        9.80665, initialSpeedMetersPerSecond = 10.0)
+                    train.setControllerForTest(controller)
+                    val before = train.publishedFrame
+                    controller.tick(0.0)
+                    assertTrue(calls.isEmpty())
+                    coordinator.start()
+                    coordinator.stepSimulation(50.0).await()
+                    val after = train.publishedFrame
+                    assertEquals(listOf("supervise", "clamp"), calls)
+                    assertTrue(requested > 0.02)
+                    assertEquals(before.head.arcLengthInAbMeters + 0.02, after.head.arcLengthInAbMeters, 1e-8)
+                    assertTrue(after.physicsEpoch > before.physicsEpoch)
+                    assertTrue(after.speedMetersPerSecond > 0.0)
+                    assertTrue(!after.derailed)
+                } finally { TestBasicWorldDataRegistry.unregister(world) }
+            }
+        }
+    }
+
     private class TestCarProfile(
         override val mass: Double = 10_000.0,
         private val motorForce: Double = 10_000.0,

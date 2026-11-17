@@ -821,7 +821,11 @@ class SimpleATO(
     }
 
     private fun updateTrainRestrictions(perception: PerceptionSnapshot, route: RestrictionRoute?, progress: Double?, clearanceHorizon: Double? = null) {
-        if (route == null) return
+        val registeredContact = railwayControlRuntime.couplingAuthority(train)
+        if (route == null) {
+            check(registeredContact == null) { "coupling contact authority requires a bound restriction route" }
+            return
+        }
         val currentStamp = restrictionStamp(route)
         val routeProgress = checkNotNull(progress)
         val inspection = trainInspection?.takeIf { it.runtime === route.inspectionBinding.runtime }
@@ -840,11 +844,11 @@ class SimpleATO(
                     "${snapshot.trainId} was ${result.status}"
             }
         }
-        trainRestrictionAdapter.apply(currentStamp, route.binding, routeProgress) { contact ->
+        fun acceptsContact(contact: work.art1st.javarailways.basic.api.route.CouplingContactAuthority): Boolean {
             val mission = activeMission
             val authorityEnd = route.headDistanceFromRouteStartMeters + movementAuthorityLimitMeters -
                 route.missionHeadProgressAtSelectionMeters
-            mission != null && mission.revision == route.missionRevision &&
+            return mission != null && mission.revision == route.missionRevision &&
                 movementAuthorityRevision == mission.revision &&
                 contact.proof.request.approachingTrainId == train.id &&
                 kotlin.math.abs(authorityEnd - contact.contactBoundary.distanceFromRouteStartMeters) <= 1.0e-6 &&
@@ -853,7 +857,11 @@ class SimpleATO(
                     kotlin.math.abs(it - contact.contactBoundary.distanceFromRouteStartMeters) <= 1.0e-6
                 } == true && world.validatePublishedCouplingApproach(contact.proof)
         }
-        activeContactAuthority = trainRestrictionAdapter.appliedContactAuthority
+        trainRestrictionAdapter.apply(currentStamp, route.binding, routeProgress, ::acceptsContact)
+        check(registeredContact == null || acceptsContact(registeredContact)) {
+            "coupling contact authority does not match the current mission and admitted route boundary"
+        }
+        activeContactAuthority = trainRestrictionAdapter.appliedContactAuthority ?: registeredContact
     }
 
     override fun validateBeforeMovement() {

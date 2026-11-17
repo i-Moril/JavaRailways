@@ -1664,6 +1664,17 @@ class CoreWorld(
         return railTopologyLock.read { TrainCoupling.inspectApproach(this, request) }
     }
 
+    override fun inspectCouplingModeEntry(
+        approachingTrainId: String,
+        stationaryTrainId: String,
+        maximumGapMeters: Double
+    ): work.art1st.javarailways.core.api.physics.train.CouplingApproachInspection {
+        physicsCoordinator.ensureBetweenFrames("CoreWorld.inspectCouplingModeEntry")
+        return railTopologyLock.read {
+            TrainCoupling.inspectModeEntry(this, approachingTrainId, stationaryTrainId, maximumGapMeters)
+        }
+    }
+
     override fun validateCouplingApproach(
         proof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof
     ): Boolean {

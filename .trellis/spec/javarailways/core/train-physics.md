@@ -386,6 +386,19 @@ train.destroy().whenComplete { _, failure -> /* 将真实结果回送平台owner
 
 `World.inspectCouplingApproach` is a serialized read-only host operation. It uses the same finite selected continuation, coupler envelope and rigid contact solver as actual collision preparation. The opaque proof captures exact source composition/direction, stationary pose, selected topology and solved contact head; it grants no infrastructure or signal permission. `validateCouplingApproachGeometry` remains owner-only. Physics controllers use `validatePublishedCouplingApproach`, which reads a coherent immutable publication and private host/structure identities instead of traversing writable ownership maps. A structural publication invalidates the proof even when new cars reuse the same IDs.
 
+`World.inspectCouplingModeEntry(approachingTrainId, stationaryTrainId, maximumGapMeters)` is the
+read-only rear-coupling entry check on that same owner boundary. It selects the approaching operating
+head and stationary operating tail, requires both published trains to be stopped, then reuses the
+selected connected bridge and rigid contact solve. A nearby disconnected rail, wrong direction or
+front-of-target placement cannot pass through spatial proximity alone. It rejects a gap greater than
+the caller's finite non-negative metre bound without moving/reversing either source or issuing authority.
+`CouplingApproachProof.couplerGapMeters` captures the existing collision envelope's actual endpoint
+separation minus both connector lengths; it is the same physical gap used by real coupler contact.
+It is distinct from `distanceToContactMeters` (selected head travel) and raw leading-bogie travel,
+which differ on curves. No hypothetical future consist body or route is calculated by this entry check.
+`CouplingApproachTest` covers both operating directions, exact gap acceptance, both stopped sources,
+disconnected rails, front/wrong-end rejection and a curved gap that differs from head travel.
+
 `clampCouplingApproachDistance` is physics-worker-only: it computes raw leading-bogie travel to the solved contact bogie on the captured path, rejects invalid/stale/off-path proof and never returns extra movement beyond contact. Head-arc displacement on a curve is not interchangeable with raw bogie movement. Actual structural events expose Core-solved contact heads so the admission guard can verify the final geometry.
 
 Prepared link/split decisions can request sticky independent `FormationMovementHold` capabilities. Core installs every result fence before publication; controllers and explicit distance movement cannot move fenced outputs. Releasing one exact live token preserves configuration quarantine. Strict `restoreFormationMovementHold` accepts only exact current ordered cars, coherent direction, nonderailed stopped frame and zero car/bogie velocities; no stale or foreign token releases another output. No capability is serialized.

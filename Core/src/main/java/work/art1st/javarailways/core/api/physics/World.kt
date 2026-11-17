@@ -63,6 +63,23 @@ interface World : Extendable<Any> {
         work.art1st.javarailways.core.api.physics.train.CouplingApproachInspection.Rejected(
             "world does not support coupling approach inspection")
 
+    /**
+     * Checks entry into rear-coupling mode, using the approaching operating head and the target's
+     * operating tail. Both exact current trains must be stopped and the couplers must share a
+     * selected connected path. [maximumGapMeters] bounds Core's actual coupler gap in metres,
+     * independently of the solved head travel and raw leading-bogie travel to contact.
+     * Immediate, nonblocking, serialized simulation-owner call between physics frames. Rejection
+     * changes no train, direction, publication or movement authority. The accepted geometry remains
+     * process-local; the operating owner must obtain route/resource admission before movement.
+     */
+    fun inspectCouplingModeEntry(
+        approachingTrainId: String,
+        stationaryTrainId: String,
+        maximumGapMeters: Double
+    ): work.art1st.javarailways.core.api.physics.train.CouplingApproachInspection =
+        work.art1st.javarailways.core.api.physics.train.CouplingApproachInspection.Rejected(
+            "world does not support coupling-mode entry inspection")
+
     /** Rechecks an issuing-world proof on the same serialized owner; never refreshes stale proof. */
     fun validateCouplingApproach(
         proof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof

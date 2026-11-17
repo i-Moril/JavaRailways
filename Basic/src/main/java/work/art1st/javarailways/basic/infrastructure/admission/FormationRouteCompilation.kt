@@ -17,7 +17,9 @@ internal sealed interface FormationRouteCompilation {
         val projection: ProjectedTopologyRoute,
         val admission: CompiledRouteAdmission,
         val observedHeadMeters: Double,
-        movementOccupancy: Collection<RailInterval>
+        movementOccupancy: Collection<RailInterval>,
+        /** Host-selected physical protection can include the target body beyond contact authority. */
+        val policyIntent: RouteResourceIntent = intent
     ) : FormationRouteCompilation {
         val movementOccupancy: List<RailInterval> = java.util.List.copyOf(movementOccupancy)
     }

@@ -85,6 +85,7 @@ internal class RouteResourceAdmissionEngine(
         { intent, movement, cursor -> compileFormationRoute(intent, movement, cursor) },
         authorizeFormationRoute, ::publishFormationApproach,
         ::formationOutputBoundaries, ::publishFormationOutput, ::detachFormationOutput, ::completeFormationOutputs,
+        ::endFormationForManual,
         { requester, owner, trainId, sources ->
             val existing = routes[owner.ownerId]
             (existing == null && registry.claimSnapshots().none { it.owner.ownerId == owner.ownerId }) || (existing != null && existing.requester === requester && existing.owner == owner &&
@@ -104,8 +105,8 @@ internal class RouteResourceAdmissionEngine(
             }
         }
 
-    private fun <T> validateTopology(route: RouteSnapshot, action: (Validation) -> T): T {
-        val validation = Validation(route.segments.mapTo(hashSetOf()) { it.railId })
+    private fun <T> validateTopology(route: RouteSnapshot, additionalRails: Collection<java.util.UUID> = emptyList(), action: (Validation) -> T): T {
+        val validation = Validation(route.segments.mapTo(hashSetOf()) { it.railId }.also { it.addAll(additionalRails) })
         synchronized(dependencyLock) {
             validation.rails.forEach { validationsByRail.getOrPut(it, ::hashSetOf).add(validation) }
         }
@@ -955,6 +956,11 @@ internal class RouteResourceAdmissionEngine(
         if (worldStalled) FormationChangeResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_STALLED, "world is stalled"))
         else formations.resumeOutput(requester, handle, grant)
 
+    @MainThread
+    fun finishFormationForManual(requester: Any, handle: FormationChangeHandle, grant: RouteGrantId): FormationChangeResult =
+        if (worldStalled) FormationChangeResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_STALLED, "world is stalled"))
+        else formations.finishForManual(requester, handle, grant)
+
     private fun formationOutputBoundaries(compiled: FormationRouteCompilation.Compiled,
                                           resources: Collection<InfrastructureResource>): Map<InfrastructureResource, Double?> {
         val full = physicalCompiler.compile(compiled.projection, PhysicalRouteRange(0.0, compiled.intent.route.totalLengthMeters))
@@ -999,6 +1005,18 @@ internal class RouteResourceAdmissionEngine(
         }
     }
 
+    private fun endFormationForManual(requester: Any, handle: FormationChangeHandle,
+        sources: List<FormationSourceGrant>, outputs: List<FormationOutputRoute>) {
+        val owners = (sources.map { it.grant.owner } + outputs.map { it.grant.owner }).distinct()
+        val ending = owners.mapNotNull { owner -> routes[owner.ownerId] }.onEach { route ->
+            check(route.requester === requester && route.formationChange === handle && route.pendingHandle == null)
+        }
+        ending.forEach { route ->
+            removeRoute(route.owner.ownerId)
+            publishAdmissionUpdate(ActiveRouteAdmissionUpdate(route.owner, null))
+        }
+    }
+
     /** Exact original remainder is owned by formation groups, not this route's release queue. */
     private fun protectedClaimRemainder(owner: InfrastructureOwner): Collection<InfrastructureResource> {
         val originals = formations.retainedResources(owner)
@@ -1036,7 +1054,7 @@ internal class RouteResourceAdmissionEngine(
     private fun compileFormationRoute(intent: RouteResourceIntent, movementFrom: Double?,
                                       priorCursor: RouteProgressCursorState? = null,
                                       contactProof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof? = null): FormationRouteCompilation =
-        validateTopology(intent.route) { validation ->
+        validateTopology(intent.route, contactProof?.protectedTraversal.orEmpty().map { it.railId }) { validation ->
             fun reject(code: RouteAdmissionFailureCode, detail: String) =
                 FormationRouteCompilation.Rejected(RouteAdmissionFailure(code, detail))
             val observation = latestObservation()
@@ -1063,8 +1081,33 @@ internal class RouteResourceAdmissionEngine(
             if (tail !is RouteProgressCursorUpdate.Resolved)
                 return@validateTopology reject(RouteAdmissionFailureCode.INVALID_ROUTE, "output tail left its authoritative route cursor")
             val floorStart = if (priorCursor == null) 0.0 else tail.state.routeDistanceMeters
-            val physicalResult = physicalCompiler.compile(projected.route,
-                PhysicalRouteRange(floorStart, intent.desiredAuthority.distanceFromRouteStartMeters))
+            // Contact authority still ends at contactHead. The physical link also publishes both
+            // connectors and the target body, which may cover a bridge beyond that head. Compile
+            // the Core-certified complete corridor with the ordinary compiler/contributors now,
+            // before permitting contact; otherwise actual output binding can find an unclaimed gap.
+            val policyIntent: RouteResourceIntent
+            val protection: ProjectedTopologyRoute
+            if (contactProof == null) {
+                policyIntent = intent
+                protection = projected.route
+            } else {
+                val segments = contactProof.protectedTraversal.map { span ->
+                    val rail = topology.railProjection[span.railId]?.singleOrNull()
+                        ?: return@validateTopology reject(RouteAdmissionFailureCode.STALE_TOPOLOGY, "contact protection rail is absent")
+                    val length = kotlin.math.abs(rail.railEndAbMeters - rail.railStartAbMeters)
+                    work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot(span.railId, span.facing,
+                        if (span.facing == work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB) span.startArcLengthInAbMeters else length - span.startArcLengthInAbMeters,
+                        if (span.facing == work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB) span.endArcLengthInAbMeters else length - span.endArcLengthInAbMeters)
+                }
+                val route = RouteSnapshot("${intent.route.routeId}/contact-protection", intent.route.revision, intent.route.topologyRevision, segments)
+                policyIntent = intent.copy(route = route, desiredAuthority = RouteBoundary(route.totalLengthMeters))
+                protection = when (val result = TopologyRouteProjector.project(route, topology)) {
+                    is TopologyRouteProjectionResult.Projected -> result.route
+                    is TopologyRouteProjectionResult.Rejected -> return@validateTopology reject(RouteAdmissionFailureCode.INVALID_ROUTE, result.detail)
+                }
+            }
+            val physicalResult = physicalCompiler.compile(protection,
+                PhysicalRouteRange(floorStart, policyIntent.desiredAuthority.distanceFromRouteStartMeters))
             if (physicalResult !is PhysicalRouteCompilation.Compiled)
                 return@validateTopology reject(RouteAdmissionFailureCode.INVALID_ROUTE,
                     (physicalResult as PhysicalRouteCompilation.Rejected).detail)
@@ -1072,15 +1115,19 @@ internal class RouteResourceAdmissionEngine(
             if (head !is RouteProgressCursorUpdate.Resolved ||
                 head.state.routeDistanceMeters > intent.desiredAuthority.distanceFromRouteStartMeters + Curve.TOLERANCE)
                 return@validateTopology reject(RouteAdmissionFailureCode.INVALID_BOUNDARY, "authority precedes observed head")
-            val collected = try { collectContributions(intent) } catch (failure: Exception) {
+            val collected = try { collectContributions(policyIntent) } catch (failure: Exception) {
                 return@validateTopology reject(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
                     "formation contributor failed: ${failure.message}")
             }
-            val contributions = validateContributions(collected, intent.desiredAuthority.distanceFromRouteStartMeters,
+            val contributions = validateContributions(collected, policyIntent.desiredAuthority.distanceFromRouteStartMeters,
                 "formation contribution exceeds requested authority") { true }
             if (contributions is ContributionValidation.Rejected)
                 return@validateTopology FormationRouteCompilation.Rejected(contributions.failure)
-            val merged = physicalResult.admission.withContributions((contributions as ContributionValidation.Accepted).contributions.filter {
+            val physicalAdmission = physicalResult.admission
+            val admission = if (contactProof == null) physicalAdmission else CompiledRouteAdmission.create(
+                physicalAdmission.resources, physicalAdmission.preparations, physicalAdmission.occupancyGeometry,
+                physicalAdmission.tailReleaseEntries, path)
+            val merged = admission.withContributions((contributions as ContributionValidation.Accepted).contributions.filter {
                 priorCursor == null || it.releaseAfterTailPasses.distanceFromRouteStartMeters > floorStart
             })
             if (merged is RouteContributionsCompilation.Rejected)
@@ -1105,11 +1152,41 @@ internal class RouteResourceAdmissionEngine(
             if (blockers.isNotEmpty()) return@validateTopology FormationRouteCompilation.Rejected(RouteAdmissionFailure(
                 RouteAdmissionFailureCode.PHYSICALLY_OCCUPIED, "another train occupies the formation movement",
                 blockers.map(RouteAdmissionBlocker::OccupyingTrain)))
+            if (contactProof != null) {
+                val protectedIntervals = physicalAdmission.occupancyGeometry.intervals
+                val protectedBlockers = observation.occupancy.blockingTrainIds(protectedIntervals, intent.trainId).filterNot { blocker ->
+                    blocker == contactProof.request.stationaryTrainId &&
+                        formationWorld?.validateCouplingApproachGeometry(contactProof) == true &&
+                        certifiedStationaryBodyOnly(contactProof, observation, protectedIntervals)
+                }
+                if (protectedBlockers.isNotEmpty()) return@validateTopology FormationRouteCompilation.Rejected(RouteAdmissionFailure(
+                    RouteAdmissionFailureCode.PHYSICALLY_OCCUPIED, "another train occupies the coupling protection corridor",
+                    protectedBlockers.map(RouteAdmissionBlocker::OccupyingTrain)))
+            }
             if (validation.invalidated || latestObservation() !== observation)
                 return@validateTopology reject(RouteAdmissionFailureCode.STALE_OBSERVATION, "formation changed during validation")
             FormationRouteCompilation.Compiled(intent, observation, train, projected.route,
-                (merged as RouteContributionsCompilation.Compiled).admission, head.state.routeDistanceMeters, occupancy)
+                (merged as RouteContributionsCompilation.Compiled).admission, head.state.routeDistanceMeters, occupancy, policyIntent)
         }
+
+    /** Protection may retain the exact captured peer body; movement keeps its stricter contact-only check. */
+    private fun certifiedStationaryBodyOnly(
+        proof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof,
+        observation: RailwayObservation,
+        intervals: Collection<work.art1st.javarailways.core.api.physics.rail.RailInterval>
+    ): Boolean {
+        val peer = observation.trains.singleOrNull { it.trainId == proof.request.stationaryTrainId } ?: return false
+        if (peer.speedMetersPerSecond != 0.0 || peer.derailed || peer.head != proof.stationaryFrame.head ||
+            peer.tail != proof.stationaryFrame.tail || peer.bodyTraversal != proof.stationaryFrame.bodyTraversal) return false
+        val captured = proof.stationaryFrame.occupiedIntervals.map {
+            RailIntervalResource(it.railId, it.minArcLengthInAbMeters, it.maxArcLengthInAbMeters)
+        }
+        return intervals.all { interval -> peer.sweptSpans.filter { it.railId == interval.railId }.all { span ->
+            val start = maxOf(interval.minArcLengthInAbMeters, span.minArcAB)
+            val end = minOf(interval.maxArcLengthInAbMeters, span.maxArcAB)
+            start > end || uncoveredResources(listOf(RailIntervalResource(interval.railId, start, end)), captured).isEmpty()
+        } }
+    }
 
     /** Only the certified terminal contact may meet its stopped peer's boundary. No body overlap exemption. */
     private fun certifiedContactBoundaryOnly(

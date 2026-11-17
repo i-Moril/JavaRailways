@@ -57,6 +57,9 @@ class CouplingApproachTest {
                 assertSame(originalTarget, target.publishedFrame)
                 assertTrue(proof.distanceToContactMeters > 0.0)
                 assertTrue(proof.distanceToContactMeters < 1.5)
+                assertTrue(proof.couplerGapMeters > 0.0)
+                if (curved) assertTrue(kotlin.math.abs(proof.couplerGapMeters - proof.distanceToContactMeters) > 1e-4,
+                    "curved coupler gap must not be replaced by head travel")
                 assertEquals(originalMoving.head.arcLengthInAbMeters,
                     proof.headTraversal.first().startArcLengthInAbMeters, 1e-8)
                 moving.setControllerForTest(object : TrainController(moving) {
@@ -95,6 +98,107 @@ class CouplingApproachTest {
                 assertFalse(world.onOwnerForTest { world.validateCouplingApproach(proof) })
             }
         } finally { coordinator.close() }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `rear coupling mode checks actual coupler gap and selects operational ends`(reversed: Boolean) {
+        TestWorldFixture.create().use { fixture ->
+            val world = fixture.world
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
+            val moving = createTrainWithConfig("entry-moving", rail, world, listOf(10.0),
+                connectorLength = 0.3, carIdPrefix = "moving-")
+            val target = createTrainWithConfig("entry-target", rail, world, listOf(10.0),
+                connectorLength = 0.3, carIdPrefix = "target-")
+            world.onOwnerForTest {
+                moving.setLocation(RailLocationWithFacing(rail.viewAB, if (reversed) 114.5 else 99.0))
+                target.setLocation(RailLocationWithFacing(rail.viewAB, if (reversed) 99.0 else 114.5))
+                moving.commitMaintenancePlacement(); target.commitMaintenancePlacement()
+                if (reversed) { moving.reverse(); target.reverse() }
+                val movingFrame = moving.publishedFrame
+                val targetFrame = target.publishedFrame
+                val accepted = assertInstanceOf(CouplingApproachInspection.Accepted::class.java,
+                    world.inspectCouplingModeEntry(moving.id, target.id, 5.0))
+                assertEquals(4.9, accepted.proof.couplerGapMeters, 1e-8)
+                assertEquals(if (reversed) TrainEndSide.B else TrainEndSide.A, accepted.proof.request.approachingEnd)
+                assertEquals(if (reversed) TrainEndSide.A else TrainEndSide.B, accepted.proof.request.stationaryEnd)
+                assertSame(movingFrame, moving.publishedFrame)
+                assertSame(targetFrame, target.publishedFrame)
+                assertInstanceOf(CouplingApproachInspection.Accepted::class.java,
+                    world.inspectCouplingModeEntry(moving.id, target.id, accepted.proof.couplerGapMeters))
+                assertInstanceOf(CouplingApproachInspection.Rejected::class.java,
+                    world.inspectCouplingModeEntry(moving.id, target.id, 4.8))
+                assertInstanceOf(CouplingApproachInspection.Rejected::class.java,
+                    world.inspectCouplingModeEntry(target.id, moving.id, 5.0),
+                    "approaching train must be behind the target's operating tail")
+                assertEquals(2, world.allTrains.size)
+            }
+        }
+    }
+
+    @Test
+    fun `both participants must already be stopped before entering coupling mode`() {
+        PhysicsCoordinator(1, automaticFallback = false).use { coordinator ->
+            TestWorldFixture.create(coordinator).use { fixture ->
+                val world = fixture.world
+                val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
+                val moving = createTrainWithConfig("entry-moving", rail, world, listOf(10.0), carIdPrefix = "moving-")
+                val target = createTrainWithConfig("entry-target", rail, world, listOf(10.0), carIdPrefix = "target-")
+                world.onOwnerForTest {
+                    moving.setLocation(RailLocationWithFacing(rail.viewAB, 99.0)); moving.commitMaintenancePlacement()
+                    target.setLocation(RailLocationWithFacing(rail.viewAB, 113.0)); target.commitMaintenancePlacement()
+                }
+                fun driver(train: CoreTrain) = object : TrainController(train) {
+                    override fun tick(deltaT: Double) {
+                        speed = 0.2
+                        moveControlledTrain(speed * deltaT * 0.001, speed)
+                    }
+                }
+                moving.setControllerForTest(driver(moving))
+                coordinator.start()
+                coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+                world.onOwnerForTest {
+                    val before = moving.publishedFrame to target.publishedFrame
+                    val rejection = assertInstanceOf(CouplingApproachInspection.Rejected::class.java,
+                        world.inspectCouplingModeEntry(moving.id, target.id, 5.0))
+                    assertTrue(rejection.reason.contains("both trains must be stopped"))
+                    assertSame(before.first, moving.publishedFrame)
+                    assertSame(before.second, target.publishedFrame)
+                }
+                moving.setControllerForTest(null)
+                target.setControllerForTest(driver(target))
+                coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+                world.onOwnerForTest {
+                    assertEquals(0.0, moving.publishedFrame.speedMetersPerSecond)
+                    assertTrue(target.publishedFrame.speedMetersPerSecond > 0.0)
+                    assertInstanceOf(CouplingApproachInspection.Rejected::class.java,
+                        world.inspectCouplingModeEntry(moving.id, target.id, 5.0))
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `nearby disconnected rail and opposite target direction cannot enter rear coupling mode`() {
+        TestWorldFixture.create().use { fixture ->
+            val world = fixture.world
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
+            val disconnected = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
+            val moving = createTrainWithConfig("entry-moving", rail, world, listOf(10.0), carIdPrefix = "moving-")
+            val target = createTrainWithConfig("entry-target", disconnected, world, listOf(10.0), carIdPrefix = "target-")
+            world.onOwnerForTest {
+                moving.setLocation(RailLocationWithFacing(rail.viewAB, 99.0)); moving.commitMaintenancePlacement()
+                target.setLocation(RailLocationWithFacing(disconnected.viewAB, 110.5)); target.commitMaintenancePlacement()
+                assertInstanceOf(CouplingApproachInspection.Rejected::class.java,
+                    world.inspectCouplingModeEntry(moving.id, target.id, 5.0))
+                target.setLocation(RailLocationWithFacing(rail.viewAB, 110.5)); target.commitMaintenancePlacement()
+                target.reverse()
+                assertInstanceOf(CouplingApproachInspection.Rejected::class.java,
+                    world.inspectCouplingModeEntry(moving.id, target.id, 5.0))
+                assertEquals(2, world.allTrains.size)
+                assertEquals(99.0, moving.publishedFrame.head.arcLengthInAbMeters, 1e-8)
+            }
+        }
     }
 
     @Test

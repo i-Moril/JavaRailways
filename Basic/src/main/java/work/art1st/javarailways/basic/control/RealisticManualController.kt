@@ -161,12 +161,17 @@ class RealisticManualController(
             handleRef.get()
         }
         val proposed = TrainDynamics.commandForHandle(controlProfile, currentHandle)
+        val supervisor = controlledTrain.world.basicWorldData.commandSupervisor
         val command = if (controlledTrain.world.basicWorldData.safetyInterlock.isEngaged) VehicleControlCommand.EMERGENCY_BRAKE
-            else controlledTrain.world.basicWorldData.commandSupervisor?.supervise(controlledTrain,
+            else supervisor?.supervise(controlledTrain,
                 dynamics.controlState(activeSpeed), dynamics.controlCapabilities(activeSpeed), proposed, deltaSeconds) ?: proposed
         val result = dynamics.step(activeSpeed, command, deltaSeconds)
         speed = result.state.speed
-        moveControlledTrain(result.distance, result.state.speed)
+        val distance = supervisor?.constrainMovementDistance(controlledTrain, result.distance) ?: result.distance
+        check(distance.isFinite() && distance >= 0.0 && distance <= result.distance) {
+            "manual movement boundary may only shorten the dynamics step"
+        }
+        moveControlledTrain(distance, result.state.speed)
     }
 
     private fun shiftedHandle(current: String, delta: Int): String {
